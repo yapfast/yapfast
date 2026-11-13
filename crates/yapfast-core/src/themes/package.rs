@@ -65,7 +65,7 @@ pub const COLOURS: [&str; 37] = [
 
 /// Colours only a theme sets (plugins can't), each following another until a
 /// theme does: what it follows is [`follows`].
-pub const EXTRA_COLOURS: [&str; 25] = [
+pub const EXTRA_COLOURS: [&str; 26] = [
     "accent-text",
     "on-tooltip",
     "selection",
@@ -91,6 +91,7 @@ pub const EXTRA_COLOURS: [&str; 25] = [
     "account",
     "actions",
     "actions-hover",
+    "mention-chip",
 ];
 
 /// The colour an extra colour shows while a theme doesn't set it, for
@@ -112,6 +113,7 @@ pub fn follows(token: &str) -> Option<&'static str> {
         "embed" => "sidebar",
         "members" => "chat",
         "account" => "panel",
+        "mention-chip" => "link",
         _ => return None,
     })
 }
@@ -127,7 +129,7 @@ pub const BRUSHES: [&str; 6] = ["rail", "sidebar", "chat", "panel", "raised", "a
 
 /// Each text colour and the surfaces it's drawn on, which it must stay
 /// readable against.
-pub const TEXT_ON: [(&str, &[&str]); 18] = [
+pub const TEXT_ON: [(&str, &[&str]); 19] = [
     ("text", &SURFACES),
     ("secondary", &SURFACES),
     ("muted", &SURFACES),
@@ -146,6 +148,7 @@ pub const TEXT_ON: [(&str, &[&str]); 18] = [
     ("secondary", &["account"]),
     ("muted", &["account"]),
     ("text", &["actions"]),
+    ("mention-chip", &["chat"]),
 ];
 
 /// The surfaces most text sits on.
@@ -192,12 +195,23 @@ pub enum Surface {
     /// The bar of actions over a message under the pointer: quick
     /// reactions, Reply, Forward, More.
     Actions,
-    /// A message row's hover, mention and jump bands: `radius` and `inset`.
+    /// A message row's hover, mention and jump bands: `radius` and `inset`;
+    /// and `stripe`, a tint on every other row of the lists it names.
     Row,
+    /// Channel categories' and member groups' headings, as bars: `ground`,
+    /// `text`, and the surface's corners, border and shadow.
+    Label,
+    /// The bar over the conversation, with the channel's name: `ground`,
+    /// `text`, corners, border and shadow.
+    Header,
+    /// The sections of a profile card (its bio, dates, roles and what the
+    /// person is doing) as boxes: `ground`, `bar` and `bar_text` for each
+    /// section's title bar, and the box's corners, border and shadow.
+    CardSection,
 }
 
 impl Surface {
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 20] = [
         Self::Button,
         Self::Field,
         Self::Composer,
@@ -215,6 +229,9 @@ impl Surface {
         Self::Toggle,
         Self::Actions,
         Self::Row,
+        Self::Label,
+        Self::Header,
+        Self::CardSection,
     ];
 
     pub fn name(self) -> &'static str {
@@ -236,11 +253,24 @@ impl Surface {
             Self::Toggle => "toggle",
             Self::Actions => "actions",
             Self::Row => "row",
+            Self::Label => "label",
+            Self::Header => "header",
+            Self::CardSection => "card_section",
         }
     }
 
     pub fn named(name: &str) -> Option<Self> {
+        let name = if name == "card-section" {
+            "card_section"
+        } else {
+            name
+        };
         Self::ALL.into_iter().find(|surface| surface.name() == name)
+    }
+
+    /// Whether it's a surface a theme gives its own ground and text.
+    pub fn framed(self) -> bool {
+        matches!(self, Self::Label | Self::Header | Self::CardSection)
     }
 
     /// The largest radius it takes: a percentage for avatars, pixels for the
@@ -266,15 +296,22 @@ pub enum Role {
     Code,
     /// Small capital labels over groups, such as THEME in Appearance.
     Labels,
+    /// The small fixed text: reply previews, member status lines and the
+    /// text rail's lines.
+    Small,
+    /// Messages' times.
+    Time,
 }
 
 impl Role {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 7] = [
         Self::Body,
         Self::Headings,
         Self::Names,
         Self::Code,
         Self::Labels,
+        Self::Small,
+        Self::Time,
     ];
 
     pub fn name(self) -> &'static str {
@@ -284,6 +321,8 @@ impl Role {
             Self::Names => "names",
             Self::Code => "code",
             Self::Labels => "labels",
+            Self::Small => "small",
+            Self::Time => "time",
         }
     }
 
@@ -299,6 +338,7 @@ impl Role {
             Self::Names => (12.0, 24.0),
             Self::Code => (11.0, 20.0),
             Self::Labels => (10.0, 16.0),
+            Self::Small | Self::Time => (9.0, 16.0),
         }
     }
 }
@@ -722,6 +762,28 @@ pub struct Shape {
     /// `row` only: pixels a band keeps from the column's sides and from the
     /// row's top and bottom.
     pub inset: Option<(f32, f32)>,
+    /// `label`, `header` and `card_section`: the surface's own ground, a
+    /// colour or a gradient, and the text on it, ARGB.
+    pub ground: Option<Paint>,
+    pub text: Option<u32>,
+    /// `card_section`: each section's title bar, and its text.
+    pub bar: Option<Paint>,
+    pub bar_text: Option<u32>,
+    /// `row`: a tint on every other row.
+    pub stripe: Option<Stripe>,
+    /// `label` and `card_section`: their words in `lower` or `upper` case
+    /// (1 and 2), or as written.
+    pub case: Option<u8>,
+}
+
+/// Every other row of a list tinted, as a ledger's or a zebra's.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Stripe {
+    /// ARGB.
+    pub colour: u32,
+    pub channels: bool,
+    pub members: bool,
+    pub messages: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1697,6 +1759,31 @@ fn read_shapes(
                         _ => (number(value, &here, (0.0, 32.0))?, 0.0),
                     });
                 }
+                "ground" | "bar"
+                    if surface.framed() && (key == "ground" || surface == Surface::CardSection) =>
+                {
+                    let paint = read_paint(value, &here)?;
+                    if key == "ground" {
+                        shape.ground = Some(paint);
+                    } else {
+                        shape.bar = Some(paint);
+                    }
+                }
+                "text" if surface.framed() => shape.text = Some(colour_at(value, &here)?),
+                "bar_text" if surface == Surface::CardSection => {
+                    shape.bar_text = Some(colour_at(value, &here)?);
+                }
+                "stripe" if surface == Surface::Row => {
+                    shape.stripe = Some(read_stripe(value, &here)?)
+                }
+                "case" if surface.framed() => {
+                    shape.case = Some(match value.as_str() {
+                        Some("lower") => 1,
+                        Some("upper") => 2,
+                        Some("as written") => 0,
+                        _ => bail!("\"{here}\" is lower, upper or \"as written\""),
+                    });
+                }
                 "shadow" => {
                     shape.shadow = if value.as_str() == Some("none") {
                         Some(Shadow {
@@ -1716,6 +1803,71 @@ fn read_shapes(
         }
     }
     Ok(())
+}
+
+/// A colour, or a gradient as `colours` writes one.
+fn read_paint(value: &Value, here: &str) -> Result<Paint, Error> {
+    let text = value
+        .as_str()
+        .ok_or_else(|| Error(format!("\"{here}\" has to be a colour such as #1e1f24")))?;
+    if text.trim_start().starts_with("linear(") {
+        return parse_linear(text).ok_or_else(|| {
+            Error(format!(
+                "\"{here}\" isn't a gradient Yapfast reads: write linear(135deg, #ff71ce, #01cdfe)"
+            ))
+        });
+    }
+    parse_colour(text).map(Paint::Colour).ok_or_else(|| {
+        Error(format!(
+            "\"{here}\" is \"{text}\", which isn't a colour such as #1e1f24"
+        ))
+    })
+}
+
+/// `"stripe": "#241521"`, or `{ "colour": "#241521", "lists": ["channels",
+/// "members", "messages"] }` (all three when `lists` is left out).
+fn read_stripe(value: &Value, here: &str) -> Result<Stripe, Error> {
+    if value.is_string() {
+        return Ok(Stripe {
+            colour: colour_at(value, here)?,
+            channels: true,
+            members: true,
+            messages: true,
+        });
+    }
+    let fields = object(value, here)?;
+    let colour = colour_at(
+        fields
+            .get("colour")
+            .ok_or_else(|| Error(format!("\"{here}\" needs a \"colour\"")))?,
+        &format!("{here}.colour"),
+    )?;
+    let mut stripe = Stripe {
+        colour,
+        channels: true,
+        members: true,
+        messages: true,
+    };
+    if let Some(lists) = fields.get("lists") {
+        let at = format!("{here}.lists");
+        let items = lists.as_array().ok_or_else(|| {
+            Error(format!(
+                "\"{at}\" is a list of channels, members and messages"
+            ))
+        })?;
+        stripe.channels = false;
+        stripe.members = false;
+        stripe.messages = false;
+        for item in items {
+            match item.as_str() {
+                Some("channels") => stripe.channels = true,
+                Some("members") => stripe.members = true,
+                Some("messages") => stripe.messages = true,
+                _ => bail!("\"{at}\" lists channels, members or messages"),
+            }
+        }
+    }
+    Ok(stripe)
 }
 
 pub(super) fn read_shadow(value: &Value, here: &str) -> Result<Shadow, Error> {

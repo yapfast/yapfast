@@ -2733,6 +2733,10 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         let Some(window) = weak.upgrade() else { return };
         let mut adapter = state.borrow_mut();
         if !adapter.layout.open_folders.remove(id.as_str()) {
+            // A theme's tree that opens one folder at a time closes the others.
+            if super::theme_trim::expand_one() {
+                adapter.layout.open_folders.clear();
+            }
             adapter.layout.open_folders.insert(id.into());
         }
         adapter.layout.write(&adapter.root);

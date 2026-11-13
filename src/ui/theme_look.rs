@@ -292,6 +292,7 @@ fn apply_package(
         ransom.push(register_font(&folder.join(font))?);
     }
     let colours = colours_of(&resolved);
+    super::theme::set_mention_chip(resolved.paint("mention-chip").map(Paint::solid));
     STATE.with_borrow_mut(|state| {
         state.applied = Some(Applied {
             id: id.to_owned(),
@@ -309,6 +310,10 @@ fn apply_package(
 
 /// A colour token's value in a resolved theme: its own, its base's, or what
 /// it follows.
+pub(super) fn token_value(resolved: &Resolved, token: &str) -> Option<u32> {
+    token_colour(resolved, token)
+}
+
 fn token_colour(resolved: &Resolved, token: &str) -> Option<u32> {
     resolved
         .paint(token)
@@ -359,6 +364,7 @@ pub fn clear(window: &YapfastWindow) {
         state.effects.clear();
         state.fx_timer = None;
     });
+    super::theme::set_mention_chip(None);
     super::theme_art::forget();
     super::theme_lists::forget();
     reset(window);
@@ -371,6 +377,7 @@ pub fn reset(window: &YapfastWindow) {
     super::theme_layout::reset(window);
     super::theme_lists::reset(window);
     super::theme_chrome::reset(window);
+    super::theme_trim::reset(window);
     let look = window.global::<Look>();
     let stock = Shape {
         radius: -1.,
@@ -499,6 +506,7 @@ fn paint(window: &YapfastWindow) {
             super::theme_content::set_initial_face(window, family(initials.font).unwrap_or(""));
         }
         super::theme_cursor::set_motion(state.performance, state.reduced);
+        super::theme_trim::apply(window, resolved, &applied.fonts);
         let look = window.global::<Look>();
         let tokens = window.global::<yapfast_ui::Theme>();
         for (token, paint) in &resolved.colours {
@@ -583,6 +591,7 @@ fn paint(window: &YapfastWindow) {
                     look.set_spacing_names(spacing);
                 }
                 Role::Code => look.set_size_code(size),
+                Role::Small | Role::Time => {}
                 Role::Labels => {
                     look.set_size_labels(size);
                     look.set_weight_labels(weight);
@@ -658,7 +667,7 @@ fn paint(window: &YapfastWindow) {
     start_clock(window);
 }
 
-fn brush(paint: &Paint) -> Brush {
+pub(super) fn brush(paint: &Paint) -> Brush {
     match paint {
         Paint::Colour(colour) => Brush::SolidColor(Color::from_argb_encoded(*colour)),
         Paint::Linear { angle, stops } => {
@@ -694,6 +703,8 @@ fn set_shape(look: &Look<'_>, surface: Surface, shape: Shape) {
         Surface::Toggle => look.set_toggle(shape),
         Surface::Actions => look.set_actions(shape),
         Surface::Row => look.set_row(shape),
+        // Trim's: see `theme_trim::apply`.
+        Surface::Label | Surface::Header | Surface::CardSection => {}
     }
 }
 
@@ -705,6 +716,8 @@ fn set_font(look: &Look<'_>, role: Role, family: &str) {
         Role::Names => look.set_font_names(family),
         Role::Code => look.set_font_code(family),
         Role::Labels => look.set_font_labels(family),
+        // Trim's: see `theme_trim::apply`.
+        Role::Small | Role::Time => {}
     }
 }
 

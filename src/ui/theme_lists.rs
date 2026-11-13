@@ -415,13 +415,11 @@ pub fn reset(window: &YapfastWindow) {
     members.set_meta_on(false);
     members.set_badge_on(false);
     members.set_sep_on(false);
-    members.set_grid_columns(0);
     members.set_activity(true);
     members.set_reserve(0.);
     members.set_name_ink(Color::default());
     members.set_crown_ink(Color::default());
     channels.set_reserve(0.);
-    channels.set_stripe(Color::default());
     channels.set_prefix_art(TileLayer::default());
     channels.set_foot(TileLayer::default());
     rails.set_grounds(ModelRc::default());
@@ -821,7 +819,6 @@ pub fn apply(
         lists.set_ink_hover(colour(rows.ink.hover));
         lists.set_emboss(rows.emboss);
         lists.set_focus_outset(rows.focus_outset);
-        lists.set_stripe(colour(rows.stripe));
         lists.set_pill_colour(colour(rows.pill_colour));
         lists.set_pill_rim(colour(rows.pill_rim));
         lists.set_reserve(rows.reserve);
@@ -988,9 +985,6 @@ pub fn apply(
         lists.set_head_height(headers.height.unwrap_or(-1.));
         lists.set_head_colour(colour(headers.colour));
         lists.set_head_frame(one(folder, headers.frame.as_ref(), !still));
-        let (columns, size) = rows.grid.unwrap_or((0, 48.));
-        lists.set_grid_columns(columns as i32);
-        lists.set_grid_size(size);
         lists.set_tile_outline(rows.tile_outline);
         lists.set_name_ink(colour(rows.name_ink));
         lists.set_crown_ink(colour(rows.crown_ink));
@@ -1355,7 +1349,11 @@ mod tests {
         let themed = button_labels(&window);
         // The two dumps, for a reviewer to read: `LISTS_A11Y_DUMP=file`.
         if let Some(path) = std::env::var_os("LISTS_A11Y_DUMP") {
-            let dump = format!("# stock\n{}\n# themed\n{}\n", stock.join("\n"), themed.join("\n"));
+            let dump = format!(
+                "# stock\n{}\n# themed\n{}\n",
+                stock.join("\n"),
+                themed.join("\n")
+            );
             std::fs::write(path, dump).unwrap();
         }
         assert_eq!(stock, themed);

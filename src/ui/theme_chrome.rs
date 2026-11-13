@@ -80,7 +80,7 @@ fn filled(label: &str, kind: &str, text: &str) -> SharedString {
             let (names, count) = split_typing(text);
             fill(label, &[("name", &names), ("n", &count.to_string())])
         }
-        "channel" | "server" | "name" | "n" => fill(label, &[(kind, text)]),
+        "channel" | "server" | "name" | "n" | "date" => fill(label, &[(kind, text)]),
         _ => fill(label, &[]),
     };
     out.into()
@@ -433,7 +433,7 @@ pub fn apply(window: &YapfastWindow, words: &Words) {
     }
     ui.set_caret_block(words.caret == Some(Caret::Block));
     if let Some(prompt) = &words.prompt {
-        ui.set_prompt(prompt.as_str().into());
+        ui.set_prompt(super::theme_trim::kept(prompt).into());
     }
     if let Some(folders) = &words.folders {
         ui.set_folders(true);
@@ -459,7 +459,7 @@ pub fn apply(window: &YapfastWindow, words: &Words) {
 }
 
 fn set_label(ui: &Chrome<'_>, label: Label, text: &str) {
-    let text: SharedString = text.into();
+    let text: SharedString = super::theme_trim::kept(text).into();
     match label {
         Label::MembersTitle => ui.set_members_title(text),
         Label::MembersGroup => ui.set_members_group(text),
@@ -474,11 +474,17 @@ fn set_label(ui: &Chrome<'_>, label: Label, text: &str) {
         Label::RailHome => ui.set_rail_home(text),
         Label::Reaction => ui.set_reaction(text),
         Label::TreeRoot => ui.set_tree_root(text),
+        Label::Day => ui.set_day(text),
+        // Trim's: see `theme_trim::apply`.
+        Label::Topic | Label::MemberCount => {}
     }
 }
 
 fn set_mark(ui: &Chrome<'_>, place: Place, before: &str, after: &str) {
-    let (before, after): (SharedString, SharedString) = (before.into(), after.into());
+    let (before, after): (SharedString, SharedString) = (
+        super::theme_trim::kept(before).into(),
+        super::theme_trim::kept(after).into(),
+    );
     match place {
         Place::Channel => {
             ui.set_channel_before(before);

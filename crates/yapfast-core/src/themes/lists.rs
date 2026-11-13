@@ -303,9 +303,7 @@ impl MemberRows {
     /// One summary line for `yapfast theme check`.
     pub fn summary(&self) -> String {
         let mut parts = Vec::new();
-        if let Some((columns, size)) = self.grid {
-            parts.push(format!("grid {columns} across, {size} px avatars"));
-        } else if let Some(height) = self.height {
+        if let Some(height) = self.height {
             parts.push(format!("{height} px"));
         }
         if let Some(size) = self.avatar.size {
@@ -520,8 +518,6 @@ pub struct ChannelRows {
     /// 0 for the stock ring on the row's edge.
     pub focus_outset: f32,
     pub focus_radius: Option<f32>,
-    /// The ground of every other channel row in a category.
-    pub stripe: Option<u32>,
     /// The unread edge pill's colour and rim.
     pub pill_colour: Option<u32>,
     pub pill_rim: Option<u32>,
@@ -652,9 +648,6 @@ pub struct MemberRows {
     pub margin: Option<(f32, f32)>,
     /// Pixels inside a row before its avatar and after its meta.
     pub inset: Option<(f32, f32)>,
-    /// Members as tiles: columns and the avatar's size, from
-    /// `layout.members_style: "grid"` and `layout.grid`.
-    pub grid: Option<(u32, f32)>,
     /// A tile takes the theme's `tile` shape (border, corner, shadow).
     pub tile_outline: bool,
     /// Names in one colour over role colours, and the owner's crown's.
@@ -1183,7 +1176,6 @@ pub fn read_channel_rows(
                 rows.hover_frame_opacity = Some(number(value, &here, (0.0, 1.0))?)
             }
             "emboss" => rows.emboss = boolean(value, &here)?,
-            "stripe" => rows.stripe = Some(colour_at(value, &here)?),
             "foot" => rows.foot = Some(one_art(value, &here, notes)?),
             "reserve" => rows.reserve = number(value, &here, (0.0, 400.0))?,
             "pill" => {
@@ -1620,31 +1612,6 @@ pub(super) fn check_with(
     notes: &mut Vec<String>,
 ) -> Result<(), Error> {
     use super::chrome::{RailMode, TreeList};
-    // The member grid is `layout.members_style: "grid"` with `layout.grid`'s
-    // columns and size, which the theme trim reads too; the rows' look
-    // draws its tiles when `member_rows` is set.
-    let layout_of = |layer: &serde_json::Map<String, Value>| layer.get("layout").cloned();
-    let mut grid = false;
-    let mut columns = 3.0;
-    let mut size = 48.0;
-    for layout in layers.iter().filter_map(|layer| layout_of(layer)) {
-        if let Some(style) = layout.get("members_style").and_then(Value::as_str) {
-            grid = style == "grid";
-        }
-        if let Some(found) = layout.get("grid") {
-            if let Some(value) = found.get("columns") {
-                columns = number(value, "layout.grid.columns", (2.0, 6.0))?.round();
-            }
-            if let Some(value) = found.get("size") {
-                size = number(value, "layout.grid.size", (32.0, 96.0))?;
-            }
-        }
-    }
-    if let Some(rows) = resolved.layout.member_rows.as_mut()
-        && grid
-    {
-        rows.grid = Some((columns as u32, size));
-    }
     let layout = &resolved.layout;
     let workspaces = layers
         .iter()

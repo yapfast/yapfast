@@ -206,6 +206,21 @@ impl Adapter {
             pictures::media_changed();
             self.pictures.clear();
             crate::custom_emoji::forget_images();
+            crate::twemoji::forget();
+            // Emoji in text follow, once their font is recoloured: text is
+            // shaped again with it.
+            let weak = window.as_weak();
+            crate::emoji_text::follow_media(theme_content::media(), move || {
+                if let Some(window) = weak.upgrade() {
+                    // Places that name the emoji font, such as reactions.
+                    window.set_emoji_font(crate::emoji_text::shown_family().into());
+                    let inner = i_slint_core::window::WindowInner::from_pub(window.window());
+                    if let Some(cache) = inner.window_adapter().renderer().text_layout_cache() {
+                        cache.clear_all();
+                    }
+                    window.window().request_redraw();
+                }
+            });
             bump_picture_slots(window, u32::MAX);
         }
         if change.rows || change.media {
@@ -459,6 +474,7 @@ pub(super) fn bind_themes(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>
     super::theme_lists::init(window);
     super::theme_chrome::init(window);
     super::theme_cursor::init(window);
+    super::theme_trim::init(window);
     {
         let weak = window.as_weak();
         window

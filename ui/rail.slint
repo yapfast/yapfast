@@ -11,6 +11,7 @@ import { PersonRow, LivePill, VoiceCard } from "voice.slint";
 import { PluginRowButton, PluginSurfaces } from "plugins.slint";
 import { FolderServer, TileLayer, TileAddItem, Rails, ChannelLists, TileRailItem, TileFolderItem, TileBetween, TileDivider, TileArtBox, ListedName, ListedMeta, ListedHeadingText } from "theme_lists.slint";
 import { RansomName } from "theme_layout.slint";
+import { Trim, FrameGround } from "theme_trim.slint";
 
 
 export struct ServerRow {
@@ -189,9 +190,10 @@ export component RailItem inherits Rectangle {
                 vertical-alignment: center; accessible-role: none;
             }
             Text {
-                text: root.text; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; font-size: 14px;
+                text: root.text; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; font-size: Trim.small-size(14px);
+                font-family: Trim.small-font("");
                 color: root.selected ? Theme.on-accent : root.unread || pointer.has-hover ? Theme.text : Theme.secondary;
-                font-weight: root.unread && !root.selected ? 700 : 400;
+                font-weight: root.unread && !root.selected ? 700 : Trim.small-weight(400);
                 accessible-role: none;
             }
             if root.call: Text { text: "*"; color: root.selected ? Theme.on-accent : Theme.live; font-size: 14px; vertical-alignment: center; accessible-role: none; }
@@ -568,10 +570,12 @@ export component ChannelRow inherits Rectangle {
     property <bool> offers-wave: root.wave != "" && (pointer.has-hover || root.selected);
     height: root.person ? ClientStyle.dm-row-height : root.listed && ChannelLists.height >= 0px ? ChannelLists.height : ClientStyle.channel-row-height;
     border-radius: Look.radius(6px);
-    background: !root.listed ? (root.selected && !Art.highlighter ? Theme.row-selected : pointer.has-hover ? Theme.hover : transparent)
+    /// Every other row of a theme's striped list.
+    in property <bool> striped;
+    background: !root.listed ? (root.selected && !Art.highlighter ? Theme.row-selected : pointer.has-hover ? Theme.hover : root.striped ? Trim.stripe : transparent)
         : root.selected ? (ChannelLists.selected-plain && !Art.highlighter ? Theme.row-selected : transparent)
         : pointer.has-hover && ChannelLists.hover-ground == 1 ? Theme.hover : pointer.has-hover && ChannelLists.hover-ground == 2 ? Theme.row-hover
-        : root.stripe && ChannelLists.stripe != transparent ? ChannelLists.stripe : transparent;
+        : root.striped ? Trim.stripe : transparent;
     animate background { duration: root.listed ? Art.hover-time(pointer.has-hover) : 90ms; }
     if Art.highlighter && (!root.listed || ChannelLists.selected-plain): ArtHighlighter { x: 0px; y: 0px; width: parent.width; height: parent.height; selected: root.selected; }
     if root.listed && ChannelLists.sep-on && root.separator-above: Rectangle {
@@ -1006,7 +1010,13 @@ component CategoryHeading inherits Rectangle {
     /// pointer is over it.
     in property <bool> can-create;
     callback create;
-    property <color> ink: touch.has-hover ? Theme.secondary : Theme.muted;
+    property <color> ink: Trim.label.on ? Trim.label.text : touch.has-hover ? Theme.secondary : Theme.muted;
+    // A theme's label bar under the words.
+    if Trim.label.on: FrameGround {
+        x: 8px; y: 15px; width: parent.width - 16px; height: 22px; frame: Trim.label;
+        opacity: touch.has-hover ? 0.88 : 1;
+        if Trim.label-art.length > 0: ArtLayer { x: 0px; y: 0px; width: parent.width; height: parent.height; layers: Trim.label-art; radius: Trim.label.radius; }
+    }
     HorizontalLayout {
         padding-left: ChannelLists.on && ChannelLists.head-on ? ChannelLists.head-inset : 16px; padding-right: 8px; spacing: 4px;
         padding-top: ChannelLists.on && ChannelLists.head-on && ChannelLists.head-ransom ? max(0px, root.height - 34px) : root.height - 21px;
@@ -1025,9 +1035,9 @@ component CategoryHeading inherits Rectangle {
         }
         if !(ChannelLists.on && ChannelLists.head-on): Text {
             property <string> named: Chrome.category != "" ? Chrome.fill(Chrome.category, "name", root.text) : root.text;
-            text: Chrome.folders ? Chrome.folder(self.named, !root.collapsed) : self.named; accessible-label: root.text;
-            font-family: Chrome.category != "" || Chrome.folders ? Chrome.font : "";
-            color: root.ink; font-size: 14px; font-weight: 600; letter-spacing: 0px;
+            text: Trim.cased(Trim.label, Chrome.folders ? Chrome.folder(self.named, !root.collapsed) : self.named); accessible-label: root.text;
+            font-family: Trim.label.on ? Look.label-font("") : Chrome.category != "" || Chrome.folders ? Chrome.font : "";
+            color: root.ink; font-size: 14px; font-weight: Trim.label.on ? Look.label-weight(700) : 600; letter-spacing: 0px;
             vertical-alignment: center; overflow: elide; horizontal-stretch: 0;
         }
         // A theme's tree marks a closed folder with an ellipsis instead.
@@ -1525,7 +1535,88 @@ component BrowseLink inherits VerticalLayout {
     }
 }
 
+// A theme's sidebar as one tree (`layout.rail: "tree"`): its root, the
+// direct messages and the servers and folders as rows, the head down to the
+// open server and the tail after it, with the open server's channels (the
+// RoomList) between them. Each row's keys, menu and accessible name are the
+// rail's.
+export component ServerTree inherits VerticalLayout {
+    in property <[ServerRow]> servers;
+    /// The head: the root, the direct messages and the rows up to `at`;
+    /// otherwise the rows after it.
+    in property <bool> head;
+    in property <int> at: Trim.tree-at;
+    in property <bool> dms-selected;
+    in property <bool> dms-unread;
+    in property <string> dms-badge;
+    /// The open server's channels are folded away.
+    in property <bool> folded;
+    in property <bool> matrix-build: true;
+    callback navigate-dms;
+    callback navigate-server(string);
+    callback toggle-folder(string);
+    callback open-dm(string);
+    callback open-server-menu(string, length, length);
+    /// The open server's or the direct messages' row was clicked again.
+    callback fold;
+    padding-left: 8px; padding-right: 8px; spacing: 0px;
+    padding-top: root.head ? 6px : 0px; padding-bottom: root.head ? 0px : 8px;
+    if root.head: Text {
+        height: 22px; text: Trim.tree-root; color: Chrome.tree-ink; font-family: Look.mono; font-size: 14px;
+        vertical-alignment: center; overflow: elide; accessible-role: none;
+    }
+    if root.head: RailItem {
+        text-mode: true; width: root.width - 16px; branch: Chrome.branch(root.servers.length == 0);
+        text: Chrome.folders ? Chrome.folder(Trim.tree-dms, root.dms-selected && !root.folded) : Trim.tree-dms + "/";
+        label: "Direct messages" + (root.dms-badge != "" ? ", " + root.dms-badge + " waiting" : root.dms-unread ? ", unread" : "");
+        tip: "Direct messages";
+        selected: root.dms-selected; unread: root.dms-unread; badge: root.dms-badge;
+        clicked => { if root.dms-selected { root.fold(); } else { root.navigate-dms(); } }
+    }
+    for server[index] in root.servers: tree-row := Rectangle {
+        property <bool> shown: !server.divider && (root.head ? index <= root.at : index > root.at);
+        property <bool> last: index == root.servers.length - 1;
+        property <bool> open: index == root.at && !root.dms-selected && !root.folded;
+        height: self.shown ? 22px : 0px;
+        property <string> branch: server.nested ? Chrome.nested(false, server.last) : Chrome.branch(self.last);
+        if tree-row.shown && server.folder: RailItem {
+            text-mode: true; x: 0px; y: 0px; width: parent.width; branch: parent.branch;
+            text: Chrome.folders ? Chrome.folder(server.name, server.open) : (server.open ? "- " : "+ ") + server.name + "/";
+            label: server.name + " folder, " + (server.open ? "open" : "closed") + (server.call && !server.open ? ", in a call" : "")
+                + (server.badge != "" ? ", " + server.badge + " mentions" : server.unread ? ", unread" : "");
+            tip: server.name;
+            selected: server.selected && !server.open; unread: server.unread && !server.open; badge: server.open ? "" : server.badge; call: server.call && !server.open;
+            clicked => { root.toggle-folder(server.id); }
+            context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
+        }
+        if tree-row.shown && server.dm: RailItem {
+            text-mode: true; x: 0px; y: 0px; width: parent.width; branch: parent.branch;
+            text: "@" + server.name;
+            label: server.name + (server.discord && root.matrix-build ? ", Discord" : "")
+                + (server.badge != "" ? ", " + server.badge + " unread" : ", unread");
+            tip: server.name;
+            unread: true; badge: server.badge;
+            clicked => { root.open-dm(server.id); }
+            context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
+        }
+        if tree-row.shown && !server.folder && !server.dm: RailItem {
+            text-mode: true; x: 0px; y: 0px; width: parent.width; branch: parent.branch;
+            text: Chrome.folders ? Chrome.folder(Chrome.server-before + server.name, parent.open) : Chrome.server-before + server.name + "/";
+            label: server.name + (server.discord && root.matrix-build ? ", Discord" : "") + (server.unavailable ? ", unavailable" : "")
+                + (server.call ? ", in a call" : "")
+                + (server.badge != "" ? ", " + server.badge + " mentions" : server.unread ? ", unread" : "");
+            tip: server.unavailable ? server.name + " (unavailable in a Discord outage)" : server.name;
+            selected: server.selected; unread: server.unread; badge: server.badge; call: server.call;
+            opacity: server.unavailable ? 0.5 : 1;
+            clicked => { if server.selected { root.fold(); } else { root.navigate-server(server.id); } }
+            context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
+        }
+    }
+}
+
 export component RoomList inherits Rectangle {
+    /// Room on the left of every row, as a theme's tree nests the list.
+    in property <length> indent;
     in property <[RoomRow]> rooms;
     in property <bool> dms-selected;
     in property <bool> discord-linked;
@@ -1732,7 +1823,7 @@ export component RoomList inherits Rectangle {
             changed content-y => { VoiceCard.people = []; }
             vertical-stretch: 1;
             for room[index] in root.rooms: VerticalLayout {
-                padding-left: 8px; padding-right: 8px;
+                padding-left: 8px + root.indent; padding-right: 8px;
                 padding-bottom: index == root.rooms.length - 1 ? 12px : ChannelLists.on && !room.direct ? ChannelLists.gap : 2px;
                 spacing: 2px;
                 if index == 0 && root.screens: DmScreenLinks {
@@ -1807,7 +1898,7 @@ export component RoomList inherits Rectangle {
                         }
                     }
                     ChannelRow {
-                        text: room.name; thread: true; themed: true;
+                        text: room.name; thread: true; themed: true; striped: Trim.stripe-channels && Math.mod(index, 2) == 1;
                         branch: Chrome.tree-channels ? Chrome.nested(root.tree-last(root.thread-parent(index)), !room.thread-continues) : "";
                         opacity: root.dimmed(false) || root.unfit(index) ? 0.3 : 1;
                         tracking: root.dragging;
@@ -1822,7 +1913,7 @@ export component RoomList inherits Rectangle {
                 }
                 if !room.hidden && !room.thread: ChannelRow {
                     text: room.name; themed: true;
-                    seed: room.seed; is-voice: room.voice && !room.direct; stripe: room.stripe;
+                    seed: room.seed; is-voice: room.voice && !room.direct; striped: Trim.stripe-channels && (ChannelLists.on ? room.stripe : Math.mod(index, 2) == 1);
                     separator-above: index > 0 && room.heading == "";
                     voice-count: room.id == root.voice-channel ? root.participants.length : room.people.length;
                     branch: (room.direct ? Chrome.tree-dms : Chrome.tree-channels) ? Chrome.branch(room.direct ? index == root.rooms.length - 1 || root.rooms[index + 1].heading != "" : root.tree-last(index)) : "";

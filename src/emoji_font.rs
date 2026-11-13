@@ -24,9 +24,12 @@ pub fn register(family: &str, glyphs: &[(char, Vec<u8>)], also: &[(u32, char)]) 
 /// typeface, is it alone, and the system's emoji fonts leave the families text
 /// falls back through, so none of their emoji show. True when the font loaded.
 pub fn register_emoji(family: &str, font: fontique::Blob<u8>) -> bool {
-    if !register_blob(family, font) {
-        return false;
-    }
+    register_blob(family, font) && select_emoji(family)
+}
+
+/// Makes `family`, registered already, the one emoji font, as
+/// [`register_emoji`] does. True when it's registered.
+pub fn select_emoji(family: &str) -> bool {
     let mut collection = shared_collection();
     let Some(emoji) = collection.family_by_name(family).map(|found| found.id()) else {
         return false;

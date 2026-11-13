@@ -1,0 +1,168 @@
+// A theme's trim: heading bars, striped rows, the conversation's own bar,
+// words on message cards' tabs, the member list as tiles, profile card
+// sections as boxes, a foot for stickers under the member list, the small
+// and time faces, marks by role and notice, a status line, and the sidebar
+// as one tree. src/ui/theme_trim.rs sets these from the closed lists in
+// crates/yapfast-core/src/themes/; every default is the stock window, so with
+// no theme each `if` here is false and every function returns its stock.
+
+import { Theme, Look } from "theme.slint";
+import { ArtImage, ArtText } from "theme_art.slint";
+
+/// A surface a theme gives its own ground, text, corners, border and
+/// shadow; `on` false draws the stock one. A negative shadow blur is none.
+export struct Frame {
+    on: bool,
+    ground: brush,
+    text: color,
+    radius: length,
+    border: length,
+    border-color: color,
+    shadow-blur: length,
+    shadow-x: length,
+    shadow-y: length,
+    shadow-color: color,
+    /// A profile card section's title bar, and its text.
+    bar: brush,
+    bar-text: color,
+    /// Its words: 0 as written, 1 lower case, 2 upper case.
+    case: int,
+}
+
+export global Trim {
+    /// Words in a frame's case.
+    public pure function cased(frame: Frame, text: string) -> string {
+        frame.case == 1 ? text.to-lowercase() : frame.case == 2 ? text.to-uppercase() : text
+    }
+    /// Channel categories' and member groups' headings, as bars, and art
+    /// on them.
+    in property <Frame> label;
+    in property <[ArtImage]> label-art;
+    /// A tint on every other row, by list: channels, members, messages.
+    in property <color> stripe;
+    in property <bool> stripe-channels;
+    in property <bool> stripe-members;
+    in property <bool> stripe-messages;
+    /// The bar over the conversation: its frame, art and glass.
+    in property <Frame> header;
+    in property <[ArtImage]> header-art;
+    in property <bool> header-glass;
+    /// Words on each message card's tab: the text with `{name}` and
+    /// `{time}`, its face, and a ground of its own where the card has no
+    /// picture to sit on.
+    in property <bool> tab-on;
+    in property <string> tab-text;
+    in property <string> tab-family;
+    in property <length> tab-size: 12px;
+    in property <int> tab-weight: 700;
+    in property <color> tab-ink;
+    in property <color> tab-ground;
+    in property <bool> tab-upper;
+    pure callback tab(string /* template */, string /* name */, string /* time */) -> string;
+    /// The member list as tiles, `grid-columns` across, each avatar
+    /// `grid-size` square with the name under it.
+    in property <bool> grid;
+    in property <int> grid-columns: 3;
+    in property <length> grid-size: 56px;
+    /// Profile card sections as boxes with a title bar.
+    in property <Frame> section;
+    /// Room at the member list's foot for a theme's stickers, under its art,
+    /// which takes no input.
+    in property <[ArtImage]> footer;
+    in property <length> footer-height;
+    /// The small fixed text (reply previews, status lines under names, the
+    /// text rail) and messages' times: a face, size and weight each.
+    in property <string> font-small;
+    in property <length> size-small: -1px;
+    in property <int> weight-small: -1;
+    in property <string> font-time;
+    in property <length> size-time: -1px;
+    in property <int> weight-time: -1;
+    public pure function small-font(stock: string) -> string { self.font-small != "" ? self.font-small : stock }
+    public pure function small-size(stock: length) -> length { self.size-small >= 0px ? self.size-small : stock }
+    public pure function small-weight(stock: int) -> int { self.weight-small >= 0 ? self.weight-small : stock }
+    public pure function time-font(stock: string) -> string { self.font-time != "" ? self.font-time : stock }
+    public pure function time-size(stock: length) -> length { self.size-time >= 0px ? self.size-time : stock }
+    public pure function time-weight(stock: int) -> int { self.weight-time >= 0 ? self.weight-time : stock }
+    /// Marks before members' names by their group's place, the last
+    /// repeating for the groups after it.
+    in property <[string]> role-marks;
+    public pure function role-mark(group: int) -> string {
+        self.role-marks.length == 0 ? "" : self.role-marks[min(group, self.role-marks.length - 1)]
+    }
+    /// Words around the topic in the conversation's bar, and the member
+    /// count after it (empty for none).
+    in property <string> topic-before;
+    in property <string> topic-after;
+    in property <string> member-count;
+    /// How many people the member list holds now.
+    in property <int> members-n;
+    /// Body text lit as names are (a glow drawn as copies behind it).
+    in property <ArtText> body;
+    /// Marks before notices: someone joining, leaving, anything else.
+    in property <string> mark-join;
+    in property <string> mark-leave;
+    in property <string> mark-notice;
+    public pure function notice-mark(kind: string) -> string {
+        kind == "" ? "" : kind == "join" ? self.mark-join : kind == "leave" ? self.mark-leave : self.mark-notice
+    }
+    /// The status line across the conversation's foot: its text, over the
+    /// composer or under it, and a tick that moves its clock.
+    in property <string> status;
+    in property <bool> status-above;
+    in-out property <int> status-tick;
+    pure callback status-line(string /* template */, string /* channel */, string /* server */, string /* typing */, int /* tick */) -> string;
+    /// The sidebar as one tree (`layout.rail: "tree"`): the open server's
+    /// place in the rail's rows (-1 for none, as on the direct messages),
+    /// and the root's and the direct messages' words.
+    in property <int> tree-at: -1;
+    in property <string> tree-root: "~/";
+    in property <string> tree-dms: "dm";
+}
+
+/// A heading's bar behind its words: the frame's ground, corners, border
+/// and shadow, and art over the ground. Put it first in the heading.
+export component FrameGround inherits Rectangle {
+    in property <Frame> frame;
+    in property <[ArtImage]> art;
+    background: root.frame.ground;
+    border-radius: root.frame.radius;
+    border-width: root.frame.border;
+    border-color: root.frame.border-color;
+    drop-shadow-blur: root.frame.shadow-blur >= 0px ? root.frame.shadow-blur : 0px;
+    drop-shadow-offset-x: root.frame.shadow-blur >= 0px ? root.frame.shadow-x : 0px;
+    drop-shadow-offset-y: root.frame.shadow-blur >= 0px ? root.frame.shadow-y : 0px;
+    drop-shadow-color: root.frame.shadow-blur >= 0px ? root.frame.shadow-color : transparent;
+}
+
+/// A profile card's section: as stock, its content alone; framed by a
+/// theme, a box with a title bar over the content.
+export component SectionBox inherits Rectangle {
+    in property <string> title;
+    property <bool> on: Trim.section.on;
+    background: root.on ? Trim.section.ground : transparent;
+    border-radius: root.on ? Trim.section.radius : 0px;
+    border-width: root.on ? Trim.section.border : 0px;
+    border-color: Trim.section.border-color;
+    drop-shadow-blur: root.on && Trim.section.shadow-blur >= 0px ? Trim.section.shadow-blur : 0px;
+    drop-shadow-offset-x: root.on && Trim.section.shadow-blur >= 0px ? Trim.section.shadow-x : 0px;
+    drop-shadow-offset-y: root.on && Trim.section.shadow-blur >= 0px ? Trim.section.shadow-y : 0px;
+    drop-shadow-color: root.on && Trim.section.shadow-blur >= 0px ? Trim.section.shadow-color : transparent;
+    VerticalLayout {
+        padding: 0px; spacing: 0px;
+        if root.on && root.title != "": Rectangle {
+            height: 22px; background: Trim.section.bar;
+            border-top-left-radius: Trim.section.radius; border-top-right-radius: Trim.section.radius;
+            Text {
+                x: 8px; width: parent.width - 16px;
+                text: Trim.cased(Trim.section, root.title); color: Trim.section.bar-text;
+                font-size: Look.label-size(12px); font-weight: Look.label-weight(800); font-family: Look.label-font("");
+                letter-spacing: Look.spacing-labels; vertical-alignment: center; overflow: elide;
+            }
+        }
+        VerticalLayout {
+            padding: root.on ? 8px : 0px; spacing: 0px;
+            @children
+        }
+    }
+}

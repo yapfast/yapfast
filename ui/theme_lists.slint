@@ -16,6 +16,7 @@ import { Avatar, PictureStore, StatusText } from "controls.slint";
 import { RansomName } from "theme_layout.slint";
 import { ClientStyle } from "yapfast/style.slint";
 import { DiscordBadge } from "discord.slint";
+import { Trim } from "theme_trim.slint";
 
 /// A server in a closed folder's tile: its icon, or its initial.
 export struct FolderServer { initial: string, picture-url: string }
@@ -212,8 +213,6 @@ export global ChannelLists {
     in property <color> badge-ink;
     in property <length> badge-radius: -1px;
     in property <color> ink-hover;
-    /// Every other channel row's ground; transparent for none.
-    in property <color> stripe;
     /// The unread edge pill's colour and rim; transparent for stock.
     in property <color> pill-colour;
     in property <color> pill-rim;
@@ -362,10 +361,8 @@ export global MemberLists {
     in property <color> count-colour;
     /// The title's words before " · {n}", when its count has a face of its own.
     in property <string> title-head;
-    /// Members as tiles: columns (0 for rows), the avatar's size, and whether
-    /// a tile takes the theme's tile shape.
-    in property <int> grid-columns;
-    in property <length> grid-size: 48px;
+    /// A grid's tile (`layout.members_style: "grid"`) takes the theme's
+    /// tile shape.
     in property <bool> tile-outline;
     public pure function frame(seed: int) -> TileLayer {
         self.frames.length == 0 ? self.none() : self.frames[Math.mod(seed, self.frames.length)]
@@ -1294,7 +1291,7 @@ export component ListedMemberTile inherits Rectangle {
     in property <bool> selected;
     in property <bool> hovered;
     property <bool> offline: root.presence == "offline";
-    property <length> size: MemberLists.grid-size;
+    property <length> size: Trim.grid-size;
     property <length> name-size: MemberLists.size >= 0px ? MemberLists.size : 13px;
     accessible-role: none;
     ground := Rectangle {

@@ -693,6 +693,31 @@ fn looks(variant: &Resolved) -> Vec<String> {
             if count == 1 { "" } else { "s" }
         ));
     }
+    if layout.cards.tab.is_some() {
+        changes.push("words on card tabs".to_owned());
+    }
+    if layout.members_style == Some(super::layout::MembersStyle::Grid) {
+        changes.push(format!("member tiles ({} across)", layout.grid.columns));
+    }
+    for (surface, what) in [
+        (super::package::Surface::Label, "label bars"),
+        (super::package::Surface::Header, "own header"),
+        (
+            super::package::Surface::CardSection,
+            "boxed profile sections",
+        ),
+    ] {
+        if variant.shapes.contains_key(&surface) {
+            changes.push(what.to_owned());
+        }
+    }
+    if variant
+        .shapes
+        .get(&super::package::Surface::Row)
+        .is_some_and(|shape| shape.stripe.is_some())
+    {
+        changes.push("striped rows".to_owned());
+    }
     if let Some(names) = &layout.names {
         changes.push(if names.fonts.is_empty() {
             "ransom names".to_owned()
@@ -747,6 +772,19 @@ fn looks(variant: &Resolved) -> Vec<String> {
 pub fn unreadable_content(variant: &Resolved) -> Vec<String> {
     let mut refused = unreadable_initials(variant);
     refused.extend(unreadable_topbar(variant));
+    // Each colour of a names palette, on the chat.
+    for (index, colour) in variant.content.names.palette().iter().enumerate() {
+        let worst = shown_colours(variant, "chat")
+            .unwrap_or_default()
+            .iter()
+            .map(|back| contrast(*colour, *back))
+            .fold(f64::INFINITY, f64::min);
+        if worst < READABLE - 0.005 {
+            refused.push(format!(
+                "content.names.palette[{index}] on chat contrasts {worst:.1}:1, under {READABLE:.1}:1; text has to stay readable"
+            ));
+        }
+    }
     let Some(colour) = variant.content.names.colour else {
         return refused;
     };
@@ -882,6 +920,74 @@ pub fn unreadable_layout(variant: &Resolved) -> Vec<String> {
             Some(vec![ground]),
         ));
     }
+    // A translucent ground lies over the surface under it.
+    let laid = |grounds: Vec<u32>, under: &str| -> Option<Vec<u32>> {
+        let unders = shown_colours(variant, under)?;
+        Some(
+            grounds
+                .iter()
+                .flat_map(|ground| unders.iter().map(move |under| over(*ground, *under)))
+                .collect(),
+        )
+    };
+    // A card tab's words, on its own ground.
+    if let Some(tab) = &layout.cards.tab
+        && let Some(ground) = tab.ground
+    {
+        pairs.push((
+            "layout.cards.tab.colour",
+            colours(tab.colour, "text"),
+            "layout.cards.tab.ground",
+            Some(vec![ground]),
+        ));
+    }
+    // Framed surfaces' words on their grounds, and a section's on its bar.
+    for (surface, stock) in [
+        (super::package::Surface::Label, "sidebar"),
+        (super::package::Surface::Header, "chat"),
+        (super::package::Surface::CardSection, "raised"),
+    ] {
+        let Some(shape) = variant.shapes.get(&surface) else {
+            continue;
+        };
+        let text = colours(shape.text, "text");
+        let ground = match shape.ground.as_ref() {
+            Some(paint) => laid(paint.colours(), stock),
+            None => shown_colours(variant, stock),
+        };
+        let (text_name, ground_name) = match surface {
+            super::package::Surface::Label => ("shape.label.text", "shape.label.ground"),
+            super::package::Surface::Header => ("shape.header.text", "shape.header.ground"),
+            _ => ("shape.card_section.text", "shape.card_section.ground"),
+        };
+        pairs.push((text_name, text.clone(), ground_name, ground.clone()));
+        if let Some(bar) = &shape.bar {
+            pairs.push((
+                "shape.card_section.bar_text",
+                shape.bar_text.map(|colour| vec![colour]).or(text),
+                "shape.card_section.bar",
+                ground.clone().map(|grounds| {
+                    bar.colours()
+                        .iter()
+                        .flat_map(|bar| grounds.iter().map(move |ground| over(*bar, *ground)))
+                        .collect()
+                }),
+            ));
+        }
+    }
+    // Every text colour still reads on a striped row.
+    if let Some(stripe) = variant
+        .shapes
+        .get(&super::package::Surface::Row)
+        .and_then(|shape| shape.stripe)
+    {
+        pairs.push((
+            "text",
+            shown_colours(variant, "text"),
+            "shape.row.stripe",
+            laid(vec![stripe.colour], "chat"),
+        ));
+    }
     let mut refused = Vec::new();
     for (text, fronts, ground, backs) in pairs {
         let (Some(fronts), Some(backs)) = (fronts, backs) else {
@@ -902,6 +1008,19 @@ pub fn unreadable_layout(variant: &Resolved) -> Vec<String> {
 
 /// How much two colours contrast, from 1 to 21, as WCAG measures it; a
 /// translucent foreground is laid over the background first.
+/// `top` laid over the opaque `under`, by its alpha, as an opaque colour.
+fn over(top: u32, under: u32) -> u32 {
+    let alpha = f64::from(top >> 24) / 255.0;
+    let mix = |shift: u32| {
+        let (a, b) = (
+            f64::from((top >> shift) & 0xff),
+            f64::from((under >> shift) & 0xff),
+        );
+        ((a * alpha + b * (1.0 - alpha)).round() as u32) << shift
+    };
+    0xff00_0000 | mix(16) | mix(8) | mix(0)
+}
+
 pub fn contrast(foreground: u32, background: u32) -> f64 {
     let channel = |colour: u32, shift: u32| f64::from((colour >> shift) & 0xff) / 255.0;
     let alpha = f64::from(foreground >> 24) / 255.0;

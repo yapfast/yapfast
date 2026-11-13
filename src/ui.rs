@@ -74,6 +74,7 @@ pub mod theme_layout;
 pub mod theme_lists;
 pub mod theme_look;
 mod theme_media;
+mod theme_trim;
 mod tiles;
 mod title_bar;
 mod yapfast;
