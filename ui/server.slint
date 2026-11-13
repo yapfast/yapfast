@@ -2,7 +2,7 @@
 import { StatusDot } from "rail.slint";
 import { ScrollView } from "scrollview.slint";
 import { Theme, Label, Middle, Popup } from "theme.slint";
-import { ActionButton, Avatar, IconButton, MenuItem, TextField, Motion, StatusText, ServerTagChip, PictureStore, StyledName, NameStyleRow } from "controls.slint";
+import { ActionButton, Avatar, IconButton, MenuItem, TextField, Motion, StatusText, ServerTagChip, PictureStore, StyledName, NameStyleRow, Nameplate, ProfileEffect, AccountLook } from "controls.slint";
 import { Choices, Picker, UnsavedBar } from "settings.slint";
 import { NameStyles } from "controls.slint";
 import { ProfileData, ProfileHeading, MemberSince, ActivityCard, ProfileBadge, ProfileBadgeRow, BoardCard, WishlistCard, ProfileTheme } from "people.slint";
@@ -729,8 +729,10 @@ component CustomizeGroup inherits VerticalLayout {
 
 component CustomizeCell inherits Rectangle {
     in property <bool> enabled;
+    /// While the pointer rests on the cell, for what plays only then.
+    out property <bool> hot: touch.has-hover;
     callback clicked;
-    height: 100px; border-radius: 12px; clip: true;
+    height: 100px; border-radius: 6px; clip: true;
     // Tiles side by side share their row evenly, whatever they hold.
     horizontal-stretch: 1; min-width: 0px; preferred-width: 100px;
     background: touch.has-hover && root.enabled ? Theme.hover : Theme.raised;
@@ -797,9 +799,29 @@ component ProfileCustomize inherits Rectangle {
                 CustomizeGroup {
                     title: "Nameplate";
                     CustomizeCell {
-                        height: 42px; enabled: true;
+                        height: 42px; enabled: true; border-radius: 6px;
                         clicked => { root.open-link("https://discord.com/shop"); }
-                        HorizontalLayout {
+                        // The equipped nameplate fills the bar as its artwork, with the
+                        // account's avatar and name over it, as the account card composes
+                        // it. No animation: one still frame, as Discord's preview. Held
+                        // hovered, so the plate shows at the strength Discord's preview has.
+                        if AccountLook.nameplate-url != "": Nameplate {
+                            x: 0px; y: 0px; width: parent.width; height: parent.height;
+                            radius: 6px; account: true; hovered: true; animate: false;
+                            picture-url: AccountLook.nameplate-url;
+                            palette: Theme.dark ? AccountLook.nameplate-color : AccountLook.nameplate-light;
+                        }
+                        if AccountLook.nameplate-url != "": Avatar {
+                            x: 6px; y: (parent.height - self.height) / 2;
+                            size: 35px; initial: root.data.initial; tint: root.data.tint; picture: root.data.picture;
+                        }
+                        if AccountLook.nameplate-url != "": Text {
+                            x: 48px; y: 0px; width: 65px; height: parent.height;
+                            text: root.data.name; color: Theme.text; font-size: 15px; font-weight: 700;
+                            vertical-alignment: center; overflow: elide;
+                        }
+                        // Without one, the row keeps its empty state and its add button.
+                        if AccountLook.nameplate-url == "": HorizontalLayout {
                             padding-left: 8px; padding-right: 8px; spacing: 8px;
                             Middle { Avatar { size: 26px; initial: root.data.initial; tint: root.data.tint; picture: root.data.picture; } }
                             Middle { Rectangle { height: 12px; border-radius: 6px; background: Theme.hover; horizontal-stretch: 1; } }
@@ -811,15 +833,17 @@ component ProfileCustomize inherits Rectangle {
                     title: "Avatar & Decoration";
                     HorizontalLayout {
                         spacing: 8px;
-                        CustomizeCell {
+                        avatar-cell := CustomizeCell {
                             enabled: root.avatar-enabled;
                             clicked => { root.pick(0); }
-                            Avatar { size: 72px; initial: root.data.initial; tint: root.data.tint; picture: root.data.picture; }
+                            // The list's entries play only under the pointer, as
+                            // Discord's do; the card's own avatar loops instead.
+                            Avatar { size: 72px; initial: root.data.initial; tint: root.data.tint; picture: root.data.picture; animate: avatar-cell.hot; }
                         }
-                        CustomizeCell {
+                        decoration-cell := CustomizeCell {
                             enabled: true;
                             clicked => { root.open-link("https://discord.com/shop"); }
-                            if root.data.decoration-url != "": Avatar { width: 64px; height: 64px; size: 64px; initial: root.data.initial; tint: root.data.tint; picture: root.data.picture; decoration-url: root.data.decoration-url; }
+                            if root.data.decoration-url != "": Avatar { width: 64px; height: 64px; size: 64px; initial: root.data.initial; tint: root.data.tint; picture: root.data.picture; decoration-url: root.data.decoration-url; animate: decoration-cell.hot; }
                             if root.data.decoration-url == "" && root.decoration-set: Text { text: "Decoration on"; color: Theme.text; font-size: 13px; }
                             if !root.decoration-set: SlotPlus { }
                         }
@@ -831,8 +855,10 @@ component ProfileCustomize inherits Rectangle {
                         height: 42px; enabled: root.look-enabled;
                         clicked => { root.open-style(); }
                         StyledName {
-                            x: max(0px, (parent.width - self.width) / 2); y: (parent.height - self.height) / 2;
-                            text: root.data.name; font-size: 18px; font-weight: 600; styles: root.data.name-style; ink: Theme.text;
+                            x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+                            width: self.preferred-width; height: self.preferred-height;
+                            transform-scale: self.width > 0px ? min(1.0, (parent.width - 12px) / self.width) : 1.0;
+                            text: root.data.name; font-size: 24px; font-weight: 600; styles: root.data.name-style; ink: Theme.text;
                         }
                     }
                 }
@@ -868,13 +894,39 @@ component ProfileCustomize inherits Rectangle {
                     HorizontalLayout {
                         spacing: 8px;
                         CustomizeCell {
-                            enabled: true;
+                            enabled: true; border-radius: 6px;
                             clicked => { root.open-link("https://discord.com/shop"); }
-                            if root.effect-set: Text { text: "Effect on"; color: Theme.text; font-size: 13px; }
+                            // A still of the equipped effect over a mini card mock, as
+                            // Discord's tile shows it: a light panel, the name and bio
+                            // bars at the lower left, the effect's art over the tile.
+                            if root.effect-set && (root.data.effect-still != "" || root.data.effect-layers.length > 0): Rectangle {
+                                x: 0px; y: 0px; width: parent.width; height: parent.height;
+                                Rectangle {
+                                    x: parent.width * 0.2; y: parent.height * 0.12;
+                                    width: parent.width * 0.6; height: parent.height * 0.38;
+                                    border-radius: 2px; background: #8f8f93;
+                                }
+                                Rectangle {
+                                    x: parent.width * 0.19; y: parent.height * 0.81;
+                                    width: parent.width * 0.28; height: parent.height * 0.06;
+                                    border-radius: 1px; background: #4d4e63;
+                                }
+                                Rectangle {
+                                    x: parent.width * 0.19; y: parent.height * 0.9;
+                                    width: parent.width * 0.26; height: parent.height * 0.07;
+                                    border-radius: 1px; background: #414255;
+                                }
+                                ProfileEffect {
+                                    x: 0px; y: 0px; width: parent.width; height: parent.height;
+                                    layers: root.data.effect-layers; still-url: root.data.effect-still;
+                                    play: false; end: root.data.effect-end; loops: root.data.effect-loops;
+                                }
+                            }
+                            if root.effect-set && root.data.effect-still == "" && root.data.effect-layers.length == 0: Text { text: "Effect on"; color: Theme.text; font-size: 13px; }
                             if !root.effect-set: SlotPlus { }
                         }
                         CustomizeCell {
-                            enabled: true;
+                            enabled: true; border-radius: 6px;
                             clicked => { root.open-link("https://discord.com/shop"); }
                             if root.frame-set: Text { text: "Frame on"; color: Theme.text; font-size: 13px; }
                             if !root.frame-set: SlotPlus { }
@@ -1326,7 +1378,13 @@ component NameStyleWindow inherits Rectangle {
                     Rectangle {
                         x: 16px; y: 56px; width: 80px; height: 80px;
                         Avatar { size: 80px; initial: root.initial; tint: root.tint; picture: root.picture; }
-                        if root.presence != "": StatusDot { x: 56px; y: 56px; width: 26px; height: 26px; presence: root.presence; ring: root.card-top; }
+                        // As on the card: the badge fills its gap ring at 87% of the
+                        // avatar's radius out toward the lower right (0.61r, 0.62r).
+                        if root.presence != "": StatusDot {
+                            x: 40px + 80px * 0.305 - self.width / 2;
+                            y: 40px + 80px * 0.31 - self.height / 2;
+                            width: 80px * 0.291; height: self.width; presence: root.presence; ring: root.card-top;
+                        }
                     }
                     StyledName { x: 18px; y: 145px; height: self.preferred-height; text: root.name; styles: root.style; font-size: 21px; font-weight: 700; ink: root.has-theme ? ProfileTheme.ink(root.theme-light) : Theme.text; }
                     HorizontalLayout {
@@ -1688,10 +1746,18 @@ export component ProfileEditorDialog inherits Rectangle {
                                     x: root.pad - 6px; y: root.banner-height - root.avatar-size / 2 - 6px;
                                     width: root.avatar-size + 12px; height: self.width; border-radius: self.width / 2;
                                     background: root.plate;
-                                    Avatar { size: root.avatar-size; initial: root.prompt.preview.initial; tint: root.prompt.preview.tint; picture: root.prompt.preview.picture; }
+                                    // The decoration loops on this page whenever the app's
+                                    // animations run: Motion.playing gates the frames, and
+                                    // Looks.moving withholds the APNG in pictures.rs.
+                                    Avatar { size: root.avatar-size; initial: root.prompt.preview.initial; tint: root.prompt.preview.tint; picture: root.prompt.preview.picture; decoration-url: root.prompt.preview.decoration-url; animate: true; }
+                                    // Discord's badge: a circular gap of the plate's colour
+                                    // (the box) with the status filling two thirds of it,
+                                    // centred 0.61r, 0.62r from the avatar's centre -- 87% of
+                                    // the radius out at 45 degrees toward the lower right.
                                     if root.prompt.main && root.presence != "": StatusDot {
-                                        x: root.avatar-size * 0.85 - self.width / 2 + 6px; y: root.avatar-size * 0.85 - self.height / 2 + 6px;
-                                        width: root.avatar-size * 0.325; height: self.width; presence: root.presence; ring: root.plate;
+                                        x: root.avatar-size / 2 + 6px + root.avatar-size * 0.305 - self.width / 2;
+                                        y: root.avatar-size / 2 + 6px + root.avatar-size * 0.31 - self.height / 2;
+                                        width: root.avatar-size * 0.291; height: self.width; presence: root.presence; ring: root.plate;
                                     }
                                     // What you're up to, a thought beside the picture.
                                     if root.prompt.main: Rectangle {
@@ -1847,6 +1913,8 @@ export component ProfileEditorDialog inherits Rectangle {
                                             Text {
                                                 text: root.pronouns != "" ? root.pronouns : root.prompt.pronouns-fallback != "" ? root.prompt.pronouns-fallback : "Add pronouns";
                                                 color: root.pronouns != "" || root.prompt.pronouns-fallback != "" ? root.ink2 : root.ink3;
+                                                // Shown whole beside the tag, now that the badges have a line
+                                                // of their own, unless too long to leave the tag room.
                                                 font-size: 14px; font-weight: 500; overflow: elide;
                                                 HoverEdit {
                                                     x: -5px; y: (parent.height - self.height) / 2; width: parent.width + 10px; height: 32px;
@@ -1872,9 +1940,9 @@ export component ProfileEditorDialog inherits Rectangle {
                                                 animate background { duration: 120ms; }
                                                 accessible-role: button; accessible-label: "Change server tag";
                                                 tag-row := HorizontalLayout {
-                                                    padding-left: 7px; padding-right: 5px; spacing: 4px;
+                                                    padding-left: 7px; padding-right: 10px; spacing: 5px;
                                                     if root.prompt.tag-text == "": Text { text: "Server Tag"; color: root.ink2; font-size: 12px; font-italic: true; vertical-alignment: center; }
-                                                    if root.prompt.tag-text != "": Middle { ServerTagChip { text: root.prompt.tag-text; badge: root.prompt.tag-icon; } }
+                                                    if root.prompt.tag-text != "": Middle { ServerTagChip { text: root.prompt.tag-text; badge: root.prompt.tag-icon; fill: transparent; } }
                                                     Image { source: @image-url("icons/chevron-down.svg"); width: 14px; image-fit: contain; colorize: root.ink2; }
                                                 }
                                                 tag-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { tag-menu.show(); } }
@@ -1917,15 +1985,27 @@ export component ProfileEditorDialog inherits Rectangle {
                                                 }
                                             }
                                         }
-                                        // Their badges, in a pill after the tag.
-                                        if root.prompt.main && root.editing != 2 && root.prompt.preview.badges.length > 0: Middle {
+                                    }
+                                    // Their badges under the line, as Discord's preview sets them:
+                                    // twelve to a row, each row a pill of its own, more going on
+                                    // to the next. (Discord's six and a count is behind an
+                                    // experiment that's off.)
+                                    if root.prompt.main && root.editing != 2 && root.prompt.preview.badges.length > 0: VerticalLayout {
+                                        padding-top: 10px; spacing: 4px; alignment: start;
+                                        for row in ceil(root.prompt.preview.badges.length / 12): HorizontalLayout {
+                                            alignment: start;
                                             Rectangle {
-                                                height: 26px; border-radius: 8px; background: #00000059;
-                                                HorizontalLayout {
-                                                    padding-left: 4px; padding-right: 4px;
-                                                    for badge in root.prompt.preview.badges: Rectangle {
-                                                        width: 22px;
-                                                        ProfileBadge { width: 18px; height: 18px; badge: badge; open-link(link) => { root.open-link(link); } }
+                                                width: min(root.prompt.preview.badges.length - row * 12, 12) * 22px + 6px; height: 24px;
+                                                background: pill-hover.has-hover ? #97979f33 : #97979f1f;
+                                                border-radius: 8px; border-width: 1px; border-color: #97979f0a;
+                                                pill-hover := TouchArea { mouse-cursor: MouseCursor.default; }
+                                                Rectangle {
+                                                    x: 3px; y: 1px; width: parent.width - 6px; height: 20px;
+                                                    for badge[index] in root.prompt.preview.badges: ProfileBadge {
+                                                        x: (index - row * 12) * 22px; width: 20px; height: 20px;
+                                                        visible: index >= row * 12 && index < row * 12 + 12;
+                                                        badge: badge;
+                                                        open-link(url) => { root.open-link(url); }
                                                     }
                                                 }
                                             }
