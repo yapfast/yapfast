@@ -40,6 +40,9 @@ pub struct Activity {
     pub state: Option<Box<str>>,
     /// How many are in their party, and how many it holds.
     pub party: Option<(u64, u64)>,
+    /// Their party's id, which those playing together share; Active Now
+    /// gives them one card.
+    pub party_id: Option<Box<str>>,
     pub application_id: Option<Box<str>>,
     /// When it started and when it ends, in Unix milliseconds.
     pub start: Option<u64>,
@@ -265,6 +268,10 @@ fn activity(activity: &Value) -> Option<Activity> {
             text("state")
         },
         party,
+        party_id: activity["party"]["id"]
+            .as_str()
+            .filter(|id| !id.is_empty())
+            .map(Into::into),
         start: time(&timestamps["start"]),
         end: time(&timestamps["end"]),
         // A game Discord detected has no pictures, but its icon.

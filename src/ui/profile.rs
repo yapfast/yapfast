@@ -281,6 +281,14 @@ pub(super) fn activity_lasted(started: i32, now: i32) -> SharedString {
     yapfast_core::clock::lasted(unix(started), unix(now)).into()
 }
 
+/// Discord's Unix milliseconds on ActivityClock; 0 when unknown.
+#[cfg(feature = "discord")]
+pub(super) fn activity_at(ms: Option<u64>) -> i32 {
+    ms.map_or(0, |ms| {
+        i32::try_from((ms / 1000).saturating_sub(ACTIVITY_EPOCH)).unwrap_or(0)
+    })
+}
+
 /// Someone's activities as their profile's cards show them.
 pub(super) fn activity_rows(activities: &yapfast_core::chat::Activities) -> ModelRc<ActivityRow> {
     if activities.is_empty() {
@@ -295,11 +303,6 @@ pub(super) fn activity_rows(activities: &yapfast_core::chat::Activities) -> Mode
 
 #[cfg(feature = "discord")]
 fn activity_row(activity: &yapfast_core::chat::Activity) -> ActivityRow {
-    let seconds = |ms: Option<u64>| {
-        ms.map_or(0, |ms| {
-            i32::try_from((ms / 1000).saturating_sub(ACTIVITY_EPOCH)).unwrap_or(0)
-        })
-    };
     let text = |text: &Option<Box<str>>| SharedString::from(text.as_deref().unwrap_or_default());
     // A Hang status's emoji goes before its words, as a status's does.
     let name = match &activity.emoji {
@@ -340,8 +343,8 @@ fn activity_row(activity: &yapfast_core::chat::Activity) -> ActivityRow {
         large_text: text(&activity.large_text),
         small_url: text(&activity.small_image),
         small_text: text(&activity.small_text),
-        start: seconds(activity.start),
-        end: seconds(activity.end),
+        start: activity_at(activity.start),
+        end: activity_at(activity.end),
         url: text(&activity.url),
         link: text(&activity.link),
         // Discord's Manage Privacy on one's own: a game's goes to the
@@ -377,7 +380,7 @@ impl Adapter {
         };
         let shown = (self.app.state.profile.is_some() && timed(window.get_profile()))
             || (self.app.state.panel_profile.is_some() && timed(window.get_panel_profile()));
-        let Some(every) = clock_interval(shown, self.voice_timed) else {
+        let Some(every) = clock_interval(shown || self.active_now_timed, self.voice_timed) else {
             self.activity_clock.stop();
             return;
         };

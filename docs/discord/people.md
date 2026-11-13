@@ -75,6 +75,32 @@ its tooltip. Clicking it goes to the channel without joining it. It comes from
 the voice states the channel list already keeps, so it shows only servers both
 share and channels this account sees. DM calls stay out, as in Discord.
 
+When the friends page is at least 1000px wide, Active Now sits in a 360px
+column at its right, as on Discord's friends page, and the list keeps to the
+left of it. Its cards follow Discord's NowPlayingViewStore: friends in one
+server's voice channel share a card, then those in one game party (the
+activity's `party.id`), and every other friend has their own; two friends
+playing one game apart get two cards. Each counts by their first activity,
+which gives a card when Discord can name it: Spotify, a Twitch or YouTube
+stream, an activity with an application, or an Xbox game by its name, never
+a Hang or a game without an application. A card without one needs a voice
+channel. Cards of more than one person come first, then those in voice, then
+those doing something, with Spotify's after the rest, and then by name.
+A voice card is headed by its friends' names ("Ann, Bob, and 1 other") and
+what the one latest at it is doing, or "In a Voice Channel", with a row for
+the server and channel and who is in it, which opens the channel; a party's
+card has a row of who is in it. A card shows how long they've been at it
+from the activity's start, ticking once a second only while the friends page
+shows a timer, and a row with Rich Presence's details and state where an
+activity has them. Clicking a card's head opens its first friend's menu. The
+cards are made only while the friends page shows, as Discord makes them only
+while its column is mounted, from the presence and voice states the list
+already keeps (`src/ui/active_now.rs`, `ui/active_now.slint`); nothing more
+is asked of Discord. Unlike Discord's, Active Now doesn't leave out a
+server's AFK channel or someone streaming without an activity, which Yapfast
+doesn't track, sorts by display name rather than username, and doesn't add
+people Discord ranks close to the account who aren't friends.
+
 The person beside the pen, in the same header, adds a friend by username: `POST
 /users/@me/relationships` with `{"username": ..., "discriminator": null}` and
 `{"location":"Add Friend"}` as the context. Discord's codes 80004 (nobody by

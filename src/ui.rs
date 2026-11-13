@@ -36,6 +36,7 @@ use yapfast_core::{
 use crate::drop::Drag;
 use crate::{autostart, custom_emoji, emoji, emoji_text, graphics, zoom};
 
+mod active_now;
 mod app_commands;
 mod appearance;
 mod away;
@@ -1849,6 +1850,8 @@ struct Models {
     /// Discord friends: all of them, and those around.
     friends: Rc<VecModel<FriendRow>>,
     friends_online: Rc<VecModel<FriendRow>>,
+    /// The friends page's Active Now cards.
+    active_now: Rc<VecModel<ActiveNowCard>>,
     /// Those the Discord account blocked, for Settings.
     blocked: Rc<VecModel<BlockedRow>>,
     /// Browse Channels' rows, after its search.
@@ -1912,6 +1915,7 @@ impl Models {
         window.set_entrance_servers(ModelRc::from(self.entrance_servers.clone()));
         window.set_friends(ModelRc::from(self.friends.clone()));
         window.set_friends_online(ModelRc::from(self.friends_online.clone()));
+        window.set_active_now(ModelRc::from(self.active_now.clone()));
         window.set_blocked_people(ModelRc::from(self.blocked.clone()));
         window.set_browse_rows(ModelRc::from(self.browse_rows.clone()));
         window.set_microphones(ModelRc::from(self.microphones.clone()));
@@ -2028,6 +2032,9 @@ struct Adapter {
     /// Ticks ActivityClock while a profile on screen times an activity, or
     /// the channel list a busy voice channel's call.
     activity_clock: slint::Timer,
+    /// Active Now beside the friends list shows a timer, which counts
+    /// seconds on ActivityClock as a profile's does.
+    active_now_timed: bool,
     /// A row of the channel list counts a voice channel's call time.
     voice_timed: bool,
     navigation: Navigation,
@@ -2435,6 +2442,7 @@ impl Adapter {
                 away: away::Away::default(),
                 call_timer: call_timer::CallTimer::default(),
                 activity_clock: slint::Timer::default(),
+                active_now_timed: false,
                 voice_timed: false,
                 navigation: Navigation::default(),
                 forwarding: false,
