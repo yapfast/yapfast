@@ -401,7 +401,8 @@ name plainly.
 
 **Spacing** (`spacing`), in pixels: `message_gap` (0–16), `message_group_gap`
 (0–40), `channel_row_height` (24–48), `member_row_height` (32–56),
-`avatar_size` (24–56), `chat_padding` (4–48), `sidebar_width` (200–420),
+`avatar_size` (24–56), `chat_padding` (4–48; the message box's sides
+follow it too), `sidebar_width` (200–420),
 `members_width` (200–400). `density` (`compact`, `default` or `roomy`) sets
 several at once; values named beside it win. A plugin's size wins over a
 theme's.
@@ -556,7 +557,9 @@ on the top and left inner edge), `inset` (a shadow inside the edges, as
 edge and its two panes, the navigation and the conversation, where the
 window's art shows; a glass `account` panel floats the same distance from the
 navigation above it and the window's edge) and `radius` (their corners, and
-a glass account panel's, when there's a gap).
+a glass account panel's, when there's a gap). A rail in such a pane (a gap, round corners or
+a glass edge light or inner shadow) keeps its first server 8 pixels, plus
+2 for the rim, from the pane's edge, and its pills off the rim.
 
 *Text*: `names` (authors, the member list, the profile card), `headings` (the
 conversation's and the server's names, settings titles) and `labels` (small

@@ -158,6 +158,11 @@ export global Art {
     /// Space between the window's edge and its panes, and between them.
     in property <length> gap;
     in property <length> pane-radius;
+    /// The rail's rim on a glass pane (its edge light or inner shadow), and
+    /// whether the rail sits in a pane of a theme's (a gap, round corners or
+    /// a rim): its first server and its pills keep clear of the edges.
+    out property <length> rail-rim: self.glass-rail && (self.highlight != transparent || self.inset-size > 0px) ? 2px : 0px;
+    out property <bool> rail-paned: self.gap > 0px || self.pane-radius > 0px || self.rail-rim > 0px;
 
     // Text light per role.
     in property <ArtText> names;

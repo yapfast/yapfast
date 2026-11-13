@@ -3975,7 +3975,8 @@ export component YapfastWindow inherits Window {
                             x: 0px; width: parent.width;
                             y: Arrange.composer-top ? 0px : parent.height - chat-stack.composer-height;
                             height: chat-stack.composer-height;
-                            padding-left: Arrange.centre(self.width, ClientStyle.composer-gutter); padding-right: self.padding-left;
+                            // A theme's `chat_padding` sets the composer's sides too, so it lines up with the messages.
+                            padding-left: Arrange.centre(self.width, Look.chat-padding >= 0px ? Look.chat-padding : ClientStyle.composer-gutter); padding-right: self.padding-left;
                             padding-top: Arrange.composer-top ? ClientStyle.composer-gutter : 0px; padding-bottom: 0px;
                             spacing: 0px;
                             if root.room-request: RequestBar {
