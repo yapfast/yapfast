@@ -1,7 +1,7 @@
 import { ScrollView } from "scrollview.slint";
 import { Theme, Middle } from "theme.slint";
 import { Avatar, PictureStore } from "controls.slint";
-import { ActivityClock } from "people.slint";
+import { ActivityClock } from "controls.slint";
 
 /// Someone in an Active Now row's stack of avatars.
 export struct ActiveFace { initial: string, tint: color, picture-url: string }
@@ -90,7 +90,7 @@ component RowIcon inherits Rectangle {
     in property <string> initial;
     in property <color> tint;
     in property <bool> round;
-    property <image> shown: root.url != "" ? PictureStore.picture(root.url, PictureStore.revision) : @image-url("");
+    property <image> shown: root.url != "" ? PictureStore.picture(root.url, PictureStore.revision(root.url)) : @image-url("");
     function request() {
         if root.url != "" && root.shown.width == 0 { PictureStore.request(root.url); }
     }

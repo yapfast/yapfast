@@ -23,11 +23,6 @@ impl Adapter {
             cards::active_now(&self.app.state, rooms_by_id)
         }
     }
-
-    /// Keeps ActivityClock current while Active Now shows a timer.
-    pub(super) fn tick_active_now(&self, window: &YapfastWindow, timed: bool) {
-        super::profile::run_activity_clock(&self.active_now_clock, window, timed);
-    }
 }
 
 /// "A", "A and B", "A, B, and 1 other", "A, B, and 4 others".
@@ -50,7 +45,7 @@ mod cards {
 
     use yapfast_core::chat::{Activity, ActivityKind, ChatRoom, Friend, Presence};
 
-    use super::super::profile::{activity_seconds, presence_name};
+    use super::super::profile::{activity_at, presence_name};
     use super::super::refresh::{VoicePlace, voice_places};
     use super::*;
 
@@ -239,7 +234,7 @@ mod cards {
     /// When the first of these started, on ActivityClock; 0 when none says.
     fn earliest_start<'a>(activities: impl Iterator<Item = &'a Activity>) -> i32 {
         activities
-            .map(|activity| activity_seconds(activity.start))
+            .map(|activity| activity_at(activity.start))
             .filter(|start| *start > 0)
             .min()
             .unwrap_or(0)
@@ -295,7 +290,7 @@ mod cards {
                 .into(),
             initial: initial(&activity.name),
             tint: tint(&activity.name),
-            start: activity_seconds(activity.start),
+            start: activity_at(activity.start),
             ..Default::default()
         }
     }

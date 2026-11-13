@@ -77,7 +77,9 @@
             nasm
           ];
           buildInputs = libraries;
-          LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath runtimeLibraries;
+          # rustc links with its own rust-lld, which skips the Nix ld wrapper
+          # that would put libstdc++'s directory in the binary's runpath.
+          LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (runtimeLibraries ++ [ pkgs.stdenv.cc.cc.lib ]);
           CC = "clang";
           CXX = "clang++";
           LIBCLANG_PATH = "${pkgs.llvmPackages_21.libclang.lib}/lib";

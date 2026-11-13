@@ -10,6 +10,10 @@ impl Application {
             return vec![];
         }
         let open = self.state.dm_screen.is_some();
+        if !self.state.nav_walking {
+            let previous = self.state.place();
+            self.state.record_visit(previous, &HistoryPlace::Dm(screen));
+        }
         self.state.dm_screen = Some(screen);
         if open { vec![] } else { self.deselect() }
     }
@@ -114,6 +118,8 @@ impl Application {
                 room,
                 user: person,
                 effect: self.state.cosmetics.effects,
+                // The DM's panel draws no frame, so nothing of one is fetched.
+                frame: false,
             }))]
         } else {
             vec![]
@@ -293,19 +299,30 @@ impl Application {
         &mut self,
         user: String,
         change: chat::RelationshipChange,
+        location: &'static str,
     ) -> Vec<Effect> {
         if self.state.discord_user.is_none() || self.state.preview {
             return vec![];
         }
         vec![Effect::Backend(Command::Discord(
-            DiscordCommand::Relationship { user, change },
+            DiscordCommand::Relationship {
+                user,
+                change,
+                location,
+            },
         ))]
     }
 
-    /// Opens a dialog about a Discord user, from their DM's menu or their
-    /// menu as a server member, fetching the note it shows. A server's own
-    /// dialogs open through [`Self::ask_member`].
-    pub(super) fn ask_person(&mut self, user: String, ask: PersonAsk) -> Vec<Effect> {
+    /// Opens a dialog about a Discord user, from their DM's menu, their
+    /// menu as a server member or their profile's, which `location` names,
+    /// fetching the note it shows. A server's own dialogs open through
+    /// [`Self::ask_member`].
+    pub(super) fn ask_person(
+        &mut self,
+        user: String,
+        ask: PersonAsk,
+        location: &'static str,
+    ) -> Vec<Effect> {
         if self.state.discord_user.is_none()
             || self.state.preview
             || self.state.relation(&user) == Relation::Me
@@ -317,13 +334,20 @@ impl Application {
             return self.call_person(user);
         }
         let friend = self.state.friends.iter().find(|friend| friend.id == user);
-        // As their DM names them, or the open channel.
+        // As their DM names them, or the open channel, or their profile.
         let name = self
             .state
             .dm_with(&user)
             .map(|room| room.name.clone())
             .or_else(|| self.state.person(&user).map(|person| person.name))
-            .or_else(|| friend.map(|friend| friend.name.clone()));
+            .or_else(|| friend.map(|friend| friend.name.clone()))
+            .or_else(|| {
+                self.state
+                    .profile
+                    .as_ref()
+                    .filter(|view| view.profile.id == user)
+                    .map(|view| view.profile.name.clone())
+            });
         let Some(name) = name else {
             return vec![];
         };
@@ -342,6 +366,7 @@ impl Application {
             user: user.clone(),
             name,
             ask,
+            location,
             text,
             saving: false,
             error: None,
@@ -370,6 +395,7 @@ impl Application {
             return vec![];
         };
         let user = dialog.user.clone();
+        let location = dialog.location;
         let text = text.trim().to_owned();
         let command = match dialog.ask {
             PersonAsk::Call => {
@@ -388,7 +414,8 @@ impl Application {
                     chat::RelationshipChange::Unfriend
                 };
                 self.state.person_dialog = None;
-                return self.change_relationship(user, change);
+                // Discord's client names a confirmation by the menu it came from.
+                return self.change_relationship(user, change, location);
             }
             PersonAsk::ServerNickname | PersonAsk::Timeout | PersonAsk::Kick | PersonAsk::Ban => {
                 let Some(server) = dialog.server.clone() else {
@@ -473,6 +500,7 @@ impl Application {
                     presence: friend.presence.map(discord::presence),
                     activity: friend.activity.clone(),
                     activities: friend.activities.clone(),
+                    since: friend.since,
                 })
                 .collect();
         }
@@ -500,6 +528,9 @@ impl Application {
                     guild: join.guild.clone(),
                 })
                 .collect();
+        }
+        if changed(|a, b| Arc::ptr_eq(&a.own_activities, &b.own_activities)) {
+            self.state.discord_activities = snapshot.own_activities.clone();
         }
         let playing = snapshot.playing.as_deref();
         // Snapshots come often; the game rarely changes.
@@ -542,6 +573,24 @@ impl Application {
         if changed {
             self.state.category_changes = self.state.category_changes.wrapping_add(1);
         }
+        let emoji_changed = self.discord.as_ref().is_none_or(|earlier| {
+            snapshot.servers.len() != earlier.servers.len()
+                || snapshot
+                    .servers
+                    .iter()
+                    .zip(&earlier.servers)
+                    .any(|(now, then)| now.id != then.id || !Arc::ptr_eq(&now.emojis, &then.emojis))
+        });
+        let stickers_changed = self.discord.as_ref().is_none_or(|earlier| {
+            snapshot.servers.len() != earlier.servers.len()
+                || snapshot
+                    .servers
+                    .iter()
+                    .zip(&earlier.servers)
+                    .any(|(now, then)| {
+                        now.id != then.id || !Arc::ptr_eq(&now.stickers, &then.stickers)
+                    })
+        });
         self.discord = Some(snapshot);
         let mut effects = self.list_discord();
         self.refresh_browse();
@@ -551,44 +600,56 @@ impl Application {
         effects.extend(self.mark_aside_read());
         // Posts that came to the forum on screen want their first messages.
         effects.extend(self.ask_starters());
-        effects.extend(self.prefetch_emoji());
+        if emoji_changed {
+            self.emoji_cache_current = false;
+            effects.extend(self.prefetch_emoji());
+        }
         effects.extend(self.prefetch_gifs());
+        effects.extend(self.prefetch_server_icons());
+        // The sticker picker's default packs, their pictures fetched ahead,
+        // so it opens at once.
+        effects.extend(self.load_sticker_packs());
+        // Every server's stickers come with the snapshot, as Discord's client
+        // reads them from READY: their pictures are fetched ahead as a list
+        // comes or changes, and an open picker lists what changed.
+        if stickers_changed {
+            if self.state.stickers.open {
+                self.follow_sticker_server();
+            }
+            effects.extend(self.prefetch_stickers());
+        }
         effects.extend(self.ask_activity());
         effects
     }
 
-    /// Fetches the account's custom emoji pictures into the disk cache once, on
-    /// a start that kept none: a first start, or one whose cache went. Nothing
-    /// is decoded or held, so it costs no memory; the fetcher downloads a few at
-    /// a time and lets whatever is on screen go before them, and its backoff
-    /// keeps Discord from rate-limiting it.
+    /// Fetches every server's icon into the disk cache ahead of the sticker
+    /// and emoji pickers, whose rails show them all: each is a small picture,
+    /// and asking for them as a picker opens leaves the rail blank meanwhile.
     #[cfg(feature = "discord")]
-    fn prefetch_emoji(&mut self) -> Option<Effect> {
-        if self.emoji_prefetched {
-            return None;
-        }
-        self.emoji_prefetched = true;
-        if yapfast_discord::cache::pictures_kept() != 0 {
-            return None;
-        }
-        let mut seen = HashSet::new();
-        let emoji: Vec<String> = self
-            .emoji_sets()
+    fn prefetch_server_icons(&mut self) -> Option<Effect> {
+        let icons: Vec<String> = self
+            .discord
+            .as_ref()?
+            .servers
             .iter()
-            .flat_map(|set| &set.emoji)
-            .map(|emoji| emoji.picture.clone())
-            .filter(|url| !url.is_empty() && seen.insert(url.clone()))
+            .filter_map(|server| server.icon.clone())
             .collect();
-        tracing::info!(
-            pictures = emoji.len(),
-            "prefetching custom emoji pictures for a cache that held none"
-        );
-        // To the disk cache alone: nothing is decoded or held, so an account
-        // with thousands of emoji costs no memory to prefetch, and what the
-        // picker shows is read from the disk as it shows it.
-        (!emoji.is_empty()).then_some(Effect::Backend(Command::Discord(
-            DiscordCommand::PrefetchPictures(emoji),
+        let icons: Vec<String> = icons
+            .into_iter()
+            .filter(|url| !url.is_empty() && self.server_icons_prefetched.insert(url.clone()))
+            .filter(|url| !yapfast_discord::cache::picture_is_kept(url))
+            .collect();
+        (!icons.is_empty()).then_some(Effect::Backend(Command::Discord(
+            DiscordCommand::PrefetchPictures(icons),
         )))
+    }
+
+    /// Warms the account's custom emoji cache even if avatars or some emoji
+    /// were cached already. The URL set shared with the picker also catches
+    /// emoji added by a later snapshot without queuing the old ones again.
+    #[cfg(feature = "discord")]
+    fn prefetch_emoji(&mut self) -> Vec<Effect> {
+        self.cache_emoji_pictures()
     }
 
     /// Forgets the Discord account after it was unlinked.
@@ -597,6 +658,8 @@ impl Application {
         {
             self.discord = None;
             self.discord_index = discord::Index::default();
+            self.emoji_prefetched.clear();
+            self.emoji_cache_current = false;
         }
         self.state.discord_linked = false;
         self.state.discord_online = false;
@@ -619,6 +682,7 @@ impl Application {
         self.state.custom_status = None;
         self.state.discord_show_game = false;
         self.state.discord_playing = None;
+        self.state.discord_activities = Default::default();
         self.state.join_sounds.clear();
         self.state.sound_catalog = None;
         self.show_lists()
