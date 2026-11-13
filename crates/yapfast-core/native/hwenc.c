@@ -319,16 +319,30 @@ static size_t nvenc_settings(const struct nvenc_tuning *tuning, struct setting *
   return sizeof wanted / sizeof *wanted;
 }
 
-/* Opens NVENC with `tuning`. Low-latency tuning, no frame delay and IDR
- * frames on demand are what the stream can't do without, so a driver that
- * refuses one fails the open; a preset, a rate control or a zero-latency
- * hint this FFmpeg doesn't have or the driver refuses only costs the
- * picture, so it is noted and the encoder goes on without it. */
+/* Opens NVENC with `tuning`. Low-latency tuning, no frame delay and IDR frames
+ * on demand are what the stream asks for, and a driver from before one of them
+ * existed refuses it. That refusal is not the end of the open: the same settings
+ * are asked for again with the ones worth the picture treated as optional, so a
+ * card too old to name its tuning still encodes — at NVENC's own defaults for
+ * what it refused, which is a frame held or a keyframe only at the interval —
+ * and the report names each one it dropped. The processor's encoder at that
+ * card's resolutions is the worse trade, and refusing the open is what would
+ * leave it. A preset, a rate control or a zero-latency hint this FFmpeg hasn't
+ * got, or the driver refuses, costs only the picture and is noted the same way.
+ */
 static int set_nvenc(struct yapfast_hwenc *h, const struct nvenc_tuning *tuning,
                      unsigned codec_id) {
   struct setting settings[8];
   size_t count = nvenc_settings(tuning, settings);
   int ret = set_options(h, settings, count);
+  if (ret < 0) {
+    /* What a current driver opens with, then what an older one opens with as much
+     * of as it has. The settings already set stay set; only a refused one reaches
+     * `notes`, so the stream's report says what this driver hasn't got. */
+    first_error[0] = 0;
+    for (size_t i = 0; i < count; i++) settings[i].worth = OPTIONAL_SETTING;
+    ret = set_options(h, settings, count);
+  }
   if (ret >= 0 && codec_id == CODEC_H264) ret = set_option(h, REQUIRED_SETTING, "profile", "main");
   return ret;
 }

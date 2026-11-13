@@ -433,6 +433,19 @@ declares: that ceiling is what Discord and the uplink are promised. Enforcing it
 would be Yapfast's own work — watching what the encoder spends and taking the
 cap down as it goes — not the encoder's.
 
+**Sharpening: no, not at these scales.** The decoded picture is 1.3 % softer in
+edge energy than the source at 3440x1440@60 and 1.6 % at 1920x1080@60 — so what a
+sharpening pass would have to add is a *hundredth*, and nothing in FFmpeg's
+filters goes that small. `cas` at its gentlest (`0.02`) lifts edge energy to
+**1.155** of the source with PSNR-Y **49.992** where the shipped row is 58.974;
+`0.05`, `0.1` and `0.2` are 1.155, 1.158 and 1.167; `unsharp 0.2` is 1.147 at
+48.408 and `0.4` 1.225 at 42.993. At 1920x1080@60 and 6000 kbit/s `cas 0.05` is
+1.140 at 51.923 against 56.692. Each also costs a pass: 6.79 to 7.31–7.55 ms a
+frame at 1440p, 2.55 to 2.74–3.11 at 1080p. Every step overshoots into halos and
+spends bits doing it. A 1 % sharpening would have to be our own kernel — the card's
+video processor or a CUDA one — tuned against a reference, not a filter's
+smallest setting.
+
 **The colour claim.** The question assumed BT.709; `hwenc.c` and `d3d11enc.c`
 declare **SMPTE 170M (BT.601) limited**, and that is what the pixels are:
 measured mean absolute error 0.33/0.33/0.41 codes through NVENC's own BGRA→NV12

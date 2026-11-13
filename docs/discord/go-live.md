@@ -913,15 +913,16 @@ leaves a calm screen below the cap rather than padding it. Quick Sync's rate is
 MFX's VBR with the cap at the target and the average a kbit/s under it, because
 FFmpeg's Quick Sync reads a target level with the cap as its constant bitrate,
 which fills a calm screen out to the cap. `native/hwenc.c` sorts them into what
-the stream needs and what only improves it: a needed
-setting this FFmpeg doesn't have, or the driver refuses, fails that encoder's
-open, and the worker logs it by name ("no GPU encoder opened"); an optional
-one the driver drops is logged too ("the GPU's encoder dropped optional
+the stream needs and what only improves it: a needed setting this FFmpeg hasn't
+got, or the driver refuses, is asked for once more with it dropped rather than
+failing the open — a card from before that setting existed still encodes, at
+NVENC's own default for it, and the report names it — while an optional one the
+driver drops is noted the same way ("the GPU's encoder dropped optional
 settings"), and the stream goes on without it, so it never claims a setting it
-hasn't got. A backend that was passed over says so too, and why — a codec this
-FFmpeg wasn't built with, a driver that wouldn't open, an interface the platform
-doesn't have — so a card whose encoder wasn't used never looks like nothing at
-all. NVENC is the one backend checked before it is opened: it has no device of
+hasn't got. A backend that is passed over entirely says so too, and why — a codec
+this FFmpeg wasn't built with, a driver that wouldn't open, an interface the
+platform doesn't have — so a card whose encoder wasn't used never looks like
+nothing at all. NVENC is the one backend checked before it is opened: it has no device of
 its own to ask, so a machine with no NVIDIA card is told that rather than left
 with FFmpeg's driver error, while AMF and VA-API reach their own runtime and
 render node and say what those answered. The colour the stream declares is the
