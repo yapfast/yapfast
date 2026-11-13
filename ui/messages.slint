@@ -2006,7 +2006,11 @@ component TextBlockView inherits VerticalLayout {
             padding-top: root.block.padding;
             padding-left: root.block.quoted ? 12px : 0px;
             if root.block.level == 5: Rectangle {
-                background: Theme.code; border-radius: Look.r(Look.code, 4px); border-width: Look.bw(Look.code, Look.line(1px)); border-color: Look.bc(Look.code, Theme.line);
+                background: Art.glass-code ? transparent : Theme.code; border-radius: Look.r(Look.code, 4px); border-width: Look.bw(Look.code, Look.line(1px)); border-color: Look.bc(Look.code, Theme.line);
+                if Art.code.length > 0 || Art.glass-code: ArtLayer {
+                    x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.code, 4px);
+                    layers: Art.code; glass: Art.glass-code; ground: Theme.code;
+                }
                 if Arrange.dash-code.on: DashedOutline { x: 0px; y: 0px; dash: Arrange.dash-code; stock-ink: Theme.line; }
                 VerticalLayout {
                     padding: root.code-size / 2;
@@ -2066,8 +2070,12 @@ export component EmbedView inherits HorizontalLayout {
     // preferred height measured it at another width and cut off the end.
     Rectangle {
         max-width: 432px; horizontal-stretch: 100;
-        background: Theme.embed; border-radius: Look.r(Look.embed, 4px); clip: true;
+        background: Art.glass-embed ? transparent : Theme.embed; border-radius: Look.r(Look.embed, 4px); clip: true;
         border-width: Look.bw(Look.embed, 0px); border-color: Look.bc(Look.embed, transparent);
+        if Art.embed.length > 0 || Art.glass-embed: ArtLayer {
+            x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.embed, 4px);
+            layers: Art.embed; glass: Art.glass-embed; ground: Theme.embed;
+        }
         if Arrange.dash-embed.on: DashedOutline { x: 0px; y: 0px; dash: Arrange.dash-embed; stock-ink: Theme.line; }
         Rectangle { x: 0px; width: 4px; background: root.embed.has-color ? root.embed.color : Theme.edge; }
         embed-body := HorizontalLayout {
@@ -3198,7 +3206,10 @@ export component MessageContent inherits VerticalLayout {
                 for reaction in message.reactions: ReactionToggle {
                     item: message.item; key: reaction.key; label: reaction.label; count: reaction.count; mine: reaction.mine; emoji-font: root.emoji-font;
                     enabled: message.can-react && root.reactions-enabled;
-                    clicked => { root.react(message.item, reaction.key); }
+                    clicked => {
+                        if Art.track { Art.pointer-x = self.absolute-position.x + self.width / 2; Art.pointer-y = self.absolute-position.y + self.height / 2; }
+                        root.react(message.item, reaction.key);
+                    }
                 }
             }
             if message.delivery != "" && !message.sending: HorizontalLayout {

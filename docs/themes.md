@@ -230,6 +230,10 @@ this Yapfast doesn't know is ignored with a note on the theme's page, so a
 theme written for a later Yapfast still opens. `id` is reverse-DNS in
 lowercase and stays the same forever; `version` is `1.2.0` or `1.2`. `preview`
 lists up to six pictures, which the marketplace needs at least one of.
+`description` is at most 300 characters: `yapfast theme check` refuses a longer
+one, naming its length, and so does Yapfast. An installed theme whose
+`theme.json` Yapfast refuses is left out of Settings → Themes, and choosing
+it, or starting with it chosen, says why.
 Listing also needs `license`, a licence file (`LICENSE`, `LICENSE.txt`,
 `LICENSE.md`, `LICENCE`, `LICENCE.txt` or `OFL.txt`), `source` on GitHub and a
 `description`.
@@ -271,6 +275,8 @@ another until one does:
 | `account` | The account panel's ground at the bottom left (avatar, name, mic, headphones, settings) | `panel` |
 | `actions` | The ground of the bar of actions over a message under the pointer | `raised` |
 | `actions-hover` | A button's ground under the pointer in that bar, and in the quick reactions atop a message's menu | the stock wash |
+| `row-selected-text` | Text and icons on a selected channel row: with a light `row-selected`, an inverse-video selection | `text` |
+| `card-button`, `card-button-hover`, `card-button-icon` | The round buttons over a profile card's banner (add friend, more, close), under the pointer, and their icons | black at 50% and 70%, white |
 
 A theme that sets `hover` also lights the hovered row of a context menu with
 it, instead of the stock white or black wash, and `scrim` dims the window
@@ -307,6 +313,7 @@ percentage of its size: 50 a circle, 0 a square.
 | `toggle` | Switches: a `radius` in pixels (999, a pill, as stock), and their border |
 | `actions` | The bar of actions over a message under the pointer: quick reactions, Reply, Forward, More |
 | `row` | A message row's hover, mention and jump bands: `radius`, and `inset` (below) |
+| `card-button` | The round buttons over a profile card's banner: `radius`, `border`, `border_colour`, `shadow` |
 
 `row` also takes `inset`: pixels each band keeps from the column's sides
 (0–32), or `[sides, ends]` with the room it keeps from the row's top and
@@ -317,6 +324,11 @@ is; in `bubbles` hover and a mention tint the bubble (hover as a wash of
 `overlay`, not `row-hover`); in `flat` and `irc` they run across the row,
 or across the column and 8 pixels past it when `chat_max_width` centres
 it.
+
+`card` also takes `inset_top` (0–64 pixels): room kept above the banner of a
+profile card the person hasn't themed themselves, for chrome its art draws,
+such as a window's title bar. The banner, the avatar and the banner's
+buttons move down by it; the card's art covers it.
 
 Every other corner in the window takes `radii`: `small` for stock corners of
 4 pixels or less, `medium` up to 8, `large` above. Every other shadow takes
@@ -355,6 +367,7 @@ the stock card keeps its banner to the edge.
 | `tile` | Cards in settings |
 | `divider` | The day and "New" lines across the messages |
 | `actions` | The bar of actions over a message |
+| `panes` | Edges between the rail and the sidebar, the navigation and the conversation, and the conversation and the member list. Drawn only when named, `"solid"` included: a terminal's frame lines |
 
 ```json
 "shape": {
@@ -505,9 +518,14 @@ variant's `surfaces` and `text` replace the shared ones surface by surface.
 gap), `rail`, `sidebar`, `chat`, `members`, `account` (the account panel at the
 bottom left, on the `account` colour; `panel`, its first name, is read as it),
 `card` (a profile card the person hasn't themed themselves), `dialog`,
-`composer`, `menu` and `actions` (the bar of actions over a message, on the
-`actions` colour). Each takes a layer or a list of up to 4, bottom first,
-drawn over the surface's ground and under its content:
+`composer`, `menu`, `actions` (the bar of actions over a message, on the
+`actions` colour), `settings` (the settings window: its page with its
+tiles and fields, and the sections beside it, on `panel`), `embed`, `code`
+(code blocks), `row-selected` (the selected channel, on `row-selected`) and
+`card_over`. Each takes a layer or a list of up to 4, bottom first, drawn
+over the surface's ground and under its content, except `card_over`, which
+lies over a profile card's content, such as a gloss across its banner, and
+takes no clicks:
 
 | Field | |
 | --- | --- |
@@ -526,8 +544,11 @@ drawn over the surface's ground and under its content:
 | `heavy` | Stays still in Balanced (drift and frames run there otherwise) |
 
 Pictures are decoded once per theme, no larger than 2560 × 1600 (a tile no
-larger than 1024), with their blend, blur, dim and opacity put into their
-pixels then, so drawing them costs a plain picture. Slint has no blend modes
+larger than 1024), with their blend, blur and dim put into their pixels
+then, so drawing them costs a plain picture. Opacity is drawn instead, so
+one picture serves every surface that lays it, whatever its opacity there;
+a picture shows in memory once unless surfaces blur, dim, scale or blend it
+differently, and a theme's other variant keeps what it shares. Slint has no blend modes
 of its own: a blend mixes with the surface's colour, not with what another
 layer drew beneath.
 
@@ -553,7 +574,9 @@ on the top and left inner edge), `inset` (a shadow inside the edges, as
 edge and its two panes, the navigation and the conversation, where the
 window's art shows; a glass `account` panel floats the same distance from the
 navigation above it and the window's edge) and `radius` (their corners, and
-a glass account panel's, when there's a gap).
+a glass account panel's, when there's a gap) and `rim` (`colour` and
+`width`, 0.5–4 pixels: a hard line at each pane's very edge, outside the
+inner shadow and the highlight).
 
 *Text*: `names` (authors, the member list, the profile card), `headings` (the
 conversation's and the server's names, settings titles) and `labels` (small
@@ -568,8 +591,15 @@ falls), `on` `ambient`, `message.sent`, `reaction.added` or `theme.applied`,
 `colours` (1–8, picked in turn), `sprite` (a picture drawn instead of the
 shape), `count` (1–64: how many fly on an event, or most at once when
 ambient), `rate` (ambient, how many start a second), `size` (2–48 px), `life`
-(300–12000 ms) and `heavy` (ambient sets are heavy unless they say not).
-At most 160 fly at once.
+(300–12000 ms), `heavy` (ambient sets are heavy unless they say not),
+`from` (where they start: `composer`, the message box; `send-button`, its
+send button, or the box's end in Discord's look; `apply-button`, the last
+Apply or Try pressed in Settings → Themes; `pointer`, the last reaction or
+send button pressed; `window`, each preset's own place across the window,
+which a set takes unless it says otherwise, and `message.sent` sets
+`composer`) and `z` (`over`, above everything, or `under`, behind the
+conversation's messages and message box, so send bubbles rise behind the
+text). At most 160 fly at once.
 
 *Events*, one effect each: `click` `ripple` (labelled buttons), `hover`
 `gloss` (a sweep of light over labelled buttons and the rail's servers),
@@ -586,6 +616,12 @@ sweeping across every `period` milliseconds.
 *Transition*: when another channel opens, the conversation as it was
 `fade`s or `dissolve`s in blocks over `duration` (100–2000 ms). Yapfast takes
 a picture of the window for it, held only while it plays.
+
+Showing a theme never waits on its files: choosing one in Settings, Apply
+and Try check its folder, read its fonts, decode its sounds and bake its
+pictures on another thread while the window keeps the theme it shows, then
+set the new one's values in one go. Starting, `--theme-dev` reloads and a
+change between light and dark do the same work where they are.
 
 Performance: Full runs all of it at up to 60 frames a second. Balanced runs
 art at up to 30, paused while Yapfast isn't focused, and holds heavy layers

@@ -11,6 +11,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
 use slint::{Brush, Color, ComponentHandle, Image, ModelRc, SharedString, VecModel};
@@ -159,6 +160,31 @@ struct State {
     dev_timer: Option<slint::Timer>,
     /// Why the chosen theme couldn't be shown, for a notice.
     failed: Option<String>,
+    /// Installed themes whose `theme.json` this Yapfast refused, and why,
+    /// so choosing one says so instead of nothing.
+    refused: Vec<(String, String)>,
+    /// A theme made ready off the UI thread, by its id, or why it can't be.
+    ready: Option<(String, Result<Ready, String>)>,
+    /// The latest [`prepare`], and what to do once it's ready.
+    preparing: u64,
+    when_ready: Option<Then>,
+}
+
+/// What to do once [`prepare`] has made a theme ready.
+type Then = Box<dyn FnOnce(&YapfastWindow)>;
+
+/// What showing a theme takes that's slow, made by [`prepare`] on another
+/// thread: its files checked, its fonts read, its sounds decoded and its
+/// pictures baked. The UI thread only registers and sets them.
+pub struct Ready {
+    package: Package,
+    folder: PathBuf,
+    mode: Mode,
+    resolved: Resolved,
+    /// Font files, checked, by their path in the folder.
+    fonts: HashMap<PathBuf, Arc<Vec<u8>>>,
+    sounds: HashMap<u64, Arc<[i16]>>,
+    art: super::theme_art::Baked,
 }
 
 thread_local! {
@@ -171,7 +197,7 @@ pub fn init(root: &Path) {
     register_bases();
     STATE.with_borrow_mut(|state| {
         state.root = Some(root.to_owned());
-        state.installed = Themes::open(root).installed();
+        (state.installed, state.refused) = Themes::open(root).installed_and_refused();
     });
 }
 
@@ -227,6 +253,11 @@ fn wanted_mode(window: &YapfastWindow) -> Mode {
 /// Shows an installed theme, or `--theme-dev`'s folder, by its id. Returns
 /// the colours to apply, or why it can't be shown; the caller falls back.
 pub fn show(window: &YapfastWindow, id: &str) -> Result<theme::Theme, String> {
+    if let Some(ready) = take_ready(window, id) {
+        let ready = ready?;
+        let (package, folder) = (ready.package.clone(), ready.folder.clone());
+        return apply_package(window, id, &package, &folder, Some(ready));
+    }
     if id == "dev" {
         let folder = DEV.get().ok_or("no --theme-dev folder")?.clone();
         return show_folder(window, &folder);
@@ -240,7 +271,7 @@ pub fn show(window: &YapfastWindow, id: &str) -> Result<theme::Theme, String> {
                 .find(|theme| theme.id == installed_id)
                 .map(|theme| (theme.package.clone(), theme.folder.clone()))
         })
-        .ok_or_else(|| "that theme isn't installed any more".to_owned())?;
+        .ok_or_else(|| refused_reason(installed_id))?;
     // An installed theme was checked when installed; its files are checked
     // again here, since the store is on disk where anything could change it.
     let files = Files::read(&folder)?;
@@ -248,7 +279,161 @@ pub fn show(window: &YapfastWindow, id: &str) -> Result<theme::Theme, String> {
     if let Some(reason) = report.reason() {
         return Err(reason.to_owned());
     }
-    apply_package(window, id, &package, &folder)
+    apply_package(window, id, &package, &folder, None)
+}
+
+/// Why an installed theme can't be found: this Yapfast refused its
+/// `theme.json`, or it isn't installed.
+fn refused_reason(id: &str) -> String {
+    STATE.with_borrow(|state| {
+        state
+            .refused
+            .iter()
+            .find(|(refused, _)| refused == id)
+            .map_or_else(
+                || "that theme isn't installed any more".to_owned(),
+                |(_, reason)| format!("its theme.json was refused: {reason}"),
+            )
+    })
+}
+
+/// Forgets a [`prepare`] still under way, and anything it made ready: the
+/// person chose another theme meanwhile.
+pub fn cancel_prepare() {
+    STATE.with_borrow_mut(|state| {
+        state.preparing += 1;
+        state.when_ready = None;
+        state.ready = None;
+    });
+}
+
+/// Whether [`prepare`] has made `id` ready, or found why it can't be.
+pub fn is_ready(id: &str) -> bool {
+    STATE.with_borrow(|state| state.ready.as_ref().is_some_and(|(ready, _)| ready == id))
+}
+
+/// Takes what [`prepare`] made for `id`, if it's still right for the window:
+/// the variant the system asks for may have changed since.
+fn take_ready(window: &YapfastWindow, id: &str) -> Option<Result<Ready, String>> {
+    let (ready_id, ready) = STATE.with_borrow_mut(|state| state.ready.take())?;
+    if ready_id != id {
+        return None;
+    }
+    match ready {
+        Ok(ready) if ready.package.mode_for(wanted_mode(window)) != ready.mode => None,
+        ready => Some(ready),
+    }
+}
+
+/// Makes an installed theme, or `--theme-dev`'s folder, ready to show on
+/// another thread, so the window never waits on its files: the theme on
+/// the window stays until `then` runs on the UI thread, which shows it with
+/// [`show`] at no more cost than setting its values. A later call
+/// supersedes this one.
+pub fn prepare(window: &YapfastWindow, id: &str, then: impl FnOnce(&YapfastWindow) + 'static) {
+    let folder = if id == "dev" {
+        DEV.get()
+            .cloned()
+            .ok_or_else(|| "no --theme-dev folder".to_owned())
+    } else {
+        let installed_id = id.strip_prefix(INSTALLED).unwrap_or(id);
+        STATE
+            .with_borrow(|state| {
+                state
+                    .installed
+                    .iter()
+                    .find(|theme| theme.id == installed_id)
+                    .map(|theme| theme.folder.clone())
+            })
+            .ok_or_else(|| refused_reason(installed_id))
+    };
+    let wanted = wanted_mode(window);
+    let size = window.window().size();
+    let generation = STATE.with_borrow_mut(|state| {
+        state.preparing += 1;
+        state.when_ready = Some(Box::new(then));
+        state.preparing
+    });
+    let weak = window.as_weak();
+    let id = id.to_owned();
+    let work = move || {
+        let started = Instant::now();
+        let ready = folder.and_then(|folder| make_ready(folder, wanted, (size.width, size.height)));
+        tracing::info!(
+            id,
+            ms = started.elapsed().as_millis() as u64,
+            "a theme was made ready off the UI thread"
+        );
+        let _ = slint::invoke_from_event_loop(move || {
+            let Some(window) = weak.upgrade() else { return };
+            let then = STATE.with_borrow_mut(|state| {
+                if state.preparing != generation {
+                    return None;
+                }
+                state.ready = Some((id, ready));
+                state.when_ready.take()
+            });
+            if let Some(then) = then {
+                then(&window);
+            }
+        });
+    };
+    if std::thread::Builder::new()
+        .name("theme".into())
+        .spawn(work)
+        .is_err()
+    {
+        tracing::warn!("couldn't start a thread to make a theme ready");
+    }
+}
+
+/// [`prepare`]'s work: everything [`show`] would do before setting values.
+fn make_ready(folder: PathBuf, wanted: Mode, window: (u32, u32)) -> Result<Ready, String> {
+    // An installed theme was checked when installed; its files are checked
+    // again here, since the store is on disk where anything could change it.
+    let files = Files::read(&folder)?;
+    let report = check::check(&files, Strictness::Install);
+    for warning in &report.warnings {
+        tracing::info!(warning, "theme");
+    }
+    if let Some(reason) = report.reason() {
+        return Err(reason.to_owned());
+    }
+    let package = report.package.ok_or("the theme has no package")?;
+    let mode = package.mode_for(wanted);
+    let resolved = package.resolve(mode).map_err(|error| error.0)?;
+    let mut fonts = HashMap::new();
+    let named = resolved
+        .types
+        .values()
+        .filter_map(|kind| kind.font.as_ref())
+        .chain(resolved.layout.names.iter().flat_map(|names| &names.fonts));
+    for font in named {
+        if let Some(bytes) = files.files.get(font) {
+            fonts.insert(font.clone(), Arc::new(bytes.clone()));
+        }
+    }
+    let mut sounds = HashMap::new();
+    for file in resolved.sounds.values().flat_map(|choice| &choice.files) {
+        if let Some(bytes) = files.files.get(file) {
+            let key = super::theme_media::digest(bytes);
+            if !sounds.contains_key(&key)
+                && let Ok(samples) = yapfast_core::themes::media::decode_sound(file, bytes)
+            {
+                sounds.insert(key, Arc::from(samples));
+            }
+        }
+    }
+    let art = super::theme_art::bake(&resolved, &folder, window);
+    Ok(Ready {
+        package,
+        folder,
+        mode,
+        resolved,
+        fonts,
+        sounds,
+        art,
+    })
 }
 
 /// Shows a theme's folder as it is now, for `--theme-dev`.
@@ -265,7 +450,7 @@ fn show_folder(window: &YapfastWindow, folder: &Path) -> Result<theme::Theme, St
         return Err(reason.to_owned());
     }
     let package = report.package.expect("a passed check has its package");
-    apply_package(window, "dev", &package, folder)
+    apply_package(window, "dev", &package, folder, None)
 }
 
 fn apply_package(
@@ -273,22 +458,43 @@ fn apply_package(
     id: &str,
     package: &Package,
     folder: &Path,
+    ready: Option<Ready>,
 ) -> Result<theme::Theme, String> {
-    let mode = package.mode_for(wanted_mode(window));
-    let resolved = package.resolve(mode).map_err(|error| error.0)?;
+    let started = Instant::now();
+    let checked = ready.is_some();
+    let (resolved, prepared) = match ready {
+        Some(ready) => {
+            super::theme_media::seed_sounds(ready.sounds);
+            super::theme_art::take_baked(ready.art);
+            (ready.resolved, ready.fonts)
+        }
+        None => {
+            let mode = package.mode_for(wanted_mode(window));
+            (
+                package.resolve(mode).map_err(|error| error.0)?,
+                HashMap::new(),
+            )
+        }
+    };
+    let font = |path: &Path| match prepared.get(path) {
+        Some(bytes) => register_font_bytes(bytes, &folder.join(path)),
+        None => register_font(&folder.join(path)),
+    };
     let mut fonts = Vec::new();
     for (role, kind) in &resolved.types {
-        if let Some(font) = &kind.font {
-            let family = register_font(&folder.join(font))?;
-            fonts.push((*role, family));
+        if let Some(path) = &kind.font {
+            fonts.push((*role, font(path)?));
         }
     }
-    super::theme_media::load(&resolved, folder, |token| {
-        token_colour(&resolved, token).map(Color::from_argb_encoded)
-    })?;
+    super::theme_media::load(
+        &resolved,
+        folder,
+        |token| token_colour(&resolved, token).map(Color::from_argb_encoded),
+        checked,
+    )?;
     let mut ransom = Vec::new();
-    for font in resolved.layout.names.iter().flat_map(|names| &names.fonts) {
-        ransom.push(register_font(&folder.join(font))?);
+    for path in resolved.layout.names.iter().flat_map(|names| &names.fonts) {
+        ransom.push(font(path)?);
     }
     let colours = colours_of(&resolved);
     STATE.with_borrow_mut(|state| {
@@ -303,6 +509,16 @@ fn apply_package(
         state.failed = None;
     });
     paint(window);
+    if checked {
+        // The thread that made it ready left its decoding's memory free.
+        super::trim();
+    }
+    tracing::info!(
+        id,
+        prepared = checked,
+        ms = started.elapsed().as_millis() as u64,
+        "a theme's values were set on the UI thread"
+    );
     Ok(colours)
 }
 
@@ -322,9 +538,15 @@ fn token_colour(resolved: &Resolved, token: &str) -> Option<u32> {
 /// Registers a theme's font under a family name of its own, after parsing it
 /// whole, and returns the name.
 fn register_font(path: &Path) -> Result<String, String> {
-    use std::hash::{Hash, Hasher};
     let bytes = std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
     check::check_font(&bytes).map_err(|error| format!("{}: {error}", path.display()))?;
+    register_font_bytes(&Arc::new(bytes), path)
+}
+
+/// Registers a font whose bytes were already read and checked, as
+/// [`register_font`] does.
+fn register_font_bytes(bytes: &Arc<Vec<u8>>, path: &Path) -> Result<String, String> {
+    use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     bytes.hash(&mut hasher);
     let digest = hasher.finish();
@@ -334,7 +556,7 @@ fn register_font(path: &Path) -> Result<String, String> {
     let family = format!("Yapfast Theme {digest:016x}");
     let mut collection = slint::fontique_012::shared_collection();
     let registered = collection.register_fonts(
-        slint::fontique_012::fontique::Blob::new(std::sync::Arc::new(bytes)),
+        slint::fontique_012::fontique::Blob::new(bytes.clone()),
         Some(slint::fontique_012::fontique::FontInfoOverride {
             family_name: Some(&family),
             ..Default::default()
@@ -381,6 +603,7 @@ pub fn reset(window: &YapfastWindow) {
     look.set_radius_large(-1.);
     look.set_row_inset_x(0.);
     look.set_row_inset_y(0.);
+    look.set_card_inset_top(0.);
     look.set_shadows_on(false);
     for role in Role::ALL {
         set_font(&look, role, "");
@@ -510,6 +733,13 @@ fn paint(window: &YapfastWindow) {
         {
             look.set_row_inset_x(x);
             look.set_row_inset_y(y);
+        }
+        if let Some(top) = resolved
+            .shapes
+            .get(&Surface::Card)
+            .and_then(|shape| shape.inset_top)
+        {
+            look.set_card_inset_top(top);
         }
         let [small, medium, large] = resolved.radii;
         look.set_radius_small(small.unwrap_or(-1.));
@@ -652,6 +882,7 @@ fn set_shape(look: &Look<'_>, surface: Surface, shape: Shape) {
         Surface::Toggle => look.set_toggle(shape),
         Surface::Actions => look.set_actions(shape),
         Surface::Row => look.set_row(shape),
+        Surface::CardButton => look.set_card_button(shape),
     }
 }
 
@@ -778,6 +1009,22 @@ fn set_extra(tokens: &yapfast_ui::Theme<'_>, token: &str, colour: Option<Color>)
         "actions-hover" => {
             tokens.set_actions_hover_set(colour);
             tokens.set_actions_hover_on(on);
+        }
+        "row-selected-text" => {
+            tokens.set_row_selected_text_set(colour);
+            tokens.set_row_selected_text_on(on);
+        }
+        "card-button" => {
+            tokens.set_card_button_set(colour);
+            tokens.set_card_button_on(on);
+        }
+        "card-button-hover" => {
+            tokens.set_card_button_hover_set(colour);
+            tokens.set_card_button_hover_on(on);
+        }
+        "card-button-icon" => {
+            tokens.set_card_button_icon_set(colour);
+            tokens.set_card_button_icon_on(on);
         }
         "mentioned" => tokens.set_mentioned(if on {
             colour
@@ -1336,7 +1583,7 @@ fn listing_of(
         .unwrap_or_default();
     let preview = folder
         .zip(package.preview.first())
-        .and_then(|(folder, preview)| picture(&folder.join(preview)))
+        .and_then(|(folder, preview)| preview_picture(&folder.join(preview)))
         .unwrap_or_default();
     ThemeListing {
         id: id.into(),
@@ -1387,8 +1634,25 @@ fn picture(path: &Path) -> Option<Image> {
     ))
 }
 
+/// An installed theme's preview, decoded once while the page is open: the
+/// page is drawn again each time a theme is applied.
+fn preview_picture(path: &Path) -> Option<Image> {
+    PREVIEWS.with_borrow_mut(|previews| {
+        previews
+            .entry(path.to_owned())
+            .or_insert_with(|| picture(path))
+            .clone()
+    })
+}
+
+thread_local! {
+    static PREVIEWS: std::cell::RefCell<HashMap<PathBuf, Option<Image>>> =
+        std::cell::RefCell::new(HashMap::new());
+}
+
 /// Drops the gallery's pictures, once the page closes.
 pub fn close_page(window: &YapfastWindow) {
+    PREVIEWS.with_borrow_mut(HashMap::clear);
     let page = window.global::<ThemesPage>();
     page.set_installed(ModelRc::default());
     page.set_listed(ModelRc::default());
@@ -1401,7 +1665,7 @@ pub fn close_page(window: &YapfastWindow) {
 fn reload_installed() {
     STATE.with_borrow_mut(|state| {
         if let Some(root) = &state.root {
-            state.installed = Themes::open(root).installed();
+            (state.installed, state.refused) = Themes::open(root).installed_and_refused();
         }
     });
 }
@@ -1573,7 +1837,7 @@ pub fn try_review(window: &YapfastWindow, back_to: Option<String>) -> Result<the
         }
         std::fs::write(&target, bytes).map_err(|error| error.to_string())?;
     }
-    let colours = apply_package(window, "trial", &package, &folder);
+    let colours = apply_package(window, "trial", &package, &folder, None);
     let _ = std::fs::remove_dir_all(&folder);
     let colours = colours?;
     begin_trial(window, back_to, None, &package.name);

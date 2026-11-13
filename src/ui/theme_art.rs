@@ -10,20 +10,21 @@
 //! theme without art sets nothing and runs nothing here.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use image::{Rgba, RgbaImage};
 use slint::{Color, ComponentHandle, Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, VecModel};
 use yapfast_core::themes::Performance;
 use yapfast_core::themes::check::art::{
-    CARD_ART, DISPLAY, GLASS_SHRINK, TEXTURE_SIDE, blend_channel, shown,
+    CARD_ART, DISPLAY, GLASS_SHRINK, TEXTURE_SIDE, bake_key, blend_channel, shown,
 };
 use yapfast_core::themes::package::art::{
-    Art, ArtSurface, EventSlot, Fit, FoilSurface, Layer, OverlayKind, Preset, Source, TextLook,
-    TextRole, Texture, TransitionKind, Trigger,
+    Art, ArtSurface, Depth, Emitter, EventSlot, Fit, FoilSurface, Layer, Overlay, OverlayKind,
+    Preset, Source, TextLook, TextRole, Texture, TransitionKind, Trigger,
 };
 use yapfast_core::themes::package::{Property, Resolved};
 use yapfast_ui::{ArtImage, ArtOverlay, ArtParticle, ArtText, CardArt, SlotMotion, YapfastWindow};
@@ -50,6 +51,7 @@ struct Live {
     preset: Preset,
     sprite: i32,
     seed: f32,
+    under: bool,
 }
 
 /// A channel change playing: when it began, how long it takes.
@@ -58,13 +60,26 @@ struct Shot {
     duration: f32,
 }
 
+/// Pixels as Slint takes them, which may be made on another thread.
+type Pixels = SharedPixelBuffer<Rgba8Pixel>;
+
+/// A theme's pictures, decoded and baked off the UI thread by [`bake`], by
+/// the key [`apply`] looks them up under; it only wraps them.
+#[derive(Default)]
+pub struct Baked(HashMap<String, Pixels>);
+
 #[derive(Default)]
 struct State {
     art: Option<Art>,
     folder: PathBuf,
-    /// Decoded pictures, by what made them; kept while the same theme
-    /// shows, so painting it again decodes nothing.
+    /// Decoded pictures, by what made them: one picture however many
+    /// surfaces lay it, kept while the theme shows, so painting it again,
+    /// or showing its other variant, decodes nothing that's still in use.
     cache: HashMap<String, Image>,
+    /// What [`bake`] made for the next [`apply`].
+    baked: HashMap<String, Pixels>,
+    /// The keys the last [`apply`] asked for; the rest of the cache goes.
+    used: HashSet<String>,
     performance: Performance,
     reduced: bool,
     clock: Option<(Instant, slint::Timer)>,
@@ -108,6 +123,11 @@ pub fn reset(window: &YapfastWindow) {
     art.set_composer(none());
     art.set_menu(none());
     art.set_actions(none());
+    art.set_settings(none());
+    art.set_embed(none());
+    art.set_code(none());
+    art.set_row_selected(none());
+    art.set_card_over(none());
     art.set_cards(ModelRc::new(VecModel::<CardArt>::default()));
     art.set_overlays(ModelRc::new(VecModel::<ArtOverlay>::default()));
     art.set_chat_overlays(false);
@@ -123,9 +143,17 @@ pub fn reset(window: &YapfastWindow) {
         yapfast_ui::Art::set_glass_composer,
         yapfast_ui::Art::set_glass_menu,
         yapfast_ui::Art::set_glass_actions,
+        yapfast_ui::Art::set_glass_settings,
+        yapfast_ui::Art::set_glass_embed,
+        yapfast_ui::Art::set_glass_code,
+        yapfast_ui::Art::set_glass_row_selected,
     ] {
         set(&art, false);
     }
+    art.set_rim_width(0.);
+    art.set_rim_color(Color::default());
+    art.set_particles_under(false);
+    art.set_track(false);
     art.set_blurred(Image::default());
     art.set_glass_opacity(1.);
     art.set_highlight(Color::default());
@@ -165,7 +193,13 @@ pub fn forget() {
     STATE.with_borrow_mut(|state| {
         state.art = None;
         state.cache.clear();
+        state.baked.clear();
     });
+}
+
+/// Pictures [`bake`] made, for the next [`apply`] to use.
+pub fn take_baked(baked: Baked) {
+    STATE.with_borrow_mut(|state| state.baked = baked.0);
 }
 
 /// Sets a theme's art, as Performance and reduced motion allow. Called by
@@ -180,17 +214,22 @@ pub fn apply(
 ) {
     let art = &resolved.art;
     STATE.with_borrow_mut(|state| {
-        if state.folder != folder || state.art.as_ref() != Some(art) {
+        // Another theme's pictures are no use; this one's other variant
+        // keeps whatever it shares with the one before.
+        if state.folder != folder {
             state.cache.clear();
         }
+        state.used.clear();
         state.folder = folder.to_owned();
         state.art = Some(art.clone());
         state.performance = performance;
         state.reduced = reduced;
         state.owed = vec![0.0; art.particles.len()];
     });
-    cards(window, resolved, folder);
+    let mut decoder = Decoder::new(folder);
+    cards(window, resolved, &mut decoder);
     if art.is_empty() {
+        settle();
         return;
     }
     let global = window.global::<yapfast_ui::Art>();
@@ -201,7 +240,7 @@ pub fn apply(
         let images: Vec<ArtImage> = layers
             .iter()
             .filter_map(|layer| {
-                let image = picture(folder, layer, ground(*surface))?;
+                let image = picture(&mut decoder, layer, ground(*surface))?;
                 let moves = layer.moves() && runs(layer.heavy, performance, reduced);
                 moving |= moves;
                 Some(art_image(layer, image, moves, 0.0))
@@ -220,6 +259,11 @@ pub fn apply(
             ArtSurface::Composer => global.set_composer(model),
             ArtSurface::Menu => global.set_menu(model),
             ArtSurface::Actions => global.set_actions(model),
+            ArtSurface::Settings => global.set_settings(model),
+            ArtSurface::Embed => global.set_embed(model),
+            ArtSurface::Code => global.set_code(model),
+            ArtSurface::RowSelected => global.set_row_selected(model),
+            ArtSurface::CardOver => global.set_card_over(model),
         }
     }
     // Overlays: Light leaves out the heavy ones, Balanced holds them still.
@@ -236,23 +280,15 @@ pub fn apply(
                 let Some(layer) = &overlay.layer else {
                     continue;
                 };
-                let Some(image) = picture(folder, layer, ground(ArtSurface::Window)) else {
+                let Some(image) = picture(&mut decoder, layer, ground(ArtSurface::Window)) else {
                     continue;
                 };
                 (0, art_image(layer, image, moves, 0.0))
             }
             OverlayKind::Scanlines | OverlayKind::Lcd | OverlayKind::Grain => {
-                let key = format!(
-                    "overlay:{}:{}:{:08x}",
-                    overlay.kind.name(),
-                    overlay.size,
-                    overlay.colour
-                );
-                let image = cached(&key, || match overlay.kind {
-                    OverlayKind::Scanlines => scanlines(overlay.size as u32, overlay.colour),
-                    OverlayKind::Lcd => lcd(overlay.size as u32, overlay.colour),
-                    _ => texture(Texture::Grain, overlay.colour),
-                });
+                let Some(image) = cached(&pattern_key(overlay), || Some(pattern(overlay))) else {
+                    continue;
+                };
                 let tile = ArtImage {
                     image,
                     fit: 2,
@@ -303,13 +339,17 @@ pub fn apply(
                 ArtSurface::Composer => yapfast_ui::Art::set_glass_composer,
                 ArtSurface::Menu => yapfast_ui::Art::set_glass_menu,
                 ArtSurface::Actions => yapfast_ui::Art::set_glass_actions,
-                ArtSurface::Window => continue,
+                ArtSurface::Settings => yapfast_ui::Art::set_glass_settings,
+                ArtSurface::Embed => yapfast_ui::Art::set_glass_embed,
+                ArtSurface::Code => yapfast_ui::Art::set_glass_code,
+                ArtSurface::RowSelected => yapfast_ui::Art::set_glass_row_selected,
+                ArtSurface::Window | ArtSurface::CardOver => continue,
             };
             set(&global, true);
         }
         let size = window.window().size();
         let blurred = blurred(
-            folder,
+            &mut decoder,
             art,
             glass.blur,
             (size.width, size.height),
@@ -321,6 +361,10 @@ pub fn apply(
         if let Some(inset) = glass.inset {
             global.set_inset_color(Color::from_argb_encoded(inset.colour));
             global.set_inset_size(inset.blur.max(1.));
+        }
+        if let Some((colour, width)) = glass.rim {
+            global.set_rim_color(Color::from_argb_encoded(colour));
+            global.set_rim_width(width);
         }
         global.set_gap(glass.gap);
         global.set_pane_radius(if glass.gap > 0.0 { glass.radius } else { 0.0 });
@@ -394,23 +438,111 @@ pub fn apply(
         .particles
         .iter()
         .filter_map(|particles| particles.sprite.as_ref())
-        .filter_map(|sprite| {
-            cached(&format!("sprite:{}", sprite.display()), || {
-                decode(&folder.join(sprite), (256, 256)).unwrap_or_default()
+        .map(|sprite| {
+            cached(&sprite_key(sprite), || {
+                decoder.get(sprite, SPRITE).map(|picture| pixels(&picture))
             })
-            .into()
+            .unwrap_or_default()
         })
         .collect();
     global.set_sprites(ModelRc::new(VecModel::from(sprites)));
+    global.set_track(!art.particles.is_empty());
+    global.set_particles_under(
+        art.particles
+            .iter()
+            .any(|particles| particles.z == Depth::Under),
+    );
+    settle();
     STATE.with_borrow_mut(|state| state.moving = moving);
     start_clock(window);
     event(window, Trigger::ThemeApplied);
 }
 
+/// After an apply: drops what was baked for it and not used, and every
+/// picture the theme no longer shows.
+fn settle() {
+    STATE.with_borrow_mut(|state| {
+        state.baked.clear();
+        let used = std::mem::take(&mut state.used);
+        state.cache.retain(|key, _| used.contains(key));
+    });
+}
+
+/// The largest a particle's sprite is decoded.
+const SPRITE: (u32, u32) = (256, 256);
+
+/// Bakes a theme's pictures, as [`apply`] would ask for them in a window of
+/// `window` pixels, where nothing waits on it: decoding a theme's art is
+/// most of what showing it costs.
+pub fn bake(resolved: &Resolved, folder: &Path, window: (u32, u32)) -> Baked {
+    let art = &resolved.art;
+    let mut decoder = Decoder::new(folder);
+    let mut made: HashMap<String, Pixels> = HashMap::new();
+    let ground = |surface: ArtSurface| shown(resolved, surface.ground()).unwrap_or(0xff00_0000);
+    let mut add = |key: String, make: &mut dyn FnMut() -> Option<Pixels>| {
+        if !made.contains_key(&key)
+            && let Some(pixels) = make()
+        {
+            made.insert(key, pixels);
+        }
+    };
+    for (surface, layers) in &art.surfaces {
+        for layer in layers {
+            add(layer_key(layer, ground(*surface)), &mut || {
+                baked(&mut decoder, layer, ground(*surface)).map(|picture| pixels(&picture))
+            });
+        }
+    }
+    for overlay in &art.overlays {
+        match overlay.kind {
+            OverlayKind::Image => {
+                if let Some(layer) = &overlay.layer {
+                    let under = ground(ArtSurface::Window);
+                    add(layer_key(layer, under), &mut || {
+                        baked(&mut decoder, layer, under).map(|picture| pixels(&picture))
+                    });
+                }
+            }
+            OverlayKind::Scanlines | OverlayKind::Lcd | OverlayKind::Grain => {
+                add(pattern_key(overlay), &mut || Some(pattern(overlay)));
+            }
+            _ => {}
+        }
+    }
+    if let Some(glass) = &art.glass {
+        let under = ground(ArtSurface::Window);
+        add(glass_key(art, glass.blur, window, under), &mut || {
+            Some(blurred_pixels(&mut decoder, art, glass.blur, window, under))
+        });
+    }
+    for sprite in art
+        .particles
+        .iter()
+        .filter_map(|particles| particles.sprite.as_ref())
+    {
+        add(sprite_key(sprite), &mut || {
+            decoder.get(sprite, SPRITE).map(|picture| pixels(&picture))
+        });
+    }
+    let layout = &resolved.layout;
+    let card_ground = layout
+        .cards
+        .ground
+        .or_else(|| shown(resolved, "raised"))
+        .unwrap_or(0xff00_0000);
+    for card in &layout.cards.art {
+        add(card_key(&card.layer, card_ground), &mut || {
+            baked_at(&mut decoder, &card.layer, card_ground, CARD_ART)
+                .map(|picture| pixels(&picture))
+        });
+    }
+    Baked(made)
+}
+
 /// The pictures on each message card: decoded once at no more than twice
 /// the size they show, shared by every card, and how far they reach past
 /// a card's edges, which each row's slice of the card leaves room for.
-fn cards(window: &YapfastWindow, resolved: &Resolved, folder: &Path) {
+fn cards(window: &YapfastWindow, resolved: &Resolved, decoder: &mut Decoder) {
     let layout = &resolved.layout;
     if layout.cards.art.is_empty() {
         return;
@@ -427,15 +559,9 @@ fn cards(window: &YapfastWindow, resolved: &Resolved, folder: &Path) {
     );
     let mut placed = Vec::new();
     for card in &layout.cards.art {
-        let key = format!("card:{:?}:{ground:08x}", card.layer);
-        let Some(image) = STATE
-            .with_borrow(|state| state.cache.get(&key).cloned())
-            .or_else(|| {
-                let image = slint_image(baked_at(folder, &card.layer, ground, CARD_ART)?);
-                STATE.with_borrow_mut(|state| state.cache.insert(key.clone(), image.clone()));
-                Some(image)
-            })
-        else {
+        let Some(image) = cached(&card_key(&card.layer, ground), || {
+            baked_at(decoder, &card.layer, ground, CARD_ART).map(|picture| pixels(&picture))
+        }) else {
             continue;
         };
         let natural = image.size();
@@ -501,6 +627,7 @@ fn art_image(layer: &Layer, image: Image, moves: bool, jitter: f32) -> ArtImage 
         period: frames.2,
         jitter,
         moves,
+        fade: 1.0 - layer.opacity,
     }
 }
 
@@ -522,14 +649,51 @@ fn text(look: &TextLook) -> ArtText {
     }
 }
 
-/// A picture made once per theme by `make`, under `key`.
-fn cached(key: &str, make: impl FnOnce() -> Image) -> Image {
-    if let Some(image) = STATE.with_borrow(|state| state.cache.get(key).cloned()) {
-        return image;
+/// The picture under `key`: kept from before, baked by [`bake`], or made
+/// now by `make`. Every key asked for stays in the cache.
+fn cached(key: &str, make: impl FnOnce() -> Option<Pixels>) -> Option<Image> {
+    let found = STATE.with_borrow_mut(|state| {
+        state.used.insert(key.to_owned());
+        if let Some(image) = state.cache.get(key) {
+            return Some(image.clone());
+        }
+        let image = Image::from_rgba8(state.baked.remove(key)?);
+        state.cache.insert(key.to_owned(), image.clone());
+        Some(image)
+    });
+    if found.is_some() {
+        return found;
     }
-    let image = make();
+    let image = Image::from_rgba8(make()?);
     STATE.with_borrow_mut(|state| state.cache.insert(key.to_owned(), image.clone()));
-    image
+    Some(image)
+}
+
+/// A picture decoded once, or none when it couldn't be.
+type Decoded = Option<Arc<RgbaImage>>;
+
+/// Decodes a theme's pictures, each once at each size asked for, however
+/// many layers bake it.
+struct Decoder<'a> {
+    folder: &'a Path,
+    decoded: HashMap<(PathBuf, (u32, u32)), Decoded>,
+}
+
+impl<'a> Decoder<'a> {
+    fn new(folder: &'a Path) -> Self {
+        Self {
+            folder,
+            decoded: HashMap::new(),
+        }
+    }
+
+    fn get(&mut self, path: &Path, cap: (u32, u32)) -> Option<Arc<RgbaImage>> {
+        let folder = self.folder;
+        self.decoded
+            .entry((path.to_owned(), cap))
+            .or_insert_with(|| load(&folder.join(path), cap).map(Arc::new))
+            .clone()
+    }
 }
 
 /// Reads and decodes a picture in the theme's folder, no larger than `cap`.
@@ -551,34 +715,64 @@ fn load(path: &Path, cap: (u32, u32)) -> Option<RgbaImage> {
     Some(picture.to_rgba8())
 }
 
-fn decode(path: &Path, cap: (u32, u32)) -> Option<Image> {
-    load(path, cap).map(slint_image)
+fn pixels(picture: &RgbaImage) -> Pixels {
+    let (width, height) = picture.dimensions();
+    SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(picture.as_raw(), width, height)
 }
 
-fn slint_image(picture: RgbaImage) -> Image {
-    let (width, height) = picture.dimensions();
-    Image::from_rgba8(SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
-        picture.as_raw(),
-        width,
-        height,
-    ))
+/// What a layer's baked picture is kept under: its source and how it's
+/// baked, with the ground's colour only when a blend mixes with it.
+fn layer_key(layer: &Layer, ground: u32) -> String {
+    format!("layer:{}", bake_key(layer, Some(&format!("{ground:08x}"))))
+}
+
+fn card_key(layer: &Layer, ground: u32) -> String {
+    format!("card:{}", bake_key(layer, Some(&format!("{ground:08x}"))))
+}
+
+fn sprite_key(sprite: &Path) -> String {
+    format!("sprite:{}", sprite.display())
+}
+
+fn pattern_key(overlay: &Overlay) -> String {
+    format!(
+        "overlay:{}:{}:{:08x}",
+        overlay.kind.name(),
+        overlay.size,
+        overlay.colour
+    )
+}
+
+/// A scanline, LCD or grain overlay's tile.
+fn pattern(overlay: &Overlay) -> Pixels {
+    pixels(&match overlay.kind {
+        OverlayKind::Scanlines => scanlines(overlay.size as u32, overlay.colour),
+        OverlayKind::Lcd => lcd(overlay.size as u32, overlay.colour),
+        _ => texture_pixels(Texture::Grain, overlay.colour),
+    })
 }
 
 /// A layer's pixels at display size: decoded or made, scaled, blurred, and
-/// mixed with the surface's ground as its blend says, dimmed and faded.
-fn baked(folder: &Path, layer: &Layer, ground: u32) -> Option<RgbaImage> {
+/// mixed with the surface's ground as its blend says, and dimmed. Its
+/// opacity is drawn, so one picture serves every surface that lays it.
+fn baked(decoder: &mut Decoder, layer: &Layer, ground: u32) -> Option<RgbaImage> {
     let cap = if layer.fit == Fit::Tile {
         (1024, 1024)
     } else {
         DISPLAY
     };
-    baked_at(folder, layer, ground, cap)
+    baked_at(decoder, layer, ground, cap)
 }
 
 /// [`baked`], decoded no larger than `cap`.
-fn baked_at(folder: &Path, layer: &Layer, ground: u32, cap: (u32, u32)) -> Option<RgbaImage> {
+fn baked_at(
+    decoder: &mut Decoder,
+    layer: &Layer,
+    ground: u32,
+    cap: (u32, u32),
+) -> Option<RgbaImage> {
     let mut picture = match &layer.source {
-        Source::Image(path) => load(&folder.join(path), cap)?,
+        Source::Image(path) => RgbaImage::clone(&*decoder.get(path, cap)?),
         Source::Texture(kind) => texture_pixels(*kind, layer.colour),
     };
     if layer.fit == Fit::Tile && (layer.scale - 1.0).abs() > 0.01 {
@@ -594,9 +788,12 @@ fn baked_at(folder: &Path, layer: &Layer, ground: u32, cap: (u32, u32)) -> Optio
     if layer.blur > 0.0 {
         picture = image::imageops::fast_blur(&picture, layer.blur / 2.0);
     }
+    let plain = layer.blend == yapfast_core::themes::package::art::Blend::Normal;
+    if plain && layer.dim <= 0.0 {
+        return Some(picture);
+    }
     let channel = |colour: u32, shift: u32| ((colour >> shift) & 0xff) as f32 / 255.0;
     let under = [channel(ground, 16), channel(ground, 8), channel(ground, 0)];
-    let plain = layer.blend == yapfast_core::themes::package::art::Blend::Normal;
     for pixel in picture.pixels_mut() {
         let Rgba([red, green, blue, alpha]) = *pixel;
         let art = [red, green, blue].map(|value| f32::from(value) / 255.0);
@@ -608,69 +805,109 @@ fn baked_at(folder: &Path, layer: &Layer, ground: u32, cap: (u32, u32)) -> Optio
             };
             ((value * (1.0 - layer.dim)).clamp(0.0, 1.0) * 255.0).round() as u8
         });
-        let alpha = (f32::from(alpha) * layer.opacity).round() as u8;
         *pixel = Rgba([mixed[0], mixed[1], mixed[2], alpha]);
     }
     Some(picture)
 }
 
-fn picture(folder: &Path, layer: &Layer, ground: u32) -> Option<Image> {
-    let key = format!("layer:{layer:?}:{ground:08x}");
-    if let Some(image) = STATE.with_borrow(|state| state.cache.get(&key).cloned()) {
-        return Some(image);
-    }
-    let image = slint_image(baked(folder, layer, ground)?);
-    STATE.with_borrow_mut(|state| state.cache.insert(key, image.clone()));
-    Some(image)
+fn picture(decoder: &mut Decoder, layer: &Layer, ground: u32) -> Option<Image> {
+    cached(&layer_key(layer, ground), || {
+        baked(decoder, layer, ground).map(|picture| pixels(&picture))
+    })
+}
+
+/// The size the glass panes' blurred copy of the window's art is kept at.
+fn glass_size(window: (u32, u32)) -> (u32, u32) {
+    (
+        (window.0 / GLASS_SHRINK).clamp(64, DISPLAY.0 / GLASS_SHRINK),
+        (window.1 / GLASS_SHRINK).clamp(48, DISPLAY.1 / GLASS_SHRINK),
+    )
+}
+
+fn glass_key(art: &Art, blur: f32, window: (u32, u32), ground: u32) -> String {
+    let (width, height) = glass_size(window);
+    let layers: Vec<String> = art
+        .surfaces
+        .get(&ArtSurface::Window)
+        .into_iter()
+        .flatten()
+        .map(|layer| {
+            format!(
+                "{}:{:?}:{}",
+                layer_key(layer, ground),
+                layer.fit,
+                layer.opacity
+            )
+        })
+        .collect();
+    format!(
+        "glass:{width}x{height}:{blur}:{ground:08x}:{}",
+        layers.join("|")
+    )
 }
 
 /// The window's art, laid on its ground at a quarter of the window's size
 /// and blurred: what glass panes show through.
-fn blurred(folder: &Path, art: &Art, blur: f32, window: (u32, u32), ground: u32) -> Image {
-    let width = (window.0 / GLASS_SHRINK).clamp(64, DISPLAY.0 / GLASS_SHRINK);
-    let height = (window.1 / GLASS_SHRINK).clamp(48, DISPLAY.1 / GLASS_SHRINK);
-    let key = format!("glass:{width}x{height}:{blur}:{ground:08x}");
-    cached(&key, || {
-        let [_, red, green, blue] = ground.to_be_bytes();
-        let mut canvas = RgbaImage::from_pixel(width, height, Rgba([red, green, blue, 255]));
-        for layer in art.surfaces.get(&ArtSurface::Window).into_iter().flatten() {
-            let Some(picture) = baked(folder, layer, ground) else {
-                continue;
-            };
-            let filter = image::imageops::FilterType::Triangle;
-            match layer.fit {
-                Fit::Tile => {
-                    let tile = image::imageops::resize(
-                        &picture,
-                        (picture.width() / GLASS_SHRINK).max(1),
-                        (picture.height() / GLASS_SHRINK).max(1),
-                        filter,
-                    );
-                    image::imageops::tile(&mut canvas, &tile);
-                }
-                Fit::Contain => {
-                    let fitted = image::DynamicImage::ImageRgba8(picture)
-                        .resize(width, height, filter)
-                        .to_rgba8();
-                    let x = i64::from((width - fitted.width()) / 2);
-                    let y = i64::from((height - fitted.height()) / 2);
-                    image::imageops::overlay(&mut canvas, &fitted, x, y);
-                }
-                Fit::Stretch => {
-                    let fitted = image::imageops::resize(&picture, width, height, filter);
-                    image::imageops::overlay(&mut canvas, &fitted, 0, 0);
-                }
-                Fit::Cover => {
-                    let fitted = image::DynamicImage::ImageRgba8(picture)
-                        .resize_to_fill(width, height, filter)
-                        .to_rgba8();
-                    image::imageops::overlay(&mut canvas, &fitted, 0, 0);
-                }
+fn blurred(decoder: &mut Decoder, art: &Art, blur: f32, window: (u32, u32), ground: u32) -> Image {
+    cached(&glass_key(art, blur, window, ground), || {
+        Some(blurred_pixels(decoder, art, blur, window, ground))
+    })
+    .unwrap_or_default()
+}
+
+fn blurred_pixels(
+    decoder: &mut Decoder,
+    art: &Art,
+    blur: f32,
+    window: (u32, u32),
+    ground: u32,
+) -> Pixels {
+    let (width, height) = glass_size(window);
+    let [_, red, green, blue] = ground.to_be_bytes();
+    let mut canvas = RgbaImage::from_pixel(width, height, Rgba([red, green, blue, 255]));
+    for layer in art.surfaces.get(&ArtSurface::Window).into_iter().flatten() {
+        let Some(mut picture) = baked(decoder, layer, ground) else {
+            continue;
+        };
+        // Opacity is drawn, not baked: here it's laid into the copy.
+        if layer.opacity < 1.0 {
+            for pixel in picture.pixels_mut() {
+                pixel.0[3] = (f32::from(pixel.0[3]) * layer.opacity).round() as u8;
             }
         }
-        let blurred = image::imageops::fast_blur(&canvas, (blur / GLASS_SHRINK as f32).max(0.5));
-        slint_image(blurred)
-    })
+        let filter = image::imageops::FilterType::Triangle;
+        match layer.fit {
+            Fit::Tile => {
+                let tile = image::imageops::resize(
+                    &picture,
+                    (picture.width() / GLASS_SHRINK).max(1),
+                    (picture.height() / GLASS_SHRINK).max(1),
+                    filter,
+                );
+                image::imageops::tile(&mut canvas, &tile);
+            }
+            Fit::Contain => {
+                let fitted = image::DynamicImage::ImageRgba8(picture)
+                    .resize(width, height, filter)
+                    .to_rgba8();
+                let x = i64::from((width - fitted.width()) / 2);
+                let y = i64::from((height - fitted.height()) / 2);
+                image::imageops::overlay(&mut canvas, &fitted, x, y);
+            }
+            Fit::Stretch => {
+                let fitted = image::imageops::resize(&picture, width, height, filter);
+                image::imageops::overlay(&mut canvas, &fitted, 0, 0);
+            }
+            Fit::Cover => {
+                let fitted = image::DynamicImage::ImageRgba8(picture)
+                    .resize_to_fill(width, height, filter)
+                    .to_rgba8();
+                image::imageops::overlay(&mut canvas, &fitted, 0, 0);
+            }
+        }
+    }
+    let blurred = image::imageops::fast_blur(&canvas, (blur / GLASS_SHRINK as f32).max(0.5));
+    pixels(&blurred)
 }
 
 /// A small deterministic noise: 0 to 1 for a cell.
@@ -743,32 +980,28 @@ fn texture_pixels(kind: Texture, colour: u32) -> RgbaImage {
     })
 }
 
-fn texture(kind: Texture, colour: u32) -> Image {
-    slint_image(texture_pixels(kind, colour))
-}
-
 /// One line every `spacing` pixels.
-fn scanlines(spacing: u32, colour: u32) -> Image {
+fn scanlines(spacing: u32, colour: u32) -> RgbaImage {
     let [alpha, red, green, blue] = colour.to_be_bytes();
     let spacing = spacing.max(2);
-    slint_image(RgbaImage::from_fn(4, spacing, |_, y| {
+    RgbaImage::from_fn(4, spacing, |_, y| {
         Rgba([red, green, blue, if y == spacing - 1 { alpha } else { 0 }])
-    }))
+    })
 }
 
 /// An LCD's pixel grid: red, green and blue stripes, faint, with a dark
 /// line between pixels.
-fn lcd(size: u32, colour: u32) -> Image {
+fn lcd(size: u32, colour: u32) -> RgbaImage {
     let size = size.max(2);
     let [alpha, red, green, blue] = colour.to_be_bytes();
-    slint_image(RgbaImage::from_fn(size * 3, size, |x, y| {
+    RgbaImage::from_fn(size * 3, size, |x, y| {
         if y == size - 1 || x % size == size - 1 {
             return Rgba([red, green, blue, alpha]);
         }
         let stripe = (x / size) % 3;
         let tint = [[255, 40, 40], [40, 255, 40], [40, 40, 255]][stripe as usize];
         Rgba([tint[0], tint[1], tint[2], alpha / 5])
-    }))
+    })
 }
 
 /// Starts the art clock when something moves, or stops it.
@@ -878,15 +1111,39 @@ fn random(seed: &mut u64) -> f32 {
     (*seed >> 40) as f32 / (1u64 << 24) as f32
 }
 
-/// Particles for an event, if the theme has a set for it and they may fly.
-pub fn event(window: &YapfastWindow, trigger: Trigger) {
-    let size = {
-        let art = window.global::<yapfast_ui::Art>();
-        (
+/// Where particles may start, in window pixels, as the window last said.
+#[derive(Clone, Copy, Default)]
+struct Origins {
+    size: (f32, f32),
+    /// The message box: x, y, width, height.
+    composer: (f32, f32, f32, f32),
+    send: (f32, f32),
+    apply: (f32, f32),
+    pointer: (f32, f32),
+}
+
+fn origins(window: &YapfastWindow) -> Origins {
+    let art = window.global::<yapfast_ui::Art>();
+    Origins {
+        size: (
             art.get_window_width().max(400.),
             art.get_window_height().max(300.),
-        )
-    };
+        ),
+        composer: (
+            art.get_composer_x(),
+            art.get_composer_y(),
+            art.get_composer_w(),
+            art.get_composer_h(),
+        ),
+        send: (art.get_send_x(), art.get_send_y()),
+        apply: (art.get_apply_x(), art.get_apply_y()),
+        pointer: (art.get_pointer_x(), art.get_pointer_y()),
+    }
+}
+
+/// Particles for an event, if the theme has a set for it and they may fly.
+pub fn event(window: &YapfastWindow, trigger: Trigger) {
+    let size = origins(window);
     let flew = STATE.with_borrow_mut(|state| {
         let Some(art) = state.art.clone() else {
             return false;
@@ -924,22 +1181,36 @@ fn spawn(
     particles: &yapfast_core::themes::package::art::Particles,
     sprite: Option<i32>,
     trigger: Trigger,
-    (width, height): (f32, f32),
+    origins: Origins,
 ) -> Live {
+    let (width, height) = origins.size;
     let seed = &mut state.seed;
     if *seed == 0 {
         *seed = 0x2545_f491_4f6c_dd1d;
     }
     let mut r = || random(seed);
-    // Where it starts: the message box for a message, the middle for a
-    // reaction, anywhere for the rest.
-    let (x, y) = match trigger {
-        Trigger::MessageSent => (width * (0.4 + 0.5 * r()), height - 70.0 - 20.0 * r()),
-        Trigger::ReactionAdded => (width * (0.45 + 0.3 * r()), height * (0.45 + 0.2 * r())),
-        Trigger::ThemeApplied | Trigger::Ambient => match particles.preset {
-            Preset::Bubbles => (width * r(), height + 10.0),
-            Preset::Scraps => (width * r(), -10.0),
-            _ => (width * r(), height * r()),
+    // Where it starts: the place the set names, once the window has said
+    // where that is; until then, the stock places: the message box for a
+    // message, the middle for a reaction, anywhere for the rest.
+    let near = |(x, y): (f32, f32), r: &mut dyn FnMut() -> f32| {
+        (x + (r() - 0.5) * 16.0, y + (r() - 0.5) * 16.0)
+    };
+    let (cx, cy, cw, ch) = origins.composer;
+    let (x, y) = match particles.from {
+        Emitter::Composer if cw > 0.0 => (cx + cw * (0.1 + 0.8 * r()), cy + ch * (0.2 + 0.6 * r())),
+        Emitter::SendButton if origins.send != (0.0, 0.0) => near(origins.send, &mut r),
+        // Discord's look has no send button: the message box's end stands in.
+        Emitter::SendButton if cw > 0.0 => near((cx + cw - 24.0, cy + ch / 2.0), &mut r),
+        Emitter::ApplyButton if origins.apply != (0.0, 0.0) => near(origins.apply, &mut r),
+        Emitter::Pointer if origins.pointer != (0.0, 0.0) => near(origins.pointer, &mut r),
+        _ => match trigger {
+            Trigger::MessageSent => (width * (0.4 + 0.5 * r()), height - 70.0 - 20.0 * r()),
+            Trigger::ReactionAdded => (width * (0.45 + 0.3 * r()), height * (0.45 + 0.2 * r())),
+            Trigger::ThemeApplied | Trigger::Ambient => match particles.preset {
+                Preset::Bubbles => (width * r(), height + 10.0),
+                Preset::Scraps => (width * r(), -10.0),
+                _ => (width * r(), height * r()),
+            },
         },
     };
     let burst = trigger != Trigger::Ambient && trigger != Trigger::ThemeApplied;
@@ -976,17 +1247,13 @@ fn spawn(
         preset: particles.preset,
         sprite: sprite.unwrap_or(-1),
         seed: r() * 100.0,
+        under: particles.z == Depth::Under,
     }
 }
 
 fn step_particles(window: &YapfastWindow, step: f32) {
-    let size = {
-        let art = window.global::<yapfast_ui::Art>();
-        (
-            art.get_window_width().max(400.),
-            art.get_window_height().max(300.),
-        )
-    };
+    let origins = origins(window);
+    let size = origins.size;
     let shown = STATE.with_borrow_mut(|state| {
         // Ambient sets start new ones at their rate, up to their count.
         if let Some(art) = state.art.clone() {
@@ -1012,7 +1279,7 @@ fn step_particles(window: &YapfastWindow, step: f32) {
                 while state.owed.get(index).is_some_and(|owed| *owed >= 1.0) {
                     state.owed[index] -= 1.0;
                     if alive < particles.count as usize && state.particles.len() < MOST_PARTICLES {
-                        let live = spawn(state, particles, sprite, Trigger::Ambient, size);
+                        let live = spawn(state, particles, sprite, Trigger::Ambient, origins);
                         state.particles.push(live);
                     }
                 }
@@ -1066,6 +1333,7 @@ fn step_particles(window: &YapfastWindow, step: f32) {
                         Preset::Scraps => 3,
                     },
                     sprite: live.sprite,
+                    under: live.under,
                 }
             })
             .collect();
@@ -1217,12 +1485,11 @@ mod tests {
             frames: None,
             heavy: false,
         };
-        let pixels = baked(folder, &layer, 0xff00_0000).unwrap();
-        // Multiplied with black, every pixel is black, at half its alpha.
-        assert!(
-            pixels
-                .pixels()
-                .all(|pixel| pixel.0[0] == 0 && pixel.0[3] <= 128)
-        );
+        let pixels = baked(&mut Decoder::new(folder), &layer, 0xff00_0000).unwrap();
+        // Multiplied with black, every pixel is black; the opacity is drawn,
+        // not baked, so the texture keeps its own alpha.
+        assert!(pixels.pixels().all(|pixel| pixel.0[0] == 0));
+        assert!(pixels.pixels().any(|pixel| pixel.0[3] > 128));
+        assert_eq!(art_image(&layer, Image::default(), false, 0.0).fade, 0.5);
     }
 }

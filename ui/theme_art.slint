@@ -27,6 +27,9 @@ export struct ArtImage {
     jitter: float,
     /// Whether it may move now, as Performance and reduced motion say.
     moves: bool,
+    /// How much of it is let through: 1 minus the layer's opacity, drawn
+    /// rather than baked, so one picture serves every surface that lays it.
+    fade: float,
 }
 
 /// One overlay over the whole window. `kind`: 0 a picture, 1 scanlines,
@@ -69,6 +72,8 @@ export struct ArtParticle {
     rotation: float,
     shape: int,
     sprite: int,
+    /// Behind the conversation's content rather than over everything.
+    under: bool,
 }
 
 /// A picture pasted on each message card in `cards`, on its top or bottom
@@ -98,6 +103,12 @@ export global Art {
     in property <[ArtImage]> composer;
     in property <[ArtImage]> menu;
     in property <[ArtImage]> actions;
+    in property <[ArtImage]> settings;
+    in property <[ArtImage]> embed;
+    in property <[ArtImage]> code;
+    in property <[ArtImage]> row-selected;
+    /// Layers over a profile card's content, which take no input.
+    in property <[ArtImage]> card-over;
     /// Pictures on each message card, at most two.
     in property <[CardArt]> cards;
     in property <[ArtOverlay]> overlays;
@@ -121,6 +132,10 @@ export global Art {
     in property <bool> glass-composer;
     in property <bool> glass-menu;
     in property <bool> glass-actions;
+    in property <bool> glass-settings;
+    in property <bool> glass-embed;
+    in property <bool> glass-code;
+    in property <bool> glass-row-selected;
     in property <image> blurred;
     in property <float> glass-opacity: 1;
     in property <color> highlight;
@@ -129,6 +144,9 @@ export global Art {
     /// Space between the window's edge and its panes, and between them.
     in property <length> gap;
     in property <length> pane-radius;
+    /// A crisp line around each glass pane, outside its inner shadow.
+    in property <color> rim-color;
+    in property <length> rim-width;
 
     // Text light per role.
     in property <ArtText> names;
@@ -154,6 +172,22 @@ export global Art {
 
     in property <[ArtParticle]> particles;
     in property <[image]> sprites;
+    /// Whether any particle flies behind the conversation's content.
+    in property <bool> particles-under;
+    // Where particles fly from, in the window: the message box, its send
+    // button, the last Apply or Try pressed, and the last press of the
+    // pointer. Kept only while the theme has particles.
+    in property <bool> track;
+    in-out property <length> composer-x;
+    in-out property <length> composer-y;
+    in-out property <length> composer-w;
+    in-out property <length> composer-h;
+    in-out property <length> send-x;
+    in-out property <length> send-y;
+    in-out property <length> apply-x;
+    in-out property <length> apply-y;
+    in-out property <length> pointer-x;
+    in-out property <length> pointer-y;
 
     // The fixed event slots: ripple on click, gloss on hover, highlighter on
     // select, stamp on a reaction added.
@@ -213,7 +247,7 @@ export component ArtPicture inherits Rectangle {
     property <ImageHorizontalAlignment> h: root.layer.halign == 0 ? ImageHorizontalAlignment.left : root.layer.halign == 2 ? ImageHorizontalAlignment.right : ImageHorizontalAlignment.center;
     property <ImageVerticalAlignment> v: root.layer.valign == 0 ? ImageVerticalAlignment.top : root.layer.valign == 2 ? ImageVerticalAlignment.bottom : ImageVerticalAlignment.center;
     if root.layer.fit == 2: Image {
-        source: root.layer.image;
+        source: root.layer.image; opacity: 1 - root.layer.fade;
         horizontal-tiling: repeat; vertical-tiling: repeat;
         horizontal-alignment: left; vertical-alignment: top;
         x: root.slides-x ? root.off-x - root.tile-w : 0px;
@@ -224,7 +258,7 @@ export component ArtPicture inherits Rectangle {
     }
     // A sprite sheet shows one frame at a time.
     if root.layer.fit != 2 && root.layer.frames > 1: Image {
-        source: root.layer.image;
+        source: root.layer.image; opacity: 1 - root.layer.fade;
         source-clip-x: Math.mod(root.frame, root.layer.columns) * (root.tile-w / 1px);
         source-clip-y: Math.floor(root.frame / root.layer.columns) * (root.tile-h / 1px);
         source-clip-width: root.tile-w / 1px;
@@ -235,14 +269,14 @@ export component ArtPicture inherits Rectangle {
     }
     // A sliding picture is drawn twice, end to end, along one axis.
     if root.layer.fit != 2 && root.layer.frames <= 1: Image {
-        source: root.layer.image;
+        source: root.layer.image; opacity: 1 - root.layer.fade;
         image-fit: root.fit; horizontal-alignment: root.h; vertical-alignment: root.v;
         x: root.slides-x ? root.off-x : 0px; y: !root.slides-x && root.slides-y ? root.off-y : 0px;
         width: root.width; height: root.height;
         accessible-role: none;
     }
     if root.layer.fit != 2 && root.layer.frames <= 1 && (root.slides-x || root.slides-y): Image {
-        source: root.layer.image;
+        source: root.layer.image; opacity: 1 - root.layer.fade;
         image-fit: root.fit; horizontal-alignment: root.h; vertical-alignment: root.v;
         x: root.slides-x ? root.off-x - root.width : 0px; y: !root.slides-x ? root.off-y - root.height : 0px;
         width: root.width; height: root.height;
@@ -270,15 +304,54 @@ export component ArtLayer inherits Rectangle {
     if root.glass: Rectangle { background: root.ground; opacity: Art.glass-opacity; }
     for layer in root.layers: ArtPicture { x: 0px; y: 0px; width: root.width; height: root.height; layer: layer; }
     if root.glass && Art.inset-size > 0px: Rectangle {
+        x: Art.rim-width; y: Art.rim-width; width: parent.width - 2 * Art.rim-width; height: parent.height - 2 * Art.rim-width;
         Rectangle { y: 0px; height: Art.inset-size; background: @linear-gradient(180deg, Art.inset-color 0%, transparent 100%); }
         Rectangle { x: 0px; width: Art.inset-size; background: @linear-gradient(90deg, Art.inset-color 0%, transparent 100%); }
         Rectangle { x: parent.width - Art.inset-size; width: Art.inset-size; background: @linear-gradient(270deg, Art.inset-color 0%, transparent 100%); }
         Rectangle { y: parent.height - Art.inset-size; height: Art.inset-size; background: @linear-gradient(0deg, Art.inset-color 0%, transparent 100%); }
     }
     if root.glass && Art.highlight != transparent: Rectangle {
-        border-radius: root.radius; border-width: 1px;
+        x: Art.rim-width; y: Art.rim-width; width: parent.width - 2 * Art.rim-width; height: parent.height - 2 * Art.rim-width;
+        border-radius: max(0px, root.radius - Art.rim-width); border-width: 1px;
         border-color: @linear-gradient(135deg, Art.highlight 0%, Art.highlight.with-alpha(0) 55%);
     }
+    // The rim: a hard line at the pane's very edge.
+    if root.glass && Art.rim-width > 0px: Rectangle {
+        border-radius: root.radius; border-width: Art.rim-width; border-color: Art.rim-color;
+    }
+}
+
+/// Layers over a surface's content, such as a gloss across a card's banner.
+/// Pictures take no input, so clicks go through. Put it last, the size of
+/// the surface.
+export component ArtVeil inherits Rectangle {
+    in property <[ArtImage]> layers;
+    in property <length> radius;
+    border-radius: root.radius;
+    clip: true;
+    for layer in root.layers: ArtPicture { x: 0px; y: 0px; width: root.width; height: root.height; layer: layer; }
+}
+
+/// Says where a place particles fly from is in the window, while the theme
+/// has particles: 0 the message box, 1 its send button.
+export component ArtEmitter inherits Rectangle {
+    in property <int> kind;
+    property <length> ax: root.absolute-position.x;
+    property <length> ay: root.absolute-position.y;
+    accessible-role: none;
+    function tell() {
+        if root.kind == 0 {
+            Art.composer-x = root.ax; Art.composer-y = root.ay;
+            Art.composer-w = root.width; Art.composer-h = root.height;
+        } else {
+            Art.send-x = root.ax + root.width / 2; Art.send-y = root.ay + root.height / 2;
+        }
+    }
+    init => { root.tell(); }
+    changed ax => { root.tell(); }
+    changed ay => { root.tell(); }
+    changed width => { root.tell(); }
+    changed height => { root.tell(); }
 }
 
 /// The overlays, over everything; none takes input.
@@ -293,7 +366,8 @@ export component ArtOverlays inherits Rectangle {
         property <float> t: overlay.moves ? Art.t : 0;
         if overlay.kind <= 2: ArtPicture {
             x: 0px; y: 0px; width: parent.width; height: parent.height;
-            layer: overlay.picture; opacity: overlay.opacity;
+            // A picture's opacity is its own `fade`; a pattern's, the overlay's.
+            layer: overlay.picture; opacity: overlay.kind == 0 ? 1 : overlay.opacity;
         }
         // The vignette darkens the edges, deepest in the corners.
         if overlay.kind == 3: Rectangle {
@@ -321,8 +395,13 @@ export component ArtOverlays inherits Rectangle {
 
 /// The particles in flight, over everything; none takes input.
 export component ArtParticles inherits Rectangle {
+    /// Draws those that fly behind the conversation's content, in a layer
+    /// laid there, instead of those over everything.
+    in property <bool> under;
+    clip: root.under;
     for particle in Art.particles: Rectangle {
-        x: particle.x - particle.size / 2; y: particle.y - particle.size / 2;
+        visible: particle.under == root.under;
+        x: particle.x - root.absolute-position.x - particle.size / 2; y: particle.y - root.absolute-position.y - particle.size / 2;
         width: particle.size; height: particle.size;
         opacity: particle.opacity;
         transform-rotation: particle.rotation * 1deg;

@@ -42,9 +42,9 @@ import "fonts/DisplayName-Journal.ttf";
 // discord.slint, voice.slint, rail.slint, composer.slint, messages.slint,
 // settings.slint, people.slint, friends.slint, dialogs.slint and sign-in.slint.
 import { Theme, Tip, BadgeTip, ReactionHover, Middle, Popup, PopupMotion, Twemoji, Look } from "theme.slint";
-import { Arrange, DashedOutline, DashedRule, ActionsFrame } from "theme_layout.slint";
+import { Arrange, DashedOutline, DashedRule, ActionsFrame, PaneRule } from "theme_layout.slint";
 import { TitleBar, ResizeEdges } from "title_bar.slint";
-import { Art, ArtLayer, ArtOverlays, ArtParticles, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil, ArtTransition, ArtPicture } from "theme_art.slint";
+import { Art, ArtLayer, ArtOverlays, ArtParticles, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil, ArtTransition, ArtPicture, ArtEmitter } from "theme_art.slint";
 import { InboxRow, InboxPopout } from "yapfast/inbox.slint";
 import { GifPicker, GifTile, PickerTab } from "gifs.slint";
 import { StickerPicker, StickerGridTile } from "stickers.slint";
@@ -2606,6 +2606,8 @@ export component YapfastWindow inherits Window {
             if root.rail-left > 0px && (Art.rail.length > 0 || Art.glass-rail): ArtLayer {
                 x: 0px; y: 0px; width: root.rail-left; height: parent.height; layers: Art.rail; glass: Art.glass-rail; ground: Theme.rail-fill;
             }
+            // A theme's edge between the rail and the sidebar.
+            if Arrange.panes && root.rail-left > 0px && root.sidebar-shown > 0px: PaneRule { x: root.rail-left; y: 0px; height: parent.height; z: 10; }
             VerticalLayout {
                 spacing: 0px;
                 HorizontalLayout {
@@ -2934,6 +2936,10 @@ export component YapfastWindow inherits Window {
             if Art.chat.length > 0 || Art.glass-chat: ArtLayer {
                 x: 0px; y: 0px; width: parent.width; height: parent.height; layers: Art.chat; glass: Art.glass-chat; ground: Theme.chat-fill;
             }
+            // Particles that fly behind the messages and the message box.
+            if Art.particles-under: ArtParticles { x: 0px; y: 0px; width: parent.width; height: parent.height; under: true; }
+            // A theme's edge between the navigation and the conversation.
+            if Arrange.panes && root.rail-left + root.sidebar-shown > 0px: PaneRule { x: 0px; y: 0px; height: parent.height; z: 10; }
             VerticalLayout {
                 spacing: 0px;
                 Rectangle {
@@ -3991,6 +3997,7 @@ export component YapfastWindow inherits Window {
                                     x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.composer, 10px);
                                     layers: Art.composer; glass: Art.glass-composer; ground: ClientStyle.enabled ? Theme.composer : Theme.field;
                                 }
+                                if Art.track: ArtEmitter { x: 0px; y: 0px; width: parent.width; height: parent.height; kind: 0; }
                                 if Arrange.dash-composer.on: DashedOutline {
                                     x: 0px; y: 0px; dash: Arrange.dash-composer; stock-width: Look.bw(Look.composer, 1px);
                                     stock-ink: composer.focused ? Theme.composer-focus : Look.bc(Look.composer, Theme.outline-field);
@@ -4136,7 +4143,13 @@ export component YapfastWindow inherits Window {
                                                 icon: IconPack.send-horizontal;
                                                 label: root.sending ? "Sending..." : root.is-editing ? "Save" : "Send";
                                                 enabled: root.can-send; emphasis: root.can-send;
-                                                clicked => { root.send(); }
+                                                clicked => {
+                                                    if Art.track {
+                                                        Art.send-x = self.absolute-position.x + self.width / 2; Art.send-y = self.absolute-position.y + self.height / 2;
+                                                        Art.pointer-x = Art.send-x; Art.pointer-y = Art.send-y;
+                                                    }
+                                                    root.send();
+                                                }
                                             }
                                         }
                                     }

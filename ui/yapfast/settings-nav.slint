@@ -4,6 +4,7 @@ import { Avatar, TextField } from "../controls.slint";
 import { ChannelRow } from "../rail.slint";
 import { ScrollView } from "../scrollview.slint";
 import { BuildStamp } from "build-info.slint";
+import { Art } from "../theme_art.slint";
 
 // Section IDs are the existing SettingsScreen contract. Only implemented pages
 // belong here; Discord's billing and subscription destinations have no adapter.
@@ -24,7 +25,10 @@ export component SettingsNavigation inherits Rectangle {
     function matches(text: string) -> bool {
         return root.query == "" || text.to-lowercase().replace-all(root.query.to-lowercase(), "") != text.to-lowercase();
     }
-    width: 266px; horizontal-stretch: 0; background: Theme.chat-fill;
+    width: 266px; horizontal-stretch: 0; background: Art.glass-settings ? transparent : Theme.chat-fill;
+    // On glass, the sections' own ground lies over the frame's glass, as
+    // thin as the glass's own.
+    if Art.glass-settings: Rectangle { background: Theme.chat-fill; opacity: Art.glass-opacity; }
     VerticalLayout {
         padding-top: 16px; spacing: 16px;
         HorizontalLayout {

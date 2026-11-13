@@ -13,7 +13,8 @@
     "button": { "radius": 8 },
     "field": { "radius": 8 },
     "composer": { "radius": 12 },
-    "card": { "radius": 14, "shadow": { "blur": 24, "y": 8, "colour": "#00000066" } },
+    "card": { "radius": 14, "inset_top": 0, "shadow": { "blur": 24, "y": 8, "colour": "#00000066" } },
+    "card-button": { "radius": 8, "border": 1, "border_colour": "#ffffff33" },
     "menu": { "radius": 10 },
     "dialog": { "radius": 14 },
     "chip": { "radius": 999 },
@@ -23,7 +24,8 @@
     "row": { "radius": 6, "inset": [8, 1] },
     "radii": { "small": 4, "medium": 8, "large": 12 },
     "outline_width": 1,
-    "borders": { "tile": "dashed", "divider": { "style": "dotted", "gap": 4 }, "actions": "solid" }
+    "borders": { "tile": "dashed", "divider": { "style": "dotted", "gap": 4 }, "actions": "solid",
+                 "panes": { "style": "dotted", "gap": 3 } }
   },
   "type": {
     "body": { "size": 15 },
@@ -58,19 +60,26 @@
       "chat": { "texture": "paper", "colour": "#ffffff", "opacity": 0.05, "blend": "screen" },
       "sidebar": [{ "texture": "noise", "colour": "#000000", "opacity": 0.12, "scale": 2 }],
       "account": { "texture": "grain", "colour": "#ffffff", "opacity": 0.04 },
-      "actions": { "texture": "grain", "colour": "#ffffff", "opacity": 0.04 }
+      "actions": { "texture": "grain", "colour": "#ffffff", "opacity": 0.04 },
+      "settings": { "texture": "noise", "colour": "#ffffff", "opacity": 0.04 },
+      "embed": { "texture": "grain", "colour": "#ffffff", "opacity": 0.04 },
+      "code": { "texture": "halftone", "colour": "#ffffff", "opacity": 0.03 },
+      "row-selected": { "texture": "paper", "colour": "#ffffff", "opacity": 0.08 },
+      "card_over": { "texture": "grain", "colour": "#ffffff", "opacity": 0.03 }
     },
     "overlays": [
       { "kind": "vignette", "opacity": 0.25 },
       { "kind": "scanlines", "size": 3, "opacity": 0.04, "on": "chat" }
     ],
-    "glass": { "surfaces": ["menu", "dialog"], "blur": 16, "opacity": 0.85, "highlight": "#ffffff26" },
+    "glass": { "surfaces": ["menu", "dialog"], "blur": 16, "opacity": 0.85, "highlight": "#ffffff26",
+               "rim": { "colour": "#00000066", "width": 1 } },
     "text": {
       "headings": { "shadow": { "blur": 0, "x": 0, "y": 1, "colour": "#00000099" } },
       "names": { "glow": { "colour": "#7aa2ff66", "size": 2 } }
     },
     "particles": [
-      { "preset": "sparkles", "on": "message.sent", "colours": ["#7aa2ff", "#ffffff"], "count": 10 }
+      { "preset": "sparkles", "on": "message.sent", "colours": ["#7aa2ff", "#ffffff"], "count": 10,
+        "from": "composer", "z": "under" }
     ],
     "events": { "click": "ripple", "hover": "gloss", "select": { "effect": "highlighter", "colour": "#7aa2ff" }, "reaction": "stamp", "row": "none" },
     "foil": { "surfaces": ["card"], "opacity": 0.12 },
@@ -109,7 +118,11 @@
         "selection": "#7aa2ff59",
         "account": "#1a1d27",
         "actions": "#23262f",
-        "actions-hover": "#7aa2ff33"
+        "actions-hover": "#7aa2ff33",
+        "row-selected-text": "#eef0f4",
+        "card-button": "#00000080",
+        "card-button-hover": "#000000b3",
+        "card-button-icon": "#ffffff"
       }
     },
     "light": {

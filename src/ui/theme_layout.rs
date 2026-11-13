@@ -74,6 +74,7 @@ pub fn reset(window: &YapfastWindow) {
     for place in BorderPlace::ALL {
         set_dash(&arrange, *place, Dash::default());
     }
+    arrange.set_panes(false);
     window.global::<Look>().set_outline_width(-1.);
     arrange.set_ransom_names(false);
     RANSOM.with_borrow_mut(|ransom| *ransom = Ransom::default());
@@ -172,6 +173,7 @@ pub fn apply(
             },
         );
     }
+    arrange.set_panes(layout.borders.contains_key(&BorderPlace::Panes));
     if let Some(width) = layout.outline_width {
         window.global::<Look>().set_outline_width(width);
     }
@@ -223,6 +225,7 @@ fn set_dash(arrange: &Arrange<'_>, place: BorderPlace, dash: Dash) {
         BorderPlace::Code => arrange.set_dash_code(dash),
         BorderPlace::Tile => arrange.set_dash_tile(dash),
         BorderPlace::Divider => arrange.set_dash_divider(dash),
+        BorderPlace::Panes => arrange.set_dash_panes(dash),
     }
 }
 

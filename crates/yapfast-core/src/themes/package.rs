@@ -63,9 +63,12 @@ pub const COLOURS: [&str; 37] = [
     "avatar",
 ];
 
+/// The most characters a theme's `description` holds.
+pub const MAX_DESCRIPTION: usize = 300;
+
 /// Colours only a theme sets (plugins can't), each following another until a
 /// theme does: what it follows is [`follows`].
-pub const EXTRA_COLOURS: [&str; 25] = [
+pub const EXTRA_COLOURS: [&str; 29] = [
     "accent-text",
     "on-tooltip",
     "selection",
@@ -91,6 +94,10 @@ pub const EXTRA_COLOURS: [&str; 25] = [
     "account",
     "actions",
     "actions-hover",
+    "row-selected-text",
+    "card-button",
+    "card-button-hover",
+    "card-button-icon",
 ];
 
 /// The colour an extra colour shows while a theme doesn't set it, for
@@ -105,6 +112,7 @@ pub fn follows(token: &str) -> Option<&'static str> {
         "menu-line" => "line",
         "placeholder" => "muted",
         "row-selected" => "active",
+        "row-selected-text" => "text",
         "pill" => "text",
         "toggle-off" => "field",
         "knob-off" => "secondary",
@@ -138,7 +146,7 @@ pub const TEXT_ON: [(&str, &[&str]); 18] = [
     ("text", &["menu"]),
     ("text", &["composer"]),
     ("on-tooltip", &["tooltip"]),
-    ("text", &["row-selected"]),
+    ("row-selected-text", &["row-selected"]),
     ("text", &["code"]),
     ("text", &["embed"]),
     ("text", &["members"]),
@@ -192,12 +200,14 @@ pub enum Surface {
     /// The bar of actions over a message under the pointer: quick
     /// reactions, Reply, Forward, More.
     Actions,
+    /// The round buttons over a profile card's banner.
+    CardButton,
     /// A message row's hover, mention and jump bands: `radius` and `inset`.
     Row,
 }
 
 impl Surface {
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 18] = [
         Self::Button,
         Self::Field,
         Self::Composer,
@@ -215,6 +225,7 @@ impl Surface {
         Self::Toggle,
         Self::Actions,
         Self::Row,
+        Self::CardButton,
     ];
 
     pub fn name(self) -> &'static str {
@@ -236,6 +247,7 @@ impl Surface {
             Self::Toggle => "toggle",
             Self::Actions => "actions",
             Self::Row => "row",
+            Self::CardButton => "card-button",
         }
     }
 
@@ -722,6 +734,9 @@ pub struct Shape {
     /// `row` only: pixels a band keeps from the column's sides and from the
     /// row's top and bottom.
     pub inset: Option<(f32, f32)>,
+    /// `card` only: pixels kept above a profile card's banner, for chrome
+    /// such as a title bar drawn by the card's art.
+    pub inset_top: Option<f32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1076,8 +1091,11 @@ impl Package {
             string(top, "version")?.ok_or_else(|| Error("it needs a \"version\"".into()))?;
         check_version(&version)?;
         let description = string(top, "description")?.unwrap_or_default();
-        if description.chars().count() > 300 {
-            bail!("\"description\" is at most 300 characters");
+        let length = description.chars().count();
+        if length > MAX_DESCRIPTION {
+            bail!(
+                "\"description\" is {length} characters, and a theme's description is at most {MAX_DESCRIPTION}; shorten it"
+            );
         }
         let authors = match top.get("authors") {
             None => Vec::new(),
@@ -1656,6 +1674,9 @@ fn read_shapes(
                         ),
                         _ => (number(value, &here, (0.0, 32.0))?, 0.0),
                     });
+                }
+                "inset_top" if surface == Surface::Card => {
+                    shape.inset_top = Some(number(value, &here, (0.0, 64.0))?);
                 }
                 "shadow" => {
                     shape.shadow = if value.as_str() == Some("none") {

@@ -106,6 +106,9 @@ closed! {
         Divider => "divider",
         /// The bar of actions over a message under the pointer.
         Actions => "actions",
+        /// The edges between the rail, the sidebar, the conversation and
+        /// the member list: drawn only when a theme names them.
+        Panes => "panes",
     }
 }
 
