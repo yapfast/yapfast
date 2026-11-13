@@ -9,7 +9,7 @@
 // or focus scope above it, so the pointer can't slip off an item that moved
 // and back on again.
 
-import { Theme, Look, Tip, Middle } from "theme.slint";
+import { Theme, Look, Tip, Middle, SlotMotion } from "theme.slint";
 import { Art, ArtImage, ArtGloss, ArtFoil } from "theme_art.slint";
 import { IconPack } from "media.slint";
 import { Avatar, PictureStore, StatusText } from "controls.slint";
@@ -121,6 +121,17 @@ export global Rails {
     in property <color> badge-ink;
     /// A tile focus ring's corner; negative follows the tile's.
     in property <length> focus-radius: -1px;
+    /// A frameless folder's fill (transparent: its own colour) and its
+    /// servers' pictures' size (negative: fitted).
+    in property <color> folder-colour;
+    in property <length> folder-mini: -1px;
+    /// Art over the add button, and art under the tiles.
+    in property <TileLayer> foot;
+    in property <[TileLayer]> grounds;
+    /// The add button as a tile in the theme's tile shape, this far below
+    /// the last.
+    in property <bool> add-on;
+    in property <length> add-gap;
     out property <length> slot-w: self.tile-w + 2 * self.pad;
     out property <length> slot-h: self.tile-h + 2 * self.pad;
     public pure function frame(seed: int) -> TileLayer {
@@ -201,6 +212,22 @@ export global ChannelLists {
     in property <color> badge-ink;
     in property <length> badge-radius: -1px;
     in property <color> ink-hover;
+    /// Every other channel row's ground; transparent for none.
+    in property <color> stripe;
+    /// The unread edge pill's colour and rim; transparent for stock.
+    in property <color> pill-colour;
+    in property <color> pill-rim;
+    /// Room left at the list's foot, and art drawn in it.
+    in property <length> reserve;
+    in property <TileLayer> foot;
+    /// A picture in place of the prefix's characters.
+    in property <TileLayer> prefix-art;
+    in property <bool> head-fill;
+    in property <length> head-inset: 16px;
+    in property <bool> head-chevron: true;
+    in property <color> head-shadow;
+    in property <length> head-shadow-x;
+    in property <length> head-shadow-y;
     in property <color> ink-read;
     in property <color> ink-unread;
     in property <color> ink-selected;
@@ -313,6 +340,28 @@ export global MemberLists {
     in property <length> margin-right: 8px;
     in property <length> inset-left: 8px;
     in property <length> inset-right: 8px;
+    in property <color> name-ink;
+    in property <color> crown-ink;
+    /// The Activity cards over the list; `false` leaves them out.
+    in property <bool> activity: true;
+    in property <length> reserve;
+    in property <color> dot-ring;
+    in property <bool> head-fill;
+    in property <length> head-inset: 8px;
+    in property <color> head-shadow;
+    in property <length> head-shadow-x;
+    in property <length> head-shadow-y;
+    in property <bool> title-centre;
+    in property <color> title-shadow;
+    in property <length> title-shadow-x;
+    in property <length> title-shadow-y;
+    in property <color> title-rule;
+    in property <bool> title-rule-dotted;
+    in property <string> count-family;
+    in property <length> count-size: -1px;
+    in property <color> count-colour;
+    /// The title's words before " · {n}", when its count has a face of its own.
+    in property <string> title-head;
     /// Members as tiles: columns (0 for rows), the avatar's size, and whether
     /// a tile takes the theme's tile shape.
     in property <int> grid-columns;
@@ -398,9 +447,16 @@ export component LayerPicture inherits Rectangle {
         source-clip-width: self.fw; source-clip-height: self.fh;
         accessible-role: none;
     }
-    if !root.layer.sliced && root.layer.picture.frames <= 1: Image {
+    if !root.layer.sliced && root.layer.picture.frames <= 1 && root.layer.picture.fit != 2: Image {
         x: 0px; y: 0px; width: root.width; height: root.height;
         source: root.source; image-fit: root.fit; image-rendering: root.rendering;
+        accessible-role: none;
+    }
+    if !root.layer.sliced && root.layer.picture.fit == 2: Image {
+        x: 0px; y: 0px; width: root.width; height: root.height;
+        source: root.source; image-rendering: root.rendering;
+        horizontal-tiling: repeat; vertical-tiling: repeat;
+        horizontal-alignment: ImageHorizontalAlignment.left; vertical-alignment: ImageVerticalAlignment.top;
         accessible-role: none;
     }
 }
@@ -415,8 +471,8 @@ export component TileArtBox inherits Rectangle {
     /// Over the layer's own opacity, such as a row's hover.
     in property <float> fade: -1;
     property <int> frame;
-    property <length> lw: root.layer.sized ? root.layer.w : root.width;
-    property <length> lh: root.layer.sized ? root.layer.h : root.height;
+    property <length> lw: root.layer.sized && root.layer.w > 0px ? root.layer.w : root.width;
+    property <length> lh: root.layer.sized && root.layer.h > 0px ? root.layer.h : root.height;
     accessible-role: none;
     Timer {
         interval: max(50ms, root.layer.picture.period / max(1, root.layer.picture.frames) * 1ms);
@@ -542,6 +598,10 @@ export component TileRailItem inherits Rectangle {
     in property <bool> call;
     in property <bool> discord;
     in property <bool> home;
+    /// Its place among the servers, which a theme's `rail.icon` motion
+    /// phases by; the home tile takes `home`'s.
+    in property <int> place: -1;
+    property <SlotMotion> moved: root.home ? Look.home : Art.rail-icon(root.place);
     callback clicked;
     callback context-menu(length, length);
     width: 72px; height: Rails.slot-h;
@@ -555,7 +615,7 @@ export component TileRailItem inherits Rectangle {
     property <length> top: (root.height - Rails.tile-h) / 2 + (root.selected ? Rails.sel-dy : 0px);
     property <length> lift: root.hovered && Rails.hover == 2 ? Rails.hover-amount * 1px : 0px;
     property <float> grow: root.hovered && Rails.hover == 1 ? Rails.hover-amount : 1;
-    property <float> turn: Rails.lean(root.seed) + (root.hovered && Rails.hover == 3 ? Rails.hover-amount : 0);
+    property <float> turn: Rails.lean(root.seed) + (root.hovered && Rails.hover == 3 ? Rails.hover-amount : 0) + root.moved.rotation;
     // The pill at the rail's inner edge.
     if Rails.pill != 1: Rectangle {
         x: 0px; y: (parent.height - self.height) / 2; width: 4px;
@@ -587,9 +647,10 @@ export component TileRailItem inherits Rectangle {
         x: root.left; y: root.top + Rails.tile-h; width: Rails.tile-w; height: Rails.pad + 4px; layer: Rails.below;
     }
     tile := Rectangle {
-        x: root.left; y: root.top - root.lift; width: Rails.tile-w; height: Rails.tile-h;
+        x: root.left + root.moved.x; y: root.top - root.lift + root.moved.y; width: Rails.tile-w; height: Rails.tile-h;
+        opacity: root.moved.opacity;
         transform-rotation: root.turn * 1deg;
-        transform-scale: root.grow * (root.selected ? Rails.sel-scale : 1);
+        transform-scale: root.grow * root.moved.scale * (root.selected ? Rails.sel-scale : 1);
         transform-origin: { x: self.width / 2, y: Rails.hover == 1 ? self.height : self.height / 2 };
         animate x, y, transform-rotation, transform-scale { duration: Rails.hover-time; easing: ease-out; }
         drop-shadow-blur: Rails.reflection || Rails.frames.length > 0 ? 0px : Look.sb(Look.rail-icon, 0px);
@@ -607,14 +668,7 @@ export component TileRailItem inherits Rectangle {
             border-radius: Rails.shape == 1 ? self.width / 2 : Rails.radius;
             border-width: Look.bw(Look.rail-icon, 0px); border-color: Look.bc(Look.rail-icon, transparent);
         }
-        // A stamp scales in from 1.4 each time the tile becomes selected.
-        if root.selected && Rails.sel-over.on: TileArtBox {
-            property <float> stamp: Rails.stamp-time > 0ms ? 1.4 : 1;
-            init => { self.stamp = 1; }
-            width: parent.width; height: parent.height; layer: Rails.sel-over;
-            transform-scale: self.stamp;
-            animate transform-scale { duration: Rails.stamp-time; easing: ease-out; }
-        }
+
         // The focus ring, turning with the tile: round the window, or 4px
         // outside the whole tile.
         if focus.has-focus && Rails.focus-window: Rectangle {
@@ -649,6 +703,21 @@ export component TileRailItem inherits Rectangle {
             width: parent.width - 6px; height: parent.height - 6px; border-radius: self.height / 2;
             background: Rails.badge-ground != transparent ? Rails.badge-ground : Theme.danger;
             badge-text := Text { text: root.badge; color: Rails.badge-ink != transparent ? Rails.badge-ink : Theme.on-danger; font-size: 12px; font-weight: 700; }
+        }
+    }
+    // The selected sticker or stamp, over the mention count, turning with
+    // the tile; a stamp scales in from 1.4 each time it's selected.
+    if root.selected && Rails.sel-over.on: Rectangle {
+        x: tile.x; y: tile.y; width: tile.width; height: tile.height;
+        transform-rotation: tile.transform-rotation;
+        transform-scale: tile.transform-scale;
+        transform-origin: tile.transform-origin;
+        TileArtBox {
+            property <float> stamp: Rails.stamp-time > 0ms ? 1.4 : 1;
+            init => { self.stamp = 1; }
+            width: parent.width; height: parent.height; layer: Rails.sel-over;
+            transform-scale: self.stamp;
+            animate transform-scale { duration: Rails.stamp-time; easing: ease-out; }
         }
     }
     focus := FocusScope {
@@ -731,15 +800,15 @@ export component TileFolderItem inherits Rectangle {
         animate y, transform-rotation, transform-scale { duration: Rails.hover-time; easing: ease-out; }
         // Without a folder frame: a card of the folder's colour, outlined as
         // the theme outlines its tiles.
-        if !root.frame.on: Rectangle {
+        if !root.frame.on && (Rails.frames.length == 0 || Rails.folder-colour != transparent): Rectangle {
             border-radius: Rails.shape == 1 ? self.width / 2 : Rails.radius;
-            background: root.tint.with-alpha(root.hovered ? 0.55 : 0.4);
+            background: Rails.folder-colour != transparent ? Rails.folder-colour : root.tint.with-alpha(root.hovered ? 0.55 : 0.4);
             border-width: Look.bw(Look.rail-icon, 0px); border-color: Look.bc(Look.rail-icon, transparent);
             clip: true;
         }
         face := TileFace {
             width: parent.width; height: parent.height; seed: root.seed; hovered: root.hovered;
-            frame-override: root.frame.on ? root.frame : Rails.frame(root.seed);
+            frame-override: root.frame.on ? root.frame : Rails.folder-colour != transparent ? Rails.none() : Rails.frame(root.seed);
             preview: true; name: root.name;
             if root.open: Image {
                 x: face.wx + (face.ww - self.width) / 2; y: face.wy + (face.wh - self.height) / 2;
@@ -749,9 +818,12 @@ export component TileFolderItem inherits Rectangle {
             // labelled card).
             if !root.open: Rectangle {
                 property <length> room: Rails.label == 2 && !face.frame-override.window ? face.wh - 14px : face.wh;
-                property <length> mini: max(8px, min((face.ww - 9px) / 2, (self.room - 9px) / 2));
+                property <length> mini: Rails.folder-mini > 0px ? Rails.folder-mini : max(8px, min((face.ww - 9px) / 2, (self.room - 9px) / 2));
+                property <int> rows: root.servers.length > 2 ? 2 : 1;
                 property <length> step-x: (face.ww - 2 * self.mini) / 3;
-                property <length> step-y: (self.room - 2 * self.mini) / 3;
+                // One row of pictures sits in the middle of the window (or
+                // the top of a labelled card); two fill it.
+                property <length> step-y: (self.room - self.rows * self.mini) / (self.rows + 1);
                 for server[index] in root.servers: Avatar {
                     x: face.wx + parent.step-x + Math.mod(index, 2) * (parent.mini + parent.step-x);
                     y: face.wy + parent.step-y + floor(index / 2) * (parent.mini + parent.step-y);
@@ -939,19 +1011,33 @@ export component ListedHeadingText inherits Rectangle {
     /// How far a heading's frame runs past the words, round what follows
     /// them, such as the chevron.
     in property <length> tail: 10px;
+    /// The list's left edge in the window and its width, for a frame that
+    /// spans the heading's width.
+    in property <length> list-x;
+    in property <length> list-width;
     property <string> words: ChannelLists.cased(ChannelLists.head-text != "" ? ChannelLists.fill(ChannelLists.head-text, root.text, root.place) : root.text, ChannelLists.head-case);
     property <length> size: ChannelLists.head-size >= 0px ? ChannelLists.head-size : 14px;
-    preferred-width: words-text.preferred-width + (ChannelLists.head-frame.on ? 12px : 0px);
+    preferred-width: words-text.preferred-width + (ChannelLists.head-frame.on && !ChannelLists.head-fill ? 12px : 0px);
     min-width: 0px;
     horizontal-stretch: 0;
     accessible-role: none;
     if ChannelLists.head-frame.on: TileArtBox {
-        x: 0px; y: (root.height - self.height) / 2; width: root.width + root.tail; height: min(root.height, 24px);
+        x: ChannelLists.head-fill ? 6px - root.absolute-position.x + root.list-x : 0px;
+        y: (root.height - self.height) / 2;
+        width: ChannelLists.head-fill ? root.list-width - 12px : root.width + root.tail;
+        height: min(root.height, 22px);
         layer: ChannelLists.head-frame;
     }
+    if ChannelLists.head-shadow != transparent: Text {
+        x: words-text.x + ChannelLists.head-shadow-x; y: words-text.y + ChannelLists.head-shadow-y;
+        width: words-text.width; height: words-text.height;
+        text: words-text.text; color: ChannelLists.head-shadow;
+        font-family: words-text.font-family; font-size: words-text.font-size; font-weight: words-text.font-weight;
+        letter-spacing: words-text.letter-spacing; vertical-alignment: center; overflow: elide; accessible-role: none;
+    }
     words-text := Text {
-        x: ChannelLists.head-frame.on ? 12px : 0px;
-        width: min(self.preferred-width, root.width - (ChannelLists.head-frame.on ? 12px : 0px)); height: root.height;
+        x: ChannelLists.head-frame.on && !ChannelLists.head-fill ? 12px : 0px;
+        width: min(self.preferred-width, root.width - self.x); height: root.height;
         text: root.words; accessible-label: root.text;
         color: ChannelLists.head-colour != transparent ? ChannelLists.head-colour : root.ink;
         font-family: ChannelLists.head-family != "" ? ChannelLists.head-family : root.stock-family;
@@ -995,11 +1081,20 @@ export component ListedMemberHeading inherits Rectangle {
     property <length> size: MemberLists.head-size >= 0px ? MemberLists.head-size : 14px;
     accessible-role: none;
     if MemberLists.head-frame.on: TileArtBox {
-        x: 0px; y: (root.height - self.height) / 2; width: min(root.width, words-text.preferred-width + 22px); height: min(root.height, 24px);
+        x: MemberLists.head-fill ? -2px : 0px; y: (root.height - self.height) / 2;
+        width: MemberLists.head-fill ? root.width + 4px : min(root.width, words-text.preferred-width + 22px);
+        height: min(root.height, MemberLists.head-fill ? 22px : 24px);
         layer: MemberLists.head-frame;
     }
+    if MemberLists.head-shadow != transparent: Text {
+        x: words-text.x + MemberLists.head-shadow-x; y: words-text.y + MemberLists.head-shadow-y;
+        width: words-text.width; height: words-text.height;
+        text: words-text.text; color: MemberLists.head-shadow;
+        font-family: words-text.font-family; font-size: words-text.font-size; font-weight: words-text.font-weight;
+        letter-spacing: words-text.letter-spacing; vertical-alignment: center; overflow: elide; accessible-role: none;
+    }
     words-text := Text {
-        x: MemberLists.head-frame.on ? 12px : 0px; width: root.width - self.x; height: root.height;
+        x: MemberLists.head-frame.on ? (MemberLists.head-fill ? 8px : 12px) : 0px; width: root.width - self.x; height: root.height;
         text: root.words; accessible-label: root.heading;
         color: MemberLists.head-colour != transparent ? MemberLists.head-colour : #81828a;
         font-family: MemberLists.head-family; font-size: root.size; font-weight: MemberLists.head-weight > 0 ? MemberLists.head-weight : 500;
@@ -1014,7 +1109,7 @@ export component ListedMemberHeading inherits Rectangle {
 export component ListDot inherits Rectangle {
     in property <string> presence;
     in property <length> size: 16px;
-    in property <color> ring: Theme.members-on ? Theme.members-set : Theme.sidebar;
+    in property <color> ring: MemberLists.dot-ring != transparent ? MemberLists.dot-ring : Theme.members-on ? Theme.members-set : Theme.sidebar;
     property <length> inner: root.size * 0.68;
     width: root.size; height: root.size; border-radius: root.size / 2;
     background: root.ring;
@@ -1136,7 +1231,11 @@ export component ListedMember inherits Rectangle {
                 }
                 if !root.ransom: Text {
                     text: MemberLists.cased(root.name, MemberLists.case); accessible-label: root.name;
-                    color: root.has-color ? root.name-color : Theme.secondary;
+                    // A face's own line height can push a sub line off the
+                    // row: the name takes its size and a little.
+                    height: root.sub != "" ? root.size * 1.15 : self.preferred-height;
+                    vertical-alignment: center;
+                    color: MemberLists.name-ink != transparent ? MemberLists.name-ink : root.has-color ? root.name-color : Theme.secondary;
                     font-family: MemberLists.family; font-size: root.size; font-weight: root.weight;
                     letter-spacing: Look.spacing-names; overflow: elide;
                     opacity: root.offline ? 0.5 : 1;
@@ -1144,12 +1243,12 @@ export component ListedMember inherits Rectangle {
                 badges := HorizontalLayout { spacing: 4px; @children }
             }
             if root.sub != "" && root.sub-icon: StatusText {
-                text: root.sub; emoji-url: root.activity-emoji; font-size: 12px;
+                text: root.sub; emoji-url: root.activity-emoji; font-size: 12px; height: 16px;
                 icon: root.activity-icon; bullet: root.activity-bullet;
                 opacity: root.offline ? 0.5 : 1;
             }
             if root.sub != "" && !root.sub-icon: Text {
-                text: root.sub; color: Theme.muted; font-size: 11px; overflow: elide;
+                text: root.sub; color: Theme.muted; font-size: 11px; overflow: elide; height: 14px;
                 font-family: MemberLists.sub == 1 ? MemberLists.meta-family : "";
                 opacity: root.offline ? 0.5 : 1; accessible-role: none;
             }
@@ -1227,21 +1326,28 @@ export component ListedMemberTile inherits Rectangle {
             border-radius: Look.avatar.radius >= 0px ? root.size * Look.avatar.radius / 100px : root.size / 2;
             border-width: Look.bw(Look.avatar, 0px); border-color: Look.bc(Look.avatar, transparent);
         }
-        if root.owner: Image {
-            x: root.size - 9px; y: -5px; source: IconPack.crown; width: 14px; height: 14px;
-            colorize: IconPack.tint(self.source, #f0b232); accessible-role: image; accessible-label: "Server Owner";
-        }
     }
+    // The name, and the owner's crown 3 px after it, centred together.
+    property <length> crown-room: root.owner ? 17px : 0px;
     name-text := Text {
-        x: 4px; y: root.size + 12px; width: root.width - 8px; height: 18px;
+        x: (root.width - min(root.width - 8px, self.preferred-width + root.crown-room)) / 2;
+        y: 7px + root.size - 4px; width: min(root.width - 8px - root.crown-room, self.preferred-width); height: 18px;
         text: MemberLists.cased(root.name, MemberLists.case); accessible-label: root.name;
-        color: root.has-color ? root.name-color : Theme.text;
+        color: MemberLists.name-ink != transparent ? MemberLists.name-ink : root.has-color ? root.name-color : Theme.text;
         font-family: MemberLists.family; font-size: root.name-size; font-weight: MemberLists.weight > 0 ? MemberLists.weight : 600;
         horizontal-alignment: center; vertical-alignment: center; overflow: elide;
         opacity: root.offline ? 0.5 : 1;
     }
+    if root.owner: Image {
+        x: name-text.x + name-text.width + 3px; y: name-text.y + (name-text.height - self.height) / 2;
+        source: IconPack.crown; width: 14px; height: 14px; opacity: root.offline ? 0.5 : 1;
+        colorize: IconPack.tint(self.source, MemberLists.crown-ink != transparent ? MemberLists.crown-ink : #f0b232);
+        accessible-role: image; accessible-label: "Server Owner";
+    }
+    // The status between the name and the tile's foot.
     if MemberLists.status == 1: MemberGlyph {
-        x: (root.width - self.width) / 2; y: name-text.y + name-text.height + 2px;
+        x: (root.width - self.width) / 2;
+        y: name-text.y + name-text.height + max(1px, (root.height - name-text.y - name-text.height - self.height) / 2 - 1px);
         presence: root.presence;
     }
     if root.selected && MemberLists.sel-over.on: TileArtBox {
@@ -1250,5 +1356,95 @@ export component ListedMemberTile inherits Rectangle {
     if MemberLists.badge-on && (root.online-index >= 0 || !MemberLists.badge-online-only): MemberBadge {
         x: -5px; y: -5px;
         text: MemberLists.numbered(MemberLists.badge-text, root.online-index + 1);
+    }
+}
+
+/// The member list's title as a theme sets it: centred or not, a hard
+/// shadow, a rule under it, and " · {n}" in a face of its own.
+export component ListedTitle inherits Rectangle {
+    in property <string> template;
+    in property <int> count;
+    property <string> whole: MemberLists.numbered(root.template, root.count);
+    // The words before " · {n}", and the count after them.
+    property <bool> split: MemberLists.count-size >= 0px && MemberLists.title-head != "";
+    property <string> head: root.split ? MemberLists.title-head : root.whole;
+    property <length> size: MemberLists.title-size >= 0px ? MemberLists.title-size : 14px;
+    accessible-role: none;
+    property <length> words-width: title.preferred-width + (root.split ? count-text.preferred-width + 6px : 0px);
+    property <length> left: MemberLists.title-centre ? (root.width - root.words-width) / 2 : 12px;
+    property <length> text-h: 32px;
+    if MemberLists.title-shadow != transparent: Text {
+        x: root.left + MemberLists.title-shadow-x; y: MemberLists.title-shadow-y; height: root.text-h;
+        text: root.head; color: MemberLists.title-shadow; font-family: MemberLists.title-family; font-size: root.size;
+        letter-spacing: Look.spacing-labels; vertical-alignment: center; accessible-role: none;
+    }
+    title := Text {
+        x: root.left; y: 0px; height: root.text-h;
+        text: root.head; color: MemberLists.title-colour != transparent ? MemberLists.title-colour : Theme.muted;
+        font-family: MemberLists.title-family; font-size: root.size; letter-spacing: Look.spacing-labels;
+        vertical-alignment: center; accessible-role: none;
+    }
+    count-text := Text {
+        visible: root.split;
+        x: title.x + title.preferred-width + 6px; y: 0px; height: root.text-h;
+        text: "· " + root.count;
+        color: MemberLists.count-colour != transparent ? MemberLists.count-colour : Theme.muted;
+        font-family: MemberLists.count-family; font-size: max(9px, MemberLists.count-size); font-weight: 800;
+        vertical-alignment: center; accessible-role: none;
+    }
+    if MemberLists.title-rule != transparent && !MemberLists.title-rule-dotted: Rectangle {
+        x: 12px; y: root.text-h + 6px; width: root.width - 24px; height: 2px; background: MemberLists.title-rule;
+    }
+    if MemberLists.title-rule != transparent && MemberLists.title-rule-dotted: Rectangle {
+        x: 12px; y: root.text-h + 6px; width: root.width - 24px; height: 2px;
+        for i in floor((root.width - 24px) / 4px): Rectangle {
+            x: i * 4px; width: 2px; height: 2px; background: MemberLists.title-rule;
+        }
+    }
+}
+
+/// The rail's add button as a theme's tile: the tiles' size in the rail
+/// icon's shape (corner, border, hard shadow), a "+" in the accent.
+export component TileAddItem inherits Rectangle {
+    in property <string> label;
+    in property <string> tip;
+    callback clicked;
+    width: 72px; height: Rails.tile-h;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.clicked(); }
+    forward-focus: focus;
+    Rectangle {
+        x: (root.width - self.width) / 2; width: min(48px, Rails.tile-w); height: min(48px, Rails.tile-h);
+        y: (root.height - self.height) / 2;
+        border-radius: Look.r(Look.rail-icon, 12px);
+        background: pointer.has-hover ? Theme.raised : Theme.raised-fill;
+        border-width: Look.bw(Look.rail-icon, 0px); border-color: Look.bc(Look.rail-icon, transparent);
+        drop-shadow-blur: Look.sb(Look.rail-icon, 0px); drop-shadow-offset-x: Look.sx(Look.rail-icon, 0px);
+        drop-shadow-offset-y: Look.sy(Look.rail-icon, 0px); drop-shadow-color: Look.sc(Look.rail-icon, transparent);
+        Image {
+            source: IconPack.plus; width: 24px; height: 24px;
+            colorize: IconPack.tint(self.source, Theme.accent-text); accessible-role: none;
+        }
+        if focus.has-focus: Rectangle {
+            x: -4px; y: -4px; width: parent.width + 8px; height: parent.height + 8px;
+            border-radius: parent.border-radius + 4px; border-width: 2px; border-color: Theme.focus-ring;
+        }
+    }
+    focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == "\n" || event.text == " " { root.clicked(); return accept; }
+            return reject;
+        }
+        pointer := TouchArea {
+            mouse-cursor: MouseCursor.pointer;
+            clicked => { root.clicked(); }
+            changed has-hover => {
+                if self.has-hover {
+                    Tip.text = root.tip; Tip.side = 1;
+                    Tip.x = root.absolute-position.x + root.width; Tip.y = root.absolute-position.y + root.height / 2;
+                } else if Tip.text == root.tip { Tip.text = ""; }
+            }
+        }
     }
 }

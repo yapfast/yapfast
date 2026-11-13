@@ -13,6 +13,13 @@ component WorkspaceButton inherits Rectangle {
     in property <Workspace> space;
     /// Its picker is open: the full list under "+N", or its folder's.
     in property <bool> open;
+    /// Takes the keyboard back when `refocus-tick` changes and it's the
+    /// button whose picker just closed.
+    in property <int> refocus-tick;
+    in property <bool> refocus-me;
+    changed refocus-tick => {
+        if root.refocus-me { focus.focus(); }
+    }
     callback chosen();
     /// Down on a folder's workspace opens its list.
     callback dropped();
@@ -55,7 +62,9 @@ component WorkspaceButton inherits Rectangle {
         text: root.space.number;
         font-family: Chrome.face(Look.mono); font-size: Chrome.topbar-size;
         font-weight: root.space.current || root.space.unread ? 700 : 400;
-        color: root.lit ? Chrome.topbar-current : Chrome.topbar-ink;
+        // Unread workspaces stand out from read ones in the theme's
+        // secondary ink, as well as by weight.
+        color: root.lit ? Chrome.topbar-current : root.space.unread || root.space.badge != "" ? Theme.secondary : Chrome.topbar-ink;
         x: (parent.width - self.preferred-width - (root.space.badge != "" ? sup.preferred-width + 1px : 0px)) / 2;
         width: self.preferred-width;
         horizontal-alignment: center; vertical-alignment: center; accessible-role: none;
@@ -100,14 +109,19 @@ export component TopBar inherits Rectangle {
     property <string> showing: "-";
     property <length> picker-x;
     in property <length> bounds-width: 1280px;
-    function close-picker() {
+    /// The picker that just closed, whose button takes the keyboard back.
+    property <string> closed-from: "-";
+    property <int> refocus-tick;
+    function close-picker(refocus: bool) {
         popup.close();
         root.popup-open = false;
+        root.closed-from = refocus ? root.showing : "-";
         root.showing = "-";
+        if refocus { root.refocus-tick += 1; }
     }
     function open-picker(folder: string, name: string, x: length) {
         if root.showing == folder && root.popup-open {
-            root.close-picker();
+            root.close-picker(false);
             return;
         }
         root.showing = folder;
@@ -127,6 +141,8 @@ export component TopBar inherits Rectangle {
         for space in Chrome.workspaces: WorkspaceButton {
             space: space;
             open: root.popup-open && ((space.more && root.showing == "") || (space.folder != "" && root.showing == space.folder));
+            refocus-tick: root.refocus-tick;
+            refocus-me: (space.more && root.closed-from == "") || (space.folder != "" && root.closed-from == space.folder);
             chosen => {
                 if space.home { root.home(); }
                 else if space.more { root.open-picker("", "", self.absolute-position.x); }
@@ -146,7 +162,7 @@ export component TopBar inherits Rectangle {
         width: root.bounds-width; height: root.bounds;
         close-policy: no-auto-close;
         TouchArea {
-            clicked => { root.close-picker(); }
+            clicked => { root.close-picker(false); }
         }
         picker := ServerPicker {
             x: root.absolute-position.x + root.picker-x; y: root.absolute-position.y + root.height + 2px;
@@ -156,7 +172,8 @@ export component TopBar inherits Rectangle {
             open-dm(id) => { root.open-dm(id); }
             join-server => { root.join-server(); }
             open-server-menu(id, x, y) => { root.open-server-menu(id, x, y); }
-            closed => { root.close-picker(); }
+            closed => { root.close-picker(false); }
+            escaped => { root.close-picker(true); }
         }
     }
     centre-label := Text {

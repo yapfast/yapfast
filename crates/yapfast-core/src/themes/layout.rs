@@ -361,6 +361,9 @@ pub(super) fn read_layout(
                 layout.chat_max_width = Some(number(value, &here, (480.0, 1600.0))?)
             }
             "chat_avatars" => layout.chat_avatars = Some(boolean(value, &here)?),
+            // The member grid: read by `lists::check_with` from the theme as
+            // written, which `member_rows` draws.
+            "members_style" | "grid" => {}
             "rail_tiles" => {
                 layout.rail_tiles = Some(super::lists::read_rail_tiles(value, &here, notes)?)
             }

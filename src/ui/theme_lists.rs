@@ -416,6 +416,17 @@ pub fn reset(window: &YapfastWindow) {
     members.set_badge_on(false);
     members.set_sep_on(false);
     members.set_grid_columns(0);
+    members.set_activity(true);
+    members.set_reserve(0.);
+    members.set_name_ink(Color::default());
+    members.set_crown_ink(Color::default());
+    channels.set_reserve(0.);
+    channels.set_stripe(Color::default());
+    channels.set_prefix_art(TileLayer::default());
+    channels.set_foot(TileLayer::default());
+    rails.set_grounds(ModelRc::default());
+    rails.set_foot(TileLayer::default());
+    rails.set_add_on(false);
 }
 
 /// Forgets the decoded pictures.
@@ -692,6 +703,12 @@ pub fn apply(
             rails.set_divider_dotted(divider.dotted);
         }
         rails.set_focus_radius(tiles.focus_radius.unwrap_or(-1.));
+        rails.set_folder_colour(colour(tiles.folder_colour));
+        rails.set_folder_mini(tiles.folder_mini.unwrap_or(-1.));
+        rails.set_foot(one(folder, tiles.foot.as_ref(), !still));
+        rails.set_grounds(layers(folder, &tiles.ground, !still));
+        rails.set_add_on(tiles.add_gap.is_some());
+        rails.set_add_gap(tiles.add_gap.unwrap_or(0.));
         rails.set_badge_ground(colour(tiles.badge.ground));
         rails.set_badge_ink(colour(tiles.badge.ink));
         window
@@ -804,6 +821,12 @@ pub fn apply(
         lists.set_ink_hover(colour(rows.ink.hover));
         lists.set_emboss(rows.emboss);
         lists.set_focus_outset(rows.focus_outset);
+        lists.set_stripe(colour(rows.stripe));
+        lists.set_pill_colour(colour(rows.pill_colour));
+        lists.set_pill_rim(colour(rows.pill_rim));
+        lists.set_reserve(rows.reserve);
+        lists.set_foot(one(folder, rows.foot.as_ref(), !still));
+        lists.set_prefix_art(one(folder, selected.prefix_art.as_ref(), !still));
         lists.set_focus_radius(rows.focus_radius.unwrap_or(-1.));
         let headers = &rows.headers;
         let head = face(resolved, fonts, headers.font.unwrap_or(FontRole::Body));
@@ -827,6 +850,13 @@ pub fn apply(
         lists.set_head_height(headers.height.unwrap_or(-1.));
         lists.set_head_colour(colour(headers.colour));
         lists.set_head_frame(one(folder, headers.frame.as_ref(), !still));
+        lists.set_head_fill(headers.fill);
+        lists.set_head_inset(headers.inset.unwrap_or(16.));
+        lists.set_head_chevron(headers.chevron.unwrap_or(true));
+        let (ink, x, y) = headers.shadow.unwrap_or((0, 0., 0.));
+        lists.set_head_shadow(Color::from_argb_encoded(ink));
+        lists.set_head_shadow_x(x);
+        lists.set_head_shadow_y(y);
     }
     if let Some(rows) = &layout.member_rows {
         let lists = window.global::<MemberLists>();
@@ -962,6 +992,17 @@ pub fn apply(
         lists.set_grid_columns(columns as i32);
         lists.set_grid_size(size);
         lists.set_tile_outline(rows.tile_outline);
+        lists.set_name_ink(colour(rows.name_ink));
+        lists.set_crown_ink(colour(rows.crown_ink));
+        lists.set_activity(rows.activity);
+        lists.set_reserve(rows.reserve);
+        lists.set_dot_ring(colour(rows.avatar.dot_ring));
+        lists.set_head_fill(headers.fill);
+        lists.set_head_inset(headers.inset.unwrap_or(8.));
+        let (ink, x, y) = headers.shadow.unwrap_or((0, 0., 0.));
+        lists.set_head_shadow(Color::from_argb_encoded(ink));
+        lists.set_head_shadow_x(x);
+        lists.set_head_shadow_y(y);
         let title = &rows.title;
         let title_face = face(resolved, fonts, title.font.unwrap_or(FontRole::Body));
         lists.set_title_family(if title.font.is_some() {
@@ -976,6 +1017,32 @@ pub fn apply(
                 .unwrap_or(-1.),
         );
         lists.set_title_colour(colour(title.colour));
+        lists.set_title_centre(title.centre);
+        let (ink, x, y) = title.shadow.unwrap_or((0, 0., 0.));
+        lists.set_title_shadow(Color::from_argb_encoded(ink));
+        lists.set_title_shadow_x(x);
+        lists.set_title_shadow_y(y);
+        lists.set_title_rule(colour(title.rule.map(|rule| rule.0)));
+        lists.set_title_rule_dotted(title.rule.is_some_and(|rule| rule.1));
+        let count = face(resolved, fonts, title.count_font.unwrap_or(FontRole::Body));
+        lists.set_count_family(if title.count_font.is_some() {
+            count.family
+        } else {
+            SharedString::new()
+        });
+        lists.set_count_size(title.count_size.unwrap_or(-1.));
+        lists.set_count_colour(colour(title.count_colour));
+        let words = resolved
+            .chrome
+            .labels
+            .get(&yapfast_core::themes::chrome::Label::MembersTitle)
+            .cloned()
+            .unwrap_or_default();
+        lists.set_title_head(
+            words
+                .split_once(" · {n}")
+                .map_or_else(SharedString::new, |(head, _)| head.into()),
+        );
     }
 }
 
@@ -1066,6 +1133,269 @@ mod tests {
         assert!(!window.global::<Rails>().get_on());
         assert!(!window.global::<ChannelLists>().get_on());
         assert!(!window.global::<MemberLists>().get_on());
+    }
+
+    /// Spec §5.5: with the rail hidden, every server of a 25-server account
+    /// is in the picker (by "+N", or inside its folder's list), and joining
+    /// is its last row; the picker's keys (Up/Down/Enter) walk these rows.
+    #[test]
+    fn a_hidden_rail_leaves_every_server_in_reach() {
+        use std::sync::Arc;
+        use yapfast_core::chat::{ChatServer, ServerFolder};
+        i_slint_backend_testing::init_no_event_loop();
+        let window = YapfastWindow::new().unwrap();
+        init(&window);
+        let mut state = yapfast_core::application::AppState::default();
+        state.servers = (0..25)
+            .map(|index| {
+                Arc::new(ChatServer {
+                    id: format!("discord-server:{index}"),
+                    name: format!("Server {index}"),
+                    discord: true,
+                    // Three folders: servers 3–5, 10–13 and 20–21.
+                    folder: match index {
+                        3..=5 => Some(ServerFolder {
+                            id: "f1".into(),
+                            name: Some("one".into()),
+                            color: None,
+                        }),
+                        10..=13 => Some(ServerFolder {
+                            id: "f2".into(),
+                            name: None,
+                            color: None,
+                        }),
+                        20..=21 => Some(ServerFolder {
+                            id: "f3".into(),
+                            name: Some("three".into()),
+                            color: None,
+                        }),
+                        _ => None,
+                    },
+                    ..ChatServer::default()
+                })
+            })
+            .collect();
+        PICKER.with_borrow_mut(|picker| picker.hidden = true);
+        picker(&state, 6);
+        let picker_rows = |folder: &str| {
+            window.global::<Picker>().invoke_filter(folder.into());
+            window
+                .global::<Picker>()
+                .get_rows()
+                .iter()
+                .collect::<Vec<PickerRow>>()
+        };
+        let all = picker_rows("");
+        let mut reached: std::collections::BTreeSet<String> = all
+            .iter()
+            .filter(|row| !row.folder && !row.join)
+            .map(|row| row.id.to_string())
+            .collect();
+        for folder in ["f1", "f2", "f3"] {
+            assert!(all.iter().any(|row| row.folder && row.id == folder));
+            reached.extend(picker_rows(folder).iter().map(|row| row.id.to_string()));
+        }
+        assert_eq!(reached.len(), 25, "{reached:?}");
+        assert!(all.last().is_some_and(|row| row.join));
+        // The first six top-level rows carry their workspace numbers.
+        let numbers: Vec<String> = all
+            .iter()
+            .filter(|row| !row.number.is_empty())
+            .map(|row| row.number.to_string())
+            .collect();
+        assert_eq!(numbers, ["1", "2", "3", "4", "5", "6"]);
+        assert_eq!(picker_count(""), 25);
+        assert_eq!(picker_count("f2"), 4);
+        // A folder opens inline from the full list.
+        window.global::<Picker>().invoke_filter("".into());
+        window.global::<Picker>().invoke_toggle("f1".into());
+        let open = window
+            .global::<Picker>()
+            .get_rows()
+            .iter()
+            .filter(|row| row.nested)
+            .count();
+        assert_eq!(open, 3);
+        PICKER.with_borrow_mut(|picker| picker.hidden = false);
+    }
+
+    /// A window holding a server rail, a channel list and a member list
+    /// of `members` members, shown at 1280x720.
+    fn listed_window(members: usize) -> YapfastWindow {
+        use yapfast_ui::{MemberRow, RoomRow, ServerRow};
+        i_slint_backend_testing::init_no_event_loop();
+        let window = YapfastWindow::new().unwrap();
+        init(&window);
+        window.set_servers(ModelRc::new(VecModel::from(
+            (0..30)
+                .map(|index| ServerRow {
+                    id: format!("s{index}").into(),
+                    name: format!("Server {index}").into(),
+                    initial: "S".into(),
+                    seed: index,
+                    unread: index % 3 == 0,
+                    badge: if index % 7 == 0 {
+                        "2".into()
+                    } else {
+                        SharedString::new()
+                    },
+                    ..ServerRow::default()
+                })
+                .collect::<Vec<_>>(),
+        )));
+        window.set_rooms(ModelRc::new(VecModel::from(
+            (0..40)
+                .map(|index| RoomRow {
+                    id: format!("r{index}").into(),
+                    name: format!("channel-{index}").into(),
+                    heading: if index % 10 == 0 {
+                        format!("Group {index}").into()
+                    } else {
+                        SharedString::new()
+                    },
+                    group: index / 10 + 1,
+                    seed: index,
+                    unread: index % 4 == 0,
+                    selected: index == 1,
+                    ..RoomRow::default()
+                })
+                .collect::<Vec<_>>(),
+        )));
+        window.set_roster(ModelRc::new(VecModel::from(
+            (0..members)
+                .flat_map(|index| {
+                    let heading = (index % 100 == 0).then(|| MemberRow {
+                        heading: format!("Group — {}", 100).into(),
+                        ..MemberRow::default()
+                    });
+                    heading.into_iter().chain([MemberRow {
+                        id: format!("m{index}").into(),
+                        name: format!("Member {index}").into(),
+                        presence: "online".into(),
+                        place: (index % 100) as i32,
+                        seed: index as i32,
+                        online_index: index as i32,
+                        group_name: "Group".into(),
+                        ..MemberRow::default()
+                    }])
+                })
+                .collect::<Vec<_>>(),
+        )));
+        window.set_members_available(true);
+        window.set_member_list(true);
+        window
+            .window()
+            .set_size(slint::LogicalSize::new(1280., 720.));
+        window.show().unwrap();
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(50));
+        window
+    }
+
+    /// Every button's accessible label in the window, in tree order.
+    fn button_labels(window: &YapfastWindow) -> Vec<String> {
+        use i_slint_backend_testing::{AccessibleRole, ElementQuery};
+        ElementQuery::from_root(window)
+            .match_accessible_role(AccessibleRole::Button)
+            .find_all()
+            .iter()
+            .filter_map(|element| element.accessible_label())
+            .map(|label| label.to_string())
+            .collect()
+    }
+
+    fn lists_theme(folder: &Path) -> Resolved {
+        std::fs::create_dir_all(folder.join("art")).unwrap();
+        image::RgbaImage::from_pixel(24, 24, image::Rgba([200, 0, 0, 255]))
+            .save(folder.join("art/a.png"))
+            .unwrap();
+        Package::parse(
+            r##"{ "theme_api": 1, "id": "dev.example.lists", "name": "Lists", "version": "1.0.0",
+                "layout": {
+                    "rail_tiles": { "shape": "card", "tilt": 6, "label": "inside", "frame": { "image": "art/a.png", "window": [4, 4, 36, 30] } },
+                    "channel_rows": { "height": 40, "frame": { "image": "art/a.png", "slice": 4 }, "fit_text": true, "tilt": 1.5,
+                                      "meta": { "voice": "voice · {n}", "unread": "glyph", "unread_glyph": "●" },
+                                      "headers": { "text": "// {name}" } },
+                    "member_rows": { "height": 56, "avatar": { "size": 40, "tilt": 4 }, "meta": { "online": "online" }, "sub": "role" } },
+                "variants": { "dark": { "base": "yap" } } }"##,
+        )
+        .unwrap()
+        .resolve(Mode::Dark)
+        .unwrap()
+    }
+
+    /// Spec §5.4: the rail's, channels' and members' rows say the same to a
+    /// screen reader with a theme's lists as without, byte for byte.
+    #[test]
+    #[ignore = "walks the element tree, which needs YAPFAST_SLINT_DEBUG_INFO=1 at build time"]
+    fn a_themes_lists_keep_every_label() {
+        let window = listed_window(60);
+        let stock = button_labels(&window);
+        assert!(
+            stock.iter().any(|label| label.starts_with("Server 1")),
+            "{stock:?}"
+        );
+        assert!(
+            stock.iter().any(|label| label.starts_with("channel-2")),
+            "{stock:?}"
+        );
+        assert!(
+            stock.iter().any(|label| label.starts_with("Member 3, m3")),
+            "{stock:?}"
+        );
+        let folder = tempfile::tempdir().unwrap();
+        apply(
+            &window,
+            &lists_theme(folder.path()),
+            folder.path(),
+            &[],
+            Performance::Full,
+            false,
+        );
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(50));
+        let themed = button_labels(&window);
+        // The two dumps, for a reviewer to read: `LISTS_A11Y_DUMP=file`.
+        if let Some(path) = std::env::var_os("LISTS_A11Y_DUMP") {
+            let dump = format!("# stock\n{}\n# themed\n{}\n", stock.join("\n"), themed.join("\n"));
+            std::fs::write(path, dump).unwrap();
+        }
+        assert_eq!(stock, themed);
+        reset(&window);
+    }
+
+    /// Spec §5.3: with a thousand members, a theme's rows stay virtual: the
+    /// list makes rows for what shows, not for everyone.
+    #[test]
+    #[ignore = "walks the element tree, which needs YAPFAST_SLINT_DEBUG_INFO=1 at build time"]
+    fn a_themes_member_rows_stay_virtual() {
+        let window = listed_window(1000);
+        let folder = tempfile::tempdir().unwrap();
+        apply(
+            &window,
+            &lists_theme(folder.path()),
+            folder.path(),
+            &[],
+            Performance::Full,
+            false,
+        );
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(50));
+        let made = button_labels(&window)
+            .iter()
+            .filter(|label| label.ends_with("show profile"))
+            .count();
+        // 720 px of 58 px rows is about 12 showing; the list may make a
+        // screen ahead.
+        assert!(made > 0 && made < 2 * 13, "{made} member rows made");
+        let before = decodes();
+        reset(&window);
+        apply(
+            &window,
+            &lists_theme(folder.path()),
+            folder.path(),
+            &[],
+            Performance::Full,
+            false,
+        );
+        assert_eq!(decodes(), before, "the same theme again decodes nothing");
     }
 
     /// A theme without the three blocks leaves every list stock.

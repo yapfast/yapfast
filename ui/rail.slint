@@ -9,7 +9,7 @@ import { Avatar, Nameplate, PictureStore, StatusText, StyledName, NameStyleRow, 
 import { DiscordBadge } from "discord.slint";
 import { PersonRow, LivePill, VoiceCard } from "voice.slint";
 import { PluginRowButton, PluginSurfaces } from "plugins.slint";
-import { FolderServer, TileLayer, Rails, ChannelLists, TileRailItem, TileFolderItem, TileBetween, TileDivider, TileArtBox, ListedName, ListedMeta, ListedHeadingText } from "theme_lists.slint";
+import { FolderServer, TileLayer, TileAddItem, Rails, ChannelLists, TileRailItem, TileFolderItem, TileBetween, TileDivider, TileArtBox, ListedName, ListedMeta, ListedHeadingText } from "theme_lists.slint";
 import { RansomName } from "theme_layout.slint";
 
 
@@ -105,6 +105,8 @@ export struct RoomRow {
     /// From its id, for a theme's art; and its category's place among the
     /// server's categories, from 1, which a theme's heading may show.
     seed: int, group: int,
+    /// Every other channel in its category, which a theme may stripe.
+    stripe: bool,
 }
 
 // A call going on in a server: a white speaker on green, on a thin ring of
@@ -498,6 +500,7 @@ export component ChannelRow inherits Rectangle {
     in property <bool> separator-above;
     in property <int> voice-count;
     in property <bool> is-voice;
+    in property <bool> stripe;
     property <bool> listed: ChannelLists.on && !root.person;
     property <TileLayer> frame: root.selected && ChannelLists.sel-frame.on ? ChannelLists.sel-frame : ChannelLists.frame(root.seed);
     property <bool> blink-off;
@@ -567,7 +570,8 @@ export component ChannelRow inherits Rectangle {
     border-radius: Look.radius(6px);
     background: !root.listed ? (root.selected && !Art.highlighter ? Theme.row-selected : pointer.has-hover ? Theme.hover : transparent)
         : root.selected ? (ChannelLists.selected-plain && !Art.highlighter ? Theme.row-selected : transparent)
-        : pointer.has-hover && ChannelLists.hover-ground == 1 ? Theme.hover : pointer.has-hover && ChannelLists.hover-ground == 2 ? Theme.row-hover : transparent;
+        : pointer.has-hover && ChannelLists.hover-ground == 1 ? Theme.hover : pointer.has-hover && ChannelLists.hover-ground == 2 ? Theme.row-hover
+        : root.stripe && ChannelLists.stripe != transparent ? ChannelLists.stripe : transparent;
     animate background { duration: root.listed ? Art.hover-time(pointer.has-hover) : 90ms; }
     if Art.highlighter && (!root.listed || ChannelLists.selected-plain): ArtHighlighter { x: 0px; y: 0px; width: parent.width; height: parent.height; selected: root.selected; }
     if root.listed && ChannelLists.sep-on && root.separator-above: Rectangle {
@@ -613,7 +617,9 @@ export component ChannelRow inherits Rectangle {
     if root.unread && !root.selected: Rectangle {
         // A thread sits further in, past the line from its channel.
         x: root.thread ? -36px : -8px; y: (parent.height - self.height) / 2; width: 4px; height: 8px;
-        border-top-right-radius: Look.radius(4px); border-bottom-right-radius: Look.radius(4px); background: Theme.text;
+        border-top-right-radius: Look.radius(4px); border-bottom-right-radius: Look.radius(4px);
+        background: root.listed && ChannelLists.pill-colour != transparent ? ChannelLists.pill-colour : Theme.text;
+        border-width: root.listed && ChannelLists.pill-rim != transparent ? 1px : 0px; border-color: ChannelLists.pill-rim;
     }
     focus := FocusScope {
         key-pressed(event) => {
@@ -684,6 +690,15 @@ export component ChannelRow inherits Rectangle {
                     width: parent.width; height: parent.height; layer: root.frame;
                     fade: pointer.has-hover && ChannelLists.hover-frame-opacity >= 0 && !root.selected ? ChannelLists.hover-frame-opacity : -1;
                 }
+                if root.listed && root.selected && ChannelLists.prefix-art.on: TileArtBox {
+                    x: max(0px, ChannelLists.inset - (ChannelLists.prefix-art.sized ? ChannelLists.prefix-art.w : 8px) - 3px);
+                    width: ChannelLists.prefix-art.sized ? ChannelLists.prefix-art.w : 8px; height: parent.height;
+                    layer: { on: true, picture: ChannelLists.prefix-art.picture, opacity: ChannelLists.prefix-art.opacity,
+                        sized: true, w: ChannelLists.prefix-art.sized ? ChannelLists.prefix-art.w : 8px,
+                        h: ChannelLists.prefix-art.sized ? ChannelLists.prefix-art.h : 10px,
+                        ax: 0, ay: 0.5, density: ChannelLists.prefix-art.density, pixelated: ChannelLists.prefix-art.pixelated };
+                    visible: !(root.blink-off && ChannelLists.blink > 0ms);
+                }
                 if root.listed && root.selected && ChannelLists.prefix != "": Text {
                     x: max(0px, ChannelLists.inset - self.preferred-width - 3px); height: parent.height;
                     text: ChannelLists.prefix; color: ChannelLists.prefix-colour != transparent ? ChannelLists.prefix-colour : Theme.accent-text;
@@ -692,7 +707,7 @@ export component ChannelRow inherits Rectangle {
                     visible: !(root.blink-off && ChannelLists.blink > 0ms);
                 }
                 Timer {
-                    interval: max(100ms, ChannelLists.blink); running: root.listed && root.selected && ChannelLists.blink > 0ms;
+                    interval: max(100ms, ChannelLists.blink); running: root.listed && root.selected && ChannelLists.blink > 0ms && (ChannelLists.prefix != "" || ChannelLists.prefix-art.on);
                     triggered => { root.blink-off = !root.blink-off; }
                 }
             contents := HorizontalLayout {
@@ -720,7 +735,12 @@ export component ChannelRow inherits Rectangle {
                 }
                 if !root.person && !root.thread && !(root.themed && Chrome.hide-channel-icons): Image {
                     source: root.icon; width: root.listed ? ChannelLists.icon-size : 20px; image-fit: contain;
-                    colorize: IconPack.tint(self.source, root.listed && ChannelLists.icon-follows-ink ? root.ink
+                    // A list's own icon colours take even a coloured icon pack's
+                    // icons, as the mockups draw them.
+                    property <bool> themed-ink: root.listed && (ChannelLists.icon-follows-ink || (root.selected && ChannelLists.icon-selected != transparent)
+                        || (!root.selected && ChannelLists.icon-colour != transparent));
+                    colorize: self.themed-ink ? self.ink : IconPack.tint(self.source, self.ink);
+                    property <color> ink: (root.listed && ChannelLists.icon-follows-ink ? root.ink
                         : root.listed && root.selected && ChannelLists.icon-selected != transparent ? ChannelLists.icon-selected
                         : root.listed && !root.selected && ChannelLists.icon-colour != transparent ? (pointer.has-hover && ChannelLists.icon-hover != transparent ? ChannelLists.icon-hover : ChannelLists.icon-colour)
                         : root.danger ? Theme.danger : root.selected && ClientStyle.enabled ? Theme.text : root.selected || root.unread ? Theme.secondary : Theme.faint);
@@ -988,11 +1008,12 @@ component CategoryHeading inherits Rectangle {
     callback create;
     property <color> ink: touch.has-hover ? Theme.secondary : Theme.muted;
     HorizontalLayout {
-        padding-left: 16px; padding-right: 8px; spacing: 4px;
+        padding-left: ChannelLists.on && ChannelLists.head-on ? ChannelLists.head-inset : 16px; padding-right: 8px; spacing: 4px;
         padding-top: ChannelLists.on && ChannelLists.head-on && ChannelLists.head-ransom ? max(0px, root.height - 34px) : root.height - 21px;
         padding-bottom: ChannelLists.on && ChannelLists.head-on && ChannelLists.head-ransom ? 4px : 0px;
         if ChannelLists.on && ChannelLists.head-on && !ChannelLists.head-ransom: ListedHeadingText {
             text: root.text; place: root.place; ink: root.ink; tail: 26px;
+            list-x: root.absolute-position.x; list-width: root.width;
         }
         if ChannelLists.on && ChannelLists.head-on && ChannelLists.head-ransom: Rectangle {
             min-width: heading-ransom.min-width; preferred-width: heading-ransom.preferred-width; horizontal-stretch: 0;
@@ -1011,7 +1032,7 @@ component CategoryHeading inherits Rectangle {
         }
         // A theme's tree marks a closed folder with an ellipsis instead.
         if Chrome.tree-channels && root.collapsed && !Chrome.folders: Text { text: "…"; color: root.ink; font-size: 14px; vertical-alignment: center; accessible-role: none; }
-        if !Chrome.tree-channels && !Chrome.folders: Image {
+        if !Chrome.tree-channels && !Chrome.folders && !(ChannelLists.on && !ChannelLists.head-chevron): Image {
             source: IconPack.chevron-down;
             width: 12px; image-fit: contain; colorize: IconPack.tint(self.source, root.ink);
             transform-rotation: root.collapsed ? -90deg : 0deg;
@@ -1195,6 +1216,10 @@ export component ServerRail inherits Rectangle {
     if root.own-art && (Art.rail.length > 0 || Art.glass-rail): ArtLayer {
         x: 0px; y: 0px; width: parent.width; height: parent.height; layers: Art.rail; glass: Art.glass-rail; ground: Theme.rail-fill;
     }
+    // A theme's tiles' own ground under them, such as a column down an edge.
+    if Rails.on: Rectangle {
+        for layer in Rails.grounds: TileArtBox { x: 0px; y: 0px; width: root.width; height: root.height; layer: layer; }
+    }
     if root.horizontal: Flickable {
         content-width: across.preferred-width;
         across := HorizontalLayout {
@@ -1331,8 +1356,10 @@ export component ServerRail inherits Rectangle {
         }
         // A list view makes only the servers in sight, which
         // matters on accounts in many servers. Unread DMs scroll with them.
+        // A theme's tiles fill the rail edge to edge, with no scroll bar.
         ListView {
             vertical-stretch: 1;
+            vertical-scrollbar-policy: Rails.on ? ScrollBarPolicy.always-off : ScrollBarPolicy.as-needed;
             for server[index] in root.servers: Rectangle {
                 // Home already has a pinned separator. Keep the model's line
                 // only when it separates unread DMs from servers below them.
@@ -1372,7 +1399,7 @@ export component ServerRail inherits Rectangle {
                     context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
                 }
                 if Rails.on && !server.folder && !server.dm && !server.divider: TileRailItem {
-                    y: Rails.gap; width: parent.width;
+                    y: Rails.gap; width: parent.width; place: index;
                     initial: server.initial; picture: server.picture; picture-url: server.picture-url; name: server.name; seed: server.seed;
                     label: server.name + (server.discord && root.matrix-build ? ", Discord" : "") + (server.unavailable ? ", unavailable" : "")
                         + (server.call ? ", in a call" : "")
@@ -1432,7 +1459,16 @@ export component ServerRail inherits Rectangle {
                 }
             }
         }
-        if root.can-join: RailItem {
+        // A theme's art over the add button, such as a power light.
+        if Rails.on && Rails.foot.on: TileArtBox {
+            height: Rails.foot.sized && Rails.foot.h > 0px ? Rails.foot.h : 48px; layer: Rails.foot;
+        }
+        if Rails.on && Rails.add-on && root.can-join: Rectangle { height: Rails.add-gap; }
+        if root.can-join && Rails.on && Rails.add-on: TileAddItem {
+            label: "Join a server"; tip: "Join a server";
+            clicked => { root.join-server(); }
+        }
+        if root.can-join && !(Rails.on && Rails.add-on): RailItem {
             icon: IconPack.circle-plus; icon-color: Theme.accent; icon-size: 24px;
             label: "Join a server"; tip: "Join a server";
             clicked => { root.join-server(); }
@@ -1786,7 +1822,7 @@ export component RoomList inherits Rectangle {
                 }
                 if !room.hidden && !room.thread: ChannelRow {
                     text: room.name; themed: true;
-                    seed: room.seed; is-voice: room.voice && !room.direct;
+                    seed: room.seed; is-voice: room.voice && !room.direct; stripe: room.stripe;
                     separator-above: index > 0 && room.heading == "";
                     voice-count: room.id == root.voice-channel ? root.participants.length : room.people.length;
                     branch: (room.direct ? Chrome.tree-dms : Chrome.tree-channels) ? Chrome.branch(room.direct ? index == root.rooms.length - 1 || root.rooms[index + 1].heading != "" : root.tree-last(index)) : "";
@@ -1980,6 +2016,11 @@ export component RoomList inherits Rectangle {
                     }
                 }
             }
+        }
+        // A theme's list leaves room for the sidebar's art at its foot.
+        if ChannelLists.on && ChannelLists.reserve > 0px: Rectangle {
+            height: ChannelLists.reserve;
+            if ChannelLists.foot.on: TileArtBox { layer: ChannelLists.foot; }
         }
     }
     // Someone dragged follows the pointer the same way, just below it, so the

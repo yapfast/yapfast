@@ -10,7 +10,7 @@ import { BotTag } from "messages.slint";
 import { PluginBadge, PluginBadgeView, PluginPart, PluginWidgets } from "plugins.slint";
 import { Arrange, DashedOutline, RansomName } from "theme_layout.slint";
 import { ThemeContent, IlluminatedInitial } from "theme_content.slint";
-import { MemberLists, ListedMember, ListedMemberHeading, ListedMemberTile } from "theme_lists.slint";
+import { MemberLists, ListedMember, ListedMemberHeading, ListedMemberTile, ListedTitle } from "theme_lists.slint";
 
 /// A member of the open room, or the heading, with no id, that starts a group.
 export struct MemberRow {
@@ -163,7 +163,7 @@ export component MemberPanel inherits Rectangle {
     }
     VerticalLayout {
         // A theme's line over the list, such as `$ who`.
-        if Chrome.members-title != "": HorizontalLayout {
+        if Chrome.members-title != "" && !(MemberLists.on && (MemberLists.title-centre || MemberLists.title-shadow != transparent || MemberLists.title-rule != transparent || MemberLists.count-size >= 0px)): HorizontalLayout {
             padding-left: 16px; padding-right: 8px; height: 32px;
             Text {
                 text: MemberLists.numbered(Chrome.members-title, MemberLists.count);
@@ -175,7 +175,13 @@ export component MemberPanel inherits Rectangle {
                 accessible-role: none;
             }
         }
-        if root.activity-rows.length > 0 && !Chrome.hide-activity-cards: VerticalLayout {
+        // A theme's title: centred, with a hard shadow, a rule under it, and
+        // its count in a face of its own.
+        if Chrome.members-title != "" && MemberLists.on && (MemberLists.title-centre || MemberLists.title-shadow != transparent || MemberLists.title-rule != transparent || MemberLists.count-size >= 0px): ListedTitle {
+            height: MemberLists.title-rule != transparent ? 44px : 32px;
+            template: Chrome.members-title; count: MemberLists.count;
+        }
+        if root.activity-rows.length > 0 && !Chrome.hide-activity-cards && !(MemberLists.on && !MemberLists.activity): VerticalLayout {
             padding-left: 8px; padding-right: 8px; padding-top: 8px; padding-bottom: 4px; spacing: 0px;
             activity-header := Rectangle {
                 // Opening it shows the cards again if they were hidden, as
@@ -377,7 +383,7 @@ export component MemberPanel inherits Rectangle {
                         if member.owner: Middle {
                             Image {
                                 source: IconPack.crown; width: 14px; height: 14px; image-fit: contain;
-                                colorize: IconPack.tint(self.source, #f0b232);
+                                colorize: MemberLists.crown-ink != transparent ? MemberLists.crown-ink : IconPack.tint(self.source, #f0b232);
                                 accessible-role: image; accessible-label: "Server Owner";
                             }
                         }
@@ -523,6 +529,7 @@ export component MemberPanel inherits Rectangle {
                 }
             }
         }
+        if MemberLists.on && MemberLists.reserve > 0px: Rectangle { height: MemberLists.reserve; }
     }
 }
 

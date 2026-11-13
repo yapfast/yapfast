@@ -199,6 +199,15 @@ pub struct RailTiles {
     pub badge: MentionBadge,
     /// The focus ring's corner, on a `tile` ring.
     pub focus_radius: Option<f32>,
+    /// A frameless folder's fill, and its servers' pictures' size.
+    pub folder_colour: Option<u32>,
+    pub folder_mini: Option<f32>,
+    /// Art over the add button, such as a power light.
+    pub foot: Option<TileArt>,
+    /// Art under the tiles, up to three layers (a ground, a column).
+    pub ground: Vec<TileArt>,
+    /// The add button as a tile in the theme's tile shape, and the room above it.
+    pub add_gap: Option<f32>,
 }
 
 /// A short line across the rail.
@@ -244,6 +253,98 @@ impl RailTiles {
     }
 }
 
+impl ChannelRows {
+    /// One summary line for `yapfast theme check`.
+    pub fn summary(&self) -> String {
+        let mut parts = Vec::new();
+        if let Some(height) = self.height {
+            parts.push(format!("{height} px"));
+        }
+        if let Some(font) = self.font {
+            parts.push(format!("{} face", font.name()));
+        }
+        if !self.frame.is_empty() {
+            parts.push(format!(
+                "{} frame{}",
+                self.frame.len(),
+                plural(self.frame.len())
+            ));
+        }
+        if self.fit_text {
+            parts.push("fitted to the name".into());
+        }
+        if self.tilt > 0.0 {
+            parts.push(format!("tilt ±{}°", self.tilt));
+        }
+        if self.selected.underline.is_some() {
+            parts.push("selected underline".into());
+        }
+        if !self.selected.prefix.is_empty() {
+            parts.push(format!("selected prefix {}", self.selected.prefix));
+        }
+        if !self.meta.voice.is_empty() {
+            parts.push(format!("voice \"{}\"", self.meta.voice));
+        }
+        if !self.headers.text.is_empty() {
+            parts.push(format!("headings \"{}\"", self.headers.text));
+        }
+        format!(
+            "channel rows: {}",
+            if parts.is_empty() {
+                "stock".into()
+            } else {
+                parts.join(", ")
+            }
+        )
+    }
+}
+
+impl MemberRows {
+    /// One summary line for `yapfast theme check`.
+    pub fn summary(&self) -> String {
+        let mut parts = Vec::new();
+        if let Some((columns, size)) = self.grid {
+            parts.push(format!("grid {columns} across, {size} px avatars"));
+        } else if let Some(height) = self.height {
+            parts.push(format!("{height} px"));
+        }
+        if let Some(size) = self.avatar.size {
+            parts.push(if size == 0.0 {
+                "no avatar".into()
+            } else {
+                format!("{size} px avatar")
+            });
+        }
+        if !self.frame.is_empty() {
+            parts.push(format!(
+                "{} frame{}",
+                self.frame.len(),
+                plural(self.frame.len())
+            ));
+        }
+        if self.meta.is_set() {
+            parts.push("meta words".into());
+        }
+        if let Some(status) = self.status {
+            parts.push(format!("status {}", status.name()));
+        }
+        if self.badge.is_some() {
+            parts.push("online badges".into());
+        }
+        if !self.headers.text.is_empty() {
+            parts.push(format!("headings \"{}\"", self.headers.text));
+        }
+        format!(
+            "member rows: {}",
+            if parts.is_empty() {
+                "stock".into()
+            } else {
+                parts.join(", ")
+            }
+        )
+    }
+}
+
 /// A hairline between rows, or a picture.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Separator {
@@ -271,6 +372,9 @@ pub struct Underline {
 pub struct ChannelSelected {
     pub frame: Option<TileArt>,
     pub prefix: String,
+    /// A picture in place of the prefix's characters, such as a pixel
+    /// triangle a font doesn't have.
+    pub prefix_art: Option<TileArt>,
     pub prefix_colour: Option<u32>,
     pub blink_ms: f32,
     pub after: Option<TileArt>,
@@ -345,6 +449,29 @@ pub struct Headers {
     pub height: Option<f32>,
     pub colour: Option<u32>,
     pub frame: Option<TileArt>,
+    /// The frame spans the heading's width (inset 6 px), not just the words.
+    pub fill: bool,
+    /// Pixels before the words.
+    pub inset: Option<f32>,
+    /// `false` leaves out a category's collapse chevron.
+    pub chevron: Option<bool>,
+    /// A hard shadow under the words: colour, x, y.
+    pub shadow: Option<(u32, f32, f32)>,
+}
+
+/// A colour and an offset: `{ "colour": "#FF48B0B0", "x": 2, "y": 1 }`.
+fn read_offset_shadow(value: &Value, place: &str) -> Result<(u32, f32, f32), Error> {
+    let mut shadow = (0xff00_0000, 0.0, 1.0);
+    for (key, value) in object(value, place)? {
+        let at = format!("{place}.{key}");
+        match key.as_str() {
+            "colour" => shadow.0 = colour_at(value, &at)?,
+            "x" => shadow.1 = number(value, &at, (-8.0, 8.0))?,
+            "y" => shadow.2 = number(value, &at, (-8.0, 8.0))?,
+            _ => return Err(Error(format!("\"{at}\" isn't something a shadow takes"))),
+        }
+    }
+    Ok(shadow)
 }
 
 /// A channel row's text colours over its art.
@@ -393,6 +520,15 @@ pub struct ChannelRows {
     /// 0 for the stock ring on the row's edge.
     pub focus_outset: f32,
     pub focus_radius: Option<f32>,
+    /// The ground of every other channel row in a category.
+    pub stripe: Option<u32>,
+    /// The unread edge pill's colour and rim.
+    pub pill_colour: Option<u32>,
+    pub pill_rim: Option<u32>,
+    /// Pixels left free at the list's foot, for the sidebar's art there,
+    /// and art drawn in that room.
+    pub reserve: f32,
+    pub foot: Option<TileArt>,
 }
 
 /// A member's avatar ring.
@@ -418,6 +554,8 @@ pub struct Avatar {
     pub dot_out: Option<f32>,
     /// Pixels between the avatar and the name.
     pub gap: Option<f32>,
+    /// The presence dot's ring; the pane's colour when unset.
+    pub dot_ring: Option<u32>,
 }
 
 /// A member row's right-hand words, by presence and activity.
@@ -471,6 +609,14 @@ pub struct Title {
     pub font: Option<FontRole>,
     pub size: Option<f32>,
     pub colour: Option<u32>,
+    pub centre: bool,
+    pub shadow: Option<(u32, f32, f32)>,
+    /// A rule under it: colour, and dotted.
+    pub rule: Option<(u32, bool)>,
+    /// The " · {n}" part's own face, size and colour.
+    pub count_font: Option<FontRole>,
+    pub count_size: Option<f32>,
+    pub count_colour: Option<u32>,
 }
 
 /// Presence glyphs, in Online, Idle, Do Not Disturb, Offline, Streaming
@@ -511,6 +657,13 @@ pub struct MemberRows {
     pub grid: Option<(u32, f32)>,
     /// A tile takes the theme's `tile` shape (border, corner, shadow).
     pub tile_outline: bool,
+    /// Names in one colour over role colours, and the owner's crown's.
+    pub name_ink: Option<u32>,
+    pub crown_ink: Option<u32>,
+    /// `false` leaves out the Activity cards over the list.
+    pub activity: bool,
+    /// Pixels left free at the list's foot, for the pane's art there.
+    pub reserve: f32,
 }
 
 fn plural(count: usize) -> &'static str {
@@ -562,9 +715,6 @@ fn read_one(value: &Value, place: &str, notes: &mut Vec<String>) -> Result<TileA
     if layer.drift != (0.0, 0.0) {
         return Err(Error(format!("\"{place}\" stays in its place: no drift")));
     }
-    if layer.fit == Fit::Tile {
-        return Err(Error(format!("\"{place}\" doesn't tile")));
-    }
     // A slot's picture fills the box it's given unless the theme says how.
     if !fields.contains_key("fit") && matches!(layer.source, Source::Image(_)) {
         layer.fit = Fit::Stretch;
@@ -586,7 +736,7 @@ fn read_one(value: &Value, place: &str, notes: &mut Vec<String>) -> Result<TileA
             "size" => {
                 if value.as_str() != Some("full") {
                     let [width, height] =
-                        numbers::<2>(value, &here, (4.0, 400.0), "width, height")?;
+                        numbers::<2>(value, &here, (0.0, 400.0), "width, height")?;
                     art.size = Some((width, height));
                 }
             }
@@ -786,6 +936,10 @@ fn read_headers(value: &Value, place: &str, notes: &mut Vec<String>) -> Result<H
             "height" => headers.height = Some(number(value, &here, (24.0, 56.0))?),
             "colour" => headers.colour = Some(colour_at(value, &here)?),
             "frame" => headers.frame = Some(one_art(value, &here, notes)?),
+            "fill" => headers.fill = boolean(value, &here)?,
+            "inset" => headers.inset = Some(number(value, &here, (0.0, 32.0))?),
+            "chevron" => headers.chevron = Some(boolean(value, &here)?),
+            "shadow" => headers.shadow = Some(read_offset_shadow(value, &here)?),
             _ => notes.push(format!("\"{here}\" isn't something headers take; ignored")),
         }
     }
@@ -841,6 +995,11 @@ pub fn read_rail_tiles(
         divider: None,
         badge: MentionBadge::default(),
         focus_radius: None,
+        folder_colour: None,
+        folder_mini: None,
+        foot: None,
+        ground: Vec::new(),
+        add_gap: None,
     };
     for (key, value) in fields {
         let here = format!("{place}.{key}");
@@ -892,6 +1051,17 @@ pub fn read_rail_tiles(
             "focus" => tiles.focus = named(value, &here, FocusPlace::ALL, FocusPlace::name)?,
             "badge" => tiles.badge = read_badge(value, &here, notes)?,
             "focus_radius" => tiles.focus_radius = Some(number(value, &here, (0.0, 40.0))?),
+            "foot" => tiles.foot = Some(one_art(value, &here, notes)?),
+            "ground" => tiles.ground = read_tile_art(value, &here, MOST_CHOICES, notes)?,
+            "add" => {
+                for (key, value) in object(value, &here)? {
+                    let at = format!("{here}.{key}");
+                    match key.as_str() {
+                        "gap" => tiles.add_gap = Some(number(value, &at, (0.0, 48.0))?),
+                        _ => notes.push(format!("\"{at}\" isn't something add takes; ignored")),
+                    }
+                }
+            }
             "divider" => {
                 let mut divider = Divider {
                     size: (32.0, 2.0),
@@ -943,6 +1113,8 @@ pub fn read_rail_tiles(
                     match key.as_str() {
                         "frame" => tiles.folder_frame = Some(one_art(value, &at, notes)?),
                         "open_frame" => tiles.folder_open_frame = Some(one_art(value, &at, notes)?),
+                        "colour" => tiles.folder_colour = Some(colour_at(value, &at)?),
+                        "mini" => tiles.folder_mini = Some(number(value, &at, (8.0, 24.0))?),
                         _ => notes.push(format!("\"{at}\" isn't something folder takes; ignored")),
                     }
                 }
@@ -1011,6 +1183,19 @@ pub fn read_channel_rows(
                 rows.hover_frame_opacity = Some(number(value, &here, (0.0, 1.0))?)
             }
             "emboss" => rows.emboss = boolean(value, &here)?,
+            "stripe" => rows.stripe = Some(colour_at(value, &here)?),
+            "foot" => rows.foot = Some(one_art(value, &here, notes)?),
+            "reserve" => rows.reserve = number(value, &here, (0.0, 400.0))?,
+            "pill" => {
+                for (key, value) in object(value, &here)? {
+                    let at = format!("{here}.{key}");
+                    match key.as_str() {
+                        "colour" => rows.pill_colour = Some(colour_at(value, &at)?),
+                        "rim" => rows.pill_rim = Some(colour_at(value, &at)?),
+                        _ => notes.push(format!("\"{at}\" isn't something pill takes; ignored")),
+                    }
+                }
+            }
             "icon" => {
                 for (key, value) in object(value, &here)? {
                     let at = format!("{here}.{key}");
@@ -1056,7 +1241,10 @@ pub fn read_channel_rows(
                     let at = format!("{here}.{key}");
                     match key.as_str() {
                         "frame" => rows.selected.frame = Some(one_art(value, &at, notes)?),
-                        "prefix" => rows.selected.prefix = text(value, &at, 3)?,
+                        "prefix" => match glyph(value, &at, notes)? {
+                            Glyph::Text(words) => rows.selected.prefix = words,
+                            Glyph::Art(art) => rows.selected.prefix_art = Some(art),
+                        },
                         "prefix_colour" => {
                             rows.selected.prefix_colour = Some(colour_at(value, &at)?)
                         }
@@ -1120,7 +1308,10 @@ pub fn read_channel_rows(
             )),
         }
     }
-    if rows.selected.blink_ms > 0.0 && rows.selected.prefix.is_empty() {
+    if rows.selected.blink_ms > 0.0
+        && rows.selected.prefix.is_empty()
+        && rows.selected.prefix_art.is_none()
+    {
         notes.push(format!(
             "\"{place}.selected.blink_ms\" blinks nothing without a prefix"
         ));
@@ -1151,6 +1342,7 @@ pub fn read_member_rows(
     notes: &mut Vec<String>,
 ) -> Result<MemberRows, Error> {
     let mut rows = MemberRows {
+        activity: true,
         meta: MemberMeta {
             max_width: 96.0,
             ..MemberMeta::default()
@@ -1178,6 +1370,24 @@ pub fn read_member_rows(
                 rows.hover_frame_opacity = Some(number(value, &here, (0.0, 1.0))?)
             }
             "tile_outline" => rows.tile_outline = boolean(value, &here)?,
+            "activity" => {
+                rows.activity = match value.as_str() {
+                    Some("shown") => true,
+                    Some("hidden") => false,
+                    _ => return Err(Error(format!("\"{here}\" is shown or hidden"))),
+                }
+            }
+            "reserve" => rows.reserve = number(value, &here, (0.0, 400.0))?,
+            "ink" => {
+                for (key, value) in object(value, &here)? {
+                    let at = format!("{here}.{key}");
+                    match key.as_str() {
+                        "name" => rows.name_ink = Some(colour_at(value, &at)?),
+                        "crown" => rows.crown_ink = Some(colour_at(value, &at)?),
+                        _ => notes.push(format!("\"{at}\" isn't something ink takes; ignored")),
+                    }
+                }
+            }
             "margin" => {
                 let [left, right] = numbers::<2>(value, &here, (0.0, 32.0), "left, right")?;
                 rows.margin = Some((left, right));
@@ -1204,6 +1414,7 @@ pub fn read_member_rows(
                         "dot" => rows.avatar.dot = Some(number(value, &at, (8.0, 20.0))?),
                         "dot_out" => rows.avatar.dot_out = Some(number(value, &at, (-4.0, 8.0))?),
                         "gap" => rows.avatar.gap = Some(number(value, &at, (0.0, 24.0))?),
+                        "dot_ring" => rows.avatar.dot_ring = Some(colour_at(value, &at)?),
                         "ring" => {
                             let mut ring = Ring {
                                 colour: 0xff00_0000,
@@ -1302,6 +1513,41 @@ pub fn read_member_rows(
                         "font" => rows.title.font = Some(font(value, &at)?),
                         "size" => rows.title.size = Some(number(value, &at, (9.0, 28.0))?),
                         "colour" => rows.title.colour = Some(colour_at(value, &at)?),
+                        "align" => {
+                            rows.title.centre = match value.as_str() {
+                                Some("centre" | "center") => true,
+                                Some("left") => false,
+                                _ => return Err(Error(format!("\"{at}\" is left or centre"))),
+                            }
+                        }
+                        "shadow" => rows.title.shadow = Some(read_offset_shadow(value, &at)?),
+                        "rule" => {
+                            let fields = object(value, &at)?;
+                            let colour = fields.get("colour").map_or(Ok(0xff80_8080), |value| {
+                                colour_at(value, &format!("{at}.colour"))
+                            })?;
+                            let dotted =
+                                fields.get("style").and_then(Value::as_str) == Some("dotted");
+                            rows.title.rule = Some((colour, dotted));
+                        }
+                        "count" => {
+                            for (key, value) in object(value, &at)? {
+                                let count = format!("{at}.{key}");
+                                match key.as_str() {
+                                    "font" => rows.title.count_font = Some(font(value, &count)?),
+                                    "size" => {
+                                        rows.title.count_size =
+                                            Some(number(value, &count, (9.0, 28.0))?)
+                                    }
+                                    "colour" => {
+                                        rows.title.count_colour = Some(colour_at(value, &count)?)
+                                    }
+                                    _ => notes.push(format!(
+                                        "\"{count}\" isn't something count takes; ignored"
+                                    )),
+                                }
+                            }
+                        }
                         _ => notes.push(format!("\"{at}\" isn't something title takes; ignored")),
                     }
                 }
@@ -1327,6 +1573,7 @@ pub fn files<'a>(
         all.extend(rail.below.iter().chain(&rail.between));
         all.extend(rail.selected.frame.iter().chain(&rail.selected.over));
         all.extend(rail.folder_frame.iter().chain(&rail.folder_open_frame));
+        all.extend(rail.foot.iter().chain(&rail.ground));
     }
     if let Some(channels) = channels {
         all.extend(&channels.frame);
@@ -1340,6 +1587,7 @@ pub fn files<'a>(
                 .iter()
                 .chain(&channels.selected.after),
         );
+        all.extend(channels.selected.prefix_art.iter().chain(&channels.foot));
         if let Some(Glyph::Art(art)) = &channels.meta.unread_glyph {
             all.push(art);
         }
@@ -1422,16 +1670,6 @@ pub(super) fn check_with(
         }
         if matches!(layout.rail, Some(super::layout::RailSide::Hidden)) {
             notes.push("\"layout.rail_tiles\" is ignored: the rail is hidden".into());
-        }
-        let turns = resolved.animations.iter().any(|animation| {
-            animation.slot == super::package::Slot::RailIcon
-                && animation.property == super::package::Property::Rotation
-        });
-        if (tiles.tilt > 0.0 || tiles.hover == HoverKind::Tilt) && turns {
-            notes.push(
-                "\"layout.rail_tiles.tilt\" and the rail's icon animation both turn the tiles"
-                    .into(),
-            );
         }
     }
     if let Some(rows) = &layout.channel_rows

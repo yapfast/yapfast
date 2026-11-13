@@ -1492,11 +1492,18 @@ impl Adapter {
         // A theme's rows pick their art by a seed from the id, and a
         // category's heading may say its place among the categories.
         let mut group = 0;
+        // Every other channel in a category, for a theme's zebra rows.
+        let mut in_group = 0;
         for row in &mut rows {
             row.seed = yapfast_core::themes::lists::seed(&row.id);
             if !row.heading.is_empty() && !(row.pinned && !row.direct) {
                 group += 1;
                 row.group = group;
+                in_group = 0;
+            }
+            if !row.hidden {
+                row.stripe = in_group % 2 == 1;
+                in_group += 1;
             }
         }
         // A voice channel's people come as a new list each time; the one on

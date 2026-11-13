@@ -165,6 +165,8 @@ export component ServerPicker inherits Rectangle {
     callback join-server;
     callback open-server-menu(string, length, length);
     callback closed;
+    /// Escape: closed, and the bar's button takes the keyboard back.
+    callback escaped;
     in-out property <int> current: -1;
     property <length> rows-height: Picker.rows.length * 34px;
     width: 280px;
@@ -206,7 +208,7 @@ export component ServerPicker inherits Rectangle {
                 root.activate(root.current); return accept;
             }
             if event.text == Key.Escape {
-                root.closed(); return accept;
+                root.escaped(); return accept;
             }
             return reject;
         }
