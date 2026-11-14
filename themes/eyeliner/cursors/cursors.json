@@ -1,0 +1,102 @@
+{
+ "default": {
+  "image": [
+   "cursors/default.png",
+   "cursors/default@2x.png"
+  ],
+  "hotspot": [
+   2,
+   1
+  ]
+ },
+ "pointer": {
+  "image": [
+   "cursors/pointer.png",
+   "cursors/pointer@2x.png"
+  ],
+  "hotspot": [
+   5,
+   5
+  ]
+ },
+ "text": {
+  "image": [
+   "cursors/text.png",
+   "cursors/text@2x.png"
+  ],
+  "hotspot": [
+   16,
+   16
+  ]
+ },
+ "grab": {
+  "image": [
+   "cursors/grab.png",
+   "cursors/grab@2x.png"
+  ],
+  "hotspot": [
+   16,
+   16
+  ]
+ },
+ "grabbing": {
+  "image": [
+   "cursors/grabbing.png",
+   "cursors/grabbing@2x.png"
+  ],
+  "hotspot": [
+   16,
+   16
+  ]
+ },
+ "crosshair": {
+  "image": [
+   "cursors/crosshair.png",
+   "cursors/crosshair@2x.png"
+  ],
+  "hotspot": [
+   16,
+   16
+  ]
+ },
+ "not-allowed": {
+  "image": [
+   "cursors/not-allowed.png",
+   "cursors/not-allowed@2x.png"
+  ],
+  "hotspot": [
+   16,
+   16
+  ]
+ },
+ "help": {
+  "image": [
+   "cursors/help.png",
+   "cursors/help@2x.png"
+  ],
+  "hotspot": [
+   2,
+   1
+  ]
+ },
+ "progress": {
+  "image": [
+   "cursors/progress.png",
+   "cursors/progress@2x.png"
+  ],
+  "hotspot": [
+   2,
+   1
+  ]
+ },
+ "wait": {
+  "image": [
+   "cursors/wait.png",
+   "cursors/wait@2x.png"
+  ],
+  "hotspot": [
+   16,
+   16
+  ]
+ }
+}

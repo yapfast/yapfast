@@ -1,0 +1,1351 @@
+{
+  "theme_api": 1,
+  "id": "io.github.yapfast-themes.bubblegum",
+  "name": "Bubblegum",
+  "version": "3.3.0",
+  "description": "A pastel handheld console of our own design: a pink-to-lilac plastic shell with a star D-pad, candy face keys, a power LED and speaker slots, a mint LCD inset in a plum bezel with a pixel grid, candy hover bar, holographic player cards, chunky pixel icons and 8-bit blips. Light only.",
+  "authors": [
+    "Yapfast"
+  ],
+  "license": "CC0-1.0 AND OFL-1.1 AND CC-BY-4.0 AND ISC",
+  "source": "https://github.com/yapfast-themes/bubblegum",
+  "preview": [
+    "previews/chat.png",
+    "previews/dms.png",
+    "previews/profile.png",
+    "previews/settings.png"
+  ],
+  "colours": {
+    "rail": "linear(180deg, #FFC4E2 0%, #EDBDF0 45%, #CBADF2 100%)",
+    "sidebar": "linear(170deg, #FFD3EA 0%, #F2CBF3 40%, #DCC3F7 100%)",
+    "panel": "#CBE7D5",
+    "chat": "linear(180deg, #D9F1E2 0%, #CDEAD8 100%)",
+    "stage": "#F2EBFF",
+    "raised": "#FFFFFF",
+    "field": "#FFFFFF",
+    "sunken": "#FFFFFF",
+    "hover": "#FFE0EE",
+    "active": "#FFC6DF",
+    "row-hover": "#F7F2FF",
+    "line": "#A991DD",
+    "edge": "#3B2357",
+    "outline": "#3B2357",
+    "outline-chat": "#3B2357",
+    "outline-field": "#3B2357",
+    "text": "#341E4F",
+    "secondary": "#523A70",
+    "muted": "#523A70",
+    "faint": "#5E4A82",
+    "accent": "linear(180deg, #FF9BC8 0%, #FF7EB6 55%, #FA70AE 100%)",
+    "accent-hover": "#FF98C6",
+    "on-accent": "#341E4F",
+    "accent-soft": "#FF7EB633",
+    "live": "#0F8F69",
+    "loud": "#BF5A10",
+    "link": "#5326B5",
+    "button-default": "#FFFFFF",
+    "button-default-hover": "#FFF0F7",
+    "overlay": "#B32470",
+    "shimmer": "#FFFFFF99",
+    "reply-spine": "#B9A4E0",
+    "tooltip": "#FFFFFF",
+    "avatar": "#C9B6F2",
+    "accent-text": "#A11C63",
+    "on-tooltip": "#341E4F",
+    "selection": "#FF7EB666",
+    "focus-ring": "#B32470",
+    "scrollbar": "#A991DD",
+    "scrollbar-track": "#341E4F14",
+    "scrim": "#3B235733",
+    "menu": "#FFFFFF",
+    "menu-line": "#3B2357",
+    "composer": "#FFFFFF",
+    "placeholder": "#5E4779",
+    "mentioned": "#C9EED9",
+    "mentioned-hover": "#BDE8CF",
+    "composer-focus": "#B32470",
+    "row-selected": "#FFC6DF",
+    "pill": "#341E4F",
+    "toggle-off": "#C4AEEC",
+    "knob-off": "#FFFFFF",
+    "code": "#FFFFFF",
+    "embed": "#FFFFFF",
+    "members": "#CBE7D5",
+    "account": "#C9B3F3",
+    "actions": "#FFD3E8",
+    "actions-hover": "#FF9BC8"
+  },
+  "shape": {
+    "button": {
+      "radius": 999,
+      "border": 2,
+      "border_colour": "#3B2357",
+      "shadow": {
+        "blur": 0,
+        "x": 0,
+        "y": 3,
+        "colour": "#3B2357"
+      }
+    },
+    "field": {
+      "radius": 18,
+      "border": 2,
+      "border_colour": "#3B2357"
+    },
+    "composer": {
+      "radius": 18,
+      "border": 2,
+      "border_colour": "#3B2357",
+      "shadow": {
+        "blur": 0,
+        "x": 0,
+        "y": 3,
+        "colour": "#3B2357"
+      }
+    },
+    "card": {
+      "radius": 16,
+      "border": 2,
+      "border_colour": "#3B2357",
+      "shadow": {
+        "blur": 0,
+        "x": 0,
+        "y": 4,
+        "colour": "#3B2357"
+      }
+    },
+    "menu": {
+      "radius": 12,
+      "border": 2,
+      "border_colour": "#3B2357",
+      "shadow": {
+        "blur": 0,
+        "x": 0,
+        "y": 5,
+        "colour": "#3B2357"
+      }
+    },
+    "dialog": {
+      "radius": 14,
+      "border": 2,
+      "border_colour": "#3B2357",
+      "shadow": {
+        "blur": 0,
+        "x": 0,
+        "y": 6,
+        "colour": "#3B2357"
+      }
+    },
+    "tooltip": {
+      "radius": 12,
+      "border": 2,
+      "border_colour": "#3B2357",
+      "shadow": {
+        "blur": 0,
+        "x": 0,
+        "y": 2,
+        "colour": "#3B2357"
+      }
+    },
+    "chip": {
+      "radius": 999,
+      "border": 2,
+      "border_colour": "#3B2357",
+      "shadow": {
+        "blur": 0,
+        "x": 0,
+        "y": 2,
+        "colour": "#3B2357"
+      }
+    },
+    "message": {
+      "radius": 18,
+      "border": 2,
+      "border_colour": "#B9A4E0"
+    },
+    "rail-icon": {
+      "radius": 999,
+      "border": 2,
+      "border_colour": "#3B2357",
+      "shadow": {
+        "blur": 0,
+        "x": 0,
+        "y": 3,
+        "colour": "#3B2357"
+      }
+    },
+    "avatar": {
+      "radius": 50,
+      "border": 2,
+      "border_colour": "#3B2357"
+    },
+    "tile": {
+      "radius": 16,
+      "border": 2,
+      "border_colour": "#3B2357",
+      "shadow": {
+        "blur": 0,
+        "x": 0,
+        "y": 3,
+        "colour": "#3B2357"
+      }
+    },
+    "radii": {
+      "small": 8,
+      "medium": 12,
+      "large": 16
+    },
+    "shadows": {
+      "blur": 0,
+      "x": 0,
+      "y": 3,
+      "colour": "#3B235740"
+    },
+    "toggle": {
+      "radius": 4,
+      "border": 2,
+      "border_colour": "#3B2357"
+    },
+    "outline_width": 0,
+    "code": {
+      "radius": 12,
+      "border": 2,
+      "border_colour": "#3B2357"
+    },
+    "embed": {
+      "radius": 12,
+      "border": 2,
+      "border_colour": "#3B2357"
+    },
+    "borders": {
+      "divider": {
+        "style": "dotted",
+        "gap": 3,
+        "width": 2
+      }
+    },
+    "actions": {
+      "radius": 999,
+      "border": 2,
+      "border_colour": "#3B2357",
+      "shadow": {
+        "blur": 0,
+        "x": 0,
+        "y": 3,
+        "colour": "#3B2357"
+      }
+    },
+    "row": {
+      "radius": 18,
+      "inset": [
+        6,
+        2
+      ]
+    }
+  },
+  "type": {
+    "body": {
+      "font": "fonts/Fredoka.ttf",
+      "size": 15,
+      "weight": 450
+    },
+    "headings": {
+      "font": "fonts/PixelifySans.ttf",
+      "size": 18,
+      "weight": 600,
+      "header_size": 24,
+      "title_size": 28
+    },
+    "names": {
+      "font": "fonts/Fredoka.ttf",
+      "size": 16,
+      "weight": 600
+    },
+    "code": {
+      "font": "fonts/DepartureMono.otf",
+      "size": 11
+    },
+    "labels": {
+      "font": "fonts/Silkscreen-Regular.ttf",
+      "size": 16,
+      "letter_spacing": 1
+    }
+  },
+  "spacing": {
+    "message_gap": 4,
+    "message_group_gap": 20,
+    "channel_row_height": 36,
+    "member_row_height": 46,
+    "avatar_size": 40,
+    "chat_padding": 20,
+    "sidebar_width": 316,
+    "members_width": 256
+  },
+  "motion": {
+    "quick": 90,
+    "popup": 320,
+    "curve": "spring",
+    "hover": "lift",
+    "press": "sink",
+    "open": "pop",
+    "close": "reverse"
+  },
+  "animations": [
+    {
+      "name": "home tile hops like a sprite",
+      "slot": "home",
+      "property": "y",
+      "values": [
+        0,
+        0,
+        0,
+        -2
+      ],
+      "period": 2400,
+      "steps": 4
+    },
+    {
+      "name": "unread dot blinks like a cursor",
+      "slot": "unread",
+      "property": "opacity",
+      "values": [
+        1,
+        0.35
+      ],
+      "period": 1100,
+      "steps": 2
+    },
+    {
+      "name": "mention count boings",
+      "slot": "mention",
+      "property": "scale",
+      "values": [
+        1,
+        1.28,
+        0.94,
+        1.06,
+        1,
+        1,
+        1,
+        1
+      ],
+      "period": 3200,
+      "easing": "ease-out",
+      "steps": 8
+    },
+    {
+      "name": "typing dots hop in pixels",
+      "slot": "typing",
+      "property": "y",
+      "values": [
+        0,
+        -3,
+        0
+      ],
+      "period": 600,
+      "steps": 3
+    },
+    {
+      "name": "own avatar idles like a sprite",
+      "slot": "own.avatar",
+      "property": "y",
+      "values": [
+        0,
+        0,
+        0,
+        0,
+        -2,
+        0
+      ],
+      "period": 3000,
+      "steps": 6
+    },
+    {
+      "name": "profile name bobs",
+      "slot": "profile.name",
+      "property": "y",
+      "values": [
+        0,
+        -1
+      ],
+      "period": 1000,
+      "steps": 2
+    },
+    {
+      "name": "candy accent shimmers",
+      "slot": "accent",
+      "property": "colour",
+      "values": [
+        "#FF7EB6",
+        "#FFA3CF",
+        "#FF7EB6"
+      ],
+      "period": 6000,
+      "easing": "ease-in-out",
+      "heavy": true,
+      "steps": 6
+    }
+  ],
+  "effects": {
+    "channel.name": {
+      "effect": "typewriter",
+      "duration": 380
+    },
+    "server.name": {
+      "effect": "typewriter",
+      "duration": 420
+    },
+    "profile.name": {
+      "effect": "typewriter",
+      "duration": 480
+    },
+    "settings.title": {
+      "effect": "typewriter",
+      "duration": 340
+    },
+    "welcome": {
+      "effect": "typewriter",
+      "duration": 900
+    }
+  },
+  "art": {
+    "surfaces": {
+      "window": [
+        {
+          "image": "art/body.jpg",
+          "fit": "cover"
+        }
+      ],
+      "rail": [
+        {
+          "image": "art/shell.png",
+          "fit": "tile",
+          "scale": 0.5
+        }
+      ],
+      "sidebar": [
+        {
+          "image": "art/shell.png",
+          "fit": "tile",
+          "opacity": 0.5
+        }
+      ],
+      "account": [
+        {
+          "image": "art/shell.png",
+          "fit": "tile"
+        }
+      ],
+      "composer": [
+        {
+          "image": "art/keys-right.png",
+          "fit": "contain",
+          "position": "right"
+        },
+        {
+          "image": "art/keys-left.png",
+          "fit": "contain",
+          "position": "left"
+        }
+      ],
+      "actions": [
+        {
+          "image": "art/stripes.png",
+          "fit": "tile",
+          "opacity": 0.9
+        }
+      ],
+      "card": [
+        {
+          "image": "art/holo.png",
+          "fit": "stretch"
+        },
+        {
+          "image": "art/holo-badge.png",
+          "fit": "cover",
+          "position": "top"
+        }
+      ],
+      "dialog": [
+        {
+          "image": "art/dialog-frame.png",
+          "fit": "stretch"
+        }
+      ],
+      "chat": [
+        {
+          "image": "art/rim.png",
+          "fit": "stretch"
+        }
+      ],
+      "members": [
+        {
+          "image": "art/rim-members.png",
+          "fit": "stretch"
+        }
+      ]
+    },
+    "overlays": [
+      {
+        "image": "art/lcd-grid.png",
+        "fit": "tile",
+        "on": "chat",
+        "opacity": 0.17
+      },
+      {
+        "kind": "lcd",
+        "on": "chat",
+        "size": 3,
+        "opacity": 0.04,
+        "ghost": true
+      }
+    ],
+    "glass": {
+      "surfaces": [
+        "chat"
+      ],
+      "blur": 0,
+      "opacity": 1,
+      "gap": 24,
+      "radius": 20,
+      "highlight": "#FFFFFF00",
+      "inset": {
+        "blur": 12,
+        "x": 0,
+        "y": 3,
+        "colour": "#1E0F3366"
+      }
+    },
+    "text": {
+      "headings": {
+        "shadow": {
+          "x": 2,
+          "y": 2,
+          "blur": 0,
+          "colour": "#FF9BC8"
+        }
+      }
+    },
+    "particles": [
+      {
+        "preset": "sparkles",
+        "on": "reaction.added",
+        "sprite": "art/spark-pink.png",
+        "count": 10,
+        "size": 18,
+        "life": 700
+      },
+      {
+        "preset": "sparkles",
+        "on": "theme.applied",
+        "sprite": "art/spark-lemon.png",
+        "count": 18,
+        "size": 22,
+        "life": 1400
+      },
+      {
+        "preset": "sparkles",
+        "on": "theme.applied",
+        "sprite": "art/spark-mint.png",
+        "count": 14,
+        "size": 18,
+        "life": 1200
+      },
+      {
+        "preset": "bubbles",
+        "on": "message.sent",
+        "sprite": "art/heart.png",
+        "count": 6,
+        "size": 16,
+        "life": 900
+      }
+    ],
+    "events": {
+      "click": {
+        "effect": "ripple",
+        "colour": "#FF7EB6",
+        "duration": 320
+      },
+      "hover": "gloss",
+      "reaction": "stamp",
+      "row": {
+        "effect": "highlighter",
+        "colour": "#FFC6DF",
+        "duration": 260
+      }
+    },
+    "foil": {
+      "surfaces": [
+        "card",
+        "tile"
+      ],
+      "colours": [
+        "#FFB3D9",
+        "#A9D8FF",
+        "#FFE58A"
+      ],
+      "opacity": 0.35,
+      "period": 5000
+    },
+    "transition": {
+      "kind": "dissolve",
+      "duration": 260
+    }
+  },
+  "sounds": {
+    "message": "sounds/message.wav",
+    "mention": "sounds/mention.wav",
+    "join": "sounds/join.wav",
+    "leave": "sounds/leave.wav",
+    "mute": "sounds/mute.wav",
+    "unmute": "sounds/unmute.wav",
+    "deafen": "sounds/deafen.wav",
+    "undeafen": "sounds/undeafen.wav",
+    "send": "sounds/send.wav",
+    "hover": {
+      "file": "sounds/hover.wav",
+      "volume": 0.5
+    },
+    "press": "sounds/press.wav",
+    "menu-open": "sounds/menu-open.wav",
+    "menu-close": "sounds/menu-close.wav",
+    "popup-open": "sounds/popup-open.wav",
+    "popup-close": "sounds/popup-close.wav",
+    "toggle-on": "sounds/toggle-on.wav",
+    "toggle-off": "sounds/toggle-off.wav",
+    "reaction-add": [
+      "sounds/reaction-1.wav",
+      "sounds/reaction-2.wav",
+      "sounds/reaction-3.wav"
+    ],
+    "theme-applied": "sounds/applied.wav"
+  },
+  "icons": {
+    "arrow-down": "icons/arrow-down.svg",
+    "arrow-left": "icons/arrow-left.svg",
+    "arrow-right": "icons/arrow-right.svg",
+    "arrow-up": "icons/arrow-up.svg",
+    "at-sign": "icons/at-sign.svg",
+    "ban": "icons/ban.svg",
+    "bell-off": "icons/bell-off.svg",
+    "bell": "icons/bell.svg",
+    "calendar": "icons/calendar.svg",
+    "chart-bar": "icons/chart-bar.svg",
+    "check": "icons/check.svg",
+    "chevron-down": "icons/chevron-down.svg",
+    "chevron-left": "icons/chevron-left.svg",
+    "chevron-right": "icons/chevron-right.svg",
+    "circle-plus": "icons/circle-plus.svg",
+    "circle-stop": "icons/circle-stop.svg",
+    "clipboard-paste": "icons/clipboard-paste.svg",
+    "clock": "icons/clock.svg",
+    "community": "icons/community.svg",
+    "copy-plus": "icons/copy-plus.svg",
+    "copy": "icons/copy.svg",
+    "crown": "icons/crown.svg",
+    "download": "icons/download.svg",
+    "ellipsis": "icons/ellipsis.svg",
+    "external-link": "icons/external-link.svg",
+    "eye-off": "icons/eye-off.svg",
+    "eye": "icons/eye.svg",
+    "eyedropper": "icons/eyedropper.svg",
+    "file": "icons/file.svg",
+    "folder-plus": "icons/folder-plus.svg",
+    "folder": "icons/folder.svg",
+    "forward": "icons/forward.svg",
+    "gamepad": "icons/gamepad.svg",
+    "gavel": "icons/gavel.svg",
+    "gem": "icons/gem.svg",
+    "gif": "icons/gif.svg",
+    "hash-lock": "icons/hash-lock.svg",
+    "hash-warning": "icons/hash-warning.svg",
+    "hash": "icons/hash.svg",
+    "headphone-off": "icons/headphone-off.svg",
+    "headphones": "icons/headphones.svg",
+    "help-circle": "icons/help-circle.svg",
+    "history": "icons/history.svg",
+    "image-lock": "icons/image-lock.svg",
+    "image-warning": "icons/image-warning.svg",
+    "image": "icons/image.svg",
+    "inbox": "icons/inbox.svg",
+    "link": "icons/link.svg",
+    "lock": "icons/lock.svg",
+    "log-out": "icons/log-out.svg",
+    "logo": "icons/logo.svg",
+    "maximize": "icons/maximize.svg",
+    "megaphone-lock": "icons/megaphone-lock.svg",
+    "megaphone-warning": "icons/megaphone-warning.svg",
+    "megaphone": "icons/megaphone.svg",
+    "message-circle": "icons/message-circle.svg",
+    "message-square-text-lock": "icons/message-square-text-lock.svg",
+    "message-square-text-warning": "icons/message-square-text-warning.svg",
+    "message-square-text": "icons/message-square-text.svg",
+    "mic-off": "icons/mic-off.svg",
+    "mic": "icons/mic.svg",
+    "minimize": "icons/minimize.svg",
+    "minus": "icons/minus.svg",
+    "moon": "icons/moon.svg",
+    "music": "icons/music.svg",
+    "noise-bars-off": "icons/noise-bars-off.svg",
+    "noise-bars": "icons/noise-bars.svg",
+    "palette": "icons/palette.svg",
+    "pause": "icons/pause.svg",
+    "pen": "icons/pen.svg",
+    "pencil": "icons/pencil.svg",
+    "phone-off": "icons/phone-off.svg",
+    "phone": "icons/phone.svg",
+    "pin-off": "icons/pin-off.svg",
+    "pin": "icons/pin.svg",
+    "play": "icons/play.svg",
+    "plugins": "icons/plugins.svg",
+    "plus": "icons/plus.svg",
+    "refresh-cw": "icons/refresh-cw.svg",
+    "reply": "icons/reply.svg",
+    "restore": "icons/restore.svg",
+    "rules": "icons/rules.svg",
+    "scissors": "icons/scissors.svg",
+    "screen-share-off": "icons/screen-share-off.svg",
+    "screen-share": "icons/screen-share.svg",
+    "search": "icons/search.svg",
+    "send-horizontal": "icons/send-horizontal.svg",
+    "settings": "icons/settings.svg",
+    "shield": "icons/shield.svg",
+    "shop": "icons/shop.svg",
+    "signal-high": "icons/signal-high.svg",
+    "signal-low": "icons/signal-low.svg",
+    "signal-medium": "icons/signal-medium.svg",
+    "slash": "icons/slash.svg",
+    "smile-plus": "icons/smile-plus.svg",
+    "smile": "icons/smile.svg",
+    "soundboard": "icons/soundboard.svg",
+    "square-pen": "icons/square-pen.svg",
+    "square": "icons/square.svg",
+    "stage-lock": "icons/stage-lock.svg",
+    "stage": "icons/stage.svg",
+    "star-filled": "icons/star-filled.svg",
+    "star": "icons/star.svg",
+    "sticker": "icons/sticker.svg",
+    "sticky-note": "icons/sticky-note.svg",
+    "sun": "icons/sun.svg",
+    "text-select": "icons/text-select.svg",
+    "thread": "icons/thread.svg",
+    "trash-2": "icons/trash-2.svg",
+    "trending-up": "icons/trending-up.svg",
+    "triangle-alert": "icons/triangle-alert.svg",
+    "trophy": "icons/trophy.svg",
+    "tv": "icons/tv.svg",
+    "user-minus": "icons/user-minus.svg",
+    "user-pen": "icons/user-pen.svg",
+    "user-plus": "icons/user-plus.svg",
+    "user-x": "icons/user-x.svg",
+    "user": "icons/user.svg",
+    "users": "icons/users.svg",
+    "video-off": "icons/video-off.svg",
+    "video": "icons/video.svg",
+    "volume-2-bold": "icons/volume-2-bold.svg",
+    "volume-2-lock": "icons/volume-2-lock.svg",
+    "volume-2-warning": "icons/volume-2-warning.svg",
+    "volume-2": "icons/volume-2.svg",
+    "volume-x": "icons/volume-x.svg",
+    "x": "icons/x.svg"
+  },
+  "variants": {
+    "light": {
+      "base": "sakura"
+    }
+  },
+  "layout": {
+    "messages": "bubbles",
+    "bubbles": {
+      "max_width": 72,
+      "radius": 18,
+      "own": "#FFC6DF",
+      "own_text": "#341E4F",
+      "other": "#FBF7FF"
+    },
+    "rail": "right",
+    "rail_tiles": {
+      "shape": "card",
+      "width": 44,
+      "height": 52,
+      "gap": 10,
+      "pad": 4,
+      "radius": 12,
+      "label": "inside",
+      "label_font": "labels",
+      "label_size": 8,
+      "label_case": "upper",
+      "label_colour": "#341E4F",
+      "label_box": [
+        4,
+        36,
+        36,
+        9
+      ],
+      "frame": [
+        {
+          "image": "art/cartridge-sky.png",
+          "slice": [
+            20,
+            16,
+            28,
+            16
+          ],
+          "window": [
+            6,
+            6,
+            32,
+            26,
+            2
+          ]
+        },
+        {
+          "image": "art/cartridge-lemon.png",
+          "slice": [
+            20,
+            16,
+            28,
+            16
+          ],
+          "window": [
+            6,
+            6,
+            32,
+            26,
+            2
+          ]
+        },
+        {
+          "image": "art/cartridge-mint.png",
+          "slice": [
+            20,
+            16,
+            28,
+            16
+          ],
+          "window": [
+            6,
+            6,
+            32,
+            26,
+            2
+          ]
+        }
+      ],
+      "hover": "lift",
+      "hover_amount": 3,
+      "hover_ms": 120,
+      "selected": {
+        "offset": [
+          6,
+          0
+        ],
+        "over": {
+          "image": "art/sticker-star.png",
+          "size": [
+            14,
+            14
+          ],
+          "position": "top right",
+          "offset": [
+            4,
+            -4
+          ],
+          "pixelated": true
+        }
+      },
+      "focus_radius": 7,
+      "divider": {
+        "size": [
+          28,
+          2
+        ],
+        "colour": "#3B2357",
+        "style": "dotted"
+      },
+      "badge": {
+        "ground": "#F23F43",
+        "ink": "#FFFFFF"
+      },
+      "folder": {
+        "colour": "#D5C3F6",
+        "mini": 15
+      },
+      "foot": {
+        "image": "art/rail-power.png",
+        "size": [
+          72,
+          58
+        ],
+        "fit": "contain",
+        "position": "bottom",
+        "frames": {
+          "count": 4,
+          "columns": 4,
+          "period": 2400
+        }
+      },
+      "add": {
+        "gap": 4
+      }
+    },
+    "channel_rows": {
+      "height": 30,
+      "font": "labels",
+      "size": 12,
+      "case": "upper",
+      "inset": 22,
+      "icon": {
+        "size": 14,
+        "gap": 6
+      },
+      "selected": {
+        "frame": {
+          "image": "art/row-selected.png",
+          "slice": 28
+        },
+        "prefix": {
+          "image": "art/cursor-tri.png",
+          "size": [
+            9,
+            11
+          ],
+          "pixelated": true
+        },
+        "prefix_colour": "#FA70AE",
+        "blink_ms": 530
+      },
+      "hover_ground": "row-hover",
+      "ink": {
+        "read": "#523A70",
+        "unread": "#341E4F",
+        "selected": "#341E4F"
+      },
+      "meta": {
+        "unread": "glyph",
+        "inset": 17,
+        "unread_glyph": {
+          "image": "art/star-pixel.png",
+          "size": [
+            10,
+            10
+          ],
+          "pixelated": true
+        },
+        "badge": {
+          "ground": "#F23F43",
+          "ink": "#FFFFFF"
+        }
+      },
+      "focus": {
+        "outset": 3,
+        "radius": 20
+      },
+      "headers": {
+        "font": "headings",
+        "size": 13,
+        "weight": 600,
+        "case": "upper",
+        "text": "WORLD {n} · {name}",
+        "colour": "#523A70"
+      },
+      "reserve": 185,
+      "foot": {
+        "image": "art/deck-foot.png",
+        "size": [
+          150,
+          180
+        ],
+        "fit": "contain",
+        "position": "bottom"
+      },
+      "server_rule": {
+        "colour": "#A991DD",
+        "width": 2,
+        "style": "dotted",
+        "inset": 10
+      }
+    },
+    "member_rows": {
+      "height": 92,
+      "status": "glyph",
+      "status_glyphs": {
+        "online": {
+          "image": "art/heart.png",
+          "size": [
+            11,
+            10
+          ],
+          "pixelated": true
+        },
+        "idle": {
+          "image": "art/heart-half.png",
+          "size": [
+            11,
+            10
+          ],
+          "pixelated": true
+        },
+        "dnd": {
+          "image": "art/heart-x.png",
+          "size": [
+            11,
+            10
+          ],
+          "pixelated": true
+        },
+        "offline": {
+          "image": "art/heart-empty.png",
+          "size": [
+            11,
+            10
+          ],
+          "pixelated": true
+        }
+      },
+      "badge": {
+        "text": "P{online}",
+        "ground": "#FF7EB6",
+        "ink": "#341E4F",
+        "font": "labels",
+        "online_only": true
+      },
+      "headers": {
+        "font": "labels",
+        "size": 16,
+        "case": "upper",
+        "text": "{role} · {n}",
+        "height": 42,
+        "colour": "#341E4F"
+      },
+      "title": {
+        "font": "headings",
+        "size": 18,
+        "colour": "#341E4F",
+        "align": "centre",
+        "shadow": {
+          "colour": "#FF9BC8",
+          "x": 2,
+          "y": 2
+        },
+        "rule": {
+          "colour": "#A991DD",
+          "style": "dotted"
+        }
+      },
+      "gap": 4,
+      "margin": [
+        9,
+        9
+      ],
+      "size": 13,
+      "weight": 600,
+      "tile_outline": true,
+      "ink": {
+        "name": "#341E4F"
+      },
+      "activity": "hidden"
+    },
+    "members_style": "grid",
+    "grid": {
+      "columns": 3,
+      "size": 52
+    }
+  },
+  "content": {
+    "media": {
+      "tint": {
+        "colour": "#FF7EB6",
+        "amount": 0.3
+      }
+    },
+    "avatars": {
+      "shape": {
+        "rounded": 10
+      },
+      "decorations": "hide",
+      "ring": {
+        "colour": "#341E4F",
+        "width": 2
+      }
+    },
+    "names": {
+      "colours": "clamp",
+      "styles": "theme",
+      "nameplates": "hide"
+    },
+    "profiles": {
+      "themes": "theme",
+      "effects": "hide"
+    },
+    "embeds": "theme",
+    "activity": "theme"
+  },
+  "cursors": {
+    "default": {
+      "image": [
+        "cursors/default.png",
+        "cursors/default@2x.png"
+      ],
+      "hotspot": [
+        3,
+        3
+      ]
+    },
+    "pointer": {
+      "image": [
+        "cursors/pointer.png",
+        "cursors/pointer@2x.png"
+      ],
+      "hotspot": [
+        12,
+        3
+      ]
+    },
+    "text": {
+      "image": [
+        "cursors/text.png",
+        "cursors/text@2x.png"
+      ],
+      "hotspot": [
+        15,
+        16
+      ]
+    },
+    "grab": {
+      "image": [
+        "cursors/grab.png",
+        "cursors/grab@2x.png"
+      ],
+      "hotspot": [
+        16,
+        16
+      ]
+    },
+    "grabbing": {
+      "image": [
+        "cursors/grabbing.png",
+        "cursors/grabbing@2x.png"
+      ],
+      "hotspot": [
+        16,
+        16
+      ]
+    },
+    "not-allowed": {
+      "image": [
+        "cursors/not-allowed.png",
+        "cursors/not-allowed@2x.png"
+      ],
+      "hotspot": [
+        16,
+        16
+      ]
+    },
+    "no-drop": {
+      "image": [
+        "cursors/not-allowed.png",
+        "cursors/not-allowed@2x.png"
+      ],
+      "hotspot": [
+        16,
+        16
+      ]
+    },
+    "wait": {
+      "image": [
+        "cursors/wait.png",
+        "cursors/wait@2x.png"
+      ],
+      "hotspot": [
+        16,
+        12
+      ]
+    },
+    "progress": {
+      "image": [
+        "cursors/wait.png",
+        "cursors/wait@2x.png"
+      ],
+      "hotspot": [
+        16,
+        12
+      ]
+    },
+    "help": {
+      "image": [
+        "cursors/help.png",
+        "cursors/help@2x.png"
+      ],
+      "hotspot": [
+        3,
+        3
+      ]
+    },
+    "crosshair": {
+      "image": [
+        "cursors/crosshair.png",
+        "cursors/crosshair@2x.png"
+      ],
+      "hotspot": [
+        15,
+        15
+      ]
+    },
+    "move": {
+      "image": [
+        "cursors/move.png",
+        "cursors/move@2x.png"
+      ],
+      "hotspot": [
+        15,
+        15
+      ]
+    },
+    "ew-resize": {
+      "image": [
+        "cursors/ew-resize.png",
+        "cursors/ew-resize@2x.png"
+      ],
+      "hotspot": [
+        15,
+        15
+      ]
+    },
+    "col-resize": {
+      "image": [
+        "cursors/ew-resize.png",
+        "cursors/ew-resize@2x.png"
+      ],
+      "hotspot": [
+        15,
+        15
+      ]
+    },
+    "e-resize": {
+      "image": [
+        "cursors/ew-resize.png",
+        "cursors/ew-resize@2x.png"
+      ],
+      "hotspot": [
+        15,
+        15
+      ]
+    },
+    "w-resize": {
+      "image": [
+        "cursors/ew-resize.png",
+        "cursors/ew-resize@2x.png"
+      ],
+      "hotspot": [
+        15,
+        15
+      ]
+    },
+    "ns-resize": {
+      "image": [
+        "cursors/ns-resize.png",
+        "cursors/ns-resize@2x.png"
+      ],
+      "hotspot": [
+        15,
+        15
+      ]
+    },
+    "row-resize": {
+      "image": [
+        "cursors/ns-resize.png",
+        "cursors/ns-resize@2x.png"
+      ],
+      "hotspot": [
+        15,
+        15
+      ]
+    },
+    "n-resize": {
+      "image": [
+        "cursors/ns-resize.png",
+        "cursors/ns-resize@2x.png"
+      ],
+      "hotspot": [
+        15,
+        15
+      ]
+    },
+    "s-resize": {
+      "image": [
+        "cursors/ns-resize.png",
+        "cursors/ns-resize@2x.png"
+      ],
+      "hotspot": [
+        15,
+        15
+      ]
+    },
+    "nesw-resize": {
+      "image": [
+        "cursors/nesw-resize.png",
+        "cursors/nesw-resize@2x.png"
+      ],
+      "hotspot": [
+        16,
+        15
+      ]
+    },
+    "ne-resize": {
+      "image": [
+        "cursors/nesw-resize.png",
+        "cursors/nesw-resize@2x.png"
+      ],
+      "hotspot": [
+        16,
+        15
+      ]
+    },
+    "sw-resize": {
+      "image": [
+        "cursors/nesw-resize.png",
+        "cursors/nesw-resize@2x.png"
+      ],
+      "hotspot": [
+        16,
+        15
+      ]
+    },
+    "nwse-resize": {
+      "image": [
+        "cursors/nwse-resize.png",
+        "cursors/nwse-resize@2x.png"
+      ],
+      "hotspot": [
+        15,
+        15
+      ]
+    },
+    "nw-resize": {
+      "image": [
+        "cursors/nwse-resize.png",
+        "cursors/nwse-resize@2x.png"
+      ],
+      "hotspot": [
+        15,
+        15
+      ]
+    },
+    "se-resize": {
+      "image": [
+        "cursors/nwse-resize.png",
+        "cursors/nwse-resize@2x.png"
+      ],
+      "hotspot": [
+        15,
+        15
+      ]
+    }
+  },
+  "chrome": {
+    "labels": {
+      "members_title": "PLAYER SELECT"
+    }
+  }
+}

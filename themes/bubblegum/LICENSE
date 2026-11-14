@@ -1,0 +1,57 @@
+Bubblegum — a Yapfast theme
+
+The theme itself (theme.json, the pictures in art/ and previews/, and the
+sounds in sounds/) is dedicated to the public domain under CC0 1.0 Universal:
+https://creativecommons.org/publicdomain/zero/1.0/
+The art (plastic texture, console body, LCD grid and bezel, D-pad and candy
+face-button deck, composer keys, speaker grilles, power LED, holo sheen and
+sticker, hover-bar stripes, dialog frame, pixel sparkles and heart) was generated procedurally for this theme; the sounds were
+synthesised for it from square, triangle and noise waves. Neither uses any
+outside source.
+
+ICONS (icons/)
+
+The pixel icons are Bubblegum's 16x16 redrawings of Yapfast's stock icons:
+some drawn by hand on the pixel grid, the rest sampled from the stock shapes.
+They are adaptations, so they keep the stock icons' licences:
+
+- Icons based on Solar by 480 Design
+  (https://www.figma.com/community/file/1166831539721848736), used under
+  CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Changes: redrawn
+  on a 16-pixel grid at a single solid weight.
+- Icons based on Lucide (https://lucide.dev/): calendar, check, chevron-down,
+  chevron-left, chevron-right, maximize, minimize, minus, restore, slash,
+  square, x, forward and reply. ISC licence:
+  Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2022 as
+  part of Feather (MIT). All other copyright (c) for Lucide are held by
+  Lucide Contributors 2022.
+  Permission to use, copy, modify, and/or distribute this software for any
+  purpose with or without fee is hereby granted, provided that the above
+  copyright notice and this permission notice appear in all copies.
+  THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES.
+- The pixel versions of Yapfast's own icons (the logo, gif, hash, mic,
+  signal, soundboard, thread, user and volume glyphs and the others the stock
+  README lists as drawn for Yapfast) follow Yapfast's licence for them.
+
+FONTS (fonts/)
+
+Four font families, each under the SIL Open Font License, Version 1.1
+(https://openfontlicense.org). Their full licence texts are in fonts/:
+
+- fonts/Fredoka.ttf — Fredoka (variable, wdth 75–125, wght 300–700)
+  Copyright 2016 The Fredoka Project Authors (https://github.com/hafontia/Fredoka-One)
+  Licence: fonts/OFL-Fredoka.txt
+
+- fonts/Silkscreen-Regular.ttf, fonts/Silkscreen-Bold.ttf — Silkscreen
+  Copyright 2001 The Silkscreen Project Authors (https://github.com/googlefonts/silkscreen)
+  Licence: fonts/OFL-Silkscreen.txt
+
+- fonts/PixelifySans.ttf — Pixelify Sans (variable, wght 400–700)
+  Copyright 2021 The Pixelify Sans Project Authors (https://github.com/eifetx/Pixelify-Sans)
+  Licence: fonts/OFL-PixelifySans.txt
+
+- fonts/DepartureMono.otf — Departure Mono 1.500
+  Copyright 2022–2024 Helena Zhang (helenazhang.com)
+  Licence: fonts/OFL-DepartureMono.txt
+
+The fonts are unmodified and are not sold on their own.

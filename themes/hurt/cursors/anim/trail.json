@@ -1,0 +1,262 @@
+{
+ "sheet": [
+  "trail.png",
+  "trail@2x.png"
+ ],
+ "cell": 16,
+ "rows": {
+  "red": 0,
+  "grey": 1
+ },
+ "note": "row 0 = oxblood #9E263B, row 1 = bone #D8D5D6; drawn at the alpha below it reads grey on #09090B, as on hurt.bio",
+ "sprites": [
+  {
+   "glyph": "#",
+   "font": "Geist Mono",
+   "red": [
+    0,
+    0,
+    16,
+    16
+   ],
+   "grey": [
+    0,
+    16,
+    16,
+    16
+   ]
+  },
+  {
+   "glyph": "%",
+   "font": "Geist Mono",
+   "red": [
+    16,
+    0,
+    16,
+    16
+   ],
+   "grey": [
+    16,
+    16,
+    16,
+    16
+   ]
+  },
+  {
+   "glyph": "/",
+   "font": "Geist Mono",
+   "red": [
+    32,
+    0,
+    16,
+    16
+   ],
+   "grey": [
+    32,
+    16,
+    16,
+    16
+   ]
+  },
+  {
+   "glyph": "<",
+   "font": "Geist Mono",
+   "red": [
+    48,
+    0,
+    16,
+    16
+   ],
+   "grey": [
+    48,
+    16,
+    16,
+    16
+   ]
+  },
+  {
+   "glyph": "x",
+   "font": "Geist Mono",
+   "red": [
+    64,
+    0,
+    16,
+    16
+   ],
+   "grey": [
+    64,
+    16,
+    16,
+    16
+   ]
+  },
+  {
+   "glyph": "?",
+   "font": "Geist Mono",
+   "red": [
+    80,
+    0,
+    16,
+    16
+   ],
+   "grey": [
+    80,
+    16,
+    16,
+    16
+   ]
+  },
+  {
+   "glyph": "h",
+   "font": "Hurt Fraktur",
+   "red": [
+    96,
+    0,
+    16,
+    16
+   ],
+   "grey": [
+    96,
+    16,
+    16,
+    16
+   ]
+  },
+  {
+   "glyph": "u",
+   "font": "Hurt Fraktur",
+   "red": [
+    112,
+    0,
+    16,
+    16
+   ],
+   "grey": [
+    112,
+    16,
+    16,
+    16
+   ]
+  },
+  {
+   "glyph": "r",
+   "font": "Hurt Fraktur",
+   "red": [
+    128,
+    0,
+    16,
+    16
+   ],
+   "grey": [
+    128,
+    16,
+    16,
+    16
+   ]
+  },
+  {
+   "glyph": "t",
+   "font": "Hurt Fraktur",
+   "red": [
+    144,
+    0,
+    16,
+    16
+   ],
+   "grey": [
+    144,
+    16,
+    16,
+    16
+   ]
+  }
+ ],
+ "life_ms": 1300,
+ "spawn": {
+  "every_px": 9,
+  "per_step": 2,
+  "jitter_px": 16,
+  "red_chance": 0.3,
+  "max_alive": 320,
+  "on_press": {
+   "count": 6,
+   "jitter_px": [
+    26,
+    18
+   ],
+   "kick": 1.2
+  }
+ },
+ "motion": {
+  "vx_px_per_frame": "(rand-.5)*(.4+kick)",
+  "vy_px_per_frame": "-rand*(.3+kick)",
+  "gravity_px_per_frame2": 0.07,
+  "frame": "1/60 s"
+ },
+ "flicker": {
+  "until_age": 0.7,
+  "chance_per_frame": 0.45
+ },
+ "fade": {
+  "alpha": "0.6 * (1-age)^1.5 (grey: x0.9)",
+  "scale": "(6 + 12*(1-age)^1.3) / 16",
+  "age": "elapsed / life_ms",
+  "samples_alpha": [
+   0.6,
+   0.5556,
+   0.5123,
+   0.4702,
+   0.4293,
+   0.3897,
+   0.3514,
+   0.3144,
+   0.2789,
+   0.2447,
+   0.2121,
+   0.1811,
+   0.1518,
+   0.1242,
+   0.0986,
+   0.075,
+   0.0537,
+   0.0349,
+   0.019,
+   0.0067,
+   0.0
+  ],
+  "samples_scale": [
+   1.125,
+   1.0766,
+   1.029,
+   0.9822,
+   0.9361,
+   0.891,
+   0.8467,
+   0.8034,
+   0.7611,
+   0.7198,
+   0.6796,
+   0.6406,
+   0.6029,
+   0.5666,
+   0.5318,
+   0.4987,
+   0.4676,
+   0.4387,
+   0.4126,
+   0.3903,
+   0.375
+  ]
+ },
+ "corrupt": {
+  "every_ms": [
+   2500,
+   7000
+  ],
+  "lasts_ms": [
+   140,
+   300
+  ],
+  "look": "all red at 1.8x alpha, rows of 6-16 px tear sideways by -18..18 px, 35% glyphs become blocks, bone ghost 3 px left"
+ }
+}

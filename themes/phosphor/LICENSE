@@ -1,0 +1,29 @@
+Phosphor — a Yapfast theme
+
+The theme itself (theme.json, icon.png, the preview pictures in previews/,
+the procedural art in art/, the drawn cursors in cursors/ and the
+synthesised sounds in sounds/, all made
+for this theme by the scripts in tools/) is dedicated to the public domain
+under CC0 1.0 Universal:
+https://creativecommons.org/publicdomain/zero/1.0/
+
+The pixel icons in icons/ are adapted from Solar, the icon set by 480 Design
+(https://www.figma.com/community/file/1166831539721848736), under CC BY 4.0
+(https://creativecommons.org/licenses/by/4.0/). Each stock Yapfast icon (most
+taken from Solar's Bold style) was resampled onto a 16 x 16 pixel grid and
+redrawn by hand where detail was lost (tools/icons.py, tools/hand.py).
+The pixel versions are shared under the same CC BY 4.0 licence.
+
+It ships two font families, each under the SIL Open Font License,
+Version 1.1 (https://openfontlicense.org). Their full licence texts are in fonts/:
+
+- fonts/TerminusTTF-Regular.ttf, fonts/TerminusTTF-Bold.ttf — Terminus (TTF) 4.49.3
+  Copyright (c) 2010 Dimitar Toshkov Zhekov, with Reserved Font Name "Terminus Font";
+  Copyright (c) 2011-2023 Tilman Blumenbach, with Reserved Font Name "Terminus (TTF)"
+  (https://files.ax86.net/terminus-ttf/). Licence: fonts/OFL-TerminusTTF.txt
+
+- fonts/VT323-Regular.ttf — VT323
+  Copyright 2011, The VT323 Project Authors (https://fonts.google.com/specimen/VT323)
+  Licence: fonts/OFL-VT323.txt
+
+The fonts are unmodified and are not sold on their own.

@@ -1,0 +1,25 @@
+Daydream — a Yapfast theme
+
+Everything in this theme except the fonts is original work, dedicated to the
+public domain under CC0 1.0 Universal
+(https://creativecommons.org/publicdomain/zero/1.0/):
+
+- theme.json and the preview pictures in previews/
+- art/ — the sky, the two cumulus layers and the gloss/frost sheets, all
+  generated procedurally (numpy); no photographs or third-party images
+- sounds/ — every sound synthesised from sine waves and filtered noise
+  (bubble, droplet and glass-chime recipes); no samples
+- icons/ — an original icon set drawn for this theme
+
+It ships two fonts, each under the SIL Open Font License, Version 1.1
+(https://openfontlicense.org). Their full licence texts are in fonts/:
+
+- fonts/Nunito.ttf — Nunito (variable, wght 200–1000)
+  Copyright 2014 The Nunito Project Authors (https://github.com/googlefonts/nunito)
+  Licence: fonts/OFL-Nunito.txt
+
+- fonts/JetBrainsMono.ttf — JetBrains Mono (variable, wght 100–800)
+  Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono)
+  Licence: fonts/OFL-JetBrainsMono.txt
+
+The fonts are unmodified and are not sold on their own.

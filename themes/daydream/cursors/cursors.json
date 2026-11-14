@@ -1,0 +1,264 @@
+{
+  "cursors": {
+    "default": {
+      "image": [
+        "cursors/default.png",
+        "cursors/default@2x.png"
+      ],
+      "hotspot": [
+        3,
+        3
+      ]
+    },
+    "pointer": {
+      "image": [
+        "cursors/pointer.png",
+        "cursors/pointer@2x.png"
+      ],
+      "hotspot": [
+        12,
+        3
+      ]
+    },
+    "text": {
+      "image": [
+        "cursors/text.png",
+        "cursors/text@2x.png"
+      ],
+      "hotspot": [
+        15,
+        16
+      ]
+    },
+    "grab": {
+      "image": [
+        "cursors/grab.png",
+        "cursors/grab@2x.png"
+      ],
+      "hotspot": [
+        17,
+        18
+      ]
+    },
+    "grabbing": {
+      "image": [
+        "cursors/grabbing.png",
+        "cursors/grabbing@2x.png"
+      ],
+      "hotspot": [
+        16,
+        19
+      ]
+    },
+    "not-allowed": {
+      "image": [
+        "cursors/not-allowed.png",
+        "cursors/not-allowed@2x.png"
+      ],
+      "hotspot": [
+        16,
+        16
+      ]
+    },
+    "no-drop": {
+      "image": [
+        "cursors/not-allowed.png",
+        "cursors/not-allowed@2x.png"
+      ],
+      "hotspot": [
+        16,
+        16
+      ]
+    },
+    "wait": {
+      "image": [
+        "cursors/wait.png",
+        "cursors/wait@2x.png"
+      ],
+      "hotspot": [
+        16,
+        16
+      ]
+    },
+    "progress": {
+      "image": [
+        "cursors/wait.png",
+        "cursors/wait@2x.png"
+      ],
+      "hotspot": [
+        16,
+        16
+      ]
+    },
+    "help": {
+      "image": [
+        "cursors/help.png",
+        "cursors/help@2x.png"
+      ],
+      "hotspot": [
+        3,
+        3
+      ]
+    },
+    "crosshair": {
+      "image": [
+        "cursors/crosshair.png",
+        "cursors/crosshair@2x.png"
+      ],
+      "hotspot": [
+        15,
+        15
+      ]
+    },
+    "move": {
+      "image": [
+        "cursors/move.png",
+        "cursors/move@2x.png"
+      ],
+      "hotspot": [
+        15,
+        15
+      ]
+    },
+    "ew-resize": {
+      "image": [
+        "cursors/ew-resize.png",
+        "cursors/ew-resize@2x.png"
+      ],
+      "hotspot": [
+        16,
+        16
+      ]
+    },
+    "col-resize": {
+      "image": [
+        "cursors/ew-resize.png",
+        "cursors/ew-resize@2x.png"
+      ],
+      "hotspot": [
+        16,
+        16
+      ]
+    },
+    "e-resize": {
+      "image": [
+        "cursors/ew-resize.png",
+        "cursors/ew-resize@2x.png"
+      ],
+      "hotspot": [
+        16,
+        16
+      ]
+    },
+    "w-resize": {
+      "image": [
+        "cursors/ew-resize.png",
+        "cursors/ew-resize@2x.png"
+      ],
+      "hotspot": [
+        16,
+        16
+      ]
+    },
+    "ns-resize": {
+      "image": [
+        "cursors/ns-resize.png",
+        "cursors/ns-resize@2x.png"
+      ],
+      "hotspot": [
+        16,
+        16
+      ]
+    },
+    "row-resize": {
+      "image": [
+        "cursors/ns-resize.png",
+        "cursors/ns-resize@2x.png"
+      ],
+      "hotspot": [
+        16,
+        16
+      ]
+    },
+    "n-resize": {
+      "image": [
+        "cursors/ns-resize.png",
+        "cursors/ns-resize@2x.png"
+      ],
+      "hotspot": [
+        16,
+        16
+      ]
+    },
+    "s-resize": {
+      "image": [
+        "cursors/ns-resize.png",
+        "cursors/ns-resize@2x.png"
+      ],
+      "hotspot": [
+        16,
+        16
+      ]
+    },
+    "nesw-resize": {
+      "image": [
+        "cursors/nesw-resize.png",
+        "cursors/nesw-resize@2x.png"
+      ],
+      "hotspot": [
+        16,
+        16
+      ]
+    },
+    "ne-resize": {
+      "image": [
+        "cursors/nesw-resize.png",
+        "cursors/nesw-resize@2x.png"
+      ],
+      "hotspot": [
+        16,
+        16
+      ]
+    },
+    "sw-resize": {
+      "image": [
+        "cursors/nesw-resize.png",
+        "cursors/nesw-resize@2x.png"
+      ],
+      "hotspot": [
+        16,
+        16
+      ]
+    },
+    "nwse-resize": {
+      "image": [
+        "cursors/nwse-resize.png",
+        "cursors/nwse-resize@2x.png"
+      ],
+      "hotspot": [
+        16,
+        16
+      ]
+    },
+    "nw-resize": {
+      "image": [
+        "cursors/nwse-resize.png",
+        "cursors/nwse-resize@2x.png"
+      ],
+      "hotspot": [
+        16,
+        16
+      ]
+    },
+    "se-resize": {
+      "image": [
+        "cursors/nwse-resize.png",
+        "cursors/nwse-resize@2x.png"
+      ],
+      "hotspot": [
+        16,
+        16
+      ]
+    }
+  }
+}

@@ -1,0 +1,1244 @@
+{
+  "theme_api": 1,
+  "id": "io.github.yapfast-themes.eyeliner",
+  "name": "Eyeliner",
+  "version": "1.0.0",
+  "description": "Pink-and-black profile-page era with e-girl finish: boxed modules on a collage of crosses, hearts, bats and bokeh, glowing blackletter, magenta bars, blinkie stamps, a liner highlighter, marker icons, safety-pin cursors and glitter chimes. Dark only.",
+  "authors": [
+    "Yapfast"
+  ],
+  "license": "CC0-1.0 AND OFL-1.1",
+  "source": "https://github.com/yapfast-themes/eyeliner",
+  "preview": [
+    "previews/chat.png",
+    "previews/profile.png",
+    "previews/settings.png"
+  ],
+  "icon": "icon.png",
+  "variants": {
+    "dark": {
+      "base": "yap"
+    }
+  },
+  "colours": {
+    "rail": "#08070A",
+    "sidebar": "#131016",
+    "panel": "#100D12",
+    "account": "#0D0A0F",
+    "chat": "#0C0A0E",
+    "members": "#131016",
+    "stage": "#0C0A0E",
+    "raised": "#1B161E",
+    "field": "#18131B",
+    "sunken": "#08070A",
+    "hover": "#241521",
+    "active": "#2E1729",
+    "row-hover": "#241521",
+    "line": "#3A2533",
+    "edge": "#000000",
+    "outline": "#3A2533",
+    "outline-chat": "#3A2533",
+    "outline-field": "#FF4FA8",
+    "text": "#F6EEF3",
+    "secondary": "#D9CBD5",
+    "muted": "#B3A3AF",
+    "faint": "#948491",
+    "accent": "#FF4FA8",
+    "accent-hover": "#FF6FB8",
+    "on-accent": "#0C0A0E",
+    "accent-soft": "#FF4FA82E",
+    "accent-text": "#F4A9CF",
+    "live": "#C8FF4A",
+    "loud": "#FF4D5E",
+    "link": "#F4A9CF",
+    "button-default": "#241521",
+    "button-default-hover": "#3A1A30",
+    "overlay": "#FF4FA8",
+    "shimmer": "#FFFFFF55",
+    "reply-spine": "#FF4FA8",
+    "tooltip": "#FF4FA8",
+    "on-tooltip": "#0C0A0E",
+    "avatar": "#2E1729",
+    "selection": "#FF4FA866",
+    "focus-ring": "#FF4FA8",
+    "scrollbar": "#FF4FA88C",
+    "scrollbar-track": "#FF4FA81A",
+    "scrim": "#050406CC",
+    "menu": "#1B161E",
+    "menu-line": "#FF4FA8",
+    "composer": "#18131B",
+    "placeholder": "#948491",
+    "mentioned": "#FF4FA826",
+    "mentioned-hover": "#FF4FA838",
+    "composer-focus": "#FF4FA8",
+    "row-selected": "#3A1A30",
+    "pill": "#FF4FA8",
+    "toggle-off": "#2E1729",
+    "knob-off": "#B3A3AF",
+    "code": "#2A0F1E",
+    "embed": "#1B161E",
+    "app-badge": "#A3175F",
+    "actions": "#1B161E",
+    "actions-hover": "#3A1A30"
+  },
+  "shape": {
+    "outline_width": 1,
+    "button": {
+      "radius": 3,
+      "border": 2,
+      "border_colour": "#000000",
+      "shadow": {
+        "blur": 0,
+        "x": 3,
+        "y": 3,
+        "colour": "#000000"
+      }
+    },
+    "field": {
+      "radius": 3,
+      "border": 2,
+      "border_colour": "#3A2533"
+    },
+    "composer": {
+      "radius": 3,
+      "border": 2,
+      "border_colour": "#FF4FA8",
+      "shadow": {
+        "blur": 0,
+        "x": 3,
+        "y": 3,
+        "colour": "#000000"
+      }
+    },
+    "card": {
+      "radius": 4,
+      "border": 2,
+      "border_colour": "#FF4FA8",
+      "shadow": {
+        "blur": 0,
+        "x": 5,
+        "y": 5,
+        "colour": "#000000"
+      }
+    },
+    "menu": {
+      "radius": 3,
+      "border": 2,
+      "border_colour": "#FF4FA8",
+      "shadow": {
+        "blur": 0,
+        "x": 4,
+        "y": 4,
+        "colour": "#000000"
+      }
+    },
+    "dialog": {
+      "radius": 4,
+      "border": 2,
+      "border_colour": "#FF4FA8",
+      "shadow": {
+        "blur": 0,
+        "x": 6,
+        "y": 6,
+        "colour": "#000000"
+      }
+    },
+    "tooltip": {
+      "radius": 3,
+      "border": 1,
+      "border_colour": "#000000",
+      "shadow": {
+        "blur": 0,
+        "x": 3,
+        "y": 3,
+        "colour": "#000000"
+      }
+    },
+    "chip": {
+      "radius": 999,
+      "border": 1,
+      "border_colour": "#3A2533"
+    },
+    "message": {
+      "radius": 3,
+      "border": 2,
+      "border_colour": "#FF4FA8C0"
+    },
+    "rail-icon": {
+      "radius": 4,
+      "border": 2,
+      "border_colour": "#FF4FA8",
+      "shadow": {
+        "blur": 0,
+        "x": 2,
+        "y": 2,
+        "colour": "#000000"
+      }
+    },
+    "avatar": {
+      "radius": 6,
+      "border": 2,
+      "border_colour": "#FF4FA8",
+      "shadow": {
+        "blur": 0,
+        "x": 2,
+        "y": 2,
+        "colour": "#000000"
+      }
+    },
+    "tile": {
+      "radius": 4,
+      "border": 2,
+      "border_colour": "#FF4FA8",
+      "shadow": {
+        "blur": 0,
+        "x": 4,
+        "y": 4,
+        "colour": "#000000"
+      }
+    },
+    "code": {
+      "radius": 2,
+      "border": 1,
+      "border_colour": "#3A2533"
+    },
+    "embed": {
+      "radius": 2,
+      "border": 1,
+      "border_colour": "#3A2533"
+    },
+    "toggle": {
+      "radius": 999,
+      "border": 2,
+      "border_colour": "#000000"
+    },
+    "actions": {
+      "radius": 999,
+      "border": 2,
+      "border_colour": "#FF4FA8",
+      "shadow": {
+        "blur": 0,
+        "x": 3,
+        "y": 3,
+        "colour": "#000000"
+      }
+    },
+    "row": {
+      "radius": 3,
+      "inset": [
+        4,
+        1
+      ],
+      "stripe": {
+        "colour": "#1A1219",
+        "lists": [
+          "channels"
+        ]
+      }
+    },
+    "radii": {
+      "small": 2,
+      "medium": 3,
+      "large": 4
+    },
+    "shadows": {
+      "blur": 0,
+      "x": 3,
+      "y": 3,
+      "colour": "#000000"
+    },
+    "borders": {
+      "message": {
+        "style": "dashed",
+        "dash": 24,
+        "gap": 1,
+        "width": 2,
+        "colour": "#FF4FA8C0"
+      },
+      "code": {
+        "style": "solid",
+        "width": 1,
+        "colour": "#FF4FA880"
+      },
+      "divider": {
+        "style": "dotted",
+        "gap": 4,
+        "width": 2,
+        "colour": "#FF4FA8"
+      }
+    },
+    "label": {
+      "ground": "linear(90deg, #FF4FA8, #E0458F)",
+      "text": "#0C0A0E",
+      "radius": 4,
+      "case": "lower",
+      "shadow": {
+        "blur": 0,
+        "x": 2,
+        "y": 2,
+        "colour": "#000000"
+      }
+    }
+  },
+  "type": {
+    "body": {
+      "font": "fonts/HankenGrotesk.ttf",
+      "size": 15,
+      "weight": 450
+    },
+    "headings": {
+      "font": "fonts/GrenzeGotisch.ttf",
+      "size": 20,
+      "weight": 800,
+      "header_size": 26,
+      "title_size": 32,
+      "letter_spacing": 0.3
+    },
+    "names": {
+      "font": "fonts/HankenGrotesk.ttf",
+      "size": 15,
+      "weight": 750
+    },
+    "code": {
+      "font": "fonts/JetBrainsMono.ttf",
+      "size": 13
+    },
+    "labels": {
+      "font": "fonts/HankenGrotesk.ttf",
+      "size": 12,
+      "weight": 800,
+      "letter_spacing": 0.8
+    }
+  },
+  "spacing": {
+    "message_gap": 2,
+    "message_group_gap": 18,
+    "channel_row_height": 32,
+    "member_row_height": 44,
+    "avatar_size": 40,
+    "chat_padding": 20,
+    "sidebar_width": 252,
+    "members_width": 248
+  },
+  "motion": {
+    "quick": 110,
+    "popup": 160,
+    "curve": "cubic-bezier(0.2, 0.9, 0.3, 1.2)",
+    "hover": "glow",
+    "press": "sink",
+    "open": "pop",
+    "close": "reverse",
+    "hover_in": 80,
+    "hover_out": 160
+  },
+  "animations": [
+    {
+      "name": "home winged heart flutters",
+      "slot": "home",
+      "property": "y",
+      "values": [
+        0,
+        2,
+        0,
+        1,
+        0
+      ],
+      "period": 2200,
+      "easing": "ease-in-out",
+      "steps": 10
+    },
+    {
+      "name": "unread pip blinks like a blinkie",
+      "slot": "unread",
+      "property": "opacity",
+      "values": [
+        1,
+        0.35
+      ],
+      "period": 1000,
+      "steps": 2
+    },
+    {
+      "name": "mention badge heartbeat",
+      "slot": "mention",
+      "property": "scale",
+      "values": [
+        1,
+        1.22,
+        1,
+        1.14,
+        1,
+        1,
+        1,
+        1
+      ],
+      "period": 1600,
+      "easing": "ease-out",
+      "steps": 8
+    },
+    {
+      "name": "typing dots hop",
+      "slot": "typing",
+      "property": "y",
+      "values": [
+        0,
+        -3,
+        0,
+        0
+      ],
+      "period": 900,
+      "steps": 4
+    },
+    {
+      "name": "own avatar sways",
+      "slot": "own.avatar",
+      "property": "rotation",
+      "values": [
+        -3,
+        3
+      ],
+      "period": 2600,
+      "repeat": "alternate",
+      "easing": "ease-in-out",
+      "steps": 10
+    },
+    {
+      "name": "servers bob one after another",
+      "slot": "rail.icon",
+      "property": "y",
+      "values": [
+        0,
+        -1.5,
+        0,
+        0,
+        0,
+        0
+      ],
+      "period": 3600,
+      "easing": "ease-in-out",
+      "phase": 180,
+      "steps": 6
+    }
+  ],
+  "effects": {
+    "channel.name": {
+      "effect": "decrypt",
+      "duration": 380
+    },
+    "server.name": {
+      "effect": "typewriter",
+      "duration": 520
+    },
+    "profile.name": {
+      "effect": "decrypt",
+      "duration": 520
+    },
+    "settings.title": {
+      "effect": "typewriter",
+      "duration": 360
+    },
+    "welcome": {
+      "effect": "typewriter",
+      "duration": 1000
+    }
+  },
+  "layout": {
+    "messages": "cards",
+    "cards": {
+      "tilt": 0,
+      "gap": 22,
+      "padding": 12,
+      "ground": "#131016",
+      "shadow": {
+        "blur": 0,
+        "x": 3,
+        "y": 3,
+        "colour": "#000000"
+      },
+      "art": [
+        {
+          "image": "art/tab.png",
+          "position": "top left",
+          "size": [
+            96,
+            18
+          ],
+          "offset": [
+            12,
+            -9
+          ]
+        }
+      ]
+    },
+    "rail_tiles": {
+      "shape": "card",
+      "width": 52,
+      "height": 52,
+      "gap": 14,
+      "pad": 4,
+      "radius": 0,
+      "frame": {
+        "image": "art/booth-frame.png",
+        "window": [
+          5,
+          5,
+          42,
+          42
+        ]
+      },
+      "between": {
+        "image": "art/chain-link-v.png",
+        "size": [
+          10,
+          22
+        ]
+      },
+      "between_height": 22,
+      "hover": "tilt",
+      "hover_amount": 3,
+      "hover_ms": 120,
+      "selected": {
+        "over": {
+          "image": "art/p-heart.png",
+          "size": [
+            22,
+            22
+          ],
+          "position": "bottom right",
+          "offset": [
+            7,
+            7
+          ],
+          "rotation": 12
+        }
+      },
+      "focus": "window",
+      "folder": {
+        "frame": {
+          "image": "art/booth-frame.png",
+          "window": [
+            5,
+            5,
+            42,
+            42
+          ]
+        }
+      },
+      "divider": {
+        "size": [
+          32,
+          2
+        ],
+        "colour": "#FF4FA8",
+        "style": "dotted"
+      },
+      "badge": {
+        "ground": "#FF4D5E",
+        "ink": "#FFFFFF"
+      },
+      "ground": [
+        {
+          "texture": "grain",
+          "colour": "#FF4FA8",
+          "opacity": 0.05
+        },
+        {
+          "image": "art/rail-checker.png",
+          "fit": "tile",
+          "position": "top right"
+        }
+      ],
+      "add": {
+        "gap": 20
+      }
+    },
+    "channel_rows": {
+      "height": 30,
+      "gap": 2,
+      "font": "body",
+      "size": 15,
+      "weight": 650,
+      "inset": 8,
+      "icon": {
+        "size": 18,
+        "gap": 8,
+        "colour": "#948491",
+        "hover": "#B3A3AF",
+        "selected": "#F4A9CF"
+      },
+      "selected": {
+        "frame": {
+          "image": "art/flick-row.png",
+          "slice": [
+            0,
+            44,
+            0,
+            8
+          ]
+        },
+        "after": {
+          "image": "art/p-heart.png",
+          "size": [
+            12,
+            12
+          ]
+        }
+      },
+      "hover_ground": "row-hover",
+      "ink": {
+        "read": "#B3A3AF",
+        "unread": "#F6EEF3",
+        "selected": "#F6EEF3",
+        "hover": "#D9CBD5"
+      },
+      "meta": {
+        "unread": "badge",
+        "inset": 8,
+        "unread_glyph": {
+          "image": "art/blinkie-new.png",
+          "size": [
+            34,
+            12
+          ],
+          "pixelated": true,
+          "frames": {
+            "count": 2,
+            "columns": 1,
+            "period": 900
+          }
+        },
+        "badge": {
+          "ground": "#FF4D5E",
+          "ink": "#FFFFFF"
+        }
+      }
+    },
+    "member_rows": {
+      "height": 104,
+      "status": "glyph",
+      "status_glyphs": {
+        "online": {
+          "image": "art/blinkie-online.png",
+          "size": [
+            44,
+            12
+          ],
+          "pixelated": true,
+          "frames": {
+            "count": 2,
+            "columns": 1,
+            "period": 900
+          }
+        },
+        "idle": {
+          "image": "art/blinkie-afk.png",
+          "size": [
+            44,
+            12
+          ],
+          "pixelated": true
+        },
+        "dnd": {
+          "image": "art/blinkie-dnd.png",
+          "size": [
+            44,
+            12
+          ],
+          "pixelated": true
+        }
+      },
+      "selected": {
+        "over": {
+          "image": "art/p-heart.png",
+          "size": [
+            20,
+            20
+          ],
+          "position": "top right",
+          "offset": [
+            -22,
+            0
+          ],
+          "rotation": 12
+        }
+      },
+      "headers": {
+        "font": "labels",
+        "size": 12,
+        "weight": 800,
+        "case": "lower",
+        "height": 32,
+        "colour": "#FFFFFF",
+        "fill": true,
+        "inset": 8,
+        "frame": {
+          "image": "art/bar-deep.png",
+          "slice": [
+            12,
+            12,
+            12,
+            12
+          ]
+        }
+      },
+      "title": {
+        "font": "headings",
+        "size": 22,
+        "colour": "#F6EEF3",
+        "count": {
+          "font": "body",
+          "size": 12,
+          "colour": "#F4A9CF"
+        }
+      },
+      "gap": 0,
+      "margin": [
+        4,
+        4
+      ],
+      "font": "names",
+      "size": 14,
+      "weight": 750,
+      "ink": {
+        "name": "#FFB3D6",
+        "crown": "#FFD36B",
+        "glow": "#FF4FA866"
+      },
+      "activity": "hidden",
+      "foot": {
+        "image": "art/members-foot.png",
+        "size": [
+          176,
+          140
+        ],
+        "position": "bottom",
+        "frames": {
+          "count": 2,
+          "columns": 2,
+          "period": 1000
+        }
+      }
+    },
+    "members_style": "grid",
+    "grid": {
+      "columns": 2,
+      "size": 60
+    }
+  },
+  "art": {
+    "surfaces": {
+      "window": [
+        {
+          "image": "art/collage.jpg",
+          "fit": "tile",
+          "scale": 0.5
+        }
+      ],
+      "rail": [
+        {
+          "texture": "grain",
+          "colour": "#FF4FA8",
+          "opacity": 0.05
+        },
+        {
+          "image": "art/rail-checker.png",
+          "fit": "tile",
+          "position": "top right"
+        }
+      ],
+      "sidebar": [
+        {
+          "texture": "grain",
+          "colour": "#FF4FA8",
+          "opacity": 0.05
+        },
+        {
+          "image": "art/sidebar-foot.png",
+          "fit": "contain",
+          "position": "bottom"
+        }
+      ],
+      "chat": [
+        {
+          "image": "art/collage.jpg",
+          "fit": "tile",
+          "scale": 0.5,
+          "opacity": 0.16
+        },
+        {
+          "image": "art/glitter.png",
+          "fit": "tile",
+          "opacity": 0.8
+        },
+        {
+          "image": "art/header-bar.png",
+          "fit": "tile",
+          "position": "top left",
+          "scale": 2
+        }
+      ],
+      "members": [
+        {
+          "texture": "grain",
+          "colour": "#FF4FA8",
+          "opacity": 0.05
+        }
+      ],
+      "account": [
+        {
+          "image": "art/account-top.png",
+          "fit": "stretch"
+        }
+      ],
+      "card": [
+        {
+          "image": "art/glitter.png",
+          "fit": "tile",
+          "opacity": 0.6
+        }
+      ],
+      "dialog": [
+        {
+          "image": "art/glitter.png",
+          "fit": "tile",
+          "opacity": 0.6
+        },
+        {
+          "image": "art/dialog-top.png",
+          "fit": "contain",
+          "position": "top"
+        }
+      ],
+      "menu": [
+        {
+          "image": "art/menu-top.png",
+          "fit": "contain",
+          "position": "top"
+        }
+      ],
+      "composer": [
+        {
+          "image": "art/glitter.png",
+          "fit": "tile",
+          "opacity": 0.5
+        }
+      ]
+    },
+    "glass": {
+      "surfaces": [
+        "sidebar",
+        "chat",
+        "members"
+      ],
+      "blur": 0,
+      "opacity": 1,
+      "gap": 14,
+      "radius": 4,
+      "highlight": "#FF4FA8",
+      "inset": {
+        "blur": 6,
+        "x": 0,
+        "y": 0,
+        "colour": "#FF4FA8"
+      }
+    },
+    "overlays": [
+      {
+        "kind": "vignette",
+        "opacity": 0.1,
+        "colour": "#000000"
+      }
+    ],
+    "text": {
+      "headings": {
+        "glow": {
+          "colour": "#FFFFFF55",
+          "size": 2
+        }
+      },
+      "labels": {
+        "outline": {
+          "width": 3,
+          "colour": "#A3175F"
+        }
+      },
+      "names": {
+        "shadow": {
+          "x": 1,
+          "y": 1,
+          "blur": 0,
+          "colour": "#000000"
+        },
+        "glow": {
+          "colour": "#FF4FA866",
+          "size": 2
+        }
+      }
+    },
+    "particles": [
+      {
+        "preset": "sparkles",
+        "on": "message.sent",
+        "sprite": "art/p-heart.png",
+        "count": 6,
+        "size": 16,
+        "life": 900
+      },
+      {
+        "preset": "sparkles",
+        "on": "message.sent",
+        "sprite": "art/p-sparkle.png",
+        "count": 6,
+        "size": 12,
+        "life": 800
+      },
+      {
+        "preset": "sparkles",
+        "on": "reaction.added",
+        "sprite": "art/p-cross.png",
+        "count": 5,
+        "size": 12,
+        "life": 700
+      },
+      {
+        "preset": "dust",
+        "on": "ambient",
+        "sprite": "art/p-sparkle.png",
+        "count": 6,
+        "rate": 0.4,
+        "size": 9,
+        "life": 6000,
+        "heavy": false
+      }
+    ],
+    "events": {
+      "click": "none",
+      "hover": {
+        "effect": "gloss",
+        "colour": "#FFFFFF88",
+        "duration": 520
+      },
+      "select": {
+        "effect": "highlighter",
+        "colour": "#FF4FA8C0",
+        "duration": 240
+      },
+      "reaction": {
+        "effect": "stamp",
+        "colour": "#FF4FA8",
+        "duration": 280
+      },
+      "row": "none"
+    },
+    "transition": {
+      "kind": "dissolve",
+      "duration": 260
+    }
+  },
+  "sounds": {
+    "message": "sounds/message.wav",
+    "mention": "sounds/mention.wav",
+    "join": "sounds/join.wav",
+    "leave": "sounds/leave.wav",
+    "mute": "sounds/mute.wav",
+    "unmute": "sounds/unmute.wav",
+    "deafen": "sounds/deafen.wav",
+    "undeafen": "sounds/undeafen.wav",
+    "send": [
+      "sounds/send-1.wav",
+      "sounds/send-2.wav",
+      "sounds/send-3.wav"
+    ],
+    "reaction-add": [
+      "sounds/react-1.wav",
+      "sounds/react-2.wav",
+      "sounds/react-3.wav"
+    ],
+    "hover": {
+      "file": "sounds/hover.wav",
+      "volume": 0.5
+    },
+    "press": "sounds/press.wav",
+    "menu-open": "sounds/menu-open.wav",
+    "menu-close": "sounds/menu-close.wav",
+    "popup-open": "sounds/popup-open.wav",
+    "popup-close": "sounds/popup-close.wav",
+    "toggle-on": "sounds/toggle-on.wav",
+    "toggle-off": "sounds/toggle-off.wav",
+    "theme-applied": "sounds/applied.wav"
+  },
+  "icons": {
+    "arrow-down": "icons/arrow-down.svg",
+    "arrow-left": "icons/arrow-left.svg",
+    "arrow-right": "icons/arrow-right.svg",
+    "arrow-up": "icons/arrow-up.svg",
+    "at-sign": "icons/at-sign.svg",
+    "ban": "icons/ban.svg",
+    "bell-off": "icons/bell-off.svg",
+    "bell": "icons/bell.svg",
+    "brush": "icons/brush.svg",
+    "calendar": "icons/calendar.svg",
+    "chart-bar": "icons/chart-bar.svg",
+    "check": "icons/check.svg",
+    "chevron-down": "icons/chevron-down.svg",
+    "chevron-left": "icons/chevron-left.svg",
+    "chevron-right": "icons/chevron-right.svg",
+    "chevrons-right": "icons/chevrons-right.svg",
+    "circle-plus": "icons/circle-plus.svg",
+    "circle-stop": "icons/circle-stop.svg",
+    "clipboard-paste": "icons/clipboard-paste.svg",
+    "clock": "icons/clock.svg",
+    "community": "icons/community.svg",
+    "copy-plus": "icons/copy-plus.svg",
+    "copy": "icons/copy.svg",
+    "crown": "icons/crown.svg",
+    "download": "icons/download.svg",
+    "ellipsis": "icons/ellipsis.svg",
+    "external-link": "icons/external-link.svg",
+    "eye-off": "icons/eye-off.svg",
+    "eye": "icons/eye.svg",
+    "eyedropper": "icons/eyedropper.svg",
+    "file": "icons/file.svg",
+    "folder-plus": "icons/folder-plus.svg",
+    "folder": "icons/folder.svg",
+    "forward": "icons/forward.svg",
+    "gamepad": "icons/gamepad.svg",
+    "gavel": "icons/gavel.svg",
+    "gem": "icons/gem.svg",
+    "gif": "icons/gif.svg",
+    "hand": "icons/hand.svg",
+    "hash-lock": "icons/hash-lock.svg",
+    "hash-warning": "icons/hash-warning.svg",
+    "hash": "icons/hash.svg",
+    "headphone-off": "icons/headphone-off.svg",
+    "headphones": "icons/headphones.svg",
+    "help-circle": "icons/help-circle.svg",
+    "history": "icons/history.svg",
+    "id-filled": "icons/id-filled.svg",
+    "image-lock": "icons/image-lock.svg",
+    "image-warning": "icons/image-warning.svg",
+    "image": "icons/image.svg",
+    "inbox": "icons/inbox.svg",
+    "link": "icons/link.svg",
+    "lock": "icons/lock.svg",
+    "log-out": "icons/log-out.svg",
+    "maximize": "icons/maximize.svg",
+    "megaphone-lock": "icons/megaphone-lock.svg",
+    "megaphone-warning": "icons/megaphone-warning.svg",
+    "megaphone": "icons/megaphone.svg",
+    "message-circle": "icons/message-circle.svg",
+    "message-square-text-lock": "icons/message-square-text-lock.svg",
+    "message-square-text-warning": "icons/message-square-text-warning.svg",
+    "message-square-text": "icons/message-square-text.svg",
+    "mic-off": "icons/mic-off.svg",
+    "mic": "icons/mic.svg",
+    "minimize": "icons/minimize.svg",
+    "minus": "icons/minus.svg",
+    "moon": "icons/moon.svg",
+    "music": "icons/music.svg",
+    "noise-bars-off": "icons/noise-bars-off.svg",
+    "noise-bars": "icons/noise-bars.svg",
+    "palette": "icons/palette.svg",
+    "pause": "icons/pause.svg",
+    "pen": "icons/pen.svg",
+    "pencil": "icons/pencil.svg",
+    "phone-off": "icons/phone-off.svg",
+    "phone": "icons/phone.svg",
+    "pin-off": "icons/pin-off.svg",
+    "pin": {
+      "file": "icons/pin.svg",
+      "colour": "tint"
+    },
+    "play": "icons/play.svg",
+    "plugins": "icons/plugins.svg",
+    "plus": "icons/plus.svg",
+    "refresh-cw": "icons/refresh-cw.svg",
+    "reply": "icons/reply.svg",
+    "restore": "icons/restore.svg",
+    "rules": "icons/rules.svg",
+    "scissors": "icons/scissors.svg",
+    "screen-share-off": "icons/screen-share-off.svg",
+    "screen-share": "icons/screen-share.svg",
+    "scroll-down": "icons/scroll-down.svg",
+    "scroll-left": "icons/scroll-left.svg",
+    "scroll-right": "icons/scroll-right.svg",
+    "scroll-up": "icons/scroll-up.svg",
+    "search": "icons/search.svg",
+    "send-horizontal": "icons/send-horizontal.svg",
+    "settings": "icons/settings.svg",
+    "shield": "icons/shield.svg",
+    "shop": "icons/shop.svg",
+    "signal-high": "icons/signal-high.svg",
+    "signal-low": "icons/signal-low.svg",
+    "signal-medium": "icons/signal-medium.svg",
+    "slash": "icons/slash.svg",
+    "smile-plus": "icons/smile-plus.svg",
+    "smile": "icons/smile.svg",
+    "soundboard": "icons/soundboard.svg",
+    "square-pen": "icons/square-pen.svg",
+    "square": "icons/square.svg",
+    "stage-lock": "icons/stage-lock.svg",
+    "stage": "icons/stage.svg",
+    "star-filled": "icons/star-filled.svg",
+    "star": "icons/star.svg",
+    "sticker": "icons/sticker.svg",
+    "sticky-note": "icons/sticky-note.svg",
+    "sun": "icons/sun.svg",
+    "text-select": "icons/text-select.svg",
+    "thread": "icons/thread.svg",
+    "trash-2": "icons/trash-2.svg",
+    "trending-up": "icons/trending-up.svg",
+    "triangle-alert": "icons/triangle-alert.svg",
+    "trophy": "icons/trophy.svg",
+    "tv": "icons/tv.svg",
+    "user-minus": "icons/user-minus.svg",
+    "user-pen": "icons/user-pen.svg",
+    "user-plus": "icons/user-plus.svg",
+    "user-x": "icons/user-x.svg",
+    "user": "icons/user.svg",
+    "users": "icons/users.svg",
+    "video-off": "icons/video-off.svg",
+    "video": "icons/video.svg",
+    "volume-2-bold": "icons/volume-2-bold.svg",
+    "volume-2-lock": "icons/volume-2-lock.svg",
+    "volume-2-warning": "icons/volume-2-warning.svg",
+    "volume-2": "icons/volume-2.svg",
+    "volume-x": "icons/volume-x.svg",
+    "x": "icons/x.svg",
+    "logo": {
+      "file": "icons/logo.svg",
+      "colour": "keep"
+    }
+  },
+  "cursors": {
+    "default": {
+      "image": [
+        "cursors/default.png",
+        "cursors/default@2x.png"
+      ],
+      "hotspot": [
+        2,
+        1
+      ]
+    },
+    "pointer": {
+      "image": [
+        "cursors/pointer.png",
+        "cursors/pointer@2x.png"
+      ],
+      "hotspot": [
+        5,
+        5
+      ]
+    },
+    "text": {
+      "image": [
+        "cursors/text.png",
+        "cursors/text@2x.png"
+      ],
+      "hotspot": [
+        16,
+        16
+      ]
+    },
+    "grab": {
+      "image": [
+        "cursors/grab.png",
+        "cursors/grab@2x.png"
+      ],
+      "hotspot": [
+        16,
+        16
+      ]
+    },
+    "grabbing": {
+      "image": [
+        "cursors/grabbing.png",
+        "cursors/grabbing@2x.png"
+      ],
+      "hotspot": [
+        16,
+        16
+      ]
+    },
+    "crosshair": {
+      "image": [
+        "cursors/crosshair.png",
+        "cursors/crosshair@2x.png"
+      ],
+      "hotspot": [
+        16,
+        16
+      ]
+    },
+    "not-allowed": {
+      "image": [
+        "cursors/not-allowed.png",
+        "cursors/not-allowed@2x.png"
+      ],
+      "hotspot": [
+        16,
+        16
+      ]
+    },
+    "help": {
+      "image": [
+        "cursors/help.png",
+        "cursors/help@2x.png"
+      ],
+      "hotspot": [
+        2,
+        1
+      ]
+    },
+    "progress": {
+      "image": [
+        "cursors/progress.png",
+        "cursors/progress@2x.png"
+      ],
+      "hotspot": [
+        2,
+        1
+      ]
+    },
+    "wait": {
+      "image": [
+        "cursors/wait.png",
+        "cursors/wait@2x.png"
+      ],
+      "hotspot": [
+        16,
+        16
+      ]
+    }
+  },
+  "content": {
+    "avatars": {
+      "shape": {
+        "rounded": 4
+      },
+      "decorations": "hide",
+      "ring": {
+        "colour": "#FF4FA8",
+        "width": 2
+      }
+    },
+    "names": {
+      "colours": "theme",
+      "colour": "#FFB3D6",
+      "styles": "theme",
+      "nameplates": "hide"
+    },
+    "profiles": {
+      "themes": "theme",
+      "effects": "hide"
+    },
+    "embeds": "theme",
+    "activity": "theme"
+  },
+  "chrome": {
+    "labels": {
+      "members_title": "members · {n}"
+    }
+  }
+}

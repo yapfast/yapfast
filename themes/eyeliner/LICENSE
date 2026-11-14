@@ -1,0 +1,46 @@
+Eyeliner — a Yapfast theme
+
+1. The theme itself — theme.json, the pictures in art/, previews/ and icon.png,
+   the cursors in cursors/ and the sounds in sounds/ — is dedicated to the public
+   domain under CC0 1.0 Universal:
+   https://creativecommons.org/publicdomain/zero/1.0/
+   Every collage element (crosses, stars, hearts, bats, bows, flowers, bokeh,
+   checker scraps, scrawled words), the winged heart, chain, blinkie stamps and
+   cursors were drawn by scripts written for this theme; every sound was
+   synthesised from sine partials, noise and a plucked-string model by a script
+   written for this theme. No outside images or recordings are used.
+
+2. The icons in icons/ are Yapfast's stock icons re-drawn as marker solids for
+   this theme (each shape rasterised, thickened, given one shared hand wobble and
+   traced back to a path). They are adaptations, so they keep their sources'
+   licences:
+   - Most come from Solar by 480 Design, under CC BY 4.0
+     (https://creativecommons.org/licenses/by/4.0/), via Iconify, as listed in
+     Yapfast's ui/icons/README.md. Changes: re-drawn in a marker style.
+   - calendar, check, chevron-down, chevron-left, chevron-right, hand, maximize,
+     minimize, minus, restore, slash, square, x, forward and reply come from
+     Lucide (https://lucide.dev/), under the ISC licence:
+       ISC License. Copyright (c) for portions of Lucide are held by Cole Bemis
+       2013-2022 as part of Feather (MIT). All other copyright (c) for Lucide
+       are held by Lucide Contributors 2022.
+       Permission to use, copy, modify, and/or distribute this software for any
+       purpose with or without fee is hereby granted, provided that the above
+       copyright notice and this permission notice appear in all copies.
+       THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES.
+   - The icons drawn for Yapfast itself (see its ui/icons/README.md) are
+     re-drawn here under the same terms as Yapfast's own.
+   - pin.svg, pin-off.svg (a safety pin) and logo.svg (a winged heart) are new
+     drawings for this theme, CC0.
+   Discord's logo and the verified badge are not replaced; they stay stock.
+
+3. The fonts in fonts/ are under the SIL Open Font License 1.1; each family's
+   licence is beside it (OFL-*.txt):
+   - GrenzeGotisch.ttf — Grenze Gotisch, Copyright 2020 The Grenze Gotisch Project
+     Authors. fonts/OFL-grenzegotisch.txt
+   - HankenGrotesk.ttf — Hanken Grotesk, Copyright 2021 The Hanken Grotesk Project
+     Authors. fonts/OFL-hankengrotesk.txt
+   - JetBrainsMono.ttf — JetBrains Mono, Copyright 2020 The JetBrains Mono Project
+     Authors. fonts/OFL-jetbrainsmono.txt
+   All are shipped unmodified. The scrawled words in the collage and the blinkie
+   lettering were set in Sedgwick Ave Display and Silkscreen (both OFL 1.1) and
+   baked into the pictures; those fonts are not shipped.

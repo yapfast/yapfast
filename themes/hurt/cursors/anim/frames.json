@@ -1,0 +1,400 @@
+{
+ "canvas": [
+  64,
+  64
+ ],
+ "canvas@2x": [
+  128,
+  128
+ ],
+ "hotspot": [
+  32,
+  32
+ ],
+ "hotspot@2x": [
+  64,
+  64
+ ],
+ "files": "{seq}/NN.png (1x) and {seq}/NN@2x.png (2x)",
+ "sequences": {
+  "to-pointer": {
+   "frames": [
+    "to-pointer/00.png",
+    "to-pointer/01.png",
+    "to-pointer/02.png",
+    "to-pointer/03.png",
+    "to-pointer/04.png",
+    "to-pointer/05.png",
+    "to-pointer/06.png",
+    "to-pointer/07.png",
+    "to-pointer/08.png",
+    "to-pointer/09.png",
+    "to-pointer/10.png",
+    "to-pointer/11.png"
+   ],
+   "ms": [
+    16,
+    16,
+    16,
+    24,
+    31,
+    35,
+    39,
+    42,
+    46,
+    49,
+    52,
+    55
+   ],
+   "total_ms": 421,
+   "mode": "once",
+   "hotspot": [
+    32,
+    32
+   ],
+   "note": "default -> pointer: 180 deg turn, grows 12.5 -> 21 px, corners pull apart and go red (spring, 420 ms)"
+  },
+  "to-default": {
+   "frames": [
+    "to-default/00.png",
+    "to-default/01.png",
+    "to-default/02.png",
+    "to-default/03.png",
+    "to-default/04.png",
+    "to-default/05.png",
+    "to-default/06.png",
+    "to-default/07.png"
+   ],
+   "ms": [
+    16,
+    30,
+    42,
+    51,
+    59,
+    67,
+    74,
+    81
+   ],
+   "total_ms": 420,
+   "mode": "once",
+   "hotspot": [
+    32,
+    32
+   ],
+   "note": "pointer -> default, same spring in reverse (420 ms)"
+  },
+  "press": {
+   "frames": [
+    "press/00.png",
+    "press/01.png",
+    "press/02.png",
+    "press/03.png",
+    "press/04.png"
+   ],
+   "ms": [
+    40,
+    50,
+    60,
+    90,
+    180
+   ],
+   "total_ms": 420,
+   "mode": "once",
+   "hotspot": [
+    32,
+    32
+   ],
+   "note": "mouse down on default: brackets 1 -> 0.75, centre point stays"
+  },
+  "release": {
+   "frames": [
+    "release/00.png",
+    "release/01.png",
+    "release/02.png",
+    "release/03.png",
+    "release/04.png"
+   ],
+   "ms": [
+    40,
+    50,
+    60,
+    90,
+    180
+   ],
+   "total_ms": 420,
+   "mode": "once",
+   "hotspot": [
+    32,
+    32
+   ],
+   "note": "mouse up on default: 0.75 -> 1"
+  },
+  "press-pointer": {
+   "frames": [
+    "press-pointer/00.png",
+    "press-pointer/01.png",
+    "press-pointer/02.png",
+    "press-pointer/03.png",
+    "press-pointer/04.png"
+   ],
+   "ms": [
+    40,
+    50,
+    60,
+    90,
+    180
+   ],
+   "total_ms": 420,
+   "mode": "once",
+   "hotspot": [
+    32,
+    32
+   ],
+   "note": "mouse down on pointer: 1 -> 0.82"
+  },
+  "release-pointer": {
+   "frames": [
+    "release-pointer/00.png",
+    "release-pointer/01.png",
+    "release-pointer/02.png",
+    "release-pointer/03.png",
+    "release-pointer/04.png"
+   ],
+   "ms": [
+    40,
+    50,
+    60,
+    90,
+    180
+   ],
+   "total_ms": 420,
+   "mode": "once",
+   "hotspot": [
+    32,
+    32
+   ],
+   "note": "mouse up on pointer: 0.82 -> 1"
+  },
+  "wait": {
+   "frames": [
+    "wait/00.png",
+    "wait/01.png",
+    "wait/02.png",
+    "wait/03.png",
+    "wait/04.png",
+    "wait/05.png",
+    "wait/06.png",
+    "wait/07.png",
+    "wait/08.png",
+    "wait/09.png",
+    "wait/10.png",
+    "wait/11.png"
+   ],
+   "ms": [
+    50,
+    50,
+    140,
+    50,
+    50,
+    140,
+    50,
+    50,
+    140,
+    50,
+    50,
+    140
+   ],
+   "total_ms": 960,
+   "mode": "loop",
+   "hotspot": [
+    32,
+    32
+   ],
+   "note": "four spring ticks of 90 deg clockwise, red bracket leads (960 ms loop)"
+  },
+  "idle": {
+   "frames": [
+    "idle/00.png",
+    "idle/01.png",
+    "idle/02.png",
+    "idle/03.png",
+    "idle/04.png",
+    "idle/05.png",
+    "idle/06.png",
+    "idle/07.png",
+    "idle/08.png",
+    "idle/09.png",
+    "idle/10.png",
+    "idle/11.png",
+    "idle/12.png",
+    "idle/13.png",
+    "idle/14.png",
+    "idle/15.png"
+   ],
+   "ms": [
+    150,
+    150,
+    150,
+    150,
+    150,
+    150,
+    150,
+    150,
+    150,
+    150,
+    150,
+    150,
+    150,
+    150,
+    150,
+    150
+   ],
+   "total_ms": 2400,
+   "mode": "loop",
+   "hotspot": [
+    32,
+    32
+   ],
+   "note": "still default: brackets breathe out ~0.7 px per corner, red point pulses (2.4 s loop)"
+  },
+  "idle-pointer": {
+   "frames": [
+    "idle-pointer/00.png",
+    "idle-pointer/01.png",
+    "idle-pointer/02.png",
+    "idle-pointer/03.png",
+    "idle-pointer/04.png",
+    "idle-pointer/05.png",
+    "idle-pointer/06.png",
+    "idle-pointer/07.png",
+    "idle-pointer/08.png",
+    "idle-pointer/09.png",
+    "idle-pointer/10.png",
+    "idle-pointer/11.png",
+    "idle-pointer/12.png",
+    "idle-pointer/13.png",
+    "idle-pointer/14.png",
+    "idle-pointer/15.png"
+   ],
+   "ms": [
+    150,
+    150,
+    150,
+    150,
+    150,
+    150,
+    150,
+    150,
+    150,
+    150,
+    150,
+    150,
+    150,
+    150,
+    150,
+    150
+   ],
+   "total_ms": 2400,
+   "mode": "loop",
+   "hotspot": [
+    32,
+    32
+   ],
+   "note": "still pointer: brackets breathe out ~0.7 px per corner, red point pulses (2.4 s loop)"
+  }
+ },
+ "motion": {
+  "about": "motion-reactive stills swapped on the real system cursor. Hotspot stays on the red centre point (32,32) in every frame.",
+  "directions": [
+   "e",
+   "se",
+   "s",
+   "sw",
+   "w",
+   "nw",
+   "n",
+   "ne"
+  ],
+  "direction_pick": "theta = atan2(vy, vx) in screen space (y down, 0 = moving right); dir = DIRS[round(theta / 45deg) mod 8]",
+  "velocity": "pointer motion events -> instantaneous px/s, smoothed with an exponential moving average, tau 40 ms",
+  "speed_px_per_s": {
+   "still_below": 60,
+   "slow_from": 60,
+   "fast_from": 700,
+   "hysteresis": 60,
+   "note": "logical px. Enter fast above 700, drop back to slow below 640; enter slow above 60, count as stopped below 40 for 60 ms"
+  },
+  "move": {
+   "default": "move/{dir}-{slow|fast}.png (+@2x)",
+   "pointer": "move-pointer/{dir}-{slow|fast}.png (+@2x)",
+   "amounts": {
+    "default": {
+     "slow": {
+      "tilt_deg": 13,
+      "back_px": 0.3,
+      "stretch": 1.03,
+      "squash": 0.98
+     },
+     "fast": {
+      "tilt_deg": 30,
+      "back_px": 1.0,
+      "stretch": 1.09,
+      "squash": 0.95
+     }
+    },
+    "pointer": {
+     "slow": {
+      "tilt_deg": 11,
+      "back_px": 0.25,
+      "stretch": 1.02,
+      "squash": 0.985
+     },
+     "fast": {
+      "tilt_deg": 24,
+      "back_px": 0.8,
+      "stretch": 1.06,
+      "squash": 0.96
+     }
+    }
+   },
+   "look": "swing, like something light dragged by its top: moving right tilts clockwise (bottom corner trails left), moving left tilts anticlockwise; tilt scales with the horizontal part of travel (diagonals ~70%, straight up/down only a small stretch/squash). Fast keeps a hint of brackets trailing behind the red point.",
+   "rule": "swap frame whenever dir or speed band changes; no tweening needed"
+  },
+  "settle": {
+   "default": "settle/{dir}-{slow|fast}/NN.png",
+   "pointer": "settle-pointer/{dir}-{slow|fast}/NN.png",
+   "ms": [
+    30,
+    40,
+    40,
+    40,
+    50,
+    55,
+    60,
+    70,
+    85
+   ],
+   "mode": "once",
+   "amplitude": [
+    0.72,
+    0.252,
+    -0.118,
+    -0.29,
+    -0.26,
+    -0.087,
+    0.058,
+    0.077,
+    0.0
+   ],
+   "rule": "when the mouse stops, play settle/{last dir}-{last band} from frame 0: a damped swing back past centre (two small overshoots), last frame = rest. Moving again cancels it."
+  },
+  "idle": {
+   "rule": "after settle ends and the mouse has been still 600 ms, loop idle/ (idle-pointer/ over clickables). Any move cancels it straight to move/."
+  },
+  "priority": "wait > press/release > to-pointer/to-default morph > move > settle > idle > static rest frame. Morph plays even while moving; move frames resume after it ends.",
+  "rest_frames": {
+   "default": "to-default/07.png (= ../default.png geometry)",
+   "pointer": "to-pointer/11.png (= ../pointer.png geometry)"
+  }
+ }
+}

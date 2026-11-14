@@ -1,0 +1,34 @@
+Hurt — a Yapfast theme
+
+The theme itself (theme.json, the preview pictures in previews/, icon.png,
+the pictures in art/, the icons in icons/ and the sounds in sounds/) is
+dedicated to the public domain under CC0 1.0 Universal:
+https://creativecommons.org/publicdomain/zero/1.0/
+
+Its palette, fonts and motion follow hurt.bio, with its owner's permission.
+
+The art (art/*.png), the icon pack (icons/*.svg) and the sounds
+(sounds/*.wav) were made for this theme: drawn or synthesised from
+scratch by script (see the repository's tools), with no third-party
+pictures, icon paths or recordings.
+
+It ships three fonts, each under the SIL Open Font License, Version 1.1
+(https://openfontlicense.org). Their full licence texts are in fonts/:
+
+- fonts/Geist.ttf — Geist (variable, wght 100–900)
+  Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font)
+  Licence: fonts/OFL-Geist.txt
+
+- fonts/GeistMono.ttf — Geist Mono (variable, wght 100–900)
+  Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font)
+  Licence: fonts/OFL-GeistMono.txt
+
+- fonts/HurtFraktur-Bold.ttf — Hurt Fraktur Bold, a Modified Version of
+  UnifrakturCook Bold: its outlines drawn 127% larger on the same font size
+  and its line box tightened, so names set at body size read as blackletter.
+  Renamed, as OFL clause 3 requires (UnifrakturCook is a Reserved Font Name).
+  Copyright (c) 2010, j. 'mach' wust, with Reserved Font Name UnifrakturCook.
+  Copyright (c) 2009, Peter Wiegel.
+  Licence: fonts/OFL-HurtFraktur.txt
+
+Geist and Geist Mono are unmodified. No font is sold on its own.
