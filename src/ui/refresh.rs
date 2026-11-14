@@ -4032,7 +4032,6 @@ impl Adapter {
             self.mention_at = None;
             self.emoji_word = None;
             window.set_suggesting_edit(false);
-            shown.set_suggesting(false);
             window.set_mention_index(0);
             if self.app.state.mention_query.is_some() {
                 self.action(window, Action::MentionQuery(None));
@@ -4140,6 +4139,7 @@ impl Adapter {
             window.set_mention_index(0);
         }
         update_model(&self.models.mentions, mentions);
+        self.show_edit_suggesting(window);
         window.set_loading_history(state.loading_history);
         window.set_history_start(state.history_start);
         window.set_history_failed(state.history_failed);
@@ -4230,6 +4230,20 @@ impl Adapter {
             &self.models.emoji_suggestions,
             emoji::with_pictures(cells, window.window().scale_factor()),
         );
+        self.show_edit_suggesting(window);
+    }
+
+    /// Whether mentions or emoji show for the field of the message being
+    /// edited. Its Enter and Escape choose and close them while they do, and
+    /// save and cancel the edit otherwise, as the composers' send and cancel.
+    pub(super) fn show_edit_suggesting(&self, window: &YapfastWindow) {
+        let showing = self.suggesting == Field::Edit
+            && (self.models.mentions.row_count() > 0
+                || self.models.emoji_suggestions.row_count() > 0);
+        let edit = window.global::<InlineEdit>();
+        if edit.get_suggesting() != showing {
+            edit.set_suggesting(showing);
+        }
     }
 
     /// The messages, built again only where they changed, and where the list

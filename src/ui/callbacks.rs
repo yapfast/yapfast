@@ -3899,9 +3899,7 @@ fn composer_caret(
         adapter.emoji_dismissed = None;
         window.set_suggesting_aside(field == Field::Aside);
         window.set_suggesting_edit(field == Field::Edit);
-        window
-            .global::<InlineEdit>()
-            .set_suggesting(field == Field::Edit);
+        adapter.show_edit_suggesting(window);
     }
     // The `:name` word, unless its suggestions were closed.
     let word = offset.and_then(|offset| emoji::query(text, offset));

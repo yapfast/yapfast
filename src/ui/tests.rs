@@ -703,6 +703,69 @@ fn escape_in_the_composer_cancels_a_reply_and_keeps_the_draft() {
 }
 
 #[test]
+fn enter_and_escape_save_and_cancel_an_edit_unless_suggestions_show() {
+    use slint::platform::Key;
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = classic_window();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_explore_preview();
+    let own = window.get_messages().iter().find(|row| row.own).unwrap();
+    let body = |window: &YapfastWindow| {
+        window
+            .get_messages()
+            .iter()
+            .find(|row| row.item == own.item)
+            .unwrap()
+            .body
+    };
+    let edit = window.global::<InlineEdit>();
+    let start = || {
+        window.invoke_edit(own.item.clone());
+        settle(&window);
+        assert_eq!(edit.get_item(), own.item);
+    };
+    let typed = |text: &str| {
+        for letter in text.chars() {
+            tap(&window, letter.into());
+        }
+    };
+
+    // Typing reports the cursor to the application, which once took that for
+    // suggestions showing and gave them Enter and Escape.
+    start();
+    typed("?");
+    tap(&window, Key::Escape.into());
+    assert_eq!(edit.get_item(), "", "Escape cancels");
+    assert_eq!(body(&window), own.body);
+
+    start();
+    typed("!");
+    assert!(!edit.get_suggesting());
+    tap(&window, Key::Return.into());
+    assert_eq!(edit.get_item(), "", "Enter saves");
+    assert_eq!(body(&window), format!("{}!", own.body));
+
+    // While emoji show, Escape closes them and leaves the edit open.
+    start();
+    typed(" :smil");
+    assert!(window.get_emoji_suggestions().row_count() > 0);
+    assert!(edit.get_suggesting());
+    tap(&window, Key::Escape.into());
+    assert_eq!(window.get_emoji_suggestions().row_count(), 0);
+    assert!(!edit.get_suggesting());
+    assert_eq!(edit.get_item(), own.item, "the edit stays open");
+    tap(&window, Key::Escape.into());
+    assert_eq!(edit.get_item(), "", "and the next Escape cancels it");
+}
+
+#[test]
 fn an_edit_starts_with_the_cursor_after_the_text_and_escape_and_enter_end_it() {
     use slint::platform::{Key, WindowEvent};
     let window = one_message("Hi there");
