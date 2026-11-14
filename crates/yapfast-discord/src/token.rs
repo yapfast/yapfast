@@ -31,7 +31,7 @@ fn named(account: &str) -> Result<Entry> {
 #[cfg(target_os = "macos")]
 fn secret_file(account: &str) -> Result<std::path::PathBuf> {
     let name = format!("{account}.secret");
-    crate::cache::previews()
+    crate::cache::videos()
         .map(|path| path.with_file_name(&name))
         .or_else(|| {
             std::env::var_os("HOME").map(|home| {
