@@ -793,6 +793,13 @@ thread_local! {
     static PROTOCOL: Cell<bool> = const { Cell::new(false) };
     /// When animations play, as the settings say.
     static ANIMATE: Cell<Animate> = const { Cell::new(Animate::Focused) };
+    /// The OS motion preference kept while the app overrides it.
+    static MOTION_STATE: Cell<MotionState> = const {
+        Cell::new(MotionState {
+            system: i_slint_core::MotionPreference::NoPreference,
+            reduced: false,
+        })
+    };
     /// Opens a conversation from a clicked notification, in the current window.
     static OPEN: RefCell<Option<OpenRoom>> = const { RefCell::new(None) };
 }
@@ -1016,6 +1023,46 @@ fn control(path: PathBuf, shell: Rc<shell::Shell>) -> slint::Timer {
                             }
                             _ => Ok(()),
                         }
+                    }
+                    // Seeded visual checks open a settings page or a room without
+                    // sending input to the private desktop.
+                    command if command.starts_with("settings ") => {
+                        match command["settings ".len()..].parse::<i32>() {
+                            Ok(section) => {
+                                if let Some(window) = window {
+                                    window.set_settings_section(section);
+                                    window.set_settings_open(true);
+                                }
+                                Ok(())
+                            }
+                            Err(error) => Err(error.to_string().into()),
+                        }
+                    }
+                    command if command.starts_with("room ") => {
+                        if let Some(window) = window {
+                            window.set_settings_open(false);
+                            adapter
+                                .borrow_mut()
+                                .action(&window, Action::Open(command["room ".len()..].to_owned()));
+                        }
+                        Ok(())
+                    }
+                    "state" => {
+                        if let Some(window) = window {
+                            tracing::info!(
+                                settings_open = window.get_settings_open(),
+                                settings_section = window.get_settings_section(),
+                                text_size = window.get_text_size(),
+                                density = window.get_ui_density(),
+                                chat_display = window.get_chat_display(),
+                                group_gap = window.get_message_group_gap(),
+                                saturation = window.get_colour_saturation(),
+                                high_contrast = window.get_high_contrast(),
+                                reduced_motion = window.get_reduced_motion(),
+                                "test window state"
+                            );
+                        }
+                        Ok(())
                     }
                     "quit" => slint::quit_event_loop().map_err(|error| error.to_string().into()),
                     // `pick avatar PATH` or `pick banner PATH` chooses a
@@ -1269,8 +1316,20 @@ struct Layout {
     /// The order of day, month and year, as an index into
     /// [`yapfast_core::clock::DateFormat::ALL`]; follows the clock unless chosen.
     date_format: Option<i32>,
-    /// Message text: 0 small, 1 default, 2 large.
+    /// Message text in pixels from 12 to 24. Files written by older versions
+    /// hold 0 small, 1 default or 2 large.
     text_size: Option<i32>,
+    /// List density: 0 compact, 1 default, 2 spacious.
+    ui_density: Option<i32>,
+    /// Message layout: 0 cozy, 1 compact.
+    chat_display: Option<i32>,
+    /// Pixels between groups of messages, from 0 to 24.
+    message_group_gap: Option<i32>,
+    colour_saturation: Option<i32>,
+    saturate_custom_colours: Option<bool>,
+    high_contrast: Option<bool>,
+    contrast_indicators: Option<bool>,
+    underline_links: Option<bool>,
     /// Link previews under messages; on unless turned off.
     link_previews: Option<bool>,
     /// A gem by each server booster in the member list; on unless turned off.
@@ -1281,18 +1340,27 @@ struct Layout {
     strip_tracking: Option<bool>,
     /// Nameplates show; on unless turned off.
     nameplates: Option<bool>,
+    /// Discord name styles show on messages, DM rows, member lists and
+    /// profiles; on unless turned off. Off removes the style model rather
+    /// than revealing it again on hover.
+    name_styles: Option<bool>,
     /// Long messages fold to a few lines, with Show more; off unless turned
     /// on.
     collapse_long: bool,
     /// When animations play.
     animate: Animate,
+
+    /// Show a sender's alternative text for images to a screen reader.
+    show_image_descriptions: Option<bool>,
+    reduced_motion: Option<bool>,
+
     /// The profile switches, each as [`Cosmetics`] starts it unless changed.
     profile_effects: Option<bool>,
     decorations: Option<bool>,
     moving_cosmetics: Option<bool>,
-    name_styles: Option<bool>,
     server_tags: Option<bool>,
     profile_frames: Option<bool>,
+
     /// Joining a call turns the microphone on; on unless turned off.
     unmute_on_join: Option<bool>,
     /// Joining a call deafens.
@@ -1441,10 +1509,38 @@ fn attention(window: &YapfastWindow, wanted: bool) {
     });
 }
 
-/// Plays animations or holds them still, as the setting and the focus say.
+#[derive(Clone, Copy)]
+struct MotionState {
+    system: i_slint_core::MotionPreference,
+    reduced: bool,
+}
+
+/// Plays animations or holds them still, as the settings, OS and focus say.
 fn show_motion(window: &YapfastWindow) {
+    let reduced = window.get_reduced_motion();
+    window
+        .global::<yapfast_ui::Theme>()
+        .set_reduced_motion(reduced);
+    let previous = MOTION_STATE.get();
+    let reported = i_slint_core::with_existing_context(|context| context.motion_preference())
+        .unwrap_or_default();
+    let system = if previous.reduced {
+        previous.system
+    } else {
+        reported
+    };
+    MOTION_STATE.set(MotionState { system, reduced });
+    let preference = if reduced {
+        i_slint_core::MotionPreference::Reduced
+    } else {
+        system
+    };
+    let _ = i_slint_core::with_existing_context(|context| {
+        context.set_motion_preference(preference);
+    });
+    let automatic_motion = !reduced && system != i_slint_core::MotionPreference::Reduced;
     let playing = match ANIMATE.get() {
-        Animate::Focused => FOCUSED.get(),
+        Animate::Focused => FOCUSED.get() && automatic_motion,
         Animate::Always => true,
         Animate::Never => false,
     };
@@ -1617,6 +1713,18 @@ impl Layout {
         window.set_skip_call_prompt(self.skip_call_prompt);
         window.set_activity_cards_hidden(self.activity_cards_hidden);
         window.set_flash_taskbar(self.flash_taskbar.unwrap_or(true));
+        window.set_colour_saturation(self.colour_saturation.unwrap_or(100).clamp(0, 100));
+        window.set_saturate_custom_colours(self.saturate_custom_colours.unwrap_or(true));
+        window.set_high_contrast(self.high_contrast.unwrap_or(false));
+        window.set_contrast_indicators(self.contrast_indicators.unwrap_or(false));
+        window
+            .global::<yapfast_ui::Theme>()
+            .set_contrast_indicators(window.get_contrast_indicators());
+        let underline_links = self.underline_links.unwrap_or(true);
+        window.set_underline_links(underline_links);
+        let _ = i_slint_core::with_existing_context(|context| {
+            context.set_links_underlined(underline_links);
+        });
         self.apply_appearance(window);
         if let Some(width) = self.aside_width {
             window.set_aside_width(width);
@@ -1631,14 +1739,42 @@ impl Layout {
         window.set_clock_seconds(self.clock_seconds);
         window.set_date_format(self.date_format.unwrap_or(-1));
         self.apply_date_format();
-        window.set_text_size(self.text_size.unwrap_or(1).clamp(0, 2));
+        let density = self.ui_density.unwrap_or(1).clamp(0, 2);
+        let chat_display = self.chat_display.unwrap_or(0).clamp(0, 1);
+        let group_gap = self.message_group_gap.unwrap_or(16).clamp(0, 24);
+        let style = window.global::<ClientStyle>();
+        style.set_density(density);
+        style.set_compact_messages(chat_display == 1);
+        style.set_message_group_spacing(group_gap);
+        window.set_ui_density(density);
+        window.set_chat_display(chat_display);
+        window.set_message_group_gap(group_gap);
+        let text_size = match self.text_size {
+            Some(0) => 14,
+            Some(2) => 18,
+            Some(size @ 3..) => size.clamp(12, 24),
+            _ => {
+                if window.global::<ClientStyle>().get_enabled() {
+                    15
+                } else {
+                    16
+                }
+            }
+        };
+        window.set_text_size(text_size);
         window.set_link_previews(self.link_previews.unwrap_or(true));
         window.set_boost_gems(self.boost_gems.unwrap_or(true));
         window.set_reply_ping_default(self.reply_ping.unwrap_or(true));
         window.set_strip_tracking(self.strip_tracking.unwrap_or(true));
         window.set_show_nameplates(self.nameplates.unwrap_or(true));
+        window.set_show_name_styles(self.name_styles.unwrap_or(true));
         window.set_collapse_long(self.collapse_long);
         window.set_animate(choice(&ANIMATES, self.animate));
+        window.set_reduced_motion(self.reduced_motion.unwrap_or(false));
+        window.set_show_image_descriptions(self.show_image_descriptions.unwrap_or(false));
+        window
+            .global::<yapfast_ui::ImageAccessibility>()
+            .set_descriptions(window.get_show_image_descriptions());
         ANIMATE.set(self.animate);
         self.show_cosmetics(window);
         show_motion(window);

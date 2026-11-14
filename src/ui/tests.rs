@@ -1259,6 +1259,47 @@ fn the_keyboard_steps_through_messages_and_acts_on_them() {
 }
 
 #[test]
+
+fn accessibility_density_applies_to_every_list_and_survives_reopening() {
+    i_slint_backend_testing::init_no_event_loop();
+    let files = tempfile::tempdir().unwrap();
+    let window = yapfast::window().unwrap();
+    for (density, channel, dm, member) in
+        [(0, 28., 38., 38.), (1, 32., 42., 42.), (2, 36., 46., 46.)]
+    {
+        Layout {
+            ui_density: Some(density),
+            chat_display: Some(1),
+            message_group_gap: Some(8),
+            ..Default::default()
+        }
+        .apply(&window);
+        let style = window.global::<ClientStyle>();
+        assert_eq!(window.get_ui_density(), density);
+        assert_eq!(style.get_channel_row_height(), channel);
+        assert_eq!(style.get_dm_row_height(), dm);
+        assert_eq!(style.get_member_row_height(), member);
+        assert_eq!(window.get_chat_display(), 1);
+        assert!(style.get_compact_messages());
+        assert_eq!(style.get_message_group_gap(), 8.);
+    }
+    Layout {
+        ui_density: Some(2),
+        chat_display: Some(1),
+        message_group_gap: Some(8),
+        ..Default::default()
+    }
+    .write(files.path());
+    Layout::default().apply(&window);
+    assert_eq!(window.get_ui_density(), 1);
+    assert_eq!(window.get_chat_display(), 0);
+    Layout::read(files.path()).apply(&window);
+    assert_eq!(window.get_ui_density(), 2);
+    assert_eq!(window.get_chat_display(), 1);
+    assert_eq!(window.global::<ClientStyle>().get_message_group_gap(), 8.);
+}
+
+#[test]
 fn the_call_panels_noise_toggle_turns_back_on_the_kind_last_used() {
     i_slint_backend_testing::init_no_event_loop();
     let window = YapfastWindow::new().unwrap();
@@ -1934,6 +1975,7 @@ fn a_selection_runs_across_messages_with_their_names_and_times() {
 fn pictures_on_their_way_hold_their_place_as_skeletons() {
     let attachment = |name: &str, preview_failed| yapfast_core::chat::Attachment {
         name: name.into(),
+        description: None,
         size: Some(1000),
         image: true,
         dimensions: Some((1600, 900)),
@@ -1944,7 +1986,6 @@ fn pictures_on_their_way_hold_their_place_as_skeletons() {
         spoiler: false,
         video: false,
         url: None,
-        description: None,
     };
     let row = message_row_plain(&ChatMessage {
         attachments: vec![attachment("wide.png", false)],
@@ -1962,6 +2003,48 @@ fn pictures_on_their_way_hold_their_place_as_skeletons() {
     });
     assert_eq!(row.images.row_count(), 0);
     assert_eq!(row.files.row_count(), 1);
+}
+
+#[test]
+fn image_descriptions_reach_rows_and_follow_their_preference() {
+    i_slint_backend_testing::init_no_event_loop();
+    let row = message_row_plain(&ChatMessage {
+        attachments: vec![yapfast_core::chat::Attachment {
+            name: "cat.png".into(),
+            description: Some("A cat sitting beside a laptop".into()),
+            size: Some(1000),
+            image: true,
+            dimensions: Some((800, 600)),
+            preview: None,
+            preview_failed: false,
+            placement: Placement::Message,
+            gif: None,
+            spoiler: false,
+            video: false,
+            url: None,
+        }],
+        ..Default::default()
+    });
+    assert_eq!(
+        row.images.row_data(0).unwrap().description,
+        "A cat sitting beside a laptop"
+    );
+    let files = tempfile::tempdir().unwrap();
+    Layout {
+        show_image_descriptions: Some(false),
+        ..Default::default()
+    }
+    .write(files.path());
+    let window = yapfast::window().unwrap();
+    Layout::read(files.path()).apply(&window);
+    assert!(!window.get_show_image_descriptions());
+    assert!(!window.global::<ImageAccessibility>().get_descriptions());
+    Layout {
+        show_image_descriptions: Some(true),
+        ..Default::default()
+    }
+    .apply(&window);
+    assert!(window.global::<ImageAccessibility>().get_descriptions());
 }
 
 #[test]
@@ -2551,6 +2634,7 @@ fn a_selection_copies_the_pictures_it_runs_through() {
             body: "Look at this.".into(),
             attachments: vec![yapfast_core::chat::Attachment {
                 name: "cat.png".into(),
+                description: None,
                 size: None,
                 image: true,
                 dimensions: Some((400, 300)),
@@ -2561,7 +2645,6 @@ fn a_selection_copies_the_pictures_it_runs_through() {
                 spoiler: false,
                 video: false,
                 url: None,
-                description: None,
             }],
             ..Default::default()
         },
@@ -4075,6 +4158,104 @@ fn the_nameplates_setting_is_remembered() {
     window.invoke_preferences_changed();
     assert_eq!(Layout::read(directory.path()).nameplates, Some(false));
     assert!(adapter.borrow().app.state.hide_nameplates);
+}
+
+#[test]
+fn compact_attachment_followups_render_their_timestamp() {
+    slint::platform::set_platform(Box::new(i_slint_backend_testing::TestingBackend::new(
+        i_slint_backend_testing::TestingBackendOptions {
+            mock_time: true,
+            threading: false,
+            renderer_name: Some("software".into()),
+        },
+    )))
+    .unwrap();
+    let message = ChatMessage {
+        attachments: vec![yapfast_core::chat::Attachment {
+            name: "notes.txt".into(),
+            description: None,
+            size: Some(3),
+            image: false,
+            dimensions: None,
+            preview: None,
+            preview_failed: false,
+            placement: yapfast_core::chat::Placement::Message,
+            gif: None,
+            spoiler: false,
+            video: false,
+            url: Some("https://example.test/notes.txt".into()),
+        }],
+        ..Default::default()
+    };
+    let window = classic_window();
+    window.set_workspace(true);
+    window.set_room_selected(true);
+    window.set_room_ready(true);
+    window.set_composer_enabled(true);
+    window.set_trusted(true);
+    window.set_messages(ModelRc::new(VecModel::from(vec![message_row_plain(
+        &message,
+    )])));
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1120., 760.));
+    window.global::<ClientStyle>().set_enabled(true);
+    window.set_chat_display(1);
+    window.set_reduced_motion(true);
+    let messages = window.get_messages();
+    let model = messages
+        .as_any()
+        .downcast_ref::<VecModel<MessageRow>>()
+        .unwrap();
+    let mut row = model.row_data(0).unwrap();
+    row.first = false;
+    row.short_time = "12:34".into();
+    model.set_row_data(0, row.clone());
+    settle(&window);
+    let with_time = window.window().take_snapshot().unwrap();
+    row.short_time = "".into();
+    model.set_row_data(0, row);
+    settle(&window);
+    let without_time = window.window().take_snapshot().unwrap();
+    assert!(
+        with_time.as_bytes() != without_time.as_bytes(),
+        "an image/file-only grouped follow-up still draws its compact timestamp"
+    );
+}
+
+#[test]
+fn the_name_styles_setting_is_remembered() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = classic_window();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    // On unless turned off.
+    assert!(window.get_show_name_styles());
+    assert_eq!(Layout::read(directory.path()).name_styles, None);
+    window.set_show_name_styles(false);
+    window.invoke_preferences_changed();
+    let saved = Layout::read(directory.path());
+    assert_eq!(saved.name_styles, Some(false));
+    saved.apply(&window);
+    assert!(!window.get_show_name_styles());
+    assert!(!window.global::<Looks>().get_name_styles());
+    // #106: off means no custom font, palette or effect, including on hover.
+    let message = ChatMessage::default();
+    let mut row = message_row_plain(&message);
+    row.name_style = name_style::row(
+        Some(&yapfast_core::chat::NameStyle::new(3, 2, &[0x66ccff])),
+        "Alice",
+    );
+    assert!(row.name_style.row_count() > 0);
+    let plain = saved.restyle(&message, row);
+    assert_eq!(plain.name_style.row_count(), 0);
 }
 
 #[test]
@@ -6334,6 +6515,7 @@ fn closing_the_viewer_lets_go_of_its_picture() {
         item: "i0".into(),
         attachments: vec![yapfast_core::chat::Attachment {
             name: "a.png".into(),
+            description: Some("A cat beside a laptop".into()),
             size: None,
             image: true,
             dimensions: Some((40, 30)),
@@ -6349,7 +6531,6 @@ fn closing_the_viewer_lets_go_of_its_picture() {
             spoiler: false,
             video: false,
             url: None,
-            description: None,
         }],
         ..Default::default()
     })]);
@@ -6360,6 +6541,8 @@ fn closing_the_viewer_lets_go_of_its_picture() {
     });
     adapter.refresh(&window);
     assert_eq!(window.get_viewer_image().size().width, 40);
+    assert_eq!(window.get_viewer_name(), "a.png");
+    assert_eq!(window.get_viewer_description(), "A cat beside a laptop");
     adapter.app.state.viewer = None;
     adapter.refresh(&window);
     assert!(!window.get_viewer_open());
@@ -6380,6 +6563,7 @@ fn a_pictures_menu_links_to_it_when_it_has_an_address() {
     bind_callbacks(&window, &adapter);
     let file = |url: Option<&str>| yapfast_core::chat::Attachment {
         name: "a.png".into(),
+        description: None,
         size: None,
         image: true,
         dimensions: None,
@@ -6390,7 +6574,6 @@ fn a_pictures_menu_links_to_it_when_it_has_an_address() {
         spoiler: false,
         video: false,
         url: url.map(Into::into),
-        description: None,
     };
     adapter.borrow_mut().app.state.messages = Arc::new(vec![Arc::new(ChatMessage {
         item: "i0".into(),
@@ -9209,6 +9392,7 @@ fn a_card_of_components_shows_headings_files_and_only_link_buttons_working() {
         item: "d:1".into(),
         attachments: vec![Attachment {
             name: "notes.txt".into(),
+            description: None,
             size: Some(10),
             image: false,
             dimensions: None,
@@ -9219,7 +9403,6 @@ fn a_card_of_components_shows_headings_files_and_only_link_buttons_working() {
             video: false,
             gif: None,
             url: None,
-            description: None,
         }],
         cards: vec![Card {
             framed: true,
@@ -10649,22 +10832,164 @@ fn yapfast_server_rail_keeps_home_pinned_without_a_duplicate_separator() {
 }
 
 #[test]
+fn accessibility_reduced_motion_stops_transitions_and_automatic_media() {
+    i_slint_backend_testing::init_no_event_loop();
+    let files = tempfile::tempdir().unwrap();
+    let window = yapfast::window().unwrap();
+    FOCUSED.set(true);
+    Layout {
+        reduced_motion: Some(true),
+        animate: Animate::Focused,
+        ..Default::default()
+    }
+    .write(files.path());
+    Layout::read(files.path()).apply(&window);
+    assert!(window.get_reduced_motion());
+    assert_eq!(window.global::<yapfast_ui::Theme>().get_quick(), 0);
+    assert!(!window.global::<Motion>().get_playing());
+    assert_eq!(
+        i_slint_core::with_existing_context(|context| context.motion_preference()).unwrap(),
+        i_slint_core::MotionPreference::Reduced
+    );
+    window.set_animate(1);
+    ANIMATE.set(Animate::Always);
+    show_motion(&window);
+    assert!(
+        window.global::<Motion>().get_playing(),
+        "explicit playback still wins"
+    );
+    Layout {
+        reduced_motion: Some(false),
+        animate: Animate::Focused,
+        ..Default::default()
+    }
+    .apply(&window);
+    assert!(window.global::<yapfast_ui::Theme>().get_quick() > 0);
+    assert!(window.global::<Motion>().get_playing());
+    assert_eq!(
+        i_slint_core::with_existing_context(|context| context.motion_preference()).unwrap(),
+        i_slint_core::MotionPreference::NoPreference
+    );
+}
+
+#[test]
+fn accessibility_link_underlining_reaches_slint_and_survives_reopening() {
+    i_slint_backend_testing::init_no_event_loop();
+    let files = tempfile::tempdir().unwrap();
+    let window = yapfast::window().unwrap();
+    Layout {
+        underline_links: Some(false),
+        ..Default::default()
+    }
+    .write(files.path());
+    Layout::read(files.path()).apply(&window);
+    assert!(!window.get_underline_links());
+    let underlined =
+        i_slint_core::with_existing_context(|context| context.links_underlined()).unwrap();
+    assert!(!underlined);
+    Layout {
+        underline_links: Some(true),
+        ..Default::default()
+    }
+    .apply(&window);
+    assert!(i_slint_core::with_existing_context(|context| context.links_underlined()).unwrap());
+}
+
+#[test]
+fn accessibility_colour_controls_change_the_live_theme() {
+    let source = (0.8, 0.2, 0.1, 0.5);
+    let grey = theme::accessible_colour(source, 0, false, true, false);
+    assert!((grey.0 - grey.1).abs() < 0.0001 && (grey.1 - grey.2).abs() < 0.0001);
+    assert_eq!(grey.3, 0.5);
+    let dark_text = theme::accessible_colour(source, 100, true, true, true);
+    assert!(dark_text.0 >= 0.55 && dark_text.1 >= 0.55 && dark_text.2 >= 0.55);
+    assert_eq!(dark_text.3, 1.);
+    let light_text = theme::accessible_colour(source, 100, true, false, true);
+    assert!(light_text.0 <= 0.45 && light_text.1 <= 0.45 && light_text.2 <= 0.45);
+
+    i_slint_backend_testing::init_no_event_loop();
+    let window = yapfast::window().unwrap();
+    let (_, chosen) = theme::chosen(Some("bonfire"), &[]);
+    chosen.apply(&window);
+    let tokens = window.global::<yapfast_ui::Theme>();
+    assert!(!window.get_contrast_indicators(), "indicators are opt-in");
+    assert!(!tokens.get_contrast_indicators());
+    let original = tokens.get_accent();
+    window.set_colour_saturation(0);
+    theme::reapply(&window);
+    let grey = tokens.get_accent();
+    assert_eq!(grey.red(), grey.green());
+    assert_eq!(grey.green(), grey.blue());
+    window.set_colour_saturation(100);
+    window.set_high_contrast(true);
+    theme::reapply(&window);
+    assert_ne!(tokens.get_accent(), original);
+
+    let files = tempfile::tempdir().unwrap();
+    Layout {
+        colour_saturation: Some(35),
+        saturate_custom_colours: Some(false),
+        high_contrast: Some(true),
+        contrast_indicators: Some(false),
+        ..Default::default()
+    }
+    .write(files.path());
+    Layout::read(files.path()).apply(&window);
+    assert_eq!(window.get_colour_saturation(), 35);
+    assert!(!window.get_saturate_custom_colours());
+    assert!(window.get_high_contrast());
+    assert!(!window.get_contrast_indicators());
+    Layout {
+        contrast_indicators: Some(true),
+        ..Default::default()
+    }
+    .write(files.path());
+    Layout::read(files.path()).apply(&window);
+    assert!(window.get_contrast_indicators());
+    assert!(tokens.get_contrast_indicators());
+}
+
+#[test]
 fn yapfast_typography_is_compact_and_preserves_explicit_text_sizes() {
     i_slint_backend_testing::init_no_event_loop();
     let window = yapfast::window().unwrap();
     assert_eq!(window.global::<ClientStyle>().get_font_family(), "DM Sans");
     assert_eq!(window.get_message_font_size(), 15.);
+    for size in [12, 14, 15, 16, 18, 20, 24] {
+        window.set_text_size(size);
+        assert_eq!(window.get_message_font_size(), size as f32);
+    }
     window.set_text_size(0);
-    assert_eq!(window.get_message_font_size(), 14.);
-    window.set_text_size(2);
-    assert_eq!(window.get_message_font_size(), 18.);
-    window.set_text_size(1);
+    assert_eq!(
+        window.get_message_font_size(),
+        15.,
+        "zero follows the style"
+    );
     window.global::<ClientStyle>().set_enabled(false);
     assert_eq!(window.get_message_font_size(), 16.);
     assert_eq!(
         window.global::<ClientStyle>().get_font_family(),
         "Atkinson Hyperlegible Next"
     );
+    for (stored, expected) in [
+        (None, 16),
+        (Some(0), 14),
+        (Some(1), 16),
+        (Some(2), 18),
+        (Some(20), 20),
+        (Some(99), 24),
+    ] {
+        Layout {
+            text_size: stored,
+            ..Default::default()
+        }
+        .apply(&window);
+        assert_eq!(
+            window.get_message_font_size(),
+            expected as f32,
+            "stored size {stored:?}"
+        );
+    }
 }
 
 /// CPU-side snapshot throughput, not the display's presented frame rate.
@@ -10679,6 +11004,7 @@ fn yapfast_server_rail_scroll_snapshot_benchmark() {
         i_slint_backend_testing::TestingBackendOptions {
             mock_time: true,
             threading: false,
+            renderer_name: Some("software".into()),
         },
     )))
     .unwrap();

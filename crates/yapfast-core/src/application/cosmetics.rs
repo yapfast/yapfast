@@ -1,5 +1,6 @@
-//! Which of the cosmetics people wear show, as Settings → Appearance →
-//! Profiles says. What's off is never asked for: the pictures the core
+//! Which of the cosmetics people wear show. The picture switches live in
+//! Settings → Appearance → Profiles; Display Name Styles lives in Settings →
+//! Accessibility. What's off is never asked for: the pictures the core
 //! downloads, and the rows the window draws, go through these first, so an
 //! effect, decoration or tag badge that's off is neither fetched nor
 //! decoded. Nameplates have their own switch, `AppState::hide_nameplates`.

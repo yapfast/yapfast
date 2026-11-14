@@ -182,6 +182,7 @@ impl LayoutWithoutLineBreaksBuilder {
         text: &str,
         formatting: impl IntoIterator<Item = i_slint_common::styled_text::FormattedSpan>,
         link_color: Option<Color>,
+        underline_links: bool,
     ) -> parley::Layout<Brush> {
         use i_slint_common::styled_text::Style;
 
@@ -249,7 +250,15 @@ impl LayoutWithoutLineBreaksBuilder {
                         // Yapfast: an emoji's link is its picture, and a picture
                         // has nothing to underline: the line would show across
                         // the bottom of it.
+
                         let underline_on_hover = !is_pictures(&text[span.range.clone()]);
+                        if underline_links && underline_on_hover {
+                            builder.push(
+                                parley::StyleProperty::Underline(true),
+                                span.range.clone(),
+                            );
+                        }
+
                         builder.push(
                             parley::StyleProperty::Brush(Brush {
                                 override_fill_color: None,
@@ -309,6 +318,7 @@ pub(super) fn create_text_paragraphs(
     font_context: &mut FontContext,
     text: PlainOrStyledText,
     link_color: Color,
+    underline_links: bool,
     marks: Option<crate::yapfast_marks::Marks>,
 ) -> Vec<TextParagraph> {
     let paragraph_from_text =
@@ -339,7 +349,13 @@ pub(super) fn create_text_paragraphs(
                 .filter_map(|(index, c)| c.is_control().then_some(index))
                 .collect();
 
-            let layout = layout_builder.build(font_context, text, formatting, Some(link_color));
+            let layout = layout_builder.build(
+                font_context,
+                text,
+                formatting,
+                Some(link_color),
+                underline_links,
+            );
 
             // Yapfast: the glyphs an animation may stand in for, found while the
             // text is at hand rather than in every draw.
@@ -480,11 +496,13 @@ pub(super) fn shape_paragraphs(
     let plain_or_styled_text = text.text();
     let link_color = text.link_color();
     let marks = text.marks();
+    let underline_links = item_rc.map_or(true, |item| item.slint_context().links_underlined());
     create_text_paragraphs(
         &builder,
         &mut font_context.borrow_mut(),
         plain_or_styled_text,
         link_color,
+        underline_links,
         marks,
     )
 }

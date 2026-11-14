@@ -8,6 +8,7 @@ export component SettingsToggle inherits Rectangle {
     in property <bool> enabled;
     in property <bool> hovered;
     in property <bool> focused;
+    in property <bool> contrast-indicators: true;
     width: ClientStyle.enabled ? 48px : 40px;
     height: ClientStyle.enabled ? 24px : 22px;
     border-radius: self.height / 2;
@@ -20,5 +21,10 @@ export component SettingsToggle inherits Rectangle {
         width: ClientStyle.enabled ? 18px : 16px; height: self.width; border-radius: self.width / 2;
         background: !root.enabled ? Theme.faint : root.checked ? Theme.on-accent : Theme.secondary;
         animate x, background { duration: Theme.quick; easing: ease-out; }
+        if root.contrast-indicators: Text {
+            width: parent.width; height: parent.height; horizontal-alignment: center; vertical-alignment: center;
+            text: root.checked ? "I" : "O"; color: root.checked ? Theme.accent : Theme.field;
+            font-size: 10px; font-weight: 800;
+        }
     }
 }

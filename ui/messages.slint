@@ -317,6 +317,11 @@ export struct ImageCell {
     description: string,
 }
 
+/// Whether image alternative text is exposed instead of file names.
+export global ImageAccessibility {
+    in property <bool> descriptions: false;
+}
+
 // The video playing. The cell showing it binds to this, so its pictures
 // come without the timeline's rows changing.
 export global VideoPlayer {
@@ -505,7 +510,7 @@ component VideoCell inherits Rectangle {
     property <bool> active: VideoPlayer.item == root.item && VideoPlayer.index == root.cell.index;
     property <bool> failed: root.active && VideoPlayer.error != "";
     accessible-role: button;
-    accessible-label: (root.active && VideoPlayer.playing ? "Pause " : "Play ") + root.cell.name;
+    accessible-label: (root.active && VideoPlayer.playing ? "Pause " : "Play ") + (ImageAccessibility.descriptions && root.cell.description != "" ? root.cell.description : root.cell.name);
     accessible-action-default => { pointer.clicked(); }
     if root.active && VideoPlayer.has-frame: Rectangle {
         background: #000000;
@@ -1595,7 +1600,7 @@ export component MessageGallery inherits HorizontalLayout {
             // Discord draws a transparent picture straight on the message background.
             background: ClientStyle.enabled && !cell.loading ? transparent : Theme.sunken;
             if cell.loading: Skeleton { width: parent.width; height: parent.height; }
-            if !cell.loading: Picture { still: cell.image; frames: cell.frames; delays: cell.delays; width: parent.width; height: parent.height; image-fit: cover; accessible-role: image; accessible-label: cell.spoiler ? "Spoiler" : cell.description != "" ? cell.description : cell.name; }
+            if !cell.loading: Picture { still: cell.image; frames: cell.frames; delays: cell.delays; width: parent.width; height: parent.height; image-fit: cover; accessible-role: image; accessible-label: cell.spoiler ? "Spoiler" : ImageAccessibility.descriptions && cell.description != "" ? cell.description : cell.name; }
             if cell.spoiler: SpoilerCover {}
             cell-touch := TouchArea {
                 mouse-cursor: MouseCursor.pointer;
@@ -1649,7 +1654,8 @@ export component MessageStickers inherits HorizontalLayout {
             Picture {
                 still: cell.image; frames: cell.frames; delays: cell.delays;
                 width: parent.width; height: parent.height; image-fit: contain;
-                accessible-role: button; accessible-label: "Sticker: " + cell.name;
+                accessible-role: button;
+                accessible-label: "Sticker: " + (ImageAccessibility.descriptions && cell.description != "" ? cell.description : cell.name);
                 accessible-action-default => { root.open(cell.index, touch.absolute-position.x, touch.absolute-position.y, touch.width, touch.height); }
             }
         }
@@ -2112,7 +2118,7 @@ export component EmbedView inherits HorizontalLayout {
                             width: cell.width * 1px * parent.scale; height: cell.height * 1px * parent.scale;
                             border-radius: 4px; clip: true; background: ClientStyle.enabled && !cell.loading ? transparent : Theme.sunken;
                             if cell.loading: Skeleton { width: parent.width; height: parent.height; }
-                            if !cell.loading: Picture { still: cell.image; frames: cell.frames; delays: cell.delays; width: parent.width; height: parent.height; image-fit: cover; accessible-role: image; accessible-label: cell.spoiler ? "Spoiler" : cell.name; }
+                            if !cell.loading: Picture { still: cell.image; frames: cell.frames; delays: cell.delays; width: parent.width; height: parent.height; image-fit: cover; accessible-role: image; accessible-label: cell.spoiler ? "Spoiler" : ImageAccessibility.descriptions && cell.description != "" ? cell.description : cell.name; }
                             if cell.spoiler: SpoilerCover {}
                             if root.embed.video && !cell.spoiler && !cell.video: Rectangle {
                                 width: 48px; height: 48px; border-radius: 24px; background: #000000b3;
@@ -2543,6 +2549,7 @@ export component ImageViewer inherits Rectangle {
     in property <int> viewer-width;
     in property <int> viewer-height;
     in property <string> viewer-name;
+    in property <string> viewer-description;
     /// Such as "2 / 3"; empty for a message's only image.
     in property <string> viewer-position;
     /// While the full image loads, or why it can't show.
@@ -2583,7 +2590,7 @@ export component ImageViewer inherits Rectangle {
             width: viewer-keys.natural-width * viewer-keys.scale; height: viewer-keys.natural-height * viewer-keys.scale;
             x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
             still: root.viewer-image; frames: root.viewer-frames; delays: root.viewer-delays; image-fit: contain;
-            accessible-role: image; accessible-label: root.viewer-name;
+            accessible-role: image; accessible-label: ImageAccessibility.descriptions && root.viewer-description != "" ? root.viewer-description : root.viewer-name;
             TouchArea {
                 pointer-event(event) => {
                     if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
@@ -2744,6 +2751,48 @@ export component VideoViewer inherits Rectangle {
     }
 }
 
+// The inline timestamp and author used by compact messages.
+component CompactMessageHeading inherits HorizontalLayout {
+    in property <MessageRow> message;
+    in property <length> message-font-size;
+    in property <bool> show-styles;
+    in property <bool> hovered;
+    property <bool> name-styled: message.name-style.length > 0 && (root.show-styles || root.hovered);
+    callback author-card(string, string, length, length, length, length);
+    callback author-menu(string, string, length, length);
+    spacing: 8px;
+    height: max(16px, root.message-font-size * 1.3);
+    Text {
+        text: message.short-time; color: Theme.muted; font-size: max(10px, root.message-font-size - 4px);
+        width: 44px; vertical-alignment: center; overflow: elide;
+    }
+    if message.first && message.notice == "": Rectangle {
+        width: min(180px, compact-plain.preferred-width); clip: true;
+        compact-plain := Text {
+            height: parent.height; visible: !root.name-styled;
+            text: message.author; color: message.has-color ? message.color : Theme.text;
+            font-size: root.message-font-size; vertical-alignment: center; overflow: elide;
+            font-family: message.name-style[0].family;
+            font-weight: message.name-style[0].family != "" ? message.name-style[0].weight : 500;
+        }
+        if root.name-styled: StyledName {
+            width: parent.width; height: parent.height; text: message.author; styles: message.name-style;
+            ink: message.has-color ? message.color : Theme.text; font-size: root.message-font-size; font-weight: 500;
+        }
+        TouchArea {
+            enabled: message.sender != ""; mouse-cursor: self.enabled ? MouseCursor.pointer : MouseCursor.default;
+            clicked => { root.author-card(message.item, message.sender, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
+            pointer-event(event) => {
+                if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                    root.author-menu(message.item, message.sender, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+                }
+            }
+        }
+    }
+    if message.first && message.tag != "": Middle { ServerTagChip { text: message.tag; badge: message.tag-badge; font-size: root.message-font-size * 0.72; } }
+    if message.first && message.bot: Middle { BotTag { } }
+}
+
 /// The message being edited in its own row, as Discord's client edits one: the
 /// application sets what's edited and its text, and the row's field reports
 /// what's typed. A global, as the field sits inside any row of either timeline.
@@ -2875,6 +2924,16 @@ export component MessageContent inherits VerticalLayout {
     in property <bool> reactions-enabled;
     in property <string> emoji-font;
     in property <length> message-font-size;
+    /// Compact messages put the timestamp and author beside the body.
+    in property <bool> compact: false;
+    /// A name wears its Discord name style at rest; off, the style shows while
+    /// the pointer is on the message, so role colours keep their meaning.
+    in property <bool> show-styles: true;
+    /// The pointer is on the message.
+    in property <bool> hovered;
+    /// Whether the author's name is drawn in its style rather than its role
+    /// colour, which follows the settings and the pointer.
+    property <bool> name-styled: message.name-style.length > 0 && (root.show-styles || root.hovered);
     /// Space before the avatar, and after the text for the row's actions.
     in property <length> start-padding: 16px;
     in property <length> end-padding: 48px;
@@ -2917,10 +2976,11 @@ export component MessageContent inherits VerticalLayout {
     property <bool> editing: root.message.item != "" && InlineEdit.item == root.message.item && InlineEdit.aside == root.aside;
     HorizontalLayout {
         // The field ends 22 pixels from the row's edge as Discord's does, not where the actions' room ends it.
-        padding-left: root.start-padding; padding-right: root.editing ? 21px : root.end-padding; padding-top: 2px; padding-bottom: 2px; spacing: 16px;
+        padding-left: root.start-padding; padding-right: root.editing ? 21px : root.end-padding; padding-top: root.compact ? 1px : 2px; padding-bottom: root.compact ? 1px : 2px; spacing: root.compact ? 8px : 16px;
         Rectangle {
-            width: 40px;
-            min-height: message.first && message.notice == "" ? (root.header ? 64px : 40px) : 0px;
+            visible: !root.compact;
+            width: root.compact ? 0px : 40px;
+            min-height: !root.compact && message.first && message.notice == "" ? (root.header ? 64px : 40px) : 0px;
             if root.header: Rectangle {
                 x: 19px; y: 11px; width: 33px; height: 13px; clip: true;
                 Rectangle {
@@ -3027,7 +3087,7 @@ export component MessageContent inherits VerticalLayout {
                 }
                 Rectangle { horizontal-stretch: 1; }
             }
-            if message.first && message.notice == "": HorizontalLayout {
+            if !root.compact && message.first && message.notice == "": HorizontalLayout {
                 spacing: 8px;
                 // Discord's name line is 22px tall, a little over the text's.
                 padding-bottom: ClientStyle.enabled ? 2px : 0px;
@@ -3036,18 +3096,22 @@ export component MessageContent inherits VerticalLayout {
                     preferred-height: author-name.preferred-height; horizontal-stretch: 0;
                     // Discord's names are medium weight, a step under bold.
                     author-plain := Text {
-                        width: parent.width; height: parent.height; visible: ClientStyle.enabled && message.name-style.length == 0;
+                        // The plain name, in the colour of its highest role: the
+                        // one shown, or the one under a style the pointer brings.
+                        width: parent.width; height: parent.height;
+                        visible: !root.name-styled && (ClientStyle.enabled || message.name-style.length > 0);
                         text: message.author; color: message.has-color ? message.color : Theme.text;
                         font-size: root.message-font-size; vertical-alignment: center; overflow: elide;
-                        // A styled name measures in its own font.
+                        // A styled name measures in its own font, so the place
+                        // fits it when the pointer draws it.
                         font-family: message.name-style[0].family;
-                        font-weight: message.name-style[0].family != "" ? message.name-style[0].weight : 500;
+                        font-weight: message.name-style[0].family != "" ? message.name-style[0].weight : (ClientStyle.enabled ? 500 : 700);
                     }
                     author-name := StyledText {
                         width: parent.width; height: parent.height; visible: !ClientStyle.enabled && message.name-style.length == 0;
                         text: message.author-styled; link-color: Theme.link; default-color: message.has-color ? message.color : Theme.text; default-font-size: root.message-font-size; max-lines: 1; vertical-alignment: center;
                     }
-                    if message.name-style.length > 0: StyledName {
+                    if root.name-styled: StyledName {
                         width: parent.width; height: parent.height;
                         text: message.author; styles: message.name-style; ink: message.has-color ? message.color : Theme.text; font-size: root.message-font-size; font-weight: 500;
                     }
@@ -3078,6 +3142,12 @@ export component MessageContent inherits VerticalLayout {
                 Image { source: @image-url("icons/forward.svg"); width: 16px; image-fit: contain; colorize: Theme.muted; }
                 Text { text: "Forwarded"; color: Theme.muted; font-size: 14px; font-italic: true; vertical-alignment: center; }
             }
+            if root.compact && message.body == "": CompactMessageHeading {
+                message: message; message-font-size: root.message-font-size;
+                show-styles: root.show-styles; hovered: root.hovered;
+                author-card(item, sender, x, y, width, height) => { root.author-card(item, sender, x, y, width, height); }
+                author-menu(item, sender, x, y) => { root.author-menu(item, sender, x, y); }
+            }
             // The body, cut off at its folded height while it folds, with
             // Show more under it. The view keeps the message's top.
             if root.editing: InlineEditor { message-font-size: root.message-font-size; }
@@ -3089,7 +3159,7 @@ export component MessageContent inherits VerticalLayout {
                     clip: body-fold.folded;
                     body := VerticalLayout {
                         y: 0px; height: self.preferred-height;
-                        if message.blocks.length == 0: StyledText {
+                        if message.blocks.length == 0 && !root.compact: StyledText {
                             // An overlong word breaks, as in Discord's client, rather than widening the row.
                             min-width: 0px;
                             text: message.styled; link-color: Theme.link;
@@ -3100,12 +3170,46 @@ export component MessageContent inherits VerticalLayout {
                             link-clicked(link) => { root.link-clicked(link); }
                             accessible-role: text; accessible-label: "Message from " + message.author + ": " + message.body;
                         }
+                        if message.blocks.length == 0 && root.compact: HorizontalLayout {
+                            spacing: 8px;
+                            CompactMessageHeading {
+                                message: message; message-font-size: root.message-font-size;
+                                show-styles: root.show-styles; hovered: root.hovered;
+                                author-card(item, sender, x, y, width, height) => { root.author-card(item, sender, x, y, width, height); }
+                                author-menu(item, sender, x, y) => { root.author-menu(item, sender, x, y); }
+                            }
+                            StyledText {
+                                min-width: 0px; horizontal-stretch: 1;
+                                text: message.styled; link-color: Theme.link;
+                                default-color: message.deleted || message.delivery != "" ? Theme.muted : message.notice != "" ? Theme.secondary : Theme.text;
+                                default-font-size: message.jumbo ? root.message-font-size * 2.2 : root.message-font-size;
+                                link-clicked(link) => { root.link-clicked(link); }
+                                accessible-role: text; accessible-label: "Message from " + message.author + ": " + message.body;
+                            }
+                        }
                         if message.blocks.length > 0: Rectangle {
                             accessible-role: text; accessible-label: "Message from " + message.author + ": " + message.body;
-                            TextBlocks {
-                                blocks: message.blocks; font-size: root.message-font-size;
-                                color: message.deleted || message.delivery != "" ? Theme.muted : Theme.text;
-                                open-link(link) => { root.link-clicked(link); }
+                            VerticalLayout {
+                                spacing: 2px;
+                                if root.compact: HorizontalLayout {
+                                    spacing: 8px;
+                                    CompactMessageHeading {
+                                        message: message; message-font-size: root.message-font-size;
+                                        show-styles: root.show-styles; hovered: root.hovered;
+                                        author-card(item, sender, x, y, width, height) => { root.author-card(item, sender, x, y, width, height); }
+                                        author-menu(item, sender, x, y) => { root.author-menu(item, sender, x, y); }
+                                    }
+                                    TextBlocks {
+                                        blocks: message.blocks; font-size: root.message-font-size;
+                                        color: message.deleted || message.delivery != "" ? Theme.muted : Theme.text;
+                                        open-link(link) => { root.link-clicked(link); }
+                                    }
+                                }
+                                if !root.compact: TextBlocks {
+                                    blocks: message.blocks; font-size: root.message-font-size;
+                                    color: message.deleted || message.delivery != "" ? Theme.muted : Theme.text;
+                                    open-link(link) => { root.link-clicked(link); }
+                                }
                             }
                         }
                     }

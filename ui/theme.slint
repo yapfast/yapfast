@@ -5,6 +5,8 @@
 // These are the Yap theme's colours; the application sets others from Rust
 // (src/ui/theme.rs), so the defaults here only paint the first frame.
 export global Theme {
+    in-out property <bool> contrast-indicators: false;
+    in-out property <bool> reduced-motion: false;
     in-out property <color> rail: #111215;
     in-out property <color> sidebar: #17181c;
     in-out property <color> panel: #121316;
@@ -68,7 +70,7 @@ export global Theme {
     in-out property <color> avatar: #6b7280;
     /// Whether the theme is dark, for the std-widgets that follow the system's scheme.
     in-out property <bool> dark: true;
-    out property <duration> quick: 120ms;
+    out property <duration> quick: self.reduced-motion ? 0ms : 120ms;
 }
 
 // One tooltip for the whole window, drawn above everything else.
@@ -128,9 +130,10 @@ export global Twemoji {
 
 // Whether Discord's things carry its badge. A build without Matrix shows
 // nothing else, so it leaves them off.
-// The profile switches in Settings → Appearance. The Rust side keeps them in
-// layout.json and leaves out what's off before anything is fetched; see
-// Cosmetics in the core.
+// The profile switches in Settings → Appearance → Profiles, and Display Name
+// Styles in Settings → Accessibility. The Rust side keeps them in layout.json
+// and leaves out what's off before anything is fetched; see Cosmetics in the
+// core.
 export global Looks {
     in-out property <bool> profile-effects: true;
     in-out property <bool> decorations: true;
@@ -152,7 +155,7 @@ export global Popup {
     /// fading card into a layer as large as what changed, which is the
     /// whole window under a dimmed backdrop, so there the card only grows.
     in property <bool> fade: true;
-    out property <duration> duration: 100ms;
+    out property <duration> duration: Theme.reduced-motion ? 0ms : 100ms;
     /// The card's size and opacity for how far it's open, from 0 to 1.
     public pure function scale(amount: float) -> float { 0.8 + 0.2 * amount }
     public pure function opacity(amount: float) -> float { root.fade ? amount : (amount > 0 ? 1 : 0) }

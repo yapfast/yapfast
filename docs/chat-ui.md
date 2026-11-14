@@ -628,7 +628,8 @@ The window follows Discord's arrangement:
   and whose channel line under them opens the call, as Discord's does (see
   [The call's channel line](discord/voice.md#the-calls-channel-line)); then
   the account panel with avatar, status, mute and deafen during a call, and settings (account,
-  theme, audio devices, message text size, clock, link previews and folding long messages, notifications,
+  theme, accessibility (text, links, name styles, density, contrast, motion and image descriptions), audio devices, clock, link previews,
+  folding long messages, notifications,
   sounds, reconnect, sign out). A caret beside mute and deafen opens a
   device menu (see [Persistent voice channels](voice.md)); the input menu
   shows a local level meter. While you speak in
