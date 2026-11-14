@@ -1,0 +1,216 @@
+import { ScrollView } from "scrollview.slint";
+import { Theme, Middle } from "theme.slint";
+import { Avatar, PictureStore } from "controls.slint";
+import { ActivityClock } from "controls.slint";
+
+/// Someone in an Active Now row's stack of avatars.
+export struct ActiveFace { initial: string, tint: color, picture-url: string }
+
+/// What an Active Now row shows.
+export enum ActiveRowKind {
+    /// A server's voice channel: the server, the channel, who's in it.
+    voice,
+    /// A game several friends play: the game, how many.
+    game,
+    /// What one of them is doing in full: Rich Presence's details and state,
+    /// and how long since it started.
+    detail,
+}
+
+export struct ActiveNowRow {
+    kind: ActiveRowKind,
+    title: string, detail: string,
+    /// Its picture: a server's icon, or a game's; else its initial.
+    icon-url: string, initial: string, tint: color,
+    /// When it started, in ActivityClock's seconds; 0 when Discord didn't say.
+    start: int,
+    faces: [ActiveFace],
+    /// Those beyond the faces shown, as "+4".
+    more: int,
+    /// A voice channel's room, which a click opens.
+    room: string,
+}
+
+/// A card of Active Now: friends doing one thing, or together in a voice
+/// channel, as Discord's friends page shows them.
+export struct ActiveNowCard {
+    id: string,
+    /// "Ann and Bob", "Ann, Bob, and 1 other".
+    title: string,
+    /// What they're doing, such as "Dota 2" or "In a Voice Channel", and
+    /// since when, in ActivityClock's seconds, for "– 13m".
+    doing: string, start: int,
+    /// The first of them, for the card's avatar.
+    face: ActiveFace,
+    /// Their presence, for the avatar's dot: "online", "idle", "dnd".
+    presence: string,
+    /// The game's or app's picture, at the card's right.
+    icon-url: string,
+    rows: [ActiveNowRow],
+    /// One of them, whose profile a click on the card's head opens.
+    person: string,
+}
+
+// Active Now's times.
+global ActiveTime {
+    /// "13m", "1h", "2d", as Discord's Active Now times a game.
+    public pure function since(seconds: int) -> string {
+        if seconds < 3600 { return max(1, floor(seconds / 60)) + "m"; }
+        if seconds < 86400 { return floor(seconds / 3600) + "h"; }
+        return floor(seconds / 86400) + "d";
+    }
+    /// "01:19:45 elapsed".
+    public pure function elapsed(seconds: int) -> string {
+        let hours = floor(seconds / 3600);
+        let minutes = Math.mod(floor(seconds / 60), 60);
+        let rest = Math.mod(seconds, 60);
+        return (hours < 10 ? "0" : "") + hours + ":" + (minutes < 10 ? "0" : "") + minutes + ":" + (rest < 10 ? "0" : "") + rest + " elapsed";
+    }
+}
+
+component Faces inherits HorizontalLayout {
+    in property <[ActiveFace]> faces;
+    in property <int> more;
+    spacing: -6px; alignment: end;
+    for face in root.faces: Rectangle {
+        width: 26px; height: 26px; border-radius: 13px; background: Theme.raised;
+        Avatar { size: 22px; initial: face.initial; tint: face.tint; picture-url: face.picture-url; }
+    }
+    if root.more > 0: Rectangle {
+        width: 26px; height: 26px; border-radius: 13px; background: Theme.raised;
+        Rectangle {
+            width: 22px; height: 22px; border-radius: 11px; background: Theme.sunken;
+            Text { text: "+" + root.more; color: Theme.secondary; font-size: 10px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+        }
+    }
+}
+
+component RowIcon inherits Rectangle {
+    in property <string> url;
+    in property <string> initial;
+    in property <color> tint;
+    in property <bool> round;
+    property <image> shown: root.url != "" ? PictureStore.picture(root.url, PictureStore.revision(root.url)) : @image-url("");
+    function request() {
+        if root.url != "" && root.shown.width == 0 { PictureStore.request(root.url); }
+    }
+    init => { root.request(); }
+    changed url => { root.request(); }
+    width: 32px; height: 32px; border-radius: root.round ? 16px : 8px; clip: true;
+    background: root.shown.width > 0 ? transparent : root.tint;
+    if root.shown.width == 0: Text {
+        text: root.initial; color: #ffffff; font-size: 13px; font-weight: 700;
+        horizontal-alignment: center; vertical-alignment: center;
+    }
+    if root.shown.width > 0: Image { source: root.shown; width: parent.width; height: parent.height; image-fit: cover; }
+}
+
+component ActiveRow inherits Rectangle {
+    in property <ActiveNowRow> item;
+    callback open-room(string);
+    height: max(52px, texts.preferred-height + 16px);
+    background: touch.has-hover && root.item.room != "" ? Theme.hover : transparent;
+    accessible-role: button;
+    accessible-label: root.item.title + ", " + root.item.detail;
+    accessible-action-default => { if root.item.room != "" { root.open-room(root.item.room); } }
+    touch := TouchArea {
+        mouse-cursor: root.item.room != "" ? MouseCursor.pointer : MouseCursor.default;
+        clicked => { if root.item.room != "" { root.open-room(root.item.room); } }
+    }
+    HorizontalLayout {
+        padding-left: 16px; padding-right: 16px; spacing: 12px;
+        Middle {
+            RowIcon { url: root.item.icon-url; initial: root.item.initial; tint: root.item.tint; round: root.item.kind == ActiveRowKind.voice; }
+        }
+        texts := VerticalLayout {
+            alignment: center; horizontal-stretch: 1;
+            Text { text: root.item.title; color: Theme.text; font-size: 14px; font-weight: 600; overflow: elide; }
+            if root.item.detail != "": Text { text: root.item.detail; color: Theme.muted; font-size: 12px; overflow: elide; }
+            if root.item.kind == ActiveRowKind.detail && root.item.start > 0: Text {
+                text: ActiveTime.elapsed(max(0, ActivityClock.now - root.item.start)); color: Theme.muted; font-size: 12px;
+            }
+        }
+        if root.item.faces.length > 0 || root.item.more > 0: Middle {
+            Faces { faces: root.item.faces; more: root.item.more; }
+        }
+    }
+}
+
+component ActiveCard inherits Rectangle {
+    in property <ActiveNowCard> card;
+    callback open-room(string);
+    callback open-person(string, length, length);
+    background: Theme.raised; border-radius: 8px; border-width: 1px; border-color: Theme.edge;
+    clip: true;
+    VerticalLayout {
+        Rectangle {
+            height: 62px;
+            background: head-touch.has-hover ? Theme.hover : transparent;
+            accessible-role: button;
+            accessible-label: root.card.title + ", " + root.card.doing;
+            head-touch := TouchArea {
+                mouse-cursor: MouseCursor.pointer;
+                clicked => { root.open-person(root.card.person, self.absolute-position.x, self.absolute-position.y + self.height); }
+            }
+            HorizontalLayout {
+                padding-left: 16px; padding-right: 16px; spacing: 12px;
+                Middle {
+                    Avatar { size: 36px; initial: root.card.face.initial; tint: root.card.face.tint; picture-url: root.card.face.picture-url; }
+                }
+                VerticalLayout {
+                    alignment: center; horizontal-stretch: 1;
+                    Text { text: root.card.title; color: Theme.text; font-size: 15px; font-weight: 700; overflow: elide; }
+                    Text {
+                        text: root.card.doing + (root.card.start > 0 ? " – " + ActiveTime.since(max(0, ActivityClock.now - root.card.start)) : "");
+                        color: Theme.muted; font-size: 13px; overflow: elide;
+                    }
+                }
+                if root.card.icon-url != "": Middle {
+                    RowIcon { url: root.card.icon-url; initial: ""; tint: transparent; }
+                }
+            }
+        }
+        for row in root.card.rows: VerticalLayout {
+            Rectangle { height: 1px; background: Theme.line; }
+            ActiveRow { item: row; open-room(room) => { root.open-room(room); } }
+        }
+    }
+}
+
+// Discord's Active Now, beside the friends list: friends together in a
+// server's voice channel, or playing the same game, a card each.
+export component ActiveNowColumn inherits Rectangle {
+    in property <[ActiveNowCard]> cards;
+    callback open-room(string);
+    callback open-person(string, length, length);
+    background: Theme.panel;
+    border-width: 0px;
+    clip: true;
+    Rectangle { x: 0px; width: 1px; background: Theme.line; }
+    VerticalLayout {
+        padding: 16px; padding-right: 12px; spacing: 16px;
+        Text { text: "Active Now"; color: Theme.text; font-size: 20px; font-weight: 800; }
+        if root.cards.length == 0: VerticalLayout {
+            spacing: 6px; padding-top: 8px;
+            Text { text: "It's quiet for now..."; color: Theme.text; font-size: 16px; font-weight: 700; horizontal-alignment: center; }
+            Text {
+                text: "When a friend starts an activity — like playing a game or hanging out on voice — we'll show it here!";
+                color: Theme.muted; font-size: 13px; horizontal-alignment: center; wrap: word-wrap;
+            }
+        }
+        cards-view := ScrollView {
+            vertical-stretch: 1;
+            content-width: self.visible-width;
+            horizontal-scrollbar-policy: always-off;
+            VerticalLayout {
+                width: cards-view.visible-width;
+                spacing: 12px; alignment: start;
+                for card in root.cards: ActiveCard {
+                    card: card;
+                    open-room(room) => { root.open-room(room); }
+                    open-person(id, x, y) => { root.open-person(id, x, y); }
+                }
+            }
+        }
+    }
+}

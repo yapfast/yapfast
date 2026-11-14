@@ -277,7 +277,7 @@ component BoostBackground inherits VerticalLayout {
     in property <bool> enabled;
     callback pick;
     callback remove;
-    property <image> shown: root.picture.url != "" ? PictureStore.picture(root.picture.url, PictureStore.revision) : root.picture.new;
+    property <image> shown: root.picture.url != "" ? PictureStore.picture(root.picture.url, PictureStore.revision(root.picture.url)) : root.picture.new;
     init => { if root.picture.url != "" { PictureStore.request(root.picture.url); } }
     changed picture => { if root.picture.url != "" { PictureStore.request(root.picture.url); } }
     spacing: 8px;

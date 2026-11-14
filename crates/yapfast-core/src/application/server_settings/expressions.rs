@@ -588,6 +588,7 @@ impl Application {
         server: String,
         stickers: Vec<ServerSticker>,
     ) {
+        self.follow_picker_stickers(&server, &stickers);
         if self.settings_server().as_deref() != Some(&server) {
             return;
         }

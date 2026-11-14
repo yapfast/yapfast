@@ -83,6 +83,7 @@ fn picture(value: &Value, shown: Shown, thumbnail: bool) -> Option<Attachment> {
         animated: crate::message::animated(value),
         shown,
         spoiler: false,
+        description: None,
     })
 }
 

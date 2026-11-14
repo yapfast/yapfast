@@ -120,6 +120,23 @@ notice.
 Discord's menu also has Invite to listen (Spotify), Apps and Open in
 moderator view, which Yapfast leaves out for now.
 
+### Dragging someone to another voice channel
+
+As in Discord's client, someone under a voice channel in the channel list
+can be dragged onto another voice channel of the server, wherever their menu
+offers Move to, which `Application::move_targets` decides for both. The drag
+starts once the pointer has moved a few pixels with the button down, as a
+channel's does, so a click still opens their profile and a right click their
+menu. While someone is dragged, the channels Move to lists stay bright and
+every other channel dims, the one they're in included, as other channels do
+while one is dragged; the one under the pointer is outlined, and the list
+scrolls near its top and bottom. Dropping them there does what choosing it
+in Move to does (`Application::move_to`): someone else is moved with the
+same `PATCH /guilds/{id}/members/{user}` and `{"channel_id": ...}`, and this
+account joins it, also when it's in the call on another client. Dropping
+anywhere else, beside the list included, or Escape, lets go without moving
+anyone. Dragging needs a pointer; Move to in their menu does the same.
+
 ## Invites
 
 Invite to server, in a server's menu or its header, and Invite to channel,
@@ -276,11 +293,18 @@ under the header goes away. A verified server (`features` has `VERIFIED`)
 shows a green badge with a check after its name instead of the community
 icon; other community servers keep the community icon.
 
-Under the header a 60px row reads "N Events" with a calendar icon, where N
+When the owner shows the boost progress bar (`premium_progress_bar_enabled`),
+a 26px pill under the header reads "Boost Goal" and "N/33 Boosts", with a pink
+fill for the share of the goal reached. `N` is `premium_subscription_count`
+from GUILD_CREATE and GUILD_UPDATE. The 33 is what Discord's own client
+showed for a server without boosts; it has no per-level goals here.
+
+Under the header, in a Community server or one with events, a 60px row reads
+"Events" or "N Events" with a calendar icon, where N
 counts the scheduled events that haven't ended (status 1 scheduled or 2
 active). They come from `guild_scheduled_events` in GUILD_CREATE and are kept
 current by GUILD_SCHEDULED_EVENT_CREATE, UPDATE and DELETE. Clicking the row
-opens a menu with one row per event: its name, and "Happening now" or the
+opens a menu (a single "No upcoming events" row when there are none) with one row per event: its name, and "Happening now" or the
 start time (12 or 24 hours as the clock is set) followed by its place.
 Yapfast doesn't fetch `/guilds/{id}/scheduled-events` and doesn't draw
 Discord's event cards, so interest counts aren't shown.
@@ -610,6 +634,11 @@ messages are kept only while the forum shows. Opening the forum marks it
 read, which acknowledges its newest message, as Discord's client does; a
 forum's newest message is its newest post, so a post made since makes it
 unread (THREAD_CREATE with `newly_created`).
+
+Above an open post's messages a 45px bar has "React to post", which opens the
+emoji picker for the post's first message (once it's loaded), and on the right
+"Follow" or "Following", which joins or leaves the thread as its menu does, and
+a button that copies the post's link.
 
 New Post, beside the search, opens the form for a post in place of the
 list, as Discord's client opens it at the top of a forum

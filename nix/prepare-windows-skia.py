@@ -44,8 +44,11 @@ def main():
         'namespace_helper_sha256': digest(ROOT / 'nix/prepare-skia-native.py'),
         'builder_lock_sha256': digest(ROOT / 'nix/skia-windows-builder/Cargo.lock'),
         'builder_manifest_sha256': digest(ROOT / 'nix/skia-windows-builder/Cargo.toml'),
-        'crt': 'MT_StaticRelease', 'trivial_abi': False, 'ninja_jobs': 2,
+        'crt': 'MT_StaticRelease', 'trivial_abi': False,
     }
+    # Two jobs fit a CI runner's memory; a bigger machine sets more with
+    # YAPFAST_SKIA_JOBS. The count doesn't change what's built.
+    jobs = max(1, int(os.environ.get('YAPFAST_SKIA_JOBS', '2')))
     sdk_files = [(str(p.relative_to(xwin)), p.stat().st_size, p.stat().st_mtime_ns)
                  for p in sorted(xwin.rglob('*')) if p.is_file()]
     inputs['sdk_fingerprint'] = hashlib.sha256(json.dumps(sdk_files).encode()).hexdigest()
@@ -71,7 +74,7 @@ def main():
     link(llvm / 'bin/lld-link', lld)
     link(llvm / 'lib/clang/21/include', headers)
     ninja = WORK / 'ninja'
-    ninja.write_text('#!/bin/sh\nexec "' + shutil.which('ninja') + '" -j2 "$@"\n')
+    ninja.write_text('#!/bin/sh\nexec "' + shutil.which('ninja') + f'" -j{jobs} "$@"\n')
     ninja.chmod(0o755)
     args = ' '.join([
         'target_os="win"', 'target_cpu="x64"',
@@ -87,7 +90,7 @@ def main():
     for name in ['SKIA_BINARIES_URL', 'SKIA_DEBUG', 'SKIA_LIB_SEARCH_PATH',
                  'SKIA_USE_SYSTEM_LIBRARIES']:
         env.pop(name, None)
-    print('Building pinned Windows Skia with /MT (two native jobs)', file=sys.stderr)
+    print(f'Building pinned Windows Skia with /MT ({jobs} native jobs)', file=sys.stderr)
     result = subprocess.run(['cargo', 'xwin', 'build', '--locked', '--manifest-path',
                              str(ROOT / 'nix/skia-windows-builder/Cargo.toml'),
                              '--target', 'x86_64-pc-windows-msvc',

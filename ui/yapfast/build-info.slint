@@ -1,0 +1,161 @@
+import { Theme, Tip } from "../theme.slint";
+
+// Which build this is, set once by src/ui/yapfast.rs from src/build_info.rs.
+// An empty `headline` means it isn't known, as in the tests' windows.
+export global BuildInfo {
+    in property <string> headline;
+    /// Stable, Nightly, Pre-release or Development build.
+    in property <string> channel;
+    /// The commit and day, after the channel.
+    in property <string> details;
+    /// How loud the channel is drawn: 0 for a release, 1 for a prerelease, 2
+    /// for a development build.
+    in property <int> tone;
+    /// Everything on one line, which a click copies for a bug report.
+    in property <string> summary;
+}
+
+export enum UpdateStatus {
+    /// Nothing looked up yet, or the check is off.
+    idle,
+    checking,
+    current,
+    available,
+    /// A newer release the person chose to skip.
+    skipped,
+    failed,
+    /// A build from source, which has no release to compare with.
+    source,
+}
+
+// What Settings' About page knows about newer releases, set by src/ui/updates.rs.
+// The check is off until a person turns it on, and a release installs only when
+// they press Update and restart.
+export global Updates {
+    in-out property <bool> check;
+    in-out property <bool> nightlies;
+    in property <UpdateStatus> status;
+    /// The newest release's tag, such as v0.4.1.
+    in property <string> latest;
+    /// The package manager that updates this copy, or empty when none does.
+    in property <string> manager;
+    /// Why a look failed.
+    in property <string> error;
+    /// What's new in the newest release, as plain lines, or empty.
+    in property <string> notes;
+    /// This copy can replace itself with the newest release; otherwise
+    /// `install-note` says why not.
+    in property <bool> can-install;
+    in property <string> install-note;
+    /// Why the last update failed.
+    in property <string> install-error;
+    /// An update is being downloaded, checked or finished.
+    in property <bool> installing;
+    in property <string> install-text;
+    /// How much is downloaded, 0 to 1, or -1 when it isn't known.
+    in property <float> install-progress;
+    /// The download can still be stopped.
+    in property <bool> can-cancel;
+    callback preferences-changed();
+    callback check-now();
+    callback skip();
+    /// Downloads the newest release, checks it, and restarts Yapfast into it.
+    callback install();
+    callback cancel-install();
+    /// Opens the newest release's page in the browser.
+    callback view();
+    callback open-website();
+    callback open-github();
+    callback open-discord();
+}
+
+// Under Settings' sections, when a newer release is out: a click goes to About.
+export component UpdateNotice inherits Rectangle {
+    callback clicked;
+    height: Updates.status == UpdateStatus.available ? 36px : 0px;
+    clip: true;
+    accessible-role: button;
+    accessible-label: "Update available: " + Updates.latest;
+    accessible-action-default => { root.clicked(); }
+    forward-focus: notice-focus;
+    Rectangle {
+        x: 16px; y: 4px; width: parent.width - 32px; height: parent.height - 8px; border-radius: 4px;
+        background: notice-touch.has-hover ? Theme.accent.with-alpha(0.22) : Theme.accent.with-alpha(0.14);
+        border-width: notice-focus.has-focus ? 2px : 0px; border-color: Theme.accent;
+        Text {
+            x: 12px; width: parent.width - 24px; vertical-alignment: center;
+            text: "Update available · " + Updates.latest; color: Theme.accent; font-size: 13px; font-weight: 700; overflow: elide;
+        }
+    }
+    notice-focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == " " || event.text == "\n" { root.clicked(); return accept; }
+            return reject;
+        }
+        notice-touch := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+    }
+}
+
+// The two lines under Settings' sections that say which build is running, such
+// as a stable release or a nightly, so a report says whether it has a feature.
+// A click copies them as one line.
+export component BuildStamp inherits Rectangle {
+    callback copy(string);
+    property <bool> copied;
+    property <color> tint: BuildInfo.tone == 0 ? Theme.live : BuildInfo.tone == 1 ? Theme.accent : Theme.danger-text;
+    height: BuildInfo.headline == "" ? 0px : 62px;
+    clip: true;
+    accessible-role: button;
+    accessible-label: "Copy the version: " + BuildInfo.summary;
+    accessible-action-default => { root.copy-version(); }
+    forward-focus: stamp-focus;
+    function copy-version() {
+        root.copy(BuildInfo.summary);
+        root.copied = true;
+    }
+    // A moment's confirmation, then the build again.
+    Timer { interval: 2s; running: root.copied; triggered => { root.copied = false; } }
+    Rectangle { x: 16px; y: 0px; width: parent.width - 32px; height: 1px; background: Theme.line; }
+    Rectangle {
+        x: 16px; y: 8px; width: parent.width - 32px; height: parent.height - 16px; border-radius: 4px;
+        border-width: stamp-focus.has-focus ? 2px : 0px; border-color: Theme.accent;
+        VerticalLayout {
+            padding-left: 8px; padding-right: 8px; padding-top: 4px; spacing: 4px; alignment: start;
+            Text {
+                text: BuildInfo.headline; color: touch.has-hover ? Theme.secondary : Theme.muted;
+                font-size: 12px; overflow: elide;
+            }
+            HorizontalLayout {
+                alignment: start;
+                Text {
+                    text: root.copied ? "Copied" : BuildInfo.channel;
+                    color: root.copied ? Theme.text : root.tint; font-size: 12px; font-weight: 700;
+                }
+                if !root.copied && BuildInfo.details != "": Text {
+                    text: " · " + BuildInfo.details; color: touch.has-hover ? Theme.secondary : Theme.muted;
+                    font-size: 12px; overflow: elide;
+                }
+            }
+        }
+    }
+    stamp-focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == " " || event.text == "\n" { root.copy-version(); return accept; }
+            return reject;
+        }
+        touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.copy-version(); }
+            changed has-hover => {
+                if self.has-hover {
+                    Tip.text = "Click to copy";
+                    Tip.side = 0;
+                    Tip.x = self.absolute-position.x + self.width / 2;
+                    Tip.y = self.absolute-position.y;
+                } else if Tip.text == "Click to copy" {
+                    Tip.text = "";
+                }
+            }
+        }
+    }
+}

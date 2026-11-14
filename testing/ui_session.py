@@ -120,7 +120,7 @@ def tray_command(rest):
         if tray is None or tray.poll() is not None:
             start_tray()
         return ''
-    values = rest.split(' ', 1)
+    values = rest.split(' ')
     if values[0] == 'icon':
         shots = state / 'shots'
         shots.mkdir(exist_ok=True)

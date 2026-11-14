@@ -222,6 +222,7 @@ pub(super) fn preview_room(id: &str, name: &str, direct: bool, members: u64) -> 
         official: false,
         empty: false,
         preview: None,
+        voice_started: None,
     }
 }
 

@@ -1,6 +1,9 @@
 # Yapfast's Discord-only build, as the releases ship it, for the flake at the
 # repository's root. `pkgs` carries rust-overlay, for the pinned toolchain.
-{ pkgs }:
+# `commit` and `date` name what it's built from, which its build script can't
+# ask Git for in the sandbox, and `release` makes it call itself a stable
+# release or a nightly instead of a development build (src/build_info.rs).
+{ pkgs, commit ? "", date ? "", release ? false }:
 let
   inherit (pkgs) lib;
   native = import ./native.nix { inherit pkgs; };
@@ -60,7 +63,10 @@ rustPlatform.buildRustPackage {
     PROTOC = "${pkgs.protobuf}/bin/protoc";
     LK_CUSTOM_WEBRTC = "${native.webrtc}";
     SKIA_BINARIES_URL = "file://${native.skia}/${native.skiaPackage}";
-  };
+  }
+  // lib.optionalAttrs (commit != "") { YAPFAST_COMMIT = commit; }
+  // lib.optionalAttrs (date != "") { YAPFAST_COMMIT_DATE = date; }
+  // lib.optionalAttrs release { YAPFAST_RELEASE = "1"; };
   preBuild = ''
     chmod u+w "$NIX_BUILD_TOP/cargo-vendor-dir"
     install -Dm644 ${deepFilter}/models/DeepFilterNet3_onnx.tar.gz -t "$NIX_BUILD_TOP/cargo-vendor-dir/models"

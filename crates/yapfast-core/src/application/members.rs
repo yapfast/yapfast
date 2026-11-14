@@ -58,7 +58,8 @@ pub(super) fn change(ask: PersonAsk, choice: usize, text: String) -> MemberChang
 impl Application {
     /// What someone's menu offers: in a Discord server's channel, their
     /// menu as a member of it; elsewhere [`AppState::person_choices`]. Each
-    /// invites them to a server, as Discord's do.
+    /// invites them to a server, as Discord's do, and offers the open room's
+    /// apps' user commands.
     pub fn person_choices(&self, user: &str) -> Vec<MenuChoice> {
         #[cfg(feature = "discord")]
         let mut choices = match self.member_place(user) {
@@ -68,6 +69,9 @@ impl Application {
         #[cfg(not(feature = "discord"))]
         let mut choices = self.state.person_choices(user);
         self.offer_invite(user, &mut choices);
+        if let Some(room) = self.state.selected.as_deref() {
+            self.offer_apps(room, user, &mut choices);
+        }
         choices
     }
 
@@ -171,6 +175,29 @@ impl Application {
         }
         let _ = (place, user);
         vec![]
+    }
+
+    /// What moving someone in the voice channel `place` to the voice
+    /// channel `to` does, from their menu's Move to or by dragging them onto
+    /// it: this account joins it, and someone else is moved there. Nothing
+    /// unless `to` is one of their [`move_targets`](Self::move_targets).
+    pub fn move_to(&self, place: &str, user: &str, to: &str) -> Option<Action> {
+        if !self
+            .move_targets(place, user)
+            .iter()
+            .any(|(room, _)| room == to)
+        {
+            return None;
+        }
+        Some(if self.state.relation(user) == Relation::Me {
+            Action::RequestJoinVoice(to.to_owned())
+        } else {
+            Action::ChangeMember {
+                place: place.to_owned(),
+                user: user.to_owned(),
+                change: MemberChange::Move(Some(to.to_owned())),
+            }
+        })
     }
 
     /// A server member's menu, in the order of Discord's: who they are and
@@ -485,6 +512,7 @@ impl Application {
                 user,
                 name,
                 ask,
+                location: "ContextMenu",
                 text: Some(text),
                 saving: false,
                 error: None,

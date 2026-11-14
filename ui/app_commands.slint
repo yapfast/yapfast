@@ -1,0 +1,150 @@
+// Apps' commands: the `/` picker over the composer, the options of the
+// command being written, and what an option may take. The composer shows
+// the options as pills (see Composer in composer.slint); a message's menu
+// lists its "Apps" from CommandChoice rows too (see MessageMenu in
+// messages.slint). See docs/discord/messages.md, "Apps' commands".
+
+import { Theme } from "theme.slint";
+
+/// A row of the list over the composer: a command the picker offers, with
+/// its app's name and icon and the command's name ("config set" for a
+/// subcommand) and description; or a value an option may take, with a
+/// person's avatar for an icon and nothing for an app; or a message command
+/// in a message's "Apps", by its `id`.
+export struct CommandChoice { id: string, app: string, icon: image, name: string, description: string }
+
+/// An option of the command being written, as a pill in the composer: its
+/// name and description, what was entered, whether it's required, why it's
+/// wrong, and whether it takes a file.
+export struct CommandOptionPill { name: string, description: string, value: string, required: bool, error: string, file: bool }
+
+// As composer.slint's SuggestionFrame, which imports this file.
+component CommandFrame inherits Rectangle {
+    background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
+    drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+}
+
+component CommandHeading inherits Text {
+    color: Theme.muted; font-size: 11px; font-weight: 700; letter-spacing: 0.4px;
+    height: 24px; vertical-alignment: center; overflow: elide;
+}
+
+// The list over the composer: the `/` picker's commands, each with its app's
+// icon and name, or the values the focused option may take. Up and Down
+// choose, Tab or Enter or a click takes one, Escape closes it. Eight rows
+// show at once; the list scrolls to keep the chosen one in view.
+export component CommandList inherits CommandFrame {
+    in property <[CommandChoice]> choices;
+    /// What it lists, or in place of rows, why there are none.
+    in property <string> heading;
+    /// The highlighted one.
+    in property <int> choice-index;
+    /// The rows are commands, written with their `/`.
+    in property <bool> commands;
+    callback chosen(int);
+    property <length> row-height: 44px;
+    property <length> shown: min(root.choices.length, 8) * root.row-height;
+    height: 6px * 2 + 24px + root.shown;
+    changed choice-index => {
+        if root.choice-index * root.row-height < -list.content-y {
+            list.content-y = -root.choice-index * root.row-height;
+        } else if (root.choice-index + 1) * root.row-height > -list.content-y + list.height {
+            list.content-y = list.height - (root.choice-index + 1) * root.row-height;
+        }
+    }
+    VerticalLayout {
+        padding: 6px; spacing: 0px;
+        HorizontalLayout { padding-left: 6px; padding-right: 6px; CommandHeading { text: root.heading; } }
+        list := Flickable {
+            height: root.shown;
+            content-height: root.choices.length * root.row-height;
+            for choice[index] in root.choices: Rectangle {
+                y: index * root.row-height; height: root.row-height; width: list.width;
+                border-radius: 6px;
+                background: index == root.choice-index ? Theme.active : pick.has-hover ? Theme.hover : transparent;
+                accessible-role: list-item;
+                accessible-label: (root.commands ? "/" : "") + choice.name + (choice.description != "" ? ", " + choice.description : "");
+                pick := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.chosen(index); }
+                }
+                HorizontalLayout {
+                    padding-left: 8px; padding-right: 10px; spacing: 10px;
+                    if choice.icon.width > 0: VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: 24px; height: 24px; border-radius: 12px; clip: true;
+                            Image { width: parent.width; height: parent.height; source: choice.icon; image-fit: cover; }
+                        }
+                    }
+                    if choice.icon.width == 0 && root.commands: VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: 24px; height: 24px; border-radius: 12px; background: Theme.accent-soft;
+                            Text { text: "/"; color: Theme.accent; font-size: 13px; font-weight: 700; }
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center; horizontal-stretch: 1; spacing: 0px;
+                        Text {
+                            text: (root.commands ? "/" : "") + choice.name; overflow: elide;
+                            color: Theme.text; font-size: 14px; font-weight: 600;
+                        }
+                        if choice.description != "": Text {
+                            text: choice.description; overflow: elide; color: Theme.muted; font-size: 12px;
+                        }
+                    }
+                    if choice.app != "": Text {
+                        text: choice.app; vertical-alignment: center; overflow: elide; max-width: 160px;
+                        color: Theme.muted; font-size: 12px; font-weight: 600;
+                    }
+                }
+            }
+        }
+    }
+}
+
+// The command being written, over the composer's text: its name, then a
+// pill for each option. A pill is as wide as its name, value and error, up
+// to the row's width, past which its value and error are cut short; pills
+// that don't fit on a row go on to the next. The focused one, which the
+// text below writes, is outlined; one that's wrong says why in red. A click
+// takes the composer to a pill, or opens the file picker for a file's.
+export component CommandPills inherits FlexboxLayout {
+    in property <string> name;
+    in property <[CommandOptionPill]> options;
+    in property <int> focused-index;
+    callback clicked(int);
+    spacing: 6px; alignment: start;
+    Rectangle {
+        height: 26px; max-width: root.width;
+        border-radius: 4px; background: Theme.accent-soft;
+        HorizontalLayout {
+            padding-left: 6px; padding-right: 6px;
+            Text { text: "/" + root.name; color: Theme.accent; font-size: 14px; font-weight: 700; vertical-alignment: center; overflow: elide; }
+        }
+    }
+    for pill[index] in root.options: Rectangle {
+        height: 26px; max-width: root.width;
+        border-radius: 4px; border-width: 1px;
+        border-color: pill.error != "" ? Theme.danger : index == root.focused-index ? Theme.accent : Theme.line;
+        background: index == root.focused-index ? Theme.active : Theme.raised;
+        opacity: !pill.required && pill.value == "" && index != root.focused-index ? 0.6 : 1;
+        accessible-role: button;
+        accessible-label: pill.name + (pill.required ? ", required" : ", optional") + (pill.value != "" ? ", " + pill.value : "") + (pill.error != "" ? ", " + pill.error : "");
+        TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.clicked(index); }
+        }
+        HorizontalLayout {
+            padding-left: 6px; padding-right: 6px; spacing: 4px;
+            if pill.file: VerticalLayout {
+                alignment: center;
+                Image { source: @image-url("icons/file.svg"); width: 14px; height: 14px; colorize: Theme.muted; }
+            }
+            Text { text: pill.name + ":"; color: Theme.muted; font-size: 13px; font-weight: 600; vertical-alignment: center; }
+            if pill.value != "": Text { text: pill.value; color: Theme.text; font-size: 13px; vertical-alignment: center; overflow: elide; }
+            if pill.error != "": Text { text: pill.error; color: Theme.danger-text; font-size: 12px; vertical-alignment: center; overflow: elide; }
+        }
+    }
+}

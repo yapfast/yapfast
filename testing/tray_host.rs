@@ -4,6 +4,10 @@
 //!
 //!   tray_host watch           keep a StatusNotifierWatcher running
 //!   tray_host activate        click the icon
+//!   tray_host activate TOKEN [after]
+//!                             click it with an xdg-activation token, sent
+//!                             before the click as KDE Plasma does, or 5 ms
+//!                             after
 //!   tray_host menu            print the menu's visible items
 //!   tray_host click LABEL     choose a menu item
 //!   tray_host icon PATH       save the largest icon as a PAM picture
@@ -21,12 +25,16 @@ fn main() -> zbus::Result<()> {
     let arguments: Vec<&str> = arguments.iter().map(String::as_str).collect();
     match arguments.as_slice() {
         ["watch"] => linux::watch(),
-        ["activate"] => linux::activate(),
+        ["activate"] => linux::activate(None, false),
+        ["activate", token] => linux::activate(Some(token), false),
+        ["activate", token, "after"] => linux::activate(Some(token), true),
         ["menu"] => linux::menu(),
         ["click", label @ ..] => linux::click(&label.join(" ")),
         ["icon", path] => linux::icon(path),
         _ => {
-            eprintln!("usage: tray_host watch | activate | menu | click LABEL | icon PATH");
+            eprintln!(
+                "usage: tray_host watch | activate [TOKEN [after]] | menu | click LABEL | icon PATH"
+            );
             std::process::exit(2);
         }
     }
@@ -151,9 +159,34 @@ mod linux {
         reply.body().deserialize()
     }
 
-    pub fn activate() -> zbus::Result<()> {
+    pub fn activate(token: Option<&str>, after: bool) -> zbus::Result<()> {
         let connection = Connection::session()?;
         let (name, path) = item(&connection)?;
+        let provide = {
+            let (connection, name, path) = (connection.clone(), name.clone(), path.clone());
+            let token = token.map(str::to_owned);
+            move || -> zbus::Result<()> {
+                if let Some(token) = token {
+                    connection.call_method(
+                        Some(name.as_str()),
+                        path.as_str(),
+                        Some(ITEM),
+                        "ProvideXdgActivationToken",
+                        &(token,),
+                    )?;
+                }
+                Ok(())
+            }
+        };
+        let late = if after {
+            Some(std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+                provide()
+            }))
+        } else {
+            provide()?;
+            None
+        };
         connection.call_method(
             Some(name.as_str()),
             path.as_str(),
@@ -161,6 +194,9 @@ mod linux {
             "Activate",
             &(0i32, 0i32),
         )?;
+        if let Some(late) = late {
+            late.join().expect("the token's thread")?;
+        }
         Ok(())
     }
 

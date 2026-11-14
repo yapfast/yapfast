@@ -25,6 +25,7 @@ pub(super) fn command(
             | DiscordCommand::GifPicked { .. }
             | DiscordCommand::FavoriteGifs
             | DiscordCommand::SetFavoriteGifs(_)
+            | DiscordCommand::SetFavoriteEmojis(_)
             | DiscordCommand::GifPicture { .. }
             | DiscordCommand::PrefetchFavorites(_),
             Ok(discord),
@@ -48,6 +49,7 @@ pub(super) fn command(
             DiscordCommand::GifSuggestions(_)
             | DiscordCommand::GifPicked { .. }
             | DiscordCommand::SetFavoriteGifs(_)
+            | DiscordCommand::SetFavoriteEmojis(_)
             | DiscordCommand::GifPicture { .. }
             | DiscordCommand::PrefetchFavorites(_),
             Err(_),
@@ -183,6 +185,15 @@ pub(super) fn command(
                 if let Err(error) = discord.set_favorite_gifs(&kept).await {
                     let _ = events.send(Event::Error(format!(
                         "Couldn't save your favourite GIFs: {error}"
+                    )));
+                }
+            });
+        }
+        DiscordCommand::SetFavoriteEmojis(favorites) => {
+            tokio::spawn(async move {
+                if let Err(error) = discord.set_favorite_emojis(&favorites).await {
+                    let _ = events.send(Event::Error(format!(
+                        "Couldn't save your favourite emoji: {error}"
                     )));
                 }
             });

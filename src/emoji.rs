@@ -1,10 +1,8 @@
-//! Emoji: the color font for reactions and message text, and the picker's grid.
+//! Emoji: the font for reactions and message text, and the picker's grid.
 //!
-//! A Linux system can have several fonts named "Noto Color Emoji": the bitmap
-//! (CBDT) build Yapfast is designed and tested with, and the COLRv1 build, the
-//! only one Fedora installs. Fontconfig may prefer either. Yapfast registers an
-//! installed emoji font under its own family name and uses that one: a bitmap
-//! font if there is one, a COLR font otherwise.
+//! Every emoji is Twemoji's, as Discord's client draws them, from the font the
+//! program carries ([`crate::emoji_text`]): no system emoji font is used, on
+//! any platform.
 //!
 //! On Windows, text falls back to fonts by script, and emoji, most symbols and
 //! the styled letters of Unicode's mathematical alphabets that names use, such
@@ -12,34 +10,47 @@
 //! Yapfast puts the fonts Windows ships for them in the fallback itself.
 
 use std::collections::HashMap;
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 
 use slint::{
     Model, ModelRc, SharedString, VecModel,
     fontique_012::{fontique, shared_collection},
 };
 use yapfast_core::chat::EmojiSet;
-use yapfast_ui::{EmojiCell, EmojiRow, EmojiSection};
+use yapfast_ui::{EmojiCell, EmojiRow, EmojiSection, SectionGlyph};
 
 use crate::custom_emoji;
 
-/// The family name Yapfast gives the bitmap emoji font it registers.
-const REGISTERED: &str = "Yapfast Color Emoji";
+/// The heading Frequently Used's section goes under, which both pickers draw a
+/// clock for rather than an emoji's picture.
+pub const FREQUENTLY_USED: &str = "Frequently Used";
 
-/// The emoji font family to request. Call after selecting the Slint backend.
+/// The heading Favorites' section goes under, which both pickers draw the icon
+/// set's star for.
+pub const FAVORITES: &str = "Favorites";
+
+/// What a section draws in place of a picture, from the icon set rather than the
+/// platform's emoji font: the sections without a server's icon are the two this
+/// device keeps.
+pub fn section_glyph(heading: &str) -> SectionGlyph {
+    match heading {
+        FREQUENTLY_USED => SectionGlyph::Clock,
+        FAVORITES => SectionGlyph::Star,
+        _ => SectionGlyph::None,
+    }
+}
+
+/// The emoji font family to request, everywhere an emoji shows: Twemoji's,
+/// which the program carries ([`crate::twemoji`]) and which Discord's client
+/// draws its emoji from, rather than the system's. Call after selecting the
+/// Slint backend.
 pub fn family() -> &'static str {
     static FAMILY: OnceLock<&'static str> = OnceLock::new();
     FAMILY.get_or_init(|| {
         if cfg!(windows) {
             prefer_families(&mut shared_collection(), &WINDOWS_FALLBACK);
-            "Segoe UI Emoji"
-        } else if cfg!(target_os = "macos") {
-            "Apple Color Emoji"
-        } else if register_color_font() {
-            REGISTERED
-        } else {
-            "Noto Color Emoji"
         }
+        crate::emoji_text::FAMILY
     })
 }
 
@@ -50,6 +61,18 @@ pub const CELL: f32 = 56.0;
 /// The size a glyph is drawn at in that grid, as `EmojiPicker` in
 /// ui/messages.slint passes it.
 pub const GLYPH: f32 = 36.0;
+
+/// The height of a grid row of emoji, which the rail's sections are placed by.
+pub const ROW_HEIGHT: f32 = 56.0;
+
+/// The height of a section's heading row: a row of its own, tighter than the
+/// emoji's, so a heading sits at the top of the grid as the rail's buttons do
+/// and its emoji follow close under it.
+pub const HEADING_HEIGHT: f32 = 28.0;
+
+/// The size the picker's rail draws its icons at, which the stickers' rail
+/// draws its own at too.
+pub const RAIL_GLYPH: f32 = 32.0;
 const BESIDE: f32 = 64.0;
 
 /// The emoji per row of a grid showing at `width`, which follows the picker's
@@ -62,6 +85,13 @@ pub fn columns(width: f32) -> usize {
 /// Windows 11 and the Noto Color Emoji builds Yapfast is tested with draw Unicode
 /// 15.0; newer emoji would show as empty boxes.
 const NEWEST: emojis::UnicodeVersion = emojis::UnicodeVersion::new(15, 0);
+
+/// Whether an emoji is one the picker and the suggestions offer: one Twemoji
+/// draws, since no emoji is drawn by the system's font, and of the versions
+/// Discord's client offers.
+fn drawn(emoji: &&'static emojis::Emoji) -> bool {
+    emoji.unicode_version() <= NEWEST && crate::twemoji::has_picture(emoji.as_str())
+}
 
 /// An emoji and its name, such as "Thumbs up", by the reaction it adds: the
 /// emoji itself, or a Discord custom emoji's `name:id`, which shows its glyph
@@ -137,14 +167,32 @@ pub fn with_pictures(cells: Vec<EmojiCell>, scale: f32) -> Vec<EmojiCell> {
 
 /// Gives the picker's custom emoji the pictures that arrived since its rows
 /// were built, changing only those cells.
+#[cfg(test)]
 pub fn fill_pictures(rows: &VecModel<EmojiRow>, sections: &VecModel<EmojiSection>) {
-    for row in rows.iter() {
-        for (index, shown) in row.cells.iter().enumerate() {
+    fill_pictures_in(rows, 0, usize::MAX);
+    fill_section_pictures(sections);
+}
+
+/// [`fill_pictures`] of the rows from `first` to `last` alone.
+pub fn fill_pictures_in(rows: &VecModel<EmojiRow>, first: usize, last: usize) {
+    let count = rows.row_count();
+    if count == 0 || first >= count {
+        return;
+    }
+    for index in first..=last.min(count - 1) {
+        let Some(row) = rows.row_data(index) else {
+            continue;
+        };
+        for (cell, shown) in row.cells.iter().enumerate() {
             if let Some(filled) = with_picture(shown) {
-                row.cells.set_row_data(index, filled);
+                row.cells.set_row_data(cell, filled);
             }
         }
     }
+}
+
+/// The sidebar's custom emoji icons that have their pictures now.
+pub fn fill_section_pictures(sections: &VecModel<EmojiSection>) {
     for (index, section) in sections.iter().enumerate() {
         if let Some(icon) = with_picture(section.icon.clone()) {
             sections.set_row_data(index, EmojiSection { icon, ..section });
@@ -199,6 +247,60 @@ pub fn discord_key(
         _ => return None,
     };
     (emoji.unicode_version() <= NEWEST).then(|| (emoji.as_str().to_owned(), true))
+}
+
+/// The name Discord's settings keep the emoji of picker key `key` by, as
+/// [`discord_key`] reads it back: a custom emoji's id, or a Unicode emoji's
+/// Discord name without its skin tone, as Discord's client stars the emoji
+/// itself.
+pub fn discord_name(key: &str) -> Option<String> {
+    if let Some((_, id)) = key.rsplit_once(':') {
+        return Some(id.to_owned());
+    }
+    let emoji = emojis::get(key)?;
+    let base = emoji
+        .with_skin_tone(emojis::SkinTone::Default)
+        .unwrap_or(emoji);
+    let flag = || {
+        let letters: Option<String> = base
+            .as_str()
+            .chars()
+            .map(|point| {
+                let letter = u32::from(point).checked_sub(0x1F1E6)?;
+                (letter < 26).then(|| char::from(b'a' + letter as u8))
+            })
+            .collect();
+        letters
+            .filter(|letters| letters.len() == 2)
+            .map(|letters| format!("flag_{letters}"))
+    };
+    // The emoji's first name, which Discord's client takes a favourite out
+    // by, then any other it reads back as this emoji: some of GitHub's name
+    // another one on Discord.
+    let none = HashMap::new();
+    let plain = |text: &str| text.replace('\u{FE0F}', "");
+    let first = crate::discord_emoji_names::FIRST
+        .iter()
+        .find(|(glyph, _)| plain(glyph) == plain(base.as_str()))
+        .map(|(_, name)| (*name).to_owned());
+    first
+        .into_iter()
+        .chain(
+            base.shortcodes()
+                .filter(|code| code.starts_with(|c: char| c.is_ascii_alphanumeric()))
+                .map(str::to_owned),
+        )
+        .chain(
+            crate::discord_emoji_names::NAMES
+                .iter()
+                .filter(|(_, glyph)| {
+                    emojis::get(glyph).map(emojis::Emoji::as_str) == Some(base.as_str())
+                })
+                .map(|(name, _)| (*name).to_owned()),
+        )
+        .chain(flag())
+        .chain(base.shortcodes().map(str::to_owned))
+        .find(|name| discord_key(name, &none).is_some_and(|(found, _)| found == base.as_str()))
 }
 
 /// The flag `flag_xx` names, from its country's two letters: GitHub's shortcode
@@ -282,7 +384,7 @@ pub fn suggestions(query: &str, custom: &[EmojiSet], limit: usize) -> Vec<EmojiC
             found.push((rank, false, name.to_owned(), custom_key(emoji)));
         }
     }
-    for emoji in emojis::iter().filter(|emoji| emoji.unicode_version() <= NEWEST) {
+    for emoji in emojis::iter().filter(drawn) {
         if let Some((rank, code)) = emoji
             .shortcodes()
             .filter_map(|code| Some((rank(code)?, code)))
@@ -305,9 +407,38 @@ pub fn suggestions(query: &str, custom: &[EmojiSet], limit: usize) -> Vec<EmojiC
         .collect()
 }
 
-/// The picker's rows: with no query, favourite emoji, frequently used emoji, the
-/// custom emoji of each server in `custom`, and then every category under its
-/// heading; otherwise
+/// The rows the grid shows with `top` at its top edge and `height` deep, both
+/// in the grid's own space: the first whose foot is past `top`, and the last
+/// whose head is above `top + height`. The rows go down the grid in order, so
+/// each is found by halving rather than by walking every row above it, as a
+/// scroll asks at every step.
+pub fn visible_rows(rows: &VecModel<EmojiRow>, top: f32, height: f32) -> (usize, usize) {
+    let count = rows.row_count();
+    if count == 0 {
+        return (0, 0);
+    }
+    // The first row for which `past` holds, with every row after it holding too.
+    let first_where = |past: &dyn Fn(&EmojiRow) -> bool| {
+        let (mut low, mut high) = (0, count);
+        while low < high {
+            let middle = (low + high) / 2;
+            if rows.row_data(middle).is_some_and(|row| past(&row)) {
+                high = middle;
+            } else {
+                low = middle + 1;
+            }
+        }
+        low
+    };
+    let first = first_where(&|row| row.top + row.height >= top).min(count - 1);
+    let last = first_where(&|row| row.top > top + height)
+        .saturating_sub(1)
+        .clamp(first, count - 1);
+    (first, last)
+}
+
+/// The picker's rows: with no query, frequently used emoji, the custom emoji of
+/// each server in `custom`, and then every category under its heading; otherwise
 /// the emoji whose name or shortcode contains the query. With no query, also
 /// the sections the sidebar jumps to, each shown by `server_icon` for a server
 /// that has one, and its first emoji otherwise.
@@ -317,10 +448,10 @@ pub fn rows(
     frequent: &[(String, bool)],
     custom: &[EmojiSet],
     columns: usize,
-    server_icon: impl Fn(&EmojiSet) -> Option<slint::Image>,
+    server_icon: impl Fn(&EmojiSet) -> Option<(String, slint::Image)>,
 ) -> (Vec<EmojiRow>, Vec<EmojiSection>) {
     let query = query.trim().trim_matches(':').to_lowercase();
-    let available = || emojis::iter().filter(|emoji| emoji.unicode_version() <= NEWEST);
+    let available = || emojis::iter().filter(drawn);
     // Each custom emoji with whether this account may use it where it is
     // looking: the picker shows the others greyed with a lock.
     let custom_keys: Vec<Vec<(String, bool)>> = custom
@@ -335,26 +466,35 @@ pub fn rows(
         .collect();
     let mut rows = Vec::new();
     let mut sections = Vec::new();
+    // Where the next row starts, down the grid.
+    let mut top = 0.0;
     // A section under a heading of its icon's name, or the matches, under none.
-    let mut section = |icon: Option<EmojiCell>, glyphs: Vec<(String, bool)>| {
+    let mut section = |icon: Option<(EmojiCell, String)>, glyphs: Vec<(String, bool)>| {
         if glyphs.is_empty() {
             return;
         }
-        if let Some(icon) = icon {
-            let row = rows.len();
+        let start = top;
+        let heading = rows.len() as i32;
+        if let Some((icon, _)) = &icon {
             rows.push(EmojiRow {
                 heading: icon.name.to_uppercase().into(),
                 cells: ModelRc::default(),
+                // A server's icon beside its name, once its picture has come;
+                // the picker fills it then (see `fill_row_icons`).
+                icon: icon.picture.clone(),
+                glyph: section_glyph(icon.name.as_str()),
+                top,
+                height: HEADING_HEIGHT,
             });
-            sections.push(EmojiSection {
-                row: row as i32,
-                end: (row + 1 + glyphs.len().div_ceil(columns)) as i32,
-                icon,
-            });
+            top += HEADING_HEIGHT;
         }
         for chunk in glyphs.chunks(columns) {
             rows.push(EmojiRow {
                 heading: SharedString::default(),
+                icon: Default::default(),
+                glyph: SectionGlyph::None,
+                top,
+                height: ROW_HEIGHT,
                 cells: ModelRc::new(VecModel::from(
                     chunk
                         .iter()
@@ -364,6 +504,16 @@ pub fn rows(
                         })
                         .collect::<Vec<_>>(),
                 )),
+            });
+            top += ROW_HEIGHT;
+        }
+        if let Some((icon, icon_url)) = icon {
+            sections.push(EmojiSection {
+                heading,
+                top: start,
+                end: top,
+                icon_url: icon_url.into(),
+                icon,
             });
         }
     };
@@ -392,20 +542,33 @@ pub fn rows(
         );
         return (rows, sections);
     }
-    section(Some(titled("⭐", "Favorites")), favorites.to_vec());
-    section(Some(titled("🕒", "Frequently used")), frequent.to_vec());
+    section(
+        Some((titled("⭐", FAVORITES), String::new())),
+        favorites.to_vec(),
+    );
+    section(
+        Some((titled("🕒", FREQUENTLY_USED), String::new())),
+        frequent.to_vec(),
+    );
     for (set, keys) in custom.iter().zip(custom_keys) {
         let Some((first_key, _)) = keys.first() else {
             continue;
         };
         let first = cell(first_key);
+        // Until a picture comes, the server's icon or its first emoji's, the
+        // button is the quiet square a picture on its way is, not the
+        // emoji's `:name:` as text.
         let icon = EmojiCell {
             name: set.server.as_str().into(),
-            picture: server_icon(set).unwrap_or(first.picture.clone()),
+            glyph: set.server.as_str().into(),
+            picture: server_icon(set)
+                .map(|(_, picture)| picture)
+                .unwrap_or_else(|| first.picture.clone()),
             usable: true,
             ..first
         };
-        section(Some(icon), keys);
+        let icon_url = set.icon.clone().unwrap_or_default();
+        section(Some((icon, icon_url)), keys);
     }
     for group in emojis::Group::iter() {
         let (glyph, name) = match group {
@@ -420,10 +583,10 @@ pub fn rows(
             emojis::Group::Flags => ("🏁", "Flags"),
         };
         section(
-            Some(titled(glyph, name)),
+            Some((titled(glyph, name), String::new())),
             group
                 .emojis()
-                .filter(|emoji| emoji.unicode_version() <= NEWEST)
+                .filter(drawn)
                 .map(|emoji| (emoji.as_str().to_owned(), true))
                 .collect(),
         );
@@ -432,10 +595,9 @@ pub fn rows(
 }
 
 /// The fonts every Windows 10 and 11 has for what Segoe UI and Arial, its
-/// usual fallback, lack: color emoji first, as on Linux, then text, symbols
-/// and arrows, the mathematical alphabets, and historic scripts.
-const WINDOWS_FALLBACK: [&str; 5] = [
-    "Segoe UI Emoji",
+/// usual fallback, lack: text, symbols and arrows, the mathematical alphabets,
+/// and historic scripts. Not Segoe UI Emoji: emoji are Twemoji's.
+const WINDOWS_FALLBACK: [&str; 4] = [
     "Segoe UI",
     "Segoe UI Symbol",
     "Cambria Math",
@@ -469,151 +631,11 @@ fn prefer_families(collection: &mut fontique::Collection, names: &[&str]) {
     }
 }
 
-/// Register the first installed emoji font with color bitmaps, or failing that
-/// the first with COLR color layers, and make text fall back to it for emoji.
-fn register_color_font() -> bool {
-    let mut collection = shared_collection();
-    let mut names: Vec<String> = collection
-        .family_names()
-        .filter(|name| name.to_lowercase().contains("emoji"))
-        .map(str::to_owned)
-        .collect();
-    // Noto Color Emoji first, as the font Yapfast is designed and tested with.
-    names.sort_by_key(|name| name != "Noto Color Emoji");
-    let mut layered = None;
-    for name in &names {
-        let Some(family) = collection.family_by_name(name) else {
-            continue;
-        };
-        for font in family.fonts() {
-            let fontique::SourceKind::Path(path) = font.source().kind() else {
-                continue;
-            };
-            let Ok(file) = std::fs::File::open(path) else {
-                continue;
-            };
-            // SAFETY: font files are installed read-only and not modified while
-            // Yapfast runs; the map is shared with the font collection for the
-            // process's lifetime.
-            let Ok(data) = (unsafe { memmap2::Mmap::map(&file) }) else {
-                continue;
-            };
-            match color_kind(&data, font.index()) {
-                Some(ColorKind::Bitmaps) => {
-                    if register_as_emoji(&mut collection, data) {
-                        tracing::info!(family = name, "registered a bitmap color emoji font");
-                        return true;
-                    }
-                }
-                Some(ColorKind::Layers) if layered.is_none() => layered = Some((name, data)),
-                _ => {}
-            }
-        }
-    }
-    if let Some((name, data)) = layered
-        && register_as_emoji(&mut collection, data)
-    {
-        tracing::info!(family = name, "registered a COLR color emoji font");
-        return true;
-    }
-    tracing::warn!("no color emoji font found; emoji may not show");
-    false
-}
-
-/// Register `data` as [`REGISTERED`], and make text fall back to it for emoji.
-fn register_as_emoji(collection: &mut fontique::Collection, data: memmap2::Mmap) -> bool {
-    let registered = collection.register_fonts(
-        fontique::Blob::new(Arc::new(data)),
-        Some(fontique::FontInfoOverride {
-            family_name: Some(REGISTERED),
-            ..Default::default()
-        }),
-    );
-    let Some(&(id, _)) = registered.first() else {
-        return false;
-    };
-    prefer_for_text(collection, id);
-    true
-}
-
-/// Text falls back from the UI typeface through the system's sans-serif and UI
-/// families before the generic emoji family. Fontconfig can list emoji fonts
-/// Slint can't draw there, and display fonts with a few monochrome emoji ahead
-/// of them. So `emoji` leads both lists, and their other emoji fonts are
-/// dropped. Symbols the typeface lacks that have an emoji form, such as ♥, then
-/// show as color emoji.
-fn prefer_for_text(collection: &mut fontique::Collection, emoji: fontique::FamilyId) {
-    use fontique::GenericFamily;
-    for generic in [GenericFamily::SansSerif, GenericFamily::SystemUi] {
-        let families: Vec<_> = collection.generic_families(generic).collect();
-        let mut ordered = vec![emoji];
-        for family in families {
-            let is_emoji = collection
-                .family_name(family)
-                .is_some_and(|name| name.to_lowercase().contains("emoji"));
-            if !is_emoji {
-                ordered.push(family);
-            }
-        }
-        collection.set_generic_families(generic, ordered.into_iter());
-    }
-    collection.set_generic_families(GenericFamily::Emoji, std::iter::once(emoji));
-}
-
-/// How an emoji font draws in color.
-#[derive(Debug, PartialEq)]
-enum ColorKind {
-    /// CBDT or sbix pictures, and no COLR table.
-    Bitmaps,
-    /// COLR layers of outlines.
-    Layers,
-}
-
-/// How the font at `index` in an OpenType file or collection draws in color,
-/// if it does.
-fn color_kind(data: &[u8], index: u32) -> Option<ColorKind> {
-    let u32_at = |offset: usize| {
-        data.get(offset..offset + 4)
-            .map(|bytes| u32::from_be_bytes(bytes.try_into().expect("four bytes")) as usize)
-    };
-    let directory = if data.starts_with(b"ttcf") {
-        u32_at(12 + 4 * index as usize)?
-    } else {
-        0
-    };
-    let count = data
-        .get(directory + 4..directory + 6)
-        .map(|bytes| u16::from_be_bytes([bytes[0], bytes[1]]) as usize)?;
-    let tags: Vec<&[u8]> = (0..count)
-        .filter_map(|table| {
-            let start = directory + 12 + 16 * table;
-            data.get(start..start + 4)
-        })
-        .collect();
-    if tags.contains(&&b"COLR"[..]) {
-        Some(ColorKind::Layers)
-    } else if tags.iter().any(|tag| matches!(*tag, b"CBDT" | b"sbix")) {
-        Some(ColorKind::Bitmaps)
-    } else {
-        None
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use slint::Model;
-
-    fn font(tags: &[&[u8; 4]]) -> Vec<u8> {
-        let mut data = vec![0, 1, 0, 0];
-        data.extend((tags.len() as u16).to_be_bytes());
-        data.extend([0; 6]);
-        for tag in tags {
-            data.extend(*tag);
-            data.extend([0; 12]);
-        }
-        data
-    }
+    use std::sync::Arc;
 
     #[test]
     fn pictures_fill_the_picker_in_place() {
@@ -708,6 +730,33 @@ mod tests {
     }
 
     #[test]
+    fn the_grid_finds_the_rows_a_scroll_shows() {
+        let (all, _) = rows(
+            "",
+            &[],
+            &[("🔥".into(), true)],
+            &[],
+            columns(408.),
+            |_| None,
+        );
+        let model = VecModel::from(all.clone());
+        let height = 3.0 * ROW_HEIGHT;
+        // A scroll into a heading's tighter row reports that heading.
+        let heading = all[0].top;
+        assert_eq!(visible_rows(&model, heading, height).0, 0);
+        // The heading's row ends where the first emoji's begins, so a scroll
+        // to that edge still reports it; a pixel into the emoji reports them.
+        assert_eq!(visible_rows(&model, all[1].top, height).0, 0);
+        let (first, last) = visible_rows(&model, all[1].top + 1.0, height);
+        assert_eq!(first, 1);
+        assert!(all[last].top <= all[1].top + height);
+        assert!(all.last().unwrap().top + all.last().unwrap().height > all[1].top);
+        // Past the end it keeps the last row rather than nothing.
+        let (first, _) = visible_rows(&model, all.last().unwrap().top + 500., height);
+        assert_eq!(first, all.len() - 1);
+    }
+
+    #[test]
     fn the_picker_lists_categories_or_matches_and_names_emoji() {
         let (all, sections) = rows(
             "",
@@ -724,13 +773,14 @@ mod tests {
         assert!(all.iter().all(|row| row.cells.row_count() <= columns(408.)));
         // The sidebar jumps to each heading; a section ends where the next begins.
         assert_eq!(sections.len(), 2 + emojis::Group::iter().count());
-        assert_eq!((sections[0].row, sections[0].end), (0, 2));
+        assert_eq!((sections[0].heading, sections[0].top), (0, 0.0));
         assert_eq!(sections[2].icon.name, "Smileys & emotion");
         for (section, next) in sections.iter().zip(&sections[1..]) {
-            assert!(!all[section.row as usize].heading.is_empty());
-            assert_eq!(section.end, next.row);
+            assert!(!all[section.heading as usize].heading.is_empty());
+            assert_eq!(section.end, next.top);
         }
-        assert_eq!(sections.last().unwrap().end as usize, all.len());
+        let last = all.last().unwrap();
+        assert_eq!(sections.last().unwrap().end, last.top + last.height);
         let (found, sections) = rows(":pizza", &[], &[], &[], columns(408.), |_| None);
         assert_eq!(found.len(), 1);
         assert!(sections.is_empty(), "matches have no sections");
@@ -760,7 +810,12 @@ mod tests {
             }],
         }];
         let icon = slint::Image::from_rgba8(slint::SharedPixelBuffer::new(3, 3));
-        let (all, sections) = rows("", &[], &[], &custom, columns(408.), |_| Some(icon.clone()));
+        let (all, sections) = rows("", &[], &[], &custom, columns(408.), |_| {
+            Some((
+                "https://cdn.discordapp.com/icons/1/x.png".into(),
+                icon.clone(),
+            ))
+        });
         assert_eq!(all[0].heading, "GAMES");
         let pog = all[1].cells.row_data(0).unwrap();
         assert_eq!((pog.glyph.as_str(), pog.key.as_str()), (":pog:", "pog:5"));
@@ -816,6 +871,30 @@ mod tests {
     }
 
     #[test]
+    fn names_an_emoji_as_discord_keeps_its_favourites() {
+        // As Discord's settings name them, read back to the same emoji.
+        for (key, name) in [
+            ("☠️", "skull_crossbones"),
+            ("🙂", "slight_smile"),
+            ("😂", "joy"),
+            ("🇫🇷", "flag_fr"),
+            ("🇨🇱", "flag_cl"),
+            ("💯", "100"),
+            ("⛱️", "beach_umbrella"),
+            ("talk:5", "5"),
+        ] {
+            assert_eq!(discord_name(key).as_deref(), Some(name), "{key}");
+        }
+        // Discord's first name, not GitHub's `+1` or the `thumbs_up` it reads
+        // too, and a hyphen as Discord writes it.
+        assert_eq!(discord_name("👍").as_deref(), Some("thumbsup"));
+        assert_eq!(discord_name("📧").as_deref(), Some("e_mail"));
+        // A skin tone is the emoji itself, which Discord's client stars.
+        assert_eq!(discord_name("👍🏾").as_deref(), Some("thumbsup"));
+        assert_eq!(discord_name("not an emoji"), None);
+    }
+
+    #[test]
     fn suggests_emoji_for_the_name_being_typed() {
         assert_eq!(query("look :thu", 9), Some((5, "thu")));
         assert_eq!(query(":+1", 3), Some((0, "+1")));
@@ -852,26 +931,6 @@ mod tests {
             ("🍕", ":pizza:")
         );
         assert!(suggestions("zzzzzz", &[], 10).is_empty());
-    }
-
-    #[test]
-    fn emoji_fonts_draw_in_bitmaps_or_layers() {
-        let kind = |data: &[u8]| color_kind(data, 0);
-        assert_eq!(
-            kind(&font(&[b"CBDT", b"CBLC", b"cmap"])),
-            Some(ColorKind::Bitmaps)
-        );
-        assert_eq!(kind(&font(&[b"sbix", b"cmap"])), Some(ColorKind::Bitmaps));
-        assert_eq!(
-            kind(&font(&[b"COLR", b"CPAL", b"glyf"])),
-            Some(ColorKind::Layers)
-        );
-        assert_eq!(kind(&font(&[b"CBDT", b"COLR"])), Some(ColorKind::Layers));
-        assert_eq!(kind(&font(&[b"glyf", b"cmap"])), None);
-        assert_eq!(kind(b"ttcf"), None);
-        let mut collection = b"ttcf\0\x01\0\0\0\0\0\x01\0\0\0\x10".to_vec();
-        collection.extend(font(&[b"CBDT"]));
-        assert_eq!(kind(&collection), Some(ColorKind::Bitmaps));
     }
 
     #[test]

@@ -143,8 +143,8 @@ clicked while the window is closed opens it on that conversation.
 
 The icon is a StatusNotifierItem through [`ksni`](https://crates.io/crates/ksni),
 pure Rust over the zbus Yapfast already has for notifications, with ksni's
-async-io and blocking features, so it adds only `ksni` and `task-local` to
-`Cargo.lock`. It connects to the session bus Yapfast is given. A thread
+async-io and blocking features, so it adds only `ksni`, `task-local`,
+`arc-swap` and `crossbeam-queue` to `Cargo.lock`. It connects to the session bus Yapfast is given. A thread
 (`yapfast-tray`) registers it and sends it the unread dot and the call as they
 change, since each update waits on the bus; ksni's own thread answers the
 tray. ksni follows the StatusNotifierWatcher: Yapfast counts the tray as there
@@ -152,6 +152,14 @@ while the watcher is.
 
 KDE Plasma, and most bars such as Waybar, run a watcher. GNOME needs the
 AppIndicator extension; without it closing quits.
+
+On Wayland a window comes to the front only with an xdg-activation token
+from input the compositor saw. KDE Plasma sends one just before a click on the
+icon or Open Yapfast, and Yapfast raises the window with it, as it does with
+a later start's token. Without one, as with Waybar, Yapfast asks the compositor
+through winit's `request_user_attention`, and the compositor decides:
+Hyprland marks the window urgent, or focuses it with
+`misc:focus_on_activate`.
 
 ## Windows
 

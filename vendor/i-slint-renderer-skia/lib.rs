@@ -36,6 +36,19 @@ type PhysicalPoint = euclid::Point2D<f32, PhysicalPx>;
 type PhysicalBorderRadius = BorderRadius<f32, PhysicalPx>;
 
 mod cached_image;
+
+std::thread_local! {
+    /// Yapfast: set by [`yapfast_let_go_of_caches`].
+    static YAPFAST_LET_GO: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+}
+
+/// Yapfast: the next frame drawn starts by letting go of everything Skia keeps
+/// to draw faster, its textures on the GPU and its copies of pictures, which
+/// it makes again for what it draws next. For after a view of many pictures
+/// closes, whose copies would otherwise stay until the caches fill.
+pub fn yapfast_let_go_of_caches() {
+    YAPFAST_LET_GO.set(true);
+}
 mod font_cache;
 mod itemrenderer;
 
@@ -814,6 +827,17 @@ impl SkiaRenderer {
     ) -> Result<Option<DirtyRegion>, PlatformError> {
         skia_canvas.rotate(rotation_angle_degrees, None);
         skia_canvas.translate(translation);
+
+        // Yapfast: what a closed picker drew stays in Skia's caches, its
+        // pictures' textures and their smaller copies, until the caches fill;
+        // asked to, the frame after lets go of all of them.
+        let mut gr_context = gr_context;
+        if YAPFAST_LET_GO.replace(false) {
+            skia_safe::graphics::purge_resource_cache();
+            if let Some(context) = gr_context.as_deref_mut() {
+                context.free_gpu_resources();
+            }
+        }
 
         let window_inner = WindowInner::from_pub(window);
 

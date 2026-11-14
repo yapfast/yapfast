@@ -68,6 +68,8 @@ build() {
   cd "$pkgname"
   export RUSTUP_TOOLCHAIN=stable CARGO_HOME="$srcdir/.cargo" CARGO_TARGET_DIR=target
   export CC=clang CXX=clang++ PROTOC=/usr/bin/protoc
+  # This is the release's own build, not a development build (src/build_info.rs).
+  export YAPFAST_RELEASE=1
   export LK_CUSTOM_WEBRTC="$srcdir/linux-x64-release"
   export SKIA_BINARIES_URL="file://$srcdir/skia/$_skia"
   # Rust's panic locations and C's __FILE__ would name the build directory, the builder's home

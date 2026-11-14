@@ -1,12 +1,14 @@
 """Binary packages must carry notices for embedded UI fonts."""
 import importlib.util
-from pathlib import Path
 import tarfile
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location("release_package", Path(__file__).resolve().parents[1] / "scripts/release_package.py")
+if spec is None or spec.loader is None:
+    raise SystemExit("could not load scripts/release_package.py")
 release_package = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(release_package)
 

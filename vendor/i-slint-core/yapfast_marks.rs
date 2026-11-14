@@ -4,7 +4,7 @@
 //! mentions: each part in its colour on a translucent pill of it, as a `StyledText` draws a
 //! mention.
 //!
-//! The marks hold for one text in each of [`SLOTS`], one for each composer on screen. A
+//! The marks hold for one text in each of [`SLOTS`], one for each composer on screen, and one for the message being edited. A
 //! `TextInput` showing any other, such as the next keystroke's before the application marks it
 //! again, or one composing with an input method, draws plain.
 
@@ -27,7 +27,7 @@ struct Marked {
 }
 
 /// How many texts can hold marks at once.
-pub const SLOTS: usize = 2;
+pub const SLOTS: usize = 3;
 
 std::thread_local! {
     /// The texts marked and their marks. The text inputs that shape while reading them shape

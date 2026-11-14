@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Runs crates/yapfast-discord/tests/fake_server.rs, then yapfast-core's ignored
+# Runs crates/yapfast-discord/tests/fake_server.rs, fake_interactions.rs and
+# fake_commands.rs,
+# then yapfast-core's ignored
 # discord_text and discord_voice tests, against testing/fake_discord.ts, then
 # crates/yapfast-discord/tests/fake_env.rs against it with an environment.
 # Usage: scripts/test-fake-discord [FILTER…], test names or parts of them
@@ -60,9 +62,11 @@ start_fake() {
 
 if command -v cargo-nextest >/dev/null; then
   cargo nextest run --locked --cargo-profile fast -p yapfast-discord --test fake_server \
-    --run-ignored only --no-fail-fast "$@"
+    --test fake_interactions --test fake_commands --run-ignored only --no-fail-fast "$@"
 else
   cargo test --locked --profile fast -p yapfast-discord --test fake_server -- --ignored "$@"
+  cargo test --locked --profile fast -p yapfast-discord --test fake_interactions -- --ignored "$@"
+  cargo test --locked --profile fast -p yapfast-discord --test fake_commands -- --ignored "$@"
 fi
 # The shared core's Discord side, against a fake of its own.
 start_fake target/fake-discord.log

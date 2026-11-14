@@ -28,6 +28,9 @@ base64 = "0.22"
 # The gateway's zlib-stream compression, as the web client asks for it.
 flate2 = "1"
 futures-util.workspace = true
+# The time zone the web client names in X-Discord-Timezone; chrono
+# already builds it.
+iana-time-zone = "0.1.65"
 keyring.workspace = true
 reqwest = { version = "0.13", default-features = false, features = ["cookies", "http2", "rustls-no-provider"] }
 cookie_store = { version = "0.22", features = ["serde_json"] }

@@ -7,12 +7,15 @@ use yapfast_discord::{
     ready::Deletes,
 };
 
+use std::sync::Mutex;
+
 use crate::chat::SendOptions;
 
 use super::{
     channels::SharedPreviews,
     render::{
-        chat_card, chat_embed, chat_notice, chat_poll, custom_emoji, rendered, sent_id, system_body,
+        chat_card, chat_embed, chat_notice, chat_poll, chat_voice, custom_emoji, rendered, sent_id,
+        system_body, used_command,
     },
     *,
 };
@@ -102,8 +105,11 @@ impl Run {
         };
         let until = last.order();
         let listed: HashSet<u64> = page.messages.iter().map(Message::order).collect();
-        self.messages
-            .retain(|order, _| *order < since || *order > until || listed.contains(order));
+        // Discord's history never has an answer only this account sees, so
+        // one stays until it's dismissed or the app closes.
+        self.messages.retain(|order, message| {
+            *order < since || *order > until || listed.contains(order) || message.ephemeral
+        });
     }
 
     /// Keeps only the newest `count`; the older ones load again.
@@ -158,6 +164,10 @@ pub struct OpenChannel {
     /// Messages deleted while the channel is open. A page asked for before
     /// Discord deleted one can still carry it, and mustn't bring it back.
     deleted: HashSet<u64>,
+    /// This account's reactions on their way to Discord, by message and
+    /// emoji: another click on one waits for it, as Discord's client does,
+    /// so a burst of clicks can't race.
+    reacting: Arc<Mutex<HashSet<(String, String)>>>,
     /// A page of earlier history is on its way.
     pub(super) loading_earlier: bool,
     /// A page after the window is on its way.
@@ -250,6 +260,7 @@ impl OpenChannel {
             pending: Vec::new(),
             sent: HashSet::new(),
             deleted: HashSet::new(),
+            reacting: Arc::default(),
             loading_earlier: false,
             loading_later: false,
             focusing: false,
@@ -543,19 +554,42 @@ impl OpenChannel {
             .keep_newest(KEPT_MESSAGES);
     }
 
-    /// Its newest messages to keep on disk, once they've changed.
+    /// Its newest messages to keep on disk, once they've changed. An answer
+    /// only this account sees is never kept: it lives as long as the app.
     pub(super) fn take_changes(&mut self) -> Option<(String, Vec<Message>)> {
         if !std::mem::take(&mut self.dirty) {
             return None;
         }
         let newest = &self.latest.as_ref().unwrap_or(&self.shown).messages;
-        let skip = newest
-            .len()
+        let kept = || newest.values().filter(|message| !message.ephemeral);
+        let skip = kept()
+            .count()
             .saturating_sub(yapfast_discord::cache::CHANNEL_MESSAGES);
-        Some((
-            self.channel.clone(),
-            newest.values().skip(skip).cloned().collect(),
-        ))
+        Some((self.channel.clone(), kept().skip(skip).cloned().collect()))
+    }
+
+    /// Hides the ephemeral message `item` for good, as Discord's "Dismiss
+    /// message" does, asking Discord nothing: there's no endpoint for it.
+    /// Returns whether it was here to hide.
+    pub fn dismiss(&mut self, item: &str) -> bool {
+        let Some(order) = item
+            .strip_prefix("d:")
+            .and_then(|id| id.parse::<u64>().ok())
+        else {
+            return false;
+        };
+        if !self.message(order).is_some_and(|message| message.ephemeral) {
+            return false;
+        }
+        self.shown.messages.remove(&order);
+        if let Some(latest) = &mut self.latest {
+            latest.messages.remove(&order);
+        }
+        self.rendered.remove(&order);
+        // An update the app sends after, as to a deferred answer, finds
+        // nothing to change; this keeps a page from bringing it back.
+        self.deleted.insert(order);
+        true
     }
 
     fn insert(&mut self, message: Message) {
@@ -613,6 +647,14 @@ impl OpenChannel {
             }
         }
         let changed = self.apply_live(event);
+        self.dirty |= changed;
+        changed
+    }
+
+    /// Whether a name, avatar or role its messages show changed since they
+    /// were rendered, as a member list teaches them; it's dirty if so.
+    pub(super) fn names_changed(&mut self, discord: &Discord) -> bool {
+        let changed = discord.names_version() != self.rendered_with.names;
         self.dirty |= changed;
         changed
     }
@@ -941,10 +983,16 @@ impl OpenChannel {
             .map_or(key, |reaction| reaction.emoji.as_str())
             .to_owned();
         let add = !known.is_some_and(|reaction| reaction.me);
-        let (discord, done) = (discord.clone(), done.clone());
+        let pending = (message.id.clone(), emoji.clone());
+        if !self.reacting.lock().unwrap().insert(pending.clone()) {
+            return;
+        }
+        let (discord, done, reacting) = (discord.clone(), done.clone(), self.reacting.clone());
         let (room, channel, id) = (self.room.clone(), self.channel.clone(), message.id.clone());
         tokio::spawn(async move {
-            if let Err(error) = discord.react(&channel, &id, &emoji, add).await {
+            let result = discord.react(&channel, &id, &emoji, add).await;
+            reacting.lock().unwrap().remove(&pending);
+            if let Err(error) = result {
                 let _ = done.send(Done::Failed {
                     room,
                     message: error.to_string(),
@@ -1586,6 +1634,7 @@ impl OpenChannel {
                         url: None,
                         spoiler: file.spoiler,
                         video: false,
+                        description: None,
                     })
                     .collect(),
                 ..Default::default()
@@ -1675,6 +1724,7 @@ impl OpenChannel {
                             .clone()
                             .unwrap_or_else(|| attachment.url.clone()),
                     ),
+                    description: attachment.description.clone(),
                 }
             })
             .collect();
@@ -1723,9 +1773,20 @@ impl OpenChannel {
         });
         let timestamp = message.timestamp();
         let ordinary = message.system.is_none();
+        // An answer only this account sees can only be dismissed, as in
+        // Discord's client: Discord has no copy to reply to, react to, pin
+        // or delete.
+        let shared = !message.ephemeral;
         ChatMessage {
             id,
             item: format!("d:{}", message.id),
+            application_id: message.application_id.clone(),
+            interaction: message
+                .interaction
+                .as_ref()
+                .map(|interaction| interaction.id.clone()),
+            used: used_command(discord, Some(&self.guild), server, message),
+            flags: message.flags,
             author,
             sender: discord::sender_id(&message.author_id),
             spoilers: true,
@@ -1764,15 +1825,16 @@ impl OpenChannel {
             cards,
             mentions,
             emoji: custom_emoji(message),
-            can_reply: ordinary,
+            can_reply: ordinary && shared,
             can_edit: own && message.editable,
-            can_delete: self.rendered_with.deletes.allow(message, me),
-            can_react: ordinary,
+            can_delete: shared && self.rendered_with.deletes.allow(message, me),
+            can_react: ordinary && shared,
             can_forward: message.forwardable && self.rendered_with.may_forward,
             pinned: message.pinned,
-            can_pin: ordinary && self.rendered_with.may_pin,
+            can_pin: ordinary && shared && self.rendered_with.may_pin,
             thread: self.thread_link(server, message),
             poll: message.poll.as_ref().map(|poll| chat_poll(poll, own)),
+            voice: chat_voice(message),
             notice: chat_notice(message),
         }
     }

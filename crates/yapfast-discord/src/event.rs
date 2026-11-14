@@ -38,6 +38,22 @@ events! {
     /// What READY left out to be smaller: DMs, presences, voice states.
     ReadySupplemental = "READY_SUPPLEMENTAL",
     MessageCreate = "MESSAGE_CREATE",
+    /// This account's interactions, by their nonce: Discord passed one to
+    /// its app, the app answered, or it failed.
+    InteractionCreate = "INTERACTION_CREATE",
+    InteractionSuccess = "INTERACTION_SUCCESS",
+    InteractionFailure = "INTERACTION_FAILURE",
+    /// An app answered an interaction with a form, or with a web page.
+    InteractionModalCreate = "INTERACTION_MODAL_CREATE",
+    InteractionIframeModalCreate = "INTERACTION_IFRAME_MODAL_CREATE",
+    /// An app's choices for an option being typed in a command.
+    ApplicationCommandAutocompleteResponse = "APPLICATION_COMMAND_AUTOCOMPLETE_RESPONSE",
+    /// A server's command index changed.
+    GuildApplicationCommandIndexUpdate = "GUILD_APPLICATION_COMMAND_INDEX_UPDATE",
+    /// An app this account installed for itself changed, or went: its own
+    /// command index did.
+    UserApplicationUpdate = "USER_APPLICATION_UPDATE",
+    UserApplicationRemove = "USER_APPLICATION_REMOVE",
     MessageUpdate = "MESSAGE_UPDATE",
     MessageDelete = "MESSAGE_DELETE",
     MessageDeleteBulk = "MESSAGE_DELETE_BULK",
@@ -112,12 +128,19 @@ events! {
     StreamServerUpdate = "STREAM_SERVER_UPDATE",
     /// Someone sent a soundboard sound or an emoji into this account's call.
     VoiceChannelEffectSend = "VOICE_CHANNEL_EFFECT_SEND",
+    /// A voice channel's session started, as its first person joined, or
+    /// ended, as its last left.
+    VoiceChannelStartTimeUpdate = "VOICE_CHANNEL_START_TIME_UPDATE",
+    /// A server's channels' extra fields, asked for with op 43.
+    ChannelInfo = "CHANNEL_INFO",
     /// A server's soundboard sounds, asked for with op 31.
     SoundboardSounds = "SOUNDBOARD_SOUNDS",
     GuildSoundboardSoundCreate = "GUILD_SOUNDBOARD_SOUND_CREATE",
     GuildSoundboardSoundUpdate = "GUILD_SOUNDBOARD_SOUND_UPDATE",
     GuildSoundboardSoundDelete = "GUILD_SOUNDBOARD_SOUND_DELETE",
     GuildSoundboardSoundsUpdate = "GUILD_SOUNDBOARD_SOUNDS_UPDATE",
+    /// This account's sessions on every device, and what each shows it doing.
+    SessionsReplace = "SESSIONS_REPLACE",
     RelationshipAdd = "RELATIONSHIP_ADD",
     RelationshipUpdate = "RELATIONSHIP_UPDATE",
     RelationshipRemove = "RELATIONSHIP_REMOVE",
@@ -130,6 +153,8 @@ events! {
     UserSettingsProtoUpdate = "USER_SETTINGS_PROTO_UPDATE",
     /// Notification settings, per server or for DMs.
     UserGuildSettingsUpdate = "USER_GUILD_SETTINGS_UPDATE",
+    /// This account's linked services changed; the event doesn't say how.
+    UserConnectionsUpdate = "USER_CONNECTIONS_UPDATE",
 }
 
 impl Event {
@@ -224,6 +249,11 @@ mod tests {
             ("STREAM_DELETE", Event::StreamDelete),
             ("STREAM_SERVER_UPDATE", Event::StreamServerUpdate),
             ("VOICE_CHANNEL_EFFECT_SEND", Event::VoiceChannelEffectSend),
+            (
+                "VOICE_CHANNEL_START_TIME_UPDATE",
+                Event::VoiceChannelStartTimeUpdate,
+            ),
+            ("CHANNEL_INFO", Event::ChannelInfo),
             ("SOUNDBOARD_SOUNDS", Event::SoundboardSounds),
             (
                 "GUILD_SOUNDBOARD_SOUND_CREATE",
@@ -241,6 +271,7 @@ mod tests {
                 "GUILD_SOUNDBOARD_SOUNDS_UPDATE",
                 Event::GuildSoundboardSoundsUpdate,
             ),
+            ("SESSIONS_REPLACE", Event::SessionsReplace),
             ("RELATIONSHIP_ADD", Event::RelationshipAdd),
             ("RELATIONSHIP_UPDATE", Event::RelationshipUpdate),
             ("RELATIONSHIP_REMOVE", Event::RelationshipRemove),
@@ -250,6 +281,7 @@ mod tests {
             ("USER_UPDATE", Event::UserUpdate),
             ("USER_SETTINGS_PROTO_UPDATE", Event::UserSettingsProtoUpdate),
             ("USER_GUILD_SETTINGS_UPDATE", Event::UserGuildSettingsUpdate),
+            ("USER_CONNECTIONS_UPDATE", Event::UserConnectionsUpdate),
         ];
         for (name, event) in handled {
             assert_eq!(Event::parse(name), event, "{name}");

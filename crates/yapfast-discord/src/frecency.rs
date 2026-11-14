@@ -151,10 +151,43 @@ pub fn read_emojis(encoded: &str) -> Option<Emojis> {
     (emojis != Emojis::default()).then_some(emojis)
 }
 
+/// The most favourite emoji Discord's client keeps.
+pub const MOST_FAVORITE_EMOJIS: usize = 250;
+
+/// The favourite emoji, each a custom emoji's id or a Unicode emoji's Discord
+/// name, as base64 `FrecencyUserSettings` holding only them, which a PATCH of
+/// `/users/@me/settings-proto/2` puts in place of the old.
+pub fn write_favorite_emojis(favorites: &[String]) -> String {
+    let mut message = Vec::new();
+    for name in favorites {
+        crate::settings::put_bytes(&mut message, EMOJIS, name.as_bytes());
+    }
+    let mut settings = Vec::new();
+    crate::settings::put_bytes(&mut settings, FAVORITE_EMOJIS, &message);
+    base64::engine::general_purpose::STANDARD.encode(settings)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::settings::put_bytes;
+
+    #[test]
+    fn writes_the_favourite_emoji_as_it_reads_them() {
+        let favorites = vec![
+            "1400000000000000300".to_owned(),
+            "skull_crossbones".to_owned(),
+        ];
+        let read = read_emojis(&write_favorite_emojis(&favorites)).expect("they read back");
+        assert_eq!(read.favorites, Some(favorites));
+        // Only the favourites: the uses aren't said, so a PATCH leaves them.
+        assert_eq!((read.used, read.reactions), (None, None));
+        // None at all is said too, as an empty list.
+        let none = base64::engine::general_purpose::STANDARD
+            .decode(write_favorite_emojis(&[]))
+            .unwrap();
+        assert_eq!(none, [(FAVORITE_EMOJIS << 3 | 2) as u8, 0]);
+    }
 
     #[test]
     fn reads_the_places_used_and_when() {

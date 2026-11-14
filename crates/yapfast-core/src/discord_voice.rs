@@ -397,6 +397,9 @@ pub(crate) async fn call(
             return Err(join_failed(guild, step, error));
         }
     };
+    // The call goes on at full speed with Yapfast's window minimized or
+    // hidden, behind a game or a shared screen.
+    let _full_speed = crate::audio_io::FullSpeed::hold();
     let (played, reverse) = std::sync::mpsc::sync_channel(8);
     let reverse = std::sync::Arc::new(std::sync::Mutex::new(reverse));
     let (microphone, input) = live_microphone();
@@ -787,7 +790,12 @@ pub(crate) async fn call(
                             continue;
                         }
                         // Only a video's worker reports these.
-                        Some(Report::Opened { .. } | Report::Finished | Report::Screen { .. }) => {}
+                        Some(
+                            Report::Opened { .. }
+                            | Report::Needs { .. }
+                            | Report::Finished
+                            | Report::Screen { .. },
+                        ) => {}
                         Some(Report::Ended { error }) => {
                             if let Some(stopped) = share.take() {
                                 stopped.stop(discord, state);
@@ -895,6 +903,7 @@ pub(crate) async fn call(
                             | Report::Sending(_)
                             | Report::Preview { .. }
                             | Report::Opened { .. }
+                            | Report::Needs { .. }
                             | Report::Finished
                             | Report::Screen { .. },
                         )) => {}

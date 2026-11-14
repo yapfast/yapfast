@@ -88,6 +88,84 @@ impl Application {
         self.delete_message(item)
     }
 
+    /// Whether a message's menu offers Mark Unread, as Discord's client
+    /// does: on a sent message in a Discord channel or DM, or in a thread
+    /// this account is in and that isn't archived, since Discord's client
+    /// would join it or open it again first.
+    pub fn marks_unread(&self, item: &str) -> bool {
+        let Some(room) = self.state.room_of(item) else {
+            return false;
+        };
+        Network::of(room) == Network::Discord
+            && discord::item_order(item).is_some()
+            && self
+                .state
+                .message(item)
+                .is_some_and(|message| message.delivery == chat::Delivery::Sent)
+            && self
+                .thread_state(room)
+                .is_none_or(|(joined, archived)| joined && !archived)
+    }
+
+    /// Marks a Discord message's channel unread from it on, as Discord's
+    /// client does: read up to the newest message loaded before it, or
+    /// else up to the millisecond before it, with as many mentions as the
+    /// loaded messages after that call on this account, every one in a DM.
+    /// The "New" divider goes above it, and the channel stays unread while
+    /// it shows.
+    pub(super) fn mark_unread(&mut self, item: String) -> Vec<Effect> {
+        if !self.marks_unread(&item) {
+            return vec![];
+        }
+        let (Some(room), Some(order)) = (
+            self.state.room_of(&item).cloned(),
+            discord::item_order(&item),
+        ) else {
+            return vec![];
+        };
+        let aside = self
+            .state
+            .aside
+            .as_ref()
+            .is_some_and(|aside| aside.room == room);
+        let (last, mentions) = {
+            let messages = match &self.state.aside {
+                Some(beside) if aside => &beside.messages,
+                _ => &self.state.messages,
+            };
+            let last = messages
+                .iter()
+                .filter_map(|message| discord::item_order(&message.item))
+                .filter(|&earlier| earlier < order)
+                .max()
+                .unwrap_or(((order >> 22).saturating_sub(1)) << 22);
+            let dm =
+                discord::parse_room(&room).is_some_and(|(guild, _)| guild == discord::DM_GUILD);
+            let mentions = messages
+                .iter()
+                .filter(|message| {
+                    discord::item_order(&message.item).is_some_and(|later| later > last)
+                        && !message.own
+                        && (dm || message.mentions_me)
+                })
+                .count() as u64;
+            (last, mentions)
+        };
+        self.held_unread = Some(room.clone());
+        if !aside {
+            self.state.first_unread = Some(item);
+            self.state.caught_up = false;
+        }
+        vec![Effect::Backend(Command::Discord(
+            DiscordCommand::MarkUnread {
+                room,
+                last,
+                mentions,
+                sync: self.state.sync_discord_reads,
+            },
+        ))]
+    }
+
     pub(super) fn pin_message(&mut self, item: String) -> Vec<Effect> {
         let Some(room) = self.state.room_of(&item).cloned() else {
             return vec![];
@@ -188,13 +266,18 @@ impl Application {
             .state
             .compose
             .get(&room)
-            .is_some_and(|compose| match compose {
-                Compose::Reply { item: target, .. } | Compose::Edit { item: target, .. } => {
-                    target == &item
-                }
-            })
+            .is_some_and(|Compose::Reply { item: target, .. }| target == &item)
         {
             self.finish_compose(&room);
+        }
+        // A deleted message can't be edited.
+        if self
+            .state
+            .edit
+            .as_ref()
+            .is_some_and(|edit| edit.item == item)
+        {
+            self.state.edit = None;
         }
         if self.state.preview {
             self.update_sample(&room, &item, |message| {
@@ -280,6 +363,101 @@ impl Application {
             height,
             speakers: self.state.voice.speaker.clone(),
         })]
+    }
+
+    /// Plays a voice message, from where it paused, or pauses it while it
+    /// plays. The button changes at once; the backend's
+    /// [`Event::VoiceMessage`] follows.
+    pub(super) fn toggle_voice_message(&mut self, item: String) -> Vec<Effect> {
+        let voice = self
+            .state
+            .message(&item)
+            .is_some_and(|message| message.voice.is_some());
+        let Some(room) = self.state.room_of(&item).cloned().filter(|_| voice) else {
+            return vec![];
+        };
+        let playback = &mut self.state.voice_message;
+        if let Some(playing) = playback
+            .as_mut()
+            .filter(|playing| playing.item == item && playing.playing)
+        {
+            playing.playing = false;
+            return vec![Effect::Backend(Command::PauseVoiceMessage)];
+        }
+        // Where it paused, when it's this one.
+        let paused = playback
+            .as_ref()
+            .filter(|paused| paused.item == item && paused.error.is_none())
+            .map(|paused| paused.position_ms);
+        *playback = Some(chat::VoicePlayback {
+            room: room.clone(),
+            item: item.clone(),
+            loading: paused.is_none(),
+            playing: true,
+            position_ms: paused.unwrap_or(0),
+            error: None,
+        });
+        vec![Effect::Backend(Command::PlayVoiceMessage {
+            room,
+            item,
+            speakers: self.state.voice.speaker.clone(),
+            tuning: self.state.voice_tuning,
+        })]
+    }
+
+    /// Moves a voice message `fraction` of the way through, from 0 to 1, as
+    /// its waveform is clicked or dragged: the one playing or paused goes on
+    /// from there as it was, and another waits there paused in its place, as
+    /// in Discord. Its waveform and time follow at once; the backend's
+    /// [`Event::VoiceMessage`] follows.
+    pub(super) fn move_voice_message(&mut self, item: String, fraction: f32) -> Vec<Effect> {
+        let Some(duration) = self
+            .state
+            .message(&item)
+            .and_then(|message| message.voice.as_ref())
+            .map(|voice| voice.duration_ms)
+        else {
+            return vec![];
+        };
+        let Some(room) = self.state.room_of(&item).cloned() else {
+            return vec![];
+        };
+        let at_ms = (f64::from(fraction.clamp(0.0, 1.0)) * duration as f64) as u64;
+        let playback = &mut self.state.voice_message;
+        match playback
+            .as_mut()
+            .filter(|shown| shown.item == item && shown.error.is_none())
+        {
+            Some(shown) => shown.position_ms = at_ms,
+            None => {
+                *playback = Some(chat::VoicePlayback {
+                    room: room.clone(),
+                    item: item.clone(),
+                    loading: true,
+                    playing: false,
+                    position_ms: at_ms,
+                    error: None,
+                });
+            }
+        }
+        vec![Effect::Backend(Command::MoveVoiceMessage {
+            room,
+            item,
+            at_ms,
+            speakers: self.state.voice.speaker.clone(),
+            tuning: self.state.voice_tuning,
+        })]
+    }
+
+    /// Plays the voice message playing, if one is, as fast and loud as now
+    /// chosen.
+    pub(super) fn tune_voice_message(&self) -> Vec<Effect> {
+        match &self.state.voice_message {
+            Some(_) => vec![Effect::Backend(Command::TuneVoiceMessage(
+                self.state.voice_tuning,
+            ))],
+            None => vec![],
+        }
     }
 
     pub(super) fn view_image(&mut self, item: String, index: usize) -> Vec<Effect> {

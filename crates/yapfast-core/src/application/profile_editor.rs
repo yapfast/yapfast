@@ -772,8 +772,9 @@ impl Application {
             // change.
             Err(error) => editor.error = Some(error),
         }
-        // The account's card asks again as it next opens: the save dropped
-        // the profile the service kept.
+        // The save dropped the profile the service kept. The main profile's
+        // answer fills the account's card too, so it shows what was saved,
+        // with no second request; Discord's client also asks no more.
         vec![Effect::Backend(Command::Discord(
             DiscordCommand::OwnProfile { server },
         ))]

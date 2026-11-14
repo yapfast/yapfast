@@ -187,6 +187,13 @@ impl Unreads {
         roles: &HashMap<String, Vec<String>>,
     ) -> bool {
         match event {
+            // An answer only this account sees isn't in the channel's
+            // history, so it's neither unread nor read up to.
+            Event::MessageCreate
+                if data["flags"].as_u64().unwrap_or_default() & crate::message::EPHEMERAL != 0 =>
+            {
+                false
+            }
             Event::MessageCreate => {
                 let (Some(channel), Some(id)) =
                     (data["channel_id"].as_str(), snowflake(&data["id"]))
@@ -415,6 +422,13 @@ impl Unreads {
         self.reads
             .insert(channel.to_owned(), Read { last, mentions: 0 });
         Some(last.to_string())
+    }
+
+    /// Marks a channel unread after `last`, with `mentions` of the messages
+    /// after it calling on this account, as Mark Unread does.
+    pub fn mark_unread(&mut self, channel: &str, last: u64, mentions: u64) {
+        self.reads
+            .insert(channel.to_owned(), Read { last, mentions });
     }
 
     /// Whether the notification settings keep @everyone and @here, and role
@@ -651,6 +665,11 @@ mod tests {
         assert_eq!(unreads.mark_read("10", "11"), None);
         assert_eq!(state(&unreads, &mut server)[0], (false, 0));
         assert_eq!(read(&unreads, &server)[0], 604);
+        // Mark Unread sets the read message before the one it's on.
+        unreads.mark_unread("11", 601, 1);
+        assert_eq!(state(&unreads, &mut server)[0], (true, 1));
+        assert_eq!(read(&unreads, &server)[0], 601);
+        unreads.mark_read("10", "11");
 
         unreads.apply(
             &Event::MessageAck,

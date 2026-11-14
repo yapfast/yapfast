@@ -88,6 +88,11 @@ const CONTENT_TYPE: u8 = 7;
 const RID: u8 = 11;
 /// The stream id on a retransmission, in place of [`RID`].
 const REPAIRED_RID: u8 = 12;
+/// `urn:3gpp:video-orientation` (CVO), which Discord's native clients
+/// number 4 (docs.discord.food, Voice Connections, "Native RTP Header
+/// Extensions"; its WebRTC SDP says 13). Phones film in the sensor's
+/// orientation and say here how to turn each frame upright.
+const VIDEO_ORIENTATION: u8 = 4;
 /// The extension block's size: its preamble, then three words of elements.
 const EXTENSIONS: usize = 4 + 12;
 
@@ -506,6 +511,63 @@ pub fn nal_units(frame: &[u8]) -> Vec<&[u8]> {
         .collect()
 }
 
+/// How to turn a camera's frame to show it upright, from the sender's
+/// video orientation (3GPP TS 26.114, 7.4.5): a byte `0000CFRR`, the
+/// quarter turns clockwise in `RR` and a left-right flip in `F`. The camera
+/// bit `C` (front or back) changes nothing shown. libwebrtc, which Discord's
+/// apps are built on, sends it on a frame's last packet whenever it isn't
+/// upright, and once more when it turns back.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Orientation {
+    /// Quarter turns clockwise, 0 to 3.
+    pub turns: u8,
+    /// Flipped left to right, after turning.
+    pub flip: bool,
+}
+
+impl Orientation {
+    pub fn from_cvo(byte: u8) -> Self {
+        Self {
+            turns: byte & 0x03,
+            flip: byte & 0x04 != 0,
+        }
+    }
+}
+
+/// The video orientation among a packet's header extensions, `profile`
+/// being the extension block's first word: one-byte elements (`0xBEDE`,
+/// RFC 8285), as Discord sends, or two-byte ones (`0x100x`).
+fn orientation(profile: u16, mut elements: &[u8]) -> Option<Orientation> {
+    let two_byte = profile & 0xfff0 == 0x1000;
+    if profile != 0xbede && !two_byte {
+        return None;
+    }
+    while let Some((&first, rest)) = elements.split_first() {
+        // A zero byte is padding in either form.
+        if first == 0 {
+            elements = rest;
+            continue;
+        }
+        let (id, length, rest) = if two_byte {
+            let (&length, rest) = rest.split_first()?;
+            (first, usize::from(length), rest)
+        } else if first >> 4 == 15 {
+            // Reserved: the block ends.
+            return None;
+        } else {
+            (first >> 4, usize::from(first & 0x0f) + 1, rest)
+        };
+        let value = rest.get(..length)?;
+        if id == VIDEO_ORIENTATION
+            && let Some(&byte) = value.first()
+        {
+            return Some(Orientation::from_cvo(byte));
+        }
+        elements = &rest[length..];
+    }
+    None
+}
+
 /// A decrypted RTP packet.
 #[derive(Debug)]
 pub struct Packet<'a> {
@@ -515,6 +577,8 @@ pub struct Packet<'a> {
     pub timestamp: u32,
     pub ssrc: u32,
     pub payload: &'a [u8],
+    /// The video orientation it carries, if any.
+    pub orientation: Option<Orientation>,
 }
 
 /// Reads a decrypted RTP packet, skipping CSRCs, extensions and padding.
@@ -524,8 +588,12 @@ pub fn parse(packet: &[u8]) -> Option<Packet<'_>> {
         return None;
     }
     let mut start = HEADER + usize::from(first & 0x0f) * 4;
+    let mut turned = None;
     if first & 0x10 != 0 {
+        let profile = u16::from_be_bytes([*packet.get(start)?, *packet.get(start + 1)?]);
         let words = u16::from_be_bytes([*packet.get(start + 2)?, *packet.get(start + 3)?]);
+        let elements = packet.get(start + 4..start + 4 + usize::from(words) * 4)?;
+        turned = orientation(profile, elements);
         start += 4 + usize::from(words) * 4;
     }
     let padding = if first & 0x20 != 0 {
@@ -541,6 +609,7 @@ pub fn parse(packet: &[u8]) -> Option<Packet<'_>> {
         timestamp: u32::from_be_bytes([packet[4], packet[5], packet[6], packet[7]]),
         ssrc: u32::from_be_bytes([packet[8], packet[9], packet[10], packet[11]]),
         payload: packet.get(start..end)?,
+        orientation: turned,
     })
 }
 
@@ -1238,6 +1307,7 @@ pub struct Held {
     pub timestamp: u32,
     pub ssrc: u32,
     pub payload: Vec<u8>,
+    pub orientation: Option<Orientation>,
 }
 
 impl Held {
@@ -1249,6 +1319,7 @@ impl Held {
             timestamp: packet.timestamp,
             ssrc: packet.ssrc,
             payload: packet.payload.to_vec(),
+            orientation: packet.orientation,
         }
     }
 
@@ -1260,6 +1331,7 @@ impl Held {
             timestamp: self.timestamp,
             ssrc: self.ssrc,
             payload: &self.payload,
+            orientation: self.orientation,
         }
     }
 
@@ -1283,6 +1355,7 @@ impl Held {
             timestamp: packet.timestamp,
             ssrc: media,
             payload: payload.to_vec(),
+            orientation: packet.orientation,
         })
     }
 }
@@ -1471,7 +1544,37 @@ pub fn receiver_report(
 /// The report blocks of the sender and receiver reports in a decrypted
 /// compound RTCP packet: each about one SSRC, with the packets lost from it
 /// so far and the highest sequence number received, extended.
-pub fn report_blocks(mut rtcp: &[u8]) -> Vec<(u32, u32, u32)> {
+pub fn report_blocks(rtcp: &[u8]) -> Vec<(u32, u32, u32)> {
+    blocks(rtcp)
+        .into_iter()
+        .map(|block| (block.ssrc, block.lost, block.highest))
+        .collect()
+}
+
+/// What one report block of a sender or receiver report says about an SSRC.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Reception {
+    pub ssrc: u32,
+    /// Packets lost since the previous report, out of 256.
+    pub fraction_lost: u8,
+    /// Packets lost so far.
+    pub lost: u32,
+    /// The highest sequence number received, extended.
+    pub highest: u32,
+    /// Interarrival jitter, in the stream's RTP clock.
+    pub jitter: u32,
+    /// The middle 32 bits of the NTP time of the last sender report heard
+    /// from the SSRC, or 0 before one, and the delay since it, in 1/65536 s.
+    pub last_report: u32,
+    pub delay: u32,
+}
+
+/// The last report block about `ssrc` in a decrypted compound RTCP packet.
+pub fn reception(rtcp: &[u8], ssrc: u32) -> Option<Reception> {
+    blocks(rtcp).into_iter().rfind(|block| block.ssrc == ssrc)
+}
+
+fn blocks(mut rtcp: &[u8]) -> Vec<Reception> {
     let mut blocks = vec![];
     while rtcp.len() >= 4 {
         let length = (usize::from(u16::from_be_bytes([rtcp[2], rtcp[3]])) + 1) * 4;
@@ -1487,18 +1590,39 @@ pub fn report_blocks(mut rtcp: &[u8]) -> Vec<(u32, u32, u32)> {
             201 => Some(8),
             _ => None,
         };
-        for block in first.into_iter().flat_map(|first| {
+        for at in first.into_iter().flat_map(|first| {
             (0..usize::from(packet[0] & 0x1f)).map(move |block| first + block * 24)
         }) {
-            if let (Some(ssrc), Some(lost), Some(highest)) =
-                (word(block), word(block + 4), word(block + 8))
-            {
-                blocks.push((ssrc, lost & 0x00ff_ffff, highest));
-            }
+            let block = || {
+                let lost = word(at + 4)?;
+                Some(Reception {
+                    ssrc: word(at)?,
+                    fraction_lost: (lost >> 24) as u8,
+                    lost: lost & 0x00ff_ffff,
+                    highest: word(at + 8)?,
+                    jitter: word(at + 12)?,
+                    last_report: word(at + 16)?,
+                    delay: word(at + 20)?,
+                })
+            };
+            blocks.extend(block());
         }
         rtcp = rtcp.get(length..).unwrap_or_default();
     }
     blocks
+}
+
+/// The round trip a report block measured: from `sent`, when this end sent
+/// the sender report it echoes, to `received`, less the `delay` the other
+/// end held it, in 1/65536 s. None when the delay is longer than the time
+/// between, as a report about another sender report would be.
+pub fn round_trip(
+    sent: std::time::Instant,
+    received: std::time::Instant,
+    delay: u32,
+) -> Option<std::time::Duration> {
+    let held = std::time::Duration::from_micros(u64::from(delay) * 1_000_000 / 65_536);
+    received.checked_duration_since(sent)?.checked_sub(held)
 }
 
 /// The sender reports in a decrypted compound RTCP packet: each sender's
@@ -1531,6 +1655,48 @@ mod tests {
         assert_eq!(report_blocks(&report), [(77, 12, 1000)]);
         assert_eq!(report_blocks(&both), [(77, 12, 1000), (78, 0, 40)]);
         assert!(report_blocks(&picture_loss(1, 77)).is_empty());
+    }
+
+    #[test]
+    fn reads_what_a_report_says_about_one_ssrc() {
+        let report = receiver_report(1, 77, (1000, 12, 30), (0x1234_5678, 6554));
+        let both = [receiver_report(1, 78, (40, 0, 0), (0, 0)), report].concat();
+        assert_eq!(
+            reception(&both, 77),
+            Some(Reception {
+                ssrc: 77,
+                fraction_lost: 30,
+                lost: 12,
+                highest: 1000,
+                jitter: 0,
+                last_report: 0x1234_5678,
+                delay: 6554,
+            })
+        );
+        assert_eq!(reception(&both, 79), None);
+    }
+
+    #[test]
+    fn measures_the_round_trip_from_an_echoed_sender_report() {
+        use std::time::{Duration, Instant};
+        let sent = Instant::now();
+        // Held 0.1 s (6554/65536) of the 0.35 s between.
+        let received = sent + Duration::from_millis(350);
+        let trip = round_trip(sent, received, 6554).unwrap();
+        assert!(
+            trip.abs_diff(Duration::from_millis(250)) < Duration::from_millis(1),
+            "{trip:?}"
+        );
+        assert_eq!(
+            round_trip(sent, received, 0),
+            Some(Duration::from_millis(350))
+        );
+        assert_eq!(
+            round_trip(sent, received, 65_536),
+            None,
+            "held longer than the trip"
+        );
+        assert_eq!(round_trip(received, sent, 0), None, "from the future");
     }
 
     #[test]
@@ -1671,6 +1837,7 @@ mod tests {
             timestamp: 0,
             ssrc: 5,
             payload: &[],
+            orientation: None,
         };
         packetizer.sequence = packetizer.sequence.wrapping_add(1);
         assert_eq!(assembler.push(&padding), Pushed::default());
@@ -1706,6 +1873,7 @@ mod tests {
             timestamp: 0,
             ssrc: 5,
             payload: vec![sequence as u8],
+            orientation: None,
         };
         let sequences =
             |ready: Vec<Held>| -> Vec<u16> { ready.iter().map(|held| held.sequence).collect() };
@@ -1744,6 +1912,7 @@ mod tests {
             timestamp: 0,
             ssrc: 5,
             payload: vec![0],
+            orientation: None,
         };
         let mut reorder = Reorder::default();
         let mut sequence = 0u16;
@@ -1793,12 +1962,81 @@ mod tests {
                 timestamp: 3000,
                 ssrc: 5,
                 payload: &payload,
+                orientation: None,
             });
             // W=1, Z and Y: the one element continues the last packet's
             // and carries on in the next.
             payload[..2].copy_from_slice(&[0xd0, 7]);
         }
         assert!(assembler.obu.len() <= MAX_FRAME);
+    }
+
+    /// A packet with header extensions `profile` and `elements`, padded to
+    /// whole words, around a one-byte payload.
+    fn extended(profile: u16, elements: &[u8]) -> Vec<u8> {
+        let mut packet = vec![0x90, VP8, 0, 1, 0, 0, 0, 9, 0, 0, 0, 5];
+        let words = elements.len().div_ceil(4);
+        packet.extend_from_slice(&profile.to_be_bytes());
+        packet.extend_from_slice(&(words as u16).to_be_bytes());
+        packet.extend_from_slice(elements);
+        packet.resize(HEADER + 4 + words * 4, 0);
+        packet.push(0x42);
+        packet
+    }
+
+    #[test]
+    fn reads_the_video_orientation_at_discords_id() {
+        // Among the transport sequence and the stream id, as Discord sends.
+        for (byte, turns) in [(0, 0), (1, 1), (2, 2), (3, 3)] {
+            let packet = extended(0xbede, &[0x51, 0, 7, 0x40, byte, 0xb2, b'1', b'0', b'0']);
+            let parsed = parse(&packet).unwrap();
+            assert_eq!(parsed.payload, &[0x42]);
+            assert_eq!(
+                parsed.orientation,
+                Some(Orientation { turns, flip: false }),
+                "{} degrees",
+                u32::from(turns) * 90
+            );
+        }
+        let turned =
+            |profile, elements: &[u8]| parse(&extended(profile, elements)).unwrap().orientation;
+        // The flip, with the front camera's bit, which changes nothing.
+        assert_eq!(
+            turned(0xbede, &[0x40, 0x0d]),
+            Some(Orientation {
+                turns: 1,
+                flip: true
+            })
+        );
+        // After padding, and in the two-byte form.
+        assert_eq!(turned(0xbede, &[0, 0, 0x40, 2]).map(|o| o.turns), Some(2));
+        assert_eq!(
+            turned(0x1000, &[5, 2, 0, 9, 0, 4, 1, 3]).map(|o| o.turns),
+            Some(3)
+        );
+        // Other ids, a one-byte value at another id, and none at all.
+        assert_eq!(turned(0xbede, &[0x51, 0, 7, 0x70, 1]), None);
+        assert_eq!(turned(0xbede, &[]), None);
+        // A value running past the block is no orientation, not a panic.
+        assert_eq!(turned(0xbede, &[0x5f, 0]), None);
+        // Yapfast's own packets carry none.
+        let mut packetizer = Packetizer::new(5, Codec::H264);
+        let own = packetizer.packets(&[0, 0, 0, 1, 0x65, 1, 2], 0, true);
+        assert_eq!(parse(&own[0]).unwrap().orientation, None);
+        // A resent packet keeps it.
+        let sent = extended(0xbede, &[0x40, 1, 0, 0, 0, 0]);
+        let resent = parse(&sent).unwrap();
+        let resent = Packet {
+            payload: &[0, 7, 1],
+            ..resent
+        };
+        assert_eq!(
+            Held::unwrap_rtx(&resent, 4)
+                .unwrap()
+                .orientation
+                .map(|o| o.turns),
+            Some(1)
+        );
     }
 
     #[test]

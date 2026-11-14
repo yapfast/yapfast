@@ -40,14 +40,40 @@ for hexcode, value in fetch('shortcodes/joypixels.json').items():
 
 # Where Discord means another emoji by a name than JoyPixels does, or names one
 # with an underscore where GitHub has a hyphen.
-table.update({
+OVERRIDES = {
     'beach_umbrella': '\u26f1\ufe0f',
     'city_sunset': '\U0001f307',
     'non_potable_water': '\U0001f6b1',
-})
+}
+table.update(OVERRIDES)
+
+# Each emoji's first name, which Discord's settings keep a favourite by and its
+# client takes one out by, where it isn't GitHub's first: `thumbsup` before
+# `+1`, and `slight_smile` where GitHub has none.
+github_first = {}
+for hexcode, value in fetch('shortcodes/github.json').items():
+    words = [name for name in names(value) if re.match(r'[a-z0-9]', name)] or names(value)
+    github_first[hexcode] = words[0]
+first = {}
+for hexcode, value in fetch('shortcodes/joypixels.json').items():
+    if re.search(r'-1F3F[B-F]', hexcode) or hexcode not in emoji:
+        continue
+    name = names(value)[0]
+    if name != github_first.get(hexcode):
+        first[emoji[hexcode]] = name
+# Discord writes GitHub's hyphens as underscores: `e_mail`, `fleur_de_lis`.
+for hexcode, name in github_first.items():
+    if '-' in name.strip('-') and hexcode in emoji and emoji[hexcode] not in first:
+        first[emoji[hexcode]] = name
+first = {glyph: name.replace('-', '_') if '-' in name.strip('-') else name
+         for glyph, name in first.items()}
+for name, glyph in OVERRIDES.items():
+    first[glyph] = name
 
 rows = ''.join(f'    ({json.dumps(name)}, {json.dumps(glyph, ensure_ascii=False)}),\n'
                for name, glyph in sorted(table.items()))
+first_rows = ''.join(f'    ({json.dumps(glyph, ensure_ascii=False)}, {json.dumps(name)}),\n'
+                     for glyph, name in sorted(first.items()))
 OUT.write_text(f'''//! The Unicode emoji Discord names differently from GitHub's shortcodes, by
 //! Discord's name, sorted. Written by `scripts/discord-emoji-names` from
 //! emojibase-data {VERSION} (MIT); see there.
@@ -55,5 +81,11 @@ OUT.write_text(f'''//! The Unicode emoji Discord names differently from GitHub's
 #[rustfmt::skip]
 pub const NAMES: &[(&str, &str)] = &[
 {rows}];
+
+/// Each emoji's first name, by the emoji, sorted, where it isn't GitHub's
+/// first shortcode: the one Discord's settings keep a favourite by.
+#[rustfmt::skip]
+pub const FIRST: &[(&str, &str)] = &[
+{first_rows}];
 ''')
-print(f'{len(table)} names in {OUT.relative_to(OUT.parent.parent)}')
+print(f'{len(table)} names, {len(first)} first names in {OUT.relative_to(OUT.parent.parent)}')

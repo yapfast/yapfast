@@ -18,7 +18,7 @@ use serde_json::{Map, Value, json};
 use tokio::{sync::mpsc, time::Instant};
 
 use crate::{
-    rtp::{self, Assembler, Codec, Packetizer},
+    rtp::{self, Assembler, Codec, Orientation, Packetizer},
     stream_connection::{Frame, SEND_CODEC, video_attributes},
     voice_connection::{Connection, send_json},
 };
@@ -86,6 +86,8 @@ pub struct VideoFrame {
     pub codec: Codec,
     pub data: Vec<u8>,
     pub keyframe: bool,
+    /// How to turn it upright, as the sender last said.
+    pub orientation: Orientation,
 }
 
 /// This account's camera, sending.
@@ -200,6 +202,9 @@ struct Incoming {
     reorder: rtp::Reorder,
     assembler: Option<Assembler>,
     asked: Instant,
+    /// The orientation the sender last gave, which holds until it gives
+    /// another: libwebrtc leaves it out of upright frames' packets.
+    orientation: Orientation,
 }
 
 /// Everyone else's cameras: who films on which SSRC, what Yapfast asked for,
@@ -261,6 +266,7 @@ impl Receiving {
                 reorder: rtp::Reorder::default(),
                 assembler: None,
                 asked: Instant::now() - KEYFRAME_REQUESTS,
+                orientation: Orientation::default(),
             },
         );
         true
@@ -345,6 +351,11 @@ impl Receiving {
             let mut lost = false;
             let (ready, _) = incoming.reorder.ready(now);
             for held in ready {
+                // It rides on a frame's last packet, so it's known by the
+                // time the frame is whole.
+                if let Some(orientation) = held.orientation {
+                    incoming.orientation = orientation;
+                }
                 let pushed = assembler.push(&held.packet());
                 lost |= pushed.lost;
                 let Some(frame) = pushed.frame else { continue };
@@ -356,6 +367,7 @@ impl Receiving {
                     codec,
                     data,
                     keyframe: frame.keyframe,
+                    orientation: incoming.orientation,
                 };
                 if let Err(channel::TrySendError::Full(_)) = self.frames.try_send(frame) {
                     // Decoding is behind; what follows needs this frame.

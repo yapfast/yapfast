@@ -263,6 +263,12 @@ impl Shell {
     /// Opens the window on a conversation, as a clicked notification does.
     fn open_room(self: &Rc<Self>, room: String) {
         if let Some(window) = self.open() {
+            // The notification of a newer release opens About.
+            if room == super::updates::ABOUT {
+                window.set_settings_section(9);
+                window.set_settings_open(true);
+                return;
+            }
             window.set_settings_open(false);
             self.adapter
                 .borrow_mut()
@@ -351,6 +357,13 @@ pub(super) fn launched(launch: crate::instance::Launch) {
     if let Some(link) = link {
         shell.queue_link(link);
     }
+    open_with(&shell, token);
+}
+
+/// Shows the window, taking the focus with an xdg-activation token from the
+/// input that asked for it, where there is one: a window made again takes it
+/// through winit, a shown one through `instance::activate`.
+fn open_with(shell: &Rc<Shell>, token: Option<String>) {
     let Some(window) = shell.window() else {
         crate::instance::give_next_window(token);
         shell.open();
@@ -373,9 +386,7 @@ fn chosen(choice: Choice) {
         return;
     };
     match choice {
-        Choice::Open => {
-            shell.open();
-        }
+        Choice::Open => open_with(&shell, crate::tray::take_activation_token()),
         Choice::Disconnect => shell.act(Action::Voice(voice::Command::Leave)),
         Choice::Quit => {
             let _ = slint::quit_event_loop();

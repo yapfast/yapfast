@@ -48,6 +48,12 @@ pub fn forget_images() {
     REGISTRY.with_borrow_mut(|registry| registry.images.clear());
 }
 
+/// Lets go of the pictures kept of emoji shown on their own but those whose
+/// ids `keep` holds, as the picker scrolls away from the rest.
+pub fn forget_images_except(keep: &std::collections::HashSet<String>) {
+    REGISTRY.with_borrow_mut(|registry| registry.images.retain(|id, _| keep.contains(id)));
+}
+
 /// Keeps the pictures that arrived of emoji shown on their own. True when
 /// there are new ones.
 pub fn add_images<'a>(arrived: impl IntoIterator<Item = (&'a str, &'a Picture)>) -> bool {

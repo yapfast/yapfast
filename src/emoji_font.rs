@@ -19,6 +19,38 @@ pub fn register(family: &str, glyphs: &[(char, Vec<u8>)], also: &[(u32, char)]) 
     )
 }
 
+/// Registers `font` as [`register_blob`] does, and makes it the one emoji
+/// font: the generic emoji family, which text with an emoji asks after its own
+/// typeface, is it alone, and the system's emoji fonts leave the families text
+/// falls back through, so none of their emoji show. True when the font loaded.
+pub fn register_emoji(family: &str, font: fontique::Blob<u8>) -> bool {
+    if !register_blob(family, font) {
+        return false;
+    }
+    let mut collection = shared_collection();
+    let Some(emoji) = collection.family_by_name(family).map(|found| found.id()) else {
+        return false;
+    };
+    for generic in [
+        fontique::GenericFamily::SansSerif,
+        fontique::GenericFamily::SystemUi,
+    ] {
+        let families: Vec<_> = collection.generic_families(generic).collect();
+        let kept: Vec<_> = families
+            .into_iter()
+            .filter(|id| {
+                *id == emoji
+                    || !collection
+                        .family_name(*id)
+                        .is_some_and(|name| name.to_lowercase().contains("emoji"))
+            })
+            .collect();
+        collection.set_generic_families(generic, kept.into_iter());
+    }
+    collection.set_generic_families(fontique::GenericFamily::Emoji, std::iter::once(emoji));
+    true
+}
+
 /// Registers `font`, as [`register`] does one it builds.
 pub fn register_blob(family: &str, font: fontique::Blob<u8>) -> bool {
     let mut collection = shared_collection();

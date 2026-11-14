@@ -70,12 +70,16 @@ impl Animation {
 
     /// The frame that shows `elapsed` milliseconds in.
     pub fn frame_at(&self, elapsed: u32) -> Option<&Image> {
+        self.frames.get(self.index_at(elapsed)?)
+    }
+
+    /// Which frame shows `elapsed` milliseconds in.
+    fn index_at(&self, elapsed: u32) -> Option<usize> {
         if self.frames.is_empty() || self.ends == 0 {
             return None;
         }
         let at = elapsed % self.ends;
-        let index = self.starts.partition_point(|start| *start <= at).saturating_sub(1);
-        self.frames.get(index)
+        Some(self.starts.partition_point(|start| *start <= at).saturating_sub(1))
     }
 
     /// How long the animation runs before it starts again, in milliseconds.
@@ -143,6 +147,15 @@ pub fn insert(key: &str, glyph: Option<char>, animation: Rc<Animation>) {
         }
         registered.by_key.insert(String::from(key), animation);
     });
+    redraw();
+}
+
+/// Moves the revision, so what draws a frame draws again.
+fn redraw() {
+    REVISION.with(|revision| {
+        let next = revision.as_ref().get_untracked().wrapping_add(1);
+        revision.as_ref().set(next);
+    });
 }
 
 /// Names the glyph an emoji's frames draw, as text draws it, for one whose font
@@ -162,28 +175,32 @@ pub fn remove(key: &str) {
         registered.by_key.remove(key);
         registered.by_glyph.retain(|_, k| k != key);
     });
+    redraw();
 }
 
-/// Moves the clock, while playing, and draws what shows a frame again.
+/// Moves the clock, while playing, and draws what shows a frame again: only
+/// when some animation's frame changed, as the clock ticks at the pace of the
+/// fastest and most ticks move none, and every draw walks the whole window.
 pub fn advance(delta: Duration) {
-    let Some(revision) = REGISTRY.with_borrow_mut(|registered| {
+    let moved = REGISTRY.with_borrow_mut(|registered| {
         if !registered.playing || registered.by_key.is_empty() {
-            return None;
+            return false;
         }
         let millis = u32::try_from(delta.as_millis()).unwrap_or(u32::MAX);
         if millis == 0 {
-            return None;
+            return false;
         }
-        registered.elapsed = registered.elapsed.saturating_add(millis);
-        Some(REVISION.with(|revision| {
-            let next = revision.as_ref().get_untracked().wrapping_add(1);
-            revision.as_ref().set(next);
-            next
-        }))
-    }) else {
-        return;
-    };
-    let _ = revision;
+        let before = registered.elapsed;
+        registered.elapsed = before.saturating_add(millis);
+        let after = registered.elapsed;
+        registered
+            .by_key
+            .values()
+            .any(|animation| animation.index_at(before) != animation.index_at(after))
+    });
+    if moved {
+        redraw();
+    }
 }
 
 /// Whether the clock moves when advanced, which the application keeps in step

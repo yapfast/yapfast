@@ -45,7 +45,9 @@ whole path.
 7. **The window.** A component in `ui/*.slint`, a property or callback on
    `YapfastWindow` in `ui/yapfast.slint` passed down to it, its rows filled
    in `src/ui/refresh.rs` (a list model goes in `Models` in `src/ui.rs`;
-   a sidebar list joins `SidebarShown::lists`, or its rows never refresh),
+   a sidebar list joins `SidebarShown::lists`, and what a member list row
+   or the Activity panel shows joins `RosterShown`, or its rows never
+   refresh),
    and its callback bound to the action in `src/ui/callbacks.rs`. Before
    adding a field to a Slint struct, grep `StructName {` in `src/`: every
    literal of it needs the field. `docs/architecture.md` has the path in

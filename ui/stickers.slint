@@ -1,0 +1,208 @@
+import { ScrollView } from "scrollview.slint";
+import { PickerRail, RailSection } from "messages.slint";
+import { Theme } from "theme.slint";
+import { Picture, TextField } from "controls.slint";
+
+/// A tile of the sticker picker's grid, placed by the adapter: `kind` 0 is a
+/// sticker, 1 a collection's heading with `image` as its icon, 2 a heading
+/// with a clock's, as Frequently Used has.
+export struct StickerGridTile {
+    kind: int,
+    /// The sticker's name, which the picker names under the grid, or the
+    /// collection's name.
+    label: string,
+    /// The sticker's id, which a click sends.
+    id: string,
+    x: length, y: length, w: length, h: length,
+    /// The sticker's picture, or a heading's icon.
+    image: image, frames: [image], delays: [int],
+    /// The sticker is one of this device's favorites.
+    favorite: bool,
+    /// This account may use it where it is looking; one it may not shows
+    /// greyed, with a lock over its corner.
+    usable: bool,
+}
+
+// The collections the sticker picker lists, as the rail down its left takes
+// them: Frequently Used, a server's own, or one of Discord's default packs.
+
+// The sticker picker, as Discord's: a search, the collections down the left,
+// and each one's stickers under its name, 96px square. A click sends one.
+export component StickerPicker inherits Rectangle {
+    in property <[StickerGridTile]> tiles;
+    in property <[RailSection]> sections;
+    /// The platform's emoji font, for the rail's icons of a server without one.
+    in property <string> font;
+    /// How tall the grid is, which the adapter places the tiles in.
+    in property <length> grid-height;
+    /// What the grid says in place of tiles, when it says anything.
+    in property <string> note;
+    in-out property <string> query;
+    /// The first sticker the search shows, which Enter picks; empty with none.
+    in property <string> first-id;
+    /// Inside the picker above the composer, which draws the frame and its
+    /// tone, as the emoji picker's is.
+    in property <bool> bare;
+    callback search(string);
+    callback pick(string);
+    /// A sticker's star was pressed: keep it among the favorites, or let it go.
+    callback favorite(string);
+    /// A locked sticker was pressed: offer Nitro, which unlocks it.
+    callback unlock-nitro;
+    /// How far the grid is scrolled and how tall it shows, for the adapter
+    /// to load the pictures in sight.
+    callback scrolled-to(length, length);
+    callback close;
+    /// The sticker the pointer is over, by its name.
+    property <string> hovered;
+    property <length> scrolled: -grid.content-y;
+    property <length> shown-height: grid.height;
+    function report() { root.scrolled-to(root.scrolled, root.shown-height); }
+    init => { root.report(); }
+    changed scrolled => { root.report(); }
+    changed shown-height => { root.report(); }
+    changed tiles => { root.hovered = ""; }
+    changed query => { grid.content-y = 0; }
+    background: root.bare ? transparent : Theme.raised;
+    border-color: Theme.edge; border-width: root.bare ? 0px : 1px;
+    border-radius: root.bare ? 0px : 10px;
+    drop-shadow-blur: root.bare ? 0px : 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+    clip: true;
+    FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Escape { root.close(); return accept; }
+            return reject;
+        }
+        VerticalLayout {
+            spacing: 0px;
+            HorizontalLayout {
+                padding: 10px; padding-bottom: 6px;
+                field := TextField {
+                    // The search takes the keys once the picker shows, as the
+                    // emoji picker's does.
+                    init => { self.focus-input(); }
+                    min-height: 34px; text-size: 15px; pad: 10px; fill: Theme.sunken;
+                    placeholder: "Find the perfect sticker"; label: "Find the perfect sticker";
+                    text <=> root.query;
+                    edited(text) => { root.search(text); }
+                    // Enter picks the first sticker the search shows.
+                    accepted => { if root.first-id != "" { root.pick(root.first-id); } }
+                }
+            }
+            HorizontalLayout {
+                vertical-stretch: 1;
+                // The collections, each a button with its icon, Discord's own
+                // packs parted from the rest by a line; the one the grid
+                // starts in is marked, as the emoji picker's rail is.
+                PickerRail {
+                    sections: root.sections; scrolled: root.scrolled; font: root.font;
+                    jump(top) => { grid.content-y = -top; root.hovered = ""; }
+                    hovered(icon) => { root.hovered = icon.name; }
+                }
+                grid := ScrollView {
+                    vertical-stretch: 1;
+                    content-height: max(root.grid-height, root.note != "" ? 120px : 0px);
+                    for tile in root.tiles: Rectangle {
+                        x: tile.x; y: tile.y; width: tile.w; height: tile.h;
+                        if tile.kind == 1: HorizontalLayout {
+                            x: 2px; y: (parent.height - self.height) / 2;
+                            height: 18px; spacing: 6px; alignment: start;
+                            if tile.image.width > 0: Picture {
+                                width: 16px; height: 16px; image-fit: contain;
+                                still: tile.image; frames: tile.frames; delays: tile.delays;
+                            }
+                            Text {
+                                text: tile.label; color: Theme.secondary; font-size: 13px; font-weight: 700;
+                                vertical-alignment: center; horizontal-alignment: left; overflow: elide;
+                            }
+                        }
+                        if tile.kind == 2: HorizontalLayout {
+                            x: 2px; y: (parent.height - self.height) / 2;
+                            height: 18px; spacing: 6px; alignment: start;
+                            Image { width: 16px; height: 16px; source: @image-url("icons/clock.svg"); colorize: Theme.secondary; }
+                            Text {
+                                text: tile.label; color: Theme.secondary; font-size: 13px; font-weight: 700;
+                                vertical-alignment: center; horizontal-alignment: left; overflow: elide;
+                            }
+                        }
+                        if tile.kind == 0: Rectangle {
+                            width: parent.width; height: parent.height;
+                            border-radius: 8px; clip: true;
+                            opacity: tile.usable ? 1 : 0.4;
+                            background: tile-touch.has-hover ? Theme.hover : transparent;
+                            accessible-role: button;
+                            accessible-label: tile.usable ? tile.label : "Locked, Nitro only: " + tile.label;
+                            accessible-action-default => {
+                                if tile.usable { root.pick(tile.id); } else { root.unlock-nitro(); }
+                            }
+                            Picture {
+                                width: parent.width; height: parent.height;
+                                still: tile.image; frames: tile.frames; delays: tile.delays; image-fit: contain;
+                            }
+                            if !tile.usable: Image {
+                                source: @image-url("icons/lock.svg");
+                                width: 14px; height: 14px;
+                                x: parent.width - self.width - 4px; y: parent.height - self.height - 4px;
+                                colorize: Theme.text;
+                            }
+                            tile-touch := TouchArea {
+                                mouse-cursor: MouseCursor.pointer;
+                                clicked => {
+                                    root.hovered = "";
+                                    if tile.usable { root.pick(tile.id); } else { root.unlock-nitro(); }
+                                }
+                                changed has-hover => {
+                                    if self.has-hover {
+                                        root.hovered = tile.label;
+                                    } else if root.hovered == tile.label {
+                                        root.hovered = "";
+                                    }
+                                }
+                            }
+                            // Its star keeps it among the favorites, as a
+                            // GIF's does in the GIFs' picker.
+                            star := Rectangle {
+                                x: parent.width - self.width - 4px; y: 4px;
+                                width: 24px; height: 24px; border-radius: 5px;
+                                background: Theme.panel;
+                                opacity: tile-touch.has-hover ? 1 : 0;
+                                animate opacity { duration: Theme.quick; }
+                                accessible-role: button;
+                                accessible-label: tile.favorite ? "Remove from Favorites" : "Add to Favorites";
+                                accessible-action-default => { root.favorite(tile.id); }
+                                Image {
+                                    x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+                                    width: 16px; height: 16px;
+                                    source: tile.favorite ? @image-url("icons/star-filled.svg") : @image-url("icons/star.svg");
+                                    colorize: tile.favorite ? #f0b232 : Theme.text;
+                                }
+                                TouchArea {
+                                    enabled: tile-touch.has-hover;
+                                    mouse-cursor: MouseCursor.pointer;
+                                    clicked => { root.hovered = ""; root.favorite(tile.id); }
+                                }
+                            }
+                        }
+                    }
+                    if root.note != "": Text {
+                        x: 24px; y: 40px; width: parent.width - 48px;
+                        text: root.note; color: Theme.muted; font-size: 15px; wrap: word-wrap; horizontal-alignment: center;
+                    }
+                }
+            }
+            // The sticker under the pointer, by name, or what a click does.
+            Rectangle {
+                height: 46px; background: Theme.panel;
+                HorizontalLayout {
+                    padding-left: 14px; padding-right: 14px;
+                    Text {
+                        text: root.hovered != "" ? root.hovered : "Click a sticker to send it.";
+                        color: root.hovered != "" ? Theme.text : Theme.muted;
+                        font-weight: root.hovered != "" ? 700 : 400;
+                        font-size: 15px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
+                    }
+                }
+            }
+        }
+    }
+}

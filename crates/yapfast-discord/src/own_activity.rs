@@ -103,10 +103,13 @@ async fn combine(
     }
 }
 
-pub(crate) fn merge(presence: &mut Value, activity: Option<&Value>) {
+/// Puts what this session shows in `presence`, in the order Discord's client
+/// sends it: the custom status, the game, then the music.
+pub(crate) fn merge(presence: &mut Value, game: Option<&Value>, music: Option<&Value>) {
     if let Some(activities) = presence["activities"].as_array_mut() {
         activities.retain(|value| value["type"] == 4);
-        activities.extend(activity.cloned());
+        activities.extend(game.cloned());
+        activities.extend(music.cloned());
     }
 }
 

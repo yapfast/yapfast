@@ -1,5 +1,5 @@
 import { ScrollView } from "scrollview.slint";
-import { Theme, Middle, Label, Popup } from "theme.slint";
+import { Theme, Middle, Label, Popup, Twemoji } from "theme.slint";
 import { ActionButton, IconButton, Avatar, TextField, MenuItem } from "controls.slint";
 import { DiscordBadge } from "discord.slint";
 import { StatusDot } from "rail.slint";
@@ -796,7 +796,7 @@ export component ReactionsDialog inherits Rectangle {
                                         accessible-action-default => { root.select-reaction(pill.key); }
                                         HorizontalLayout {
                                             padding-left: 4px; padding-right: 8px; spacing: 8px;
-                                            if !root.voters || pill.label != "": Text { text: pill.label; font-family: root.emoji-font; font-size: 20px; width: 24px; horizontal-alignment: center; vertical-alignment: center; }
+                                            if !root.voters || pill.label != "": Text { text: Twemoji.text(pill.label); font-family: root.emoji-font; font-size: 20px; width: 24px; horizontal-alignment: center; vertical-alignment: center; }
                                             if root.voters: Text { text: pill.name; color: Theme.text; font-size: 14px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                                             Text { text: pill.count; color: Theme.text; font-size: 14px; font-weight: 700; vertical-alignment: center; }
                                         }

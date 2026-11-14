@@ -158,6 +158,9 @@ mod denoise {
     /// of what the gate sent over hiss from 3.00 to 2.62.
     const NOISE_ONLY: f32 = -10.0;
     const PAUSE: u32 = 50;
+    /// The highest speech-to-noise estimate, in dB, at which DeepFilterNet
+    /// still runs both its stages, the top of its range.
+    const GAINS_UP_TO: f32 = 35.0;
     /// RNNoise's probability from which a block counts as speech.
     const SPEECH_PROBABILITY: f32 = 0.6;
 
@@ -263,7 +266,13 @@ mod denoise {
         /// Takes the noise out of 10 ms of mono, in 16-bit range, in place,
         /// and returns whether it's speech. DeepFilterNet's output is 30 ms
         /// behind its input, 31 with the declicker, RNNoise's 10 ms.
-        pub(crate) fn block(&mut self, block: &mut [f32], sent: Sent) -> bool {
+        ///
+        /// `lightly`, DeepFilterNet runs only its encoder, a third of its
+        /// work, which keeps its state and its speech estimate going, and
+        /// the block passes as it came, at the same delay: for catching up
+        /// when the microphone falls behind. RNNoise is cheap enough to run
+        /// in full.
+        pub(crate) fn block(&mut self, block: &mut [f32], sent: Sent, lightly: bool) -> bool {
             match &mut self.network {
                 Network::DeepFilterNet(network) => {
                     if super::declick() {
@@ -280,11 +289,18 @@ mod denoise {
                     }
                     let noisy = ArrayView2::from_shape((1, BLOCK), &self.noisy).unwrap();
                     let clean = ArrayViewMut2::from_shape((1, BLOCK), &mut self.clean).unwrap();
-                    // libDF skips its decoders below its lowest threshold.
+                    // libDF skips its decoders below its lowest threshold,
+                    // putting out the limit's mix of the block, and above
+                    // its highest, passing the block as it is.
                     network.min_db_thresh = match sent {
                         Sent::Never => f32::INFINITY,
                         Sent::Gated if self.noise >= PAUSE => NOISE_ONLY,
                         Sent::Gated | Sent::Always => f32::NEG_INFINITY,
+                    };
+                    network.max_db_erb_thresh = if lightly {
+                        f32::NEG_INFINITY
+                    } else {
+                        GAINS_UP_TO
                     };
                     let snr = match network.process(noisy, clean) {
                         Ok(snr) => snr,
@@ -331,7 +347,7 @@ mod denoise {
     /// 20 dB SNR and gains above 30, which dulled clean speech (PESQ 3.91
     /// rather than 4.53) and took up to 5 dB off speech over a fan.
     fn deep_filter_net() -> anyhow::Result<DfTract> {
-        let settings = RuntimeParams::default().with_thresholds(-15.0, 35.0, 35.0);
+        let settings = RuntimeParams::default().with_thresholds(-15.0, GAINS_UP_TO, GAINS_UP_TO);
         DfTract::new(DfParams::default(), &settings)
     }
 }
@@ -358,7 +374,7 @@ mod tests {
             if index >= 100 {
                 before += energy(&block);
             }
-            denoiser.block(&mut block, Sent::Gated);
+            denoiser.block(&mut block, Sent::Gated, false);
             if index >= 100 {
                 after += energy(&block);
             }
@@ -388,6 +404,40 @@ mod tests {
             );
         }
         assert_eq!(turned_down(Suppressor::Off, Strength::Full), 0.0);
+    }
+
+    /// Run lightly, as when the microphone falls behind, DeepFilterNet
+    /// passes the microphone through as it came, as late as its own output,
+    /// so switching between the two doesn't jump.
+    #[test]
+    fn deep_filter_net_run_lightly_passes_the_block_at_its_delay() {
+        let mut denoiser = Denoiser::new(Suppressor::DeepFilterNet, Strength::Medium.limit());
+        let mut seed = 7u32;
+        let input: Vec<f32> = (0..160 * BLOCK)
+            .map(|index| {
+                seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                let noise = (seed >> 16) as f32 / 65536.0 * 600.0 - 300.0;
+                noise + 3000.0 * (index as f32 * 0.037).sin()
+            })
+            .collect();
+        let mut output = Vec::with_capacity(input.len());
+        for (index, noisy) in input.chunks_exact(BLOCK).enumerate() {
+            let mut block = noisy.to_vec();
+            // Sent whatever it is, as push-to-talk's held key sends it: a
+            // steady tone would otherwise make a pause.
+            denoiser.block(&mut block, Sent::Always, index >= 100);
+            output.extend(block);
+        }
+        let lag = 3 * BLOCK + if declick() { crate::declick::DELAY } else { 0 };
+        // A block for the frames that overlap the switch.
+        let (mut signal, mut error) = (0.0, 0.0);
+        for at in 102 * BLOCK..output.len() {
+            let came = input[at - lag];
+            signal += came * came;
+            error += (output[at] - came).powi(2);
+        }
+        let below = 10.0 * (signal / error).log10();
+        assert!(below > 40.0, "passed {below} dB above the error");
     }
 
     /// Runs a recording through both suppressors alone, without the rest of
@@ -446,7 +496,7 @@ mod tests {
             for noisy in input.chunks_exact(BLOCK) {
                 let mut block = noisy.to_vec();
                 let started = Instant::now();
-                denoiser.block(&mut block, Sent::Gated);
+                denoiser.block(&mut block, Sent::Gated, false);
                 let took = started.elapsed().as_secs_f64() * 1e6;
                 times.push(took);
                 let scaled: Vec<f32> = noisy.iter().map(|sample| sample / 32768.0).collect();

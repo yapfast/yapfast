@@ -146,6 +146,46 @@ pub fn fit(width: u32, height: u32, (max_width, max_height): (u32, u32)) -> (u32
     )
 }
 
+/// How a picture turns to stand upright: quarter turns clockwise, then a
+/// flip left to right, as a phone's camera says of each frame.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Turn {
+    /// Quarter turns clockwise, 0 to 3.
+    pub turns: u8,
+    pub flip: bool,
+}
+
+impl Turn {
+    /// The upright size of a `width` by `height` picture.
+    pub fn upright(self, width: u32, height: u32) -> (u32, u32) {
+        if self.turns % 2 == 1 {
+            (height, width)
+        } else {
+            (width, height)
+        }
+    }
+}
+
+/// Turns `width` by `height` RGBA pixels a quarter clockwise (`turns` 1) or
+/// three quarters (3) into `upright`, `height` by `width`.
+fn turn_quarter(pixels: &[u8], width: u32, height: u32, turns: u8, upright: &mut [u8]) {
+    let (width, height) = (width as usize, height as usize);
+    let from = pixels.as_chunks::<4>().0;
+    let to = &mut upright.as_chunks_mut::<4>().0[..width * height];
+    // The upright picture is `height` wide: its row y is the source's
+    // column y, read bottom up for a clockwise turn, top down otherwise.
+    for (y, row) in to.chunks_exact_mut(height).enumerate() {
+        for (x, pixel) in row.iter_mut().enumerate() {
+            let (column, line) = if turns == 1 {
+                (y, height - 1 - x)
+            } else {
+                (width - 1 - y, x)
+            };
+            *pixel = from[line * width + column];
+        }
+    }
+}
+
 /// Memory a frame's RGBA pixels are made in, which the UI shows as it is.
 pub trait FrameBuffer: Any + Send {
     fn size(&self) -> (u32, u32);
@@ -339,29 +379,54 @@ impl Feed {
     /// Writes each picture it's given into this feed, at the size it shows.
     /// Off screen, pictures go nowhere.
     pub fn sink(&self) -> impl FnMut(&I420<'_>) + Send + 'static {
-        self.sink_with(false)
+        let mut sink = self.turning_sink(false);
+        move |picture| sink(picture, Turn::default())
     }
 
     /// As [`Self::sink`], mirrored, as people see themselves: a camera
     /// filming its own person shows them as a mirror would.
     pub fn mirrored_sink(&self) -> impl FnMut(&I420<'_>) + Send + 'static {
-        self.sink_with(true)
+        let mut sink = self.turning_sink(true);
+        move |picture| sink(picture, Turn::default())
     }
 
-    fn sink_with(&self, mirror: bool) -> impl FnMut(&I420<'_>) + Send + 'static {
+    /// As [`Self::sink`], each picture turned upright as it says first, as
+    /// a phone's camera sends them, and made at the size the upright
+    /// picture fits where it shows. An upright picture costs nothing more;
+    /// one turned a quarter is scaled into a buffer of the shown size, kept
+    /// while pictures come turned, and turned from there into the frame.
+    pub fn turning_sink(&self, mirror: bool) -> impl FnMut(&I420<'_>, Turn) + Send + 'static {
         let feed = self.clone();
-        let mut scratch = vec![];
-        move |picture| {
-            if let Some((width, height)) = feed.size_for(picture.width, picture.height) {
-                feed.write(width, height, |rgba| {
-                    picture.to_rgba(&mut scratch, rgba, width, height);
-                    if mirror {
-                        for row in rgba.chunks_exact_mut(width as usize * 4) {
-                            row.as_chunks_mut::<4>().0.reverse();
-                        }
-                    }
-                });
+        let (mut scratch, mut turned) = (vec![], vec![]);
+        move |picture, turn| {
+            let quarter = turn.turns % 2 == 1;
+            let (upright_width, upright_height) = turn.upright(picture.width, picture.height);
+            let Some((width, height)) = feed.size_for(upright_width, upright_height) else {
+                return;
+            };
+            if !quarter {
+                // Not needed while upright or upside down.
+                turned = vec![];
             }
+            feed.write(width, height, |rgba| {
+                let rgba = &mut rgba[..width as usize * height as usize * 4];
+                if quarter {
+                    // Scaled as it came, on its side, then turned.
+                    turned.resize(rgba.len(), 0);
+                    picture.to_rgba(&mut scratch, &mut turned, height, width);
+                    turn_quarter(&turned, height, width, turn.turns, rgba);
+                } else {
+                    picture.to_rgba(&mut scratch, rgba, width, height);
+                    if turn.turns == 2 {
+                        rgba.as_chunks_mut::<4>().0.reverse();
+                    }
+                }
+                if mirror != turn.flip {
+                    for row in rgba.chunks_exact_mut(width as usize * 4) {
+                        row.as_chunks_mut::<4>().0.reverse();
+                    }
+                }
+            });
         }
     }
 
@@ -475,5 +540,81 @@ mod tests {
             "{rgba:?}"
         );
         assert_eq!(fit(1920, 1080, (640, 640)), (640, 360));
+    }
+
+    #[test]
+    fn turns_pictures_upright() {
+        // 3 by 2, pixels numbered across then down:
+        //   0 1 2
+        //   3 4 5
+        let pixels: Vec<u8> = (0..6u8).flat_map(|n| [n, 0, 0, 255]).collect();
+        let turned = |turns| {
+            let mut upright = vec![0; 24];
+            turn_quarter(&pixels, 3, 2, turns, &mut upright);
+            upright.chunks(4).map(|pixel| pixel[0]).collect::<Vec<_>>()
+        };
+        // A quarter clockwise, 2 by 3:  3 0 / 4 1 / 5 2.
+        assert_eq!(turned(1), [3, 0, 4, 1, 5, 2]);
+        // Three quarters:  2 5 / 1 4 / 0 3.
+        assert_eq!(turned(3), [2, 5, 1, 4, 0, 3]);
+        assert_eq!(
+            Turn {
+                turns: 1,
+                flip: false
+            }
+            .upright(1280, 720),
+            (720, 1280)
+        );
+        assert_eq!(
+            Turn {
+                turns: 2,
+                flip: true
+            }
+            .upright(1280, 720),
+            (1280, 720)
+        );
+    }
+
+    /// A picture sent on its side shows upright, at the size the upright
+    /// picture fits the tile, and upside down or flipped as it says.
+    #[test]
+    fn a_turning_sink_shows_pictures_upright() {
+        // 4 by 2, the left half dark and the right light.
+        let y = [16, 16, 235, 235, 16, 16, 235, 235];
+        let (u, v) = ([128u8; 2], [128u8; 2]);
+        let picture = I420 {
+            width: 4,
+            height: 2,
+            y: &y,
+            u: &u,
+            v: &v,
+            strides: [4, 2, 2],
+        };
+        let shown = |turn: Turn| {
+            let feed = Feed::new();
+            feed.show_at(Some((40, 40)));
+            feed.turning_sink(false)(&picture, turn);
+            feed.take(|buffer| {
+                let plain = (buffer as &dyn Any).downcast_ref::<Plain>().unwrap();
+                let (width, _) = plain.size;
+                let light = |x: u32, y: u32| plain.pixels[((y * width + x) * 4) as usize] > 128;
+                (plain.size, light(0, 0), light(width - 1, plain.size.1 - 1))
+            })
+            .unwrap()
+        };
+        let turns = |turns| Turn { turns, flip: false };
+        assert_eq!(shown(turns(0)), ((4, 2), false, true), "as it came");
+        // Clockwise, the left goes on top.
+        assert_eq!(shown(turns(1)), ((2, 4), false, true), "a quarter");
+        assert_eq!(shown(turns(2)), ((4, 2), true, false), "upside down");
+        assert_eq!(shown(turns(3)), ((2, 4), true, false), "three quarters");
+        assert_eq!(
+            shown(Turn {
+                turns: 0,
+                flip: true
+            }),
+            ((4, 2), true, false),
+            "flipped"
+        );
     }
 }
