@@ -319,7 +319,7 @@ impl Widget<Message, Theme, Renderer> for Piece<'_> {
         let state = tree.state.downcast_mut::<State>();
         let bounds = layout.bounds();
         match event {
-            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) if self.starts => {
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 if let Some(at) = cursor.position_over(bounds)
                     && viewport.contains(at)
                 {
@@ -329,6 +329,9 @@ impl Widget<Message, Theme, Renderer> for Piece<'_> {
                         let window = cursor.land().position().unwrap_or(at);
                         shell.publish(Message::Link(link.to_owned(), window));
                         shell.capture_event();
+                        return;
+                    }
+                    if !self.starts {
                         return;
                     }
                     let mark = self.mark(&state.paragraph, at, bounds);
@@ -579,6 +582,8 @@ pub fn copied(text: &str, part: Part) -> String {
 /// it stays put as messages come and go around it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Sel {
+    /// In the thread beside the channel.
+    aside: bool,
     item: String,
     part: u8,
     line: usize,
@@ -589,10 +594,18 @@ impl App {
     /// A piece's report: a press starts a selection, a drag moves its end.
     pub fn select(&mut self, select: Select) {
         let (Select::Start(mark) | Select::To(mark)) = select;
-        let Some(message) = self.messages.get(mark.row) else {
+        // A selection stays in the timeline it started in.
+        let aside = mark.row >= crate::timeline::ASIDE;
+        if let (Select::To(_), Some((from, _))) = (&select, &self.selection)
+            && from.aside != aside
+        {
+            return;
+        }
+        let Some(message) = self.row_message(mark.row) else {
             return;
         };
         let at = Sel {
+            aside,
             item: message.item.clone(),
             part: mark.part,
             line: mark.line,
@@ -626,10 +639,18 @@ impl App {
     pub fn marks(&self) -> Option<(Mark, Mark)> {
         let (a, b) = self.selection.as_ref()?;
         let place = |sel: &Sel| {
-            let row = self
-                .messages
-                .iter()
-                .position(|message| message.item == sel.item)?;
+            let row = if sel.aside {
+                let aside = self.aside.as_ref()?;
+                crate::timeline::ASIDE
+                    + aside
+                        .messages
+                        .iter()
+                        .position(|message| message.item == sel.item)?
+            } else {
+                self.messages
+                    .iter()
+                    .position(|message| message.item == sel.item)?
+            };
             Some(Mark {
                 row,
                 part: sel.part,
@@ -653,7 +674,10 @@ impl App {
         let (from, to) = self.marks()?;
         let mut out = String::new();
         for row in from.row..=to.row {
-            let line = copied_message(&self.messages[row], &self.looks[row], from, to, row);
+            let (Some(message), Some(look)) = (self.row_message(row), self.row_look(row)) else {
+                continue;
+            };
+            let line = copied_message(message, look, from, to, row);
             if !line.is_empty() {
                 if !out.is_empty() {
                     out.push('\n');

@@ -45,6 +45,8 @@ pub struct Layout {
     pub hide_blocked: bool,
     pub skip_call_prompt: bool,
     pub activity_cards_hidden: bool,
+    /// How wide the thread beside the channel was dragged.
+    pub aside_width: Option<f32>,
     /// What calls send and play, as Voice's settings in the Slint client
     /// keep them; see [`Voice`].
     #[serde(flatten)]

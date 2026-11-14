@@ -4,16 +4,14 @@
 //! up to in a bubble; then the room's buttons (call, threads,
 //! notifications, pins, add people, the member list, the profile) and the
 //! search box. The line under it is the conversation's.
-//!
-//! The buttons that open what later milestones bring (calls from a DM,
-//! threads, pins, the notifications menu, add people, the profile panel,
-//! the search) show but do nothing yet.
+//! The threads, pins and add people buttons open their popovers
+//! (`popovers.rs`); the box searches (`search.rs`).
 
 use std::sync::Arc;
 
 use iced::{
     Alignment, Element, Length,
-    widget::{Space, button, container, mouse_area, row, text, tooltip},
+    widget::{Space, button, container, row, text, tooltip},
 };
 use yapfast_core::{
     application::AppState,
@@ -39,11 +37,8 @@ pub const HEIGHT: f32 = 50.0;
 /// A DM's avatar, and the icons before a name.
 const AVATAR: f32 = 26.0;
 const ROOM_ICON: u32 = 22;
-const BUTTON: f32 = 32.0;
+pub const BUTTON: f32 = 32.0;
 const GLYPH: u32 = 20;
-/// The search box, as Slint's `HeaderSearch`.
-const SEARCH_WIDTH: f32 = 240.0;
-const SEARCH_HEIGHT: f32 = 30.0;
 
 /// What the header shows of the open room.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -296,7 +291,13 @@ impl App {
             }
         }
         if header.can_threads {
-            push(Icon::Thread, "Threads", Message::Nothing, false);
+            let open = self.client.state().thread_list().is_some();
+            push(
+                Icon::Thread,
+                "Threads",
+                Message::Popover(crate::popovers::Event::Threads),
+                open,
+            );
         }
         if header.can_notify {
             if header.muted {
@@ -311,7 +312,12 @@ impl App {
             }
         }
         if header.can_pin {
-            push(Icon::Pin, "Pinned messages", Message::Nothing, false);
+            push(
+                Icon::Pin,
+                "Pinned messages",
+                Message::Popover(crate::popovers::Event::Pins),
+                false,
+            );
         }
         if let Some(one_to_one) = header.add_people {
             let label = if one_to_one {
@@ -319,14 +325,24 @@ impl App {
             } else {
                 "Add friends to the group"
             };
-            push(Icon::UserPlus, label, Message::Nothing, false);
+            push(
+                Icon::UserPlus,
+                label,
+                Message::Popover(crate::popovers::Event::AddPeople),
+                false,
+            );
         }
         if header.members_available && !header.direct {
             push(Icon::Users, members, Message::ToggleMembers, shown);
         }
         // A thread's, after its member list, as in Discord's toolbar.
         if header.thread {
-            push(Icon::Ellipsis, "More", Message::Nothing, false);
+            push(
+                Icon::Ellipsis,
+                "More",
+                Message::Popover(crate::popovers::Event::ThreadMore),
+                false,
+            );
         }
         if header.profile_available {
             let open = self.client.state().profile_panel;
@@ -342,7 +358,7 @@ impl App {
             buttons.push(self.members_toggle(members, shown));
         }
         if let Some(placeholder) = &header.search {
-            buttons.push(self.search_box(placeholder));
+            buttons.push(self.header_search(placeholder));
         }
         if !header.members_available && !header.profile_available && !header.members.is_empty() {
             buttons.push(
@@ -389,45 +405,12 @@ impl App {
             .into()
     }
 
-    /// The search box: its placeholder and icon in a sunken field. Typing
-    /// in it comes with the search, in a later milestone.
-    fn search_box<'a>(&'a self, placeholder: &'a str) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let field = row![
-            text(placeholder)
-                .size(14)
-                .color(theme.muted)
-                .wrapping(text::Wrapping::None)
-                .width(Length::Fill),
-            self.glyph(Icon::Search, GLYPH, theme.muted),
-        ]
-        .spacing(4)
-        .align_y(Alignment::Center);
-        let line = theme.line;
-        let ground = theme.sunken;
-        mouse_area(
-            container(field)
-                .padding([0, 8])
-                .width(SEARCH_WIDTH)
-                .height(SEARCH_HEIGHT)
-                .align_y(Alignment::Center)
-                .clip(true)
-                .style(move |_| container::Style {
-                    border: iced::Border {
-                        color: line,
-                        width: 1.0,
-                        radius: 8.0.into(),
-                    },
-                    ..rounded(ground, 8)
-                }),
-        )
-        .interaction(iced::mouse::Interaction::Text)
-        .into()
-    }
-
     /// Whether the member list shows beside the timeline.
     pub fn members_shown(&self) -> bool {
-        self.header.members_available && !self.hide_members
+        self.header.members_available
+            && !self.hide_members
+            && !self.aside_shown()
+            && !self.search_shown()
     }
 
     /// An icon button as the Slint client's `IconButton`: a square face lit

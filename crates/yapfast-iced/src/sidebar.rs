@@ -31,6 +31,7 @@ use yapfast_core::{
 use crate::{
     app::{App, Message, key},
     controls::{self, Count, bar, count_pill, lit_style},
+    elide::elide,
     fonts::{BOLD, MEDIUM, SEMIBOLD},
     looks::Status,
     people::{NameInk, Person},
@@ -948,11 +949,7 @@ impl App {
         }
         face = face.push(
             row![
-                text(head.name.clone())
-                    .size(15)
-                    .font(SEMIBOLD)
-                    .color(ink)
-                    .wrapping(text::Wrapping::None),
+                elide(head.name.as_str()).size(15).font(SEMIBOLD).color(ink),
                 self.glyph(
                     if open {
                         Icon::ChevronUp
@@ -1125,11 +1122,7 @@ impl App {
             theme.muted
         };
         let face = row![
-            text(name)
-                .size(14)
-                .font(SEMIBOLD)
-                .color(ink)
-                .wrapping(text::Wrapping::None),
+            elide(name).size(14).font(SEMIBOLD).color(ink),
             self.glyph(
                 if collapsed {
                     Icon::ChevronRight
@@ -1328,11 +1321,7 @@ impl App {
             };
             face = face.push(self.glyph(room.icon, 20, faded(icon_ink, opacity)));
         }
-        let name = text(room.name.as_str())
-            .size(15)
-            .font(MEDIUM)
-            .color(ink)
-            .wrapping(text::Wrapping::None);
+        let name = elide(room.name.as_str()).size(15).font(MEDIUM).color(ink);
         face = face.push(column![name].width(Length::Fill));
         if let Some(started) = room.started {
             let lasted = yapfast_core::clock::lasted(started, self.minute);
@@ -1596,12 +1585,10 @@ impl App {
             };
         let mut face = row![
             avatar,
-            text(person.name.as_str())
+            elide(person.name.as_str())
                 .size(15)
                 .font(if speaking { BOLD } else { MEDIUM })
-                .color(faded(ink, opacity))
-                .wrapping(text::Wrapping::None)
-                .width(Length::Fill),
+                .color(faded(ink, opacity)),
         ]
         .spacing(8)
         .align_y(Alignment::Center);

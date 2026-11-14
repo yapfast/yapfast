@@ -102,11 +102,10 @@ impl App {
             }
             _ => ink.color,
         };
-        text(shown_name(name, ink.style).into_owned())
+        crate::elide::elide(shown_name(name, ink.style))
             .size(ink.size)
             .font(style_font(ink.style, ink.weight))
             .color(color)
-            .wrapping(text::Wrapping::None)
             .into()
     }
 
@@ -134,12 +133,9 @@ impl App {
                 .into();
         }
         button(
-            row![
-                speaker,
-                text(place).size(size).wrapping(text::Wrapping::None)
-            ]
-            .spacing(4)
-            .align_y(Alignment::Center),
+            row![speaker, crate::elide::elide(place).size(size)]
+                .spacing(4)
+                .align_y(Alignment::Center),
         )
         .padding(0)
         .on_press(go)

@@ -134,15 +134,15 @@ impl App {
                 }
                 CardRow::Media(slot) => {
                     let placement = Placement::Component(*slot);
-                    let room =
-                        GALLERY.min(self.content_width() - if card.framed { 32.0 } else { 0.0 });
+                    let room = GALLERY
+                        .min(self.content_width_of(index) - if card.framed { 32.0 } else { 0.0 });
                     let gallery = Gallery::of(&message.attachments, placement, room);
                     let mut media = column![].spacing(4);
                     if !gallery.is_empty() {
                         media = media.push(self.gallery(index, message, &gallery));
                     }
-                    for attachment in files(message, placement) {
-                        media = media.push(self.file_card(attachment));
+                    for (at, attachment) in files(message, placement) {
+                        media = media.push(self.file_card(&message.item, at, attachment));
                     }
                     media.into()
                 }
@@ -288,9 +288,9 @@ impl App {
 
     /// A menu's box, as the Slint client's `BotSelectBox`: what it picked,
     /// or its placeholder, and a chevron.
-    fn select_box<'a>(
+    pub fn select_box<'a>(
         &'a self,
-        shown: &'a str,
+        shown: impl text::IntoFragment<'a>,
         picked: bool,
         enabled: bool,
         open: Option<Message>,

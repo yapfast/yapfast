@@ -11,7 +11,7 @@ use iced::{
     keyboard::key,
     widget::{Space, column, container, mouse_area, opaque, operation, row, scrollable},
 };
-use yapfast_core::application::Action;
+use yapfast_core::application::{Action, ThreadFrom};
 
 use crate::{
     app::{App, Message, NOBODY},
@@ -42,6 +42,8 @@ pub struct Menu {
     /// The row lit by the pointer or the arrow keys.
     pub lit: Option<usize>,
     /// The message's item, for a message's menu.
+    /// A message's menu: its row, to build again as its Apps come.
+    pub row: Option<usize>,
     pub item: Option<String>,
     /// The quick reactions above the rows.
     pub reactions: bool,
@@ -74,6 +76,7 @@ impl Menu {
             rows,
             lit: None,
             item: None,
+            row: None,
             reactions: false,
             place: None,
             header: false,
@@ -165,7 +168,9 @@ pub enum MenuAct {
     Field(crate::composer::Writing, MenuEdit),
     /// The composer's + menu.
     Upload,
+    /// Create Thread, from the composer's + or a message; View Thread.
     NewThread,
+    ViewThread,
     NewPoll,
     Place(yapfast_core::application::MenuChoice),
     /// A row of someone's menu (`person.rs`).
@@ -186,6 +191,12 @@ pub enum MenuAct {
     MoveTo,
     /// One of a server's scheduled events, which only shows.
     Event,
+    /// A message's picture or video, by its place in the row's `key`:
+    /// copied, saved, its address copied or opened.
+    CopyImage,
+    SaveMedia,
+    CopyMediaLink,
+    OpenMediaLink,
 }
 
 #[derive(Clone)]
@@ -258,7 +269,7 @@ impl App {
     /// A right click on a message: what one may do with it, in the Slint
     /// client's order.
     pub fn open_menu(&mut self, index: usize, at: Point) -> Task<Message> {
-        let Some(message) = self.messages.get(index) else {
+        let Some(message) = self.row_message(index).cloned() else {
             return Task::none();
         };
         if message.deleted {
@@ -284,6 +295,18 @@ impl App {
         if message.can_forward && self.forward_allowed() {
             rows.push(row(MenuAct::Forward, "Forward", Icon::Forward));
         }
+        // A message someone wrote starts a thread, or leads to its own.
+        if index < crate::timeline::ASIDE
+            && self.client.app.can_start_threads()
+            && message.can_reply
+            && sent
+            && message.thread.is_none()
+        {
+            rows.push(row(MenuAct::NewThread, "Create Thread", Icon::Thread));
+        }
+        if message.can_reply && message.thread.is_some() {
+            rows.push(row(MenuAct::ViewThread, "View Thread", Icon::Thread));
+        }
         if !message.body.is_empty() {
             rows.push(row(MenuAct::CopyText, "Copy text", Icon::Copy));
         }
@@ -302,6 +325,27 @@ impl App {
                 row(MenuAct::Pin, "Unpin message", Icon::PinOff)
             } else {
                 row(MenuAct::Pin, "Pin message", Icon::Pin)
+            });
+        }
+        // The apps' message commands, beside it as Discord's are; not in
+        // the thread beside, whose room the index isn't for.
+        let apps: Vec<MenuRow> = match state.selected.as_deref() {
+            Some(room) if index < crate::timeline::ASIDE && sent => self
+                .client
+                .app
+                .commands_for_target(room, yapfast_core::application::CommandTarget::Message)
+                .into_iter()
+                .map(|command| MenuRow {
+                    subtitle: Some(command.app_name.into()),
+                    ..MenuRow::plain(MenuAct::App, command.name).key(command.command)
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        if !apps.is_empty() {
+            rows.push(MenuRow {
+                submenu: apps,
+                ..row(MenuAct::App, "Apps", Icon::Slash)
             });
         }
         // After Apps, as in Discord's menu.
@@ -331,10 +375,37 @@ impl App {
         }
         self.menu = Some(Menu {
             item: Some(message.item.clone()),
+            row: Some(index),
             reactions: message.can_react,
             ..Menu::new(at, rows)
         });
+        // Its Apps follow the permissions as they are now.
+        self.client.dispatch(Action::AskAppCommands);
         operation::focus(NOBODY)
+    }
+
+    /// A message's menu opened before its room's apps' commands came: it's
+    /// built again with its Apps once they have.
+    pub fn menu_apps_sync(&mut self) -> Task<Message> {
+        let Some(menu) = &self.menu else {
+            return Task::none();
+        };
+        let (Some(row), Some(room)) = (menu.row, self.client.state().selected.as_deref()) else {
+            return Task::none();
+        };
+        let has_apps = menu.rows.iter().any(|row| row.act == MenuAct::App);
+        if has_apps || row >= crate::timeline::ASIDE || menu.sub.is_some() {
+            return Task::none();
+        }
+        let commands = self
+            .client
+            .app
+            .commands_for_target(room, yapfast_core::application::CommandTarget::Message);
+        if commands.is_empty() {
+            return Task::none();
+        }
+        let at = menu.at;
+        self.open_menu(row, at)
     }
 
     /// The pointer came onto a row: it's lit, and its submenu opens, or
@@ -453,6 +524,14 @@ impl App {
             | MenuAct::InviteTo
             | MenuAct::App
             | MenuAct::MoveTo => Task::batch([focus, self.sub_act(&menu, row, ticked)]),
+            MenuAct::CopyImage
+            | MenuAct::SaveMedia
+            | MenuAct::CopyMediaLink
+            | MenuAct::OpenMediaLink => {
+                let item = menu.item.clone().unwrap_or_default();
+                let index = row.key.parse().unwrap_or_default();
+                Task::batch([focus, self.media_act(row.act, item, index)])
+            }
             act => {
                 let item = menu.item.clone().unwrap_or_default();
                 self.act(act, item, menu.at, menu.place)
@@ -527,7 +606,25 @@ impl App {
             }
             MenuAct::Field(which, edit) => self.field_menu(which, edit),
             MenuAct::Upload => Task::batch([focus, self.attach()]),
-            MenuAct::NewThread | MenuAct::Event => focus,
+            MenuAct::NewThread if item.is_empty() => {
+                self.client
+                    .dispatch(crate::thread::start_from(ThreadFrom::PlusButton));
+                Task::batch([self.sync(), operation::focus(crate::thread::FIRST)])
+            }
+            MenuAct::NewThread => self.thread_event(crate::thread::Event::Start(item)),
+            MenuAct::ViewThread => {
+                let room = self
+                    .client
+                    .state()
+                    .message(&item)
+                    .and_then(|message| message.thread.as_ref())
+                    .map(|thread| thread.room.clone());
+                match room {
+                    Some(room) => self.thread_event(crate::thread::Event::Open(room)),
+                    None => focus,
+                }
+            }
+            MenuAct::Event => focus,
             MenuAct::NewPoll => self.switcher_event(crate::switcher::Event::OpenPoll),
             MenuAct::Place(choice) => {
                 let place = place.unwrap_or_default();
@@ -550,7 +647,11 @@ impl App {
             | MenuAct::Role
             | MenuAct::InviteTo
             | MenuAct::App
-            | MenuAct::MoveTo => focus,
+            | MenuAct::MoveTo
+            | MenuAct::CopyImage
+            | MenuAct::SaveMedia
+            | MenuAct::CopyMediaLink
+            | MenuAct::OpenMediaLink => focus,
         }
     }
 

@@ -74,7 +74,7 @@ impl App {
             .into()
     }
 
-    fn dropdown(&self) -> Element<'_, Message> {
+    pub fn dropdown(&self) -> Element<'_, Message> {
         let theme = &self.theme;
         let state = self.client.state();
         let Some(select) = &state.select_menu else {

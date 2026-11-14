@@ -55,6 +55,11 @@ pub enum Event {
     Spoiler(usize),
     /// A paste found files or a picture, or nothing to attach (text).
     Clipboard(Option<Vec<PathBuf>>),
+    /// The same for the thread beside the channel's message.
+    ChosenAside(Vec<PathBuf>),
+    UnstageAside(usize),
+    SpoilerAside(usize),
+    ClipboardAside(Option<Vec<PathBuf>>),
     /// A file's preview was made, or couldn't be.
     Preview(PathBuf, Option<Arc<Picture>>),
     /// Files dragged over the window, dropped (one at a time), the drop
@@ -97,6 +102,26 @@ impl App {
             }
             Event::Clipboard(None) => iced::clipboard::read()
                 .map(|text| Message::Write(Write::Pasted(composer::Writing::Draft, text))),
+            Event::ChosenAside(files) | Event::ClipboardAside(Some(files)) => {
+                if !files.is_empty() {
+                    self.client.dispatch(Action::StageAside(files));
+                }
+                Task::batch([
+                    self.sync(),
+                    self.previews(),
+                    iced::widget::operation::focus(crate::thread::COMPOSER),
+                ])
+            }
+            Event::ClipboardAside(None) => iced::clipboard::read()
+                .map(|text| Message::Write(Write::Pasted(composer::Writing::Aside, text))),
+            Event::UnstageAside(index) => {
+                self.client.dispatch(Action::UnstageAside(index));
+                self.sync()
+            }
+            Event::SpoilerAside(index) => {
+                self.client.dispatch(Action::ToggleAsideSpoiler(index));
+                self.sync()
+            }
             Event::Preview(path, picture) => {
                 // Unless it was taken out meanwhile.
                 if let Some(slot) = self.thumbnails.get_mut(&path) {
@@ -178,11 +203,12 @@ impl App {
     /// Makes the previews of staged pictures that have none yet, off the
     /// window's thread, and lets go of those of files no longer staged.
     pub fn previews(&mut self) -> Task<Message> {
-        let staged = self.client.state().staged();
+        let state = self.client.state();
+        let (staged, aside) = (state.staged(), state.aside_staged());
         self.thumbnails
-            .retain(|path, _| staged.iter().any(|file| &file.path == path));
+            .retain(|path, _| staged.iter().chain(aside).any(|file| &file.path == path));
         let mut tasks = Vec::new();
-        for file in staged.iter().filter(|file| file.image) {
+        for file in staged.iter().chain(aside).filter(|file| file.image) {
             if self.thumbnails.contains_key(&file.path) {
                 continue;
             }
@@ -213,14 +239,28 @@ impl App {
 
     /// The files waiting, in a row that scrolls sideways; none without.
     pub fn tray(&self) -> Option<Element<'_, Message>> {
-        let staged = self.client.state().staged();
+        let state = self.client.state();
+        self.tray_of(state.staged(), state.can_mark_spoilers(), false)
+    }
+
+    /// The files waiting in the thread beside the channel's composer.
+    pub fn aside_tray(&self) -> Option<Element<'_, Message>> {
+        let state = self.client.state();
+        self.tray_of(state.aside_staged(), state.aside_can_mark_spoilers(), true)
+    }
+
+    fn tray_of<'a>(
+        &'a self,
+        staged: &'a [chat::Staged],
+        can_spoil: bool,
+        aside: bool,
+    ) -> Option<Element<'a, Message>> {
         if staged.is_empty() {
             return None;
         }
-        let can_spoil = self.client.state().can_mark_spoilers();
         let mut tiles = row![].spacing(8);
         for (index, file) in staged.iter().enumerate() {
-            tiles = tiles.push(self.staged_tile(index, file, can_spoil));
+            tiles = tiles.push(self.staged_tile(index, file, can_spoil, aside));
         }
         Some(
             scrollable(container(tiles).padding(Padding {
@@ -245,6 +285,7 @@ impl App {
         index: usize,
         file: &'a chat::Staged,
         can_spoil: bool,
+        aside: bool,
     ) -> Element<'a, Message> {
         let theme = &self.theme;
         let inner = TILE.width - 12.0;
@@ -298,13 +339,21 @@ impl App {
                 } else {
                     "Mark as a spoiler"
                 },
-                Message::Write(Write::Uploads(Event::Spoiler(index))),
+                Message::Write(Write::Uploads(if aside {
+                    Event::SpoilerAside(index)
+                } else {
+                    Event::Spoiler(index)
+                })),
             ));
         }
         buttons = buttons.push(self.disc_button(
             Icon::X,
             "Remove",
-            Message::Write(Write::Uploads(Event::Unstage(index))),
+            Message::Write(Write::Uploads(if aside {
+                Event::UnstageAside(index)
+            } else {
+                Event::Unstage(index)
+            })),
         ));
         stack![
             tile,

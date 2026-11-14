@@ -321,6 +321,7 @@ pub enum Icon {
     Gavel,
     StickyNote,
     Slash,
+    Send,
 }
 
 impl Icon {
@@ -454,6 +455,7 @@ impl Icon {
             Icon::Gavel => icon!("gavel.svg"),
             Icon::StickyNote => icon!("sticky-note.svg"),
             Icon::Slash => icon!("slash.svg"),
+            Icon::Send => icon!("send-horizontal.svg"),
             Icon::VideoOff => icon!("video-off.svg"),
             Icon::Maximize => icon!("maximize.svg"),
             Icon::Minimize => icon!("minimize.svg"),

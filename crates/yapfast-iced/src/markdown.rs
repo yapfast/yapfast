@@ -672,6 +672,9 @@ impl App {
                 .size(size, (size * ratio).round())
                 .color(ink)
                 .fill()
+                // Text in no timeline's row (a found card's) selects
+                // nothing: a press on it is the card's.
+                .starts(row != usize::MAX)
                 .selection(self.selected(row, number), self.selecting, theme.selection);
             let shown: Element<'_, Message> = if part.shape == Shape::Code {
                 let (ground, line) = (theme.panel, theme.line);

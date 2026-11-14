@@ -49,6 +49,11 @@ pub enum Writing {
     #[default]
     Draft,
     Edit,
+    /// The thread beside the channel's composer, the New Thread form's
+    /// first message, and a new forum post's (`thread.rs`, `forum.rs`).
+    Aside,
+    NewThread,
+    NewPost,
 }
 
 /// What the composer's parts send.
@@ -374,6 +379,23 @@ impl App {
     /// The bar over the field while replying: who to, the mention's toggle,
     /// and the cancel.
     fn reply_bar(&self, label: String, ping: bool) -> Element<'_, Message> {
+        self.reply_bar_for(
+            label,
+            ping,
+            Message::Write(Event::TogglePing),
+            Message::Write(Event::CancelReply),
+        )
+    }
+
+    /// A reply's bar over a composer: who to, the mention's toggle
+    /// (`toggle`) and the cancel (`cancel`).
+    pub fn reply_bar_for(
+        &self,
+        label: String,
+        ping: bool,
+        toggle: Message,
+        cancel: Message,
+    ) -> Element<'_, Message> {
         let theme = &self.theme;
         let ground = theme.sidebar;
         let ink = if ping { theme.accent } else { theme.muted };
@@ -385,7 +407,7 @@ impl App {
         )
         .padding([0, 8])
         .height(28)
-        .on_press(Message::Write(Event::TogglePing))
+        .on_press(toggle)
         .style(lit_style(None, theme.hover, 6.0));
         let toggle = tooltip(
             container(toggle).height(28).align_y(Alignment::Center),
@@ -402,14 +424,7 @@ impl App {
                     .wrapping(text::Wrapping::None)
                     .width(Length::Fill),
                 toggle,
-                self.icon_button(
-                    Icon::X,
-                    "Cancel reply",
-                    28.0,
-                    16,
-                    Message::Write(Event::CancelReply),
-                    false
-                ),
+                self.icon_button(Icon::X, "Cancel reply", 28.0, 16, cancel, false),
             ]
             .spacing(8)
             .align_y(Alignment::Center),
@@ -588,6 +603,9 @@ impl App {
         match which {
             Writing::Draft => &self.draft,
             Writing::Edit => &self.edit,
+            Writing::Aside => &self.drafts.aside,
+            Writing::NewThread => &self.drafts.first,
+            Writing::NewPost => &self.forum_post.body,
         }
     }
 
@@ -601,6 +619,17 @@ impl App {
             || self.server_dialog_open()
         {
             return Task::none();
+        }
+        // The picture viewer keeps them from the fields under it.
+        if self.client.state().viewer.is_some() {
+            return operation::focus(crate::app::NOBODY);
+        }
+        // A popover's field, while it's open.
+        if self.client.state().thread_list().is_some() {
+            return operation::focus(crate::popovers::THREADS_SEARCH);
+        }
+        if self.popover_open() {
+            return operation::focus(crate::popovers::PEOPLE_FIELD);
         }
         operation::focus(if self.editing.is_some() {
             EDIT
@@ -623,6 +652,9 @@ impl App {
             field::Event::Send => match which {
                 Writing::Draft => self.send(),
                 Writing::Edit => self.save_edit(),
+                Writing::Aside => self.thread_event(crate::thread::Event::Send),
+                Writing::NewThread => self.thread_event(crate::thread::Event::Create),
+                Writing::NewPost => self.forum_event(crate::forum::Event::Create),
             },
             field::Event::Step(step) => {
                 self.suggest.step(step);
@@ -638,6 +670,16 @@ impl App {
                 if self.server_screen.is_some() || self.channel_screen.is_some() {
                     return Task::none();
                 }
+                // Escape in the thread's composer cancels its reply first.
+                if which == Writing::Aside && self.client.state().aside_compose().is_some() {
+                    return self.thread_event(crate::thread::Event::CancelReply);
+                }
+                if matches!(
+                    which,
+                    Writing::Aside | Writing::NewThread | Writing::NewPost
+                ) {
+                    return self.escape();
+                }
                 // Escape in the edit's field ends the edit.
                 if which == Writing::Edit {
                     self.client.dispatch(Action::CancelEdit);
@@ -645,15 +687,15 @@ impl App {
                 }
                 self.escape()
             }
-            field::Event::Emoji => self.open_picker(
-                match which {
-                    Writing::Draft => Target::Composer,
-                    Writing::Edit => Target::Edit,
-                },
-                Tab::Emoji,
-            ),
+            field::Event::Emoji => match which {
+                Writing::Draft => self.open_picker(Target::Composer, Tab::Emoji),
+                Writing::Edit => self.open_picker(Target::Edit, Tab::Emoji),
+                _ => Task::none(),
+            },
             // Ctrl+G opens the GIFs, as Discord's; again, it closes them.
-            field::Event::Gifs if self.client.state().can_pick_gifs() => {
+            field::Event::Gifs
+                if which == Writing::Draft && self.client.state().can_pick_gifs() =>
+            {
                 self.open_picker(Target::Composer, Tab::Gifs)
             }
             field::Event::Gifs => Task::none(),
@@ -688,7 +730,7 @@ impl App {
             // Up in an empty composer edits the last message of one's own,
             // as the Slint client's `edit-last`.
             field::Event::UpFromEmpty => {
-                if which == Writing::Edit {
+                if which != Writing::Draft {
                     return Task::none();
                 }
                 let last = self
@@ -707,6 +749,9 @@ impl App {
             field::Event::Focus(focused) => {
                 if which == Writing::Draft {
                     self.composer_focused = focused;
+                }
+                if which == Writing::Aside {
+                    self.drafts.focused = focused;
                 }
                 if focused {
                     self.leave_messages();
@@ -729,13 +774,23 @@ impl App {
     /// field takes text alone.
     fn paste(&mut self, which: Writing) -> Task<Message> {
         use crate::uploads::Event as Uploads;
-        if which == Writing::Draft
-            && self.client.state().can_attach()
+        if matches!(which, Writing::Draft | Writing::Aside)
+            && (if which == Writing::Aside {
+                self.client.state().aside_can_attach()
+            } else {
+                self.client.state().can_attach()
+            })
             && let Some(read) = crate::paste_reader()
         {
             return Task::perform(
                 async move { tokio::task::spawn_blocking(read).await.ok().flatten() },
-                |files| Message::Write(Event::Uploads(Uploads::Clipboard(files))),
+                move |files| {
+                    Message::Write(Event::Uploads(if which == Writing::Aside {
+                        Uploads::ClipboardAside(files)
+                    } else {
+                        Uploads::Clipboard(files)
+                    }))
+                },
             );
         }
         iced::clipboard::read().map(move |text| Message::Write(Event::Pasted(which, text)))
@@ -754,10 +809,9 @@ impl App {
             check: crate::controls::Check::None,
             ..MenuRow::new(MenuAct::Upload, "Upload a File", Icon::File)
         }];
-        // The thread's form comes with threads: greyed until then.
         if self.client.app.can_start_threads() {
             rows.push(MenuRow {
-                disabled: true,
+                disabled: false,
                 subtitle: None,
                 check: crate::controls::Check::None,
                 ..MenuRow::new(MenuAct::NewThread, "Create Thread", Icon::Thread)
@@ -811,10 +865,7 @@ impl App {
     /// A field's menu chose Cut, Copy, Paste or Select All.
     pub fn field_menu(&mut self, which: Writing, edit: MenuEdit) -> Task<Message> {
         self.menu = None;
-        let focus = operation::focus(match which {
-            Writing::Draft => COMPOSER,
-            Writing::Edit => EDIT,
-        });
+        let focus = operation::focus(crate::thread::field_id(which));
         if edit == MenuEdit::Paste {
             return Task::batch([focus, self.paste(which)]);
         }
@@ -858,6 +909,18 @@ impl App {
                 }
             }
             Writing::Draft => {}
+            Writing::Aside => {
+                self.client.dispatch(Action::SetAsideDraft(text));
+                self.drafts.aside_known = self.client.state().aside_draft().to_owned();
+            }
+            Writing::NewThread => {
+                self.client.dispatch(Action::WriteNewThread {
+                    name: None,
+                    body: Some(text.clone()),
+                });
+                self.drafts.first_known = text;
+            }
+            Writing::NewPost => self.forum_body(text),
         }
     }
 

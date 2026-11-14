@@ -26,6 +26,7 @@ use crate::{
     app::{App, Message},
     controls::{self, Kind, action},
     dialogs,
+    elide::elide,
     fonts::{BOLD, SEMIBOLD},
     form,
     pictures::Icon,
@@ -162,20 +163,14 @@ fn heading<'a>(theme: &Theme, words: &'a str, size: u32, share: u16) -> Element<
 
 /// A cell of a row: one line, its share of the row.
 fn cell<'a>(
-    words: impl text::IntoFragment<'a>,
+    words: impl Into<std::borrow::Cow<'a, str>>,
     size: u32,
     ink: Color,
     share: u16,
 ) -> Element<'a, Message> {
-    container(
-        text(words)
-            .size(size)
-            .color(ink)
-            .wrapping(text::Wrapping::None),
-    )
-    .width(Length::FillPortion(share))
-    .clip(true)
-    .into()
+    container(elide(words).size(size).color(ink))
+        .width(Length::FillPortion(share))
+        .into()
 }
 
 /// A row's cells laid out as its headings': 8 px in each side and apart,
@@ -484,20 +479,14 @@ impl App {
             .find_map(|role| role.color.filter(|colour| *colour != 0))
             .map_or(theme.text, crate::style::hex);
         let mut names = column![
-            text(person.name.as_str())
+            elide(person.name.as_str())
                 .size(15)
                 .font(SEMIBOLD)
                 .color(name_ink)
-                .wrapping(text::Wrapping::None)
         ]
         .spacing(1);
         if let Some(username) = &person.username {
-            names = names.push(
-                text(username.as_str())
-                    .size(13)
-                    .color(theme.secondary)
-                    .wrapping(text::Wrapping::None),
-            );
+            names = names.push(elide(username.as_str()).size(13).color(theme.secondary));
         }
         let created = person
             .id
@@ -772,15 +761,13 @@ impl App {
             ),
             container(
                 column![
-                    text(inviter)
+                    elide(inviter)
                         .size(15)
                         .font(SEMIBOLD)
-                        .color(ink(theme.text))
-                        .wrapping(text::Wrapping::None),
-                    text(listed.channel.as_str())
+                        .color(ink(theme.text)),
+                    elide(listed.channel.as_str())
                         .size(13)
-                        .color(ink(theme.secondary))
-                        .wrapping(text::Wrapping::None),
+                        .color(ink(theme.secondary)),
                 ]
                 .spacing(1)
             )

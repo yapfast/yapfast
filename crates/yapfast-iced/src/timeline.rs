@@ -29,7 +29,7 @@ use yapfast_core::{
 };
 
 use crate::{
-    app::{App, Message, key},
+    app::{App, Message, Messages, key},
     controls::bar,
     fonts::{BOLD, MEDIUM, SEMIBOLD},
     markdown::{self, Body},
@@ -72,7 +72,7 @@ const TAIL: f32 = 20.0;
 /// A message's content is padded 2 px above and below.
 pub const CONTENT_PAD: f32 = 2.0;
 /// The history's edge: its button's line, Discord's welcome blocks.
-const EDGE: f32 = 42.0;
+pub const EDGE: f32 = 42.0;
 const INTRO_SERVER: f32 = 167.0;
 const INTRO_CHANNEL: f32 = 203.0;
 /// The jump bars, as the Slint client's `UnreadBar` and `PresentBar`.
@@ -88,6 +88,8 @@ const FILE_CARD: f32 = 58.0;
 const EMBED: f32 = 90.0;
 /// An embed's pictures' room, for estimates.
 const EMBED_ROOM: f32 = 400.0;
+/// A message's thread's chip, for estimates.
+const THREAD_CHIP: f32 = 44.0;
 /// The body font's average advance at 15 px, for wrapping estimates.
 const CHAR: f32 = 7.1;
 
@@ -187,16 +189,25 @@ impl RowLook {
     }
 }
 
+/// What a timeline's rows are marked by: the last message read (those
+/// after it that call on this account are tinted), and the first unread,
+/// over which the "New" divider shows.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Marks<'a> {
+    pub seen: Option<&'a str>,
+    pub first_unread: Option<&'a str>,
+}
+
 /// The rows' looks: a message's text laid out and its date are those of
 /// its `old` look, or made (`body`).
 pub fn row_looks<'a>(
     messages: &[Arc<ChatMessage>],
-    state: &AppState,
+    marks: Marks<'_>,
     clock: Clock,
     old: impl Fn(usize) -> Option<&'a RowLook>,
     mut body: impl FnMut(usize) -> Arc<Laid>,
 ) -> Vec<RowLook> {
-    let first_new = chat::first_new(messages, state.seen.as_deref());
+    let first_new = chat::first_new(messages, marks.seen);
     let now = yapfast_core::clock::now_ms() / 1000;
     let mut before_date = None;
     messages
@@ -215,7 +226,7 @@ pub fn row_looks<'a>(
             let new_day = date.is_some() && (before.is_none() || before_date != date);
             before_date = date;
             // The author shows again below the "New" divider.
-            let unread_start = state.first_unread.as_deref() == Some(message.item.as_str());
+            let unread_start = marks.first_unread == Some(message.item.as_str());
             RowLook {
                 first: new_day
                     || unread_start
@@ -447,6 +458,9 @@ pub fn row_height(message: &ChatMessage, look: &RowLook, width: f32, edge: f32) 
     if !message.reactions.is_empty() {
         content += 30.0;
     }
+    if message.thread.is_some() {
+        content += THREAD_CHIP;
+    }
     if look.first && message.notice.is_none() {
         content = content.max(if header { 64.0 } else { AVATAR });
     }
@@ -469,12 +483,66 @@ fn bottom_space(look: &RowLook) -> f32 {
     if look.last { TAIL } else { ROW_GAP }
 }
 
+/// The rows of the thread beside the channel are numbered from here, so a
+/// row's number says which timeline holds it: the channel's below, the
+/// thread's from here up.
+pub const ASIDE: usize = 1 << 24;
+
+/// Where a timeline is in the window: its left edge, its width, and where
+/// its rows' first would start in the window's height.
+#[derive(Clone, Copy, Debug)]
+pub struct LanePlace {
+    pub left: f32,
+    pub width: f32,
+    pub top: f32,
+}
+
 /// What a link in the timeline's text leads to.
 pub const AUTHOR_LINK: &str = "yapfast:author/";
 pub const JUMP_LINK: &str = "yapfast:jump/";
 pub const PINS_LINK: &str = "yapfast:pins";
 
 impl App {
+    /// Row `row`'s message, in the channel's timeline or the thread's
+    /// beside it ([`ASIDE`]).
+    pub fn row_message(&self, row: usize) -> Option<&Arc<ChatMessage>> {
+        match row.checked_sub(ASIDE) {
+            Some(index) => self.aside.as_ref()?.messages.get(index),
+            None => self.messages.get(row),
+        }
+    }
+
+    /// Row `row`'s look, as [`App::row_message`] finds its message.
+    pub fn row_look(&self, row: usize) -> Option<&RowLook> {
+        match row.checked_sub(ASIDE) {
+            Some(index) => self.aside.as_ref()?.looks.get(index),
+            None => self.looks.get(row),
+        }
+    }
+
+    /// Where row `row`'s timeline is in the window, and its top among the
+    /// rows, less the view's.
+    pub fn lane_place(&self, row: usize) -> (LanePlace, f32) {
+        match (row.checked_sub(ASIDE), self.aside.as_ref()) {
+            (Some(index), Some(aside)) => (
+                LanePlace {
+                    left: self.window.width - aside.width,
+                    width: aside.width,
+                    top: crate::header::HEIGHT + 1.0 + crate::thread::HEAD + 1.0,
+                },
+                aside.tops.get(index).copied().unwrap_or(0.0) - aside.view_top(),
+            ),
+            _ => (
+                LanePlace {
+                    left: crate::rail::WIDTH + crate::sidebar::WIDTH,
+                    width: self.width,
+                    top: crate::header::HEIGHT + 1.0,
+                },
+                self.tops.get(row).copied().unwrap_or(0.0) - self.view_top(),
+            ),
+        }
+    }
+
     /// The conversation column: the header, the timeline and the composer,
     /// with a server's member list beside them; or a voice channel's call.
     pub fn conversation(&self) -> Element<'_, Message> {
@@ -494,6 +562,9 @@ impl App {
                 .height(Length::Fill)
                 .into();
         }
+        if let Some(screen) = self.browse_channels() {
+            return screen;
+        }
         let mut chat = column![].width(Length::Fill).height(Length::Fill);
         if let Some(banner) = self.verify_banner() {
             chat = chat.push(banner);
@@ -502,9 +573,16 @@ impl App {
         if let Some(call) = self.dm_call_view() {
             chat = chat.push(call);
         }
-        let chat = chat.push(self.timeline()).push(self.composer_view());
+        let chat = match self.forum_view() {
+            Some(forum) => chat.push(forum),
+            None => chat.push(self.timeline()).push(self.composer_view()),
+        };
         let mut body = row![chat];
-        if self.members_shown() {
+        if let Some(search) = self.search_view() {
+            body = body.push(search);
+        } else if let Some(aside) = self.aside_view() {
+            body = body.push(aside);
+        } else if self.members_shown() {
             body = body.push(self.members_view());
         } else if self.panel_shown()
             && let Some(panel) = self.profile_panel_view()
@@ -520,7 +598,11 @@ impl App {
     /// The conversation column's right edge: the member list's left.
     pub fn chat_right(&self) -> f32 {
         self.window.width
-            - if self.members_shown() {
+            - if self.search_shown() {
+                crate::search::WIDTH
+            } else if self.aside_shown() {
+                self.aside_width()
+            } else if self.members_shown() {
                 crate::members::WIDTH
             } else if self.panel_shown() {
                 crate::profile::PANEL_WIDTH
@@ -593,16 +675,24 @@ impl App {
 
     /// One row: the history's edge above the first, a divider above a new
     /// day or the first unread message, then the message on its tint.
-    fn timeline_row(&self, index: usize) -> Element<'_, Message> {
-        let message = &self.messages[index];
-        let look = &self.looks[index];
+    pub fn timeline_row(&self, index: usize) -> Element<'_, Message> {
+        let (Some(message), Some(look)) = (self.row_message(index), self.row_look(index)) else {
+            return Space::new().into();
+        };
         let theme = &self.theme;
-        let edge = index == 0 && self.edge.ready;
+        let aside = index >= ASIDE;
+        let edge = if aside {
+            index == ASIDE && self.aside.as_ref().is_some_and(|aside| aside.ready)
+        } else {
+            index == 0 && self.edge.ready
+        };
         let head = edge || look.divided();
         let mut whole = column![].width(Length::Fill);
         if head {
             let mut above = column![].width(Length::Fill);
-            if edge {
+            if edge && aside {
+                above = above.push(self.aside_edge());
+            } else if edge {
                 above = above.push(self.history_edge());
             }
             if look.divided() {
@@ -652,10 +742,8 @@ impl App {
             content = content.push(Corner::new(actions, 16.0, body - 16.0));
         }
         // A right click opens the message's menu where the pointer is.
-        let origin = iced::Vector::new(
-            crate::rail::WIDTH + crate::sidebar::WIDTH,
-            crate::header::HEIGHT + 1.0,
-        );
+        let (lane, _) = self.lane_place(index);
+        let origin = iced::Vector::new(lane.left, lane.top);
         let content = RightPress::new(content, move |at| Message::RowMenu(index, at + origin));
         whole = whole.push(
             mouse_area(content)
@@ -719,11 +807,16 @@ impl App {
     /// welcome at a server channel's start, a line at another's, else the
     /// Earlier messages button, loading or failed.
     fn history_edge(&self) -> Element<'_, Message> {
-        let edge = &self.edge;
-        let theme = &self.theme;
-        if edge.welcome() {
+        if self.edge.welcome() {
             return self.welcome();
         }
+        self.edge_line(&self.edge, Message::Earlier)
+    }
+
+    /// The history's edge of a timeline whose start has no welcome: where
+    /// it starts, or Earlier messages (`earlier`), loading, or failed.
+    pub fn edge_line(&self, edge: &Edge, earlier: Message) -> Element<'_, Message> {
+        let theme = &self.theme;
         let shown: Element<'_, Message> = if edge.start {
             let words = if edge.direct {
                 format!("This is the beginning of your messages with {}.", edge.name)
@@ -768,7 +861,7 @@ impl App {
                     .align_y(Alignment::Center),
             )
             .padding(0)
-            .on_press_maybe(enabled.then_some(Message::Earlier))
+            .on_press_maybe(enabled.then_some(earlier))
             .style(move |_, status| button::Style {
                 background: Some(
                     if matches!(status, button::Status::Hovered | button::Status::Pressed) {
@@ -1171,13 +1264,17 @@ impl App {
     pub fn follow_link(&mut self, link: &str, at: iced::Point) -> Task<Message> {
         if let Some((item, index)) = yapfast_core::spoiler::target(link) {
             self.revealed.insert(format!("{item}/{index}"));
-            if let Some(row) = self
-                .messages
-                .iter()
-                .position(|message| message.item == item)
+            let found =
+                |messages: &Messages| messages.iter().position(|message| message.item == item);
+            if let Some(row) = found(&self.messages)
+                && let Some(body) = self.body_for(row)
             {
-                let body = self.body_for(row);
                 self.looks[row].body = Arc::new(body);
+            } else if let Some(index) = self.aside.as_ref().and_then(|aside| found(&aside.messages))
+                && let Some(body) = self.body_for(ASIDE + index)
+                && let Some(aside) = self.aside.as_mut()
+            {
+                aside.looks[index].body = Arc::new(body);
             }
             return Task::none();
         }
@@ -1186,7 +1283,8 @@ impl App {
             return self.sync();
         }
         if link == PINS_LINK {
-            return Task::none();
+            self.client.dispatch(Action::ShowPins(true));
+            return self.sync();
         }
         let user = link
             .strip_prefix(AUTHOR_LINK)
@@ -1201,7 +1299,9 @@ impl App {
         if let Some(yapfast_core::mention::Target::Channel(room)) =
             yapfast_core::mention::target(link)
         {
-            self.client.dispatch(Action::SelectRoom(room));
+            // As the Slint client's: its server or thread opens, and a voice
+            // channel isn't joined.
+            self.client.dispatch(Action::Open(room));
             return self.sync();
         }
         // Discord's own links open their place here, when this client can
@@ -1271,7 +1371,7 @@ impl App {
 
     /// A spoiler over a message's attachment was clicked: it shows.
     pub fn reveal(&mut self, row: usize, attachment: usize) -> Task<Message> {
-        if let Some(message) = self.messages.get(row) {
+        if let Some(message) = self.row_message(row) {
             self.revealed
                 .insert(crate::message::reveal_key(&message.item, attachment));
         }
@@ -1280,7 +1380,7 @@ impl App {
 
     /// A long message shows whole, or folds again.
     pub fn unfold(&mut self, row: usize) -> Task<Message> {
-        if let Some(message) = self.messages.get(row) {
+        if let Some(message) = self.row_message(row) {
             let key = crate::message::fold_key(&message.item);
             if !self.revealed.remove(&key) {
                 self.revealed.insert(key);
@@ -1290,16 +1390,16 @@ impl App {
     }
 
     /// Row `index`'s text laid out, as it shows now.
-    pub fn body_for(&self, index: usize) -> Laid {
-        let message = &self.messages[index];
+    pub fn body_for(&self, index: usize) -> Option<Laid> {
+        let message = self.row_message(index)?;
         let revealed = &self.revealed;
-        body_of(
+        Some(body_of(
             message,
             rgb(self.theme.mention),
             rgb(self.theme.text),
             rgb(self.theme.muted),
             |spoiler| revealed.contains(&format!("{}/{spoiler}", message.item)),
-        )
+        ))
     }
 }
 

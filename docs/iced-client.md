@@ -141,6 +141,13 @@ Open folders, folded categories and Developer Mode (which shows Copy ID)
 are kept in the data folder's `layout.json`, which the Slint client keeps
 them in too (`layout.rs`); each change writes its one key back.
 
+Browse Channels (`browse_channels.rs`, the Slint client's `BrowseScreen`),
+from the top of a Community server's list, takes the conversation's place:
+a search of the channels' names, then each category's heading with its
+Follow category switch and its channels, each with its icon, name, topic,
+View, Open or Join, and a box ticked while the channel list follows it; a
+click on the row ticks it or clears it, unless its category follows it.
+
 ## Settings
 
 Settings (`settings/`) is the Slint client's `SettingsScreen` with its
@@ -347,7 +354,29 @@ presence or a channel's icon, a thread's channel (which leads back to it),
 the name, a channel's topic on one line after a dot, what a DM's person is
 up to; then the room's buttons in Slint's order (calls, threads,
 notifications, pins, add people, the member list, the profile) and the
-search box. Only the member list's toggle and the profile button act yet.
+search box.
+
+The header's popovers (`popovers.rs`, the Slint client's) open under
+their button, its right edge level with theirs, and close on Escape, a
+click outside or what they're for; the core says which is open, and the
+window keeps only the rows it built while one shows. Pinned Messages lists
+the conversation's pins as found cards (`found::Found`), a click or Jump
+showing one, or says why it can't. Threads lists a channel's threads as
+Discord's list does: the joined, other active and older ones under their
+headings, older ones loading as a scroll nears the end, Enter in its
+search finding threads by name, Create starting one, and a thread clicked
+opening in its place (with Shift beside the channel). Select Friends
+picks friends to add to a DM, saying how many more the group can take,
+Create Group DM or Add to Group adding them. A thread open in its place
+has the header's More, its menu as the sidebar's.
+
+The search box (`search.rs`, `HeaderSearch`) names where it looks, widens
+while it holds something and clears with its X; Enter searches the DM, or
+the channel's server. What it found shows beside the conversation in the
+member list's place (`SearchPanel`), 420 px wide: how many, the newest
+first as found cards, a server's under their channels' names, Show more
+for the next page, a click jumping to the message in its room. Close,
+Escape or clearing the box ends the search and lets go of the cards.
 
 The timeline (`timeline.rs`, one message's content in `message.rs`) groups
 messages as Discord does: the same person within seven minutes, unless
@@ -375,7 +404,17 @@ and its words in Discord's wording.
   tiles two to a row, scaled down to the room there is. A spoiler's
   picture is blurred under a cover until clicked. Copies at a tile's size
   are made off the window's thread (`pictures::Fitter`) and dropped once
-  no view shows them.
+  no view shows them. A picture clicked shows large (`image_viewer.rs`,
+  the Slint client's `ImageViewer`): the core's full picture once it
+  comes, the preview until then at the size it opened at, fitted beside
+  its bars; its name and place among the message's pictures, Save and
+  Close above, round buttons and the arrow keys stepping through them, a
+  note while the full one loads or why it can't; Escape, Close or a click
+  outside closes it, and the core lets go of it. A right click on a
+  picture or video, there or in the timeline, offers Copy Image, Save
+  Image or Video, Copy Link and Open Link, after the message's own rows.
+  Saving, from there or a file's card, asks where with the system's
+  dialog, offering only the file's own name.
 - A video (`playback.rs`) shows its poster with a play mark; clicked, it
   plays in its cell, its frames coming through the stream worker's shared
   mapping as a watched stream's do (`video::Sources::clip`). While the
@@ -533,6 +572,63 @@ Rows are built only near the view at heights worked out ahead; once built,
 messages are read, the message at the view's top stays where it is as
 rows change height, new messages come, or the oldest go; sending goes
 back to the newest message.
+
+## Forums
+
+A Discord forum shows in place of a channel's messages and composer
+(`forum.rs`, the Slint client's `ForumPanel`): a search of its posts'
+titles and New Post, then its posts as cards (tags, title with NEW, who
+wrote the first message and how it starts, the top reaction or the
+forum's own, replies, how long ago, the first picture), the active ones
+first and older ones a page at a time as the list nears its end. A click
+opens a post beside the forum, Shift and a click in its place. New Post
+shows the form in the list's place (`NewPostForm`): the title, tags from
+a menu of up to five, the forum's post guidelines folding away, and the
+first message with files in a `thread::SideComposer`; Post makes it and
+opens it beside, and closing with something written asks first. The cards
+are built again only when what they show changed, and go as the forum
+closes.
+
+## Apps' forms and commands
+
+An app's form (`modal.rs`, the Slint client's `BotModalDialog`) shows over
+the dimmed window: its title, then its parts in order (Markdown to read,
+a line or a paragraph to write, a select menu with its dropdown, radio
+buttons, checkboxes, a checkbox of its own, files to upload with Choose
+files and each file's Remove, or a note for a part Yapfast can't fill),
+why it failed, and Cancel and Submit ("Submitting…" while Discord
+answers). Escape, Cancel or a click outside closes it. What it holds is
+the core's; the window keeps only the paragraphs' editors and the text to
+read laid out, and lets go of them as it closes.
+
+A message's menu has Apps after Pin message where the room's apps have
+message commands: a submenu of them by name with their app's under it,
+the chosen one run on the message. The menu asks for the room's command
+index as it opens, and is built again with its Apps once the index comes.
+
+## Threads
+
+A thread opens beside its channel (`thread.rs`, the Slint client's
+`ThreadPanel`), 420 px wide and never more than the chat leaves: from a
+message's thread chip (its name, how many messages, a chevron), View
+Thread in its menu, or a listed thread opened with Shift. Its head is the
+thread's icon and name, More (the thread's own menu: Leave thread, Copy
+link and the rest, as the sidebar's), Open in full view and Close. Its
+messages are the channel's timeline's rows numbered from
+`timeline::ASIDE`, so a message's look, menu, hover bar (two quick
+reactions here), spoilers and selection work the same on either side;
+selecting stays on one side. It loads earlier messages as its top comes
+into view, tells the core which of its messages show, and its composer
+(`thread::SideComposer`) has its own draft, reply bar, files and Send.
+Closing it, or the core letting go of it, drops its rows.
+
+Create Thread, in a message's menu or the composer's + menu, opens the
+New Thread form beside the channel (the Slint client's
+`NewThreadPanel`): the message it starts from as a found card
+(`found::Found`), the thread's name (the message's text by default), the
+Private Thread switch where the server allows one, and the first
+message's composer, Create Thread sending both. Leaving it with something
+written asks first (`thread::leave_question`).
 
 ## People
 
@@ -814,7 +910,7 @@ what costs is kept out of the view:
   frames on a timer.
 
 Each part of the window has its module: `signin`, `mfa`, `rail`,
-`sidebar`, `account`, `header`, `timeline`, `message`, `cards`, `bot_select`, `browse`, `composer`, `edit`, `suggest`, `commands`, `typing`, `uploads`, `forward`, `members`,
+`sidebar`, `account`, `header`, `timeline`, `message`, `cards`, `bot_select`, `browse`, `browse_channels`, `found`, `popovers`, `search`, `thread`, `image_viewer`, `composer`, `edit`, `suggest`, `commands`, `typing`, `uploads`, `forward`, `members`,
 `people`, `person`, `profile` (with `editor`), `friends`, `active_now`, `reactions`, `picker` (with its tabs `emoji`, `gifs`, `stickers`), `menus`, `places`, `dialogs`, `call` (with `stage`, `dock`, `popups`, `dm`, `corner`), `settings` (with `pages`, `voice`, `appearance`), `server_settings` (with `profile`, `roles`, `people`, `moderation`, `expressions`, `ownership`), `channel_settings`, `server_dialogs`, `status`, `switcher`; `form` and `sheet` are the settings' kit; `theme` holds
 the colours and `layout` what's kept in `layout.json`.
 `sync.rs` takes in what changed in the core's state after each message.
@@ -871,6 +967,11 @@ When a second screen needs what a first one built, it moves here:
   message, its tip above; an empty label shows no tip.
   `App::danger_icon_button` is one with `danger`: red on a red wash under
   the pointer, on a `fill` or none.
+- `elide::elide`: one line of text cut to its room with "…", as Slint's
+  `overflow: elide` (iced's text only wraps or clips): as wide as its text
+  up to the room its row leaves, so what follows it follows the text, or
+  `centred` across the room. Names in the lists, channel rows and table
+  cells use it.
 - `controls::tip` and `tip_style`: the tooltip.
 - `controls::bar`: a box of one colour, for lines between parts of the
   window, bars and dots; `controls::placed` puts a layer of a stack at a
@@ -923,8 +1024,9 @@ When a second screen needs what a first one built, it moves here:
   picture and a DM's call: its face (a frame, an avatar or a note), a ring,
   chips at its corners, `glass_button`s over the video and `pill`s.
 - `viewer::Viewer`: something shown large over the whole window on a
-  ground (a title bar with its buttons, the content fitted between, a foot
-  under it), for the stage full screen and a message's video full screen.
+  ground (a title bar with its buttons and a `subtitle`, the content
+  fitted between, a foot under it, layers `over` it), for the stage full
+  screen, a message's video full screen and the picture viewer.
 - `controls::round_button`, `call_button` and `dock_button`: the call's
   round controls, the DM call's answer buttons and the dock's buttons;
   `controls::live_pill` LIVE; `controls::Slider` a volume slider;
@@ -932,6 +1034,17 @@ When a second screen needs what a first one built, it moves here:
   choices, one picked; `controls::Check` and `App::checkbox` a menu row's
   tick or checkbox, and `Item::subtitle` a second line under its label.
 - `widgets::Hover`: a layer shown over its child only under the pointer.
+- `found::Found` and `App::found_view`: a message found (pinned, a
+  search's result, a thread's start) as a card: avatar, name in its role
+  colour, when, eight lines of text, its first pictures, its poll and
+  files; a click or Jump under the pointer shows it.
+- `App::popover_frame`: a popover's frame under a header button (the
+  Slint client's `Popover`): icon, heading, detail, buttons at its end,
+  Close. `App::search_field`: a search box (`HeaderSearch`).
+- `thread::SideComposer`: a composer beside the chat (the thread's, a new
+  thread's or post's first message): its field, reply bar, files, attach
+  and send. `thread::leave_question` asks before a form with changes
+  closes.
 - `form.rs`, the form kit Settings is built of and the editors to come
   will be: `title` (a page's), `heading` (a group's), `note` (what a
   control does, under it), `rule`, `group` and `page` (the spacing of
@@ -1041,11 +1154,18 @@ editing, Reset putting it back), a bio too long that can't be saved, and
 a banner colour that isn't one; in `tests/dialogs.rs` the custom status
 starting from the one set and saving what's written, and the quick
 switcher finding a place and going there with the keys; in
+`tests/header.rs` pins under their button closing as one is jumped to or
+on Escape, a server search's results beside the channel ending on Escape,
+and Select Friends counting the room left; in
+`forum.rs` a post's card; in
+`tests/threads.rs` the thread beside writing its own draft and letting go
+of its rows as it closes, and the viewer letting go of its picture; in
 `tests/server_dialogs.rs`, on the same server, the invite dialog's link,
 how long it lasts and its choices for a new one, Create channel and
 category, Duplicate and Delete from the menus, leaving a server or group
 in red (a group's without telling anyone), and Join a Server from the
-rail and a clicked invite link. `call/stage.rs` tests the tiles' layout, the
+rail and a clicked invite link, and Browse Channels opening from a
+Community server's list and searching. `call/stage.rs` tests the tiles' layout, the
 stage's slots and the corner, `call/dock.rs` the call's time and
 `viewer.rs` the fit. The emoji
 ones need the Twemoji font the root crate's `build.rs` packs: they take
@@ -1064,7 +1184,7 @@ In the profile editor: Display Name Style's window (its tile does
 nothing), the nameplate's and effect's art on their tiles, the theme
 colours' picker (each is its code alone), a moving banner, and the avatar's
 colour behind a banner without one, which the profile cards lack too.
-Other accounts, threads, profile effects and frames, a mutual server's card, an
+Other accounts, profile effects and frames, a mutual server's card, an
 activity's menu, the tray,
 notifications, links, accessibility and Windows' own checks. On the rail
 and in the sidebar: dragging servers, channels and people, the voice
@@ -1073,13 +1193,7 @@ verified badge and its events' own cards, and the dialog that asks whether a
 dragged channel takes its category's permissions (there's no dragging
 yet). An app's authorization, a gift's and an event's dialogs: their
 links open the browser. In the header:
-threads, pins, adding people, the
-search. In the timeline: saving a file, a
-picture's full view, apps' forms
-(modals), and the actions that
-lead to what the client doesn't have yet: Create Thread
-and View Thread, Apps' message commands, a picture's Copy Image, Save and
-Open Link; keys typed in the timeline going to the composer. In the composer: dragging the expression
+a channel's topic in full on a click. Dragging the thread beside's edge to widen it. In the timeline: keys typed in the timeline going to the composer. In the composer: dragging the expression
 picker's left edge to widen it, and Nitro's offer on a locked emoji or
 sticker. In calls: push to talk's fallback while the
 window has focus where no global shortcut is had, the ringing card's

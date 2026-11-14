@@ -197,6 +197,18 @@ pub enum Message {
     Switcher(crate::switcher::Event),
     /// The window took another size, or opened at one.
     Resized(Size),
+    /// A message's picture large, or its attachment saved
+    /// (`image_viewer.rs`).
+    Image(crate::image_viewer::Event),
+    /// The thread beside the channel, or the New Thread form (`thread.rs`).
+    Thread(crate::thread::Event),
+    Popover(crate::popovers::Event),
+    Modal(crate::modal::Event),
+    Forum(crate::forum::Event),
+    BrowseChannels(crate::browse_channels::Event),
+    Search(crate::search::Event),
+    /// The keys go to the field with this id.
+    Focus(&'static str),
 }
 
 pub struct App {
@@ -381,6 +393,21 @@ pub struct App {
     pub clip_full: bool,
     pub clip_cell: (u32, u32),
     pub clip_volume: u8,
+    /// The size the picture viewer opened at, for its message's item and
+    /// attachment, which the full picture coming keeps.
+    pub viewer_size: Option<(String, usize, Size)>,
+    /// The thread beside the channel, while it shows, the last message it
+    /// had read, and the side composers' fields (`thread.rs`).
+    pub aside: Option<Box<crate::thread::Aside>>,
+    pub seen_aside: Option<String>,
+    pub drafts: crate::thread::Drafts,
+    pub popovers: crate::popovers::Popovers,
+    pub modal: crate::modal::Shown,
+    /// Browse Channels' search.
+    pub browse_filter: String,
+    pub searching: crate::search::Searching,
+    /// The forum's form for a post, as typed (`forum.rs`).
+    pub forum_post: crate::forum::Post,
     /// The colours every part of the window paints with, and the themes
     /// the data folder offers.
     pub theme: Theme,
@@ -517,6 +544,15 @@ impl App {
             clip_full: false,
             clip_cell: (0, 0),
             clip_volume: 0,
+            viewer_size: None,
+            aside: None,
+            seen_aside: None,
+            drafts: Default::default(),
+            popovers: Default::default(),
+            modal: Default::default(),
+            browse_filter: String::new(),
+            searching: Default::default(),
+            forum_post: Default::default(),
             theme,
             themes,
             sign_in: SignIn::default(),
@@ -549,6 +585,7 @@ impl App {
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
         self.take_found();
+        self.take_aside_found();
         match message {
             Message::Events(batch) => {
                 let events = std::mem::take(&mut *batch.lock().expect("event batch"));
@@ -693,7 +730,7 @@ impl App {
             Message::Reveal(row, attachment) => self.reveal(row, attachment),
             Message::Unfold(row) => self.unfold(row),
             Message::ShowBlocked(row) => {
-                if let Some(message) = self.messages.get(row) {
+                if let Some(message) = self.row_message(row) {
                     self.revealed
                         .insert(crate::message::blocked_key(&message.item));
                 }
@@ -702,6 +739,14 @@ impl App {
             Message::Poll(event) => self.poll_event(event),
             Message::Voice(event) => self.voice_event(event),
             Message::Clip(clip) => self.clip_event(clip),
+            Message::Image(event) => self.image_event(event),
+            Message::Thread(event) => self.thread_event(event),
+            Message::Popover(event) => self.popover_event(event),
+            Message::Modal(event) => self.modal_event(event),
+            Message::Forum(event) => self.forum_event(event),
+            Message::BrowseChannels(event) => self.browse_channels_event(event),
+            Message::Search(event) => self.search_event(event),
+            Message::Focus(id) => operation::focus(id),
             Message::Leave(visit) => self.leave(visit),
             Message::BotSelect(event) => self.select_event(event),
             Message::UseButton(item, custom_id) => {
@@ -794,6 +839,18 @@ impl App {
         if self.client.state().confirm_delete.is_some() {
             return self.confirm_key(named);
         }
+        // An app's form, unless its select menu is open over it.
+        if self.client.state().interaction_modal.is_some()
+            && self.client.state().select_menu.is_none()
+        {
+            return match named {
+                Some(key::Named::Escape) => self.modal_event(crate::modal::Event::Close),
+                _ => Task::none(),
+            };
+        }
+        if self.client.state().viewer.is_some() && self.menu.is_none() {
+            return self.viewer_key(named);
+        }
         if self.client.state().switcher.is_some() {
             return self.switcher_key(named, modifiers.shift());
         }
@@ -823,6 +880,12 @@ impl App {
         if self.popover.is_some() {
             return match named {
                 Some(key::Named::Escape) => self.status_event(crate::status::Event::Close),
+                _ => Task::none(),
+            };
+        }
+        if self.popover_open() {
+            return match named {
+                Some(key::Named::Escape) => self.popover_event(crate::popovers::Event::Close),
                 _ => Task::none(),
             };
         }
@@ -934,6 +997,13 @@ impl App {
             self.selection = None;
             return Task::none();
         }
+        if self.forum_post.tags_menu {
+            return self.forum_event(crate::forum::Event::TagsMenu(false));
+        }
+        // Then in Discord's order: the search, a reply or an edit.
+        if self.search_shown() {
+            return self.search_event(crate::search::Event::Clear);
+        }
         if self.editing.is_some() {
             self.client.dispatch(Action::CancelEdit);
             return Task::batch([self.sync(), operation::focus(crate::composer::COMPOSER)]);
@@ -1024,6 +1094,10 @@ impl App {
             || state.poll_draft.is_some()
             || state.switcher.is_some()
             || self.server_dialog_open()
+            || self.popover_open()
+            || self.search_shown()
+            || self.forum_post.tags_menu
+            || state.interaction_modal.is_some()
         {
             subscriptions.push(iced::event::listen_with(|event, status, _| match event {
                 iced::Event::Keyboard(keyboard::Event::KeyPressed {
@@ -1216,6 +1290,15 @@ impl App {
             layers = layers
                 .push(outside(Message::Picker(picker::Event::Close), false))
                 .push(place);
+        }
+        if let Some(popover) = self.popover_layer() {
+            layers = layers.push(popover);
+        }
+        if let Some(modal) = self.modal_view() {
+            layers = layers.push(modal);
+        }
+        if let Some(viewer) = self.image_viewer() {
+            layers = layers.push(viewer);
         }
         if let Some(menu) = self.menu_view() {
             layers = layers.push(outside(Message::CloseMenu, false)).push(menu);

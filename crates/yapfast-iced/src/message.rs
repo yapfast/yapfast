@@ -17,15 +17,12 @@ use crate::{
     app::{App, Message},
     controls::{self, placed},
     fonts::{BOLD, ITALIC, MEDIUM, SEMIBOLD, shown_name, style_font},
-    header,
     looks::{self, Chip},
     markdown::{FIRST_PART, Look},
     media::{self, Fit, Gallery, Shot},
     menus::MenuAct,
     pictures::{Face, Icon},
-    rail,
     select::Piece,
-    sidebar,
     style::{CHIP, hex, rounded},
     timeline::{
         AUTHOR_GAP, AUTHOR_LINE, AVATAR, CONTENT_PAD, END_PAD, EmbedText, GROUP_GAP, GUTTER,
@@ -67,7 +64,9 @@ const EPHEMERAL: u64 = 1 << 6;
 impl App {
     /// Row `index`'s message, beside its gutter.
     pub fn message_content<'a>(&'a self, index: usize, look: &'a RowLook) -> Element<'a, Message> {
-        let message = &self.messages[index];
+        let Some(message) = self.row_message(index) else {
+            return Space::new().into();
+        };
         if message.blocked && !self.revealed.contains(&blocked_key(&message.item)) {
             return self.blocked_row(index, look);
         }
@@ -128,7 +127,7 @@ impl App {
         let gallery = Gallery::of(
             &message.attachments,
             Placement::Message,
-            self.content_width(),
+            self.content_width_of(index),
         );
         if !gallery.is_empty() {
             content = content.push(
@@ -138,7 +137,7 @@ impl App {
         if let Some(stickers) = self.stickers(message) {
             content = content.push(container(stickers).padding(Padding::ZERO.top(4)));
         }
-        for (at, attachment) in files(message, Placement::Message).enumerate() {
+        for (at, (index, attachment)) in files(message, Placement::Message).enumerate() {
             // A voice message's recording is its first attachment.
             if at == 0
                 && let Some(voice) = &message.voice
@@ -146,8 +145,10 @@ impl App {
                 content = content.push(self.voice_card(message, voice));
                 continue;
             }
-            content =
-                content.push(container(self.file_card(attachment)).padding(Padding::ZERO.top(4)));
+            content = content.push(
+                container(self.file_card(&message.item, index, attachment))
+                    .padding(Padding::ZERO.top(4)),
+            );
         }
         if let Some(poll) = &message.poll {
             content = content.push(self.poll_view(message, poll));
@@ -169,6 +170,9 @@ impl App {
         }
         if let Some(failed) = self.bot_failed(message) {
             content = content.push(failed);
+        }
+        if let Some(thread) = &message.thread {
+            content = content.push(self.thread_chip(thread));
         }
         if !message.reactions.is_empty() {
             content =
@@ -432,8 +436,7 @@ impl App {
     /// When the message at `index` was sent, on the clock Messages'
     /// settings chose.
     fn sent_time<'a>(&'a self, index: usize, message: &'a ChatMessage) -> &'a str {
-        self.looks
-            .get(index)
+        self.row_look(index)
             .map_or(message.time.as_str(), |look| look.time.as_str())
     }
 
@@ -526,15 +529,47 @@ impl App {
                 && !media::loading(attachment)
                 && !self.client.state().preview
             {
-                self.clip_cell(message, at, cell.size(), shot)
+                self.media_press(
+                    message,
+                    at,
+                    true,
+                    self.clip_cell(message, at, cell.size(), shot),
+                )
             } else if attachment.video {
                 stack![shot, container(self.play_badge()).center(Length::Fill)].into()
+            } else if attachment.image {
+                let opened = mouse_area(shot)
+                    .on_press(Message::Image(crate::image_viewer::Event::Open(
+                        message.item.clone(),
+                        at,
+                    )))
+                    .interaction(iced::mouse::Interaction::Pointer);
+                self.media_press(message, at, false, opened)
             } else {
                 shot
             };
             cells = cells.push(placed(shot, cell.x, cell.y));
         }
         cells.into()
+    }
+
+    /// A message's picture or video that a right click opens the
+    /// message's menu on, with what can be done with it.
+    fn media_press<'a>(
+        &'a self,
+        message: &ChatMessage,
+        at: usize,
+        video: bool,
+        shown: impl Into<Element<'a, Message>>,
+    ) -> Element<'a, Message> {
+        if message.deleted || message.delivery != chat::Delivery::default() {
+            return shown.into();
+        }
+        let item = message.item.clone();
+        crate::widgets::RightPress::new(shown, move |_| {
+            Message::Image(crate::image_viewer::Event::Menu(item.clone(), at, video))
+        })
+        .into()
     }
 
     /// The round play mark over a video's poster, as the Slint client's
@@ -568,8 +603,13 @@ impl App {
 
     /// A file's card, as the Slint client's `FileCard`: its icon in the
     /// accent, its name and size (and why a picture shows no preview), and
-    /// Save, which comes with downloads in a later milestone.
-    pub fn file_card<'a>(&'a self, attachment: &'a Attachment) -> Element<'a, Message> {
+    /// Save, which asks where.
+    pub fn file_card<'a>(
+        &'a self,
+        item: &str,
+        index: usize,
+        attachment: &'a Attachment,
+    ) -> Element<'a, Message> {
         let theme = &self.theme;
         let size = attachment.size.map(chat::file_size);
         let detail = match (attachment.image, attachment.preview_failed, size) {
@@ -590,7 +630,14 @@ impl App {
         let card = row![
             self.glyph(Icon::File, FILE_ICON, theme.accent),
             container(words).width(Length::Fill).clip(true),
-            self.icon_button(Icon::Download, "Save", 32.0, 20, Message::Nothing, false),
+            self.icon_button(
+                Icon::Download,
+                "Save",
+                32.0,
+                20,
+                Message::Image(crate::image_viewer::Event::Save(item.to_owned(), index)),
+                false,
+            ),
         ]
         .spacing(12)
         .align_y(Alignment::Center);
@@ -701,7 +748,7 @@ impl App {
             .iter()
             .position(|attachment| attachment.placement == Placement::Thumbnail(place));
         // Its padding, and a thumbnail beside the text, take from the room.
-        let room = (self.content_width().min(EMBED_WIDTH)
+        let room = (self.content_width_of(index).min(EMBED_WIDTH)
             - EMBED_PADDING
             - if thumbnail.is_some() {
                 THUMBNAIL + 16.0
@@ -873,7 +920,9 @@ impl App {
     /// once it's a few lines past twelve, so Show more never uncovers only
     /// a line or two, it's cut to twelve with Show more under it.
     fn folding<'a>(&'a self, index: usize, body: Element<'a, Message>) -> Element<'a, Message> {
-        let item = &self.messages[index].item;
+        let item = self
+            .row_message(index)
+            .map_or("", |message| message.item.as_str());
         let whole = self.revealed.contains(&fold_key(item));
         let theme = &self.theme;
         let more = button(
@@ -900,18 +949,26 @@ impl App {
     /// Reply, and More for a Delete that doesn't ask, as Discord's client
     /// does; not while the message's menu or picker is open.
     pub fn hover_bar(&self, index: usize) -> Option<Element<'_, Message>> {
-        let message = &self.messages[index];
+        let message = self.row_message(index)?;
         if message.deleted || message.delivery != chat::Delivery::default() {
             return None;
         }
         let theme = &self.theme;
         // Where the picker and the menu open: under the bar's right end.
-        let at = Point::new(
-            rail::WIDTH + sidebar::WIDTH + self.width - 16.0 - 200.0,
-            header::HEIGHT + 1.0 + self.tops[index] - self.view_top() + 24.0,
-        );
+        let (lane, top) = self.lane_place(index);
+        let at = Point::new(lane.left + lane.width - 16.0 - 200.0, lane.top + top + 24.0);
+        // The thread beside the channel is narrower: two quick reactions.
+        let quick_reactions = if index >= crate::timeline::ASIDE {
+            2
+        } else {
+            3
+        };
         let item = &message.item;
-        let writes = self.composer_look().enabled;
+        let writes = if index >= crate::timeline::ASIDE {
+            self.aside_writes()
+        } else {
+            self.composer_look().enabled
+        };
         let open_here = self
             .menu
             .as_ref()
@@ -939,7 +996,7 @@ impl App {
         }
         if message.can_react {
             if !quick {
-                for key in self.client.app.frequent_reactions(3) {
+                for key in self.client.app.frequent_reactions(quick_reactions) {
                     buttons = buttons.push(self.emoji_button(
                         &key,
                         20,
@@ -1005,6 +1062,70 @@ impl App {
             .on_enter(Message::PointRow(item.clone(), true))
             .into(),
         )
+    }
+
+    /// The thread a message started, as the Slint client's `ThreadChip`:
+    /// its name, how many messages it has and whether it's archived, and a
+    /// click that opens it beside the channel.
+    fn thread_chip<'a>(&'a self, thread: &'a chat::ThreadLink) -> Element<'a, Message> {
+        let theme = &self.theme;
+        let count = match thread.messages {
+            None => None,
+            Some(0) => Some("No messages yet".to_owned()),
+            Some(1) => Some("1 message".to_owned()),
+            Some(count) => Some(format!("{count} messages")),
+        };
+        let detail = match (count, thread.archived) {
+            (Some(count), true) => format!("{count}, archived"),
+            (Some(count), false) => count,
+            (None, true) => "Archived".into(),
+            (None, false) => String::new(),
+        };
+        // The name as long as it is, the count after it, the chevron at
+        // the end.
+        let mut words = row![
+            crate::elide::elide(thread.name.as_str())
+                .size(self.text_size())
+                .font(BOLD)
+                .color(theme.text),
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center);
+        if !detail.is_empty() {
+            words = words.push(text(detail).size(14).color(theme.link));
+        }
+        let face = row![
+            self.glyph(Icon::Thread, 18, theme.muted),
+            container(words).width(Length::Fill),
+            self.glyph(Icon::ChevronRight, 16, theme.muted),
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center);
+        let (rest, lit, edge) = (theme.sidebar, theme.hover, theme.edge);
+        let chip = button(face)
+            .padding([8, 12])
+            .on_press(Message::Thread(crate::thread::Event::Open(
+                thread.room.clone(),
+            )))
+            .style(move |_, status| button::Style {
+                background: Some(
+                    if matches!(status, button::Status::Hovered | button::Status::Pressed) {
+                        lit
+                    } else {
+                        rest
+                    }
+                    .into(),
+                ),
+                border: iced::Border {
+                    color: edge,
+                    width: 1.0,
+                    radius: 8.0.into(),
+                },
+                ..button::Style::default()
+            });
+        container(container(chip).max_width(EMBED_WIDTH))
+            .padding(Padding::ZERO.top(4))
+            .into()
     }
 
     /// How a message of one's own is going, under it, as the Slint
@@ -1085,20 +1206,20 @@ impl App {
         .into()
     }
 
-    /// The room a message's content has across: the timeline's width but
+    /// The room row `row`'s content has across: its timeline's width but
     /// the gutter and the room kept for its actions.
-    pub fn content_width(&self) -> f32 {
-        (self.width - GUTTER - END_PAD).max(0.0)
+    pub fn content_width_of(&self, row: usize) -> f32 {
+        let (lane, _) = self.lane_place(row);
+        (lane.width - GUTTER - END_PAD).max(0.0)
     }
 
     pub fn open_author(&mut self, index: usize) -> iced::Task<Message> {
-        let Some(message) = self.messages.get(index) else {
+        let Some(message) = self.row_message(index) else {
             return iced::Task::none();
         };
-        let visible_top = (self.total_height() - self.timeline_height - self.from_end).max(0.0);
-        let y =
-            header::HEIGHT + 1.0 + self.tops[index] - visible_top + GROUP_GAP + CONTENT_PAD + 2.0;
-        let x = rail::WIDTH + sidebar::WIDTH + (GUTTER - AVATAR) / 2.0;
+        let (lane, top) = self.lane_place(index);
+        let y = lane.top + top + GROUP_GAP + CONTENT_PAD + 2.0;
+        let x = lane.left + (GUTTER - AVATAR) / 2.0;
         let width = crate::profile::WIDTH;
         let beside = if x + AVATAR + 8.0 + width <= self.window.width - 8.0 {
             x + AVATAR + 8.0
@@ -1110,13 +1231,19 @@ impl App {
     }
 }
 
-/// A message's attachments that show as file cards at `placement`: those
-/// that aren't pictures.
-pub fn files(message: &ChatMessage, placement: Placement) -> impl Iterator<Item = &Attachment> {
+/// A message's files shown as cards in `placement`, with their places
+/// among its attachments.
+pub fn files(
+    message: &ChatMessage,
+    placement: Placement,
+) -> impl Iterator<Item = (usize, &Attachment)> {
     message
         .attachments
         .iter()
-        .filter(move |attachment| attachment.placement == placement && !media::pictured(attachment))
+        .enumerate()
+        .filter(move |(_, attachment)| {
+            attachment.placement == placement && !media::pictured(attachment)
+        })
 }
 
 /// What `revealed` holds for a blocked person's message shown.

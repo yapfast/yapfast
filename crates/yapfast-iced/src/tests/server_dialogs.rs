@@ -286,3 +286,31 @@ fn join_a_server_shows_the_invites_server_and_a_link_opens_it() {
     let join = app.client.state().join.clone().expect("open");
     assert!(join.joining || join.error.is_some(), "{join:?}");
 }
+
+#[test]
+fn browse_channels_opens_from_a_community_servers_list_and_searches() {
+    use yapfast_core::application::{Action, Navigation};
+    let (mut app, _folder) = super::server::discord_server(0, |server, _| {
+        server.community = true;
+        server.text_channels[0].topic = Some("Say **hi**".into());
+    });
+    app.client
+        .dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
+    let _ = app.sync();
+    interact(&mut app, |ui| {
+        ui.click("Browse channels").expect("Browse channels");
+    });
+    assert!(app.client.state().browse.is_some());
+    assert!(shows(&app, "Browse Channels"));
+    // The topic as plain text, every channel's box ticked with none followed.
+    assert!(shows(&app, "Say hi"));
+    assert!(shows(&app, "Lounge"));
+    interact(&mut app, |ui| {
+        ui.click(iced::widget::Id::new(crate::browse_channels::FILTER))
+            .expect("the search");
+        ui.typewrite("lou");
+    });
+    assert_eq!(app.browse_filter, "lou");
+    assert!(!shows(&app, "Say hi"));
+    assert!(shows(&app, "Join"));
+}

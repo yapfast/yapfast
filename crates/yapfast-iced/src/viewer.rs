@@ -29,7 +29,9 @@ pub struct Viewer<'a> {
     content: Element<'a, Message>,
     size: Size,
     title: Option<(String, Vec<Element<'a, Message>>)>,
+    subtitle: Option<String>,
     foot: Option<Element<'a, Message>>,
+    over: Vec<Element<'a, Message>>,
     on_outside: Message,
 }
 
@@ -47,7 +49,9 @@ impl<'a> Viewer<'a> {
             content: content.into(),
             size,
             title: None,
+            subtitle: None,
             foot: None,
+            over: Vec::new(),
             on_outside,
         }
     }
@@ -55,6 +59,20 @@ impl<'a> Viewer<'a> {
     /// The bar along its top: `title`, then `buttons` at its right.
     pub fn title(mut self, title: impl Into<String>, buttons: Vec<Element<'a, Message>>) -> Self {
         self.title = Some((title.into(), buttons));
+        self
+    }
+
+    /// A second line under the title, fainter: where a picture is among
+    /// its message's.
+    pub fn subtitle(mut self, subtitle: impl Into<String>) -> Self {
+        self.subtitle = Some(subtitle.into());
+        self
+    }
+
+    /// A layer over the whole viewer, such as the buttons either side that
+    /// step through pictures; it takes only the clicks on what it shows.
+    pub fn over(mut self, layer: impl Into<Element<'a, Message>>) -> Self {
+        self.over.push(layer.into());
         self
     }
 
@@ -79,22 +97,30 @@ impl<'a> Viewer<'a> {
                 opaque(container(self.content).center(Length::Fill))
             ]);
         };
-        let mut bar = row![
-            text(title)
+        let mut heading = column![
+            crate::elide::elide(title)
                 .size(15)
                 .font(BOLD)
                 .color(Color::WHITE)
-                .wrapping(text::Wrapping::None)
-                .width(Length::Fill)
         ]
-        .spacing(8)
-        .padding(Padding {
-            left: 20.0,
-            right: 12.0,
-            ..Padding::ZERO
-        })
-        .height(BAR)
-        .align_y(Alignment::Center);
+        .width(Length::Fill);
+        if let Some(subtitle) = self.subtitle {
+            heading = heading.push(text(subtitle).size(13).color(Color::from_rgba8(
+                255,
+                255,
+                255,
+                0xb3 as f32 / 255.0,
+            )));
+        }
+        let mut bar = row![heading]
+            .spacing(8)
+            .padding(Padding {
+                left: 20.0,
+                right: 12.0,
+                ..Padding::ZERO
+            })
+            .height(BAR)
+            .align_y(Alignment::Center);
         for button in buttons {
             bar = bar.push(button);
         }
@@ -115,7 +141,11 @@ impl<'a> Viewer<'a> {
                 container(foot).width(self.size.width.max(FOOT)).height(40),
             ));
         }
-        opaque(iced::widget::stack![backdrop, column![opaque(bar), middle]])
+        let mut layers = iced::widget::stack![backdrop, column![opaque(bar), middle]];
+        for layer in self.over {
+            layers = layers.push(layer);
+        }
+        opaque(layers)
     }
 }
 

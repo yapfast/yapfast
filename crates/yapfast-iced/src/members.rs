@@ -427,21 +427,19 @@ impl App {
         );
         let who = row![
             self.avatar(card.avatar.as_deref(), &card.name, 16.0, 8.0, 1.0),
-            text(card.name.as_str())
+            crate::elide::elide(card.name.as_str())
                 .size(14)
                 .font(MEDIUM)
-                .color(theme.secondary)
-                .wrapping(text::Wrapping::None),
+                .color(theme.secondary),
         ]
         .spacing(6)
         .align_y(Alignment::Center);
         let words = column![
             who,
-            text(card.game.as_str())
+            crate::elide::elide(card.game.as_str())
                 .size(14)
                 .font(SEMIBOLD)
-                .color(theme.text)
-                .wrapping(text::Wrapping::None),
+                .color(theme.text),
             when,
         ]
         .spacing(2)

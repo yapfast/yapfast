@@ -25,12 +25,30 @@ impl App {
     /// when `header`.
     pub fn open_place_menu(&mut self, id: &str, at: Point, header: bool) -> Task<Message> {
         let app = &self.client.app;
-        let state = &app.state;
-        let mut choices = if header {
+        let choices = if header {
             app.header_choices(id)
         } else {
             app.menu_choices(id)
         };
+        self.place_menu(id, at, header, choices)
+    }
+
+    /// A thread's header's More, beside its channel or in full view: its
+    /// menu without Mark as read, as the Slint client's `thread_more`.
+    pub fn open_thread_more(&mut self, room: &str, at: Point) -> Task<Message> {
+        let choices = self.client.app.thread_more_choices(room);
+        self.place_menu(room, at, false, choices)
+    }
+
+    fn place_menu(
+        &mut self,
+        id: &str,
+        at: Point,
+        header: bool,
+        mut choices: Vec<MenuChoice>,
+    ) -> Task<Message> {
+        let app = &self.client.app;
+        let state = &app.state;
         let server = state.servers.iter().any(|server| server.id == id);
         let category = !server && state.is_category(id);
         let voice = state.rooms.iter().any(|room| room.id == id && room.voice);
@@ -378,10 +396,15 @@ impl App {
                 user,
                 server: row.key.clone(),
             }),
-            MenuAct::App => user.map(|user| Action::RunAppCommand {
-                command: row.key.clone(),
-                target: Some(user),
-            }),
+            // On a message, by its item; on someone, by their id.
+            MenuAct::App => menu
+                .item
+                .clone()
+                .or(user)
+                .map(|target| Action::RunAppCommand {
+                    command: row.key.clone(),
+                    target: Some(target),
+                }),
             // This account moves by joining there.
             MenuAct::MoveTo => menu
                 .voice

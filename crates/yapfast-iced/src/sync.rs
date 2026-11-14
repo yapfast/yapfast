@@ -28,7 +28,7 @@ use crate::{
     rail::rail,
     sidebar::sidebar,
     theme::rgb,
-    timeline::{self, Edge, MARGIN, TIMELINE, row_height},
+    timeline::{self, Edge, MARGIN, RowLook, TIMELINE, row_height},
 };
 
 /// A list's viewport, as its scrollable last reported it.
@@ -63,6 +63,20 @@ impl Scroll {
             .min(count);
         (first.min(last), last)
     }
+}
+
+/// A timeline's rows before and now, for [`App::measured_rows`].
+pub struct Measuring<'a> {
+    pub old: &'a Messages,
+    pub old_looks: &'a [RowLook],
+    pub old_heights: &'a [f32],
+    pub messages: &'a Messages,
+    pub marks: timeline::Marks<'a>,
+    pub width: f32,
+    /// The history's edge's height over the first row, and whether it
+    /// changed since.
+    pub edge: f32,
+    pub edge_changed: bool,
 }
 
 /// What the rail, the sidebar, the header and the history's edge are made
@@ -256,6 +270,16 @@ impl App {
             converted.prune(0);
         }
         self.call_sync();
+        self.viewer_sync();
+        tasks.push(self.thread_sync());
+        self.popovers_sync();
+        self.search_sync();
+        self.forum_sync();
+        self.modal_sync();
+        tasks.push(self.menu_apps_sync());
+        if self.client.state().browse.is_none() && !self.browse_filter.is_empty() {
+            self.browse_filter.clear();
+        }
         self.picker_sync();
         self.person_sync();
         tasks.push(self.server_settings_sync());
@@ -368,7 +392,39 @@ impl App {
     /// `old`, and the heights of those laid out the same way; row 0's only
     /// while the history's edge is the same.
     pub fn measure(&mut self, old: &Messages, edge_changed: bool) {
-        let messages = self.messages.clone();
+        let state = self.client.state();
+        let marks = timeline::Marks {
+            seen: state.seen.as_deref(),
+            first_unread: state.first_unread.as_deref(),
+        };
+        let (looks, heights) = self.measured_rows(Measuring {
+            old,
+            old_looks: &self.looks,
+            old_heights: &self.heights,
+            messages: &self.messages,
+            marks,
+            width: self.width,
+            edge: self.edge.height(),
+            edge_changed,
+        });
+        self.looks = looks;
+        self.heights = heights;
+        self.place_rows();
+    }
+
+    /// A timeline's rows' looks and heights for its messages now, keeping
+    /// what's the same from its rows before (see [`App::measure`]).
+    pub fn measured_rows(&self, rows: Measuring<'_>) -> (Vec<RowLook>, Vec<f32>) {
+        let Measuring {
+            old,
+            old_looks,
+            old_heights,
+            messages,
+            marks,
+            width,
+            edge,
+            edge_changed,
+        } = rows;
         // Where the old rows are among the new: earlier history goes in
         // above them, and the oldest go as the newest come. The core makes
         // every message anew when names or roles change, so rows are found
@@ -388,7 +444,6 @@ impl App {
                         .map(|at| -(at as isize))
                 })
             });
-        let old_looks = std::mem::take(&mut self.looks);
         let before = |index: usize| {
             shift
                 .and_then(|shift| usize::try_from(index as isize - shift).ok())
@@ -420,8 +475,8 @@ impl App {
             seconds: prefs.clock_seconds,
         };
         let looks = timeline::row_looks(
-            &messages,
-            self.client.state(),
+            messages,
+            marks,
             clock,
             |index| old_at(index).map(|before| &old_looks[before]),
             |index| {
@@ -434,31 +489,28 @@ impl App {
                 }))
             },
         );
-        let edge = self.edge.height();
         let heights: Vec<f32> = looks
             .iter()
             .enumerate()
             .map(|(index, look)| {
                 let same = old_at(index).filter(|&before| {
-                    before < self.heights.len()
+                    before < old_heights.len()
                         && old_looks[before].same_place(look)
                         && (before == 0) == (index == 0)
                         && !(index == 0 && edge_changed)
                 });
                 match same {
-                    Some(before) => self.heights[before],
+                    Some(before) => old_heights[before],
                     None => row_height(
                         &messages[index],
                         look,
-                        self.width,
+                        width,
                         if index == 0 { edge } else { 0.0 },
                     ),
                 }
             })
             .collect();
-        self.looks = looks;
-        self.heights = heights;
-        self.place_rows();
+        (looks, heights)
     }
 
     /// Where each row starts, from the rows' heights.
@@ -606,8 +658,12 @@ impl App {
         want(self.header.avatar.as_deref());
         want(self.account.status.emoji.as_deref());
         let (first, last) = self.in_view(MARGIN);
-        for index in first..last {
-            let message = &self.messages[index];
+        let main = (first..last).map(|index| (&self.messages[index], self.looks.get(index)));
+        let aside = self.aside.iter().flat_map(|aside| {
+            self.aside_rows_in_view()
+                .map(move |index| (&aside.messages[index], aside.looks.get(index)))
+        });
+        for (message, look) in main.chain(aside) {
             if let Some(reply) = &message.reply {
                 want(reply.avatar.as_deref());
             }
@@ -617,7 +673,7 @@ impl App {
             for emoji in &message.emoji {
                 want(Some(&emoji.picture));
             }
-            if !self.looks.get(index).is_some_and(|look| look.first) {
+            if !look.is_some_and(|look| look.first) {
                 continue;
             }
             want(message.avatar.as_deref());
@@ -661,6 +717,13 @@ impl App {
             }
         }
         for url in self.activity_pictures() {
+            want(Some(url));
+        }
+        for url in self
+            .popover_pictures()
+            .into_iter()
+            .chain(self.forum_pictures())
+        {
             want(Some(url));
         }
         if self.stage_shown() {
