@@ -1489,6 +1489,92 @@ fn preferences_set_the_clock_text_size_previews_and_unmuting() {
 }
 
 #[test]
+fn keybinds_are_watched_as_settings_say() {
+    let mut layout: Layout = serde_json::from_value(serde_json::json!({
+        "push_to_talk_key": { "scancode": 47, "name": "V", "trigger": "v" },
+        "keybinds": [
+            { "id": 1, "action": "toggle_mute", "keys": {
+                "scancode": 50, "name": "M", "with": [{ "scancode": 29, "name": "Left Ctrl" }]
+            } },
+            { "id": 2, "action": "push_to_talk", "keys": { "scancode": 48, "name": "B" } },
+            { "id": 3, "action": "toggle_deafen" },
+            { "id": 4, "action": "toggle_go_live", "keys": { "scancode": 32, "name": "D" } },
+        ],
+    }))
+    .unwrap();
+    let ids = |layout: &Layout| -> Vec<String> {
+        layout
+            .watched_keybinds()
+            .into_iter()
+            .map(|watched| watched.id)
+            .collect()
+    };
+    // In voice activity push to talk does nothing; a keybind without keys
+    // or an action from a later build isn't watched.
+    assert_eq!(ids(&layout), ["keybind-1"]);
+    assert_eq!(layout.watched_keybinds()[0].keys.name(), "Ctrl + M");
+    layout.input_mode = InputMode::PushToTalk;
+    assert_eq!(ids(&layout), ["push-to-talk", "keybind-1", "keybind-2"]);
+    // Saved again, the action from a later build stays Unassigned rather
+    // than failing the file.
+    let saved = serde_json::to_value(&layout).unwrap();
+    assert_eq!(saved["keybinds"][3]["action"], "unassigned");
+    assert_eq!(saved["keybinds"][0]["keys"]["with"][0]["scancode"], 29);
+    let read: Layout = serde_json::from_value(saved).unwrap();
+    assert_eq!(read.keybinds, layout.keybinds);
+}
+
+#[test]
+fn the_keybinds_page_adds_chooses_and_removes_keybinds() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = classic_window();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    // Keybinds without keys watch nothing, so this test never asks the
+    // desktop for keys.
+    window.invoke_add_keybind();
+    window.invoke_add_keybind();
+    let rows = window.get_keybind_rows();
+    assert_eq!(rows.row_count(), 2);
+    let first = rows.row_data(0).unwrap();
+    assert_eq!(first.action, 0);
+    assert_eq!(first.keys, "");
+    assert!(
+        first
+            .description
+            .starts_with("This action doesn't do anything!")
+    );
+    window.invoke_keybind_action_chosen(0, 4);
+    window.invoke_keybind_action_chosen(1, 99);
+    let row = window.get_keybind_rows().row_data(0).unwrap();
+    assert_eq!(row.action, 4);
+    assert_eq!(
+        row.description,
+        "Toggle your speaker's playback on and off. Also disables your microphone while deafened."
+    );
+    window.invoke_record_keybind(1, true);
+    assert_eq!(window.get_keybind_recording(), 1);
+    window.invoke_record_talk_key(true);
+    assert_eq!(window.get_keybind_recording(), -1, "one recorder at a time");
+    assert!(window.get_talk_recording());
+    window.invoke_record_talk_key(false);
+    window.invoke_remove_keybind(0);
+    window.invoke_remove_keybind(5);
+    let saved = Layout::read(directory.path());
+    assert_eq!(saved.keybinds.len(), 1);
+    assert_eq!(saved.keybinds[0].id, 2, "ids stay with their keybinds");
+    window.invoke_add_keybind();
+    assert_eq!(Layout::read(directory.path()).keybinds[1].id, 3);
+    assert!(adapter.borrow().keybinds.is_none());
+}
+
+#[test]
 fn push_to_talk_keeps_its_mode_key_and_release_delay() {
     i_slint_backend_testing::init_no_event_loop();
     let defaults: Layout = serde_json::from_str("{}").unwrap();

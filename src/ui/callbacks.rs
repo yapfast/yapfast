@@ -550,6 +550,7 @@ fn show_emoji(adapter: &Rc<RefCell<Adapter>>, window: &YapfastWindow, query: &st
 pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
     super::app_commands::bind(window, adapter);
     super::games::bind(window, adapter);
+    super::keybinds::bind(window, adapter);
     super::gifs::bind(window, adapter);
     super::updates::bind(window, adapter);
     super::new_tags::bind(window, adapter);
@@ -2255,12 +2256,6 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             play_call_volumes(&window);
         }
     });
-    let weak = window.as_weak();
-    window.on_record_talk_key(move |on| {
-        if let Some(window) = weak.upgrade() {
-            window.set_talk_recording(on);
-        }
-    });
     let state = adapter.clone();
     let weak = window.as_weak();
     window.on_preferences_changed(move || {
@@ -2319,7 +2314,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.multiple_windows = window.get_multiple_windows();
         layout.developer_mode = window.get_developer_mode();
         adapter.layout.write(&adapter.root);
-        adapter.watch_talk_key(&window);
+        adapter.watch_keybinds(&window);
         let start = window.get_start_on_sign_in();
         if AUTOSTART.get() && start != autostart::enabled() {
             match autostart::set(start) {
