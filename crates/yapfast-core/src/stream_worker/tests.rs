@@ -1117,6 +1117,62 @@ fn an_hdr_screen_is_tone_mapped_by_the_converter() {
     );
 }
 
+/// A screen showing HDR whose stream is at the picture's own size: the picture
+/// is never registered where it lies — the driver reads the surface's own format,
+/// and a half-float one (or a typeless one, which is what some frame pools hand
+/// over) is not a format it encodes — so the scaler tone-maps it at that size too
+/// and the session encodes the BGRA it lands in. Without that pass the first frame
+/// is refused in words that name the surface's DXGI format, and an HDR share of a
+/// screen the size of its stream sends nothing at all.
+#[cfg(all(windows, wgc))]
+#[test]
+#[ignore = "needs a screen an HDR capture can be opened on, and an NVIDIA card"]
+fn an_hdr_screen_at_the_streams_own_size_is_toned_and_encoded() {
+    let hdr = a_picture_of_hdr_screen();
+    let (width, height) = hdr.content_size();
+    let Ok(encoder) = d3d11::D3d11Encoder::open_on(
+        hdr.device(),
+        stream_connection::SEND_CODEC,
+        width,
+        height,
+        30,
+        kbps(width, height, 30),
+        d3d11::Surfaces::Ring,
+        d3d11::Light::of(true, 3000),
+    ) else {
+        eprintln!("this machine has no NVENC session on the capture's device");
+        return;
+    };
+    // SAFETY: the capture's own texture, alive for the call, on the device the
+    // session was opened on.
+    let picture = unsafe { d3d11::Texture::new(hdr.texture()) };
+    assert!(
+        !encoder.registers(&picture),
+        "the half-float picture of an HDR screen is never registered where it \
+         lies: {}",
+        hdr.describe()
+    );
+    // What `Sink::textured` does with a picture the session can't register.
+    let toned = encoder
+        .scale(picture, width, height, d3d11::Resize::Shrink)
+        .expect("the tone map at the picture's own size");
+    assert!(
+        encoder.registers(&toned),
+        "the picture the scaler toned is one the session registers"
+    );
+    let frame = encoder
+        .encode_texture(toned, 0, true)
+        .expect("an encode of the tone-mapped picture")
+        .expect("a keyframe");
+    eprintln!(
+        "{}: {} bytes of {:?} at {width}x{height}",
+        hdr.describe(),
+        frame.data.len(),
+        encoder.codec()
+    );
+    assert!(!frame.data.is_empty(), "a keyframe with no bytes");
+}
+
 /// The fake Discord's fixture: Alice, in the guild, in the Lounge. The ids
 /// are `testing/fake_discord.ts`'s, which is where a stream's key and the
 /// account watching it come from.

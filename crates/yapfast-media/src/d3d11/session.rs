@@ -588,6 +588,20 @@ impl D3d11Encoder {
         self.kbps = kbps;
         Ok(())
     }
+    /// Whether this session registers `texture` where it lies: at the size it was
+    /// opened at, in one of the three formats the driver takes. What it answers
+    /// `false` for is a picture the session still reads, but only after
+    /// [`Self::scale`] has put it in the encoder's own texture — the half-float
+    /// surface of an HDR screen, which is tone-mapped as it is scaled, and any
+    /// typeless surface, which names a family and no format for the driver to
+    /// register. A stream asks this rather than comparing sizes, so that a
+    /// picture a capture hands over in a format the encoder can't read is one the
+    /// scaler passes over whatever size it is, the stream's own included.
+    pub fn registers(&self, texture: &Texture<'_>) -> bool {
+        // SAFETY: raw is an open encoder, and the texture is the caller's and
+        // lives as long as the call.
+        unsafe { yapfast_d3d11enc_registers(self.raw, texture.handle, texture.subresource) != 0 }
+    }
     /// Scales `texture` on the GPU to `width` by `height`, as far as `resize`
     /// allows, and answers the texture to encode: it is in the size asked for, on
     /// this encoder's device, and the encoder reads it exactly as it reads a
@@ -598,7 +612,8 @@ impl D3d11Encoder {
     /// The texture belongs to the encoder and is reused, so it is the same
     /// texture, and the same picture, until a scale to another size replaces it:
     /// encode it before scaling again. A scale to the source's own size is a
-    /// copy, which is exact.
+    /// copy, which is exact, where the picture is BGRA already; the half-float
+    /// picture of an HDR screen is tone-mapped whatever the size.
     ///
     /// The picture answered with is a lease of this encoder, so it cannot be used
     /// after the encoder has gone, and a scale to another size while one is out is

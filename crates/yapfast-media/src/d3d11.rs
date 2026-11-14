@@ -7,12 +7,14 @@
 //! upload of every frame. This is the same encoders reading the frame where it
 //! already is, and it needs two things of its caller that hwenc.c doesn't: the
 //! texture has to live on this encoder's device ([`D3d11Encoder::device`]), and
-//! it has to be a concrete format — BGRA, RGBA or NV12, and the half-float scRGB
-//! an HDR screen hands over where the session was opened for one
-//! ([`Light`]) — since the driver reads the surface's own format and refuses a
-//! typeless one. That last one is never registered: a pixel shader tone-maps it
-//! into BGRA in the pass that already scales the picture, so the encoder reads
-//! what it always read.
+//! it has to be a concrete format — BGRA, RGBA or NV12 — since the driver reads
+//! the surface's own format and refuses a typeless one. Two pictures are read but
+//! never registered: the half-float scRGB an HDR screen hands over, where the
+//! session was opened for one ([`Light`]), and a surface a capture leaves typeless,
+//! which names a family and no format. Each takes a pixel shader's pass — the one
+//! that already scales the picture, which runs for them at the stream's own size
+//! too — and the encoder registers the BGRA it lands in. [`D3d11Encoder::registers`]
+//! is what a caller asks before encoding a picture as it lies.
 //!
 //! The one copy is the bitstream: the driver's mapped output is moved into the
 //! caller's buffer once per frame, so a packet can outlive the encoder's lock.
@@ -110,6 +112,13 @@ unsafe extern "C" {
     /// Copies the access unit the last encode produced into the buffer given,
     /// which must hold it, and lets the encoder give up its copy.
     fn yapfast_d3d11enc_drain(encoder: *mut Raw, out: *mut c_uchar, capacity: usize) -> c_long;
+    /// Whether a picture of this texture is one the session registers where it
+    /// lies: one of the formats the driver takes, at the session's own size.
+    fn yapfast_d3d11enc_registers(
+        encoder: *mut Raw,
+        texture: *mut c_void,
+        subresource: c_uint,
+    ) -> c_int;
     fn yapfast_d3d11enc_set_bitrate(encoder: *mut Raw, kbps: c_uint) -> c_int;
     fn yapfast_d3d11enc_scale(
         encoder: *mut Raw,

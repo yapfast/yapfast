@@ -319,8 +319,18 @@ static int tone_draw(struct yapfast_d3d11conv *conv, void *texture, char *why, s
                         0.f,
                         0.f,
                         0.f};
-  HRESULT status = conv->device->lpVtbl->CreateShaderResourceView(
-      conv->device, (ID3D11Resource *)texture, NULL, &source);
+  D3D11_SHADER_RESOURCE_VIEW_DESC reading;
+  HRESULT status;
+
+  /* The member of the surface's family named rather than left to the surface: a
+   * view with no format of its own asks the resource for one, and the frame pool
+   * of an HDR screen hands a typeless surface over, which has no answer to give. */
+  memset(&reading, 0, sizeof reading);
+  reading.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+  reading.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+  reading.Texture2D.MipLevels = 1;
+  status = conv->device->lpVtbl->CreateShaderResourceView(
+      conv->device, (ID3D11Resource *)texture, &reading, &source);
   if (FAILED(status) || source == NULL) {
     failed(conv, "the card wouldn't read the capture's picture in a shader", status);
     put(why, size, "%s", conv->error);

@@ -409,6 +409,23 @@ static const char *texture_format(DXGI_FORMAT format, NV_ENC_BUFFER_FORMAT *out)
   }
 }
 
+/* The format a surface is read as, from the one it was made with: a typeless
+ * texture names a family and not a picture, and leaves which member of it to
+ * whoever reads the surface. A capture source does that — the frame pool of an
+ * HDR screen hands over a half-float surface whose views its reader makes — and
+ * every reader here names the member it wants: a shader's view for the scaler, a
+ * video processor's view, a copy. The driver registers none of them, so this is
+ * only for reading; see `yapfast_d3d11enc_registers` for what is encoded where
+ * it lies. */
+static DXGI_FORMAT concrete(DXGI_FORMAT format) {
+  switch (format) {
+  case DXGI_FORMAT_B8G8R8A8_TYPELESS: return DXGI_FORMAT_B8G8R8A8_UNORM;
+  case DXGI_FORMAT_R8G8B8A8_TYPELESS: return DXGI_FORMAT_R8G8B8A8_UNORM;
+  case DXGI_FORMAT_R16G16B16A16_TYPELESS: return DXGI_FORMAT_R16G16B16A16_FLOAT;
+  default: return format;
+  }
+}
+
 /* ------------------------------------------------------------------- encoder */
 
 /* One texture registered and mapped for the encoder to read, kept for as long as
@@ -1436,8 +1453,11 @@ int yapfast_d3d11enc_set_bitrate(struct yapfast_d3d11enc *e, unsigned kbps) {
  * a texture the encoder keeps, the encoder registers that texture exactly as it
  * registers a capture's own, and a preview is read from the same texture through
  * a staging one at the size the preview asks for. A capture that is already the
- * stream's size skips all of it: the sizes match and the picture is copied,
- * which is exact and is one GPU-side copy.
+ * stream's size and already in a format the driver takes skips all of it: the
+ * sizes match and the picture is copied, which is exact and is one GPU-side copy.
+ * A picture the driver won't register takes the pass whatever size it is, the
+ * stream's own included — the callers ask `yapfast_d3d11enc_registers` rather
+ * than compare sizes.
  *
  * The filter is the driver's video processor where it will take the texture and
  * hand back BGRA — the scaler it plays video through, multi-tap and made for
@@ -1448,9 +1468,10 @@ int yapfast_d3d11enc_set_bitrate(struct yapfast_d3d11enc *e, unsigned kbps) {
 /* Whether this session reads a texture of `format` at all: the three the encoder
  * registers where they lie, and the half-float scRGB picture of an HDR screen
  * where the session was opened for one. That picture never reaches the encoder —
- * the video processor tone-maps it into the BGRA picture the encoder does
- * register — so its format has no buffer format of its own, and a session not
- * opened for one keeps refusing it by name. */
+ * a pixel shader tone-maps it into the BGRA picture the encoder does register —
+ * so its format has no buffer format of its own, and a session not opened for one
+ * keeps refusing it by name. `format` is a surface's own format resolved through
+ * `concrete`, since a typeless one is read as the member its reader names. */
 static int reads(const struct yapfast_d3d11enc *e, DXGI_FORMAT format) {
   NV_ENC_BUFFER_FORMAT registered;
   if (texture_format(format, &registered)) return 1;
@@ -1880,12 +1901,18 @@ static int plane_view(ID3D11Device3 *device, ID3D11Texture2D *texture,
 static int source_views(struct yapfast_d3d11enc *e, struct input *input, DXGI_FORMAT format,
                         char *why, size_t size) {
   D3D11_SHADER_RESOURCE_VIEW_DESC1 desc;
+  D3D11_SHADER_RESOURCE_VIEW_DESC plain;
   HRESULT status;
   if (input->planes[0]) return 0;
   if (format != DXGI_FORMAT_NV12) {
-    status = e->device->lpVtbl->CreateShaderResourceView(e->device,
-                                                         (ID3D11Resource *)input->texture, NULL,
-                                                         &input->planes[0]);
+    /* The member named rather than left to the surface: a view with no format of
+     * its own asks the surface for one, and a typeless surface has no answer. */
+    memset(&plain, 0, sizeof plain);
+    plain.Format = format;
+    plain.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+    plain.Texture2D.MipLevels = 1;
+    status = e->device->lpVtbl->CreateShaderResourceView(
+        e->device, (ID3D11Resource *)input->texture, &plain, &input->planes[0]);
     if (FAILED(status)) {
       input->planes[0] = NULL;
       if (size)
@@ -2099,6 +2126,25 @@ static int tone_picture(struct yapfast_d3d11enc *e, ID3D11Texture2D *texture,
   if (size) snprintf(why, size, "%s", shader_why);
   return -1;
 }
+/* Whether a picture of `texture`'s `subresource` is one this session registers
+ * where it lies: one of the three formats NVENC takes, at the session's own size.
+ * What it answers 0 for is not a picture this session refuses — the scaler reads
+ * it — but one that has to be scaled or tone-mapped into the session's picture
+ * first: the half-float surface of an HDR screen, which is never registered, and
+ * any typeless surface, whose family the driver won't take a name for. A caller
+ * asks this rather than working it out from sizes and settings, so that the list
+ * of what an encode can read stays in one place. */
+int yapfast_d3d11enc_registers(struct yapfast_d3d11enc *e, void *texture, unsigned subresource) {
+  ID3D11Texture2D *surface = texture;
+  D3D11_TEXTURE2D_DESC desc;
+  NV_ENC_BUFFER_FORMAT format;
+  if (!e || !surface) return 0;
+  surface->lpVtbl->GetDesc(surface, &desc);
+  if (subresource >= desc.MipLevels * desc.ArraySize) return 0;
+  if (desc.Width != e->width || desc.Height != e->height) return 0;
+  return texture_format(desc.Format, &format) != NULL;
+}
+
 /* Scales the picture in `texture`'s `subresource` to `width` by `height` on the
  * GPU, into a texture this encoder keeps and reuses, and answers that texture as
  * the ID3D11Texture2D the encoder then reads: how a capture of another size than
@@ -2122,7 +2168,8 @@ void *yapfast_d3d11enc_scale(struct yapfast_d3d11enc *e, void *texture, unsigned
   source->lpVtbl->GetDesc(source, &desc);
   if (subresource >= desc.MipLevels * desc.ArraySize)
     return nothing(e, "the texture has no subresource %u", subresource);
-  if (!reads(e, desc.Format))
+  DXGI_FORMAT format = concrete(desc.Format);
+  if (!reads(e, format))
     return nothing(e,
                    "the texture is DXGI format %u, and this scales BGRA, RGBA or NV12, and "
                    "the half-float picture of an HDR screen where it was opened for one; a "
@@ -2133,7 +2180,7 @@ void *yapfast_d3d11enc_scale(struct yapfast_d3d11enc *e, void *texture, unsigned
                    "scaling %ux%u up to %ux%u isn't asked for: this only shrinks a picture "
                    "unless told otherwise",
                    desc.Width, desc.Height, width, height);
-  if (scale_picture(e, source, subresource, desc.Format, desc.Width, desc.Height, width, height,
+  if (scale_picture(e, source, subresource, format, desc.Width, desc.Height, width, height,
                     why, sizeof why))
     return nothing(e, "%s", why);
   return e->scaler.picture;
@@ -2207,7 +2254,8 @@ long yapfast_d3d11enc_readback(struct yapfast_d3d11enc *e, void *texture, unsign
   source->lpVtbl->GetDesc(source, &desc);
   if (subresource >= desc.MipLevels * desc.ArraySize)
     return fail(e, -1, "the texture has no subresource %u", subresource);
-  if (!reads(e, desc.Format))
+  DXGI_FORMAT format = concrete(desc.Format);
+  if (!reads(e, format))
     return fail(e, -1,
                 "the texture is DXGI format %u, and this reads BGRA, RGBA or NV12, and the "
                 "half-float picture of an HDR screen where it was opened for one",
@@ -2220,8 +2268,8 @@ long yapfast_d3d11enc_readback(struct yapfast_d3d11enc *e, void *texture, unsign
   /* A picture that is already the size the caller asked for and already BGRA is
    * its own source: the copy is exact, so a readback of a texture's own pixels
    * is those pixels and not a scaler's idea of them. */
-  direct = width == desc.Width && height == desc.Height && desc.Format == DXGI_FORMAT_B8G8R8A8_UNORM;
-  if (!direct && scale_picture(e, source, subresource, desc.Format, desc.Width, desc.Height, width,
+  direct = width == desc.Width && height == desc.Height && format == DXGI_FORMAT_B8G8R8A8_UNORM;
+  if (!direct && scale_picture(e, source, subresource, format, desc.Width, desc.Height, width,
                                height, why, sizeof why))
     return fail(e, -1, "%s", why);
   if (staging_texture(e, width, height, why, sizeof why)) return fail(e, -1, "%s", why);
@@ -2814,7 +2862,8 @@ int yapfast_d3d11enc_shared_draw(struct yapfast_d3d11enc *e, struct yapfast_d3d1
   source->lpVtbl->GetDesc(source, &desc);
   if (subresource >= desc.MipLevels * desc.ArraySize)
     return fail(e, -1, "the texture has no subresource %u", subresource);
-  if (!reads(e, desc.Format))
+  DXGI_FORMAT format = concrete(desc.Format);
+  if (!reads(e, format))
     return fail(e, -1,
                 "the texture is DXGI format %u, and a shared picture is drawn from BGRA, RGBA "
                 "or NV12, and the half-float picture of an HDR screen where the session was "
@@ -2828,8 +2877,8 @@ int yapfast_d3d11enc_shared_draw(struct yapfast_d3d11enc *e, struct yapfast_d3d1
     return fail(e, -1, "waiting for a shared picture's last frame failed (0x%08lX)",
                 (unsigned long)status);
   }
-  if (scale_picture(e, source, subresource, desc.Format, desc.Width, desc.Height, s->width,
-                    s->height, why, sizeof why)) {
+  if (scale_picture(e, source, subresource, format, desc.Width, desc.Height, s->width, s->height,
+                    why, sizeof why)) {
     s->mutexes[at]->lpVtbl->ReleaseSync(s->mutexes[at], 0);
     return fail(e, -1, "%s", why);
   }

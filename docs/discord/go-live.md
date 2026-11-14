@@ -977,17 +977,22 @@ question is put to.
 A screen showing HDR is asked of Windows Graphics Capture for the
 `R16G16B16A16_FLOAT` picture instead of the 8-bit one, which is the scRGB the
 compositor really draws — linear light, BT.709's primaries, 1.0 at 80 nits — and
-the scale that already runs on every frame compiles its HDR program: four
-bilinear taps, the light divided by the screen's own SDR white, a shoulder above
-nine tenths of it and sRGB's transfer function, into the BGRA picture the encoder
-registered before. That divisor is what makes it a tone map rather than a curve:
-80 nits is *not* white — Windows composites plain SDR content at the brightness
-its display settings call SDR white, 240 nits on a fresh screen, which the system
-reports as 3000 thousandths of 80 nits — so a share that divided by 1.0 would
-send every window out three times too bright with everything above a third of
-white clipped, and an HDR game brighter again. The light above the shoulder
-rolls off short of white instead of clipping, so a 1000-nit specular arrives as
-white rather than as a flat patch with a hard edge. The video processor is never
+the scaler compiles its HDR program for it: four bilinear taps, the light divided
+by the screen's own SDR white, a shoulder above nine tenths of it and sRGB's
+transfer function, into the BGRA picture the encoder registered before. That pass
+is the one a picture takes whenever the session can't register it where it lies,
+which the half-float surface never is — and a typeless surface, which is what a
+frame pool hands over on some machines, is the same refusal: the driver reads the
+surface's own format, and a typeless surface names a family and no format. The
+size a capture comes at doesn't save it either: an HDR screen at the stream's own
+size takes the pass as every other picture does. That divisor is what makes it a
+tone map rather than a curve: 80 nits is *not* white — Windows composites plain
+SDR content at the brightness its display settings call SDR white, 240 nits on a
+fresh screen, which the system reports as 3000 thousandths of 80 nits — so a
+share that divided by 1.0 would send every window out three times too bright with
+everything above a third of white clipped, and an HDR game brighter again. The
+light above the shoulder rolls off short of white instead of clipping, so a
+1000-nit specular arrives as white rather than as a flat patch with a hard edge. The video processor is never
 the one that does this: `VideoProcessorSetStreamColorSpace1` names the transfer
 curve on either side and nothing else, with no white point to divide by and no
 shoulder to roll off, which is a transfer conversion and not a tone map. The

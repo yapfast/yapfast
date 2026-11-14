@@ -353,8 +353,12 @@ impl Sink {
                 // A screen the stream's size is read where it lies, and one of
                 // another size is scaled to the stream's on the card: the size a
                 // capture comes at is the screen's, and the size a stream goes at
-                // is Discord's to choose.
-                let texture = if content == size {
+                // is Discord's to choose. A picture the session can't register
+                // takes the scaler's pass even at the stream's own size — the
+                // half-float surface of an HDR screen is tone-mapped there and
+                // never reaches the driver, which reads the surface's own format
+                // and refuses that one (and a typeless surface with it).
+                let texture = if content == size && encoder.registers(&texture) {
                     texture
                 } else {
                     encoder.scale(texture, size.0, size.1, d3d11::Resize::Shrink)?
