@@ -93,4 +93,5 @@ export component SettingsNavigation inherits Rectangle {
         // Which build this is, as Discord's own settings end with its version.
         BuildStamp { copy(text) => { root.copy-text(text); } }
     }
+    Rectangle { x: parent.width - 1px; width: 1px; background: Theme.outline-sidebar; }
 }
