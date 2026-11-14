@@ -44,6 +44,53 @@ whose id isn't of that form or repeats another's. The editor's rows are a
 Slint model only while it's open; otherwise a custom theme costs its parsed
 colours and a card.
 
+## Sharing themes
+
+Import, beside New theme, opens a file picker and keeps the theme in the file
+among the person's own, then chooses it, as Save does. Export, in the editor
+beside Save and Cancel, saves the theme as the editor shows it to a file, so
+a new theme can be shared before it is saved, and a built-in theme through a
+copy of it. A line under the title says how either went, or why a file wasn't
+taken. The editor owns the window's colours while it is open, so a file
+picked meanwhile (the picker can outlast opening the editor) is turned away
+with a note.
+
+A theme file is JSON, the format `layout.json` already uses for a custom
+theme, so there is nothing new to learn or parse, and people can edit one in
+any text editor. It is named after the theme, `Plum.yapfast-theme.json`; the
+picker lists every `.json` file, so a renamed file loads as well.
+
+```json
+{
+  "format": "yapfast-theme",
+  "version": 1,
+  "name": "Plum",
+  "base": "yap",
+  "dark": true,
+  "colours": { "rail": "#111215", "chat": "#2a1a3a", "row-hover": "#1a1b20" }
+}
+```
+
+It differs from a custom theme in `layout.json` in two ways. `format` and
+`version` come first: a file without `"format": "yapfast-theme"` is turned
+away, so that no other JSON, `layout.json`'s own entries included, loads as
+a theme by accident, and one with a higher `version` than the app knows is
+turned away with a note to update. `version` grows only for a change an older
+Yapfast would read wrongly; a colour added later doesn't need it, as a missing
+colour takes the base's. And there is no `id`: Yapfast gives the imported
+theme the next free `custom:` id, so importing a file twice makes two themes
+and a shared file never collides with the reader's.
+
+Reading follows the same rules as `layout.json`. A colour that is missing or
+isn't a colour takes the base's value, and a name Yapfast doesn't know is
+ignored, so a file from a newer or older version loads; the note after the
+import counts the colours that weren't colours. A file with no colour name
+Yapfast knows isn't a theme, and is turned away. The name loses control
+characters and stops at 48 characters; a file without one imports as
+"Imported theme". A file over 64 KiB (a theme is about 2 KiB) isn't read. A
+theme's colours are the only data in it, and nothing in a file is run or
+fetched.
+
 | Theme | Id | Dark | Accent | From |
 | --- | --- | --- | --- | --- |
 | Yap | `yap` | yes | marigold | Yapfast's own, the default |

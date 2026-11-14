@@ -949,6 +949,12 @@ export component AppearanceSettings inherits VerticalLayout {
     in property <[string]> starts;
     in property <int> start-index;
     in property <bool> can-save;
+    /// How the last import or export went, under the title; `note-wrong`
+    /// when it failed.
+    in property <string> note;
+    in property <bool> note-wrong;
+    callback import-theme();
+    callback export-theme();
     callback choose-theme(string);
     callback new-theme();
     callback edit-theme(string);
@@ -965,10 +971,19 @@ export component AppearanceSettings inherits VerticalLayout {
     callback title-bar-toggled();
     spacing: 16px;
     SettingsTitle { text: "Appearance"; }
+    if root.note != "": Text {
+        text: root.note; color: root.note-wrong ? Theme.danger : Theme.secondary; font-size: 13px; wrap: word-wrap;
+        accessible-role: text; accessible-label: root.note;
+    }
     if !root.editor: VerticalLayout {
         spacing: 8px;
         HorizontalLayout {
+            spacing: 8px;
             SettingsHeading { text: "THEME"; vertical-alignment: center; horizontal-stretch: 1; }
+            ActionButton {
+                text: "Import"; small: true; icon: @image-url("icons/folder.svg");
+                clicked => { root.import-theme(); }
+            }
             ActionButton {
                 text: "New theme"; small: true; icon: @image-url("icons/circle-plus.svg");
                 clicked => { root.new-theme(); }
@@ -1058,6 +1073,10 @@ export component AppearanceSettings inherits VerticalLayout {
                 }
                 ActionButton { text: "Save"; primary: true; enabled: root.can-save; clicked => { root.save-theme(); } }
                 ActionButton { text: "Cancel"; clicked => { root.cancel-theme(); } }
+                ActionButton {
+                    text: "Export"; icon: @image-url("icons/download.svg"); enabled: root.can-save;
+                    clicked => { root.export-theme(); }
+                }
             }
         }
         if !root.editing-saved: VerticalLayout {
