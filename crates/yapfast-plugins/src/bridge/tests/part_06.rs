@@ -305,6 +305,53 @@ fn changing_the_limits_starts_no_helper() {
     bridge.shutdown();
 }
 
+/// A change that was sent while the old helper was still up can become the
+/// supervisor's first command after that helper exits. It is not work: the next
+/// real helper reads the shared pair after `Ready`, so this starts nothing.
+#[test]
+fn a_limits_change_waiting_after_an_exit_starts_no_helper() {
+    static STARTS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    fn stderr() -> std::process::Stdio {
+        STARTS.fetch_add(1, Ordering::Relaxed);
+        std::process::Stdio::null()
+    }
+
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    let (wake, _notices) = notice_channel();
+    let shared = shared(directory.path(), wake);
+    let (commands, receiver) = tokio::sync::mpsc::unbounded_channel();
+    commands
+        .send(Request::Limits {
+            memory_mib: 128,
+            idle_minutes: 1,
+        })
+        .expect("the late change is queued");
+    commands
+        .send(Request::Shutdown)
+        .expect("the test can finish");
+
+    let finished = runtime().block_on(async {
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            supervise(
+                Arc::clone(&shared),
+                receiver,
+                directory.path().to_owned(),
+                stderr,
+            ),
+        )
+        .await
+    });
+    assert_eq!(
+        STARTS.load(Ordering::Relaxed),
+        0,
+        "the late change never tried to start a replacement helper"
+    );
+    finished.expect("dropping the late change does not wait for a helper");
+    assert!(shared.helper_pid().is_none());
+    assert!(shared.off().is_none(), "no failed start was recorded");
+}
+
 /// A helper is given the person's limits right after its `Ready` and before
 /// any work reaches it, and a change later is one frame with no answer.
 #[test]

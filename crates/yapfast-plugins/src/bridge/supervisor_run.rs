@@ -21,6 +21,13 @@ pub(super) async fn supervise(
         if matches!(first, Request::Shutdown) {
             return;
         }
+        // A limits change can race the last helper's exit after the sender's
+        // pid check. Arriving here means there is no helper to apply it to;
+        // the shared pair is sent after the next real helper's `Ready`, so the
+        // change alone must not start one that would then sit idle.
+        if matches!(first, Request::Limits { .. }) {
+            continue;
+        }
         let mut session = match Session::start(&data_dir, stderr) {
             Ok(session) => session,
             Err(error) => {
