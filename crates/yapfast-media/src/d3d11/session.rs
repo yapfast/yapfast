@@ -114,9 +114,9 @@ pub struct Converter {
 #[cfg(d3d11conv)]
 impl Converter {
     /// A converter from `from` to `to`, on the device the capture fills, of
-    /// `light`'s picture: an HDR one makes this blit the tone map as well, told
-    /// what its input and its output really are, so a frame of scRGB's linear
-    /// light leaves as the BT.709 the stream declares.
+    /// `light`'s picture: an HDR one makes the shader that scales it tone-map it
+    /// as well, through the screen's own SDR white, so a frame of scRGB's linear
+    /// light leaves as the BT.601 the stream declares.
     // `device` is an opaque handle in the same sense [`Texture`] is: nothing in
     // this crate reads through it, and the shim holds it without taking a
     // reference of its own.
@@ -138,6 +138,7 @@ impl Converter {
                 to.0,
                 to.1,
                 light.hdr(),
+                light.white(),
                 why.as_mut_ptr().cast(),
                 why.len(),
             )

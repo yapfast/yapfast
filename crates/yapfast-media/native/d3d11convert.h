@@ -24,13 +24,19 @@ struct yapfast_d3d11conv;
  * BGRA — or, with `hdr`, the half-float scRGB an HDR screen hands over — to
  * `to_width` by `to_height` NV12. The device is borrowed: the caller keeps it
  * alive for at least as long as this, and nothing here AddRefs it. Null with
- * `why` filled when the device has no video processor, won't take these sizes, or
- * — for an HDR picture — won't take the colour spaces that make this blit a tone
- * map. */
+ * `why` filled when the device has no video processor, won't take these sizes,
+ * or — for an HDR picture — won't sample it in a shader or won't compile the one
+ * that tone-maps it.
+ *
+ * `white` is what that screen composites plain SDR content at, in thousandths of
+ * 80 nits, as the system's display configuration reports it: an HDR picture is
+ * divided by it before it becomes the frame an SDR screen shows, so a grey
+ * arrives at the brightness the screen shows it at. Zero is no answer and is read
+ * as 1000, or 80 nits. */
 struct yapfast_d3d11conv *yapfast_d3d11conv_new(void *device, unsigned from_width,
                                                unsigned from_height, unsigned to_width,
-                                               unsigned to_height, int hdr, char *why,
-                                               size_t size);
+                                               unsigned to_height, int hdr, unsigned white,
+                                               char *why, size_t size);
 /* Runs the processor over `texture` and gives back the NV12 texture it wrote,
  * which is this converter's and stays valid until the next call, a resize or
  * [`yapfast_d3d11conv_free`]. Null with `why` filled when the picture wasn't

@@ -934,15 +934,13 @@ with FFmpeg's driver error, while AMF and VA-API reach their own runtime and
 render node and say what those answered. The colour the stream declares is the
 colour its frames are: capture
 converts to limited-range I420, and the declaration says that. A screen showing
-HDR hands its frames over as HDR's codes, so the processor's capture tonemaps them
-to SDR's brightness on the way — one pass, in the same buffer — while a screen
-showing SDR is converted exactly as it was. On Windows that curve is a table over
-a picture in memory, so it is the processor's capture that applies it: a screen or
-window showing HDR is captured there rather than on the card, whose path has
-nothing between the captured texture and the encoder to read HDR's codes through,
-and a card share of an HDR screen is its codes read as SDR rather than its
-picture. The log names it as the reason the card was passed over ("the screen
-shows HDR, which the card's capture has no curve for").
+HDR hands its frames over as HDR's codes, so they are tonemapped to SDR's
+brightness on the way — one pass, in the same buffer, and where that pass runs
+depends on the rung: on Windows the card's two rungs do it themselves (the scale's
+shader for an NVENC session, `native/d3d11convert.c`'s for an encoder that reads
+surfaces, below), and the processor's capture applies the curve as a table over a
+picture in memory, which is where a share that fell off the card ends up. A screen
+showing SDR is converted exactly as it was, on every path.
 Linux's card rung has the curve, in the kernels that already convert: a picture
 whose display answers HDR through `picture::tone_of_screen` is read as the light
 its codes stand for, shrunk from BT.2020's gamut into BT.709's, and written as the
@@ -964,8 +962,9 @@ takes the kernels' curve today: it is there for a capture that hands HDR's codes
 over, as the `R16G16B16A16_FLOAT` picture Desktop Duplication hands over, which
 Windows' own card rung is still to ask for. The format it writes is the one the
 encoder reports it took, NV12
-HDR is the one case the card does something about, and it does it with the shader
-that was already there for a picture the driver's video processor won't take.
+HDR is the one case the card does something about, and it does it with the shaders
+its paths draw with: the one that was already there to scale an NVENC session's
+picture, and the one the surface-reading converter now compiles.
 Whether a display shows HDR is the system's own per-monitor answer,
 `advancedColorEnabled`, the question `picture::tone_of_screen` asks, and it is
 asked once per share: a screen showing SDR is captured as the 8-bit BGRA it always
@@ -1000,6 +999,17 @@ reading linear light through PQ's curve is a picture that comes out nearly black
 Desktop Duplication never asks for the float picture, because its own shader has
 already tone-mapped the scRGB surface into the BGRA it hands over, through the
 same SDR white level and the same shoulder.
+
+An encoder that reads surfaces rather than pictures — Quick Sync's and AMF's —
+takes the same curve through `native/d3d11convert.c`, which is the step between a
+capture and a session of theirs: a shader tone-maps the half-float picture into
+BGRA at the stream's size with the very same program as the scale
+(`native/tone_hlsl.h` is spliced into both), and the video processor turns that
+into the NV12 they read, told sRGB codes in and BT.601's studio range out — the
+matrix the stream declares and the one NVENC converts a BGRA texture with. A
+converter opened for an HDR screen that can't make that picture, compile that
+program or be told those colour spaces is refused at the open, by name, and the
+share falls back the same way any other refused card path does.
 
 The float picture can be refused in two places, and each leaves the share with
 what it had before any of this existed. A frame pool that won't hold it is asked
@@ -1166,9 +1176,14 @@ described above; what has been run on hardware is this:
   the divisor leaves a grey at the brightness the screen shows it at, and where
   a real highlight lands, are still the screen's to answer. Nor has a share of
   an HDR screen on a card whose encoder reads surfaces — Quick Sync's, AMF's —
-  been tone-mapped at all: that path still converts scRGB to the stream's codes
-  through the driver's colour-space conversion, which puts 80 nits at white, so
-  it comes out over-bright where NVENC's path does not.
+  has been tone-mapped with the same curve and run end to end on an NVIDIA device
+  (the converter is plain D3D11, not NVIDIA's), with the NV12 it wrote read back
+  and weighed against the same picture read as if 80 nits were white: mean luma
+  49.5 against 75.6. No Intel or AMD GPU has encoded it, so what a Quick Sync or
+  AMF session reads of it is the code's to answer. What has not been compared
+  against the screen itself is the picture either path sends: whether the divisor
+  leaves a grey at the brightness the screen shows it at, and where a real
+  highlight lands, are still the screen's to answer.
 - **Intel Quick Sync** is in the vendored build (oneVPL 2.14.0,
   `--enable-libvpl`) and in the probe, and no Intel GPU has run it. It is fed
   from the processor, like AMF, and says so.

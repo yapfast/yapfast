@@ -64,7 +64,9 @@
  * Relative to this file, so that the build and an editor's language server
  * resolve the same header without an include path either of them has to know. */
 #include "../../../vendor/ffmpeg-src/include/ffnvcodec/nvEncodeAPI.h"
-
+/* The tone map an HDR screen's picture goes through, in HLSL, shared with
+ * native/d3d11convert.c so that the two shims that draw it draw one curve. */
+#include "tone_hlsl.h"
 /* The codecs, as Rust numbers them. */
 enum { CODEC_H264, CODEC_HEVC, CODEC_AV1, CODEC_COUNT };
 
@@ -1709,33 +1711,9 @@ static const char *scale_shader =
     "  return varying;\n"
     "}\n"
     "#ifdef HDR\n"
-    /* The sRGB transfer function, piecewise as it is defined. A 2.2 power is
-     * close and is wrong by up to two code values in the shadows, which is the
-     * sort of wrong a viewer comparing a share against their own screen sees. */
-    "float3 srgb_encode(float3 light) {\n"
-    "  light = max(light, 0.0);\n"
-    "  float3 low = light * 12.92;\n"
-    "  float3 high = 1.055 * pow(light, 1.0 / 2.4) - 0.055;\n"
-    "  return lerp(low, high, step(0.0031308, light));\n"
-    "}\n"
-    /* What an HDR screen's picture becomes on an SDR one. scRGB is linear light
-     * with 1.0 at 80 nits, and 80 nits is not white: Windows composites plain
-     * SDR content at the brightness its display settings call SDR white, which
-     * is 240 nits on a fresh screen, so an SDR white arrives at 3.0 and dividing
-     * by 1.0 would send every window out three times too bright with everything
-     * above a third of white clipped. `tone.x` is that divisor, in the same
-     * units, and what sits above it is a highlight: below the knee this is the
-     * light as it is, so an SDR pixel arrives exactly as Windows composited it,
-     * and above it a soft shoulder that approaches white without reaching it,
-     * so a 1000-nit specular arrives as white rather than as a clipped patch
-     * with a hard edge. */
-    "float3 tone_map(float3 colour) {\n"
-    "  float3 light = colour / max(tone.x, 0.001);\n"
-    "  const float knee = 0.9;\n"
-    "  float3 over = max(light - knee, 0.0) / (1.0 - knee);\n"
-    "  light = lerp(light, knee + (1.0 - knee) * (1.0 - exp(-over)), step(knee, light));\n"
-    "  return srgb_encode(light);\n"
-    "}\n"
+    /* The curve itself, which native/d3d11convert.c's own shader splices in too:
+     * one answer, in one place (see tone_hlsl.h). */
+    YAPFAST_TONE_HLSL
     "#endif\n"
     "float4 PSMain(Varying varying) : SV_Target {\n"
     /* A quarter of the footprint, so the four taps are at the corners of a box
@@ -1765,7 +1743,7 @@ static const char *scale_shader =
     "                1.0);\n"
     "#else\n"
     "#ifdef HDR\n"
-    "  picture.rgb = tone_map(picture.rgb);\n"
+    "  picture.rgb = yapfast_tone(picture.rgb, tone.x);\n"
     "#endif\n"
     /* Colour in, the same colour out: a shader's channels are R, G, B whatever
      * order the surface keeps them in, so a BGRA or an RGBA texture lands in the

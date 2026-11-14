@@ -963,11 +963,46 @@ fn the_capture_and_the_encoder_are_on_one_device() {
     assert_eq!(encoder.size(), (sent_width, sent_height));
 }
 
+/// The mean of the luma a readback's BGRA pixels carry, which is what says
+/// whether a picture arrived at the brightness a screen shows or brighter.
+#[cfg(all(windows, wgc))]
+fn mean_luma(pixels: &[u8]) -> f64 {
+    let luma: f64 = pixels
+        .chunks_exact(4)
+        .map(|pixel| {
+            0.0722 * f64::from(pixel[0])
+                + 0.7152 * f64::from(pixel[1])
+                + 0.2126 * f64::from(pixel[2])
+        })
+        .sum();
+    luma / (pixels.len() / 4) as f64
+}
+
+/// Caps the capture of the primary screen with a picture in it: a capture answers
+/// with one only when the desktop drew one, so the first look can be a still one
+/// and there is no texture until a frame arrives.
+#[cfg(all(windows, wgc))]
+fn a_picture_of_hdr_screen() -> crate::wgc::Capture {
+    let mut capture = wgc::Capture::open_hdr(wgc::Monitor::PRIMARY).expect("an HDR capture");
+    for _ in 0..200 {
+        if capture.frame().expect("a look at the screen") == wgc::Arrival::Frame {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(
+        capture.hdr(),
+        "the screen didn't hand over its half-float picture: {}",
+        capture.describe()
+    );
+    capture
+}
+
 /// What the card makes of a screen that only draws linear light: the picture it
 /// sends is divided by the SDR white the screen reports, so a grey arrives where
 /// the screen shows it and not where 80 nits would put it — which is what a share
 /// that read scRGB's 1.0 as white sends, and what such a share looked like: a
-/// desktop two and a half times too bright with its highlights clipped.
+/// desktop three times too bright with its highlights clipped.
 ///
 /// The two pictures are the same captured texture read back through two sessions
 /// that differ in nothing but that divisor, so the numbers are one picture and
@@ -978,32 +1013,7 @@ fn the_capture_and_the_encoder_are_on_one_device() {
 #[test]
 #[ignore = "needs a screen showing HDR and an NVIDIA card"]
 fn an_hdr_screen_is_tone_mapped_on_the_card() {
-    /// The mean of the luma a readback's BGRA pixels carry.
-    fn mean(pixels: &[u8]) -> f64 {
-        let luma: f64 = pixels
-            .chunks_exact(4)
-            .map(|pixel| {
-                0.0722 * f64::from(pixel[0])
-                    + 0.7152 * f64::from(pixel[1])
-                    + 0.2126 * f64::from(pixel[2])
-            })
-            .sum();
-        luma / (pixels.len() / 4) as f64
-    }
-    let mut hdr = wgc::Capture::open_hdr(wgc::Monitor::PRIMARY).expect("an HDR capture");
-    // A capture answers with a picture only when the desktop drew one: the first
-    // look can be a still one, and there is no texture until a frame arrives.
-    for _ in 0..200 {
-        if hdr.frame().expect("a look at the screen") == wgc::Arrival::Frame {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
-    assert!(
-        hdr.hdr(),
-        "the screen didn't hand over its half-float picture: {}",
-        hdr.describe()
-    );
+    let hdr = a_picture_of_hdr_screen();
     let session = |white: u32| {
         d3d11::D3d11Encoder::open_on(
             hdr.device(),
@@ -1035,14 +1045,75 @@ fn an_hdr_screen_is_tone_mapped_on_the_card() {
     eprintln!(
         "mean luma of {}, tone-mapped at 240 nits of SDR white {:.1}, at 80 nits to white {:.1}",
         hdr.describe(),
-        mean(&toned),
-        mean(&naive)
+        mean_luma(&toned),
+        mean_luma(&naive)
     );
     assert!(
-        mean(&toned) < mean(&naive),
+        mean_luma(&toned) < mean_luma(&naive),
         "the screen's SDR white is the divisor that darkens it: {} against {}",
-        mean(&toned),
-        mean(&naive)
+        mean_luma(&toned),
+        mean_luma(&naive)
+    );
+}
+
+/// The same picture on the path an encoder that reads surfaces takes — Quick
+/// Sync's and AMF's: the converter tone-maps the half-float texture into BGRA in a
+/// shader, and the video processor turns that into the NV12 the session reads. It
+/// is checked here as far as the card allows: the converter is vendor-neutral
+/// D3D11, so an NVIDIA device runs it, and the NV12 it wrote is read back through
+/// the session's own scaler to be weighed against the same picture read as if 80
+/// nits were white.
+#[cfg(all(windows, wgc, d3d11conv))]
+#[test]
+#[ignore = "needs a screen showing HDR and an NVIDIA card"]
+fn an_hdr_screen_is_tone_mapped_by_the_converter() {
+    let hdr = a_picture_of_hdr_screen();
+    let encoder = d3d11::D3d11Encoder::open_on(
+        hdr.device(),
+        stream_connection::SEND_CODEC,
+        640,
+        360,
+        30,
+        800,
+        d3d11::Surfaces::One,
+        d3d11::Light::of(true, 3000),
+    )
+    .expect("an HDR session on the capture's device");
+    let converted = |white: u32| {
+        let mut converter = d3d11::Converter::new(
+            hdr.device(),
+            hdr.content_size(),
+            (64, 36),
+            d3d11::Light::of(true, white),
+        )
+        .expect("a converter on the capture's device");
+        let picture = converter
+            // SAFETY: the capture's own texture, alive for the call, on the device
+            // the converter was opened on.
+            .run(&unsafe { d3d11::Texture::new(hdr.texture()) })
+            .expect("the converter's picture");
+        let mut pixels = vec![0u8; 64 * 36 * 4];
+        // SAFETY: the converter's own NV12 texture, alive for the call.
+        unsafe {
+            encoder
+                .readback(d3d11::Texture::new(picture), 64, 36, &mut pixels)
+                .expect("a readback of the converted picture");
+        }
+        pixels
+    };
+    let toned = converted(3000);
+    let naive = converted(1000);
+    eprintln!(
+        "mean luma through the converter, tone-mapped at 240 nits of SDR white {:.1}, at 80 nits \
+         to white {:.1}",
+        mean_luma(&toned),
+        mean_luma(&naive)
+    );
+    assert!(
+        mean_luma(&toned) < mean_luma(&naive),
+        "the converter tone-maps it: {} against {}",
+        mean_luma(&toned),
+        mean_luma(&naive)
     );
 }
 

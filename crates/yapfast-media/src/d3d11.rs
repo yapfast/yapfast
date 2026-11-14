@@ -189,6 +189,7 @@ unsafe extern "C" {
         to_width: c_uint,
         to_height: c_uint,
         hdr: c_int,
+        white: c_uint,
         why: *mut c_char,
         size: usize,
     ) -> *mut Raw;
