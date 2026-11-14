@@ -201,25 +201,25 @@ fn show_bar(window: &YapfastWindow, bar: &TopBar, still: bool) {
     ui.set_workspaces(ModelRc::from(model.clone()));
     let clock = bar.shows_time().then(|| {
         let weak = window.as_weak();
+        let minute = std::cell::Cell::new(u64::MAX);
+        // The time, when the minute has turned since it was last set.
         let tick = move || {
             if let Some(window) = weak.upgrade() {
                 let seconds = yapfast_core::clock::now_ms() / 1000;
-                let time = yapfast_core::clock::time_on(seconds, window.get_twelve_hour_clock());
-                window.global::<Chrome>().set_time(time.into());
+                if minute.replace(seconds / 60) != seconds / 60 {
+                    let time =
+                        yapfast_core::clock::time_on(seconds, window.get_twelve_hour_clock());
+                    window.global::<Chrome>().set_time(time.into());
+                }
             }
         };
         tick();
-        // Each minute, a second after it turns.
+        // Looked at each second, while the window shows (see `repace`).
         let timer = slint::Timer::default();
-        timer.start(
-            slint::TimerMode::Repeated,
-            Duration::from_secs(1),
-            move || {
-                if yapfast_core::clock::now_ms() / 1000 % 60 <= 1 {
-                    tick();
-                }
-            },
-        );
+        timer.start(slint::TimerMode::Repeated, Duration::from_secs(1), tick);
+        if super::theme_pace::hidden() {
+            timer.stop();
+        }
         timer
     });
     BAR.set(Some(Bar {
@@ -230,6 +230,21 @@ fn show_bar(window: &YapfastWindow, bar: &TopBar, still: bool) {
         clock,
         model,
     }));
+}
+
+/// The window's pace changed (see `theme_pace`): the top bar's clock
+/// stops while nobody sees the window, and catches up when it shows.
+pub fn repace() {
+    BAR.with_borrow(|bar| {
+        let Some(timer) = bar.as_ref().and_then(|bar| bar.clock.as_ref()) else {
+            return;
+        };
+        if super::theme_pace::hidden() {
+            timer.stop();
+        } else if !timer.running() {
+            timer.restart();
+        }
+    });
 }
 
 /// The top bar's workspaces from the servers in the rail's order, when a

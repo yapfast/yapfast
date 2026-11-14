@@ -207,6 +207,22 @@ pub fn set_motion(performance: Performance, reduced: bool) {
     });
 }
 
+/// The window's pace changed (see `theme_pace`): the next turn of the
+/// loop shows the frame for it, the still picture when held.
+pub fn repace() {
+    ENGINE.with(|engine| {
+        if let Ok(mut engine) = engine.try_borrow_mut()
+            && let Some(engine) = engine.as_mut()
+        {
+            engine.force = true;
+            // Wakes the loop for it.
+            WAKE.with(|timer| {
+                timer.start(slint::TimerMode::SingleShot, Duration::ZERO, || {});
+            });
+        }
+    });
+}
+
 /// Whether the shown theme has cursors.
 pub fn has_cursors() -> bool {
     STATE.with_borrow(|state| !state.cursors.is_empty())
@@ -969,7 +985,10 @@ impl Engine {
     /// moves the trail, and wakes the loop when the next is due.
     fn step(&mut self, event_loop: &ActiveEventLoop) {
         let now = Instant::now();
-        let (frame, mut due) = self.frame(now);
+        // Held still while nobody sees the window, or the theme asks for it
+        // without the focus: each kind's still picture, and no trail.
+        let still = super::theme_pace::pace() == super::theme_pace::Pace::Still;
+        let (frame, mut due) = if still { (None, None) } else { self.frame(now) };
         let scale = self.scale;
         // The still picture shows once no frame plays.
         let wanted = frame.or_else(|| self.still.get(&self.kind).copied());
@@ -987,14 +1006,20 @@ impl Engine {
             });
             self.shown = Some(sized);
         }
-        if let Some(next) = self.step_trail(now) {
+        if still {
+            self.clear_trail();
+        } else if let Some(next) = self.step_trail(now) {
             due = Some(due.map_or(next, |due| due.min(next)));
         }
-        match due {
-            Some(due) => {
-                let wait = due
-                    .saturating_duration_since(now)
-                    .max(Duration::from_millis(16));
+        // Slower without the focus, as the theme asks.
+        let wait = due.and_then(|due| {
+            super::theme_pace::stretch(
+                due.saturating_duration_since(now)
+                    .max(Duration::from_millis(16)),
+            )
+        });
+        match wait {
+            Some(wait) => {
                 WAKE.with(|timer| timer.start(slint::TimerMode::SingleShot, wait, || {}));
             }
             None => WAKE.with(slint::Timer::stop),
@@ -1009,8 +1034,9 @@ impl Engine {
         let rolls = (self.random(), self.random(), self.seed);
         let trail = self.trail.as_mut()?;
         // At most one step a frame of its rate, however often the pointer
-        // reports a move.
-        let rate = Duration::from_millis(TRAIL_MS.get());
+        // reports a move; slower without the focus.
+        let rate = super::theme_pace::stretch(Duration::from_millis(TRAIL_MS.get()))
+            .unwrap_or(Duration::from_millis(TRAIL_MS.get()));
         if let Some(then) = trail.last_step
             && now.duration_since(then) < rate
         {
@@ -1115,7 +1141,19 @@ impl Engine {
         } else if had > 0 && rows.is_empty() {
             show_trail(None);
         }
-        (!rows.is_empty()).then(|| now + Duration::from_millis(TRAIL_MS.get()))
+        (!rows.is_empty()).then(|| now + rate)
+    }
+
+    /// Drops the trail's sprites and takes its layer away.
+    fn clear_trail(&mut self) {
+        if let Some(trail) = &mut self.trail {
+            trail.alive.clear();
+            trail.last_step = None;
+            if trail.model.row_count() > 0 {
+                trail.model.set_vec(Vec::new());
+                show_trail(None);
+            }
+        }
     }
 
     fn stop(&mut self) {
@@ -1123,13 +1161,7 @@ impl Engine {
         self.transition = None;
         self.pressed = None;
         self.shown = None;
-        if let Some(trail) = &mut self.trail {
-            trail.alive.clear();
-            if trail.model.row_count() > 0 {
-                trail.model.set_vec(Vec::new());
-                show_trail(None);
-            }
-        }
+        self.clear_trail();
         WAKE.with(slint::Timer::stop);
     }
 }

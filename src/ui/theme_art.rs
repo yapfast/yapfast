@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use image::{Rgba, RgbaImage};
 use slint::{Color, ComponentHandle, Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, VecModel};
@@ -84,7 +84,8 @@ struct State {
     used: HashSet<String>,
     performance: Performance,
     reduced: bool,
-    clock: Option<(Instant, slint::Timer)>,
+    /// The art clock, while something moves; see `theme_pace`.
+    clock: Option<super::theme_pace::Ticker>,
     last: Option<Instant>,
     particles: Vec<Live>,
     model: Option<Rc<VecModel<ArtParticle>>>,
@@ -94,6 +95,13 @@ struct State {
     seed: u64,
     /// Whether anything other than particles moves on the clock.
     moving: bool,
+    /// Whether anything moves smoothly, reading `Art.t` every tick.
+    smooth: bool,
+    /// Milliseconds a step takes for each picture that only steps (grain's
+    /// jumps, a sheet's frames), and the step each was on: `Art.t-steps`
+    /// changes only when one of them turns.
+    steps: Vec<f32>,
+    step_at: Vec<i64>,
 }
 
 thread_local! {
@@ -146,6 +154,7 @@ pub fn reset(window: &YapfastWindow) {
     art.set_overlays(ModelRc::new(VecModel::<ArtOverlay>::default()));
     art.set_chat_overlays(false);
     art.set_t(0.);
+    art.set_t_steps(0.);
     for set in [
         yapfast_ui::Art::set_glass_rail,
         yapfast_ui::Art::set_glass_sidebar,
@@ -207,6 +216,9 @@ pub fn reset(window: &YapfastWindow) {
         state.model = None;
         state.shot = None;
         state.moving = false;
+        state.smooth = false;
+        state.steps.clear();
+        state.step_at.clear();
     });
 }
 
@@ -272,6 +284,8 @@ pub fn apply(
     };
     let still = performance == Performance::Light || reduced;
     let mut moving = false;
+    let mut smooth = false;
+    let mut steps = Vec::new();
     for (surface, layers) in &art.surfaces {
         let images: Vec<ArtImage> = layers
             .iter()
@@ -279,6 +293,9 @@ pub fn apply(
                 let image = picture(&mut decoder, layer, ground(*surface))?;
                 let moves = layer.moves() && runs(layer.heavy, performance, reduced);
                 moving |= moves;
+                if moves {
+                    layer_steps(layer, &mut smooth, &mut steps);
+                }
                 Some(art_image(layer, image, moves, 0.0))
             })
             .collect();
@@ -344,6 +361,13 @@ pub fn apply(
         }
         let moves = overlay.moves() && runs(overlay.heavy, performance, reduced);
         moving |= moves;
+        if moves {
+            match (overlay.kind, &overlay.layer) {
+                (OverlayKind::Image, Some(layer)) => layer_steps(layer, &mut smooth, &mut steps),
+                (OverlayKind::Grain, _) => steps.push(overlay.period),
+                _ => smooth = true,
+            }
+        }
         let colour = Color::from_argb_encoded(overlay.colour);
         let (kind, picture) = match overlay.kind {
             OverlayKind::Image => {
@@ -521,6 +545,7 @@ pub fn apply(
         global.set_foil_opacity(foil.opacity);
         global.set_foil_period(foil.period);
         moving |= runs(false, performance, reduced);
+        smooth |= runs(false, performance, reduced);
     }
     let sprites: Vec<Image> = art
         .particles
@@ -541,9 +566,25 @@ pub fn apply(
             .any(|particles| particles.z == Depth::Under),
     );
     settle();
-    STATE.with_borrow_mut(|state| state.moving = moving);
+    STATE.with_borrow_mut(|state| {
+        state.moving = moving;
+        state.smooth = smooth;
+        state.step_at = vec![i64::MIN; steps.len()];
+        state.steps = steps;
+    });
     start_clock(window);
     event(window, Trigger::ThemeApplied);
+}
+
+/// Whether a moving picture moves smoothly (it drifts), or only steps
+/// through a sheet's frames, and how long each step takes.
+fn layer_steps(layer: &Layer, smooth: &mut bool, steps: &mut Vec<f32>) {
+    match layer.frames {
+        Some(frames) if layer.drift == (0.0, 0.0) && frames.count > 1 => {
+            steps.push(frames.period / frames.count as f32);
+        }
+        _ => *smooth = true,
+    }
 }
 
 /// After an apply: drops what was baked for it and not used, and every
@@ -1227,12 +1268,7 @@ fn lcd(size: u32, colour: u32) -> RgbaImage {
 
 /// Starts the art clock when something moves, or stops it.
 fn start_clock(window: &YapfastWindow) {
-    let (rate, needed) = STATE.with_borrow(|state| {
-        let rate = match state.performance {
-            Performance::Full => 60,
-            Performance::Balanced => 30,
-            Performance::Light => 0,
-        };
+    let needed = STATE.with_borrow(|state| {
         let ambient = state.art.as_ref().is_some_and(|art| {
             art.particles.iter().any(|particles| {
                 particles.on == Trigger::Ambient
@@ -1240,41 +1276,64 @@ fn start_clock(window: &YapfastWindow) {
             })
         });
         let needed = state.moving || ambient || !state.particles.is_empty() || state.shot.is_some();
-        (rate, needed && !state.reduced)
+        needed && !state.reduced && clock_rate(state.performance) > 0
     });
-    let running = STATE.with_borrow(|state| state.clock.is_some());
-    if !needed || rate == 0 {
+    if !needed {
         STATE.with_borrow_mut(|state| state.clock = None);
         return;
     }
-    if running {
-        return;
-    }
-    let started = Instant::now();
-    let timer = slint::Timer::default();
-    let weak = window.as_weak();
-    timer.start(
-        slint::TimerMode::Repeated,
-        Duration::from_millis(1000 / rate),
-        move || {
-            if let Some(window) = weak.upgrade() {
-                tick(&window, started);
-            }
-        },
-    );
     STATE.with_borrow_mut(|state| {
-        state.clock = Some((started, timer));
-        state.last = None;
+        if state.clock.is_none() {
+            state.clock = Some(super::theme_pace::Ticker::new());
+            state.last = None;
+        }
+    });
+    run_clock(window);
+}
+
+/// The art clock's frames a second at a setting.
+fn clock_rate(performance: Performance) -> u32 {
+    match performance {
+        Performance::Full => 60,
+        Performance::Balanced => 30,
+        Performance::Light => 0,
+    }
+}
+
+/// Runs the art clock as the pace allows (see `theme_pace`): slower
+/// without the focus, held while nobody sees the window, going on from
+/// where it was held.
+fn run_clock(window: &YapfastWindow) {
+    let weak = window.as_weak();
+    STATE.with_borrow_mut(|state| {
+        let rate = clock_rate(state.performance);
+        let Some(ticker) = state.clock.as_mut() else {
+            return;
+        };
+        if !ticker.run(rate, move || {
+            if let Some(window) = weak.upgrade() {
+                tick(&window);
+            }
+        }) {
+            // Particles go on from where they were, not a held time's
+            // step later.
+            state.last = None;
+        }
     });
 }
 
+/// The window's pace changed: the art clock runs at it.
+pub fn repace(window: &YapfastWindow) {
+    run_clock(window);
+}
+
 /// One frame: the clock, particles and a channel change.
-fn tick(window: &YapfastWindow, started: Instant) {
-    let hidden = window.window().is_minimized() || !window.window().is_visible();
-    let paused = hidden
-        || STATE.with_borrow(|state| {
-            state.performance == Performance::Balanced && !super::FOCUSED.get()
-        });
+fn tick(window: &YapfastWindow) {
+    let Some(elapsed) =
+        STATE.with_borrow(|state| state.clock.as_ref().map(|clock| clock.elapsed()))
+    else {
+        return;
+    };
     let now = Instant::now();
     let step = STATE.with_borrow_mut(|state| {
         let step = state
@@ -1284,13 +1343,23 @@ fn tick(window: &YapfastWindow, started: Instant) {
         state.last = Some(now);
         step
     });
-    if paused {
-        return;
-    }
     let global = window.global::<yapfast_ui::Art>();
-    let moving = STATE.with_borrow(|state| state.moving);
-    if moving {
-        global.set_t(started.elapsed().as_secs_f32());
+    let t = elapsed.as_secs_f32();
+    let (moving, smooth, stepped) = STATE.with_borrow_mut(|state| {
+        // A stepped picture's time changes only when one of them turns.
+        let mut turned = false;
+        for (step, at) in state.steps.iter().zip(state.step_at.iter_mut()) {
+            let now = stepped_at(t, *step);
+            turned |= *at != now;
+            *at = now;
+        }
+        (state.moving, state.smooth, turned)
+    });
+    if moving && smooth {
+        global.set_t(t);
+    }
+    if moving && stepped {
+        global.set_t_steps(t);
     }
     // The channel change.
     let left = STATE.with_borrow(|state| {
@@ -1323,6 +1392,15 @@ fn tick(window: &YapfastWindow, started: Instant) {
     if idle {
         STATE.with_borrow_mut(|state| state.clock = None);
     }
+}
+
+/// Which step a picture stepping every `step` milliseconds is on at `t`
+/// seconds, as `ArtPicture` counts them.
+fn stepped_at(t: f32, step: f32) -> i64 {
+    if step <= 0.0 {
+        return 0;
+    }
+    (t * 1000.0 / step).floor() as i64
 }
 
 fn random(seed: &mut u64) -> f32 {
@@ -1666,6 +1744,46 @@ pub fn over(under: u32, top: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_stepped_picture_turns_where_art_picture_counts() {
+        // Grain every 180 ms: the same step all through one, the next after.
+        assert_eq!(stepped_at(0.0, 180.0), 0);
+        assert_eq!(stepped_at(0.179, 180.0), 0);
+        assert_eq!(stepped_at(0.181, 180.0), 1);
+        assert_eq!(stepped_at(3.6, 180.0), 20);
+        assert_eq!(stepped_at(1.0, 0.0), 0);
+        let mut smooth = false;
+        let mut steps = Vec::new();
+        let sheet = Layer {
+            source: Source::Texture(Texture::Grain),
+            fit: Fit::Cover,
+            position: (0.5, 0.5),
+            opacity: 1.0,
+            blend: yapfast_core::themes::package::art::Blend::Normal,
+            blur: 0.0,
+            dim: 0.0,
+            scale: 1.0,
+            colour: 0,
+            drift: (0.0, 0.0),
+            frames: Some(yapfast_core::themes::package::art::Frames {
+                count: 8,
+                columns: 4,
+                period: 800.0,
+            }),
+            heavy: false,
+            size: None,
+            reserve: None,
+        };
+        layer_steps(&sheet, &mut smooth, &mut steps);
+        assert_eq!((smooth, steps.as_slice()), (false, &[100.0][..]));
+        let drifting = Layer {
+            drift: (12.0, 0.0),
+            ..sheet
+        };
+        layer_steps(&drifting, &mut smooth, &mut steps);
+        assert!(smooth, "a drift reads the smooth clock");
+    }
 
     #[test]
     fn tints_lay_over_one_another() {

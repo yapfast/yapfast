@@ -1,0 +1,80 @@
+[build-slot] slot 1: env IN_NIX_SHELL=impure NASM=/home/p/.local/share/yapfast-build-tools/usr/bin/nasm CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=/home/p/Documents/yapfast-src/themes-final2-target cargo test --locked --profile fast -p yapfast --bin yapfast theme
+warning: webrtc-sys@0.3.35: cuda.h not found; building without hardware accelerated video codec support for NVidia GPUs
+warning: yapfast-ui@0.1.0: Exported component 'InstalledRow' doesn't inherit Window. No code will be generated for it
+warning: yapfast-ui@0.1.0:    --> /home/p/Documents/yapfast-src/themes-final2/ui/yapfast.slint:114:34
+warning: yapfast-ui@0.1.0:     |
+warning: yapfast-ui@0.1.0: 114 | export { PluginPage, PluginLine, InstalledRow, PluginControl, PluginFormRow, PluginLogRow, PluginDetail, ListingRow, PluginReview }...
+warning: yapfast-ui@0.1.0:     |                                  ^^^^^^^^^^^^
+warning: yapfast-ui@0.1.0:     |
+warning: yapfast-ui@0.1.0: Properties of type easing are not supported yet for public API. The property will not be exposed
+warning: yapfast-ui@0.1.0:    --> /home/p/Documents/yapfast-src/themes-final2/ui/theme.slint:347:19
+warning: yapfast-ui@0.1.0:     |
+warning: yapfast-ui@0.1.0: 347 |     out property <easing> curve-easing: self.curve == 0 ? linear : self.curve == 1 ? ease : self.curve == 2 ? ease-in
+warning: yapfast-ui@0.1.0:     |                   ^^^^^^
+warning: yapfast-ui@0.1.0: The layout stretches the 'width' of this element, so 'x' can move it past the edge, consider setting its 'width' too, or using the layout's 'padding' or 'cross-axis-alignment'
+warning: yapfast-ui@0.1.0:    --> /home/p/Documents/yapfast-src/themes-final2/ui/yapfast/settings-nav.slint:87:35
+warning: yapfast-ui@0.1.0:     |
+warning: yapfast-ui@0.1.0:  87 |                         Text { x: 8px; text: entry.text; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+warning: yapfast-ui@0.1.0:     |                                   ^^^^
+   Compiling yapfast v0.3.0 (/home/p/Documents/yapfast-src/themes-final2)
+    Finished `fast` profile [optimized] target(s) in 1m 23s
+     Running unittests src/main.rs (/home/p/Documents/yapfast-src/themes-final2-target/fast/deps/yapfast-d728cc093daf4f9a)
+
+running 54 tests
+test ui::name_style::tests::a_light_themes_palette_differs_where_the_colour_needs_it ... ok
+test ui::plugins::tests::the_colours_plugins_can_name_are_the_themes_own ... ok
+test ui::tests::a_custom_theme_keeps_its_colours_by_name_and_falls_back_to_its_base ... ok
+test ui::tests::built_in_themes_have_their_own_ids_and_say_whether_they_are_dark ... ok
+test ui::tests::custom_theme_ids_stay_apart_from_built_in_ones_and_each_other ... ok
+test ui::theme_art::tests::a_stepped_picture_turns_where_art_picture_counts ... ok
+test ui::theme_art::tests::tints_lay_over_one_another ... ok
+test ui::theme_chrome::tests::fills_what_the_interface_passes ... ok
+test ui::theme_art::tests::a_blend_mixes_with_the_ground ... ok
+test ui::theme_art::tests::textures_tile_and_take_their_colour ... ok
+test ui::theme_cursor::tests::every_kind_has_its_slint_cursor ... ok
+test ui::theme_layout::tests::a_long_or_non_latin_name_keeps_its_rest_whole ... ok
+test ui::theme_layout::tests::cuts_a_name_into_letters_from_the_fonts_in_turn ... ok
+test ui::theme_layout::tests::theme_gel_draws_nothing_unset_and_scales_the_gloss ... ok
+test ui::theme_content::tests::names_follow_the_theme_or_keep_their_hue_readably ... ok
+test ui::plugins::tests::colours_lay_over_the_theme_but_not_over_a_protected_dialog ... ok
+test ui::theme_chrome::tests::theme_box_frames_and_counts_reach_the_window_and_go ... ok
+test ui::theme_content::tests::pictures_are_shared_until_a_theme_recolours_them ... ok
+test ui::theme_chrome::tests::the_top_bar_numbers_servers_and_shows_whats_playing ... ok
+test ui::tests::a_profile_theme_is_light_by_its_first_colour_as_in_discord ... ok
+test ui::tests::a_theme_paints_the_window_and_the_mentions_in_its_rows ... ok
+test ui::theme_content::tests::theme_dither_is_made_once_off_the_window_and_light_keeps_a_gradient ... ok
+test ui::theme_lists::tests::a_themes_lists_keep_every_label ... ignored, walks the element tree, which needs YAPFAST_SLINT_DEBUG_INFO=1 at build time
+test ui::theme_lists::tests::a_themes_member_rows_stay_virtual ... ignored, walks the element tree, which needs YAPFAST_SLINT_DEBUG_INFO=1 at build time
+test ui::theme_lists::tests::fills_templates_and_drops_empty_parts ... ok
+test ui::theme_layout::tests::theme_irc_rule_runs_the_separator_down_every_line ... ok
+test ui::tests::a_custom_theme_is_made_edited_and_deleted_in_appearance ... ok
+test ui::tests::a_chosen_theme_is_kept_and_survives_a_window_made_again ... ok
+test ui::tests::a_theme_layout_keeps_the_bar_and_reactions_by_the_message ... ok
+test ui::theme_look::tests::a_trial_goes_back_unless_kept ... ok
+test ui::theme_look::tests::an_installed_theme_sets_its_tokens_and_clearing_puts_back_stock ... ok
+test ui::theme_look::tests::the_colours_themes_name_are_the_windows_own ... ok
+test ui::theme_look::tests::a_themes_icons_and_sounds_show_and_stock_comes_back ... ok
+test ui::theme_lists::tests::a_theme_without_lists_leaves_them_stock ... ok
+test ui::theme_lists::tests::a_hidden_rail_leaves_every_server_in_reach ... ok
+test ui::theme_media::tests::the_pack_has_every_icon_the_window_has ... ok
+test ui::theme_look::tests::effects_scramble_then_settle ... ok
+test ui::theme_pace::tests::nothing_moves_where_nobody_sees ... ok
+test ui::theme_pace::tests::slow_caps_at_fifteen_frames ... ok
+test ui::theme_pace::tests::unfocused_follows_the_theme_in_full_and_holds_in_balanced ... ok
+test ui::theme_look::tests::a_theme_that_cant_be_shown_falls_back_with_a_notice ... ok
+test ui::theme_look::tests::a_protected_dialog_shows_stock_and_the_theme_comes_back ... ok
+test ui::theme_tools::tests::an_exported_custom_theme_installs_with_the_same_colours ... ok
+test ui::theme_lists::tests::each_picture_is_decoded_once_per_theme ... ok
+test ui::theme_trim::tests::spaces_at_the_ends_are_kept ... ok
+test ui::theme_look::tests::an_option_changes_the_theme_shown_and_is_kept_per_theme ... ok
+test ui::theme_look::tests::light_or_dark_can_be_pinned_per_theme ... ok
+test ui::theme_look::tests::readable_text_keeps_the_look_and_draws_reading_text_as_stock ... ok
+test ui::theme_look::tests::light_keeps_the_stock_motion_and_no_animation ... ok
+test ui::theme_look::tests::the_template_and_each_of_its_options_pass_the_check ... ok
+test ui::theme_look::tests::the_default_theme_flag_skips_the_chosen_one ... ok
+test ui::theme_tools::tests::new_makes_a_checked_folder_and_says_what_next ... ok
+test ui::theme_pace::tests::held_time_goes_on_from_where_it_stopped ... ok
+test ui::theme_tools::tests::new_starts_from_a_built_in_or_a_custom_theme ... ok
+
+test result: ok. 52 passed; 0 failed; 2 ignored; 0 measured; 334 filtered out; finished in 0.23s
+

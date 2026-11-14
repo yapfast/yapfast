@@ -404,7 +404,7 @@ mod tests {
         let mut layout = Layout::default();
         layout.irc.separator = Some(">".into());
         layout.irc.rule = Some(true);
-        apply(&window, &layout, &[], None, Performance::Full);
+        apply(&window, &layout, &[], None, Performance::Full, false);
         let arrange = window.global::<Arrange>();
         assert!(arrange.get_irc_rule());
         let text = arrange.get_irc_rule_text();

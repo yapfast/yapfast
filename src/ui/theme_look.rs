@@ -36,6 +36,61 @@ pub const INSTALLED: &str = "installed:";
 /// How long Try shows a theme before going back.
 const TRIAL: u64 = 30;
 
+/// The theme creator's draft, shown while Appearance's creator is open.
+pub const DRAFT: &str = "creator:draft";
+
+thread_local! {
+    /// The person's own themes that show from a package folder, by id: those
+    /// made with the creator, and those that name a folder of their own.
+    static CREATED: std::cell::RefCell<HashMap<String, PathBuf>> = std::cell::RefCell::default();
+}
+
+/// Says which of the person's own themes show from a package, and where it is.
+pub fn set_created(folders: impl IntoIterator<Item = (String, PathBuf)>) {
+    CREATED.set(folders.into_iter().collect());
+}
+
+/// Whether a theme shows from a package folder: installed, `--theme-dev`'s,
+/// the creator's draft, or one made with the creator.
+pub fn is_package(id: &str) -> bool {
+    id.starts_with(INSTALLED)
+        || id == "dev"
+        || id == DRAFT
+        || CREATED.with_borrow(|created| created.contains_key(id))
+}
+
+/// Where the creator keeps a theme's package: `<data>/themes/creator/<n>`
+/// for `custom:<n>`, and `draft` for its draft.
+pub fn creator_folder(root: &Path, id: &str) -> PathBuf {
+    let name = if id == DRAFT {
+        "draft".to_owned()
+    } else {
+        yapfast_core::themes::creator::slug(id.strip_prefix("custom:").unwrap_or(id))
+    };
+    root.join("themes").join("creator").join(name)
+}
+
+/// The package folder for an id, if it's the creator's draft or one of the
+/// person's own themes that has one.
+fn created_folder(id: &str) -> Option<PathBuf> {
+    if id == DRAFT {
+        return STATE
+            .with_borrow(|state| state.root.as_deref().map(|root| creator_folder(root, id)));
+    }
+    CREATED.with_borrow(|created| created.get(id).cloned())
+}
+
+/// The data folder themes live under, once [`init`] has run.
+pub fn data_root() -> Option<PathBuf> {
+    STATE.with_borrow(|state| state.root.clone())
+}
+
+/// Registers a font the creator imports, as a theme's fonts are, and
+/// returns its family for the creator's sample.
+pub fn register_creator_font(bytes: Vec<u8>, path: &Path) -> Result<String, String> {
+    register_font_bytes(&Arc::new(bytes), path)
+}
+
 // Started with `--default-theme`, or Ctrl+Shift+T was pressed: the default
 // theme shows for this run, whatever is chosen.
 thread_local! {
@@ -154,7 +209,7 @@ struct State {
     /// face, without text effects, whatever the theme.
     readable: bool,
     protected: bool,
-    clock: Option<(Instant, slint::Timer)>,
+    clock: Option<(super::theme_pace::Ticker, u32)>,
     effects: HashMap<usize, Playing>,
     fx_timer: Option<slint::Timer>,
     trial: Option<Trial>,
@@ -286,7 +341,10 @@ pub fn show(window: &YapfastWindow, id: &str) -> Result<theme::Theme, String> {
     }
     if id == "dev" {
         let folder = DEV.get().ok_or("no --theme-dev folder")?.clone();
-        return show_folder(window, &folder);
+        return show_folder(window, "dev", &folder);
+    }
+    if let Some(folder) = created_folder(id) {
+        return show_folder(window, id, &folder);
     }
     let installed_id = id.strip_prefix(INSTALLED).ok_or("not an installed theme")?;
     let (package, folder) = STATE
@@ -458,6 +516,8 @@ pub fn prepare(window: &YapfastWindow, id: &str, then: impl FnOnce(&YapfastWindo
         DEV.get()
             .cloned()
             .ok_or_else(|| "no --theme-dev folder".to_owned())
+    } else if let Some(folder) = created_folder(id) {
+        Ok(folder)
     } else {
         let installed_id = id.strip_prefix(INSTALLED).unwrap_or(id);
         STATE
@@ -571,8 +631,8 @@ fn make_ready(
     })
 }
 
-/// Shows a theme's folder as it is now, for `--theme-dev`.
-fn show_folder(window: &YapfastWindow, folder: &Path) -> Result<theme::Theme, String> {
+/// Shows a theme's folder as it is now, for `--theme-dev` and the creator.
+fn show_folder(window: &YapfastWindow, id: &str, folder: &Path) -> Result<theme::Theme, String> {
     let files = Files::read(folder)?;
     let report = check::check(&files, Strictness::Install);
     for warning in &report.warnings {
@@ -585,7 +645,7 @@ fn show_folder(window: &YapfastWindow, folder: &Path) -> Result<theme::Theme, St
         return Err(reason.to_owned());
     }
     let package = report.package.expect("a passed check has its package");
-    apply_package(window, "dev", &package, folder, None)
+    apply_package(window, id, &package, folder, None)
 }
 
 fn apply_package(
@@ -829,6 +889,14 @@ pub fn reset(window: &YapfastWindow) {
 /// open: that shows stock, and the theme comes back when it closes.
 fn paint(window: &YapfastWindow) {
     reset(window);
+    let (performance, unfocused) = STATE.with_borrow(|state| {
+        let unfocused = state
+            .applied
+            .as_ref()
+            .and_then(|applied| applied.resolved.motion.unfocused);
+        (state.performance, unfocused.unwrap_or_default())
+    });
+    super::theme_pace::set_theme(window, performance, unfocused);
     let protected = STATE.with_borrow(|state| state.protected);
     if protected {
         return;
@@ -1324,35 +1392,48 @@ fn start_clock(window: &YapfastWindow) {
         STATE.with_borrow_mut(|state| state.clock = None);
         return;
     };
-    let started = Instant::now();
-    let timer = slint::Timer::default();
-    let weak = window.as_weak();
-    timer.start(
-        slint::TimerMode::Repeated,
-        Duration::from_millis(u64::from(1000 / rate.max(1))),
-        move || {
-            if let Some(window) = weak.upgrade() {
-                tick(&window, started);
-            }
-        },
-    );
-    STATE.with_borrow_mut(|state| state.clock = Some((started, timer)));
-    tick_now(window, started);
+    STATE.with_borrow_mut(|state| {
+        state.clock = Some((super::theme_pace::Ticker::new(), rate));
+    });
+    run_clock(window);
 }
 
-fn tick_now(window: &YapfastWindow, started: Instant) {
-    tick(window, started);
+/// Runs the declared animations' clock as the pace allows (see
+/// `theme_pace`): slower without the focus, held while nobody sees the
+/// window, going on from where it was held.
+fn run_clock(window: &YapfastWindow) {
+    let weak = window.as_weak();
+    let running = STATE.with_borrow_mut(|state| {
+        let (ticker, rate) = state.clock.as_mut()?;
+        Some(ticker.run(*rate, move || {
+            if let Some(window) = weak.upgrade() {
+                tick(&window);
+            }
+        }))
+    });
+    if running == Some(true) {
+        tick(window);
+    }
+}
+
+/// The window's pace changed: the clocks here run at it.
+pub fn repace(window: &YapfastWindow) {
+    run_clock(window);
+    if super::theme_pace::pace() == super::theme_pace::Pace::Still {
+        STATE.with_borrow_mut(|state| state.fx_timer = None);
+    }
 }
 
 /// One frame of the declared animations.
-fn tick(window: &YapfastWindow, started: Instant) {
-    // Balanced holds still while another window has the focus.
-    let paused = STATE
-        .with_borrow(|state| state.performance == Performance::Balanced && !super::FOCUSED.get());
-    if paused {
+fn tick(window: &YapfastWindow) {
+    let Some(elapsed) = STATE.with_borrow(|state| {
+        state
+            .clock
+            .as_ref()
+            .map(|(ticker, _)| ticker.elapsed().as_secs_f32() * 1000.0)
+    }) else {
         return;
-    }
-    let elapsed = started.elapsed().as_secs_f32() * 1000.0;
+    };
     let look = window.global::<Look>();
     STATE.with_borrow(|state| {
         let Some(applied) = &state.applied else {
@@ -1541,6 +1622,10 @@ fn keep_effects_moving(window: &YapfastWindow) {
     if running {
         return;
     }
+    // Slower without the focus; nothing while nobody sees the window.
+    let Some(every) = super::theme_pace::stretch(Duration::from_millis(33)) else {
+        return;
+    };
     let weak = window.as_weak();
     // Started after this binding is evaluated: a timer made inside a pure
     // callback mustn't change properties while they're read.
@@ -1549,44 +1634,40 @@ fn keep_effects_moving(window: &YapfastWindow) {
         let timer = slint::Timer::default();
         let inner = window.as_weak();
         let mut quiet = 0;
-        timer.start(
-            slint::TimerMode::Repeated,
-            Duration::from_millis(33),
-            move || {
-                let Some(window) = inner.upgrade() else {
-                    return;
-                };
-                let look = window.global::<Look>();
-                look.set_fx_tick(look.get_fx_tick().wrapping_add(1));
-                // Stops once every effect has had its time; the next text change
-                // starts it again.
-                let longest = STATE.with_borrow(|state| {
-                    state.applied.as_ref().map_or(0.0, |applied| {
-                        (0..=BAR_SLOT)
-                            .filter_map(|slot| effect_for(&applied.resolved, slot))
-                            .map(|(_, duration)| duration)
-                            .fold(0.0, f32::max)
-                    })
-                });
-                let all_done = STATE.with_borrow(|state| {
-                    state.effects.values().all(|playing| {
-                        playing.started.elapsed().as_secs_f32() * 1000.0 > longest + 50.0
-                    })
-                });
-                if all_done {
-                    quiet += 1;
-                    if quiet > 2 {
-                        STATE.with_borrow_mut(|state| {
-                            if let Some(timer) = &state.fx_timer {
-                                timer.stop();
-                            }
-                        });
-                    }
-                } else {
-                    quiet = 0;
+        timer.start(slint::TimerMode::Repeated, every, move || {
+            let Some(window) = inner.upgrade() else {
+                return;
+            };
+            let look = window.global::<Look>();
+            look.set_fx_tick(look.get_fx_tick().wrapping_add(1));
+            // Stops once every effect has had its time; the next text change
+            // starts it again.
+            let longest = STATE.with_borrow(|state| {
+                state.applied.as_ref().map_or(0.0, |applied| {
+                    (0..=BAR_SLOT)
+                        .filter_map(|slot| effect_for(&applied.resolved, slot))
+                        .map(|(_, duration)| duration)
+                        .fold(0.0, f32::max)
+                })
+            });
+            let all_done = STATE.with_borrow(|state| {
+                state.effects.values().all(|playing| {
+                    playing.started.elapsed().as_secs_f32() * 1000.0 > longest + 50.0
+                })
+            });
+            if all_done {
+                quiet += 1;
+                if quiet > 2 {
+                    STATE.with_borrow_mut(|state| {
+                        if let Some(timer) = &state.fx_timer {
+                            timer.stop();
+                        }
+                    });
                 }
-            },
-        );
+            } else {
+                quiet = 0;
+            }
+        });
         STATE.with_borrow_mut(|state| state.fx_timer = Some(timer));
     });
 }
@@ -1661,7 +1742,7 @@ pub fn startup(window: &YapfastWindow, chosen: Option<&str>) -> Option<theme::Th
     let id = if DEV.get().is_some() {
         "dev"
     } else {
-        chosen.filter(|id| id.starts_with(INSTALLED))?
+        chosen.filter(|id| is_package(id))?
     };
     match show(window, id) {
         Ok(colours) => {

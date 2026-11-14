@@ -662,12 +662,18 @@ pub struct Custom {
     /// any it doesn't name, such as one added since it was saved.
     pub base: &'static str,
     pub theme: Theme,
+    /// What the theme creator was told, for a theme made there: its look
+    /// beyond colours lives in a package folder made from it
+    /// (`theme_look::creator_folder`).
+    pub creator: Option<Spec>,
     /// A folder of the theme's own beyond its colours, relative to the data
     /// folder or absolute: a `theme.json` with any other layers (type, art,
     /// sounds, …) and the files they name, such as imported fonts and a
     /// background picture. Export bundles it; see docs/themes.md.
     pub folder: Option<String>,
 }
+
+pub use yapfast_core::themes::creator::Spec;
 
 /// A custom theme in `layout.json`: each colour as text, by its name in
 /// `ui/theme.slint`.
@@ -679,6 +685,8 @@ struct Stored {
     base: String,
     dark: Option<bool>,
     colours: std::collections::BTreeMap<String, String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    creator: Option<Spec>,
     #[serde(skip_serializing_if = "Option::is_none")]
     folder: Option<String>,
 }
@@ -701,6 +709,7 @@ impl From<Stored> for Custom {
             name: stored.name,
             base: base.id,
             theme,
+            creator: stored.creator,
             folder: stored.folder.filter(|folder| !folder.trim().is_empty()),
         }
     }
@@ -719,6 +728,7 @@ impl From<&Custom> for Stored {
             base: custom.base.to_owned(),
             dark: Some(custom.theme.dark),
             colours,
+            creator: custom.creator.clone(),
             folder: custom.folder.clone(),
         }
     }
@@ -1034,6 +1044,9 @@ pub struct Editor {
     pub base: &'static str,
     pub theme: Theme,
     rows: Rc<VecModel<yapfast_ui::ThemeColour>>,
+    /// The theme creator's choices, while Simple makes the theme: Save
+    /// keeps them, and a package made from them, with the theme.
+    pub creator: Option<Spec>,
 }
 
 impl Editor {
@@ -1043,13 +1056,14 @@ impl Editor {
             base,
             theme,
             rows: Rc::default(),
+            creator: None,
         };
         editor.fill();
         editor
     }
 
     /// Writes every row again, which also gives each field its text anew.
-    fn fill(&self) {
+    pub fn fill(&self) {
         let rows: Vec<_> = Theme::NAMES
             .iter()
             .enumerate()

@@ -57,7 +57,8 @@
     "hover": "lift",
     "press": "scale",
     "open": "zoom",
-    "close": "reverse"
+    "close": "reverse",
+    "unfocused": "slow"
   },
   "animations": [
     { "name": "unread breathes", "slot": "unread", "property": "opacity",

@@ -17,6 +17,7 @@
 pub mod check;
 pub mod chrome;
 pub mod content;
+pub mod creator;
 pub mod cursors;
 pub mod install;
 pub mod layout;

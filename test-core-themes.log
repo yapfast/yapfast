@@ -1,0 +1,203 @@
+[build-slot] slot 1: env IN_NIX_SHELL=impure NASM=/home/p/.local/share/yapfast-build-tools/usr/bin/nasm CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=/home/p/Documents/yapfast-src/themes-final2-target cargo test --locked --profile fast -p yapfast-core --features plugins themes::
+warning: webrtc-sys@0.3.35: cuda.h not found; building without hardware accelerated video codec support for NVidia GPUs
+   Compiling yapfast-core v0.1.0 (/home/p/Documents/yapfast-src/themes-final2/crates/yapfast-core)
+    Finished `fast` profile [optimized] target(s) in 5m 40s
+     Running unittests src/lib.rs (/home/p/Documents/yapfast-src/themes-final2-target/fast/deps/yapfast_core-ec316ab33ba9821c)
+
+running 157 tests
+test themes::check::tests::a_long_description_fails_the_check_naming_its_length ... ok
+test themes::check::lists_summary::the_summary_names_the_lists ... ok
+test themes::check::tests::a_heavy_trail_warns ... ok
+test themes::check::tests::a_readable_theme_passes ... ok
+test themes::check::tests::a_named_picture_has_to_be_there ... ok
+test themes::check::tests::a_dark_variant_needs_a_dark_base ... ok
+test themes::check::tests::a_named_file_has_to_be_there ... ok
+test themes::check::tests::a_content_name_colour_must_read_and_content_shows_in_the_cost ... ok
+test themes::check::tests::a_theme_with_ransom_names_offers_them_as_an_option ... ok
+test themes::check::tests::a_gel_keeps_its_gloss_off_the_text ... ok
+test themes::check::tests::an_option_that_makes_text_unreadable_is_refused_naming_it ... ok
+test themes::check::tests::an_option_naming_a_field_yapfast_doesnt_read_is_refused ... ok
+test themes::check::tests::a_stepped_window_flicker_is_priced_by_its_steps ... ok
+test themes::check::tests::bubbles_and_cards_have_to_read ... ok
+test themes::check::tests::every_stop_of_a_gradient_must_read ... ok
+test themes::check::tests::display_type_for_reading_text_points_at_readable_text ... ok
+test themes::check::tests::only_github_repositories ... ok
+test themes::check::tests::many_small_pieces_warn_together ... ok
+test themes::check::tests::pictures_are_checked_by_decoding ... ok
+test themes::check::tests::gradient_bubbles_and_a_see_through_member_list_are_checked ... ok
+test themes::check::tests::options_that_keep_text_readable_pass_and_name_their_flips ... ok
+test themes::check::tests::expensive_idle_motion_warns_with_a_fix_and_shows_in_the_cost ... ok
+test themes::check::tests::small_motion_under_the_budget_doesnt_warn ... ok
+test themes::check::tests::ransom_fonts_are_named_files_and_parsed ... ok
+test themes::check::tests::svgs_that_could_run_or_reach_out_are_refused ... ok
+test themes::check::tests::still_motion_costs_nothing_idle ... ok
+test themes::check::tests::the_cost_counts_fonts_and_animations ... ok
+test themes::check::tests::the_cost_names_the_chrome ... ok
+test themes::check::tests::the_cost_names_the_layout ... ok
+test themes::check::tests::the_marketplace_asks_for_more ... ok
+test themes::check::tests::unfocused_motion_is_read ... ok
+test themes::check::tests::cursors_are_decoded_and_counted ... ok
+test themes::chrome::tests::fills_placeholders ... ok
+test themes::check::tests::unreadable_text_is_refused_with_the_token ... ok
+test themes::chrome::tests::a_variant_adds_to_the_shared_chrome ... ok
+test themes::check::tests::the_idle_estimate_matches_what_was_measured ... ok
+test themes::chrome::tests::reads_box_frames_and_counts ... ok
+test themes::chrome::tests::reads_every_chrome_field ... ok
+test themes::chrome::tests::reads_the_top_bar_the_console_and_the_face ... ok
+test themes::check::tests::text_over_art_has_to_read ... ok
+test themes::chrome::tests::refuses_a_long_prompt_without_the_console_and_bad_bars ... ok
+test themes::chrome::tests::refuses_bad_box_frames_and_counts ... ok
+test themes::chrome::tests::refuses_unknown_placeholders_markup_breaks_and_long_text ... ok
+test themes::chrome::tests::unknown_names_are_noted ... ok
+test themes::content::tests::dithering_uses_only_the_palette_and_follows_brightness ... ok
+test themes::content::tests::reads_a_dither_palette_dark_to_light ... ok
+test themes::content::tests::reads_every_content_field ... ok
+test themes::content::tests::recolouring_maps_luminance_and_keeps_alpha ... ok
+test themes::content::tests::reads_illuminated_initials ... ok
+test themes::content::tests::refuses_values_out_of_their_lists ... ok
+test themes::content::tests::short_forms_and_stock ... ok
+test themes::creator::tests::a_file_that_isnt_a_font_is_refused_plainly ... ok
+test themes::creator::tests::a_font_is_read_for_its_name_licence_and_letters ... ok
+test themes::creator::tests::a_font_that_isnt_one_is_never_copied ... ok
+test themes::creator::tests::a_spec_round_trips_through_layout_json ... ok
+test themes::creator::tests::corners_run_from_square_to_round_with_stock_in_the_middle ... ok
+test themes::creator::tests::oklch_round_trips ... ok
+test themes::creator::tests::something_that_isnt_a_picture_is_refused_plainly ... ok
+test themes::creator::tests::an_imported_font_is_copied_into_the_theme_and_carried_by_it ... ok
+test themes::chrome::tests::the_template_reads_without_notes ... ok
+test themes::creator::tests::derived_inks_read_on_every_ground_they_sit_on ... ok
+test themes::cursors::tests::a_trail_may_glitch ... ok
+test themes::cursors::tests::decode_takes_small_pngs_only ... ok
+test themes::cursors::tests::directions_follow_screen_angles ... ok
+test themes::cursors::tests::picks_the_size_for_the_scale ... ok
+test themes::cursors::tests::frames_cut_from_sheets ... ok
+test themes::creator::tests::the_default_spec_is_a_plain_theme ... ok
+test themes::cursors::tests::problems_check_hotspot_and_sizes ... ok
+test themes::cursors::tests::reads_one_picture_or_sizes_and_null_takes_a_kind_back ... ok
+test themes::cursors::tests::refuses_bad_frames ... ok
+test themes::cursors::tests::refuses_links_other_formats_and_bad_hotspots ... ok
+test themes::creator::tests::a_palette_finds_both_halves_of_a_picture ... ok
+test themes::install::tests::a_lock_file_cannot_point_outside_the_store ... ok
+test themes::install::tests::an_export_refuses_a_file_its_folder_lacks ... ok
+test themes::install::tests::a_changed_theme_json_in_the_store_is_left_out ... ok
+test themes::install::tests::only_github_sources_install ... ok
+test themes::layout::tests::a_gel_is_read_carefully ... ok
+test themes::layout::tests::a_gloss_and_a_glow_say_how_much_they_lay_where_text_is ... ok
+test themes::cursors::tests::reads_frames_transitions_motion_and_a_trail ... ok
+test themes::layout::tests::a_pane_keeps_its_content_clear_of_its_art ... ok
+test themes::install::tests::installs_pins_rolls_back_and_uninstalls_beside_plugins ... ok
+test themes::layout::tests::a_variant_overrides_the_shared_layout ... ok
+test themes::layout::tests::reads_a_drawn_gel_on_bubbles ... ok
+test themes::layout::tests::reads_every_layout_field ... ok
+test themes::layout::tests::reads_the_hover_bar_rows_and_card_extras ... ok
+test themes::layout::tests::reads_gel_bubbles_card_choices_and_the_collapsed_list ... ok
+test themes::layout::tests::reads_the_trim_fields ... ok
+test themes::layout::tests::refuses_card_art_that_moves_or_crowds ... ok
+test themes::layout::tests::refuses_trim_out_of_its_lists ... ok
+test themes::creator::tests::every_built_in_font_ships_and_passes ... ok
+test themes::layout::tests::refuses_values_out_of_range_with_their_place ... ok
+test themes::lists::tests::a_seed_stays_the_same_for_an_id ... ok
+test themes::layout::tests::unknown_names_are_noted ... ok
+test themes::lists::tests::reads_channel_rows ... ok
+test themes::creator::tests::a_palette_is_the_same_every_time ... ok
+test themes::lists::tests::reads_member_rows ... ok
+test themes::lists::tests::reads_rail_tiles_with_their_shape_defaults ... ok
+test themes::lists::tests::reads_the_server_header_rule ... ok
+test themes::media::tests::every_yapfast_sound_has_a_slot ... ok
+test themes::media::tests::reads_sounds_and_icons_by_their_closed_names ... ok
+test themes::lists::tests::refuses_rail_tiles_out_of_range ... ok
+test themes::motion::tests::a_cubic_bezier_eases_between_values ... ok
+test themes::motion::tests::curves_start_and_end_where_they_should ... ok
+test themes::motion::tests::colours_mix ... ok
+test themes::motion::tests::effects_end_on_the_text ... ok
+test themes::motion::tests::moves_through_its_values ... ok
+test themes::motion::tests::light_and_reduced_motion_keep_everything_still ... ok
+test themes::motion::tests::steps_jump ... ok
+test themes::motion::tests::three_values_take_two_spans ... ok
+test themes::options::tests::a_choice_uses_named_sets_and_sets_where_the_parent_is ... ok
+test themes::options::tests::a_dotted_key_is_found_as_written ... ok
+test themes::media::tests::decodes_a_wav_to_48_khz_stereo_no_louder_than_yapfasts_own ... ok
+test themes::options::tests::a_hue_keeps_lightness_and_applies_only_when_its_preset_is_chosen ... ok
+test themes::options::tests::a_slider_writes_its_number_into_a_listed_item_on_its_steps ... ok
+test themes::options::tests::a_field_neither_has_is_made_at_the_top_level ... ok
+test themes::options::tests::a_toggle_takes_an_overlay_away_by_its_kind ... ok
+test themes::options::tests::a_variant_path_changes_only_that_variant ... ok
+test themes::options::tests::bad_options_are_refused_naming_the_place ... ok
+test themes::options::tests::combinations_flip_one_option_at_a_time ... ok
+test themes::options::tests::taking_away_what_isnt_there_fails ... ok
+test themes::options::tests::yapfasts_own_options_change_no_field_and_arent_tried ... ok
+test themes::package::art::tests::a_name_under_the_pointer_decrypts ... ok
+test themes::layout::tests::the_template_reads_without_notes ... ok
+test themes::package::art::tests::events_and_text ... ok
+test themes::package::art::tests::moving_overlays_and_ambient_particles_are_heavy ... ok
+test themes::package::art::tests::particles_say_where_they_start_and_which_side_they_fly ... ok
+test themes::package::art::tests::surfaces_take_one_layer_or_a_list ... ok
+test themes::package::art::tests::the_account_panel_is_still_read_by_its_first_name ... ok
+test themes::package::art::tests::the_surfaces_settings_embeds_code_rows_and_over_a_card ... ok
+test themes::package::art::tests::urls_and_bad_values_are_refused ... ok
+test themes::package::tests::a_custom_theme_exports_as_a_package_that_reads_back ... ok
+test themes::package::tests::a_density_is_a_starting_point_for_named_spacing ... ok
+test themes::package::tests::a_part_for_a_contract_yapfast_offers_is_quiet ... ok
+test themes::package::tests::follows_the_app_when_it_ships_both_and_keeps_its_one_otherwise ... ok
+test themes::package::tests::files_stay_inside_the_folder_and_are_never_links ... ok
+test themes::package::tests::reads_a_theme_of_one_colour ... ok
+test themes::package::tests::a_variant_overrides_the_shared_layers ... ok
+test themes::check::tests::sounds_are_decoded_and_held_to_their_slots_length ... ok
+test themes::package::tests::reads_declared_animations_and_effects ... ok
+test themes::package::tests::reads_gradients_only_where_a_brush_goes ... ok
+test themes::package::tests::reads_header_and_title_sizes_and_the_newer_colours ... ok
+test themes::package::tests::refuses_another_api_and_a_bad_id ... ok
+test themes::package::tests::refuses_values_out_of_range_with_their_place ... ok
+test themes::package::tests::shapes_the_screens_beyond_the_conversation ... ok
+test themes::package::tests::unknown_names_are_noted_not_refused ... ok
+test themes::scaffold::tests::the_template_is_built_in_whole ... ok
+test themes::scaffold::tests::a_folder_with_files_is_left_alone ... ok
+test themes::scaffold::tests::a_theme_can_start_from_another_s_colours ... ok
+test themes::install::tests::an_exported_custom_theme_installs_with_its_colours_fonts_and_art ... ok
+test themes::scaffold::tests::light_takes_the_template_s_light_variant ... ok
+test themes::creator::tests::a_sunset_gives_a_warm_accent_and_a_dusky_ground ... ok
+test themes::media::tests::refuses_what_isnt_a_short_sound ... ok
+test themes::scaffold::tests::a_new_theme_is_the_template_with_its_names_and_one_variant ... ok
+test themes::creator::tests::text_reads_over_any_picture_with_or_without_glass ... ok
+test themes::creator::tests::a_nudged_ink_always_reads ... ok
+test themes::creator::tests::a_large_picture_is_scaled_to_fit_a_theme ... ok
+test themes::creator::tests::every_derived_theme_passes_the_contrast_checks ... ok
+
+test result: ok. 157 passed; 0 failed; 0 ignored; 0 measured; 803 filtered out; finished in 7.61s
+
+     Running tests/plugins_gate.rs (/home/p/Documents/yapfast-src/themes-final2-target/fast/deps/plugins_gate-e4361efe96781dfd)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 21 filtered out; finished in 0.00s
+
+     Running tests/plugins_install.rs (/home/p/Documents/yapfast-src/themes-final2-target/fast/deps/plugins_install-740a9cbe6244caee)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.00s
+
+     Running tests/plugins_manifest.rs (/home/p/Documents/yapfast-src/themes-final2-target/fast/deps/plugins_manifest-8b501036c97ae698)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.00s
+
+     Running tests/plugins_marketplace.rs (/home/p/Documents/yapfast-src/themes-final2-target/fast/deps/plugins_marketplace-56828567fd4caeef)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/plugins_runtime.rs (/home/p/Documents/yapfast-src/themes-final2-target/fast/deps/plugins_runtime-9b5e46931450eea4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.00s
+
+     Running tests/plugins_security.rs (/home/p/Documents/yapfast-src/themes-final2-target/fast/deps/plugins_security-fe9ab38de6f54bd2)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+

@@ -131,7 +131,12 @@ pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
     let weak = window.as_weak();
     // Straight to winit: Slint keeps whether the window is minimized from
     // winit, which on Wayland never says, so Slint's own may be stale.
-    window.on_minimize_window(move || winit(&weak, |winit| winit.set_minimized(true)));
+    window.on_minimize_window(move || {
+        if let Some(window) = weak.upgrade() {
+            super::theme_pace::minimized(&window);
+        }
+        winit(&weak, |winit| winit.set_minimized(true));
+    });
     let weak = window.as_weak();
     window.on_maximize_window(move || {
         if let Some(window) = weak.upgrade() {

@@ -1,0 +1,21 @@
+[build-slot] slot 1: env IN_NIX_SHELL=impure NASM=/home/p/.local/share/yapfast-build-tools/usr/bin/nasm CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=/home/p/Documents/yapfast-src/themes-final2-target nice -n 19 ionice -c3 cargo build --locked --profile fast --bin yapfast
+warning: webrtc-sys@0.3.35: cuda.h not found; building without hardware accelerated video codec support for NVidia GPUs
+warning: yapfast-ui@0.1.0: Exported component 'InstalledRow' doesn't inherit Window. No code will be generated for it
+warning: yapfast-ui@0.1.0:    --> /home/p/Documents/yapfast-src/themes-final2/ui/yapfast.slint:114:34
+warning: yapfast-ui@0.1.0:     |
+warning: yapfast-ui@0.1.0: 114 | export { PluginPage, PluginLine, InstalledRow, PluginControl, PluginFormRow, PluginLogRow, PluginDetail, ListingRow, PluginReview }...
+warning: yapfast-ui@0.1.0:     |                                  ^^^^^^^^^^^^
+warning: yapfast-ui@0.1.0:     |
+warning: yapfast-ui@0.1.0: Properties of type easing are not supported yet for public API. The property will not be exposed
+warning: yapfast-ui@0.1.0:    --> /home/p/Documents/yapfast-src/themes-final2/ui/theme.slint:347:19
+warning: yapfast-ui@0.1.0:     |
+warning: yapfast-ui@0.1.0: 347 |     out property <easing> curve-easing: self.curve == 0 ? linear : self.curve == 1 ? ease : self.curve == 2 ? ease-in
+warning: yapfast-ui@0.1.0:     |                   ^^^^^^
+warning: yapfast-ui@0.1.0: The layout stretches the 'width' of this element, so 'x' can move it past the edge, consider setting its 'width' too, or using the layout's 'padding' or 'cross-axis-alignment'
+warning: yapfast-ui@0.1.0:    --> /home/p/Documents/yapfast-src/themes-final2/ui/yapfast/settings-nav.slint:87:35
+warning: yapfast-ui@0.1.0:     |
+warning: yapfast-ui@0.1.0:  87 |                         Text { x: 8px; text: entry.text; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+warning: yapfast-ui@0.1.0:     |                                   ^^^^
+   Compiling yapfast-core v0.1.0 (/home/p/Documents/yapfast-src/themes-final2/crates/yapfast-core)
+   Compiling yapfast v0.3.0 (/home/p/Documents/yapfast-src/themes-final2)
+    Finished `fast` profile [optimized] target(s) in 3m 37s

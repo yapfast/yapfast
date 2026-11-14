@@ -11,6 +11,7 @@ import { DiscordLinkPanel } from "discord.slint";
 import { ChannelRow } from "rail.slint";
 import { Soundboard, SoundRow } from "voice.slint";
 import { Arrange, DashedOutline } from "theme_layout.slint";
+import { Creator, CreatorView } from "creator.slint";
 
 // Settings: a section's title, a group's heading, a switch with what it does, and
 // a row of exclusive choices with the current one raised.
@@ -163,6 +164,41 @@ export global ThemeOptions {
     callback reshow(string);
 }
 
+export component Choices inherits Rectangle {
+    in property <[string]> options;
+    in property <string> label;
+    in-out property <int> current;
+    /// `current` follows what Rust shows, and a click only reports the
+    /// choice: assigning it would drop the binding, and Reset or a live
+    /// update would no longer show.
+    in property <bool> controlled;
+    callback chosen(int);
+    height: 36px; max-width: 360px;
+    border-radius: Look.radius(8px); background: Theme.sunken;
+    accessible-role: groupbox;
+    accessible-label: root.label;
+    HorizontalLayout {
+        padding: 3px; spacing: 3px;
+        for option[index] in root.options: Rectangle {
+            border-radius: Look.radius(6px);
+            background: index == root.current ? Theme.active : choice.has-hover ? Theme.hover : transparent;
+            animate background { duration: Theme.quick; }
+            accessible-role: button;
+            accessible-label: index == root.current ? option + ", chosen" : option;
+            accessible-action-default => { if !root.controlled { root.current = index; } root.chosen(index); }
+            Text {
+                text: option; font-size: 14px;
+                color: index == root.current ? Theme.text : Theme.secondary;
+                font-weight: index == root.current ? 700 : 500;
+            }
+            choice := TouchArea {
+                mouse-cursor: MouseCursor.pointer;
+                clicked => { if !root.controlled { root.current = index; } root.chosen(index); }
+            }
+        }
+    }
+}
+
 // The installed theme's options, each changing it as soon as it's flipped.
 export component ThemeOptionList inherits VerticalLayout {
     spacing: 8px;
@@ -203,41 +239,6 @@ export component ThemeOptionList inherits VerticalLayout {
                 committed(value) => { ThemeOptions.slid(option.id, value); }
             }
             if option.description != "": Label { text: option.description; }
-        }
-    }
-}
-
-export component Choices inherits Rectangle {
-    in property <[string]> options;
-    in property <string> label;
-    in-out property <int> current;
-    /// `current` follows what Rust shows, and a click only reports the
-    /// choice: assigning it would drop the binding, and Reset or a live
-    /// update would no longer show.
-    in property <bool> controlled;
-    callback chosen(int);
-    height: 36px; max-width: 360px;
-    border-radius: Look.radius(8px); background: Theme.sunken;
-    accessible-role: groupbox;
-    accessible-label: root.label;
-    HorizontalLayout {
-        padding: 3px; spacing: 3px;
-        for option[index] in root.options: Rectangle {
-            border-radius: Look.radius(6px);
-            background: index == root.current ? Theme.active : choice.has-hover ? Theme.hover : transparent;
-            animate background { duration: Theme.quick; }
-            accessible-role: button;
-            accessible-label: index == root.current ? option + ", chosen" : option;
-            accessible-action-default => { if !root.controlled { root.current = index; } root.chosen(index); }
-            Text {
-                text: option; font-size: 14px;
-                color: index == root.current ? Theme.text : Theme.secondary;
-                font-weight: index == root.current ? 700 : 500;
-            }
-            choice := TouchArea {
-                mouse-cursor: MouseCursor.pointer;
-                clicked => { if !root.controlled { root.current = index; } root.chosen(index); }
-            }
         }
     }
 }
@@ -1183,7 +1184,16 @@ export component AppearanceSettings inherits VerticalLayout {
                 ActionButton { text: "Cancel"; clicked => { root.cancel-theme(); } }
             }
         }
-        if !root.editing-saved: VerticalLayout {
+        // Simple makes a theme from a few choices; Advanced shows every colour.
+        Choices {
+            options: ["Simple", "Advanced"]; label: "Editor"; controlled: true; max-width: 240px;
+            current: Creator.simple ? 0 : 1;
+            chosen(index) => {
+                if index == 1 { Creator.open-advanced(); } else { Creator.simple = true; }
+            }
+        }
+        if Creator.simple: CreatorView { }
+        if !Creator.simple && !root.editing-saved: VerticalLayout {
             spacing: 8px;
             SettingsHeading { text: "START FROM"; }
             ComboBox {
@@ -1191,11 +1201,11 @@ export component AppearanceSettings inherits VerticalLayout {
                 selected => { root.start-chosen(self.current-index); }
             }
         }
-        SettingsSwitch {
+        if !Creator.simple: SettingsSwitch {
             text: "Dark"; description: "Drop-down lists and scroll bars draw dark to match.";
             checked <=> root.theme-dark; toggled(dark) => { root.dark-toggled(dark); }
         }
-        VerticalLayout {
+        if !Creator.simple: VerticalLayout {
             spacing: 8px;
             SettingsHeading { text: "COLOURS"; }
             Label { text: "Each as #rgb, #rrggbb or #rrggbbaa. The window shows a change as you type it."; }
@@ -1219,9 +1229,9 @@ export component AppearanceSettings inherits VerticalLayout {
         }
         if root.editing-saved: HorizontalLayout {
             alignment: start; spacing: 8px;
-            // A theme package folder, ready to put in a GitHub repository
+            // A theme package folder (Simple has its own Export), ready to put in a GitHub repository
             // and share in Settings → Themes.
-            ActionButton {
+            if !Creator.simple: ActionButton {
                 text: "Export as a package"; small: true; icon: IconPack.download;
                 clicked => { root.export-theme(); }
             }

@@ -154,6 +154,9 @@ export global Art {
     in property <bool> chat-overlays;
     /// Seconds on the art clock, which runs only while something moves.
     in property <float> t;
+    /// `t` as a stepped picture needs it: set only when grain jumps or a
+    /// sprite sheet's frame turns, so a still tick redraws nothing of them.
+    in property <float> t-steps;
     /// The window's size, for glass panes to line their copy of its art up.
     in-out property <length> window-width;
     in-out property <length> window-height;
@@ -281,7 +284,9 @@ export global Art {
 export component ArtPicture inherits Rectangle {
     in property <ArtImage> layer;
     clip: true;
-    property <float> t: root.layer.moves ? Art.t : 0;
+    // Without drift a picture only steps (grain's jumps, a sheet's
+    // frames), so it reads the clock that changes only then.
+    property <float> t: !root.layer.moves ? 0 : root.layer.drift-x == 0 && root.layer.drift-y == 0 ? Art.t-steps : Art.t;
     property <length> tile-w: max(1px, root.layer.image.width * 1px / max(1, root.layer.columns));
     property <length> tile-h: max(1px, root.layer.image.height * 1px / max(1, Math.ceil(root.layer.frames / max(1, root.layer.columns))));
     // The slide so far, wrapped into one tile (or one surface) so it loops.

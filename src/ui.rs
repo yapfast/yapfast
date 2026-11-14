@@ -69,11 +69,13 @@ mod theme;
 mod theme_art;
 mod theme_chrome;
 mod theme_content;
+mod theme_creator;
 mod theme_cursor;
 pub mod theme_layout;
 pub mod theme_lists;
 pub mod theme_look;
 mod theme_media;
+mod theme_pace;
 pub mod theme_tools;
 mod theme_trim;
 mod tiles;
@@ -189,6 +191,7 @@ pub fn run(
     if let Some(placement) = &placement {
         placement::place(&window, placement);
     }
+    theme_pace::shown(None, !hidden);
     if !hidden && let Err(error) = window.show() {
         return failed(error, "could not show Yapfast");
     }
@@ -206,6 +209,7 @@ pub fn run(
     bind_callbacks(&window, &adapter);
     appearance::bind_themes(&window, &adapter);
     appearance::bind_export(&window, &adapter);
+    theme_creator::bind(&window, &adapter);
     if let Some(reason) = theme_look::take_failure() {
         adapter.borrow_mut().app.state.notice = Some(reason);
     }
@@ -393,6 +397,7 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                 .unwrap_or(false)
         };
         FOCUSED.set(focused);
+        theme_pace::focused(&window, focused);
         show_motion(&window);
         // The display's own scale factor, which the zoom multiplies.
         let base = Rc::new(Cell::new(window.window().scale_factor()));
@@ -504,6 +509,20 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                 {
                     adapter.used(&window);
                 }
+                // What shows of the window, for the theme's motion.
+                if let Some(window) = weak.upgrade() {
+                    match event {
+                        WindowEvent::Focused(focused) => theme_pace::focused(&window, *focused),
+                        WindowEvent::Occluded(occluded) => {
+                            theme_pace::occluded(&window, *occluded);
+                        }
+                        WindowEvent::CursorEntered { .. }
+                        | WindowEvent::CursorMoved { .. }
+                        | WindowEvent::MouseInput { .. }
+                        | WindowEvent::KeyboardInput { .. } => theme_pace::seen_again(&window),
+                        _ => {}
+                    }
+                }
                 if let WindowEvent::Focused(focused) = event {
                     FOCUSED.set(*focused);
                     if let Some(window) = weak.upgrade() {
@@ -542,6 +561,10 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                                 (adapter.upgrade(), weak.upgrade())
                             {
                                 window.set_window_maximized(window.window().is_maximized());
+                                theme_pace::platform_minimized(
+                                    &window,
+                                    window.window().is_minimized(),
+                                );
                                 placement::moved(&mut adapter.borrow_mut(), &window);
                             }
                         });
@@ -1018,8 +1041,32 @@ fn control(path: PathBuf, shell: Rc<shell::Shell>) -> slint::Timer {
                 let window = shell.window();
                 let adapter = &shell.adapter;
                 let result = match command {
-                    "hide" => window.map_or(Ok(()), |window| window.hide()),
-                    "show" => window.map_or(Ok(()), |window| window.show()),
+                    "hide" => window.map_or(Ok(()), |window| {
+                        theme_pace::shown(Some(&window), false);
+                        window.hide()
+                    }),
+                    "show" => window.map_or(Ok(()), |window| {
+                        let shown = window.show();
+                        theme_pace::shown(Some(&window), true);
+                        shown
+                    }),
+                    // As the title bar's minimise button.
+                    "minimize" => {
+                        if let Some(window) = &window {
+                            window.invoke_minimize_window();
+                        }
+                        Ok(())
+                    }
+                    // As the focus going to another window and coming back,
+                    // for what follows it (the theme's motion, notifications).
+                    "focus" | "unfocus" => {
+                        let focused = command == "focus";
+                        FOCUSED.set(focused);
+                        if let Some(window) = &window {
+                            theme_pace::focused(window, focused);
+                        }
+                        Ok(())
+                    }
                     // Drops the window without giving the memory back, which
                     // `trim` then does.
                     "destroy" => {
@@ -1656,6 +1703,11 @@ impl Layout {
         page.set_reduce_motion(self.reduce_motion);
         // An installed theme, or `--theme-dev`'s folder, over its base; the
         // default when this run asked for it or the theme can't be shown.
+        // Themes made with the creator show from their own packages.
+        if let Some(root) = theme_look::data_root() {
+            theme_creator::ensure_folders(&root, &self.custom_themes);
+            theme_creator::register(&root, &self.custom_themes);
+        }
         let built_in = self
             .theme
             .as_deref()

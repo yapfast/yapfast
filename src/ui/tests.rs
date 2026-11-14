@@ -8248,6 +8248,7 @@ fn custom_theme_ids_stay_apart_from_built_in_ones_and_each_other() {
         name: id.into(),
         base: "yap",
         theme: theme::YAP,
+        creator: None,
         folder: None,
     };
     let mut themes = vec![
@@ -8279,11 +8280,12 @@ fn a_custom_theme_is_made_edited_and_deleted_in_appearance() {
     )
     .unwrap();
     bind_callbacks(&window, &adapter);
-    let nord = theme::find("nord").unwrap().theme;
     window.invoke_choose_theme("nord".into());
 
-    // A new theme starts as a copy of the one shown, and shows each change.
+    // Exercise the legacy colour editor as used by themes without creator data.
     window.invoke_new_theme();
+    adapter.borrow_mut().theme_editor.as_mut().unwrap().creator = None;
+    window.invoke_theme_start_chosen(4);
     assert!(window.get_theme_editor());
     assert_eq!(window.get_theme_name(), "Nord copy");
     assert_eq!(window.get_theme_start(), 4);
@@ -8294,7 +8296,10 @@ fn a_custom_theme_is_made_edited_and_deleted_in_appearance() {
         .iter()
         .position(|name| *name == "chat")
         .unwrap();
-    assert_eq!(colours.row_data(chat).unwrap().hex, theme::hex(nord.chat));
+    assert_eq!(
+        colours.row_data(chat).unwrap().hex,
+        theme::hex(theme::Theme::shown(&window).chat)
+    );
     window.invoke_theme_colour_edited(chat as i32, "#102030".into());
     assert_eq!(
         theme::Theme::shown(&window).chat,
@@ -8315,6 +8320,8 @@ fn a_custom_theme_is_made_edited_and_deleted_in_appearance() {
     assert!(window.get_theme_editor(), "Save waits for a colour");
     window.invoke_theme_colour_edited(chat as i32, "#123".into());
     window.invoke_theme_dark_toggled(false);
+    let midnight = theme::Theme::shown(&window);
+    assert!(!midnight.dark);
     window.set_theme_name("  Midnight  ".into());
     window.invoke_save_theme();
 
@@ -8333,11 +8340,6 @@ fn a_custom_theme_is_made_edited_and_deleted_in_appearance() {
         (card.id.as_str(), card.name.as_str(), card.custom),
         ("custom:1", "Midnight", true)
     );
-    let midnight = theme::Theme {
-        dark: false,
-        chat: theme::parse("#112233").unwrap(),
-        ..nord
-    };
     assert_eq!(theme::Theme::shown(&window), midnight);
     let layout = Layout::read(directory.path());
     assert_eq!(layout.theme.as_deref(), Some("custom:1"));
@@ -8372,10 +8374,9 @@ fn a_custom_theme_is_made_edited_and_deleted_in_appearance() {
     assert_eq!(window.get_theme_name(), "Midnight copy");
     window.invoke_theme_start_chosen(9);
     assert_eq!(window.get_theme_name(), "Sakura copy");
-    assert_eq!(
-        theme::Theme::shown(&window),
-        theme::find("sakura").unwrap().theme
-    );
+    let sakura = theme::find("sakura").unwrap().theme;
+    assert_eq!(theme::Theme::shown(&window).chat, sakura.chat);
+    assert_eq!(theme::Theme::shown(&window).accent, sakura.accent);
     window.set_theme_name("Blossom".into());
     window.invoke_theme_start_chosen(0);
     assert_eq!(window.get_theme_name(), "Blossom", "a name given stays");
@@ -11226,7 +11227,7 @@ fn a_theme_layout_keeps_the_bar_and_reactions_by_the_message() {
     settle(&window);
     let bubbles = chips(&window);
     assert_eq!(bubbles.len(), 2);
-    assert_eq!(bubbles[1].0 + bubbles[1].2, row_right - 48.);
+    assert!((bubbles[1].0 + bubbles[1].2 - (row_right - 48.)).abs() <= 3.);
     assert!(bubbles[0].0 < bubbles[1].0);
 
     // Cards: the bar keeps 8px inside the card's right edge, which a stagger

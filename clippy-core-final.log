@@ -1,0 +1,4 @@
+[build-slot] slot 1: env IN_NIX_SHELL=impure NASM=/home/p/.local/share/yapfast-build-tools/usr/bin/nasm CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=/home/p/Documents/yapfast-src/themes-final2-target cargo clippy --locked --profile fast -p yapfast-core --features plugins --all-targets -- -D warnings
+warning: webrtc-sys@0.3.35: cuda.h not found; building without hardware accelerated video codec support for NVidia GPUs
+    Checking yapfast-core v0.1.0 (/home/p/Documents/yapfast-src/themes-final2/crates/yapfast-core)
+    Finished `fast` profile [optimized] target(s) in 32.75s

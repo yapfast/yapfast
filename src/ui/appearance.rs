@@ -54,12 +54,12 @@ impl Adapter {
     pub(super) fn choose_theme(&mut self, window: &YapfastWindow, id: &str) -> bool {
         // An installed theme is made ready on another thread, the window
         // keeping the theme it shows until then, and comes back here.
-        if id.starts_with(theme_look::INSTALLED) && !theme_look::is_ready(id) {
+        if theme_look::is_package(id) && !theme_look::is_ready(id) {
             let again = SharedString::from(id);
             theme_look::prepare(window, id, move |window| window.invoke_choose_theme(again));
             return true;
         }
-        let shown = if id.starts_with(theme_look::INSTALLED) {
+        let shown = if theme_look::is_package(id) {
             match theme_look::show(window, id) {
                 Ok(colours) => Some((id.to_owned(), colours)),
                 Err(reason) => {
@@ -75,7 +75,7 @@ impl Adapter {
         let Some((id, chosen)) = shown else {
             return false;
         };
-        if !id.starts_with(theme_look::INSTALLED) {
+        if !theme_look::is_package(&id) {
             // An installed theme still being made ready would land over it.
             theme_look::cancel_prepare();
             theme_look::clear(window);
@@ -110,7 +110,14 @@ impl Adapter {
         window
             .global::<yapfast_ui::ThemesPage>()
             .set_previous_name(name.unwrap_or_default().into());
-        window.set_theme_installed_name(theme_look::applied_name().unwrap_or_default().into());
+        let installed = theme_look::applied_id()
+            .is_some_and(|id| id.starts_with(theme_look::INSTALLED) || id == "dev");
+        window.set_theme_installed_name(
+            theme_look::applied_name()
+                .filter(|_| installed)
+                .unwrap_or_default()
+                .into(),
+        );
     }
 
     /// Ctrl+Shift+T: the default theme until Yapfast starts again; the
@@ -134,12 +141,12 @@ impl Adapter {
 
     /// Shows what a theme on trial or `--theme-dev` came back to: a theme
     /// by its id, without choosing it.
-    fn show_theme(&mut self, window: &YapfastWindow, id: Option<&str>) {
+    pub(super) fn show_theme(&mut self, window: &YapfastWindow, id: Option<&str>) {
         let default = window
             .global::<ClientStyle>()
             .get_enabled()
             .then_some("bonfire");
-        if let Some(id) = id.filter(|id| id.starts_with(theme_look::INSTALLED))
+        if let Some(id) = id.filter(|id| theme_look::is_package(id))
             && let Ok(colours) = theme_look::show(window, id)
         {
             window.set_theme_id(id.into());
@@ -149,8 +156,11 @@ impl Adapter {
         }
         theme_look::clear(window);
         let (id, chosen) = theme::chosen(
-            id.filter(|id| !id.starts_with(theme_look::INSTALLED))
-                .or(default),
+            id.filter(|id| {
+                !theme_look::is_package(id)
+                    || theme::lookup(id, &self.layout.custom_themes).is_some()
+            })
+            .or(default),
             &self.layout.custom_themes,
         );
         window.set_theme_id(id.into());
@@ -429,10 +439,29 @@ impl Adapter {
             .unwrap_or(0);
         let names: Vec<SharedString> = starts.iter().map(|start| start.name.into()).collect();
         let (base, start) = (starts[index].base, starts[index].theme);
+        let start_id = starts[index].id.to_owned();
         window.set_theme_name(copy_name(starts[index].name).into());
         window.set_theme_starts(ModelRc::new(VecModel::from(names)));
         window.set_theme_start(index as i32);
         self.open_theme_editor(window, theme::Editor::new(None, base, start));
+        // Simple first, from the theme shown, or all of it if the creator
+        // made it.
+        let made = self
+            .layout
+            .custom_themes
+            .iter()
+            .find(|custom| custom.id == start_id)
+            .and_then(|custom| custom.creator.clone());
+        match made {
+            Some(spec) => {
+                let from = theme_look::creator_folder(&self.root, &start_id);
+                self.open_creator(window, spec, Some(from), false);
+            }
+            None => self.open_creator(window, theme_creator::spec_from(&start), None, true),
+        }
+        window
+            .global::<yapfast_ui::Creator>()
+            .set_start(index as i32);
     }
 
     /// Opens the editor on one of the person's own themes.
@@ -447,7 +476,14 @@ impl Adapter {
         };
         window.set_theme_name(custom.name.as_str().into());
         let editor = theme::Editor::new(Some(custom.id.clone()), custom.base, custom.theme);
+        let made = custom.creator.clone();
+        let from = theme_look::creator_folder(&self.root, id);
         self.open_theme_editor(window, editor);
+        match made {
+            // Made with the creator: Simple, as it was left.
+            Some(spec) => self.open_creator(window, spec, Some(from), false),
+            None => window.global::<yapfast_ui::Creator>().set_simple(false),
+        }
     }
 
     fn open_theme_editor(&mut self, window: &YapfastWindow, editor: theme::Editor) {
@@ -480,10 +516,18 @@ impl Adapter {
             window.set_theme_name(name.into());
         }
         editor.restart(base, theme);
+        if let Some(spec) = editor.creator.as_mut() {
+            *spec = theme_creator::Spec {
+                fonts: std::mem::take(&mut spec.fonts),
+                picture: spec.picture.take(),
+                ..theme_creator::spec_from(&theme)
+            };
+        }
         window.set_theme_start(index);
         window.set_theme_dark(theme.dark);
         window.set_theme_can_save(true);
         self.set_theme(window, &theme);
+        self.creator_recoloured(window);
     }
 
     /// A colour's field changed: the window shows it at once if it's a
@@ -497,6 +541,7 @@ impl Adapter {
         if changed {
             let theme = editor.theme;
             self.set_theme(window, &theme);
+            self.creator_recoloured(window);
         }
     }
 
@@ -506,6 +551,18 @@ impl Adapter {
         };
         editor.theme.dark = dark;
         let theme = editor.theme;
+        // Dark or light anew: the creator derives every colour for it.
+        let made = editor.creator.as_mut().map(|spec| {
+            spec.background = if dark {
+                theme_creator::Background::Dark
+            } else {
+                theme_creator::Background::Light
+            };
+        });
+        if made.is_some() {
+            self.creator_changed(window, true);
+            return;
+        }
         self.set_theme(window, &theme);
     }
 
@@ -518,30 +575,48 @@ impl Adapter {
             "" => "My theme".to_owned(),
             name => name.to_owned(),
         };
-        let custom = &mut self.layout.custom_themes;
-        let saved = editor
+        let id = editor
             .editing
-            .as_ref()
-            .and_then(|id| custom.iter_mut().find(|custom| custom.id == *id));
-        let id = match saved {
+            .clone()
+            .unwrap_or_else(|| theme::new_id(&self.layout.custom_themes));
+        // The creator's theme keeps its package in a folder of its own.
+        let kept = match &editor.creator {
+            Some(spec) => self.creator_save(&id, &name, spec, &editor.theme),
+            None => true,
+        };
+        if !kept {
+            self.theme_editor = Some(editor);
+            self.refresh(window);
+            return;
+        }
+        let custom = &mut self.layout.custom_themes;
+        match custom.iter_mut().find(|custom| custom.id == id) {
             Some(saved) => {
                 saved.name = name;
                 saved.theme = editor.theme;
-                saved.id.clone()
+                saved.base = editor.base;
+                if editor.creator.is_some() {
+                    saved.folder = Some(theme_creator::creator_relative(&id));
+                }
+                saved.creator = editor.creator;
             }
-            None => {
-                let id = theme::new_id(custom);
-                custom.push(theme::Custom {
-                    id: id.clone(),
-                    name,
-                    base: editor.base,
-                    theme: editor.theme,
-                    folder: None,
-                });
-                id
-            }
-        };
+            None => custom.push(theme::Custom {
+                id: id.clone(),
+                name,
+                base: editor.base,
+                theme: editor.theme,
+                folder: editor
+                    .creator
+                    .is_some()
+                    .then(|| theme_creator::creator_relative(&id)),
+                creator: editor.creator,
+            }),
+        }
+        theme_creator::register(&self.root, &self.layout.custom_themes);
+        // The saved theme shows from its own folder, made ready again.
+        theme_look::cancel_prepare();
         close_theme_editor(window);
+        self.creator_closed(window);
         window.set_themes(theme::cards(&self.layout.custom_themes));
         self.choose_theme(window, &id);
     }
@@ -550,9 +625,8 @@ impl Adapter {
     pub(super) fn cancel_theme(&mut self, window: &YapfastWindow) {
         if self.theme_editor.take().is_some() {
             close_theme_editor(window);
-            let (_, before) =
-                theme::chosen(self.layout.theme.as_deref(), &self.layout.custom_themes);
-            self.set_theme(window, &before);
+            self.creator_closed(window);
+            self.show_chosen(window);
         }
     }
 
@@ -562,8 +636,11 @@ impl Adapter {
             return;
         };
         close_theme_editor(window);
+        self.creator_closed(window);
         if let Some(id) = editor.editing {
             self.layout.custom_themes.retain(|custom| custom.id != id);
+            let _ = std::fs::remove_dir_all(theme_look::creator_folder(&self.root, &id));
+            theme_creator::register(&self.root, &self.layout.custom_themes);
         }
         window.set_themes(theme::cards(&self.layout.custom_themes));
         let (id, _) = theme::chosen(self.layout.theme.as_deref(), &self.layout.custom_themes);

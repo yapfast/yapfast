@@ -110,6 +110,7 @@ impl Shell {
             Ok(()) => self.confirm_gpu(&window),
             Err(error) => self.fail_on_gpu(error.to_string()),
         }
+        super::theme_pace::shown(Some(&window), true);
     }
 
     /// As for the first window shown at start: Slint can go on with no window
@@ -203,6 +204,8 @@ impl Shell {
         placement::moved(&mut adapter, &window);
         adapter.detach();
         drop(adapter);
+        // Nothing of the theme moves until a window shows again.
+        super::theme_pace::shown(Some(&window), false);
         // A shown window keeps itself alive; hide it, then drop the last handle.
         let weak = window.as_weak();
         if let Err(error) = window.hide() {
@@ -218,6 +221,7 @@ impl Shell {
         if let Some(window) = self.window() {
             let _ = window.show();
             window.window().set_minimized(false);
+            super::theme_pace::shown(Some(&window), true);
             window.window().with_winit_window(|winit| {
                 winit.focus_window();
                 #[cfg(target_os = "linux")]
@@ -283,6 +287,7 @@ impl Shell {
         }
         drop(adapter);
         window.show()?;
+        super::theme_pace::shown(Some(&window), true);
         self.confirm_gpu(&window);
         prepare(&window);
         window.set_graphics_notice(self.notice.clone());

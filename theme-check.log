@@ -1,0 +1,58 @@
+=== bubblegum ===
+Bubblegum 3.3.0 (io.github.yapfast-themes.bubblegum), light
+warning: idle cost: foil sweeping over cards costs about 0.28 of a core while nobody touches the window — foil sweeps by itself every frame while a card shows: a longer period doesn't help, leave it out or keep it to the pointer
+warning: idle cost: the mention scale animation, period 3200 ms costs about 0.20 of a core while nobody touches the window — it changes 60 times a second: use steps, or a longer period
+warning: idle cost: the accent colour animation, period 6000 ms costs about 0.20 of a core while nobody touches the window — an accent colour animation redraws the whole window 12 times a second: fewer steps, a longer period, or a smaller change
+note: display type for reading text: labels in pixel (fonts/Silkscreen-Regular.ttf), code in pixel (fonts/DepartureMono.otf). Some people find it hard to read; Settings → Appearance → Readable text keeps the theme and draws messages, names and labels in Yapfast's own font, without text effects
+cost: ~21.2 MB memory · 4 fonts · 9 animations (2 heavy) · 12 art layers · 2 overlays · 4 particle sets · up to 60 redraws a second · ~0.69 core idle (0.25 in Balanced) · 5 text effects · 21 sounds · 127 icons · 26 cursors · layout: bubbles, rail right, 0px outlines, 1 cut outline, member tiles (3 across) · rail tiles: card 44×52, label inside, 3 frames, hover lift 3, selected offset 6,0 · channel rows: 30 px, labels face, headings "WORLD {n} · {name}", dotted header rule · member rows: 92 px, status glyph, online badges, headings "{role} · {n}" · content (if allowed): tint pictures, rounded avatars, avatar rings, clamp name colours, theme name styles, nameplates hide, theme profile cards, no profile effects, theme embeds, theme activity · chrome: 1 labels
+passed
+exit: 0
+=== daydream ===
+Daydream 2.1.0 (io.github.yapfast-themes.daydream), light
+warning: idle cost: a drifting picture on window costs about 0.95 of a core while nobody touches the window — a moving picture redraws the whole window as it moves: give it a size, fewer frames a second, or mark it heavy so Balanced holds it
+warning: idle cost: a flare 760 px across costs about 0.65 of a core while nobody touches the window — a pulsing flare redraws its square every frame: make it smaller, or still (period 0), or mark it heavy so Balanced holds it
+warning: idle cost: the rail.icon y animation, period 4200 ms costs about 0.60 of a core while nobody touches the window — it changes 60 times a second: use steps, or a longer period
+warning: idle cost: foil sweeping over cards costs about 0.28 of a core while nobody touches the window — foil sweeps by itself every frame while a card shows: a longer period doesn't help, leave it out or keep it to the pointer
+warning: idle cost: the home y animation, period 4200 ms costs about 0.20 of a core while nobody touches the window — it changes 60 times a second: use steps, or a longer period
+warning: idle cost: the unread opacity animation, period 2600 ms costs about 0.20 of a core while nobody touches the window — it changes 60 times a second: use steps, or a longer period
+warning: idle cost: the typing y animation, period 1400 ms costs about 0.20 of a core while nobody touches the window — it changes 60 times a second: use steps, or a longer period
+warning: idle cost: the own.avatar y animation, period 5200 ms costs about 0.20 of a core while nobody touches the window — it changes 60 times a second: use steps, or a longer period
+cost: ~19.1 MB memory · 2 fonts · 11 animations (2 heavy) · 18 art layers · 1 overlay · 3 particle sets · up to 60 redraws a second · ~4.23 cores idle (1.79 in Balanced), more than the window can draw · 2 text effects · 21 sounds · 64 icons · 26 cursors · layout: bubbles · rail tiles: circle 48×48, label none, hover magnify 1.16, reflection · channel rows: 32 px, body face, 1 frame · member rows: 46 px, 34 px avatar, 1 frame · content (if allowed): tint pictures, circle avatars, avatar rings, clamp name colours, nameplates hide, theme profile cards, no profile effects, theme embeds, theme activity
+passed
+exit: 0
+=== eyeliner ===
+Eyeliner 1.0.0 (io.github.yapfast-themes.eyeliner), dark
+warning: idle cost: the rail.icon y animation, period 3600 ms costs about 0.60 of a core while nobody touches the window — it changes 60 times a second: use steps, or a longer period
+warning: idle cost: the own.avatar rotation animation, period 2600 ms costs about 0.24 of a core while nobody touches the window — it changes 60 times a second: use steps, or a longer period
+warning: idle cost: the home y animation, period 2200 ms costs about 0.20 of a core while nobody touches the window — it changes 60 times a second: use steps, or a longer period
+warning: idle cost: the mention scale animation, period 1600 ms costs about 0.20 of a core while nobody touches the window — it changes 60 times a second: use steps, or a longer period
+cost: ~10.5 MB memory · 3 fonts · 8 animations (1 heavy) · 15 art layers · 1 overlay · 4 particle sets · up to 60 redraws a second · ~1.36 cores idle (0.68 in Balanced), more than the window can draw · 5 text effects · 23 sounds · 135 icons · 10 cursors · layout: cards, 1px outlines, 3 cut outlines, card shadows, 1 picture on each card, member tiles (2 across), label bars, striped rows · rail tiles: card 52×52, label none, 1 frame, hover tilt 3 · channel rows: 30 px, body face · member rows: 104 px, status glyph · content (if allowed): rounded avatars, avatar rings, theme name colours, theme name styles, nameplates hide, theme profile cards, no profile effects, theme embeds, theme activity · chrome: 1 labels
+passed
+exit: 0
+=== hurt ===
+Hurt 3.0.0 (io.github.yapfast-themes.hurt), dark
+warning: idle cost: a flare 900 px across costs about 0.82 of a core while nobody touches the window — a pulsing flare redraws its square every frame: make it smaller, or still (period 0), or mark it heavy so Balanced holds it
+warning: idle cost: 14 ambient dust (9 alive at once) costs about 0.41 of a core while nobody touches the window — 9 particles alive move every frame: fewer (count, rate × life), or mark them heavy
+warning: idle cost: the window tint animation, period 9000 ms costs about 0.28 of a core while nobody touches the window — a window tint redraws the whole window 3 times a second: fewer steps, a longer period, or a smaller change
+warning: idle cost: the home rotation animation, period 7200 ms costs about 0.24 of a core while nobody touches the window — it changes 60 times a second: use steps, or a longer period
+warning: idle cost: the unread opacity animation, period 2400 ms costs about 0.20 of a core while nobody touches the window — it changes 60 times a second: use steps, or a longer period
+warning: idle cost: the mention scale animation, period 2400 ms costs about 0.20 of a core while nobody touches the window — it changes 60 times a second: use steps, or a longer period
+warning: idle cost: the own.avatar scale animation, period 9000 ms costs about 0.20 of a core while nobody touches the window — it changes 60 times a second: use steps, or a longer period
+note: display type for reading text: names in blackletter (fonts/HurtFraktur-Bold.ttf). Some people find it hard to read; Settings → Appearance → Readable text keeps the theme and draws messages, names and labels in Yapfast's own font, without text effects
+cost: ~16.9 MB memory · 3 fonts · 12 animations (5 heavy) · 6 art layers · 3 overlays · 1 particle set · up to 60 redraws a second · ~2.44 cores idle (0.42 in Balanced), more than the window can draw · 5 text effects · 19 sounds · 136 icons · 26 cursors · layout: rail hidden · rail: hidden, the top bar switches servers · channel rows: 40 px, names face, selected underline, voice "voice · {n}", headings "// {name}" · member rows: 38 px, no avatar, meta words, status text, headings "// {role}" · content (if allowed): duotone pictures, square avatars, avatar rings, clamp name colours, theme name styles, nameplates hide, theme profile cards, no profile effects, theme embeds, theme activity · chrome: 3 labels, block caret, top bar (6 workspaces)
+passed
+exit: 0
+=== phosphor ===
+Phosphor 3.0.0 (io.github.yapfast-themes.phosphor), dark
+cost: ~2.3 MB memory · 3 fonts · 8 animations (3 heavy) · 4 art layers · 3 overlays · up to 60 redraws a second · 5 text effects · 21 sounds · 136 icons · 26 cursors · layout: irc, rail tree, no chat avatars, irc rule, 1px outlines, 10 cut outlines · content (if allowed): dither pictures, square avatars, no decorations, palette name colours, theme name styles, nameplates hide, theme profile cards, no profile effects, theme embeds, theme activity · chrome: 15 labels, 4 marks, no member-avatars, no header-buttons, no account-avatar, no activity-cards, no reaction-chips, text rail, block caret, prompt, status column, folders, trees (channels, members, dms, rail, replies), marks by role, notice marks, status line, box frames (chat, sidebar, members), row counts
+passed
+exit: 0
+=== zine ===
+Zine 3.0.0 (io.github.yapfast-themes.zine), light
+warning: idle cost: the mention rotation animation, period 4200 ms costs about 0.24 of a core while nobody touches the window — it changes 60 times a second: use steps, or a longer period
+warning: idle cost: the mention scale animation, period 4200 ms costs about 0.20 of a core while nobody touches the window — it changes 60 times a second: use steps, or a longer period
+warning: idle cost: the unread scale animation, period 3600 ms costs about 0.20 of a core while nobody touches the window — it changes 60 times a second: use steps, or a longer period
+note: display type for reading text: names cut as ransom letters. Some people find it hard to read; Settings → Appearance → Readable text keeps the theme and draws messages, names and labels in Yapfast's own font, without text effects
+cost: ~19.7 MB memory · 11 fonts · 13 animations (2 heavy) · 17 art layers · 2 overlays · 4 particle sets · up to 60 redraws a second · ~0.74 core idle (0.34 in Balanced) · 5 text effects · 23 sounds · 135 icons · 26 cursors · layout: cards, chat at most 820px, 2px outlines, 5 cut outlines, card shadows, 2 pictures on each card, ransom names (8 fonts) · rail tiles: card 50×58, label none, 3 frames, hover lift 3 · channel rows: 30 px, code face, 3 frames, fitted to the name, tilt ±1.5°, dashed header rule · member rows: 56 px, 40 px avatar, headings "{role} — {n}" · content (if allowed): duotone pictures, square avatars, avatar rings, clamp name colours, theme name styles, nameplates hide, theme profile cards, no profile effects, theme embeds, theme activity · chrome: 1 labels
+passed
+exit: 0

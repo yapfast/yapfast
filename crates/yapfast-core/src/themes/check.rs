@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 pub mod art;
+pub mod budget;
 
 use super::layout::BUBBLE_PADDING;
 use super::package::{Mode, Package, Paint, READABLE, Resolved, TEXT_ON, follows};
@@ -236,6 +237,11 @@ pub struct Cost {
     /// What its layout changes, as a short phrase such as `layout: irc, rail
     /// top`; it costs no more than the stock window.
     pub looks: Vec<String>,
+    /// About how much of a processor core its always-on motion keeps busy
+    /// while nobody touches the window, in Full and in Balanced, at most in
+    /// one variant: see [`budget`].
+    pub idle: f32,
+    pub idle_balanced: f32,
 }
 
 impl Cost {
@@ -279,6 +285,19 @@ impl Cost {
         }
         if self.redraws > 0 {
             parts.push(format!("up to {} redraws a second", self.redraws));
+        }
+        if self.idle >= 0.01 {
+            parts.push(format!(
+                "~{:.2} {} idle ({:.2} in Balanced){}",
+                self.idle,
+                if self.idle < 1.005 { "core" } else { "cores" },
+                self.idle_balanced,
+                if self.idle > 1.0 {
+                    ", more than the window can draw"
+                } else {
+                    ""
+                }
+            ));
         }
         if self.effects > 0 {
             parts.push(format!(
@@ -390,6 +409,9 @@ impl Cost {
                 cost.redraws = cost.redraws.max(60);
             }
             cost.cursors = cost.cursors.max(variant.cursors.len());
+            let (idle, balanced) = budget::idle(&budget::pieces(variant));
+            cost.idle = cost.idle.max(idle);
+            cost.idle_balanced = cost.idle_balanced.max(balanced);
             cost.layers = cost.layers.max(art.surfaces.values().map(Vec::len).sum());
             cost.overlays = cost.overlays.max(art.overlays.len());
             cost.particles = cost.particles.max(art.particles.len());
@@ -454,6 +476,14 @@ pub fn check(files: &Files, strictness: Strictness) -> Report {
                     }
                 }
                 report.warnings.extend(crowded(&variant));
+                for sentence in budget::warnings(&budget::pieces(&variant))
+                    .into_iter()
+                    .chain(budget::trail_warnings(&variant.animated_cursors))
+                {
+                    if !report.warnings.contains(&sentence) {
+                        report.warnings.push(sentence);
+                    }
+                }
                 for sentence in unreadable_layout(&variant) {
                     if !report.errors.contains(&sentence) {
                         report.errors.push(sentence);
@@ -1557,10 +1587,10 @@ mod tests {
     use super::*;
 
     fn bases(base: &str, token: &str) -> Option<u32> {
-        if base != "yap" && base != "sakura" {
+        if base != "yap" && base != "sakura" && base != "catppuccin-latte" {
             return None;
         }
-        let light = base == "sakura";
+        let light = base != "yap";
         Some(match (token, light) {
             ("text", false) => 0xffee_f0f4,
             ("secondary", false) => 0xffb5_b8c1,
@@ -2416,6 +2446,249 @@ mod tests {
             report.errors.iter().any(|error| error.contains("WAV")),
             "{:?}",
             report.errors
+        );
+    }
+
+    /// Plum with Hurt's always-on motion, which Yapfast measured (see
+    /// `budget`), and `extra` fields beside it.
+    fn hurt_motion(grain: u32, extra: &str) -> String {
+        PLUM.replace(
+            r#""variants""#,
+            &format!(
+                r##""art": {{
+                    "overlays": [
+                        {{ "kind": "flare", "on": "chat", "at": [0.72, 0.78], "size": 900, "colour": "#9E263B", "opacity": 0.1, "period": 9000 }},
+                        {{ "kind": "vignette", "colour": "#000000", "opacity": 0.38 }},
+                        {{ "kind": "grain", "period": {grain}, "opacity": 0.085 }}
+                    ],
+                    "particles": [ {{ "preset": "dust", "on": "ambient", "colours": ["#D8D5D622"], "count": 14, "rate": 1, "size": 2, "life": 9000 }} ]
+                }},
+                "animations": [
+                    {{ "slot": "window", "property": "tint", "values": ["#9E263B00", "#9E263B0C", "#9E263B00"], "period": 9000, "easing": "ease-in-out", "heavy": true }},
+                    {{ "slot": "home", "property": "rotation", "values": [0, 360], "period": 7200, "easing": "linear" }},
+                    {{ "slot": "unread", "property": "opacity", "values": [1, 0.55, 1], "period": 2400 }},
+                    {{ "slot": "mention", "property": "scale", "values": [1, 1.1, 1, 1, 1], "period": 2400 }},
+                    {{ "slot": "typing", "property": "opacity", "values": [1, 0.25], "period": 800, "steps": 2 }},
+                    {{ "slot": "channel.name", "property": "x", "values": [0, 0, 0, 3, -2, 0], "period": 5120, "steps": 6, "repeat": "once" }}
+                ]{extra}, "variants""##
+            ),
+        )
+    }
+
+    #[test]
+    fn the_idle_estimate_matches_what_was_measured() {
+        let package = Package::parse(&hurt_motion(180, "")).unwrap();
+        let variant = package.resolve(Mode::Dark).unwrap();
+        let pieces = budget::pieces(&variant);
+        let cost = |what: &str| {
+            pieces
+                .iter()
+                .find(|piece| piece.what.contains(what))
+                .map(|piece| piece.cores)
+                .unwrap_or_else(|| panic!("no {what} in {pieces:?}"))
+        };
+        let near = |what: &str, measured: f32| {
+            let estimate = cost(what);
+            assert!(
+                (estimate - measured).abs() <= 0.06,
+                "{what}: {estimate} against {measured} measured"
+            );
+        };
+        // Grain redraws the window when it jumps, about 5 times a second at 180 ms.
+        near("grain", 0.09);
+        let fast = Package::parse(&hurt_motion(100, "")).unwrap();
+        let fast = budget::pieces(&fast.resolve(Mode::Dark).unwrap());
+        let grain = fast
+            .iter()
+            .find(|piece| piece.what.contains("grain"))
+            .unwrap();
+        assert!((grain.cores - 0.16).abs() <= 0.02, "{grain:?}");
+        near("flare", 0.86);
+        near("dust", 0.41);
+        near("window tint", 0.28);
+        near("home rotation", 0.24);
+        // Alone, a pulse costs what a frame does: a spinning record alone
+        // measured 0.20.
+        near("unread", 0.2);
+        // A blinking caret changes about once a second: next to nothing.
+        assert!(cost("typing") < 0.01);
+        // One pass and it rests: not always on.
+        assert!(
+            !pieces
+                .iter()
+                .any(|piece| piece.what.contains("channel.name"))
+        );
+        assert_eq!(pieces[0].what, "a flare 900 px across");
+    }
+
+    #[test]
+    fn expensive_idle_motion_warns_with_a_fix_and_shows_in_the_cost() {
+        let report = check(&files(&hurt_motion(100, "")), Strictness::Install);
+        assert!(report.passed(), "{:?}", report.errors);
+        let grain = report
+            .warnings
+            .iter()
+            .find(|warning| warning.contains("grain"))
+            .expect("a warning about the grain");
+        assert!(
+            grain.contains("grain period 100ms redraws the whole window 10 times a second: try ≥600ms, or a still grain"),
+            "{grain}"
+        );
+        // Slower grain is under the budget.
+        let slow = check(&files(&hurt_motion(600, "")), Strictness::Install);
+        assert!(
+            !slow
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("grain"))
+        );
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("flare"))
+        );
+        assert!(report.cost.idle > 2.0, "{}", report.cost.idle);
+        // Balanced holds the heavy tint and halves the rest.
+        assert!(report.cost.idle_balanced < report.cost.idle / 2.0);
+        let text = report.cost.text();
+        assert!(text.contains("cores idle ("), "{text}");
+        assert!(text.contains("more than the window can draw"), "{text}");
+    }
+
+    #[test]
+    fn still_motion_costs_nothing_idle() {
+        let report = check(&files(PLUM), Strictness::Install);
+        assert_eq!(report.cost.idle, 0.0);
+        assert!(!report.cost.text().contains("idle"));
+        assert!(
+            !report
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("idle cost"))
+        );
+        // Grain that doesn't change, and the vignette, cost nothing either.
+        let package = Package::parse(&hurt_motion(0, "")).unwrap();
+        let pieces = budget::pieces(&package.resolve(Mode::Dark).unwrap());
+        assert!(!pieces.iter().any(|piece| piece.what.contains("grain")));
+        assert!(!pieces.iter().any(|piece| piece.what.contains("vignette")));
+    }
+
+    #[test]
+    fn small_motion_under_the_budget_doesnt_warn() {
+        let manifest = PLUM.replace(
+            r#""variants""#,
+            r#""animations": [ { "slot": "typing", "property": "opacity", "values": [1, 0.25], "period": 800, "steps": 2 } ], "variants""#,
+        );
+        let report = check(&files(&manifest), Strictness::Install);
+        assert!(report.cost.idle > 0.0 && report.cost.idle < budget::WARN_CORES);
+        assert!(
+            !report
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("idle cost"))
+        );
+    }
+
+    #[test]
+    fn many_small_pieces_warn_together() {
+        let slots = ["home", "unread", "mention", "own.avatar"];
+        let animations: Vec<String> = slots
+            .iter()
+            .map(|slot| {
+                format!(
+                    r#"{{ "slot": "{slot}", "property": "opacity", "values": [1, 0.5, 1], "period": 100, "steps": 60 }}"#
+                )
+            })
+            .collect();
+        let manifest = PLUM.replace(
+            r#""variants""#,
+            &format!(r#""animations": [{}], "variants""#, animations.join(", ")),
+        );
+        let report = check(&files(&manifest), Strictness::Install);
+        let together: Vec<&String> = report
+            .warnings
+            .iter()
+            .filter(|warning| warning.contains("idle cost"))
+            .collect();
+        assert_eq!(together.len(), 1, "{together:?}");
+        assert!(together[0].contains("together"), "{}", together[0]);
+    }
+
+    #[test]
+    fn a_stepped_window_flicker_is_priced_by_its_steps() {
+        let flicker = |period: u32| {
+            PLUM.replace(
+                r#""variants""#,
+                &format!(
+                    r##""animations": [ {{ "slot": "window", "property": "tint", "values": ["#00ff4100", "#00ff410a"], "period": {period}, "steps": 2 }} ], "variants""##
+                ),
+            )
+        };
+        let idle = |period| {
+            check(&files(&flicker(period)), Strictness::Install)
+                .cost
+                .idle
+        };
+        assert!(idle(120) > idle(2000));
+        assert!(idle(120) <= 0.95 + f32::EPSILON);
+    }
+
+    #[test]
+    fn a_heavy_trail_warns() {
+        use crate::themes::cursors::{Animated, Trail};
+        let trail = |per_step, count| Animated {
+            trail: Some(Trail {
+                sheet: Vec::new(),
+                cell: 16,
+                sprites: vec![(0, 0)],
+                life: 600.0,
+                every: 8.0,
+                per_step,
+                jitter: 4.0,
+                count,
+                press: 0,
+                opacity: 1.0,
+                corrupt: None,
+            }),
+            ..Animated::default()
+        };
+        assert!(budget::trail_warnings(&trail(2, 64)).is_empty());
+        let warnings = budget::trail_warnings(&trail(6, 160));
+        assert_eq!(warnings.len(), 2, "{warnings:?}");
+        assert!(warnings[0].contains("6 sprites each step"));
+    }
+
+    #[test]
+    fn unfocused_motion_is_read() {
+        use crate::themes::package::Unfocused;
+        let with = |value: &str| {
+            Package::parse(&PLUM.replace(
+                r#""variants""#,
+                &format!(r#""motion": {{ "unfocused": {value} }}, "variants""#),
+            ))
+        };
+        let shown = with(r#""still""#)
+            .unwrap()
+            .resolve(Mode::Dark)
+            .unwrap()
+            .motion
+            .unfocused;
+        assert_eq!(shown, Some(Unfocused::Still));
+        assert_eq!(
+            Package::parse(PLUM)
+                .unwrap()
+                .resolve(Mode::Dark)
+                .unwrap()
+                .motion
+                .unfocused
+                .unwrap_or_default(),
+            Unfocused::Slow
+        );
+        assert!(
+            with(r#""sometimes""#)
+                .and_then(|package| package.resolve(Mode::Dark))
+                .is_err()
         );
     }
 }

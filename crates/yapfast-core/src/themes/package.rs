@@ -943,6 +943,34 @@ pub struct Motion {
     /// `quick` when left out.
     pub hover_in: Option<f32>,
     pub hover_out: Option<f32>,
+    /// What the theme's motion does while Yapfast shows but another window
+    /// has the focus; `slow` when left out.
+    pub unfocused: Option<Unfocused>,
+}
+
+/// What a theme's always-on motion does while the window shows but isn't
+/// focused. Hidden, nothing moves whatever this says.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Unfocused {
+    /// As focused.
+    Full,
+    /// At most 15 frames a second.
+    #[default]
+    Slow,
+    /// Held where it is, and goes on from there with the focus.
+    Still,
+}
+
+impl Unfocused {
+    pub const ALL: [Self; 3] = [Self::Full, Self::Slow, Self::Still];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Full => "full",
+            Self::Slow => "slow",
+            Self::Still => "still",
+        }
+    }
 }
 
 /// How a popup closes.
@@ -2356,6 +2384,9 @@ fn read_motion(
             "close" => motion.close = Some(named(value, &here, &Close::ALL, Close::name)?),
             "hover_in" => motion.hover_in = Some(number(value, &here, (0.0, 2000.0))?),
             "hover_out" => motion.hover_out = Some(number(value, &here, (0.0, 2000.0))?),
+            "unfocused" => {
+                motion.unfocused = Some(named(value, &here, &Unfocused::ALL, Unfocused::name)?);
+            }
             _ => notes.push(format!("\"{here}\" isn't something motion takes; ignored")),
         }
     }

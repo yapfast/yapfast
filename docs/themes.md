@@ -11,8 +11,9 @@ know, or a deleted theme's, shows Yap.
 
 ## Custom themes
 
-New theme opens an editor on a copy of the theme shown; START FROM swaps it
-for a copy of any other. The editor lists every colour by its name in
+New theme opens the [creator](#the-theme-creator); its *Advanced* tab is an
+editor on a copy of the theme shown, whose START FROM swaps it for a copy of
+any other. The editor lists every colour by its name in
 `ui/theme.slint`, with a swatch and its hex, which takes `#rgb`, `#rrggbb` or
 `#rrggbbaa` and marks anything else. Each change shows at once, so the whole
 window is the preview. Save keeps the theme and chooses it; Cancel, leaving
@@ -34,6 +35,54 @@ them after the built-in ones:
   "folder": "custom-themes/1"
 }
 ```
+
+### The theme creator
+
+New theme opens on *Simple*, the creator: one screen of plain choices, each
+shown on the window at once and in a small preview at its top. *Advanced*
+beside it is the editor above, with every colour the creator derived, to
+fine-tune.
+
+- **Start from** a theme, built in or the person's own (one made here comes
+  back whole), or *Picture…*, any picture through the file dialog, or one of
+  the five newest in the Pictures folder (as `user-dirs.dirs` names it on
+  Linux) and its `Wallpapers`. A picture is scaled to at most 1920 pixels and
+  kept as a JPEG under the themes' 2 MiB; its main colours, found by k-means
+  in OKLab over a 64 × 64 sample, give the accent, the grounds' tint and a row
+  of extra swatches, and it becomes the background, with glass on.
+- **Accent**: eight swatches, the picture's, a hue strip and a hex field.
+- **Background**: Dark, Light or the picture, with *Blur* and *Dim*.
+- **Messages**: Flat, Bubbles, Cards or IRC, as `layout.messages`.
+- **Corners**: square to round, every radius at once; the middle is Yapfast's
+  own, and sets no `shape`.
+- **Font**: eight that ship with Yapfast, under the SIL Open Font License —
+  Default (DM Sans), Readable (Atkinson Hyperlegible Next), Slab (Zilla Slab),
+  Modern (MuseoModerno), Playful (Playpen Sans), Handwritten (Kalam), Pixel
+  (Pixelify Sans) and Tech (Orbitron) — for the body, and for headings or the
+  same. *Import font…* takes a `.ttf` or `.otf` of at most 4 MiB (the most a
+  theme carries; WOFF2 isn't read), checked as a theme's fonts are, and copies
+  it into the theme's `fonts/`; one missing some of basic Latin draws those
+  characters in the default font, and says so. Its family and licence, from
+  its name table, go in the theme's description and `LICENSE`.
+- **Density**: Compact, Cozy or Roomy, as `spacing.density`.
+- **Glass**: panes frosted over the picture, or without one over a soft
+  backdrop of the accent the creator draws.
+
+Every colour comes from the accent and the ground's hue: grounds are steps of
+OKLCh lightness, as Yap's are, and text, secondary, muted, links, the accent
+as text and the ink on the accent are each moved in lightness until they read
+at 4.65:1 on every ground they sit on, so a creator theme always passes
+`yapfast theme check`. Over a picture, its dim (or glass's cover) is raised
+as far as text needs, past what the person chose if it must; the creator
+never shows a contrast error. The accent itself stays as chosen.
+
+Save keeps a custom theme as above, with the creator's choices as `creator`,
+and writes a package from them to `<data>/themes/creator/<n>/`: its
+`theme.json` (`local.creator.custom-<n>`), the picture, the fonts it uses and a
+`LICENSE`. Choosing it shows that package the way an installed theme shows,
+made ready on another thread; the draft does the same at each change, its
+colours showing at once and its shapes, fonts and art when ready. *Export*
+copies the package to a folder the person picks.
 
 `base` is the built-in theme the first copy came from (a copy of a custom
 theme takes its base). Yapfast writes every colour, but a colour that's missing,
@@ -243,6 +292,33 @@ Settings → Themes → Installed → *Performance*:
 - **Light**: colours, fonts, shapes and spacing only; no animation, effect or
   hover and popup motion.
 
+**Motion follows what shows.** A theme's always-on motion — overlays such as
+grain and a flare, ambient particles, declared animations (pulses, a
+breathing tint, a spinning record, slicing names), text effects, animated
+cursors and the trail — runs only while someone can see it.
+`src/ui/theme_pace.rs` decides, and every theme clock asks it:
+
+- **Hidden** — minimised, closed to the tray, hidden, or covered as the
+  platform reports it (winit's `Occluded`: X11, Windows, macOS): no theme
+  timer runs and nothing redraws for the theme, the top bar's clock
+  included. Wayland doesn't say when a window is on another workspace or
+  minimised by the compositor; there the compositor stops asking for frames,
+  so nothing is drawn, though the clocks still tick. A window Yapfast
+  minimised itself counts as hidden until it has the focus or the pointer
+  again.
+- **Shown, not focused** — what the theme's `motion.unfocused` asks:
+  `slow` (the default) runs every clock at no more than 15 frames a second
+  (a stepped animation slower than that keeps its rate; the cursor's frames
+  and the trail step no more often than that), `still` holds it, and `full`
+  runs as focused. Balanced holds it still whatever the theme asks, as
+  before.
+- **Focused** — as the setting allows.
+
+Light and reduced motion run none of it anywhere. Held motion goes on from
+where it stopped: each clock keeps its own time, which doesn't count the
+time it was held, so a pulse or a spin resumes at the same phase, and
+particles go on from where they were.
+
 *Reduce motion* keeps every theme animation, text effect and hover motion still
 whatever the setting. A theme's cost is shown before it's installed, measured
 from its files: the memory its fonts hold once registered and its sounds
@@ -282,6 +358,44 @@ sizes, sounds and cursors; only its reading text changes:
 type — a blackletter or pixel face for `body`, `names`, `labels` or `code`,
 known by its family and file names, or ransom names — pointing at Readable
 text. It's a note, never a refusal: the theme's choice stands.
+
+**Idle cost.** The cost also estimates how much of a processor core the
+theme's always-on motion keeps busy while nobody touches the window —
+`~0.95 core idle (0.47 in Balanced)` — and `theme check` warns about each
+piece that costs 0.15 of a core or more, with what would make it cheaper,
+or about the whole when only together they do. The estimate
+(`crates/yapfast-core/src/themes/check/budget.rs`) is calibrated on what
+Yapfast measured with its software renderer drawing a 1600 × 900 window in
+Full, focused, with the pointer still over the conversation. Art that moves
+smoothly (a drift, a flare, a band, particles) is redrawn on every tick of
+one clock, 60 times a second; art that only steps — grain's jumps, a sprite
+sheet's frames — reads `Art.t-steps`, which `theme_art` changes only when
+one of them steps, so it's redrawn only then. So
+
+| Piece | Priced as | Measured (Hurt) |
+| --- | --- | --- |
+| Grain over the window | the whole window each time it jumps (`1000 / period` a second) | |
+| A moving overlay or picture over the window | the whole window each frame it moves: 60 a second drifting, its frame rate stepping through a sheet | redrawn every frame: 0.95 |
+| A flare | its square of the window, 60 frames a second, a gradient costing more | 900 px: 0.86 |
+| A band, a moving picture on a pane | its strip or pane (or `size`), as above | |
+| Ambient particles | each one alive at once (`rate` × `life`, at most `count`) | dust, about 9 alive: 0.41 |
+| A `window` tint or `opacity`, the `accent` | the whole window each time its value changes (a colour as often as one of its 8-bit channels moves), and a full-window tint drawn over everything else | breathe, 9 s: 0.28 |
+| A small slot's animation | its slot each time the value changes: a smooth one every frame (each change is a frame), a stepped one at each step that changes it; a rotation redraws a larger box | a spinning record alone: 0.20 |
+| Foil | the art clock's frames and the band's box, while a card shows | |
+
+A frame costs about 0.2 of a core at 60 a second before anything is drawn
+in it, and drawing the whole window about 0.75 more. Each piece is priced
+as if it moved alone; together they share frames, so the sum is the most
+they cost, and past one core the window can't keep up and drops frames
+instead (the cost says so). An animation that plays `once` isn't always on
+and costs nothing idle; neither do grain with no period, a vignette or a
+still picture. Balanced holds heavy pieces still and runs the rest at 30
+frames a second; unfocused, `motion.unfocused` caps them at 15; hidden,
+nothing runs. A GPU renderer costs less, a larger window more.
+
+`theme check` also warns about a cursor trail that lays more than 3 sprites
+a step or keeps more than 96 alive: it runs only while the pointer moves,
+but every sprite redraws while it lives. Warnings don't stop an install.
 
 ### `theme.json`
 
@@ -675,8 +789,10 @@ stock 120), `popup` (milliseconds a popup takes, stock 100), `curve` (`linear`,
 `ease`, `ease-in`, `ease-out`, `ease-in-out`, `spring`, `bounce`, `elastic`),
 `hover` (`fade`, `none`, `lift`, `glow`, `scale`), `press` (`none`, `scale`,
 `sink`), `open` (`grow`, `none`, `fade`, `zoom`, `pop`) and `close`
-(`reverse`, `none`), and `hover_in` and `hover_out` (milliseconds a
-labelled button's hover takes to come and to go, each following `quick`).
+(`reverse`, `none`), `hover_in` and `hover_out` (milliseconds a
+labelled button's hover takes to come and to go, each following `quick`),
+and `unfocused` (`slow`, `still` or `full`: what the theme's always-on
+motion does while Yapfast shows but isn't focused; see Performance).
 `curve` also takes `cubic-bezier(x1, y1, x2, y2)`; Slint's popups take only
 named curves, so it picks the nearest of them there. Hover and press apply to labelled buttons and servers in
 the rail (a button's face moves and scales inside the space the layout gives
@@ -900,14 +1016,17 @@ pictures on another thread while the window keeps the theme it shows, then
 set the new one's values in one go. Starting, `--theme-dev` reloads and a
 change between light and dark do the same work where they are.
 
-Performance: Full runs all of it at up to 60 frames a second. Balanced runs
+Performance: Full runs all of it at up to 60 frames a second (15 while
+Yapfast isn't focused, unless the theme's `motion.unfocused` says
+otherwise). Balanced runs
 art at up to 30, paused while Yapfast isn't focused, and holds heavy layers
 and overlays still, drops heavy ambient particles, and plays no transition.
 Light keeps pictures, textures, glass and lit text, drops heavy overlays,
 particles, event effects and transitions (a highlighter stays as a plain
 colour), and moves nothing. Reduce motion holds everything still at every
-setting. The art clock pauses while the window is minimised or hidden, and
-doesn't run at all while nothing moves.
+setting. The art clock stops while nobody can see the window (see
+Performance, *Motion follows what shows*), and doesn't run at all while
+nothing moves.
 
 `yapfast theme check` checks text where it sits over art: each text colour
 on each surface with art or glass is refused under 4.5:1 (`secondary` and
@@ -1108,7 +1227,8 @@ next frame's time only while one plays: with the pointer still and no idle
 loop (or the pointer off the window), nothing runs. The trail is a layer
 over the window that takes no input, moved only while some of it is alive:
 60 times a second in Full, 30 in Balanced, however often the pointer
-reports a move. Reduced motion and Light show each kind's still
+reports a move, and no more than 15 times while the window isn't focused (or
+not at all, as `motion.unfocused` and Balanced say). Reduced motion and Light show each kind's still
 picture (an animated kind's first frame) and no trail; Balanced and Full
 play them. `theme check` decodes every frame and the sheet, refuses a
 hotspot off its frame, a sprite off the sheet, or more than 1024 frame
