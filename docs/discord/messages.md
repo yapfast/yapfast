@@ -499,8 +499,10 @@ Yapfast is back, rather than showing an error.
   Windows they're toasts ([Windows](../windows-beta.md#notifications-on-windows)).
   Each also plays Yapfast's message sound, or its mention sound, unless it's in
   the conversation in front; see [voice](../voice.md#sounds).
-- Mentions in messages are links on a light fill, in the role's colour or the
-  person's name colour, as Discord shows them. A person's opens their profile
+- Mentions in messages are links on a light fill, in the role's colour for a
+  role and the theme's mention colour for anyone else, as Discord shows them:
+  a person's mention is not in their role's colour, though their name in a
+  message and in the suggestions is. A person's opens their profile
   card beside the mention, and a role's lists the members Yapfast has seen with it (from member lists, messages
   and member requests), each opening their card in turn.
 - Typing `@` suggests who to mention: the channel's listed members, those who
@@ -533,10 +535,22 @@ Yapfast is back, rather than showing an error.
   (`PreloadedUserSettings`, field 11), which arrive in READY as
   `user_settings_proto` and change in USER_SETTINGS_PROTO_UPDATE. Yapfast reads
   only the status and custom status from it, and changes either with `PATCH
-  /users/@me/settings-proto/1`, whose body sets nothing else. Each session
-  shows the status to others itself, so Yapfast sends it with opcode 3 once
-  connected, whenever the settings change, and clears it when it ends. A
-  custom emoji in a status needs Nitro.
+  /users/@me/settings-proto/1`, whose body sets nothing else. Discord resets
+  what such a body leaves out of a top-level field, so each change of the
+  status, the custom status or [game sharing](people.md#game-detection)
+  sends the whole `StatusSettings` with the one field changed, fields
+  Yapfast doesn't know included: a new custom status keeps Do Not Disturb.
+  As in Discord's client, a change starts from the `StatusSettings` READY
+  or the last update brought, never from a GET, and joins the changes still
+  on their way, each PATCH carrying all of them, so changes made quickly
+  keep the order they were made in. A new status drops the old one's
+  `status_expires_at_ms`, so it stays until changed, and sets
+  `status_created_at_ms` to now, or keeps it for the same status; a new
+  custom status says when it was set in its `created_at_ms`. A cleared one
+  is left out, and an update whose `status` has no custom status clears it,
+  as when another device clears it or it runs out there. Each session shows the status to others itself, so Yapfast sends it with
+  opcode 3 once connected, whenever the settings change, and clears it when
+  it ends. A custom emoji in a status needs Nitro.
 
 ## Bots' buttons, menus and forms
 
@@ -909,6 +923,40 @@ its desktop client does:
 
   The picture downloads to disk as it comes, so a full-size GIF of tens of
   megabytes takes no memory, and the thumbnail plays from its file.
+
+## Mark Unread and message links
+
+A message's menu offers Mark Unread and Copy Message Link after Pin, and
+Copy Message ID last, after Delete, as Discord's client orders them, on any
+sent message of a Discord channel, thread or DM. Alt+Enter on a message,
+Discord's key for it, marks it unread too. Copy Message Link copies
+`https://discord.com/channels/{server or @me}/{channel}/{message}`, and Copy
+Message ID the message's snowflake. Discord's client shows Copy Message ID
+only with Developer Mode on; Yapfast has no such setting, and offers it as
+it offers Copy ID on channels, servers and people.
+
+Mark Unread does what Discord's client does: the channel is read up to the
+newest loaded message before the one chosen, or up to the millisecond before
+it when none is loaded, and `POST
+/channels/{channel}/messages/{that one}/ack` says so with `{"manual": true,
+"mention_count": n}`, where n counts the loaded messages after it that call
+on this account; in a DM every one from someone else counts, as Yapfast
+counts DM mentions everywhere. Discord sends back
+`MESSAGE_ACK` with `manual` and that count, which sets the channel's read
+state as any acknowledgement does. Yapfast sets it at once, drops a read of
+the channel still waiting to go, and puts the "New" divider above the
+message. With "Mark messages read on Discord" off it stays in Yapfast, as
+reads do. The channel then isn't read again while it shows, even with its
+newest message in view, until another channel or thread opens, as in
+Discord's client.
+
+Discord's client also marks a thread it isn't in, or an archived one, after
+joining it or opening it again; Yapfast offers Mark Unread only in threads
+this account is in that aren't archived. Its Bookmark Message, which saves a
+message to the inbox's "For Later" list with `PUT
+/users/@me/saved-messages/{channel}/{message}`, isn't here: it needs that
+list to be useful, and Discord's client offers it only where a switch
+Discord controls turns it on.
 
 ## Stickers
 

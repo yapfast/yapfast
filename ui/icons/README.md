@@ -54,6 +54,10 @@ discord.svg is Discord's logo from Simple Icons 16.34.0
 (https://simpleicons.org/, CC0 1.0), filled white. It marks Discord servers
 and DMs, and Discord's brand guidelines apply to it rather than the ISC licence.
 
+github.svg is GitHub's mark from Simple Icons 16.34.0 (CC0 1.0), filled
+white. It marks the GitHub link in About, and GitHub's logo guidelines apply to
+it rather than the ISC licence.
+
 logo.svg is the app's own mark, the Shout balloon from the Yapfast logo
 sketches: a comic shout balloon with typing dots cut out of it.
 

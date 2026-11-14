@@ -225,6 +225,22 @@ pub fn day(seconds: u64) -> String {
     day_in(&Local, seconds, format_for(false))
 }
 
+/// A profile's date as Discord's client writes it, such as `Nov 5, 2026`,
+/// whatever the date format chosen; empty when unknown.
+pub fn profile_day(seconds: u64) -> String {
+    if seconds == 0 {
+        return String::new();
+    }
+    profile_day_in(&Local, seconds)
+}
+
+fn profile_day_in<Tz: TimeZone>(zone: &Tz, seconds: u64) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
+    at(zone, seconds).format("%b %-d, %Y").to_string()
+}
+
 fn time_in<Tz: TimeZone>(zone: &Tz, seconds: u64, twelve_hour: bool, with_seconds: bool) -> String
 where
     Tz::Offset: std::fmt::Display,
@@ -428,6 +444,14 @@ mod tests {
             "2d 3h"
         );
         assert_eq!(lasted(start, start - 5), "<1m", "a clock behind Discord's");
+    }
+
+    #[test]
+    fn a_profiles_dates_read_as_discords() {
+        // 2026-11-05 12:00 UTC.
+        let utc = FixedOffset::east_opt(0).unwrap();
+        assert_eq!(profile_day_in(&utc, 1_793_880_000), "Nov 5, 2026");
+        assert_eq!(profile_day(0), "");
     }
 
     #[test]

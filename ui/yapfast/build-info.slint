@@ -15,6 +15,87 @@ export global BuildInfo {
     in property <string> summary;
 }
 
+export enum UpdateStatus {
+    /// Nothing looked up yet, or the check is off.
+    idle,
+    checking,
+    current,
+    available,
+    /// A newer release the person chose to skip.
+    skipped,
+    failed,
+    /// A build from source, which has no release to compare with.
+    source,
+}
+
+// What Settings' About page knows about newer releases, set by src/ui/updates.rs.
+// The check is off until a person turns it on, and a release installs only when
+// they press Update and restart.
+export global Updates {
+    in-out property <bool> check;
+    in-out property <bool> nightlies;
+    in property <UpdateStatus> status;
+    /// The newest release's tag, such as v0.4.1.
+    in property <string> latest;
+    /// The package manager that updates this copy, or empty when none does.
+    in property <string> manager;
+    /// Why a look failed.
+    in property <string> error;
+    /// What's new in the newest release, as plain lines, or empty.
+    in property <string> notes;
+    /// This copy can replace itself with the newest release; otherwise
+    /// `install-note` says why not.
+    in property <bool> can-install;
+    in property <string> install-note;
+    /// Why the last update failed.
+    in property <string> install-error;
+    /// An update is being downloaded, checked or finished.
+    in property <bool> installing;
+    in property <string> install-text;
+    /// How much is downloaded, 0 to 1, or -1 when it isn't known.
+    in property <float> install-progress;
+    /// The download can still be stopped.
+    in property <bool> can-cancel;
+    callback preferences-changed();
+    callback check-now();
+    callback skip();
+    /// Downloads the newest release, checks it, and restarts Yapfast into it.
+    callback install();
+    callback cancel-install();
+    /// Opens the newest release's page in the browser.
+    callback view();
+    callback open-website();
+    callback open-github();
+    callback open-discord();
+}
+
+// Under Settings' sections, when a newer release is out: a click goes to About.
+export component UpdateNotice inherits Rectangle {
+    callback clicked;
+    height: Updates.status == UpdateStatus.available ? 36px : 0px;
+    clip: true;
+    accessible-role: button;
+    accessible-label: "Update available: " + Updates.latest;
+    accessible-action-default => { root.clicked(); }
+    forward-focus: notice-focus;
+    Rectangle {
+        x: 16px; y: 4px; width: parent.width - 32px; height: parent.height - 8px; border-radius: 4px;
+        background: notice-touch.has-hover ? Theme.accent.with-alpha(0.22) : Theme.accent.with-alpha(0.14);
+        border-width: notice-focus.has-focus ? 2px : 0px; border-color: Theme.accent;
+        Text {
+            x: 12px; width: parent.width - 24px; vertical-alignment: center;
+            text: "Update available · " + Updates.latest; color: Theme.accent; font-size: 13px; font-weight: 700; overflow: elide;
+        }
+    }
+    notice-focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == " " || event.text == "\n" { root.clicked(); return accept; }
+            return reject;
+        }
+        notice-touch := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+    }
+}
+
 // The two lines under Settings' sections that say which build is running, such
 // as a stable release or a nightly, so a report says whether it has a feature.
 // A click copies them as one line.

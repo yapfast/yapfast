@@ -204,7 +204,69 @@ fn equal_lists_stay_so_rows_count_as_unchanged() {
 }
 
 #[test]
-fn this_accounts_own_profile_shows_no_mutuals() {
+#[cfg(feature = "discord")]
+fn this_accounts_own_profile_shows_what_its_sessions_do() {
+    let view = |id: &str| yapfast_core::application::ProfileView {
+        profile: yapfast_core::chat::Profile {
+            id: id.into(),
+            name: "Sam".into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let mut state = yapfast_core::application::AppState::default();
+    state.discord_user = Some("42".into());
+    state.discord_activities = yapfast_core::yapfast_discord::activity::activities(
+        &serde_json::json!([{"type": 0, "name": "Chess", "details": "In a match"}]),
+    );
+    let mut pictures = HashMap::new();
+    // No presence comes for oneself; one's own profile shows what one's
+    // sessions say instead, and nobody else's does.
+    let own = profile_data(&mut pictures, &state, &view("42"));
+    assert_eq!(own.activities.row_count(), 1);
+    assert_eq!(own.activities.row_data(0).unwrap().details, "In a match");
+    let other = profile_data(&mut pictures, &state, &view("7"));
+    assert_eq!(other.activities.row_count(), 0);
+}
+
+#[test]
+fn ones_own_profile_says_the_custom_status_set_this_session() {
+    let view = |id: &str| yapfast_core::application::ProfileView {
+        profile: yapfast_core::chat::Profile {
+            id: id.into(),
+            name: "Sam".into(),
+            activity: Some("Before".into()),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let mut state = yapfast_core::application::AppState::default();
+    state.discord_user = Some("42".into());
+    state.online = true;
+    state.custom_status = Some(yapfast_core::chat::CustomStatus {
+        text: "Now".into(),
+        emoji: Some("🙂".into()),
+        ..Default::default()
+    });
+    let mut pictures = HashMap::new();
+    let own = profile_data(&mut pictures, &state, &view("42"));
+    assert_eq!(own.activity, "🙂 Now", "the newest status, not the list's");
+    let other = profile_data(&mut pictures, &state, &view("7"));
+    assert_eq!(other.activity, "Before", "someone else's stays theirs");
+    // Whatever the presence, as Discord's client shows the setting.
+    state.online = false;
+    let offline = profile_data(&mut pictures, &state, &view("42"));
+    assert_eq!(offline.activity, "🙂 Now", "offline, still the setting");
+    // A status cleared or run out leaves none, not the list's older one.
+    state.custom_status = None;
+    let cleared = profile_data(&mut pictures, &state, &view("42"));
+    assert_eq!(cleared.activity, "", "a cleared status shows nothing");
+}
+
+// Knowing a bot takes Discord's names.
+#[cfg(feature = "discord")]
+#[test]
+fn the_full_profiles_tabs_and_dates_are_discords() {
     use i_slint_core::{accessibility::AccessibleStringProperty, item_tree::ItemRc};
     i_slint_backend_testing::init_no_event_loop();
     let view = |id: &str| yapfast_core::application::ProfileView {
@@ -225,25 +287,80 @@ fn this_accounts_own_profile_shows_no_mutuals() {
                 name: "Bob".into(),
                 avatar: None,
             }],
+            created: Some("May 4, 2024".into()),
+            joined: Some("Nov 5, 2026".into()),
+            server_name: "Server".into(),
+            // Discord said what they did lately: nothing.
+            recent_came: true,
             ..Default::default()
         },
         ..Default::default()
     };
     let mut state = yapfast_core::application::AppState::default();
     state.discord_user = Some("42".into());
+    // Sam, "7", is a friend since a day the friend list says; "9" is a bot.
+    let friend = |id: &str| yapfast_core::chat::Friend {
+        id: id.into(),
+        name: "Sam".into(),
+        nickname: None,
+        avatar: None,
+        presence: None,
+        activity: None,
+        activities: Default::default(),
+        // 2025-03-03 at noon UTC, in milliseconds.
+        since: Some(1_741_003_200_000),
+    };
+    state.friends = vec![friend("7"), friend("42")];
+    let mut names = yapfast_core::yapfast_discord::message::Names::default();
+    names.learn_user(&serde_json::json!({"id": "9", "username": "helper", "bot": true}));
+    state.discord_names = Some(yapfast_core::yapfast_discord::service::SharedNames::new(
+        std::sync::Arc::new(std::sync::RwLock::new(names)),
+    ));
     let mut pictures = HashMap::new();
 
     // Anyone else's card and full profile name what the account shares with
-    // them.
+    // them, as the client words it, and when they became friends.
     let other = profile_data(&mut pictures, &state, &view("7"));
-    assert_eq!(other.mutual_friends_text, "1 mutual friend");
-    assert_eq!(other.mutual_servers_text, "1 mutual server");
+    assert_eq!(other.mutual_friends_text, "1 Mutual Friend");
+    assert_eq!(other.mutual_servers_text, "1 Mutual Server");
+    assert_eq!(other.friends_label, "1 Mutual Friend");
+    assert_eq!(other.servers_label, "1 Mutual Server");
+    assert!(other.mutuals_known && other.friends_tab && other.servers_tab);
+    assert_eq!(other.friends_since, "Mar 3, 2025");
     assert!(!other.own);
 
+    // The tabs say "Mutual Friends" till Discord has said, then "No Mutual
+    // Friends" for none.
+    let mut loading = view("7");
+    loading.loading = true;
+    let loading = profile_data(&mut pictures, &state, &loading);
+    assert!(!loading.mutuals_known);
+    assert_eq!(loading.friends_label, "Mutual Friends");
+    let mut none = view("7");
+    none.profile.friends.clear();
+    none.profile.servers.clear();
+    let none = profile_data(&mut pictures, &state, &none);
+    assert_eq!(none.friends_label, "No Mutual Friends");
+    assert_eq!(none.servers_label, "No Mutual Servers");
+    // A profile Discord didn't give says nothing of who's shared.
+    let mut failed = view("7");
+    failed.note = Some("Discord didn't share the rest of this profile.".into());
+    let failed = profile_data(&mut pictures, &state, &failed);
+    assert!(!failed.mutuals_known);
+    assert_eq!(failed.friends_label, "Mutual Friends");
+
+    // A bot's full profile has Mutual Servers alone, as the client's bot
+    // profile does.
+    let bot = profile_data(&mut pictures, &state, &view("9"));
+    assert!(bot.bot && !bot.friends_tab && bot.servers_tab);
+    assert_eq!(bot.friends_since, "");
+
     // Its own shares them with nobody, so, as in Discord's client, its card
-    // has no mutual line and its full profile no mutual tabs.
+    // has no mutual line and its full profile no mutual tabs; nor is anyone
+    // their own friend, whatever a list says.
     let own = profile_data(&mut pictures, &state, &view("42"));
-    assert!(own.own);
+    assert!(own.own && !own.friends_tab && !own.servers_tab);
+    assert_eq!(own.friends_since, "");
 
     let window = classic_window();
     window.show().unwrap();
@@ -272,27 +389,121 @@ fn this_accounts_own_profile_shows_no_mutuals() {
             })
             .is_some()
     };
-    for (data, mutuals) in [(other, true), (own, false)] {
+    // The full profile opens on its first tab: Activity, which says
+    // Discord's words when empty, or one's own Board.
+    let empty_activity = "Sam doesn't have any activity to share here";
+    for (data, mutuals, friends_tab, servers_tab, activity) in [
+        (other, true, true, true, true),
+        (bot, true, false, true, true),
+        (own, false, false, false, false),
+    ] {
         window.set_profile_large(false);
         window.set_profile(data);
         window.set_profile_open(true);
         settle(&window);
         assert_eq!(
-            shows(
-                &window,
-                "Show mutual friends and servers in the full profile"
-            ),
+            shows(&window, "1 Mutual Friend") && shows(&window, "1 Mutual Server"),
             mutuals,
             "the card's mutual line"
         );
         window.set_profile_large(true);
         settle(&window);
         assert!(shows(&window, "Activity"), "the full profile is open");
-        assert_eq!(shows(&window, "1 mutual friend"), mutuals, "Mutual Friends");
-        assert_eq!(shows(&window, "1 mutual server"), mutuals, "Mutual Servers");
+        assert_eq!(
+            shows(&window, "1 Mutual Friend"),
+            friends_tab,
+            "Mutual Friends"
+        );
+        assert_eq!(
+            shows(&window, "1 Mutual Server"),
+            servers_tab,
+            "Mutual Servers"
+        );
+        assert_eq!(shows(&window, empty_activity), activity, "on Activity");
+        // Member Since in one row: the Discord logo and a date, then the
+        // server's icon and a date.
+        assert!(shows(&window, "On Discord since May 4, 2024"));
+        assert!(shows(&window, "In Server since Nov 5, 2026"));
+        assert!(!shows(&window, "You don't have any activity here"));
         window.set_profile_open(false);
         settle(&window);
     }
+
+    // Which tab is open, by its label.
+    let open_tab = |window: &YapfastWindow, label: &str| {
+        let inner = i_slint_core::window::WindowInner::from_pub(window.window());
+        ItemRc::new_root(inner.component())
+            .visit_descendants(|item| {
+                let named = item.accessible_string_property(AccessibleStringProperty::Label);
+                let checked = item.accessible_string_property(AccessibleStringProperty::Checked);
+                if named.as_deref() == Some(label)
+                    && item.is_visible()
+                    && checked.as_deref() == Some("true")
+                {
+                    std::ops::ControlFlow::Break(())
+                } else {
+                    std::ops::ControlFlow::Continue(())
+                }
+            })
+            .is_some()
+    };
+    let press = |window: &YapfastWindow, label: &str| {
+        let inner = i_slint_core::window::WindowInner::from_pub(window.window());
+        let found = ItemRc::new_root(inner.component()).visit_descendants(|item| {
+            let named = item.accessible_string_property(AccessibleStringProperty::Label);
+            if named.as_deref() == Some(label) && item.is_visible() {
+                std::ops::ControlFlow::Break(item.clone())
+            } else {
+                std::ops::ControlFlow::Continue(())
+            }
+        });
+        found
+            .expect("something to press")
+            .accessible_action(&i_slint_core::accessibility::AccessibilityAction::Default);
+    };
+    window.on_enlarge_profile({
+        let weak = window.as_weak();
+        move || weak.unwrap().set_profile_large(true)
+    });
+    // The card's "1 Mutual Server" opens the full profile on its tab, as
+    // Discord's does.
+    let data = profile_data(&mut pictures, &state, &view("7"));
+    window.set_profile_large(false);
+    window.set_profile(data.clone());
+    window.set_profile_open(true);
+    settle(&window);
+    press(&window, "1 Mutual Server");
+    settle(&window);
+    assert!(window.get_profile_large());
+    assert!(open_tab(&window, "1 Mutual Server"), "on Mutual Servers");
+    window.set_profile_open(false);
+    settle(&window);
+    // Opened on Activity, it stays there when a Board comes with Discord's
+    // answer, as the client settles the tab as it opens.
+    window.set_profile(data.clone());
+    window.set_profile_open(true);
+    settle(&window);
+    assert!(open_tab(&window, "Activity"), "on its first tab");
+    window.set_profile(ProfileData {
+        board_tab: true,
+        ..data.clone()
+    });
+    settle(&window);
+    assert!(
+        open_tab(&window, "Activity"),
+        "a Board coming late doesn't take over"
+    );
+    // Before Discord says what they did lately, rows stand in for it, not
+    // the words for none.
+    window.set_profile(ProfileData {
+        recent_known: false,
+        ..data
+    });
+    settle(&window);
+    assert!(!shows(&window, empty_activity), "nothing said yet");
+    assert!(shows(&window, "Loading"), "rows stand in");
+    window.set_profile_open(false);
+    settle(&window);
 }
 
 #[test]
@@ -489,6 +700,118 @@ fn escape_in_the_composer_cancels_a_reply_and_keeps_the_draft() {
     tap(&window, "!".into());
     assert_eq!(window.get_compose_label(), "");
     assert_eq!(window.get_draft(), "ok!");
+}
+
+#[test]
+fn an_edit_starts_with_the_cursor_after_the_text_and_escape_and_enter_end_it() {
+    use slint::platform::{Key, WindowEvent};
+    let window = one_message("Hi there");
+    let edit = window.global::<InlineEdit>();
+    let saved = Rc::new(Cell::new(0));
+    let cancelled = Rc::new(Cell::new(0));
+    let (count, gone) = (saved.clone(), cancelled.clone());
+    edit.on_save(move || count.set(count.get() + 1));
+    edit.on_cancel(move || gone.set(gone.get() + 1));
+    // As the application starts an edit: the text, then the message, then the keys.
+    edit.set_text("Hi there".into());
+    edit.set_item("i0".into());
+    edit.set_end(8);
+    edit.set_focus_tick(1);
+    settle(&window);
+    tap(&window, "!".into());
+    assert_eq!(edit.get_text(), "Hi there!", "typing goes after the text");
+    assert_eq!(window.get_draft(), "", "and not to the composer");
+    let press = |text: SharedString| {
+        window
+            .window()
+            .dispatch_event(WindowEvent::KeyPressed { text: text.clone() });
+        window
+            .window()
+            .dispatch_event(WindowEvent::KeyReleased { text });
+    };
+    window.window().dispatch_event(WindowEvent::KeyPressed {
+        text: Key::Shift.into(),
+    });
+    press(Key::Return.into());
+    window.window().dispatch_event(WindowEvent::KeyReleased {
+        text: Key::Shift.into(),
+    });
+    assert_eq!(
+        edit.get_text(),
+        "Hi there!\n",
+        "Shift+Enter breaks the line"
+    );
+    assert_eq!(saved.get(), 0);
+    press(Key::Return.into());
+    assert_eq!((saved.get(), cancelled.get()), (1, 0), "Enter saves");
+    press(Key::Escape.into());
+    assert_eq!((saved.get(), cancelled.get()), (1, 1), "Escape cancels");
+}
+
+#[test]
+fn an_edits_row_built_again_leaves_the_keys_where_they_are() {
+    use slint::platform::Key;
+    let window = one_message("Hi there");
+    let edit = window.global::<InlineEdit>();
+    edit.set_text("Hi there".into());
+    edit.set_item("i0".into());
+    edit.set_end(8);
+    edit.set_focus_tick(1);
+    settle(&window);
+    tap(&window, "!".into());
+    assert_eq!(edit.get_text(), "Hi there!", "the edit takes the keys");
+    window.invoke_focus_composer();
+    // The row goes and comes back, as when its room is left and opened again
+    // or it scrolls out of view and back, with no new edit started.
+    // A key between them lets the timeline drop the row and build it again.
+    edit.set_item("".into());
+    settle(&window);
+    tap(&window, Key::Shift.into());
+    edit.set_item("i0".into());
+    settle(&window);
+    tap(&window, "x".into());
+    assert_eq!(window.get_draft(), "x", "the composer keeps the keys");
+    assert_eq!(edit.get_text(), "Hi there!");
+    // A new edit takes them again.
+    edit.set_end(9);
+    edit.set_focus_tick(2);
+    settle(&window);
+    tap(&window, "?".into());
+    assert_eq!(edit.get_text(), "Hi there!?");
+}
+
+#[test]
+fn starting_an_edit_puts_the_cursor_after_its_text_and_an_empty_save_asks_to_delete() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_explore_preview();
+    let own = window.get_messages().iter().find(|row| row.own).unwrap();
+    let edit = window.global::<InlineEdit>();
+    let ticks = edit.get_focus_tick();
+    window.invoke_edit(own.item.clone());
+    assert_ne!(edit.get_focus_tick(), ticks, "the field takes the keys");
+    assert_eq!(edit.get_end() as usize, own.body.len(), "after the text");
+
+    edit.invoke_edited("".into());
+    edit.invoke_save();
+    assert_eq!(
+        window.get_confirm_delete(),
+        own.item,
+        "saving nothing asks whether to delete the message"
+    );
+    assert_eq!(edit.get_item(), own.item, "and the edit stays open");
+    window.invoke_cancel_delete();
+    assert!(window.get_confirm_delete().is_empty());
+    edit.invoke_cancel();
+    assert_eq!(edit.get_item(), "");
 }
 
 #[test]
@@ -894,6 +1217,11 @@ fn the_keyboard_steps_through_messages_and_acts_on_them() {
     let edits = Rc::new(Cell::new(0));
     let count = edits.clone();
     window.on_edit_last(move || count.set(count.get() + 1));
+    // Alt+Enter marks a Discord message unread, as Discord's key does.
+    let unread = Rc::new(RefCell::new(String::new()));
+    let mark = unread.clone();
+    window.on_mark_unread(move |item| *mark.borrow_mut() = item.into());
+    window.on_can_mark_unread(|item| item == "i1");
     let key = |text: SharedString, pressed: bool| {
         window.window().dispatch_event(if pressed {
             WindowEvent::KeyPressed { text }
@@ -919,6 +1247,10 @@ fn the_keyboard_steps_through_messages_and_acts_on_them() {
     assert_eq!(window.get_active_item(), "i0", "the first stays");
     press(Key::DownArrow.into());
     assert_eq!(window.get_active_item(), "i1");
+    key(Key::Alt.into(), true);
+    press(Key::Return.into());
+    key(Key::Alt.into(), false);
+    assert_eq!(*unread.borrow(), "i1");
     press("r".into());
     assert_eq!(*replied.borrow(), "i1");
     // The reply goes back to the composer, so letters type again.
@@ -4686,13 +5018,18 @@ fn message_actions_reach_the_shared_application_in_the_preview() {
 
     window.invoke_draft_edited("Unsent draft".into());
     window.invoke_edit(own.item.clone());
-    assert_eq!(window.get_draft(), own.body);
-    assert_eq!(window.get_compose_label(), "Editing your message");
-    window.invoke_draft_edited("Changed".into());
-    window.invoke_send();
+    // The message is edited in its row, and the composer keeps its draft.
+    let edit = window.global::<InlineEdit>();
+    assert_eq!(edit.get_item(), own.item);
+    assert_eq!(edit.get_text(), own.body);
+    assert_eq!(window.get_draft(), "Unsent draft");
+    assert_eq!(window.get_compose_label(), "");
+    edit.invoke_edited("Changed".into());
+    edit.invoke_save();
     let edited = row(&own.item);
     assert!(edited.edited && edited.body == "Changed");
     assert_eq!(window.get_draft(), "Unsent draft");
+    assert_eq!(edit.get_item(), "", "saving closes the field");
 
     window.invoke_request_delete(other.item.clone());
     assert!(
@@ -5729,6 +6066,9 @@ fn a_profile_shows_activities_as_discord_cards() {
          "timestamps": {"start": 1_700_000_000_000_u64, "end": 1_700_000_480_000_u64},
          "assets": {"large_image": "spotify:abc", "large_text": "Distance"}},
         {"type": 0, "name": "Factorio", "state": "In a party", "party": {"size": [2, 4]}},
+        {"type": 2, "name": "Spotify", "details": "Episode 12",
+         "assets": {"large_image": "spotify:def", "large_text": "A Podcast"},
+         "metadata": {"type": "episode"}},
     ]));
     let rows: Vec<ActivityRow> = profile::activity_rows(&activities).iter().collect();
     let spotify = &rows[0];
@@ -5747,6 +6087,16 @@ fn a_profile_shows_activities_as_discord_cards() {
         "https://open.spotify.com/track/6kkwzB6hXLIONkEk9JciA6"
     );
     assert_eq!(rows[1].state, "In a party (2 of 4)");
+    // A podcast's episode has no artist, and names its show as Discord's
+    // card does.
+    assert_eq!(
+        (
+            rows[2].name.as_str(),
+            rows[2].details.as_str(),
+            rows[2].state.as_str()
+        ),
+        ("Episode 12", "", "on A Podcast")
+    );
     // The line under the name goes when it only names one of them.
     assert!(profile::names_an_activity("Playing Factorio", &activities));
     assert!(!profile::names_an_activity("Playing Chess", &activities));
@@ -10123,6 +10473,64 @@ fn yapfast_settings_name_the_build_and_copy_it_on_a_click() {
 }
 
 #[test]
+fn yapfast_settings_offer_a_newer_release_and_open_about_on_a_click() {
+    use slint::platform::{PointerEventButton, WindowEvent};
+    i_slint_backend_testing::init_no_event_loop();
+    let window = YapfastWindow::new().unwrap();
+    window.set_own_title_bar(true);
+    window.set_account_name("Alex".into());
+    window.set_account_initial("A".into());
+    let build = window.global::<BuildInfo>();
+    build.set_headline("Yapfast v0.4.0".into());
+    build.set_channel("Stable".into());
+    window.set_settings_open(true);
+    window.set_settings_section(6);
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1920., 1080.));
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(1000));
+    let click = |y: f32| {
+        let position = slint::LogicalPosition::new(350., y);
+        window.window().dispatch_event(WindowEvent::PointerPressed {
+            position,
+            button: PointerEventButton::Left,
+        });
+        window
+            .window()
+            .dispatch_event(WindowEvent::PointerReleased {
+                position,
+                button: PointerEventButton::Left,
+            });
+    };
+    // Nothing is offered until a look finds a release, so no click along the
+    // navigation's foot opens About.
+    let rows: Vec<f32> = (880..1000).step_by(4).map(|y| y as f32).collect();
+    for &y in &rows {
+        click(y);
+    }
+    assert_eq!(window.get_settings_section(), 6);
+    let updates = window.global::<Updates>();
+    updates.set_status(UpdateStatus::Available);
+    updates.set_latest("v0.4.1".into());
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(100));
+    // The notice sits above the build; one of the clicks along the foot lands on it.
+    for &y in &rows {
+        click(y);
+        if window.get_settings_section() == 9 {
+            break;
+        }
+    }
+    assert_eq!(
+        window.get_settings_section(),
+        9,
+        "a click on the notice goes to About"
+    );
+    assert!(window.get_settings_open());
+    window.hide().unwrap();
+}
+
+#[test]
 fn yapfast_account_popover_copies_its_id_and_opens_settings_without_changing_status() {
     use slint::platform::{PointerEventButton, WindowEvent};
     let window = one_message("Synthetic message");
@@ -10813,6 +11221,36 @@ fn a_profiles_more_menu_blocks_from_the_profile() {
 }
 
 #[test]
+fn a_new_setting_is_tagged_until_settings_leaves_its_section() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    // A layout from before the tags existed has met no tagged setting.
+    std::fs::write(directory.path().join("layout.json"), b"{}").unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    let tags = window.global::<NewTags>();
+    assert!(tags.invoke_is_new("check-updates".into(), tags.get_revision()));
+    assert!(!tags.invoke_is_new("no-such-setting".into(), tags.get_revision()));
+    assert!(tags.invoke_section_new(9, tags.get_revision()));
+    assert!(!tags.invoke_section_new(6, tags.get_revision()));
+    // Looking at About and leaving it clears its tags, for good.
+    let revision = tags.get_revision();
+    tags.invoke_left(9);
+    assert!(tags.get_revision() > revision);
+    assert!(!tags.invoke_is_new("check-updates".into(), tags.get_revision()));
+    assert!(!tags.invoke_section_new(9, tags.get_revision()));
+    assert!(!tags.invoke_is_new("update-nightlies".into(), tags.get_revision()));
+    let layout = Layout::read(directory.path());
+    assert!(layout.seen_new.contains(&"check-updates".to_owned()));
+}
+
+#[test]
 fn a_voice_channels_time_reads_on_the_activity_clock() {
     // 2020 began at ActivityClock's 0, which stands for none, so the
     // clock's seconds start at 1.
@@ -10925,4 +11363,94 @@ fn a_busy_voice_channel_sums_up_who_is_in_it_and_its_card_goes_with_it() {
         0,
         "a deleted channel's card goes"
     );
+}
+
+#[test]
+fn the_full_profile_takes_escape_again_after_the_note_dialog_closes() {
+    use slint::platform::Key;
+    i_slint_backend_testing::init_no_event_loop();
+    let window = YapfastWindow::new().unwrap();
+    type_anywhere(&window);
+    let closed = Rc::new(Cell::new(false));
+    window.on_close_profile({
+        let closed = closed.clone();
+        move || closed.set(true)
+    });
+    window.on_close_person({
+        let weak = window.as_weak();
+        move || weak.unwrap().set_person_open(false)
+    });
+    let wait = |ms| {
+        i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(ms));
+        settle(&window);
+    };
+    window.set_profile_open(true);
+    window.set_profile_large(true);
+    window.show().unwrap();
+    wait(500);
+    // The note dialog over it, from its More menu, takes the keyboard, and
+    // Escape closes the dialog alone.
+    window.set_person_open(true);
+    wait(500);
+    tap(&window, Key::Escape.into());
+    assert!(!window.get_person_open(), "Escape closes the note dialog");
+    assert!(!closed.get(), "and leaves the profile");
+    wait(500);
+    // Then the profile has the keyboard back, without a click in it.
+    tap(&window, Key::Escape.into());
+    assert!(
+        closed.get(),
+        "Escape closes the full profile after the dialog"
+    );
+}
+
+#[test]
+fn a_card_or_full_profile_takes_escape_again_after_a_link_or_person_dialog() {
+    use slint::platform::Key;
+    i_slint_backend_testing::init_no_event_loop();
+    let window = YapfastWindow::new().unwrap();
+    type_anywhere(&window);
+    let closed = Rc::new(Cell::new(0));
+    window.on_close_profile({
+        let closed = closed.clone();
+        move || closed.set(closed.get() + 1)
+    });
+    window.on_close_person({
+        let weak = window.as_weak();
+        move || weak.unwrap().set_person_open(false)
+    });
+    window.on_close_leaving_link({
+        let weak = window.as_weak();
+        move || weak.unwrap().set_leaving_link("".into())
+    });
+    let wait = |ms| {
+        i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(ms));
+        settle(&window);
+    };
+    window.show().unwrap();
+    // The small card stays open under the note dialog from its menu.
+    window.set_profile_open(true);
+    wait(500);
+    window.set_person_open(true);
+    wait(500);
+    tap(&window, Key::Escape.into());
+    assert!(!window.get_person_open(), "Escape closes the dialog");
+    assert_eq!(closed.get(), 0, "and leaves the card");
+    wait(500);
+    tap(&window, Key::Escape.into());
+    assert_eq!(closed.get(), 1, "then Escape closes the card");
+    // A masked link's question over the full profile.
+    window.set_profile_open(false);
+    wait(500);
+    window.set_profile_large(true);
+    window.set_profile_open(true);
+    wait(500);
+    window.set_leaving_link("https://example.com".into());
+    wait(500);
+    tap(&window, Key::Escape.into());
+    assert_eq!(window.get_leaving_link(), "", "Escape closes the question");
+    assert_eq!(closed.get(), 1, "and leaves the profile");
+    wait(500);
+    tap(&window, Key::Escape.into());
+    assert_eq!(closed.get(), 2, "then Escape closes the full profile");
 }

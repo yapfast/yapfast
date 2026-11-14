@@ -1,4 +1,5 @@
 import { DmHeading } from "yapfast/dm-heading.slint";
+import { NewTag } from "yapfast/new-tags.slint";
 import { ClientStyle } from "yapfast/style.slint";
 import { ListView } from "scrollview.slint";
 import { Theme, Tip, Middle, Label } from "theme.slint";
@@ -351,38 +352,41 @@ component FolderItem inherits Rectangle {
 // A presence dot on a ring cut from the background, as in Discord: green when
 // online, a green phone standing up from it when online only on a phone, a
 // moon when idle, a bar when they don't want to be disturbed, and a grey ring
-// when offline. Anything else counts as offline.
+// when offline. Anything else counts as offline. Every dimension within is a
+// count of `unit`, one sixteenth of the badge, so any size stays a circle that
+// fills its slot; the 16px default leaves the small rows as they were.
 export component StatusDot inherits Rectangle {
     in property <string> presence;
     in property <color> ring;
     property <bool> mobile: root.presence == "mobile";
     property <bool> online: root.presence == "online" || root.mobile || root.presence == "idle" || root.presence == "dnd";
-    width: 16px; height: 16px; border-radius: 8px;
+    property <length> unit: root.width / 16;
+    width: 16px; height: 16px; border-radius: root.width / 2;
     background: root.mobile ? transparent : root.ring;
     accessible-role: image;
     accessible-label: root.presence == "dnd" ? @tr("Do not disturb") : root.presence == "idle" ? @tr("Idle") : root.presence == "online" ? @tr("Online") : root.mobile ? @tr("Online on mobile") : @tr("Offline");
     // Idle is Discord's yellow whatever the accent is, and its moon a size larger.
     if !root.mobile: Rectangle {
-        width: root.presence == "idle" ? 12px : 10px; height: self.width; border-radius: self.width / 2;
+        width: (root.presence == "idle" ? 12 : 10) * root.unit; height: self.width; border-radius: self.width / 2;
         background: root.presence == "dnd" ? #f23f43 : root.presence == "idle" ? #f0b232 : root.presence == "online" ? Theme.live : Theme.faint;
     }
     if !root.online: Rectangle {
-        width: 4px; height: 4px; border-radius: 2px; background: root.ring;
+        width: 4 * root.unit; height: self.width; border-radius: self.width / 2; background: root.ring;
     }
     if root.presence == "idle": Rectangle {
-        x: 1px; y: 1px; width: 7px; height: 7px; border-radius: 3.5px; background: root.ring;
+        x: root.unit; y: root.unit; width: 7 * root.unit; height: self.width; border-radius: self.width / 2; background: root.ring;
     }
     if root.presence == "dnd": Rectangle {
-        width: 6px; height: 2px; border-radius: 1px; background: root.ring;
+        width: 6 * root.unit; height: 2 * root.unit; border-radius: self.height / 2; background: root.ring;
     }
     // The phone keeps the dot's ring and bottom edge, and stands taller.
     if root.mobile: Rectangle {
-        y: root.height - self.height; height: root.height + 5px;
-        border-radius: 4px; background: root.ring;
+        y: root.height - self.height; height: root.height + 5 * root.unit;
+        border-radius: 4 * root.unit; background: root.ring;
         Rectangle {
-            width: 10px; height: 15px; border-radius: 2px; background: Theme.live;
-            Rectangle { x: 2px; y: 2px; width: 6px; height: 9px; border-radius: 1px; background: root.ring; }
-            Rectangle { x: 4px; y: 12px; width: 2px; height: 2px; border-radius: 1px; background: root.ring; }
+            width: 10 * root.unit; height: 15 * root.unit; border-radius: 2 * root.unit; background: Theme.live;
+            Rectangle { x: 2 * root.unit; y: 2 * root.unit; width: 6 * root.unit; height: 9 * root.unit; border-radius: root.unit; background: root.ring; }
+            Rectangle { x: 4 * root.unit; y: 12 * root.unit; width: 2 * root.unit; height: 2 * root.unit; border-radius: self.width / 2; background: root.ring; }
         }
     }
 }
@@ -410,6 +414,8 @@ export component ChannelRow inherits Rectangle {
     in property <bool> danger;
     in property <bool> unread;
     in property <string> badge;
+    /// Marks a settings page with something new on it.
+    in property <bool> fresh;
     /// A channel this account may not join: drawn faint.
     in property <bool> locked;
     /// A DM with a call going on.
@@ -668,6 +674,7 @@ export component ChannelRow inherits Rectangle {
                 if root.pinned: Image {
                     source: @image-url("icons/pin.svg"); width: 14px; image-fit: contain; colorize: Theme.faint;
                 }
+                if root.fresh: Middle { NewTag { } }
                 // How long a busy voice channel's call has gone on, as
                 // Discord's client counts it from its first person in.
                 if root.voice-started > 0: Text {

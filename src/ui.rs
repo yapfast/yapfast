@@ -38,6 +38,7 @@ use yapfast_core::{
 use crate::drop::Drag;
 use crate::{autostart, custom_emoji, emoji, emoji_text, graphics, zoom};
 
+mod active_now;
 mod app_commands;
 mod appearance;
 mod away;
@@ -55,6 +56,7 @@ mod messages;
 #[cfg(windows)]
 mod move_loop;
 mod name_style;
+mod new_tags;
 mod pictures;
 mod placement;
 mod polls;
@@ -66,6 +68,7 @@ mod stickers;
 mod theme;
 mod tiles;
 mod title_bar;
+mod updates;
 mod yapfast;
 
 use callbacks::bind_callbacks;
@@ -84,6 +87,8 @@ pub enum Exit {
     UseSoftware(String),
     /// The renderer setting changed; restart to use it.
     Restart,
+    /// An update was downloaded and checked; finish it and start the new program.
+    Update(crate::update::install::Prepared),
 }
 
 /// Slint releases the first window after at most 500 ms of desktop appearance
@@ -189,6 +194,8 @@ pub fn run(
     prepare(&window);
     let adapter = Adapter::new(Arc::new(runtime), root, &window)?;
     bind_callbacks(&window, &adapter);
+    updates::start(&adapter, &window);
+    new_tags::start(&adapter);
     watch_window(&window, &adapter);
     adapter.borrow_mut().watch_away();
     adapter.borrow_mut().watch_talk_key(&window);
@@ -240,6 +247,7 @@ pub fn run(
     let late_gpu_failure = shell.gpu_failure();
     drop(shell);
     let mut adapter = adapter.borrow_mut();
+    let updated = adapter.updates.prepared.take();
     placement::flush(&adapter);
     // The icon goes before Yapfast does, not when Windows next looks at it.
     adapter.tray = None;
@@ -257,8 +265,11 @@ pub fn run(
             "the window did not appear".into(),
             "Yapfast's window did not appear",
         ),
-        Ok(()) if restart => Ok(Exit::Restart),
-        Ok(()) => Ok(Exit::Closed),
+        Ok(()) => Ok(match updated {
+            Some(prepared) => Exit::Update(prepared),
+            None if restart => Exit::Restart,
+            None => Exit::Closed,
+        }),
     }
 }
 
@@ -1286,6 +1297,7 @@ struct Layout {
     moving_cosmetics: Option<bool>,
     name_styles: Option<bool>,
     server_tags: Option<bool>,
+    profile_frames: Option<bool>,
     /// Joining a call turns the microphone on; on unless turned off.
     unmute_on_join: Option<bool>,
     /// Joining a call deafens.
@@ -1359,6 +1371,23 @@ struct Layout {
     /// Menus offer Copy ID, as Discord's Developer Mode does; off unless
     /// turned on.
     developer_mode: bool,
+    /// Settings' About page asks GitHub for the releases when Yapfast starts;
+    /// off unless turned on, and then Yapfast makes no request of its own.
+    /// See [`updates`].
+    check_for_updates: bool,
+    /// Nightly builds count as newer releases; off unless turned on.
+    update_nightlies: bool,
+    /// The tag of the release that Skip this version hid.
+    skipped_update: Option<String>,
+    /// The tag of the release a notification last told of, so each release is
+    /// announced once.
+    announced_update: Option<String>,
+    /// The version whose settings this person counts as having met: a fresh
+    /// install's own, or the release before NEW tags for an older layout. A
+    /// setting that arrived after it is NEW; see [`new_tags`].
+    first_version: Option<String>,
+    /// The NEW settings this person has looked at.
+    seen_new: Vec<String>,
     /// The desktop draws the window's title bar; unset, Yapfast draws its own
     /// on desktops that give windows one. See [`title_bar`].
     system_title_bar: Option<bool>,
@@ -1524,10 +1553,14 @@ impl Layout {
     }
 
     fn read(root: &std::path::Path) -> Self {
-        let mut layout: Self = std::fs::read(root.join(LAYOUT))
-            .ok()
+        let saved = std::fs::read(root.join(LAYOUT)).ok();
+        let fresh = saved.is_none();
+        let mut layout: Self = saved
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default();
+        if layout.first_version.is_none() {
+            layout.first_version = Some(new_tags::first_version(fresh));
+        }
         if layout.notification_sound.take() == Some(false) {
             layout.adjust_each_sound = true;
             layout.each_sound.insert(Sound::Message, 0);
@@ -1546,6 +1579,7 @@ impl Layout {
             moving: self.moving_cosmetics.unwrap_or(default.moving),
             name_styles: self.name_styles.unwrap_or(default.name_styles),
             server_tags: self.server_tags.unwrap_or(default.server_tags),
+            frames: self.profile_frames.unwrap_or(default.frames),
         }
     }
 
@@ -1559,6 +1593,7 @@ impl Layout {
         looks.set_moving(cosmetics.moving);
         looks.set_name_styles(cosmetics.name_styles);
         looks.set_server_tags(cosmetics.server_tags);
+        looks.set_profile_frames(cosmetics.frames);
         pictures::set_moving_collectibles(cosmetics.moving);
     }
 
@@ -1570,6 +1605,7 @@ impl Layout {
         self.moving_cosmetics = Some(looks.get_moving());
         self.name_styles = Some(looks.get_name_styles());
         self.server_tags = Some(looks.get_server_tags());
+        self.profile_frames = Some(looks.get_profile_frames());
         pictures::set_moving_collectibles(self.cosmetics().moving);
     }
 
@@ -1868,6 +1904,8 @@ struct Models {
     /// Discord friends: all of them, and those around.
     friends: Rc<VecModel<FriendRow>>,
     friends_online: Rc<VecModel<FriendRow>>,
+    /// The friends page's Active Now cards.
+    active_now: Rc<VecModel<ActiveNowCard>>,
     /// Those the Discord account blocked, for Settings.
     blocked: Rc<VecModel<BlockedRow>>,
     /// Browse Channels' rows, after its search.
@@ -1931,6 +1969,7 @@ impl Models {
         window.set_entrance_servers(ModelRc::from(self.entrance_servers.clone()));
         window.set_friends(ModelRc::from(self.friends.clone()));
         window.set_friends_online(ModelRc::from(self.friends_online.clone()));
+        window.set_active_now(ModelRc::from(self.active_now.clone()));
         window.set_blocked_people(ModelRc::from(self.blocked.clone()));
         window.set_browse_rows(ModelRc::from(self.browse_rows.clone()));
         window.set_microphones(ModelRc::from(self.microphones.clone()));
@@ -2029,6 +2068,8 @@ struct Adapter {
     runtime: Arc<BackgroundRuntime>,
     root: PathBuf,
     layout: Layout,
+    /// What About knows of newer releases.
+    updates: updates::State,
     /// The rows of the emoji picker's grid that may hold pictures it drew, first
     /// and last: see `fill_shown_glyphs`.
     emoji_rows_filled: (usize, usize),
@@ -2045,6 +2086,9 @@ struct Adapter {
     /// Ticks ActivityClock while a profile on screen times an activity, or
     /// the channel list a busy voice channel's call.
     activity_clock: slint::Timer,
+    /// Active Now beside the friends list shows a timer, which counts
+    /// seconds on ActivityClock as a profile's does.
+    active_now_timed: bool,
     /// A row of the channel list counts a voice channel's call time.
     voice_timed: bool,
     navigation: Navigation,
@@ -2152,6 +2196,9 @@ struct Adapter {
     /// `AppState::unread_jump` when the timeline last brought the first
     /// unread message to its top.
     unread_jumped: u64,
+    /// The "New" divider's message as the rows were last built, which Mark
+    /// Unread moves without changing the messages.
+    unread_shown: Option<String>,
     /// The newest messages are on their way in place of a window of older
     /// ones, and show at the end the moment they come. Following the
     /// window's end until then would load earlier pages as they go in.
@@ -2177,9 +2224,13 @@ struct Adapter {
     emoji_word: Option<(usize, String)>,
     /// Like `mention_dismissed`, for the `:` here.
     emoji_dismissed: Option<usize>,
-    /// The suggestions are for the composer of the thread beside the channel,
-    /// typed in last, rather than the channel's.
-    suggesting_aside: bool,
+    /// The composer typed in last, which the suggestions are for.
+    suggesting: Field,
+    /// The cursor's byte offset in the text of the message being edited.
+    edit_caret: Option<usize>,
+    /// The message whose field was last given the keys, so a new edit's
+    /// starts with its cursor after the text.
+    edit_focused: Option<(String, String)>,
     /// The room whose composer last reported its cursor, and the cursor's byte
     /// offset, where the picker's emoji go.
     caret: Option<(String, usize)>,
@@ -2250,24 +2301,33 @@ struct Adapter {
     pending_link: Option<String>,
 }
 
+/// A place text is typed in: the channel's composer, the thread's beside it,
+/// or the field of the message being edited, in its row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Field {
+    Channel,
+    Aside,
+    Edit,
+}
+
 impl Adapter {
-    /// What the channel's composer holds, or the thread's beside it with `aside`.
-    fn composer_text(&self, aside: bool) -> String {
+    /// What `field` holds.
+    fn composer_text(&self, field: Field) -> String {
         let state = &self.app.state;
-        if aside {
-            state.aside_draft()
-        } else {
-            state.draft()
+        match field {
+            Field::Channel => state.draft(),
+            Field::Aside => state.aside_draft(),
+            Field::Edit => state.edit().map_or("", |edit| edit.text.as_str()),
         }
         .to_owned()
     }
 
-    /// Puts `text` in the channel's composer, or the thread's beside it.
-    fn set_composer_text(&mut self, window: &YapfastWindow, aside: bool, text: String) {
-        let action = if aside {
-            Action::SetAsideDraft(text)
-        } else {
-            Action::SetDraft(text)
+    /// Puts `text` in `field`.
+    fn set_composer_text(&mut self, window: &YapfastWindow, field: Field, text: String) {
+        let action = match field {
+            Field::Channel => Action::SetDraft(text),
+            Field::Aside => Action::SetAsideDraft(text),
+            Field::Edit => Action::SetEditText(text),
         };
         self.action(window, action);
     }
@@ -2428,6 +2488,7 @@ impl Adapter {
                 runtime,
                 root,
                 layout,
+                updates: Default::default(),
                 emoji_rows_filled: (0, 0),
                 emoji_grid: Default::default(),
                 app,
@@ -2438,6 +2499,7 @@ impl Adapter {
                 away: away::Away::default(),
                 call_timer: call_timer::CallTimer::default(),
                 activity_clock: slint::Timer::default(),
+                active_now_timed: false,
                 voice_timed: false,
                 navigation: Navigation::default(),
                 forwarding: false,
@@ -2480,6 +2542,7 @@ impl Adapter {
                 pictures_sourced: None,
                 jumped: None,
                 unread_jumped: 0,
+                unread_shown: None,
                 latest_due: false,
                 revealed: HashSet::new(),
                 clock_minute: 0,
@@ -2490,11 +2553,13 @@ impl Adapter {
                 aside_rows: Vec::new(),
                 aside_restyle: false,
                 mention_at: None,
-                mentions_marked: [None, None],
+                mentions_marked: [None, None, None],
                 mention_dismissed: None,
                 emoji_word: None,
                 emoji_dismissed: None,
-                suggesting_aside: false,
+                suggesting: Field::Channel,
+                edit_caret: None,
+                edit_focused: None,
                 caret: None,
                 notifier,
                 viewer_image: None,
@@ -2583,6 +2648,7 @@ impl Adapter {
     fn attach(&mut self, window: &YapfastWindow) {
         self.models.attach(window);
         self.layout.apply(window);
+        updates::show(window, &self.layout, &self.updates);
         self.watch_talk_key(window);
         self.show_protocol(window);
         // The theme being edited goes unsaved with the old window, and rows
@@ -3010,7 +3076,10 @@ impl Adapter {
         // A keystroke in the composer changes only the composer, and one in
         // the profile editor only the editor; the rest of the window
         // stays as it is.
-        let composing = matches!(action, Action::SetDraft(_) | Action::MentionQuery(_));
+        let composing = matches!(
+            action,
+            Action::SetDraft(_) | Action::SetEditText(_) | Action::MentionQuery(_)
+        );
         let bot_input = matches!(
             action,
             Action::SetModalField { .. }

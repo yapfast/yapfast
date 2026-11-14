@@ -365,6 +365,10 @@ msgstr "Ein Spitzname darf bis zu {} Zeichen lang sein."
 msgid "A sound that's gone"
 msgstr "Ein Sound, der weg ist"
 
+#: ui/settings.slint ui/yapfast/settings-nav.slint
+msgid "About"
+msgstr "Über"
+
 #: ui/server.slint
 msgid "ABOUT ME"
 msgstr "ÜBER MICH"
@@ -905,10 +909,6 @@ msgstr "KAMERAS"
 msgid "Cancel"
 msgstr "Abbrechen"
 
-#: ui/thread.slint ui/yapfast.slint
-msgid "Cancel editing"
-msgstr "Bearbeiten abbrechen"
-
 #: src/ui/menus.rs
 msgid "Cancel friend request"
 msgstr "Freundschaftsanfrage abbrechen"
@@ -1237,7 +1237,7 @@ msgstr "Kontextmenü"
 msgid "Copied"
 msgstr "Kopiert"
 
-#: ui/composer.slint ui/server.slint ui/voice.slint
+#: ui/composer-field.slint ui/server.slint ui/voice.slint
 msgid "Copy"
 msgstr "Kopieren"
 
@@ -1357,7 +1357,7 @@ msgstr "Lege fest, wie dein Server in Einladungslinks und, falls aktiviert, in d
 msgid "Customize your profile for every server, from avatar decorations to bios. Only with Nitro."
 msgstr "Passe dein Profil für jeden Server an, von Avatar-Dekorationen bis zu Bios. Nur mit Nitro."
 
-#: ui/composer.slint
+#: ui/composer-field.slint
 msgid "Cut"
 msgstr "Ausschneiden"
 
@@ -1737,17 +1737,9 @@ msgstr "Sticker bearbeiten"
 msgid "EDIT THEME"
 msgstr "DESIGN BEARBEITEN"
 
-#: ui/thread.slint ui/yapfast.slint
-msgid "Edit your message"
-msgstr "Deine Nachricht bearbeiten"
-
 #: ui/settings.slint
 msgid "Edit {}"
 msgstr "{} bearbeiten"
-
-#: ui/thread.slint ui/yapfast.slint src/ui/refresh.rs
-msgid "Editing your message"
-msgstr "Du bearbeitest deine Nachricht"
 
 #: ui/server.slint
 msgid "Effect"
@@ -2217,6 +2209,10 @@ msgstr "Verstanden"
 msgid "Gradient"
 msgstr "Verlauf"
 
+#: ui/people.slint
+msgid "Group Owner"
+msgstr "Gruppeneigentümer"
+
 #: ui/server.slint
 msgid "Gummy"
 msgstr "Gummy"
@@ -2344,10 +2340,6 @@ msgstr "In einem Anruf"
 #: src/ui/server_settings.rs
 msgid "In order to change this setting, you must have 2FA enabled on your account."
 msgstr "Um diese Einstellung zu ändern, musst du die 2FA für dein Konto aktiviert haben."
-
-#: ui/server.slint
-msgid "In this server"
-msgstr "Auf diesem Server"
 
 #: src/ui/refresh.rs
 msgid "In {}"
@@ -2913,12 +2905,12 @@ msgstr "Mittel"
 msgid "Mellow Rhodes"
 msgstr "Sanftes Rhodes"
 
-#: ui/server_people.slint
+#: ui/server.slint ui/server_people.slint
 msgid "MEMBER SINCE"
 msgstr "MITGLIED SEIT"
 
 #: ui/people.slint ui/server.slint
-msgid "Member since"
+msgid "Member Since"
 msgstr "Mitglied seit"
 
 #: ui/server_people.slint
@@ -3145,9 +3137,17 @@ msgstr "Stummgeschaltet. Nichts, was du sagst, wird gesendet."
 msgid "Muting"
 msgstr "Stummschaltung"
 
+#: src/ui/profile.rs
+msgid "Mutual Friends"
+msgstr "Gemeinsame Freunde"
+
 #: ui/people.slint
 msgid "MUTUAL FRIENDS — {}"
 msgstr "GEMEINSAME FREUNDE: {}"
+
+#: src/ui/profile.rs
+msgid "Mutual Servers"
+msgstr "Gemeinsame Server"
 
 #: ui/people.slint
 msgid "MUTUAL SERVERS — {}"
@@ -3293,10 +3293,6 @@ msgstr "Keine favorisierten GIFs passen zu deiner Suche."
 msgid "No friend's name matches that."
 msgstr "Kein Freundesname passt dazu."
 
-#: ui/people.slint
-msgid "No friends in common."
-msgstr "Keine gemeinsamen Freunde."
-
 #: ui/header.slint
 msgid "No friends match."
 msgstr "Keine Freunde passen."
@@ -3361,6 +3357,14 @@ msgstr "Noch keine Nachrichten"
 msgid "No microphones found. Connect one, then reopen this menu."
 msgstr "Keine Mikrofone gefunden. Schließe eines an und öffne dann dieses Menü erneut."
 
+#: src/ui/profile.rs
+msgid "No Mutual Friends"
+msgstr "Keine gemeinsamen Freunde"
+
+#: src/ui/profile.rs
+msgid "No Mutual Servers"
+msgstr "Keine gemeinsamen Server"
+
 #: src/ui/refresh.rs
 msgid "No one else has joined yet."
 msgstr "Noch ist niemand sonst beigetreten."
@@ -3400,10 +3404,6 @@ msgstr "Keine Rollen"
 #: ui/server.slint
 msgid "No Server Tag"
 msgstr "Kein Server-Tag"
-
-#: ui/people.slint
-msgid "No servers in common."
-msgstr "Keine gemeinsamen Server."
 
 #: src/ui/server_settings.rs
 msgid "no slots available"
@@ -3537,10 +3537,6 @@ msgstr "Noch nichts auf deinem Board."
 msgid "Nothing on your wishlist yet."
 msgstr "Noch nichts auf deiner Wunschliste."
 
-#: ui/people.slint
-msgid "Nothing to show here right now."
-msgstr "Im Moment gibt es hier nichts anzuzeigen."
-
 #: ui/yapfast.slint src/ui/menus.rs
 msgid "Notification settings"
 msgstr "Benachrichtigungseinstellungen"
@@ -3596,10 +3592,6 @@ msgstr "ÄLTERE BEITRÄGE"
 #: src/ui/refresh.rs
 msgid "OLDER THREADS"
 msgstr "ÄLTERE THREADS"
-
-#: ui/server.slint
-msgid "On Discord"
-msgstr "Auf Discord"
 
 #: ui/discord.slint
 msgid "On your phone, open Discord, go to Settings, tap Scan QR Code, and point the camera here. A new code replaces this one after a couple of minutes."
@@ -3765,7 +3757,7 @@ msgstr "PASSWORT"
 msgid "Password"
 msgstr "Passwort"
 
-#: ui/composer.slint
+#: ui/composer-field.slint
 msgid "Paste"
 msgstr "Einfügen"
 
@@ -3952,6 +3944,14 @@ msgstr "Beiträge"
 #: ui/settings.slint
 msgid "Press a key..."
 msgstr "Drücke eine Taste ..."
+
+#: ui/composer-field.slint
+msgid "Press Enter to choose a file for {}"
+msgstr "Drücke die Eingabetaste, um eine Datei für {} zu wählen"
+
+#: ui/composer-field.slint
+msgid "Press Enter to run /{}"
+msgstr "Drücke die Eingabetaste, um /{} auszuführen"
 
 #: ui/settings.slint
 msgid "Press the key to hold while you talk. Escape stops without changing it."
@@ -4369,7 +4369,7 @@ msgstr "Sakura"
 msgid "Sam"
 msgstr "Sam"
 
-#: ui/dialogs.slint ui/server_people.slint ui/settings.slint ui/thread.slint ui/yapfast.slint
+#: ui/dialogs.slint ui/server_people.slint ui/settings.slint
 msgid "Save"
 msgstr "Speichern"
 
@@ -4517,7 +4517,7 @@ msgstr "Sicherheitsaktionen"
 msgid "See {} more"
 msgstr "{} weitere anzeigen"
 
-#: ui/composer.slint
+#: ui/composer-field.slint
 msgid "Select All"
 msgstr "Alles auswählen"
 
@@ -4768,10 +4768,6 @@ msgstr "Mitgliederliste anzeigen"
 #: ui/header.slint ui/messages.slint
 msgid "Show more"
 msgstr "Mehr anzeigen"
-
-#: ui/people.slint
-msgid "Show mutual friends and servers in the full profile"
-msgstr "Gemeinsame Freunde und Server im vollständigen Profil anzeigen"
 
 #: ui/settings.slint
 msgid "Show name styles"
@@ -6450,14 +6446,14 @@ msgstr[0] "{n} Nachricht"
 msgstr[1] "{n} Nachrichten"
 
 #: src/ui/profile.rs
-msgid "{n} mutual friend"
-msgid_plural "{n} mutual friends"
+msgid "{n} Mutual Friend"
+msgid_plural "{n} Mutual Friends"
 msgstr[0] "{n} gemeinsamer Freund"
 msgstr[1] "{n} gemeinsame Freunde"
 
 #: src/ui/profile.rs
-msgid "{n} mutual server"
-msgid_plural "{n} mutual servers"
+msgid "{n} Mutual Server"
+msgid_plural "{n} Mutual Servers"
 msgstr[0] "{n} gemeinsamer Server"
 msgstr[1] "{n} gemeinsame Server"
 

@@ -139,6 +139,8 @@ events! {
     GuildSoundboardSoundUpdate = "GUILD_SOUNDBOARD_SOUND_UPDATE",
     GuildSoundboardSoundDelete = "GUILD_SOUNDBOARD_SOUND_DELETE",
     GuildSoundboardSoundsUpdate = "GUILD_SOUNDBOARD_SOUNDS_UPDATE",
+    /// This account's sessions on every device, and what each shows it doing.
+    SessionsReplace = "SESSIONS_REPLACE",
     RelationshipAdd = "RELATIONSHIP_ADD",
     RelationshipUpdate = "RELATIONSHIP_UPDATE",
     RelationshipRemove = "RELATIONSHIP_REMOVE",
@@ -151,6 +153,8 @@ events! {
     UserSettingsProtoUpdate = "USER_SETTINGS_PROTO_UPDATE",
     /// Notification settings, per server or for DMs.
     UserGuildSettingsUpdate = "USER_GUILD_SETTINGS_UPDATE",
+    /// This account's linked services changed; the event doesn't say how.
+    UserConnectionsUpdate = "USER_CONNECTIONS_UPDATE",
 }
 
 impl Event {
@@ -267,6 +271,7 @@ mod tests {
                 "GUILD_SOUNDBOARD_SOUNDS_UPDATE",
                 Event::GuildSoundboardSoundsUpdate,
             ),
+            ("SESSIONS_REPLACE", Event::SessionsReplace),
             ("RELATIONSHIP_ADD", Event::RelationshipAdd),
             ("RELATIONSHIP_UPDATE", Event::RelationshipUpdate),
             ("RELATIONSHIP_REMOVE", Event::RelationshipRemove),
@@ -276,6 +281,7 @@ mod tests {
             ("USER_UPDATE", Event::UserUpdate),
             ("USER_SETTINGS_PROTO_UPDATE", Event::UserSettingsProtoUpdate),
             ("USER_GUILD_SETTINGS_UPDATE", Event::UserGuildSettingsUpdate),
+            ("USER_CONNECTIONS_UPDATE", Event::UserConnectionsUpdate),
         ];
         for (name, event) in handled {
             assert_eq!(Event::parse(name), event, "{name}");

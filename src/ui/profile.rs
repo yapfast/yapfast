@@ -170,12 +170,24 @@ pub(super) fn activity_panel(
     Vec::new()
 }
 
-/// "1 mutual friend" or "5 mutual servers".
+/// "1 Mutual Friend" or "5 Mutual Servers", as the card's line says it.
 fn mutual_count(count: usize, friends: bool) -> String {
     if friends {
-        trn("{n} mutual friend", "{n} mutual friends", count)
+        trn("{n} Mutual Friend", "{n} Mutual Friends", count)
     } else {
-        trn("{n} mutual server", "{n} mutual servers", count)
+        trn("{n} Mutual Server", "{n} Mutual Servers", count)
+    }
+}
+
+/// A mutual tab's name, as the client's: none till Discord has said, then
+/// how many.
+fn mutual_label(known: bool, count: usize, friends: bool) -> String {
+    match (known, count) {
+        (false, _) if friends => tr("Mutual Friends").to_owned(),
+        (false, _) => tr("Mutual Servers").to_owned(),
+        (true, 0) if friends => tr("No Mutual Friends").to_owned(),
+        (true, 0) => tr("No Mutual Servers").to_owned(),
+        (true, count) => mutual_count(count, friends),
     }
 }
 
@@ -198,12 +210,20 @@ pub(super) fn friend_offer(state: &AppState, user: &str) -> i32 {
 /// after its emoji when that's Unicode, and the address of its custom emoji's
 /// picture.
 pub(super) fn status_line(status: &yapfast_core::chat::CustomStatus) -> (String, Option<String>) {
-    let text = one_line(&status.text);
+    let (words, emoji) = status_words(status);
+    (one_line(&words), emoji)
+}
+
+/// The custom status as a profile shows it, with its own line breaks: its
+/// words after its emoji when that's Unicode, and the address of its custom
+/// emoji's picture.
+fn status_words(status: &yapfast_core::chat::CustomStatus) -> (String, Option<String>) {
+    let text = status.text.trim();
     match (&status.emoji, &status.emoji_id) {
-        (_, Some(id)) => (text, yapfast_core::discord::emoji_picture(id)),
+        (_, Some(id)) => (text.to_owned(), yapfast_core::discord::emoji_picture(id)),
         (Some(emoji), None) if text.is_empty() => (emoji.clone(), None),
         (Some(emoji), None) => (format!("{emoji} {text}"), None),
-        (None, None) => (text, None),
+        (None, None) => (text.to_owned(), None),
     }
 }
 
@@ -265,6 +285,14 @@ pub(super) fn activity_lasted(started: i32, now: i32) -> SharedString {
     yapfast_core::clock::lasted(unix(started), unix(now)).into()
 }
 
+/// Discord's Unix milliseconds on ActivityClock; 0 when unknown.
+#[cfg(feature = "discord")]
+pub(super) fn activity_at(ms: Option<u64>) -> i32 {
+    ms.map_or(0, |ms| {
+        i32::try_from((ms / 1000).saturating_sub(ACTIVITY_EPOCH)).unwrap_or(0)
+    })
+}
+
 /// Someone's activities as their profile's cards show them.
 pub(super) fn activity_rows(activities: &yapfast_core::chat::Activities) -> ModelRc<ActivityRow> {
     if activities.is_empty() {
@@ -294,11 +322,6 @@ fn activity_heading(activity: &yapfast_core::chat::Activity) -> String {
 
 #[cfg(feature = "discord")]
 fn activity_row(activity: &yapfast_core::chat::Activity) -> ActivityRow {
-    let seconds = |ms: Option<u64>| {
-        ms.map_or(0, |ms| {
-            i32::try_from((ms / 1000).saturating_sub(ACTIVITY_EPOCH)).unwrap_or(0)
-        })
-    };
     let text = |text: &Option<Box<str>>| SharedString::from(text.as_deref().unwrap_or_default());
     // A Hang status's emoji goes before its words, as a status's does.
     let name = match &activity.emoji {
@@ -339,10 +362,13 @@ fn activity_row(activity: &yapfast_core::chat::Activity) -> ActivityRow {
         large_text: text(&activity.large_text),
         small_url: text(&activity.small_image),
         small_text: text(&activity.small_text),
-        start: seconds(activity.start),
-        end: seconds(activity.end),
+        start: activity_at(activity.start),
+        end: activity_at(activity.end),
         url: text(&activity.url),
         link: text(&activity.link),
+        // Discord's Manage Privacy on one's own: a game's goes to the
+        // activity privacy settings.
+        game: activity.kind == yapfast_core::chat::ActivityKind::Playing,
     }
 }
 
@@ -373,7 +399,7 @@ impl Adapter {
         };
         let shown = (self.app.state.profile.is_some() && timed(window.get_profile()))
             || (self.app.state.panel_profile.is_some() && timed(window.get_panel_profile()));
-        let Some(every) = clock_interval(shown, self.voice_timed) else {
+        let Some(every) = clock_interval(shown || self.active_now_timed, self.voice_timed) else {
             self.activity_clock.stop();
             return;
         };
@@ -418,6 +444,24 @@ pub(super) fn same_role_rows(
     same_list(old, ModelRc::new(VecModel::from(rows)))
 }
 
+/// The layers of a profile frame, the back ones first, as the card draws them.
+fn frame_rows(frame: &[yapfast_core::chat::ProfileFrameLayer]) -> ModelRc<ProfileFrameRow> {
+    if frame.is_empty() {
+        return ModelRc::default();
+    }
+    ModelRc::new(VecModel::from(
+        frame
+            .iter()
+            .map(|layer| ProfileFrameRow {
+                url: layer.src.as_str().into(),
+                kind: layer.kind.as_str().into(),
+                anchor: layer.anchor.as_str().into(),
+                front: layer.front,
+            })
+            .collect::<Vec<_>>(),
+    ))
+}
+
 /// The profile to show in place of `shown`, keeping its lists where they're
 /// the same; none when nothing changed.
 pub(super) fn changed_profile(shown: &ProfileData, mut data: ProfileData) -> Option<ProfileData> {
@@ -425,6 +469,7 @@ pub(super) fn changed_profile(shown: &ProfileData, mut data: ProfileData) -> Opt
     data.friends = same_list(&shown.friends, data.friends);
     data.activities = same_list(&shown.activities, data.activities);
     data.effect_layers = same_list(&shown.effect_layers, data.effect_layers);
+    data.frame = same_list(&shown.frame, data.frame);
     data.badges = same_list(&shown.badges, data.badges);
     data.connections = same_list(&shown.connections, data.connections);
     data.recent = same_list(&shown.recent, data.recent);
@@ -558,12 +603,21 @@ pub(super) fn profile_data(
         ))
     }));
     // The profile keeps the status's own line breaks. A line that only
-    // names an activity goes, as its card says more.
-    let (activity_emoji, activity) = profile
-        .activity
-        .as_deref()
-        .filter(|line| !names_an_activity(line, &profile.activities))
-        .map_or((None, ""), yapfast_core::discord::status_parts);
+    // names an activity goes, as its card says more. One's own says the
+    // custom status this account has set, or none, whatever its presence, as
+    // Discord's client does: the member list's line can be from before it
+    // changed, cleared or ran out.
+    let own_status = (state.discord_user.as_deref() == Some(profile.id.as_str()))
+        .then(|| state.custom_status.as_ref().map(status_words));
+    let (activity_emoji, activity) = match &own_status {
+        Some(Some((words, emoji))) => (emoji.clone(), words.as_str()),
+        Some(None) => (None, ""),
+        None => profile
+            .activity
+            .as_deref()
+            .filter(|line| !names_an_activity(line, &profile.activities))
+            .map_or((None, ""), yapfast_core::discord::status_parts),
+    };
     let cosmetics = state.cosmetics;
     let effect = cosmetics.effect(profile.effect.as_deref()).and_then(|sku| {
         state
@@ -578,6 +632,10 @@ pub(super) fn profile_data(
     // This account's own profile shows no mutual friends or servers, as
     // Discord's client doesn't: it shares them with nobody.
     let own = discord && state.relation(&profile.id) == Relation::Me;
+    // Discord has said who's mutual, so an empty list means none: not
+    // while it loads, nor when it failed, which the client's lists, still
+    // none, don't take for no one either.
+    let mutuals_known = view.kept || (!view.loading && view.note.is_none());
     let (wishlist, wishlist_note) = wishlist_rows(profile);
     // With no banner, accent colour or theme, Discord tints the banner area
     // with the avatar's dominant colour.
@@ -629,7 +687,17 @@ pub(super) fn profile_data(
         presence: presence_name(profile.presence).into(),
         activity: activity.into(),
         activity_emoji: activity_emoji.unwrap_or_default().into(),
-        activities: activity_rows(&profile.activities),
+        // One's own shows what one's sessions say, as Discord's client does:
+        // no presence comes for oneself.
+        activities: activity_rows(
+            if profile.activities.is_empty()
+                && state.discord_user.as_deref() == Some(profile.id.as_str())
+            {
+                &state.discord_activities
+            } else {
+                &profile.activities
+            },
+        ),
         badges: ModelRc::new(VecModel::from(
             profile
                 .badges
@@ -671,6 +739,9 @@ pub(super) fn profile_data(
         role_rows_large: role_rows(&profile.roles, PROFILE_LARGE_WIDTH),
         created: profile.created.clone().unwrap_or_default().into(),
         joined: profile.joined.clone().unwrap_or_default().into(),
+        server_initial: initial(&profile.server_name),
+        server_name: profile.server_name.as_str().into(),
+        server_icon: cached_picture(pictures, state, profile.server_icon.as_deref()),
         servers: ModelRc::new(VecModel::from(
             profile
                 .servers
@@ -775,8 +846,43 @@ pub(super) fn profile_data(
                     && (state.relation(&profile.id) == Relation::Friend
                         || !profile.servers.is_empty()))),
         own,
+        frame: frame_rows(
+            cosmetics
+                .frame(Some(&profile.frame))
+                .map_or(&[][..], |frame| &frame[..]),
+        ),
+        banner_moving: profile
+            .banner
+            .as_deref()
+            .and_then(yapfast_core::chat::moving_banner)
+            .unwrap_or_default()
+            .into(),
         mutual_friends_text: mutual_count(profile.friends.len(), true).into(),
         mutual_servers_text: mutual_count(profile.servers.len(), false).into(),
+        friends_label: mutual_label(mutuals_known, profile.friends.len(), true).into(),
+        servers_label: mutual_label(mutuals_known, profile.servers.len(), false).into(),
+        mutuals_known,
+        // One's own has neither, and Matrix has no mutuals to list. A bot's
+        // has Mutual Servers alone, as the client's bot profile does.
+        friends_tab: discord && !own && state.relation(&profile.id) != Relation::Bot,
+        servers_tab: discord && !own,
+        bot: state.relation(&profile.id) == Relation::Bot,
+        // Discord's answer to what they did lately has come, or there is
+        // none to wait for.
+        recent_known: !discord || state.preview || profile.recent_came,
+        // From the friend list; no one is their own friend.
+        friends_since: if own {
+            SharedString::default()
+        } else {
+            state
+                .friends
+                .iter()
+                .find(|friend| friend.id == profile.id)
+                .and_then(|friend| friend.since)
+                .map(|ms| yapfast_core::clock::profile_day(ms / 1000))
+                .unwrap_or_default()
+                .into()
+        },
         note_text: profile.note.as_str().into(),
         note_editable: !profile.id.starts_with('@') && !own,
         can_message: state

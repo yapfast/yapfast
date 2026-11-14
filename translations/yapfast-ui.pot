@@ -366,6 +366,10 @@ msgstr ""
 msgid "A sound that's gone"
 msgstr ""
 
+#: ui/settings.slint ui/yapfast/settings-nav.slint
+msgid "About"
+msgstr ""
+
 #: ui/server.slint
 msgid "ABOUT ME"
 msgstr ""
@@ -906,10 +910,6 @@ msgstr ""
 msgid "Cancel"
 msgstr ""
 
-#: ui/thread.slint ui/yapfast.slint
-msgid "Cancel editing"
-msgstr ""
-
 #: src/ui/menus.rs
 msgid "Cancel friend request"
 msgstr ""
@@ -1238,7 +1238,7 @@ msgstr ""
 msgid "Copied"
 msgstr ""
 
-#: ui/composer.slint ui/server.slint ui/voice.slint
+#: ui/composer-field.slint ui/server.slint ui/voice.slint
 msgid "Copy"
 msgstr ""
 
@@ -1358,7 +1358,7 @@ msgstr ""
 msgid "Customize your profile for every server, from avatar decorations to bios. Only with Nitro."
 msgstr ""
 
-#: ui/composer.slint
+#: ui/composer-field.slint
 msgid "Cut"
 msgstr ""
 
@@ -1738,16 +1738,8 @@ msgstr ""
 msgid "EDIT THEME"
 msgstr ""
 
-#: ui/thread.slint ui/yapfast.slint
-msgid "Edit your message"
-msgstr ""
-
 #: ui/settings.slint
 msgid "Edit {}"
-msgstr ""
-
-#: ui/thread.slint ui/yapfast.slint src/ui/refresh.rs
-msgid "Editing your message"
 msgstr ""
 
 #: ui/server.slint
@@ -2218,6 +2210,10 @@ msgstr ""
 msgid "Gradient"
 msgstr ""
 
+#: ui/people.slint
+msgid "Group Owner"
+msgstr ""
+
 #: ui/server.slint
 msgid "Gummy"
 msgstr ""
@@ -2344,10 +2340,6 @@ msgstr ""
 
 #: src/ui/server_settings.rs
 msgid "In order to change this setting, you must have 2FA enabled on your account."
-msgstr ""
-
-#: ui/server.slint
-msgid "In this server"
 msgstr ""
 
 #: src/ui/refresh.rs
@@ -2914,12 +2906,12 @@ msgstr ""
 msgid "Mellow Rhodes"
 msgstr ""
 
-#: ui/server_people.slint
+#: ui/server.slint ui/server_people.slint
 msgid "MEMBER SINCE"
 msgstr ""
 
 #: ui/people.slint ui/server.slint
-msgid "Member since"
+msgid "Member Since"
 msgstr ""
 
 #: ui/server_people.slint
@@ -3146,8 +3138,16 @@ msgstr ""
 msgid "Muting"
 msgstr ""
 
+#: src/ui/profile.rs
+msgid "Mutual Friends"
+msgstr ""
+
 #: ui/people.slint
 msgid "MUTUAL FRIENDS — {}"
+msgstr ""
+
+#: src/ui/profile.rs
+msgid "Mutual Servers"
 msgstr ""
 
 #: ui/people.slint
@@ -3294,10 +3294,6 @@ msgstr ""
 msgid "No friend's name matches that."
 msgstr ""
 
-#: ui/people.slint
-msgid "No friends in common."
-msgstr ""
-
 #: ui/header.slint
 msgid "No friends match."
 msgstr ""
@@ -3362,6 +3358,14 @@ msgstr ""
 msgid "No microphones found. Connect one, then reopen this menu."
 msgstr ""
 
+#: src/ui/profile.rs
+msgid "No Mutual Friends"
+msgstr ""
+
+#: src/ui/profile.rs
+msgid "No Mutual Servers"
+msgstr ""
+
 #: src/ui/refresh.rs
 msgid "No one else has joined yet."
 msgstr ""
@@ -3400,10 +3404,6 @@ msgstr ""
 
 #: ui/server.slint
 msgid "No Server Tag"
-msgstr ""
-
-#: ui/people.slint
-msgid "No servers in common."
 msgstr ""
 
 #: src/ui/server_settings.rs
@@ -3538,10 +3538,6 @@ msgstr ""
 msgid "Nothing on your wishlist yet."
 msgstr ""
 
-#: ui/people.slint
-msgid "Nothing to show here right now."
-msgstr ""
-
 #: ui/yapfast.slint src/ui/menus.rs
 msgid "Notification settings"
 msgstr ""
@@ -3596,10 +3592,6 @@ msgstr ""
 
 #: src/ui/refresh.rs
 msgid "OLDER THREADS"
-msgstr ""
-
-#: ui/server.slint
-msgid "On Discord"
 msgstr ""
 
 #: ui/discord.slint
@@ -3766,7 +3758,7 @@ msgstr ""
 msgid "Password"
 msgstr ""
 
-#: ui/composer.slint
+#: ui/composer-field.slint
 msgid "Paste"
 msgstr ""
 
@@ -3952,6 +3944,14 @@ msgstr ""
 
 #: ui/settings.slint
 msgid "Press a key..."
+msgstr ""
+
+#: ui/composer-field.slint
+msgid "Press Enter to choose a file for {}"
+msgstr ""
+
+#: ui/composer-field.slint
+msgid "Press Enter to run /{}"
 msgstr ""
 
 #: ui/settings.slint
@@ -4370,7 +4370,7 @@ msgstr ""
 msgid "Sam"
 msgstr ""
 
-#: ui/dialogs.slint ui/server_people.slint ui/settings.slint ui/thread.slint ui/yapfast.slint
+#: ui/dialogs.slint ui/server_people.slint ui/settings.slint
 msgid "Save"
 msgstr ""
 
@@ -4518,7 +4518,7 @@ msgstr ""
 msgid "See {} more"
 msgstr ""
 
-#: ui/composer.slint
+#: ui/composer-field.slint
 msgid "Select All"
 msgstr ""
 
@@ -4768,10 +4768,6 @@ msgstr ""
 
 #: ui/header.slint ui/messages.slint
 msgid "Show more"
-msgstr ""
-
-#: ui/people.slint
-msgid "Show mutual friends and servers in the full profile"
 msgstr ""
 
 #: ui/settings.slint
@@ -6451,14 +6447,14 @@ msgstr[0] ""
 msgstr[1] ""
 
 #: src/ui/profile.rs
-msgid "{n} mutual friend"
-msgid_plural "{n} mutual friends"
+msgid "{n} Mutual Friend"
+msgid_plural "{n} Mutual Friends"
 msgstr[0] ""
 msgstr[1] ""
 
 #: src/ui/profile.rs
-msgid "{n} mutual server"
-msgid_plural "{n} mutual servers"
+msgid "{n} Mutual Server"
+msgid_plural "{n} Mutual Servers"
 msgstr[0] ""
 msgstr[1] ""
 

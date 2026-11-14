@@ -137,6 +137,112 @@ new commit even when no file it reads changed. A build outside a repository,
 such as a source archive, names no commit. A build doesn't look for edits to
 files on top of the commit, so a development build can't say it has them.
 
+## Newer releases
+
+Settings' About page shows the build, as the lines under the sections do, and
+says whether a newer release is out. A line under the sections tells too:
+"Update available" with the release's tag, and a click opens About. About
+shows what's new in that release (see below) and offers Update and restart
+(when this copy can replace itself), View release, which opens the release's
+page in the browser, and Skip this version, which hides that release until a
+newer one comes. It also links to the website, the GitHub project and the
+Discord server, each button with its mark.
+
+The look is off until a person turns on Check for updates, so a fresh install
+makes no request to GitHub. On, Yapfast looks when it starts and every six
+hours while it runs, with one request for the list of releases
+(`api.github.com/repos/yapfast/yapfast/releases`) that carries only
+`Yapfast/VERSION` as its user agent and no account or identifier. A look nobody
+asked for tells of a newer release in a notification, once for each release
+(`announced_update` in `layout.json`), unless notifications are off or the
+release was skipped; clicking it opens About. Check now looks once, whatever
+the switch says, and doesn't notify. Nightlies count as newer only with
+Include nightly builds, so a stable install isn't offered one. A build from
+source is never offered an update: its version is that of the release it grew
+from, so every later release would look new. A nightly is offered the stable
+release that follows it.
+
+`src/update.rs` compares versions as SemVer does and decides from the list
+what to offer, in functions the tests call without a network;
+`src/ui/updates.rs` keeps the last list for the session, looks on its timer and
+fills the `Updates` global. The saved choices are `check_for_updates`,
+`update_nightlies` and `skipped_update` in `layout.json`.
+
+It also works out how Yapfast was installed, from the program's path and the
+`APPIMAGE` and `FLATPAK_ID` variables: Scoop, Chocolatey, WinGet, the Microsoft
+Store, Nix, Snap, Homebrew, Flatpak and a distribution's `/usr` are managed, and
+About then says to update through that package manager.
+
+### What's new
+
+The text comes from the release's own description on GitHub, which the release
+workflow writes: for a stable release a summary and a "What's new" list, for a
+nightly the commits since the previous nightly. `update::notes_of` makes plain
+lines of it: it leaves out the Install section, the folded "Other changes", the
+link to the full comparison and the footer, and it takes the `feat(scope):`
+before a commit line and the `by @name in <sha>` after it off. Only the newest
+stable release and the newest nightly keep their text in memory. The release's
+page has the rest.
+
+### Updating itself
+
+Update and restart is shown only when this copy can replace itself, and
+installs only what a person asked for: there is no automatic install, and
+About's "Install updates automatically" switch stays greyed out and off.
+`src/update/install.rs` does the work, for two installs:
+
+- **A Linux AppImage** that the person can write to. The release's AppImage
+  streams to `.yapfast-update.part` beside the old one, hashed as it arrives.
+  Unless its SHA-256 matches the release's `SHA256SUMS.txt` it is deleted. It
+  then runs once with `--smoke-test` (a minute at most), so a build that
+  can't start on this computer never replaces one that can. It is renamed
+  over the old file, which is atomic on one filesystem, and Yapfast
+  restarts into that path. The running program keeps the old file open
+  until then.
+- **Windows' installer**, when `unins000.exe` is beside the program (the
+  installer wrote it) and the folder can be written to. The release's
+  `Yapfast-VERSION-windows-x64-setup.exe` is downloaded to
+  `%TEMP%\yapfast-update` and checked the same way. Yapfast quits, and a
+  hidden `cmd` runs the installer with `/SILENT /SUPPRESSMSGBOXES /NORESTART
+  /CLOSEAPPLICATIONS`, waits for it, starts Yapfast again and deletes the
+  installer; the installer's log stays beside it. A silent run of the
+  installer starts nothing itself, so that `cmd` does. A path that holds a `%`
+  or `"` is refused, as `cmd` would read it as more than a name. If `cmd`
+  can't start, the old Yapfast starts again.
+
+Everything else is left alone, with the reason on the page: a package manager's
+or Flatpak's copy (it updates it), a portable ZIP or a build of one's own, a
+release without the file for this install (nightlies carry no Windows
+installer, so a Windows install is offered View release for them), a release
+without `SHA256SUMS.txt`, and a folder that can't be written to. Any failure
+(no network, a sum that doesn't match, a failed start-up check) is shown on the
+page with the old Yapfast still running and the downloaded file removed.
+Cancel stops a download that is still going. The files come from GitHub over
+HTTPS, and the sums from the same release: they protect against a broken
+or cut-off download, not against GitHub itself.
+
+The window ends with `ui::Exit::Update`, and `main::finish_update` finishes
+it once the window, the tray icon and the session are gone. Test it with
+`cargo test --features desktop,discord update`: the tests serve files from a
+local HTTP server, and on Unix start a script as the AppImage.
+
+### New tags
+
+A setting added by an update shows a NEW tag until the person has been on its
+page, and so does its section's entry in the list (`src/ui/new_tags.rs`).
+Each tagged setting is listed there with the release it first shipped in.
+A setting is new when that release is newer than the version the person's
+`layout.json` counts as having met (`first_version`) and they haven't left its
+section since; leaving the section or closing Settings saves it as seen
+(`seen_new`). A fresh install has met every setting that exists, so it sees no
+tags until an update brings a setting; a layout from before the tags existed
+has met 0.3.0, so everything tagged since shows. Updating over several
+releases without opening Settings shows what each one added.
+
+To tag the next new setting, add its key, section and release to the list and
+give its row `new-key: "<key>"`; a test fails if the list and the `.slint` files
+disagree. Remove an entry once its release is old.
+
 ## The app icon
 
 `packaging/icon.svg` is Yapfast's icon: the logo in marigold, its dots in

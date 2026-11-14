@@ -130,8 +130,8 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   lists it.
 - Use the keyboard for messages: Up in an empty composer edits your last
   message; Alt+Up moves into the messages, where arrows step, Enter opens the
-  menu, + reacts, R replies, E edits, Delete deletes, C copies, F forwards and
-  Escape returns to the composer.
+  menu, + reacts, R replies, E edits, Delete deletes, C copies, F forwards,
+  Alt+Enter marks a Discord message unread and Escape returns to the composer.
 - Type where no field takes it, as after a menu closes, and the key goes to the
   end of the composer used last, the channel's or the thread's beside it, which
   takes the focus, as in Discord; Backspace and Delete too, and Tab with nothing
@@ -171,9 +171,11 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   message that can be forwarded, and More.
   More, or a right click on the message, opens a menu with your four most used
   reactions, Add reaction, View Reactions, Edit, Reply, Forward, Create Thread
-  or View Thread, Copy text, Copy selection, Pin or Unpin, and Delete, with
-  Copy Image, Save Image, Copy Link and Open Link on a picture or link
-  (`ui/messages.slint`). View Reactions appears once a message has reactions,
+  or View Thread, Copy text, Copy selection, Pin or Unpin, Mark Unread and
+  Copy Message Link on a Discord message, and Delete, with Copy Image, Save
+  Image, Copy Link and Open Link on a picture or link, then Copy Message ID
+  last on a Discord message (`ui/messages.slint`; see
+  [Discord](discord/messages.md#mark-unread-and-message-links)). View Reactions appears once a message has reactions,
   Copy selection while text is selected, and Edit on your own messages only.
   Delete appears on your own messages, and on anyone's for a Discord moderator
   with Manage Messages. Until you have reacted, the most used reactions are 👍,
@@ -344,11 +346,23 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   somewhere, the dialog opens again with those conversations chosen and why.
   Delete asks for confirmation, then
   redacts the message for everyone. Replies quote the original; edits are marked
-  "(edited)". Reply and edit modes show above the composer, with Cancel;
-  Escape cancels too, wherever the focus is, once no suggestions or anything
-  over the conversation are open: first the search, then the channel's reply or
-  edit, then the thread's beside it, then the new thread's form.
-  Cancelling an edit restores the draft it replaced.
+  "(edited)". A reply shows a bar above the composer, with Cancel; Escape
+  cancels it wherever the focus is, once no suggestions or anything over the
+  conversation are open: first the search, then the channel's reply, then
+  the thread's beside it, then the new thread's form.
+- Edit a message in its own row, as Discord's client does: the text becomes a
+  field there, tinted as the row is while edited, with "escape to cancel •
+  enter to save" under it, and the cursor after the text. Enter saves, Shift+Enter
+  breaks the line, and Escape or the hint's cancel closes it, changing nothing.
+  The field takes `@` and `:name` suggestions and the emoji button's picker. It
+  is its own text, apart from the composer's draft and a reply being written,
+  which stay as they were; one message is edited at a time. Saving text that
+  is empty asks whether to delete the message, as Delete does, unless the
+  message has files, and saving text that changed nothing just closes the
+  field. The thread beside the channel edits its messages the same way.
+  Starting an edit, from the message's Edit button, its menu, E, or Up in an empty
+  composer, gives the field the keys and scrolls the row into view, and keeps
+  it there as the field grows.
 - Attach files with the system file dialog, paste them with Ctrl+V: files
   copied in a file manager, or a picture copied from a browser or a screenshot
   tool, or drop them on the window from a file manager. A drag over the
@@ -634,8 +648,8 @@ The window follows Discord's arrangement:
   a date divider starts each day. The top of the history shows what's
   before it: earlier messages loading, a way to retry them, or the start of
   the conversation. The composer is a rounded field with attach, the
-  message ("Message #general"), and a send button; reply and edit modes attach
-  a bar above it. With no conversation selected, the area shows "Pick a
+  message ("Message #general"), and a send button; a reply attaches a bar
+  above it. With no conversation selected, the area shows "Pick a
   conversation" and hides the composer. The local preview labels itself in a
   strip under the header.
 - A 240px member sidebar right of the conversation, under its header, on the

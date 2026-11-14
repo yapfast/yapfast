@@ -61,7 +61,7 @@ dispatched from `src/main.rs`.
 ## Shared application behavior
 
 [`application.rs`](../crates/yapfast-core/src/application.rs) owns navigation,
-remembered channels, per-room drafts, reply and edit modes, delete confirmation,
+remembered channels, per-room drafts, replies, the message being edited, delete confirmation,
 selected timelines, account and trust status, history loading, call controls and
 voice-switch confirmation. The backend saves drafts in the encrypted session
 store and sends through the SDK's persistent send queue, which owns retries.

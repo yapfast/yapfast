@@ -87,6 +87,17 @@ impl Application {
         if let Some((server, _, _)) = self.discord_place(place) {
             return server.owner_id.clone();
         }
+        // A group DM's creator, whom its member list crowns, as Discord's does.
+        #[cfg(feature = "discord")]
+        if let Some((_, Some(channel))) = self::place(place)
+            && let Some(snapshot) = self.discord.as_ref()
+        {
+            return snapshot
+                .conversations
+                .iter()
+                .find(|conversation| conversation.id == channel && conversation.group)
+                .and_then(|conversation| conversation.owner.clone());
+        }
         let _ = place;
         None
     }
