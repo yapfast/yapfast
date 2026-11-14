@@ -152,6 +152,8 @@ fn assemble(root: &Path, out: &Path, target: &Target) -> Vec<PathBuf> {
     let x86 = root.join("common/x86");
     let format = if target.os == "windows" {
         "win64"
+    } else if target.os == "macos" {
+        "macho64"
     } else {
         "elf64"
     };
@@ -168,6 +170,9 @@ fn assemble(root: &Path, out: &Path, target: &Target) -> Vec<PathBuf> {
             .args(["-DARCH_X86_64=1", "-DSTACK_ALIGNMENT=16", "-f", format]);
         if target.os != "windows" {
             command.arg("-DPIC");
+        }
+        if target.os == "macos" {
+            command.arg("-DPREFIX");
         }
         if per_depth {
             command.args(["-DBIT_DEPTH=8", "-Dprivate_prefix=x264_8"]);
@@ -208,6 +213,7 @@ impl Target {
     fn config_h(&self) -> String {
         let linux = self.os == "linux";
         let windows = self.os == "windows";
+        let macos = self.os == "macos";
         let gnu = !self.msvc;
         let mut defines = vec![
             ("HAVE_MALLOC_H", u8::from(linux)),
@@ -216,6 +222,7 @@ impl Target {
             ("ARCH_X86_64", u8::from(self.x86_64)),
             ("SYS_LINUX", u8::from(linux)),
             ("SYS_WINDOWS", u8::from(windows)),
+            ("SYS_MACOSX", u8::from(macos)),
             ("HAVE_POSIXTHREAD", u8::from(!windows)),
             ("HAVE_WIN32THREAD", u8::from(windows)),
             ("HAVE_THREAD", 1),
@@ -223,7 +230,7 @@ impl Target {
             ("HAVE_SYNC_FETCH_AND_ADD", u8::from(gnu)),
             ("HAVE_LOG2F", 1),
             ("HAVE_STRTOK_R", u8::from(!windows)),
-            ("HAVE_CLOCK_GETTIME", u8::from(linux)),
+            ("HAVE_CLOCK_GETTIME", u8::from(linux || macos)),
             ("HAVE_GETAUXVAL", u8::from(linux)),
             ("HAVE_SYSCONF", u8::from(!windows)),
             ("HAVE_MMAP", u8::from(!windows)),

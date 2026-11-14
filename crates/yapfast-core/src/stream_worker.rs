@@ -220,7 +220,11 @@ fn screens_and_windows() -> Vec<Shareable> {
         .into_iter()
         .enumerate()
         .map(|(index, screen)| Shareable {
-            source: Source::Display(screen.id()),
+            source: Source::Display(if cfg!(target_os = "macos") {
+                index as u64
+            } else {
+                screen.id()
+            }),
             title: if count == 1 {
                 "Entire screen".to_owned()
             } else {
@@ -365,6 +369,15 @@ pub enum Report {
 
 /// Runs this process as a stream worker until its job ends.
 pub fn run() -> Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        unsafe extern "C" {
+            fn yapfast_macos_hide_worker_from_dock();
+        }
+        // SAFETY: called once on the worker's main thread before any Cocoa or
+        // ScreenCaptureKit call so macOS does not show a bouncing Dock icon.
+        unsafe { yapfast_macos_hide_worker_from_dock() };
+    }
     // The stream connection uses TLS; nothing else here has started it.
     let _ = crate::init_tls();
     let mut output = std::io::stdout();
@@ -1154,7 +1167,11 @@ impl Capture {
         } else {
             let mut listed = capturer.get_source_list().into_iter();
             let found = match source {
-                Source::Display(id) | Source::Window(id) => listed.find(|listed| listed.id() == id),
+                #[cfg(target_os = "macos")]
+                Source::Display(index) => listed.nth(index as usize),
+                #[cfg(not(target_os = "macos"))]
+                Source::Display(id) => listed.find(|listed| listed.id() == id),
+                Source::Window(id) => listed.find(|listed| listed.id() == id),
                 _ => listed.next(),
             };
             Some(found.context("That screen or window is gone.")?)
@@ -1352,9 +1369,11 @@ fn glance_at(id: u64, stop: &AtomicBool) -> Result<Option<I420Buffer>> {
         DesktopCaptureSourceType::Screen,
     ))
     .context("Screen sharing isn't available on this system.")?;
-    let source = capturer
-        .get_source_list()
-        .into_iter()
+    let mut listed = capturer.get_source_list().into_iter();
+    #[cfg(target_os = "macos")]
+    let source = listed.nth(id as usize).context("That screen is gone.")?;
+    #[cfg(not(target_os = "macos"))]
+    let source = listed
         .find(|listed| listed.id() == id)
         .context("That screen is gone.")?;
     // The last picture taken, and whether capture stopped for good.

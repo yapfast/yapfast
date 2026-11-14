@@ -95,6 +95,11 @@ pub struct Joins {
     pub sequences: Vec<(Vec<u32>, char)>,
 }
 
+fn use_sbix() -> bool {
+    cfg!(target_os = "macos")
+        || std::env::var_os("CARGO_CFG_TARGET_OS").is_some_and(|os| os == "macos")
+}
+
 /// [`build_strike`], with `joins`'s empty glyphs and its sequences joined into
 /// their pictures by the shaper, in a GSUB table of ligatures that text applies
 /// by default.
@@ -123,26 +128,37 @@ pub fn build_joined(
     for (index, point) in joins.empty.iter().enumerate() {
         glyph_of.entry(*point).or_insert(first_empty + index as u16);
     }
-    let mut tables: Vec<([u8; 4], Vec<u8>)> = vec![
-        (*b"CBDT", cbdt(strike, glyphs)),
-        (*b"CBLC", cblc(strike, glyphs)),
-    ];
+    let sbix_mode = use_sbix();
+    let mut tables: Vec<([u8; 4], Vec<u8>)> = if sbix_mode {
+        let (glyf_table, loca_table) = glyf_and_loca(strike, glyphs.len(), count);
+        vec![
+            (*b"glyf", glyf_table),
+            (*b"loca", loca_table),
+            (*b"sbix", sbix(strike, glyphs, count)),
+        ]
+    } else {
+        vec![
+            (*b"CBDT", cbdt(strike, glyphs)),
+            (*b"CBLC", cblc(strike, glyphs)),
+        ]
+    };
     if !joins.sequences.is_empty() {
         tables.push((*b"GSUB", gsub(&glyph_of, &joins.sequences)));
     }
     tables.extend([
         (*b"OS/2", os2(advance, glyphs)),
         (*b"cmap", cmap_of(&glyph_of)),
-        (*b"head", head(strike, advance)),
+        (*b"head", head(strike, advance, sbix_mode)),
         (*b"hhea", hhea(advance, count)),
         (
             *b"hmtx",
             hmtx_with_empty(strike, advance, first_empty, count),
         ),
-        (*b"maxp", maxp(count)),
+        (*b"maxp", maxp(count, sbix_mode)),
         (*b"name", name(family)),
         (*b"post", post()),
     ]);
+    tables.sort_by_key(|(tag, _)| *tag);
     assemble(&tables)
 }
 
@@ -459,6 +475,69 @@ fn cblc(strike: &Strike, glyphs: &[(char, Vec<u8>)]) -> Vec<u8> {
     out
 }
 
+/// Non-empty bounding box contours and 32-bit `loca` offsets for CoreText's `sbix`
+/// renderer, which uses `glyf` bounds to place and size each glyph's bitmap.
+fn glyf_and_loca(strike: &Strike, pictures: usize, count: u16) -> (Vec<u8>, Vec<u8>) {
+    let x_min = units(i32::from(strike.bearing_x), strike);
+    let y_min = units(i32::from(strike.bearing_y) - i32::from(strike.side), strike);
+    let x_max = units(i32::from(strike.bearing_x) + i32::from(strike.side), strike);
+    let y_max = units(i32::from(strike.bearing_y), strike);
+    let dx = x_max - x_min;
+    let dy = y_max - y_min;
+    let mut box_glyph = Vec::with_capacity(36);
+    for value in [1i16, x_min, y_min, x_max, y_max, 3, 0] {
+        put16(&mut box_glyph, value as u16);
+    }
+    box_glyph.extend([1u8; 4]);
+    for value in [x_min, dx, 0, -dx, y_min, 0, dy, 0] {
+        put16(&mut box_glyph, value as u16);
+    }
+    box_glyph.resize(box_glyph.len().next_multiple_of(4), 0);
+
+    let mut glyf = Vec::with_capacity(pictures * box_glyph.len());
+    let mut loca = Vec::with_capacity((usize::from(count) + 1) * 4);
+    put32(&mut loca, 0);
+    put32(&mut loca, 0);
+    for _ in 0..pictures {
+        glyf.extend_from_slice(&box_glyph);
+        put32(&mut loca, glyf.len() as u32);
+    }
+    for _ in (pictures + 1)..usize::from(count) {
+        put32(&mut loca, glyf.len() as u32);
+    }
+    (glyf, loca)
+}
+
+/// Apple's `sbix` bitmap table for CoreText on macOS, where `CBDT`/`CBLC` is not
+/// supported. `flags = 1` tells CoreText to draw only the `sbix` PNGs and not the
+/// bounding-box contour in `glyf`.
+fn sbix(strike: &Strike, glyphs: &[(char, Vec<u8>)], count: u16) -> Vec<u8> {
+    let mut out = Vec::new();
+    put16(&mut out, 1);
+    put16(&mut out, 1);
+    put32(&mut out, 1);
+    put32(&mut out, 12);
+    put16(&mut out, u16::from(strike.ppem));
+    put16(&mut out, 72);
+    let mut offset = (4 + 4 * (usize::from(count) + 1)) as u32;
+    put32(&mut out, offset);
+    put32(&mut out, offset);
+    for (_, png) in glyphs {
+        offset += 8 + png.len() as u32;
+        put32(&mut out, offset);
+    }
+    for _ in (glyphs.len() + 1)..usize::from(count) {
+        put32(&mut out, offset);
+    }
+    for (_, png) in glyphs {
+        put16(&mut out, 0);
+        put16(&mut out, 0);
+        out.extend_from_slice(b"png ");
+        out.extend_from_slice(png);
+    }
+    out
+}
+
 fn os2(advance: i16, glyphs: &[(char, Vec<u8>)]) -> Vec<u8> {
     let mut out = Vec::new();
     put16(&mut out, 4);
@@ -524,7 +603,7 @@ fn cmap_groups(groups: &[(u32, u32, u32)]) -> Vec<u8> {
     out
 }
 
-fn head(strike: &Strike, advance: i16) -> Vec<u8> {
+fn head(strike: &Strike, advance: i16, long_loca: bool) -> Vec<u8> {
     let mut out = Vec::new();
     put32(&mut out, 0x0001_0000);
     put32(&mut out, 0x0001_0000);
@@ -545,7 +624,7 @@ fn head(strike: &Strike, advance: i16) -> Vec<u8> {
     put16(&mut out, 0);
     put16(&mut out, 8);
     put16(&mut out, 2);
-    put16(&mut out, 0);
+    put16(&mut out, u16::from(long_loca));
     put16(&mut out, 0);
     out
 }
@@ -569,11 +648,18 @@ fn hhea(advance: i16, count: u16) -> Vec<u8> {
     out
 }
 
-/// Version 0.5: the glyph count alone, for a font without outlines.
-fn maxp(count: u16) -> Vec<u8> {
+/// Version 0.5 for a font without outlines, or 1.0 when `glyf` is present.
+fn maxp(count: u16, with_outlines: bool) -> Vec<u8> {
     let mut out = Vec::new();
-    put32(&mut out, 0x0000_5000);
-    put16(&mut out, count);
+    if with_outlines {
+        put32(&mut out, 0x0001_0000);
+        for value in [count, 4, 1, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0] {
+            put16(&mut out, value);
+        }
+    } else {
+        put32(&mut out, 0x0000_5000);
+        put16(&mut out, count);
+    }
     out
 }
 
@@ -619,23 +705,40 @@ fn post() -> Vec<u8> {
     out
 }
 
-/// Where a table of `font` is, by its tag.
-#[allow(dead_code, reason = "for build.rs and the tests")]
-pub fn table_at(font: &[u8], tag: &[u8; 4]) -> std::ops::Range<usize> {
+/// Where a table of `font` is, by its tag, if present.
+fn find_table_at(font: &[u8], tag: &[u8; 4]) -> Option<std::ops::Range<usize>> {
     let count = u16::from_be_bytes([font[4], font[5]]) as usize;
     let record = (0..count)
         .map(|index| &font[12 + 16 * index..28 + 16 * index])
-        .find(|record| &record[..4] == tag)
-        .expect("the table is there");
+        .find(|record| &record[..4] == tag)?;
     let at = |range: std::ops::Range<usize>| {
         u32::from_be_bytes(record[range].try_into().unwrap()) as usize
     };
-    at(8..12)..at(8..12) + at(12..16)
+    Some(at(8..12)..at(8..12) + at(12..16))
+}
+
+/// Where a table of `font` is, by its tag.
+#[allow(dead_code, reason = "for build.rs and the tests")]
+pub fn table_at(font: &[u8], tag: &[u8; 4]) -> std::ops::Range<usize> {
+    find_table_at(font, tag).expect("the table is there")
 }
 
 /// Where the PNG of each of `glyphs` is in `font`, which holds them in order.
 #[allow(dead_code, reason = "build.rs builds this font")]
 pub fn pictures_at(font: &[u8], glyphs: &[(char, Vec<u8>)]) -> Vec<std::ops::Range<usize>> {
+    if let Some(sbix_range) = find_table_at(font, b"sbix") {
+        let maxp_start = table_at(font, b"maxp").start;
+        let count = u16::from_be_bytes([font[maxp_start + 4], font[maxp_start + 5]]) as usize;
+        let mut at = sbix_range.start + 12 + 4 + 4 * (count + 1);
+        return glyphs
+            .iter()
+            .map(|(_, png)| {
+                let start = at + 8;
+                at = start + png.len();
+                start..at
+            })
+            .collect();
+    }
     // After the table's header, each is a small metrics record and its length.
     let mut at = table_at(font, b"CBDT").start + 4;
     glyphs
@@ -710,7 +813,7 @@ mod tests {
             (*b"OS/2", os2(advance, &glyphs)),
             (*b"cmap", cmap_groups(&[(0x10_0000, 0x10_0000, 1)])),
             (*b"glyf", glyf),
-            (*b"head", head(&STRIKE, advance)),
+            (*b"head", head(&STRIKE, advance, false)),
             (*b"hhea", hhea(advance, 3)),
             (*b"hmtx", hmtx_with_empty(&STRIKE, advance, 3, 3)),
             (*b"loca", loca),

@@ -65,13 +65,13 @@ pub fn list() -> Vec<Device> {
             name: "Test pattern".into(),
         });
     }
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(target_os = "linux", windows, target_os = "macos"))]
     native::list(&mut devices);
     devices
 }
 
-/// libwebrtc's capture module, through `native/camera.cc`.
-#[cfg(any(target_os = "linux", windows))]
+/// libwebrtc's capture module (or AVFoundation on macOS).
+#[cfg(any(target_os = "linux", windows, target_os = "macos"))]
 mod native {
     use std::ffi::{CStr, CString, c_char, c_int, c_void};
 
@@ -254,7 +254,7 @@ impl Camera {
     /// on the thread opening the camera, and leaves on the one closing it.
     /// A thread of the camera's own does both, so no other thread's COM
     /// apartment is joined or left by mistake.
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     fn native(id: &str, size: Size, sink: Sink) -> Result<Self> {
         let id = id.to_owned();
         let (opened, result) = std::sync::mpsc::sync_channel(1);
@@ -279,9 +279,9 @@ impl Camera {
         }
     }
 
-    #[cfg(not(any(target_os = "linux", windows)))]
+    #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
     fn native(_: &str, _: Size, _: Sink) -> Result<Self> {
-        bail!("Cameras work on Linux and Windows for now.")
+        bail!("Cameras work on Linux, Windows and macOS for now.")
     }
 
     /// Runs `film` on the camera's thread until it returns; it's told to

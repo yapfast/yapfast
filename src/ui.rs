@@ -138,6 +138,10 @@ pub fn run(
             selector.renderer_name("skia".into()).require_d3d(),
             "skia-direct3d",
         ),
+        graphics::Renderer::Gpu if cfg!(target_os = "macos") => (
+            selector.renderer_name("skia".into()).require_metal(),
+            "skia-metal",
+        ),
         graphics::Renderer::Gpu => (selector.renderer_name("skia-opengl".into()), "skia-opengl"),
         graphics::Renderer::Software => (
             selector.renderer_name("skia-software".into()),
@@ -1512,6 +1516,9 @@ impl Layout {
         let mut layout: Self = saved
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default();
+        if fresh && cfg!(target_os = "macos") {
+            layout.gpu_rendering = true;
+        }
         if layout.first_version.is_none() {
             layout.first_version = Some(new_tags::first_version(fresh));
         }

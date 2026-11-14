@@ -53,7 +53,7 @@ impl<'a> I420<'a> {
     /// # Safety
     /// `raw`'s planes must hold its height in rows of luma and half as many
     /// of each chroma plane, at its strides, for `'a`.
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(target_os = "linux", windows, target_os = "macos"))]
     pub(crate) unsafe fn from_raw(raw: &RawPicture) -> Option<Self> {
         if raw.width <= 0
             || raw.height <= 0

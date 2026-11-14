@@ -17,6 +17,8 @@ fn main() {
         "camera.cc",
         "hwenc.c",
         "hevc.c",
+        "macos_audio.c",
+        "macos_camera.m",
     ] {
         println!("cargo:rerun-if-changed=native/{file}");
     }
@@ -58,11 +60,45 @@ fn main() {
         if target_os == "windows" {
             println!("cargo:rustc-link-lib=dylib=oleaut32");
         }
+    } else if target_os == "macos" {
+        cc::Build::new()
+            .file("native/macos_audio.c")
+            .warnings(true)
+            .compile("yapfast_macos_audio");
+        println!("cargo:rustc-link-lib=framework=AudioToolbox");
+        println!("cargo:rustc-link-lib=framework=CoreAudio");
+        println!("cargo:rustc-link-lib=framework=CoreFoundation");
+
+        cc::Build::new()
+            .file("native/macos_camera.m")
+            .include(third_party.join("libyuv/include"))
+            .flag("-fobjc-arc")
+            .warnings(true)
+            .compile("yapfast_macos_camera");
+        println!("cargo:rustc-link-lib=framework=AVFoundation");
+        println!("cargo:rustc-link-lib=framework=CoreMedia");
+        println!("cargo:rustc-link-lib=framework=CoreVideo");
+        println!("cargo:rustc-link-lib=framework=Foundation");
+
+        cc::Build::new()
+            .file("native/macos_worker.m")
+            .flag("-fobjc-arc")
+            .warnings(true)
+            .compile("yapfast_macos_worker");
+        println!("cargo:rustc-link-lib=framework=AppKit");
     }
     println!("cargo::rustc-check-cfg=cfg(hwenc)");
     println!("cargo::rustc-check-cfg=cfg(hevcdec)");
     if std::env::var_os("CARGO_FEATURE_DISCORD").is_none() {
         return;
+    }
+    if target_os == "macos" && std::env::var("DEP_FFMPEG_ENCODERS").as_deref() != Ok("1") {
+        cc::Build::new()
+            .file("native/macos_hevc.c")
+            .warnings(true)
+            .compile("yapfast_macos_hevc");
+        println!("cargo:rustc-link-lib=framework=VideoToolbox");
+        println!("cargo:rustc-cfg=hevcdec");
     }
     // FFmpeg's hardware encoders and HEVC decoder, where ffmpeg-src builds
     // them: hwenc.c and hevc.c see only their headers, with FFmpeg's names

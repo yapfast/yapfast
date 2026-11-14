@@ -447,7 +447,7 @@ pub(crate) async fn call(
     let result = async {
         let mut speakers = Some(open_discord_speakers(state, &played, &hearing)?);
         Chosen::write(remembered, state);
-        state.can_film = cfg!(any(target_os = "linux", windows));
+        state.can_film = cfg!(any(target_os = "linux", target_os = "macos", windows));
         state.phase = Phase::Connected;
         let link = call.stats();
         state.link = Some(Link::new({

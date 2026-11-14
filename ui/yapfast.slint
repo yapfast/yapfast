@@ -984,6 +984,7 @@ export component YapfastWindow inherits Window {
     property <bool> stage-full;
     changed call-focus => { if root.call-focus < 0 { root.stage-full = false; } }
     changed stage-full => { root.full-screen = root.stage-full; }
+    changed full-screen => { if !root.full-screen { root.stage-full = false; } }
     /// Whose stream is watched: their participant id.
     in property <string> watch-user;
     /// What the corner shows while the call is off screen: nothing (0), the

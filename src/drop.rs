@@ -21,8 +21,10 @@ pub enum Drag {
 /// it: on X11 and Windows. One is made for each drag and asked while the
 /// files hover.
 pub struct Pointer {
+    #[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
     source: Source,
     /// The window's scale, from its physical pixels to its logical ones.
+    #[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
     scale: f64,
 }
 
@@ -47,10 +49,18 @@ impl Pointer {
             RawWindowHandle::Win32(handle) => Source::Win32(handle.hwnd.get()),
             _ => return None,
         };
-        Some(Self {
-            source,
-            scale: window.scale_factor(),
-        })
+        #[cfg(any(target_os = "linux", windows))]
+        {
+            Some(Self {
+                source,
+                scale: window.scale_factor(),
+            })
+        }
+        #[cfg(not(any(target_os = "linux", windows)))]
+        {
+            let _ = source;
+            None
+        }
     }
 
     #[cfg(target_os = "linux")]
@@ -66,33 +76,40 @@ impl Pointer {
 
     /// Where it is now, unless the platform won't say.
     pub fn at(&self) -> Option<Drag> {
-        let (x, y) = match &self.source {
-            #[cfg(target_os = "linux")]
-            Source::X11(connection, window) => {
-                use x11rb::protocol::xproto::ConnectionExt;
-                let pointer = connection.query_pointer(*window).ok()?.reply().ok()?;
-                (f64::from(pointer.win_x), f64::from(pointer.win_y))
-            }
-            #[cfg(windows)]
-            Source::Win32(hwnd) => {
-                use windows_sys::Win32::Foundation::POINT;
-                use windows_sys::Win32::Graphics::Gdi::ScreenToClient;
-                use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
-                let mut point = POINT { x: 0, y: 0 };
-                // SAFETY: the point outlives both calls, and a window gone
-                // meanwhile makes ScreenToClient fail rather than misbehave.
-                if unsafe { GetCursorPos(&mut point) } == 0
-                    || unsafe { ScreenToClient(*hwnd as _, &mut point) } == 0
-                {
-                    return None;
+        #[cfg(not(any(target_os = "linux", windows)))]
+        {
+            None
+        }
+        #[cfg(any(target_os = "linux", windows))]
+        {
+            let (x, y) = match &self.source {
+                #[cfg(target_os = "linux")]
+                Source::X11(connection, window) => {
+                    use x11rb::protocol::xproto::ConnectionExt;
+                    let pointer = connection.query_pointer(*window).ok()?.reply().ok()?;
+                    (f64::from(pointer.win_x), f64::from(pointer.win_y))
                 }
-                (f64::from(point.x), f64::from(point.y))
-            }
-        };
-        Some(Drag::Moved {
-            x: x / self.scale,
-            y: y / self.scale,
-        })
+                #[cfg(windows)]
+                Source::Win32(hwnd) => {
+                    use windows_sys::Win32::Foundation::POINT;
+                    use windows_sys::Win32::Graphics::Gdi::ScreenToClient;
+                    use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
+                    let mut point = POINT { x: 0, y: 0 };
+                    // SAFETY: the point outlives both calls, and a window gone
+                    // meanwhile makes ScreenToClient fail rather than misbehave.
+                    if unsafe { GetCursorPos(&mut point) } == 0
+                        || unsafe { ScreenToClient(*hwnd as _, &mut point) } == 0
+                    {
+                        return None;
+                    }
+                    (f64::from(point.x), f64::from(point.y))
+                }
+            };
+            Some(Drag::Moved {
+                x: x / self.scale,
+                y: y / self.scale,
+            })
+        }
     }
 }
 

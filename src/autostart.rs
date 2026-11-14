@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 
 /// Whether this platform can start Yapfast at sign-in.
-pub const SUPPORTED: bool = cfg!(any(target_os = "linux", windows));
+pub const SUPPORTED: bool = cfg!(any(target_os = "linux", windows, target_os = "macos"));
 
 /// The name the entry goes by: the Run key's value, and the Inno Setup
 /// installer's, which writes the same one.
@@ -106,7 +106,9 @@ fn windows_quoted(argument: &str) -> String {
 
 #[cfg(target_os = "linux")]
 use linux as platform;
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(target_os = "macos")]
+use macos as platform;
+#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
 use none as platform;
 #[cfg(windows)]
 use windows as platform;
@@ -378,7 +380,73 @@ mod windows {
     }
 }
 
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(target_os = "macos")]
+mod macos {
+    use std::path::PathBuf;
+
+    const LABEL: &str = "io.github.yapfast.Yapfast";
+
+    fn plist_path() -> Option<PathBuf> {
+        let home = std::env::var_os("HOME")?;
+        Some(
+            PathBuf::from(home)
+                .join("Library")
+                .join("LaunchAgents")
+                .join(format!("{LABEL}.plist")),
+        )
+    }
+
+    pub fn enabled() -> bool {
+        plist_path().is_some_and(|path| path.is_file())
+    }
+
+    pub fn write(command: &[String]) -> std::io::Result<()> {
+        let path = plist_path().ok_or_else(|| std::io::Error::other("no HOME directory"))?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let mut args = String::new();
+        for arg in command {
+            let escaped = arg
+                .replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;");
+            args.push_str(&format!("        <string>{escaped}</string>\n"));
+        }
+        let plist = format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>{LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+{args}    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <false/>
+</dict>
+</plist>
+"#
+        );
+        std::fs::write(path, plist)
+    }
+
+    pub fn remove() -> std::io::Result<()> {
+        let Some(path) = plist_path() else {
+            return Ok(());
+        };
+        match std::fs::remove_file(path) {
+            Ok(()) => Ok(()),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(err) => Err(err),
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
 mod none {
     pub fn enabled() -> bool {
         false
