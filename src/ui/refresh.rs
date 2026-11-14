@@ -3623,6 +3623,34 @@ impl Adapter {
     /// forwarding, and the quick switcher.
     fn show_dialogs(&mut self, window: &YapfastWindow) {
         let state = &self.app.state;
+        // The linked Discord accounts, by username as Discord lists them, for
+        // Switch Accounts and Manage Accounts.
+        update_model(
+            &self.models.accounts,
+            state
+                .discord_accounts
+                .iter()
+                .map(|account| {
+                    let label = account.label();
+                    AccountRow {
+                        id: account.id.as_str().into(),
+                        name: label.into(),
+                        initial: initial(label),
+                        tint: tint(label),
+                        picture_url: account.avatar.as_deref().unwrap_or_default().into(),
+                        active: account.id == state.discord_active,
+                    }
+                })
+                .collect(),
+        );
+        let managing = state.manage_accounts.as_ref();
+        window.set_manage_accounts_open(managing.is_some());
+        window.set_account_menu_id(
+            managing
+                .and_then(|dialog| dialog.menu.as_deref())
+                .unwrap_or_default()
+                .into(),
+        );
         let add_friend = state.add_friend.as_ref();
         if add_friend.is_some() && !window.get_add_friend_open() {
             window.set_add_friend_name(SharedString::default());

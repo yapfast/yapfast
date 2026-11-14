@@ -1,7 +1,8 @@
 //! Linking a Discord account by QR code, or by a token the person pastes,
 //! beside the chat backend, so a build without Matrix can link before
-//! anything else runs. The login goes into the OS credential store; see
-//! `yapfast_discord::remote_auth`.
+//! anything else runs. The login goes into the OS credential store beside
+//! the accounts already linked, and becomes the active one; see
+//! `yapfast_discord::remote_auth` and `yapfast_discord::token`.
 
 use tokio::sync::mpsc::{self, UnboundedReceiver};
 use yapfast_discord::{

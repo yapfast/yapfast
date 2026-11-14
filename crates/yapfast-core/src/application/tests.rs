@@ -5490,6 +5490,196 @@ fn links_discord_by_qr_code_and_unlinks_it() {
     assert!(app.state.busy);
 }
 
+#[cfg(feature = "discord")]
+fn linked_accounts(app: &mut Application, ids: &[&str], active: &str) {
+    app.apply(Event::DiscordAccounts {
+        accounts: ids
+            .iter()
+            .map(|id| chat::DiscordAccount {
+                id: (*id).into(),
+                username: format!("user{id}"),
+                name: format!("User {id}"),
+                avatar: None,
+            })
+            .collect(),
+        active: active.into(),
+    });
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn switches_between_linked_discord_accounts() {
+    let mut app = connected();
+    app.state.discord_linked = true;
+    linked_accounts(&mut app, &["1", "2"], "1");
+    assert_eq!(app.state.discord_active, "1");
+
+    assert!(
+        app.dispatch(Action::SwitchDiscordAccount("1".into()))
+            .is_empty(),
+        "already active"
+    );
+    assert!(
+        app.dispatch(Action::SwitchDiscordAccount("9".into()))
+            .is_empty(),
+        "not linked"
+    );
+    assert!(matches!(
+        app.dispatch(Action::SwitchDiscordAccount("2".into())).as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::SwitchAccount(id)))] if id == "2"
+    ));
+
+    // What the account before showed goes, and linking stays on.
+    app.state.account_name = Some("User 1".into());
+    app.state.add_friend = Some(AddFriend::default());
+    app.apply(Event::DiscordSwitched);
+    linked_accounts(&mut app, &["1", "2"], "2");
+    assert_eq!(app.state.account_name, None);
+    assert!(app.state.add_friend.is_none());
+    assert!(app.state.discord_linked);
+    assert_eq!(app.state.discord_active, "2");
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn a_login_linked_before_accounts_were_several_gets_its_name_from_the_connection() {
+    use yapfast_discord::service::{Account, Snapshot, Status};
+    let mut app = connected();
+    app.state.discord_linked = true;
+    // As stored for a migrated login: the id, and nothing of the account.
+    let stored = || Event::DiscordAccounts {
+        accounts: vec![chat::DiscordAccount {
+            id: "1400000000000000001".into(),
+            ..Default::default()
+        }],
+        active: "1400000000000000001".into(),
+    };
+    app.apply(stored());
+    // Never blank: the id stands in for the name.
+    assert_eq!(app.state.discord_accounts[0].label(), "1400000000000000001");
+
+    let account = |name: &str| Account {
+        username: "derfayberr".into(),
+        name: name.into(),
+        avatar: "https://cdn.test/avatars/1/a.png".into(),
+        decoration: None,
+        nameplate: None,
+        premium_type: 0,
+        mfa_enabled: false,
+        has_email: true,
+    };
+    let snapshot = |name: &str| {
+        discord_event(Snapshot {
+            status: Status::Online,
+            user_id: Some("1400000000000000001".into()),
+            account: Some(account(name)),
+            ..Default::default()
+        })
+    };
+    app.apply(snapshot("Fayber"));
+    let row = &app.state.discord_accounts[0];
+    assert_eq!(row.label(), "derfayberr");
+    assert_eq!(row.name, "Fayber");
+    assert_eq!(
+        row.avatar.as_deref(),
+        Some("https://cdn.test/avatars/1/a.png")
+    );
+
+    // The stored list read again, before the profile was stored, keeps it.
+    app.apply(stored());
+    assert_eq!(app.state.discord_accounts[0].name, "Fayber");
+    // A change of name shows.
+    app.apply(snapshot("Fabian"));
+    assert_eq!(app.state.discord_accounts[0].name, "Fabian");
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn an_account_row_is_never_blank() {
+    let row = |id: &str, username: &str, name: &str| chat::DiscordAccount {
+        id: id.into(),
+        username: username.into(),
+        name: name.into(),
+        avatar: None,
+    };
+    assert_eq!(row("1", "bea", "Bea").label(), "bea");
+    assert_eq!(row("1", "", "Bea").label(), "Bea");
+    assert_eq!(row("14", "", "").label(), "14");
+    assert_eq!(row("login-00ff", "", "").label(), "Account");
+    assert_eq!(row("", "", "").label(), "Account");
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn manages_linked_discord_accounts() {
+    use crate::discord_link::Progress;
+    let mut app = connected();
+    app.state.discord_linked = true;
+    assert!(
+        app.dispatch(Action::LinkDiscord).is_empty(),
+        "linked accounts are added from Manage Accounts"
+    );
+    app.dispatch(Action::OpenManageAccounts);
+    assert!(app.state.manage_accounts.is_none(), "none linked to manage");
+    linked_accounts(&mut app, &["1", "2"], "1");
+    app.dispatch(Action::OpenManageAccounts);
+    assert!(app.state.manage_accounts.is_some());
+    assert!(app.state.dialog_open());
+
+    // The "more" menu opens for one account, closes when opened again, and
+    // closes with an empty id.
+    app.dispatch(Action::OpenAccountMenu("2".into()));
+    assert_eq!(
+        app.state
+            .manage_accounts
+            .as_ref()
+            .and_then(|d| d.menu.as_deref()),
+        Some("2")
+    );
+    app.dispatch(Action::OpenAccountMenu("2".into()));
+    assert!(app.state.manage_accounts.as_ref().unwrap().menu.is_none());
+
+    // Logging the other account out asks only the backend.
+    assert!(matches!(
+        app.dispatch(Action::LogOutDiscordAccount("2".into())).as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::RemoveAccount(id)))] if id == "2"
+    ));
+    assert!(
+        app.dispatch(Action::LogOutDiscordAccount("9".into()))
+            .is_empty(),
+        "not linked"
+    );
+
+    // Adding an account links beside those linked, and the new one connects.
+    assert!(matches!(
+        app.dispatch(Action::LinkDiscord).as_slice(),
+        [Effect::LinkDiscord]
+    ));
+    assert_eq!(app.state.discord_link, Some(DiscordLink::Starting));
+    assert!(matches!(
+        app.linking(Progress::Linked).as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::Start))]
+    ));
+
+    // Closing it stops linking under way.
+    app.dispatch(Action::LinkDiscord);
+    assert!(matches!(
+        app.dispatch(Action::CloseManageAccounts).as_slice(),
+        [Effect::StopDiscordLink]
+    ));
+    assert!(app.state.manage_accounts.is_none());
+
+    // The active account logs out of settings without the others.
+    assert!(matches!(
+        app.dispatch(Action::UnlinkDiscord).as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::RemoveAccount(id)))] if id == "1"
+    ));
+
+    // The last one leaving closes the dialog.
+    linked_accounts(&mut app, &[], "");
+    assert!(app.state.manage_accounts.is_none());
+}
+
 #[test]
 #[cfg(feature = "discord")]
 fn links_discord_by_token() {

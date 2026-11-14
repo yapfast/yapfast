@@ -435,6 +435,33 @@ impl Application {
         vec![Effect::Backend(Command::Discord(command))]
     }
 
+    /// Takes what the connected account says of itself into its row of the
+    /// switcher. The list is read when Yapfast starts, before the account
+    /// has connected, so a login linked before there could be several has
+    /// no name or picture in it until now; the connection's own data fills
+    /// them in, and keeps them current when they change.
+    #[cfg(feature = "discord")]
+    pub(super) fn describe_active_account(&mut self, username: &str, name: &str, avatar: &str) {
+        let active = self.state.discord_active.as_str();
+        let Some(row) = self
+            .state
+            .discord_accounts
+            .iter_mut()
+            .find(|account| account.id == active)
+        else {
+            return;
+        };
+        if !username.is_empty() && row.username != username {
+            username.clone_into(&mut row.username);
+        }
+        if !name.is_empty() && row.name != name {
+            name.clone_into(&mut row.name);
+        }
+        if !avatar.is_empty() && row.avatar.as_deref() != Some(avatar) {
+            row.avatar = Some(avatar.to_owned());
+        }
+    }
+
     /// Shows what a Discord snapshot says about the account and its lists.
     #[cfg(feature = "discord")]
     pub(super) fn show_snapshot(
@@ -445,6 +472,7 @@ impl Application {
         if let Some(account) = &snapshot.account {
             self.state.account_username =
                 Some(account.username.clone()).filter(|name| !name.is_empty());
+            self.describe_active_account(&account.username, &account.name, &account.avatar);
         }
         // Without Matrix, the account is Discord's.
         #[cfg(not(feature = "matrix"))]
@@ -651,6 +679,63 @@ impl Application {
     #[cfg(feature = "discord")]
     fn prefetch_emoji(&mut self) -> Vec<Effect> {
         self.cache_emoji_pictures()
+    }
+
+    /// Whether linking a Discord account can start: with none linked, or from
+    /// Manage Accounts, which adds one to those linked.
+    pub(super) fn can_link_discord(&self) -> bool {
+        let state = &self.state;
+        cfg!(feature = "discord")
+            && !state.preview
+            && (!state.discord_linked || state.manage_accounts.is_some())
+    }
+
+    /// Whether a Discord account with this id is linked on this device.
+    pub(super) fn linked_account(&self, id: &str) -> bool {
+        self.state
+            .discord_accounts
+            .iter()
+            .any(|account| account.id == id)
+    }
+
+    /// Leaves what belonged to the Discord account before after another
+    /// became the active one: everything it showed goes, and the new
+    /// account's snapshots fill it in again as they come.
+    pub(super) fn switched_discord(&mut self) -> Vec<Effect> {
+        let state = &mut self.state;
+        state.manage_accounts = None;
+        state.add_friend = None;
+        state.status_editor = None;
+        state.new_dm = None;
+        state.invite = None;
+        state.join = None;
+        state.oauth = None;
+        state.scheduled_event = None;
+        state.gift = None;
+        state.channel_dialog = None;
+        state.leave = None;
+        state.move_sync = None;
+        state.profile_editor = None;
+        state.forwarding = None;
+        state.add_people = None;
+        state.switch_voice = None;
+        state.reactions = None;
+        state.interaction_modal = None;
+        state.select_menu = None;
+        state.profile = None;
+        state.panel_profile = None;
+        state.account_name = None;
+        state.account_username = None;
+        state.account_avatar = None;
+        state.account_decoration = None;
+        state.account_nameplate = None;
+        state.account_profile = None;
+        state.discord_presence = None;
+        state.pending_watch = None;
+        state.pending_camera = None;
+        let effects = self.forget_discord();
+        self.state.discord_linked = true;
+        effects
     }
 
     /// Forgets the Discord account after it was unlinked.
