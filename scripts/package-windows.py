@@ -25,7 +25,7 @@ INNO_SETUP_SHA256 = "0362a383ed217d4c4239b5933866dd96d3eb2102737da92f80f6057a4b4
 # Cargo features, the suffix of file names and release tag, and the name the
 # installer shows, for each flavour scripts/build-windows builds.
 FLAVOURS = {
-    "discord": {"features": ["--no-default-features", "--features", "desktop,discord"], "suffix": "", "edition": None},
+    "discord": {"features": ["--no-default-features", "--features", "desktop,discord,plugins"], "suffix": "", "edition": None},
     "full": {"features": ["--features", "matrix"], "suffix": "-full-preview", "edition": "full preview"},
 }
 
@@ -140,6 +140,11 @@ def main():
         package = temporary / f"{base}-windows-x64"
         package.mkdir()
         shutil.copy2(executable, package / "yapfast.exe")
+        # The plugin system's helper: the app starts it, and a package without
+        # it has the feature and nothing to run a plugin with.
+        helper = executable.with_name("yapfast-plugins.exe")
+        if helper.is_file():
+            shutil.copy2(helper, package / "yapfast-plugins.exe")
         shutil.copy2(ROOT / "LICENSE", package / "LICENSE.txt")
         # The source snapshot goes beside the packages, on the release page,
         # rather than into every install; SOURCE.txt says where.

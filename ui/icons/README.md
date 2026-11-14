@@ -15,12 +15,13 @@ glyphs such as check, x and chevrons.
   headphones (headphones-round), history, image (gallery), inbox, link, lock,
   log-out (logout-2), message-circle (chat-round), message-square-text
   (chat-square), palette (palette-2), pause, pencil (pen), phone, phone-off
-  (end-call), pin, play, refresh-cw (refresh), scissors, send-horizontal
-  (plain), settings, shield, smile and smile-plus (smile-circle), square-pen
-  (pen-new-square), star (star, Linear style), star-filled (star), sticky-note
-  (notes), text-select (text-selection), trash-2 (trash-bin-trash),
-  trending-up (graph-up), triangle-alert (danger-triangle), user, users
-  (users-group-rounded) and video (videocamera).
+  (end-call), pin, play, plugins (widget-add, taken on 2026-11-09),
+  refresh-cw (refresh), scissors, send-horizontal (plain), settings, shield,
+  smile and smile-plus (smile-circle), square-pen (pen-new-square), star
+  (star, Linear style), star-filled (star), sticky-note (notes), text-select
+  (text-selection), trash-2 (trash-bin-trash), trending-up (graph-up),
+  triangle-alert (danger-triangle), user, users (users-group-rounded) and
+  video (videocamera).
 - Adapted from Solar: headphone-off, eye-off, pin-off and video-off are the
   icon of the same name with a slash, and a gap cut around it; screen-share is
   Solar's monitor with an arrow cut out of its screen, and screen-share-off

@@ -1,0 +1,830 @@
+//! End-to-end runs of the helper, as the parent runs it: the real binary, the
+//! real pipe and the real Extism runtime, driven by the frames in
+//! [`yapfast_plugin_api::frame`] and [`yapfast_plugin_api::message`].
+//!
+//! Every test starts `yapfast-plugins run` itself, so a scenario that hangs is
+//! that test's problem alone: each wait has a budget, and the child is killed
+//! when the test ends, whether it passed or not.
+//!
+//! The modules are the text fixtures in `testing/plugins/`, which wasmtime
+//! compiles at load, so nothing here needs a WebAssembly toolchain.
+
+use std::io::BufReader;
+use std::path::{Path, PathBuf};
+use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::thread;
+use std::time::{Duration, Instant};
+
+use serde_json::json;
+use tempfile::TempDir;
+use yapfast_plugin_api::API_VERSION;
+use yapfast_plugin_api::PluginId;
+use yapfast_plugin_api::call::HostReturn;
+use yapfast_plugin_api::event::{EventEnvelope, EventKind, Network};
+use yapfast_plugin_api::frame::{Frame, FrameKind, read_frame, write_frame};
+use yapfast_plugin_api::hook::{Draft, HookKind, HookOutcome, HookRequest, HookSubject};
+use yapfast_plugin_api::message::{Activation, Fault, FaultKind, FromHelper, ToHelper};
+
+/// How long one scenario may take to say the next thing it must say.
+///
+/// The slowest step is a deadline being noticed, and the helper's own start
+/// budget for that is seconds; compiling a module from cold takes tens of
+/// milliseconds. This is generous beside both and still bounds a hung helper.
+const BUDGET: Duration = Duration::from_secs(20);
+
+/// The pages a plugin gets unless its scenario needs another number.
+const PAGES: u32 = 256;
+
+#[test]
+fn the_handshake_is_answered_with_ready() {
+    let mut helper = Helper::start("hello");
+    helper.send(FrameKind::Hello, 1, &ToHelper::Hello { api: API_VERSION });
+    match helper.wait_for(BUDGET, "Ready", |message| {
+        matches!(message, FromHelper::Ready { .. })
+    }) {
+        FromHelper::Ready { api, version } => {
+            assert_eq!(api, API_VERSION, "the helper speaks the parent's API");
+            assert!(!version.is_empty(), "the helper names its own version");
+        }
+        other => panic!("expected Ready, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_plugin_activates_and_runs_an_event() {
+    let mut helper = Helper::start("activate");
+    let echo = plugin("echo");
+    helper.activate(&echo, "echo.wat", PAGES);
+    match helper.wait_for(BUDGET, "Activated", |message| {
+        matches!(message, FromHelper::Activated { .. })
+    }) {
+        FromHelper::Activated {
+            plugin,
+            state,
+            memory_pages,
+        } => {
+            assert_eq!(plugin, echo);
+            assert_eq!(state, None, "nothing was handed on by a first activation");
+            assert!(
+                memory_pages > 0 && memory_pages <= PAGES,
+                "an active plugin holds at most the pages it asked for, not {memory_pages}"
+            );
+        }
+        other => panic!("expected Activated, got {other:?}"),
+    }
+    helper.event(&echo, an_event());
+    helper.wait_for(BUDGET, "EventDone", |message| {
+        matches!(message, FromHelper::EventDone { .. })
+    });
+}
+
+#[test]
+fn a_spinning_activation_is_cancelled() {
+    let mut helper = Helper::start("spin");
+    let spin = plugin("spin");
+    helper.activate(&spin, "spin.wat", PAGES);
+    let fault = helper.wait_for_fault(BUDGET, FaultKind::Deadline);
+    assert_eq!(fault.kind, FaultKind::Deadline);
+}
+
+#[test]
+fn an_allocation_past_the_page_limit_is_an_out_of_memory_fault() {
+    let mut helper = Helper::start("hog");
+    let hog = plugin("hog");
+    // 64 pages is 4 MiB, and the fixture grows past whatever it is given.
+    helper.activate(&hog, "hog.wat", 64);
+    let fault = helper.wait_for_fault(BUDGET, FaultKind::OutOfMemory);
+    assert_eq!(fault.kind, FaultKind::OutOfMemory);
+}
+
+#[test]
+fn a_trap_is_a_trap_fault() {
+    let mut helper = Helper::start("trap");
+    let trapped = plugin("trap");
+    helper.activate(&trapped, "trap.wat", PAGES);
+    let fault = helper.wait_for_fault(BUDGET, FaultKind::Trap);
+    assert_eq!(fault.kind, FaultKind::Trap);
+}
+
+#[test]
+fn a_plugin_that_refuses_to_activate_is_a_fault() {
+    let mut helper = Helper::start("bad-activate");
+    let bad = plugin("bad-activate");
+    helper.activate(&bad, "bad_activate.wat", PAGES);
+    let fault = helper.wait_for_fault(BUDGET, FaultKind::ActivateFailed);
+    assert_eq!(fault.kind, FaultKind::ActivateFailed);
+}
+
+#[test]
+fn a_guest_call_reaches_the_parent_and_is_answered() {
+    let mut helper = Helper::start("call");
+    let slow = plugin("slow-host");
+    // A plugin whose `yf_event` answers nothing, which is what the ABI says an
+    // event call answers: `echo.wat` copies its batch back, and the runtime
+    // refuses that as an answer an event doesn't take, so it would fault while
+    // this test waited for its `EventDone`.
+    let other = plugin("other");
+    helper.activate(&slow, "slow_host.wat", PAGES);
+    helper.activate(&other, "bad_answer.wat", PAGES);
+    for _ in [&slow, &other] {
+        helper.wait_for(BUDGET, "Activated", |message| {
+            matches!(message, FromHelper::Activated { .. })
+        });
+    }
+
+    // The fixture's handler asks for a URL, which cannot be answered from
+    // inside the helper, so the call travels to the parent.
+    helper.event(&slow, an_event());
+    let (id, message) = helper.wait_for_frame(BUDGET, "Call", |message| {
+        matches!(message, FromHelper::Call { .. })
+    });
+    let call = match message {
+        FromHelper::Call {
+            plugin,
+            call,
+            request,
+        } => {
+            assert_eq!(plugin, slow);
+            assert!(call > 0, "a host call has the id its answer names");
+            assert_eq!(request.method, "http.fetch");
+            assert_eq!(
+                request.payload["url"], "https://api.example.com/version",
+                "the fixture's own request reaches the parent"
+            );
+            call
+        }
+        other => panic!("expected Call, got {other:?}"),
+    };
+
+    // While that answer is missing, another plugin still runs, because nothing
+    // is waiting on the parent.
+    helper.event(&other, an_event());
+    helper.wait_for(BUDGET, "EventDone", |message| {
+        matches!(message, FromHelper::EventDone { .. })
+    });
+
+    // The answer reaches the guest as a later event, and the instance takes it
+    // without faulting.
+    helper.send(
+        FrameKind::Reply,
+        id,
+        &ToHelper::Return {
+            plugin: slow.clone(),
+            // The id the guest was told to expect the answer under.
+            call,
+            answer: HostReturn::Pending {
+                tag: "lookup".into(),
+            },
+        },
+    );
+    helper.event(&slow, an_event());
+    helper.wait_for(BUDGET, "EventDone", |message| {
+        matches!(message, FromHelper::EventDone { .. })
+    });
+}
+
+/// A method the helper once answered `unsupported` for, though the app has it:
+/// the table of forwarded names left `ui.set_slot` out, so no guest could draw
+/// anything in a slot however finished the parent's side was. A check on that
+/// table alone would not prove the call travels, which is what this does.
+#[test]
+fn a_ui_call_reaches_the_parent_rather_than_answering_unsupported() {
+    let mut helper = Helper::start("ui-slot");
+    let slots = plugin("slots");
+    let folder = tempfile::tempdir().expect("a folder for the rewritten module");
+    let module = asking_for(
+        &folder,
+        r#"{"method":"ui.set_slot","payload":{"slot":"banner","tree":{}}}"#,
+    );
+    helper.activate_module(&slots, &module, PAGES);
+    helper.wait_for(BUDGET, "Activated", |message| {
+        matches!(message, FromHelper::Activated { .. })
+    });
+
+    helper.event(&slots, an_event());
+    // The call is sent while the guest is still inside its event handler, and an
+    // `unsupported` answer is one the guest takes and finishes with, so by the
+    // time the event is done the call has either gone out or never will. It
+    // does not follow that it arrives first: a call travels through the pipe's
+    // relay thread and `EventDone` straight to the writer, so on a loaded
+    // machine the relay can be scheduled after the writer has sent both. Once
+    // the event is done, the test waits for the call itself.
+    helper.wait_for(BUDGET, "EventDone", |message| {
+        matches!(message, FromHelper::EventDone { .. })
+    });
+    let early = helper
+        .seen
+        .iter()
+        .position(|message| matches!(message, FromHelper::Call { .. }));
+    let forwarded = match early {
+        Some(at) => helper.seen.remove(at),
+        None => helper.wait_for(
+            BUDGET,
+            "the `ui.set_slot` call, which a helper that answers it `unsupported` never sends",
+            |message| matches!(message, FromHelper::Call { .. }),
+        ),
+    };
+    match forwarded {
+        FromHelper::Call {
+            plugin,
+            call,
+            request,
+        } => {
+            assert_eq!(plugin, slots);
+            assert!(call > 0, "a host call has the id its answer names");
+            assert_eq!(
+                request.method, "ui.set_slot",
+                "a name this build forwards reaches the parent"
+            );
+            assert_eq!(
+                request.payload["slot"], "banner",
+                "the request's own payload reaches the parent"
+            );
+        }
+        other => panic!("expected the `ui.set_slot` call, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_hook_that_answers_nonsense_fails_open() {
+    let mut helper = Helper::start("bad-answer");
+    let bad = plugin("bad-answer");
+    helper.activate(&bad, "bad_answer.wat", PAGES);
+    helper.wait_for(BUDGET, "Activated", |message| {
+        matches!(message, FromHelper::Activated { .. })
+    });
+    let id = helper.next_id();
+    helper.send(
+        FrameKind::Request,
+        id,
+        &ToHelper::Hook {
+            chain: vec![bad.clone()],
+            request: a_hook(),
+        },
+    );
+    // The answer that isn't a HookOutcome is a fault against the plugin, and
+    // the chain answers as if it had said nothing.
+    let fault = helper.wait_for_fault(BUDGET, FaultKind::BadAnswer);
+    assert_eq!(fault.kind, FaultKind::BadAnswer);
+    match helper.wait_for(BUDGET, "HookDone", |message| {
+        matches!(message, FromHelper::HookDone { .. })
+    }) {
+        FromHelper::HookDone {
+            outcome,
+            failures,
+            by,
+        } => {
+            assert_eq!(
+                outcome,
+                HookOutcome::Unchanged,
+                "a hook that fails leaves the draft as it was"
+            );
+            assert!(by.is_none(), "a chain nobody answered into has no answerer");
+            assert_eq!(failures.len(), 1, "the failure is reported, not hidden");
+            assert_eq!(failures[0].0, bad);
+            assert_eq!(failures[0].1.kind, FaultKind::BadAnswer);
+        }
+        other => panic!("expected HookDone, got {other:?}"),
+    }
+}
+
+/// A hook whose plugin never returns is cancelled at that plugin's own budget,
+/// not at the chain's and not at an activation's: it is what a person typing
+/// waits for, so it is the one deadline worth measuring.
+///
+/// The chain answers as if the plugin had said nothing, which is the fail-open
+/// the contract promises, and the helper is still serving afterwards: a helper
+/// that a hang took with it would be no better than a delay.
+#[test]
+fn a_hung_hook_is_cancelled_and_the_chain_answers_without_it() {
+    let mut helper = Helper::start("hung-hook");
+    let hung = plugin("hung-hook");
+    helper.activate(&hung, "spin_hook.wat", PAGES);
+    helper.wait_for(BUDGET, "Activated", |message| {
+        matches!(message, FromHelper::Activated { .. })
+    });
+
+    let started = Instant::now();
+    let id = helper.next_id();
+    helper.send(
+        FrameKind::Request,
+        id,
+        &ToHelper::Hook {
+            chain: vec![hung.clone()],
+            request: a_hook(),
+        },
+    );
+    // The instance is thrown away first, because it stopped wherever the cancel
+    // found it, and then the chain answers without it.
+    let fault = helper.wait_for(BUDGET, "the deadline fault", |message| {
+        matches!(message, FromHelper::Fault { .. })
+    });
+    let FromHelper::Fault { fault, .. } = fault else {
+        unreachable!("the predicate matched a fault")
+    };
+    assert_eq!(fault.kind, FaultKind::Deadline);
+    match helper.wait_for(BUDGET, "HookDone", |message| {
+        matches!(message, FromHelper::HookDone { .. })
+    }) {
+        FromHelper::HookDone {
+            outcome, failures, ..
+        } => {
+            assert_eq!(
+                outcome,
+                HookOutcome::Unchanged,
+                "a plugin that ran late has no opinion on the draft"
+            );
+            assert_eq!(failures.len(), 1, "and the failure is reported");
+            assert_eq!(failures[0].0, hung);
+            assert_eq!(failures[0].1.kind, FaultKind::Deadline);
+        }
+        other => panic!("expected HookDone, got {other:?}"),
+    }
+    let took = started.elapsed();
+    assert!(
+        took < Duration::from_millis(100),
+        "a hung plugin costs its own 25 ms, not the chain's 100 and not an \
+         activation's: this took {took:?}"
+    );
+    // Still serving: the process outlives the plugin that hung in it.
+    helper.event(&hung, an_event());
+    helper.wait_for(BUDGET, "EventDone", |message| {
+        matches!(message, FromHelper::EventDone { .. })
+    });
+}
+
+/// What JSON costs a hook round trip, for plan §10.2: the exchange through the
+/// pipe, the scheduler and Extism, against encoding and decoding the same two
+/// messages. MessagePack is only worth adding if JSON is over a fifth of it.
+///
+/// It is a test rather than a benchmark so that it runs where the rest do: the
+/// numbers are printed for `--nocapture`, and the assertion is the plan's own
+/// threshold, loose enough that a busy machine can't fail it.
+#[test]
+fn the_json_in_a_hook_is_a_small_part_of_the_round_trip() {
+    const SAMPLES: u32 = 200;
+
+    let mut helper = Helper::start("json-cost");
+    let echo = plugin("json-cost");
+    helper.activate(&echo, "echo.wat", PAGES);
+    helper.wait_for(BUDGET, "Activated", |message| {
+        matches!(message, FromHelper::Activated { .. })
+    });
+
+    // The JSON a hook costs both sides: the parent writes the request and reads
+    // the answer, and the helper reads the request and writes the answer.
+    let request = ToHelper::Hook {
+        chain: vec![echo.clone()],
+        request: a_hook(),
+    };
+    let answer = FromHelper::HookDone {
+        outcome: HookOutcome::Unchanged,
+        failures: Vec::new(),
+        by: None,
+    };
+    let json = {
+        let started = Instant::now();
+        for _ in 0..SAMPLES {
+            let payload = serde_json::to_vec(&request).expect("a request is JSON");
+            let read: ToHelper = serde_json::from_slice(&payload).expect("it reads back");
+            let payload = serde_json::to_vec(&answer).expect("an answer is JSON");
+            let read_answer: FromHelper = serde_json::from_slice(&payload).expect("it reads back");
+            std::hint::black_box((read, read_answer));
+        }
+        started.elapsed() / SAMPLES
+    };
+
+    // The exchange itself, one hook at a time, each answered before the next.
+    let round_trip = {
+        let started = Instant::now();
+        for _ in 0..SAMPLES {
+            let id = helper.next_id();
+            helper.send(
+                FrameKind::Request,
+                id,
+                &ToHelper::Hook {
+                    chain: vec![echo.clone()],
+                    request: a_hook(),
+                },
+            );
+            helper.wait_for(BUDGET, "HookDone", |message| {
+                matches!(message, FromHelper::HookDone { .. })
+            });
+        }
+        started.elapsed() / SAMPLES
+    };
+
+    let share = json.as_secs_f64() / round_trip.as_secs_f64();
+    println!(
+        "a hook's round trip: {round_trip:?} per exchange, JSON {json:?} of it, {:.1}%",
+        share * 100.0
+    );
+    assert!(
+        share < 0.2,
+        "MessagePack is worth it only past 20% of a hook (plan §10.2), and JSON is \
+         {:.1}% of {round_trip:?}",
+        share * 100.0
+    );
+}
+
+#[test]
+fn shutdown_ends_the_process() {
+    let mut helper = Helper::start("shutdown");
+    helper.send(FrameKind::Hello, 1, &ToHelper::Hello { api: API_VERSION });
+    helper.wait_for(BUDGET, "Ready", |message| {
+        matches!(message, FromHelper::Ready { .. })
+    });
+    let id = helper.next_id();
+    helper.send(FrameKind::Request, id, &ToHelper::Shutdown);
+    match helper.wait_for(BUDGET, "Bye", |message| {
+        matches!(message, FromHelper::Bye { .. })
+    }) {
+        FromHelper::Bye { reason } => assert!(!reason.is_empty(), "a Bye says why"),
+        other => panic!("expected Bye, got {other:?}"),
+    }
+    helper.wait_for_close(BUDGET);
+    let status = helper.reap(BUDGET);
+    assert!(
+        status.success(),
+        "a shutdown is a clean exit, not {status:?}"
+    );
+}
+
+/// A plugin of the scenarios' own naming, under a namespace nothing else uses.
+fn plugin(name: &str) -> PluginId {
+    PluginId::parse(&format!("com.example.{name}")).expect("a valid plugin id")
+}
+
+/// The folder the text fixtures live in.
+fn fixtures() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../testing/plugins")
+        .canonicalize()
+        .expect("the fixture folder is in the repository")
+}
+
+/// A module that asks the parent for `request`, made from the fixture that asks
+/// it for an `http.fetch`.
+///
+/// A fixture of its own would need a WebAssembly toolchain, and the helper loads
+/// compiled modules only, so a test that wants a guest to name another method
+/// rewrites the request in the one that already makes a call: it is a data
+/// segment, the module copies a fixed count of its own bytes into an
+/// allocation, and the replacement is padded to that count with spaces, which
+/// JSON reads as the end of the value.
+fn asking_for(folder: &TempDir, request: &str) -> PathBuf {
+    /// The request `slow_host.wat` carries, as its data segment holds it.
+    const ASKED: &str = r#"{"method":"http.fetch","payload":{"method":"GET","url":"https://api.example.com/version"}}"#;
+    assert!(
+        request.len() <= ASKED.len(),
+        "a rewritten request has to fit the {} bytes the fixture copies, and this one is {}",
+        ASKED.len(),
+        request.len()
+    );
+    let mut bytes = std::fs::read(fixtures().join("slow_host.wasm"))
+        .expect("the fixture module is in the repository");
+    let at = bytes
+        .windows(ASKED.len())
+        .position(|window| window == ASKED.as_bytes())
+        .expect("`slow_host.wasm` holds the request it copies");
+    let mut padded = request.to_owned();
+    padded.push_str(&" ".repeat(ASKED.len() - request.len()));
+    bytes[at..at + ASKED.len()].copy_from_slice(padded.as_bytes());
+    let module = folder.path().join("request.wasm");
+    std::fs::write(&module, bytes).expect("the rewritten module is written");
+    module
+}
+
+/// The event every scenario sends.
+fn an_event() -> EventEnvelope {
+    EventEnvelope {
+        kind: EventKind::MessageCreate,
+        network: Network::Discord,
+        at: 1,
+        room: Some("room-1".into()),
+        author: None,
+        own: false,
+        payload: json!({ "body": "hi" }),
+    }
+}
+
+/// A message about to be sent, as a hook sees it.
+fn a_hook() -> HookRequest {
+    HookRequest {
+        hook: HookKind::MessagePreSend,
+        subject: HookSubject::Draft(Draft {
+            room: "room-1".into(),
+            body: "hi".into(),
+            reply_to: None,
+            attachments: Vec::new(),
+        }),
+    }
+}
+
+/// A helper process, the pipe to it, and what it has said so far.
+struct Helper {
+    child: Child,
+    stdin: ChildStdin,
+    /// The frames a reader thread took off the helper's stdout.
+    frames: Receiver<Frame>,
+    /// Every message received so far, so a failure can say what the helper did
+    /// instead of what the test wanted.
+    seen: Vec<FromHelper>,
+    next: u64,
+    cache: PathBuf,
+}
+
+impl Helper {
+    /// Starts `yapfast-plugins run` with a cache directory of its own.
+    ///
+    /// A cache shared between tests would let one test's compile hide a module
+    /// the next one cannot compile.
+    fn start(name: &str) -> Helper {
+        let cache = std::env::temp_dir().join(format!("yapfast-plugins-e2e/{name}"));
+        let _ = std::fs::remove_dir_all(&cache);
+        std::fs::create_dir_all(&cache).expect("a cache directory for the helper");
+        let mut child = Command::new(env!("CARGO_BIN_EXE_yapfast-plugins"))
+            .arg("run")
+            .arg("--cache")
+            .arg(&cache)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            // The helper's own lines go to stderr; inheriting them puts them in
+            // the test's output instead of filling a pipe nobody drains.
+            .stderr(Stdio::inherit())
+            .spawn()
+            .expect("the helper binary starts");
+        let stdin = child.stdin.take().expect("the helper's stdin is piped");
+        let stdout = child.stdout.take().expect("the helper's stdout is piped");
+        // One thread reads every frame, and the test waits on the channel with
+        // a budget: a helper that stops talking must not stop the test.
+        let (sender, frames) = mpsc::channel();
+        thread::spawn(move || {
+            let mut reader = BufReader::new(stdout);
+            while let Ok(Some(frame)) = read_frame(&mut reader) {
+                if sender.send(frame).is_err() {
+                    return;
+                }
+            }
+        });
+        Helper {
+            child,
+            stdin,
+            frames,
+            seen: Vec::new(),
+            next: 1,
+            cache,
+        }
+    }
+
+    /// The id for the next request this test sends.
+    fn next_id(&mut self) -> u64 {
+        self.next += 1;
+        self.next
+    }
+
+    /// Writes one frame, and flushes it.
+    fn send(&mut self, kind: FrameKind, id: u64, message: &ToHelper) {
+        let payload = serde_json::to_vec(message).expect("a ToHelper is JSON");
+        write_frame(&mut self.stdin, &Frame::new(kind, id, payload))
+            .expect("the helper's pipe takes a frame");
+    }
+
+    /// Loads a fixture as `plugin`, without activating it.
+    fn load(&mut self, plugin: &PluginId, fixture: &str, memory_pages: u32) {
+        let id = self.next_id();
+        self.send(
+            FrameKind::Request,
+            id,
+            &ToHelper::Load {
+                plugin: plugin.clone(),
+                wasm: fixtures().join(fixture).with_extension("wasm"),
+                memory_pages,
+                wasi: false,
+            },
+        );
+    }
+
+    /// Asks the helper to instantiate and activate a plugin whose module is a
+    /// file the test wrote, rather than a fixture by name.
+    ///
+    /// Loading and activating are one phase, which is why the request carries
+    /// both.
+    fn activate_module(&mut self, plugin: &PluginId, wasm: &Path, memory_pages: u32) {
+        let id = self.next_id();
+        self.send(
+            FrameKind::Request,
+            id,
+            &ToHelper::Activate {
+                plugin: plugin.clone(),
+                load: Some(Activation {
+                    wasm: wasm.to_path_buf(),
+                    memory_pages,
+                    wasi: false,
+                    state: None,
+                }),
+            },
+        );
+    }
+
+    /// Activates one of the fixtures, giving it its module in the same request.
+    fn activate(&mut self, plugin: &PluginId, fixture: &str, memory_pages: u32) {
+        let wasm = fixtures().join(fixture).with_extension("wasm");
+        self.activate_module(plugin, &wasm, memory_pages);
+    }
+
+    /// Activates a plugin whose module the helper was given earlier, by a `load`.
+    fn activate_loaded(&mut self, plugin: &PluginId) {
+        let id = self.next_id();
+        self.send(
+            FrameKind::Request,
+            id,
+            &ToHelper::Activate {
+                plugin: plugin.clone(),
+                load: None,
+            },
+        );
+    }
+
+    /// Sends one event as a request, which is answered with `EventDone`.
+    fn event(&mut self, plugin: &PluginId, event: EventEnvelope) {
+        let id = self.next_id();
+        self.send(
+            FrameKind::Request,
+            id,
+            &ToHelper::Event {
+                plugin: plugin.clone(),
+                events: vec![event],
+                topics: Vec::new(),
+            },
+        );
+    }
+
+    /// Waits for the first message the predicate accepts, with its frame id.
+    ///
+    /// Anything else the helper says is passed over, except a fault: a scenario
+    /// that faults while the test waits for something else has already failed,
+    /// and saying so beats waiting out the budget.
+    fn wait_for_frame(
+        &mut self,
+        budget: Duration,
+        what: &str,
+        mut wanted: impl FnMut(&FromHelper) -> bool,
+    ) -> (u64, FromHelper) {
+        let deadline = Instant::now() + budget;
+        loop {
+            let frame = match self
+                .frames
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            {
+                Ok(frame) => frame,
+                Err(RecvTimeoutError::Timeout) => {
+                    panic!(
+                        "waiting for {what}, the helper said nothing; it had said {:?}",
+                        self.seen
+                    )
+                }
+                Err(RecvTimeoutError::Disconnected) => {
+                    panic!(
+                        "waiting for {what}, the helper closed its pipe; it had said {:?}",
+                        self.seen
+                    )
+                }
+            };
+            let message: FromHelper = match serde_json::from_slice(&frame.payload) {
+                Ok(message) => message,
+                Err(error) => panic!(
+                    "waiting for {what}, a {:?} frame wasn't a FromHelper: {error}; payload {}",
+                    frame.kind,
+                    String::from_utf8_lossy(&frame.payload)
+                ),
+            };
+            if wanted(&message) {
+                return (frame.id, message);
+            }
+            if let FromHelper::Fault { plugin, fault } = &message {
+                panic!(
+                    "waiting for {what}, `{plugin}` faulted: {:?} ({}); the helper said {:?}",
+                    fault.kind, fault.reason, self.seen
+                );
+            }
+            self.seen.push(message);
+        }
+    }
+
+    /// Waits for the first message the predicate accepts.
+    fn wait_for(
+        &mut self,
+        budget: Duration,
+        what: &str,
+        wanted: impl FnMut(&FromHelper) -> bool,
+    ) -> FromHelper {
+        self.wait_for_frame(budget, what, wanted).1
+    }
+
+    /// Waits for a fault of `kind`.
+    ///
+    /// A fault caused by a request is reported on its own, so that the plugin's
+    /// page shows it even when nobody waits, and answered to the request too;
+    /// the reported one is where the kind belongs, so this reads until it finds
+    /// it and fails with whatever kind came instead.
+    fn wait_for_fault(&mut self, budget: Duration, kind: FaultKind) -> Fault {
+        let deadline = Instant::now() + budget;
+        let mut seen: Option<Fault> = None;
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            let frame = match self.frames.recv_timeout(left) {
+                Ok(frame) => frame,
+                Err(RecvTimeoutError::Timeout) | Err(RecvTimeoutError::Disconnected) => panic!(
+                    "waiting for a {:?} fault, the helper said {:?}{}",
+                    kind,
+                    self.seen,
+                    match &seen {
+                        Some(fault) => format!("; the only fault was {:?}", fault.kind),
+                        None => " and no fault at all".to_owned(),
+                    }
+                ),
+            };
+            let Ok(message) = serde_json::from_slice::<FromHelper>(&frame.payload) else {
+                continue;
+            };
+            match message {
+                FromHelper::Fault { fault, .. } if fault.kind == kind => {
+                    assert!(!fault.reason.is_empty(), "a fault names what happened");
+                    return fault;
+                }
+                FromHelper::Fault { fault, .. } => {
+                    seen.get_or_insert(fault);
+                }
+                other => self.seen.push(other),
+            }
+        }
+    }
+
+    /// Waits for the helper to close its end of the pipe.
+    fn wait_for_close(&mut self, budget: Duration) {
+        let deadline = Instant::now() + budget;
+        loop {
+            match self
+                .frames
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            {
+                Ok(frame) => {
+                    if let Ok(message) = serde_json::from_slice::<FromHelper>(&frame.payload) {
+                        self.seen.push(message);
+                    }
+                }
+                Err(RecvTimeoutError::Disconnected) => return,
+                Err(RecvTimeoutError::Timeout) => {
+                    panic!("the helper's pipe stayed open; it had said {:?}", self.seen)
+                }
+            }
+        }
+    }
+
+    /// Waits for the child to exit, and reaps it.
+    fn reap(&mut self, budget: Duration) -> ExitStatus {
+        let deadline = Instant::now() + budget;
+        loop {
+            match self
+                .child
+                .try_wait()
+                .expect("the helper is this test's child")
+            {
+                Some(status) => return status,
+                None if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
+                None => panic!("the helper is still running after its pipe closed"),
+            }
+        }
+    }
+}
+
+impl Drop for Helper {
+    /// Kills a helper a failed test left behind, and takes the cache with it.
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        let _ = std::fs::remove_dir_all(&self.cache);
+    }
+}
+
+/// Loading and activating are two phases — a plugin's dependency closure is
+/// loaded in parallel and then activated — so between them is a slot with a
+/// module in the runtime and no instance. Taking that for "nothing is left" made
+/// the helper leave, and the activation arriving a moment later reached a closed
+/// pipe: a plugin that read "didn't answer its load request" on a machine under
+/// load and nowhere else.
+#[test]
+fn a_load_that_waits_a_moment_for_its_activation_is_not_the_end() {
+    let mut helper = Helper::start("slow-load");
+    let plugin = plugin("echo");
+    helper.load(&plugin, "bad_answer.wat", PAGES);
+    // Longer than the helper's own grace, so this proves the slot is counted as
+    // work in progress rather than the exit merely being late.
+    std::thread::sleep(Duration::from_secs(3));
+    helper.activate_loaded(&plugin);
+    helper.wait_for(BUDGET, "Activated", |message| {
+        matches!(message, FromHelper::Activated { .. })
+    });
+}

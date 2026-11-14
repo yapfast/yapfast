@@ -1,0 +1,4 @@
+# A plugin and the PDK are built on their own, outside Yapfast, and their
+# builds and locks are not part of what is published.
+target/
+Cargo.lock

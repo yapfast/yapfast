@@ -57,6 +57,10 @@ mod name_style;
 mod new_tags;
 mod pictures;
 mod placement;
+#[cfg(feature = "plugins")]
+mod plugin_settings;
+#[cfg(feature = "plugins")]
+mod plugins;
 mod polls;
 mod profile;
 mod refresh;
@@ -2023,6 +2027,15 @@ struct Adapter {
     /// buttons is showing.
     emoji_grid: emoji_grid::EmojiGrid,
     app: Application,
+    /// What the person did with what a plugin drew, as the window dispatched
+    /// it, for the tests that check a click produces one. Delivering it is the
+    /// application's, which owns the bridge, so this is the shell's half only.
+    #[cfg(test)]
+    plugin_inputs: std::cell::RefCell<Vec<yapfast_core::plugins::Input>>,
+    /// What a page's request set off, to run once the page has let go of its
+    /// own borrow: see `defer`.
+    #[cfg(feature = "plugins")]
+    deferred: Vec<Effect>,
     models: Models,
     icons: Icons,
     weak: std::rc::Weak<RefCell<Self>>,
@@ -2245,6 +2258,9 @@ struct Adapter {
     stickers: stickers::Shown,
     /// A Discord link handed to this start before Discord is online.
     pending_link: Option<String>,
+    /// The enabled plugins; `None` without any.
+    #[cfg(feature = "plugins")]
+    plugins: Option<Box<plugins::Plugins>>,
 }
 
 /// A place text is typed in: the channel's composer, the thread's beside it,
@@ -2380,9 +2396,20 @@ impl Adapter {
         };
         let models = Models::default();
         models.attach(window);
+        // Before the theme applies, so plugins' colours show in the first frame.
+        #[cfg(feature = "plugins")]
+        let plugins = plugins::Plugins::load();
+        #[cfg(feature = "plugins")]
+        plugins::show(window, plugins.as_deref());
         let layout = Layout::read(&root);
         layout.apply(window);
         let mut app = Application::default();
+        #[cfg(feature = "plugins")]
+        let mut plugins = plugins;
+        #[cfg(feature = "plugins")]
+        if let Some(plugins) = &mut plugins {
+            plugins.enable(&mut app);
+        }
         app.remember_reaction_uses(layout.reactions.clone());
         app.remember_sticker_favorites(
             layout
@@ -2438,6 +2465,10 @@ impl Adapter {
                 emoji_rows_filled: (0, 0),
                 emoji_grid: Default::default(),
                 app,
+                #[cfg(test)]
+                plugin_inputs: std::cell::RefCell::new(Vec::new()),
+                #[cfg(feature = "plugins")]
+                deferred: Vec::new(),
                 models,
                 icons,
                 weak: weak.clone(),
@@ -2540,6 +2571,8 @@ impl Adapter {
                 gifs: gifs::Shown::default(),
                 stickers: stickers::Shown::default(),
                 pending_link: None,
+                #[cfg(feature = "plugins")]
+                plugins,
             })
         }))
     }
@@ -2593,6 +2626,8 @@ impl Adapter {
     /// Present the existing models and state in a new window.
     fn attach(&mut self, window: &YapfastWindow) {
         self.models.attach(window);
+        #[cfg(feature = "plugins")]
+        plugins::show(window, self.plugins.as_deref());
         self.layout.apply(window);
         updates::show(window, &self.layout, &self.updates);
         self.watch_talk_key(window);
@@ -2759,6 +2794,14 @@ impl Adapter {
         }
     }
 
+    /// Runs `effects` after the current call returns, for a cause that is
+    /// itself borrowed while it works: the Plugins page asks for something
+    /// while holding the page, and the answer may want to redraw it.
+    #[cfg(feature = "plugins")]
+    fn defer(&mut self, effects: Vec<Effect>) {
+        self.deferred.extend(effects);
+    }
+
     fn stop_backend(&mut self) {
         if let Some(events) = self.events.take() {
             events.abort();
@@ -2774,7 +2817,22 @@ impl Adapter {
                     self.app.remember_channels(self.layout.channels.clone());
                     let (backend, mut events) =
                         Backend::start(self.runtime.clone(), self.root.clone(), start);
+                    #[cfg(feature = "plugins")]
+                    let plugin_events = backend.events();
                     self.backend = Some(backend);
+                    // The plugin system's notices go into this session's own
+                    // event stream, by the same path as everything else.
+                    #[cfg(feature = "plugins")]
+                    {
+                        let opened = self.app.open_plugins(
+                            &self.root,
+                            env!("CARGO_PKG_VERSION"),
+                            plugin_events,
+                        );
+                        if !opened.is_empty() {
+                            self.execute(opened);
+                        }
+                    }
                     let weak = self.weak.clone();
                     // Network work stays on Tokio. Only channel delivery runs on
                     // Slint's executor, which wakes on an event and never polls idle.
@@ -2825,6 +2883,45 @@ impl Adapter {
                         }
                     }
                 }
+                #[cfg(feature = "plugins")]
+                // A plugin asking to reach a site: the dialog belongs to the
+                // window, not to Settings, so it shows wherever the person is.
+                #[cfg(feature = "plugins")]
+                Effect::Plugin(yapfast_core::application::plugins::Effect::Consent(ask)) => {
+                    self.plugin_consent(ask)
+                }
+                // What a plugin drew, or what was taken away: the slots that
+                // moved are shown again, and no others.
+                #[cfg(feature = "plugins")]
+                Effect::Plugin(yapfast_core::application::plugins::Effect::Slots) => {
+                    if let Some(window) = self.window.upgrade() {
+                        self.show_plugin_slots(&window);
+                    }
+                }
+                // How the person on the profile card looks changed, so the card
+                // is drawn again; nothing else on screen moved.
+                #[cfg(feature = "plugins")]
+                Effect::Plugin(yapfast_core::application::plugins::Effect::Identity) => {
+                    if let Some(window) = self.window.upgrade() {
+                        self.show_profile_card(&window);
+                    }
+                }
+                // The Plugins page holds a copy of the runtime's view: hand it a
+                // fresh one, which redraws the page if it's open. A closed page
+                // drops the view unread, so none is built for it: the registry's
+                // rows, the open plugin's form and its log ring stay where they
+                // are, and opening the page reads them again.
+                #[cfg(feature = "plugins")]
+                Effect::Plugin(_) => {
+                    if !plugin_settings::is_open() {
+                        continue;
+                    }
+                    let window = self.window.upgrade();
+                    let view = self.app.plugins_page();
+                    if let Some(window) = window {
+                        plugin_settings::set_view(&window, view);
+                    }
+                }
                 Effect::PreviewCamera(filming) => {
                     self.preview_camera = None;
                     if let Some((camera, feed)) = filming {
@@ -2869,6 +2966,8 @@ impl Adapter {
                 }
                 Effect::OpenPage(page) => browser::open(&page),
                 Effect::CopyPicture(picture) => crate::copy::picture(picture),
+                #[cfg(feature = "plugins")]
+                Effect::CopyText(text) => crate::copy::text(text),
                 Effect::StopDiscordLink => {
                     #[cfg(feature = "discord")]
                     {
@@ -3019,6 +3118,10 @@ impl Adapter {
     }
 
     fn action(&mut self, window: &YapfastWindow, action: Action) {
+        #[cfg(test)]
+        if let Action::PluginInput(input) = &action {
+            self.plugin_inputs.borrow_mut().push(input.clone());
+        }
         // A keystroke in the composer changes only the composer, and one in
         // the profile editor only the editor; the rest of the window
         // stays as it is.
@@ -3099,6 +3202,15 @@ impl Adapter {
             Reach::EVERYTHING
         };
         self.execute(effects);
+        // What a page's request set off, which waited for the page to let go of
+        // its own borrow.
+        #[cfg(feature = "plugins")]
+        {
+            let deferred = std::mem::take(&mut self.deferred);
+            if !deferred.is_empty() {
+                self.execute(deferred);
+            }
+        }
         reach
     }
 }

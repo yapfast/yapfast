@@ -22,6 +22,10 @@ impl Adapter {
     /// carries the old mention colour in its markup: message rows, the
     /// topic, pins and search results.
     pub(super) fn set_theme(&mut self, window: &YapfastWindow, theme: &theme::Theme) {
+        // `app.theme_mode` is the plugins': the theme is the window's, and this
+        // is the one place that knows which one is on.
+        #[cfg(feature = "plugins")]
+        self.app.plugins_theme(theme.dark);
         if theme.apply(window) {
             self.restyle_mentions();
             self.refresh(window);

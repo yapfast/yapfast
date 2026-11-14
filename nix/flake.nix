@@ -73,12 +73,20 @@
             passt nftables iproute2
             # Runs testing/fake_discord.ts, and its tests side by side.
             bun cargo-nextest
+            # Commits, and fetches back, the repositories the plugin tests
+            # install from: those tests run it, they don't link it.
+            git
             # Assembles x264's x86-64 code (vendor/x264-src).
             nasm
           ];
           buildInputs = libraries;
-          # rustc links with its own rust-lld, which skips the Nix ld wrapper
-          # that would put libstdc++'s directory in the binary's runpath.
+          # The C++ runtime is not a library of ours, but two things reach for
+          # it. rustc links with its own rust-lld, which skips the Nix ld
+          # wrapper that would put libstdc++'s directory in the binary's
+          # runpath. And libwebrtc is C++, so a test binary that pulls in the
+          # media stack dies before its first test with a missing
+          # libstdc++.so.6. It stays out of `native.runtimeLibraries`, which
+          # the shipped binary's wrapper uses.
           LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (runtimeLibraries ++ [ pkgs.stdenv.cc.cc.lib ]);
           CC = "clang";
           CXX = "clang++";

@@ -1,5 +1,5 @@
-//! What Copy Image puts on the clipboard: a picture's first frame, which
-//! arboard offers as a PNG.
+//! What Copy puts on the clipboard: a picture's first frame, which arboard
+//! offers as a PNG, and text that a person will paste somewhere.
 //!
 //! On Linux the clipboard holds a picture only while the app that copied it
 //! answers for it, so a thread does that until something else is copied.
@@ -18,6 +18,34 @@ pub fn picture(file: Vec<u8>) {
     if let Err(error) = copying {
         tracing::error!(%error, "could not start copying a picture");
     }
+}
+
+/// Puts `text` on the clipboard, from a thread of its own: the clipboard on
+/// Linux is answered for by this app while it holds the text.
+pub fn text(text: String) {
+    let copying = std::thread::Builder::new()
+        .name("copy-text".into())
+        .spawn(move || {
+            if let Err(error) = copy_text(&text) {
+                tracing::warn!(%error, "could not copy text");
+            }
+        });
+    if let Err(error) = copying {
+        tracing::error!(%error, "could not start copying text");
+    }
+}
+
+fn copy_text(text: &str) -> anyhow::Result<()> {
+    let mut clipboard = arboard::Clipboard::new()?;
+    let set = clipboard.set();
+    #[cfg(target_os = "linux")]
+    let set = {
+        use arboard::SetExtLinux;
+        // Answers for the text until another copy takes its place.
+        set.wait()
+    };
+    set.text(text.to_owned())?;
+    Ok(())
 }
 
 fn copy(file: &[u8]) -> anyhow::Result<()> {

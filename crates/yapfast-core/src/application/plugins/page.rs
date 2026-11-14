@@ -1,0 +1,1065 @@
+//! Settings → Plugins, from the application's side: what the page shows, and
+//! what its requests do.
+//!
+//! The page reaches the runtime through [`crate::plugins::page::Source`], which
+//! the interface's half (`src/ui/plugin_settings.rs`) implements over
+//! [`Application::plugins_page`]; a request comes back here as an [`Action`], so
+//! the runtime stays the only writer of a plugin's state.
+//!
+//! [`Application::plugins_page`] is a copy of what the runtime knows, taken when
+//! the page draws itself: the page holds no lock and nothing is kept while it's
+//! closed. With no plugin enabled there is no runtime either, and the page's one
+//! question is whether plugins could run at all.
+
+use crate::plugins::installing;
+use crate::plugins::marketplace::{self, Catalog as Registry};
+use crate::plugins::page::{self, Catalog, FetchError, Find, Helper, Request, Step};
+use crate::plugins::spawn;
+use std::sync::Arc;
+use yapfast_plugin_api::PluginId;
+use yapfast_plugin_api::capability::HostPattern;
+
+use super::super::{Action as AppAction, Application, Effect as AppEffect};
+use super::Action as PluginAction;
+
+/// What Settings → Plugins is in the middle of, which the runtime's view doesn't
+/// hold: the fetch, its review, and the marketplace behind the catalog tab.
+#[derive(Default)]
+pub struct PageState {
+    pub find: Find,
+    /// What a review shows, kept until Install asks the store to write it.
+    pub fetched: Option<installing::Fetched>,
+    /// The marketplace tab's state, and the registry whose entries it lists.
+    /// Both exist only while the page is open: `Request::Close` drops them, and
+    /// the icons' bytes with them.
+    pub catalog: Catalog,
+    pub registry: Option<Arc<Registry>>,
+    /// What a fetch the marketplace started is for, so its answer is checked
+    /// against the entry that named it.
+    pub ask: Option<Ask>,
+    /// Whether the registry was asked for since the page opened, so that
+    /// showing the tab again doesn't fetch it twice.
+    pub asked: bool,
+    /// Whether the page that asked for the marketplace is open. A catalog
+    /// that arrives after it closed is dropped rather than held: nothing of
+    /// the marketplace outlives the page.
+    pub open: bool,
+}
+
+/// What a fetch the page started is for.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Ask {
+    Install { id: String },
+    Update { id: String },
+}
+
+impl Ask {
+    fn id(&self) -> &str {
+        match self {
+            Ask::Install { id } | Ask::Update { id } => id,
+        }
+    }
+
+    fn is_update(&self) -> bool {
+        matches!(self, Ask::Update { .. })
+    }
+}
+
+impl Application {
+    /// What Settings → Plugins shows: a row per installed plugin, what each is
+    /// doing, and what the helper is doing.
+    pub fn plugins_page(&self) -> page::View {
+        let mut view = match self.state.plugins.as_deref() {
+            Some(plugins) => plugins.page(),
+            None => page::View {
+                helper: if spawn::program().is_ok() {
+                    Helper::Stopped
+                } else {
+                    Helper::Missing
+                },
+                ..page::View::default()
+            },
+        };
+        // The fetch and its review are the page's own: the runtime's view can't
+        // hold a plugin that isn't installed yet.
+        view.find = self.plugin_page.find.clone();
+        view.catalog = self.plugin_page.catalog.clone();
+        // What the registry lists is what makes a plugin's origin The
+        // marketplace, and what says whether a newer commit is listed. It is
+        // read here rather than kept in the row, so a page with no catalog
+        // says nothing about a marketplace it hasn't read.
+        if let Some(registry) = &self.plugin_page.registry {
+            registry.describe(&mut view.installed);
+        }
+        view
+    }
+
+    /// Carries out what the page asked for, and hands back what the interface
+    /// has to do about it.
+    pub fn plugins_page_request(&mut self, request: Request) -> Vec<AppEffect> {
+        match request {
+            Request::SetEnabled { plugin, enabled } => match PluginId::parse(&plugin) {
+                // The state it settles in comes back as `Effect::Plugin` with a
+                // status, which redraws the row: nothing is guessed here.
+                Ok(plugin) => self.dispatch(AppAction::Plugin(PluginAction::SetEnabled {
+                    plugin,
+                    enabled,
+                })),
+                Err(error) => {
+                    tracing::warn!(%error, %plugin, "the plugin page asked about a name that isn't a plugin id");
+                    Vec::new()
+                }
+            },
+            // The page is open or closed. The view is a copy taken when it
+            // draws, so nothing is held or sampled in between either way; the
+            // marketplace is the one thing that is: it is read while the page
+            // is open and dropped when it closes.
+            Request::Open => self.plugins_catalog_open(),
+            Request::Close => self.plugins_catalog_close(),
+            Request::LoadCatalog => self.plugins_catalog_ask(true),
+            Request::Install { plugin } => self.plugins_install_listed(&plugin),
+            Request::Update { plugin } => self.plugins_update(&plugin),
+            Request::Find { url } => {
+                self.plugins_find(url, None);
+                vec![AppEffect::Plugin(crate::application::plugins::Effect::Page)]
+            }
+            Request::Confirm => {
+                // Nothing to install: the page's Install button without a review
+                // behind it, which asks for nothing rather than redrawing.
+                if self.plugin_page.fetched.is_none() {
+                    return Vec::new();
+                }
+                self.plugins_install();
+                vec![AppEffect::Plugin(crate::application::plugins::Effect::Page)]
+            }
+            Request::Cancel => {
+                self.plugin_page.find = Find::Idle;
+                self.plugin_page.fetched = None;
+                vec![AppEffect::Plugin(crate::application::plugins::Effect::Page)]
+            }
+            Request::Uninstall {
+                plugin,
+                delete_data,
+            } => self.plugins_remove(&plugin, delete_data),
+            Request::RollBack { plugin } => self.plugins_roll_back(&plugin),
+            Request::InstallWasm(path) => self.plugins_install_wasm(&path),
+            // Taking something back from a plugin's page takes effect on its
+            // next request, not on the next start: the gate asks every time.
+            Request::Revoke { plugin, permission } => self.plugins_revoke(&plugin, &permission),
+            // The development loop: a folder that reloads as its files change.
+            Request::LoadFolder(path) => self.plugins_load_folder(&path),
+            // A setting changed: the runtime applies it, writes it down and tells
+            // a running instance, so it takes effect with no restart. The page
+            // draws itself again either way, because a value the form refused
+            // says why under its field.
+            Request::Setting { plugin, edit } => {
+                self.plugins_set_setting(&plugin, edit);
+                vec![AppEffect::Plugin(crate::application::plugins::Effect::Page)]
+            }
+            // The person used a widget a widget setting draws. It holds no value
+            // to store; the plugin hears about it the way it hears about a
+            // change, and draws its answer itself.
+            Request::SettingWidget {
+                plugin,
+                key,
+                id,
+                value,
+            } => {
+                self.plugins_setting_widget(&plugin, &key, &id, &value);
+                Vec::new()
+            }
+            // Advanced's two pickers. Each changes one number of the pair the
+            // runtime holds, and the page draws itself again so it shows the
+            // pair in force.
+            Request::SetMemoryBudget(mib) => {
+                self.plugins_set_limits(|limits| yapfast_plugin_api::limits::Limits {
+                    memory_mib: mib,
+                    ..limits
+                })
+            }
+            Request::SetIdleMinutes(minutes) => {
+                self.plugins_set_limits(|limits| yapfast_plugin_api::limits::Limits {
+                    idle_minutes: minutes,
+                    ..limits
+                })
+            }
+        }
+    }
+
+    /// What one Advanced picker asks for: the pair in force with one number
+    /// changed, kept in `budget.json` and sent to a helper that is running.
+    ///
+    /// The choice applies now even when it couldn't be written down, so a save
+    /// that failed is a notice and not a refusal. With no plugin runtime there
+    /// is nothing to keep and nothing to tell: the picker moves and changes
+    /// nothing, and the page keeps showing the defaults.
+    fn plugins_set_limits(
+        &mut self,
+        change: impl FnOnce(yapfast_plugin_api::limits::Limits) -> yapfast_plugin_api::limits::Limits,
+    ) -> Vec<AppEffect> {
+        let Some(plugins) = self.state.plugins.as_mut() else {
+            return Vec::new();
+        };
+        let chosen = change(plugins.limits());
+        if let Err(error) = plugins.set_limits(chosen) {
+            self.state.notice = Some(format!(
+                "These limits apply now, but couldn't be saved: {error:#}"
+            ));
+        }
+        vec![AppEffect::Plugin(crate::application::plugins::Effect::Page)]
+    }
+    /// Takes back one of a plugin's permissions, from its page.
+    ///
+    /// A host is the one the gate holds: taking it back refuses the plugin's
+    /// next request for it, and refuses the requests already waiting about it.
+    /// A capability is the manifest's, which the page only reads.
+    fn plugins_revoke(&mut self, plugin: &str, permission: &page::Permission) -> Vec<AppEffect> {
+        let page::Permission::Host(host) = permission else {
+            tracing::debug!(
+                %plugin,
+                "a capability is declared by the manifest, so there is nothing to take back"
+            );
+            return Vec::new();
+        };
+        let (Ok(id), Ok(pattern)) = (PluginId::parse(plugin), HostPattern::parse(host)) else {
+            self.state.notice = Some(format!("Couldn't take {host} back from {plugin}"));
+            return Vec::new();
+        };
+        if let Some(plugins) = self.state.plugins.as_ref()
+            && let Err(error) = plugins.revoke_host(&id, &pattern)
+        {
+            self.state.notice = Some(format!("Couldn't take {host} back: {error:#}"));
+            return Vec::new();
+        }
+        // A question about the host that was just taken back has its answer:
+        // nobody is going to allow what was taken away.
+        let asked = self
+            .state
+            .plugin_consent
+            .as_ref()
+            .is_some_and(|ask| ask.plugin == id && ask.host == *host);
+        let mut effects = if asked {
+            self.close_consent()
+        } else {
+            Vec::new()
+        };
+        effects.push(AppEffect::Plugin(crate::application::plugins::Effect::Page));
+        effects
+    }
+
+    /// Applies one setting's change, which the runtime makes true at once: the
+    /// value is checked as the form declares it, stored, and handed to the
+    /// running instance.
+    fn plugins_set_setting(&mut self, plugin: &str, edit: crate::plugins::settings::Edit) {
+        let Ok(plugin) = PluginId::parse(plugin) else {
+            tracing::warn!(%plugin, "a setting changed for a name that isn't a plugin id");
+            return;
+        };
+        if let Some(plugins) = self.state.plugins.as_mut() {
+            plugins.set_setting(&plugin, edit);
+        }
+    }
+
+    /// Hands a widget's input to the plugin that drew it.
+    fn plugins_setting_widget(&mut self, plugin: &str, key: &str, id: &str, value: &str) {
+        let Ok(plugin) = PluginId::parse(plugin) else {
+            tracing::warn!(%plugin, "a widget answered for a name that isn't a plugin id");
+            return;
+        };
+        if let Some(plugins) = self.state.plugins.as_mut() {
+            plugins.setting_widget(&plugin, key, id, value);
+        }
+    }
+
+    /// Asks the runtime to read a plugin out of its repository. The answer
+    /// arrives as a notice on the application's own event path, so the window
+    /// never waits on a fetch.
+    fn plugins_find(&mut self, url: String, ask: Option<Ask>) {
+        self.plugin_page.fetched = None;
+        self.plugin_page.ask = ask;
+        let Some(plugins) = self.state.plugins.as_mut() else {
+            self.plugin_page.find = Find::Failed {
+                url,
+                error: FetchError::Unreachable("the plugin system isn't running".to_owned()),
+            };
+            return;
+        };
+        self.plugin_page.find = Find::Fetching {
+            url: url.clone(),
+            step: Step::Fetching,
+        };
+        plugins.fetch(url);
+    }
+
+    /// What a fetch found, or why it found nothing: the notice's answer.
+    pub(in crate::application) fn plugins_fetched(
+        &mut self,
+        url: String,
+        result: Result<installing::Fetched, String>,
+    ) {
+        let ask = self.plugin_page.ask.take();
+        match result {
+            Ok(fetched) => {
+                let Some(ask) = ask else {
+                    // Add from URL: nothing reviewed it, and the dialog says so.
+                    self.plugin_page.find = Find::Review(Box::new(fetched.review()));
+                    self.plugin_page.fetched = Some(fetched);
+                    return;
+                };
+                let id = ask.id().to_owned();
+                let registry = self.plugin_page.registry.clone();
+                let entry = registry.as_deref().and_then(|registry| registry.entry(&id));
+                // What the registry listed is what runs: a repository that
+                // changed under the commit a maintainer reviewed is refused,
+                // not installed.
+                if let (Some(registry), Some(entry)) = (registry.as_deref(), entry)
+                    && let Err(error) = registry.verify(entry, &fetched)
+                {
+                    self.plugin_page.find = Find::Failed {
+                        url,
+                        error: FetchError::Mismatch(error),
+                    };
+                    self.plugin_page.fetched = None;
+                    return;
+                }
+                let mut review = fetched.review();
+                review.reviewed = entry.is_some();
+                let installed = self
+                    .plugins_page()
+                    .installed
+                    .into_iter()
+                    .find(|installed| installed.id == id);
+                if let Some(installed) = &installed {
+                    review.replaces = Some(installed.version.clone());
+                    let adds: Vec<String> = review
+                        .capabilities
+                        .iter()
+                        .filter(|capability| !installed.capabilities.contains(capability))
+                        .cloned()
+                        .collect();
+                    // An update that asks for no capability the person hasn't
+                    // already given is one click (`docs/plugins/host.md`); one that
+                    // does shows its review first.
+                    if ask.is_update() && adds.is_empty() {
+                        self.plugin_page.fetched = Some(fetched);
+                        self.plugins_install();
+                        return;
+                    }
+                }
+                self.plugin_page.find = Find::Review(Box::new(review));
+                self.plugin_page.fetched = Some(fetched);
+            }
+            Err(error) => {
+                self.plugin_page.find = Find::Failed {
+                    url,
+                    error: FetchError::Unreachable(error),
+                };
+                self.plugin_page.fetched = None;
+            }
+        }
+    }
+
+    /// The marketplace was read, or it couldn't be: its listings take the
+    /// place of the tab's spinner, and a plugin the registry took down for a
+    /// security reason is said where the person is looking.
+    pub(in crate::application) fn plugins_catalog_read(
+        &mut self,
+        source: String,
+        result: Result<Box<Registry>, String>,
+    ) {
+        // The page may have closed while the registry was being read. Holding
+        // the answer then would keep the catalog, its entries and its icons
+        // alive with no page to show them, which is exactly what closing it is
+        // for.
+        if !self.plugin_page.open {
+            tracing::debug!(%source, "the marketplace arrived after its page closed, so it wasn't kept");
+            return;
+        }
+        match result {
+            Ok(registry) => {
+                for refused in &registry.refused {
+                    tracing::warn!(%source, %refused, "the marketplace lists an entry Yapfast refused");
+                }
+                let installed = self.plugins_page().installed;
+                if let Some(warning) = registry.warnings(&installed).into_iter().next() {
+                    self.state.notice = Some(warning);
+                }
+                self.plugin_page.catalog = Catalog::Ready(Arc::clone(&registry.listings));
+                self.plugin_page.registry = Some(Arc::from(registry));
+            }
+            Err(error) => {
+                self.plugin_page.catalog = Catalog::Failed(error);
+                self.plugin_page.registry = None;
+            }
+        }
+    }
+
+    /// Reads the marketplace when the page opens, once per time it is open. A
+    /// forced ask is the tab's own: showing it again after a failure tries
+    /// again.
+    fn plugins_catalog_ask(&mut self, forced: bool) -> Vec<AppEffect> {
+        let loaded = matches!(self.plugin_page.catalog, Catalog::Ready(_));
+        let busy = matches!(self.plugin_page.catalog, Catalog::Loading);
+        if busy || loaded || (!forced && self.plugin_page.asked) {
+            return Vec::new();
+        }
+        self.plugin_page.asked = true;
+        match self.state.plugins.as_mut() {
+            Some(plugins) => {
+                self.plugin_page.catalog = Catalog::Loading;
+                plugins.catalog(marketplace::registry());
+            }
+            None => {
+                self.plugin_page.catalog = Catalog::Failed(
+                    "The plugin system isn't running, so there's no marketplace to browse.".into(),
+                );
+            }
+        }
+        vec![AppEffect::Plugin(crate::application::plugins::Effect::Page)]
+    }
+
+    /// The page opened: the marketplace is read if it isn't already.
+    fn plugins_catalog_open(&mut self) -> Vec<AppEffect> {
+        self.plugin_page.open = true;
+        self.plugins_catalog_ask(false)
+    }
+
+    /// The page closed: the catalog, its entries and its icons' bytes go, and
+    /// so do the decoded pictures the rows asked for. Nothing keeps a copy.
+    fn plugins_catalog_close(&mut self) -> Vec<AppEffect> {
+        let held = !matches!(self.plugin_page.catalog, Catalog::Unloaded)
+            || self.plugin_page.registry.is_some();
+        self.plugin_page.catalog = Catalog::Unloaded;
+        self.plugin_page.registry = None;
+        self.plugin_page.ask = None;
+        self.plugin_page.asked = false;
+        self.plugin_page.open = false;
+        let forgot = self.forget_plugin_icons();
+        if held || forgot {
+            vec![AppEffect::Plugin(crate::application::plugins::Effect::Page)]
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Drops the pictures the marketplace's rows had decoded, which were only
+    /// ever on screen while the page was open.
+    fn forget_plugin_icons(&mut self) -> bool {
+        let icons: Vec<String> = {
+            let state = &self.state;
+            state
+                .pictures
+                .keys()
+                .filter(|url| marketplace::icon_id(url).is_some())
+                .cloned()
+                .collect()
+        };
+        for url in &icons {
+            self.state.pictures.remove(url);
+        }
+        if !icons.is_empty() {
+            self.state.picture_changes += 1;
+        }
+        !icons.is_empty()
+    }
+
+    /// A marketplace row's Install: the entry it lists pins a commit and a
+    /// hash, and the fetch that follows is checked against both.
+    fn plugins_install_listed(&mut self, plugin: &str) -> Vec<AppEffect> {
+        let Some(entry) = self
+            .plugin_page
+            .registry
+            .as_deref()
+            .and_then(|registry| registry.entry(plugin))
+            .cloned()
+        else {
+            self.state.notice = Some(format!(
+                "The marketplace doesn't list {plugin}. Reload the page to read it again."
+            ));
+            return Vec::new();
+        };
+        self.plugins_find(
+            entry.url(),
+            Some(Ask::Install {
+                id: entry.id.clone(),
+            }),
+        );
+        vec![AppEffect::Plugin(crate::application::plugins::Effect::Page)]
+    }
+
+    /// Update: the marketplace's entry pins the commit to go to; a plugin from
+    /// a URL is fetched again at its own ref, and its own source, since no
+    /// registry lists it (`docs/plugins/host.md`: URL installs stay manual).
+    fn plugins_update(&mut self, plugin: &str) -> Vec<AppEffect> {
+        let asked = self
+            .plugin_page
+            .registry
+            .as_deref()
+            .and_then(|registry| registry.entry(plugin))
+            .map(|entry| entry.url());
+        let url = match asked {
+            Some(url) => url,
+            None => {
+                let Some(installed) = self
+                    .plugins_page()
+                    .installed
+                    .into_iter()
+                    .find(|installed| installed.id == plugin)
+                else {
+                    return Vec::new();
+                };
+                if installed.source.is_empty() {
+                    self.state.notice = Some(format!(
+                        "{} comes from a folder, and reloads when its files change, so there is \
+                         nothing to update from.",
+                        installed.name
+                    ));
+                    return Vec::new();
+                }
+                let mut url = installed.source.clone();
+                if !installed.path.is_empty() {
+                    url.push_str("#path=");
+                    url.push_str(&installed.path);
+                }
+                url
+            }
+        };
+        self.plugins_find(
+            url,
+            Some(Ask::Update {
+                id: plugin.to_owned(),
+            }),
+        );
+        vec![AppEffect::Plugin(crate::application::plugins::Effect::Page)]
+    }
+
+    /// The pictures the marketplace's rows ask for: an icon's address is
+    /// decoded from the catalog's own bytes here, so a row off screen costs
+    /// nothing and a picture is made only where it shows. Everything else goes
+    /// on to the backend, which is what fetches pictures from the network.
+    #[cfg(feature = "plugins")]
+    pub(in crate::application) fn plugin_icons(&mut self, urls: Vec<String>) -> Vec<String> {
+        let Some(registry) = self.plugin_page.registry.clone() else {
+            return urls;
+        };
+        let mut rest: Vec<String> = Vec::with_capacity(urls.len());
+        for url in urls {
+            if marketplace::icon_id(&url).is_none() {
+                rest.push(url);
+                continue;
+            }
+            if self.state.pictures.contains_key(&url) {
+                continue;
+            }
+            let Some(bytes) = registry.icon(&url) else {
+                continue;
+            };
+            let Some(picture) =
+                crate::chat::decode_picture(&bytes, marketplace::ICON_SIDE, marketplace::ICON_SIDE)
+            else {
+                tracing::warn!(%url, "a marketplace icon isn't a picture this build can read");
+                continue;
+            };
+            self.keep_picture(url, Arc::new(picture));
+        }
+        rest
+    }
+
+    /// Writes what the review showed into the store, which is what Install
+    /// means. The page then lists it, and nothing is running until it is
+    /// enabled.
+    fn plugins_install(&mut self) {
+        let Some(fetched) = self.plugin_page.fetched.clone() else {
+            return;
+        };
+        let Some(plugins) = self.state.plugins.as_mut() else {
+            self.plugin_page.find = Find::Failed {
+                url: fetched.source.clone(),
+                error: FetchError::Unreachable("the plugin system isn't running".to_owned()),
+            };
+            return;
+        };
+        self.plugin_page.find = Find::Installing {
+            name: fetched.review().name,
+        };
+        match plugins.install(&fetched.package()) {
+            Ok(()) => {
+                self.plugin_page.find = Find::Idle;
+                self.plugin_page.fetched = None;
+            }
+            Err(error) => {
+                self.plugin_page.find = Find::Failed {
+                    url: fetched.source.clone(),
+                    error: FetchError::Unreachable(format!("{error:#}")),
+                };
+            }
+        }
+    }
+
+    /// Writes a `.wasm` file the person picked into the store.
+    ///
+    /// The plugin it becomes is installed and off: nothing runs until they
+    /// enable it, which is the choice the row offers next.
+    fn plugins_install_wasm(&mut self, path: &std::path::Path) -> Vec<AppEffect> {
+        let fetched = match installing::from_wasm(path) {
+            Ok(fetched) => fetched,
+            Err(error) => {
+                self.state.notice = Some(error);
+                return Vec::new();
+            }
+        };
+        let name = fetched.review().name;
+        let Some(plugins) = self.state.plugins.as_mut() else {
+            self.state.notice =
+                Some("The plugin system isn't running, so nothing can be installed.".to_owned());
+            return Vec::new();
+        };
+        match plugins.install(&fetched.package()) {
+            Ok(()) => {
+                self.state.notice = Some(format!("{name} is installed. Enable it to run it."));
+                vec![AppEffect::Plugin(crate::application::plugins::Effect::Page)]
+            }
+            Err(error) => {
+                self.state.notice = Some(format!("Couldn't install {name}: {error:#}"));
+                Vec::new()
+            }
+        }
+    }
+
+    /// Installs a plugin from a folder and watches it, so a save in that folder
+    /// reloads it: the development loop.
+    fn plugins_load_folder(&mut self, folder: &std::path::Path) -> Vec<AppEffect> {
+        let Some(plugins) = self.state.plugins.as_mut() else {
+            self.state.notice =
+                Some("The plugin system isn't running, so no folder can be loaded.".to_owned());
+            return Vec::new();
+        };
+        match plugins.load_folder(folder) {
+            Ok(plugin) => {
+                self.state.notice = Some(format!(
+                    "{plugin} is loaded from {} and reloads when it changes.",
+                    folder.display()
+                ));
+                vec![AppEffect::Plugin(crate::application::plugins::Effect::Page)]
+            }
+            Err(error) => {
+                self.state.notice = Some(format!("Couldn't load {}: {error:#}", folder.display()));
+                Vec::new()
+            }
+        }
+    }
+
+    /// Removes a plugin from the store, and its data when asked.
+    fn plugins_remove(&mut self, plugin: &str, delete_data: bool) -> Vec<AppEffect> {
+        let parsed = match PluginId::parse(plugin) {
+            Ok(id) => id,
+            Err(error) => {
+                self.state.notice = Some(format!("Couldn't remove {plugin}: {error}"));
+                return Vec::new();
+            }
+        };
+        let Some(plugins) = self.state.plugins.as_mut() else {
+            return Vec::new();
+        };
+        match plugins.uninstall(&parsed, delete_data) {
+            Ok(()) => vec![AppEffect::Plugin(crate::application::plugins::Effect::Page)],
+            Err(error) => {
+                self.state.notice = Some(format!("Couldn't remove {plugin}: {error}"));
+                Vec::new()
+            }
+        }
+    }
+
+    /// Goes back to the version an install replaced.
+    fn plugins_roll_back(&mut self, plugin: &str) -> Vec<AppEffect> {
+        let Some(plugins) = self.state.plugins.as_mut() else {
+            return Vec::new();
+        };
+        let parsed = match PluginId::parse(plugin) {
+            Ok(id) => id,
+            Err(error) => {
+                self.state.notice = Some(format!("Couldn't roll {plugin} back: {error}"));
+                return Vec::new();
+            }
+        };
+        match plugins.roll_back(&parsed) {
+            Ok(()) => vec![AppEffect::Plugin(crate::application::plugins::Effect::Page)],
+            Err(error) => {
+                self.state.notice = Some(format!("Couldn't roll {plugin} back: {error}"));
+                Vec::new()
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A run with no plugin system open still answers the page: nothing is
+    /// installed, and the only question left is whether plugins could run.
+    #[test]
+    fn the_page_without_a_runtime_has_no_plugins() {
+        let app = Application::default();
+        let view = app.plugins_page();
+        assert!(view.installed.is_empty(), "nothing is installed");
+        // Whether the helper sits beside this test binary is the machine's
+        // business; either answer is the truth while no runtime is open.
+        assert!(matches!(view.helper, Helper::Stopped | Helper::Missing));
+    }
+
+    /// A picked `.wasm` becomes a row: installed, not enabled, and drawn again
+    /// at once.
+    #[test]
+    fn a_picked_file_shows_up_installed_and_off() {
+        let directory = tempfile::tempdir().expect("a data directory");
+        let source = tempfile::tempdir().expect("a folder to pick from");
+        let module = source.path().join("echo.wasm");
+        std::fs::copy(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../testing/plugins/bad_answer.wasm"),
+            &module,
+        )
+        .expect("a module");
+        // A plugin is its manifest: the module alone declares no command and
+        // nothing to reach.
+        std::fs::write(
+            source.path().join("yapfast-plugin.json"),
+            r#"{
+                "api": 1, "id": "local.echo", "name": "Echo", "version": "0.1.0",
+                "wasm": "echo.wasm", "limits": { "memory_pages": 64 },
+                "permissions": { "capabilities": [], "network": [] }
+            }"#,
+        )
+        .expect("its manifest");
+
+        let mut app = Application::default();
+        let (events, _received) = tokio::sync::mpsc::unbounded_channel();
+        app.open_plugins(directory.path(), "0.3.0", events);
+
+        let effects = app.plugins_page_request(Request::InstallWasm(module));
+        assert_eq!(effects.len(), 1, "the page draws itself again");
+
+        let view = app.plugins_page();
+        assert_eq!(view.installed.len(), 1, "it is listed");
+        assert_eq!(view.installed[0].id, "local.echo");
+        assert!(!view.installed[0].enabled, "and off until the person says");
+        assert_eq!(view.installed[0].status, crate::plugins::page::Status::Off);
+    }
+
+    /// The page's requests that the runtime can't do yet answer nothing rather
+    /// than failing, so a page with a marketplace tab and no marketplace still
+    /// works.
+    ///
+    /// Finding a plugin is answered without a runtime too: the page says why
+    /// rather than staying on a spinner, which is one redraw and no fetch.
+    #[test]
+    fn finding_a_plugin_without_a_runtime_says_why() {
+        let mut app = Application::default();
+        let effects = app.plugins_page_request(Request::Find {
+            url: "https://example.org/ada/word-filter".into(),
+        });
+        assert_eq!(effects.len(), 1, "one redraw");
+        assert!(matches!(app.plugin_page.find, Find::Failed { .. }));
+    }
+
+    /// A setting changed on the page is checked, kept and shown: the runtime
+    /// reads the schema its manifest declares, refuses what it can't take in
+    /// plain words, and writes down what it can, with nothing running and no
+    /// restart.
+    #[test]
+    fn a_setting_changed_on_the_page_is_checked_and_stored() {
+        use crate::plugins::settings::{Edit, Input, Value as SettingValue};
+
+        let directory = tempfile::tempdir().expect("a data directory");
+        install_with_settings(directory.path());
+        let mut app = Application::default();
+        let (events, _received) = tokio::sync::mpsc::unbounded_channel();
+        app.open_plugins(directory.path(), "0.0.0", events);
+
+        let effects = app.plugins_page_request(Request::Setting {
+            plugin: "local.settings".into(),
+            edit: Edit::Set {
+                key: "mode".into(),
+                value: Input::Text("hide".into()),
+            },
+        });
+        assert_eq!(effects.len(), 1, "the page draws itself again");
+
+        // A value the form can't take changes nothing, and says why under its
+        // field: the refusal is the runtime's, because the page's own copy of
+        // the form is read back from the store.
+        app.plugins_page_request(Request::Setting {
+            plugin: "local.settings".into(),
+            edit: Edit::Set {
+                key: "shortest".into(),
+                value: Input::Text("banana".into()),
+            },
+        });
+        let view = app.plugins_page();
+        let form = &view.installed[0].settings;
+        assert!(
+            form.refused.contains_key("shortest"),
+            "a refused value keeps its reason: {:?}",
+            form.refused
+        );
+        assert_eq!(
+            form.values.get("shortest"),
+            Some(&SettingValue::Integer(3)),
+            "and the value it had"
+        );
+
+        // What was taken is written down. The store writes on a thread of its
+        // own, once 500 ms pass without another change.
+        std::thread::sleep(std::time::Duration::from_millis(700));
+        let view = app.plugins_page();
+        assert_eq!(
+            view.installed[0].settings.values.get("mode"),
+            Some(&SettingValue::Text("hide".into())),
+            "the page reads back what it stored"
+        );
+        assert!(
+            view.installed[0].settings.refused.contains_key("shortest"),
+            "a refusal stays until that field changes, not until any does"
+        );
+
+        // A value the field does take clears it.
+        app.plugins_page_request(Request::Setting {
+            plugin: "local.settings".into(),
+            edit: Edit::Set {
+                key: "shortest".into(),
+                value: Input::Text("5".into()),
+            },
+        });
+        let view = app.plugins_page();
+        assert!(
+            view.installed[0].settings.refused.is_empty(),
+            "a field that changed forgets its refusal: {:?}",
+            view.installed[0].settings.refused
+        );
+        std::thread::sleep(std::time::Duration::from_millis(700));
+        assert_eq!(
+            app.plugins_page().installed[0]
+                .settings
+                .values
+                .get("shortest"),
+            Some(&SettingValue::Integer(5)),
+            "and the value it took is written down"
+        );
+    }
+
+    /// A plugin whose manifest declares two settings, installed but off: the
+    /// form is the manifest's, so it exists without anything running.
+    fn install_with_settings(directory: &std::path::Path) {
+        use crate::plugins::store::{Package, Store};
+        use yapfast_plugin_api::PluginId;
+
+        let manifest = r#"{
+            "api": 1, "id": "local.settings", "name": "Settings", "version": "0.1.0",
+            "wasm": "plugin.wasm", "limits": { "memory_pages": 64 },
+            "permissions": { "capabilities": [], "network": [] },
+            "settings": [
+                { "key": "mode", "type": "select", "label": "When a word matches",
+                  "default": "replace", "options": ["hide", "replace"] },
+                { "key": "shortest", "type": "integer", "label": "Shortest word",
+                  "min": 1, "max": 20, "default": 3 }
+            ]
+        }"#;
+        let module = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../testing/plugins/bad_answer.wasm"),
+        )
+        .expect("a module");
+        let mut store = Store::open(directory).expect("a store");
+        store
+            .install(&Package {
+                id: PluginId::parse("local.settings").expect("a plugin id"),
+                source: String::new(),
+                path: String::new(),
+                reference: String::new(),
+                rev: "0".repeat(40),
+                manifest: manifest.to_owned(),
+                module,
+                icon: None,
+            })
+            .expect("it installs");
+    }
+
+    #[test]
+    fn requests_the_runtime_cannot_do_answer_nothing() {
+        let mut app = Application::default();
+        for request in [
+            Request::Close,
+            Request::Confirm,
+            Request::SetEnabled {
+                plugin: "not a plugin id".into(),
+                enabled: true,
+            },
+        ] {
+            assert!(
+                app.plugins_page_request(request).is_empty(),
+                "nothing to do without a runtime"
+            );
+        }
+    }
+
+    /// The Advanced pickers apply at once: each changes its own number, keeps
+    /// the other as it was, and redraws the page once with the pair in force.
+    #[test]
+    fn the_advanced_limits_apply_at_once_and_only_their_own_number() {
+        let directory = tempfile::tempdir().expect("a data directory");
+        let mut app = Application::default();
+        let (events, _received) = tokio::sync::mpsc::unbounded_channel();
+        app.open_plugins(directory.path(), "0.0.0", events);
+
+        let effects = app.plugins_page_request(Request::SetMemoryBudget(512));
+        assert_eq!(effects.len(), 1, "one redraw");
+        let view = app.plugins_page();
+        assert_eq!(view.advanced.memory_budget, 512);
+        assert_eq!(
+            view.advanced.idle_minutes, 5,
+            "the idle time is untouched by the budget"
+        );
+
+        let effects = app.plugins_page_request(Request::SetIdleMinutes(15));
+        assert_eq!(effects.len(), 1, "one redraw");
+        let view = app.plugins_page();
+        assert_eq!(
+            view.advanced.memory_budget, 512,
+            "the budget is untouched by the idle time"
+        );
+        assert_eq!(view.advanced.idle_minutes, 15);
+    }
+
+    /// Without a plugin runtime the pickers move and change nothing: the page
+    /// keeps showing the pair the helper would run with.
+    #[test]
+    fn the_advanced_limits_without_a_runtime_stay_the_defaults() {
+        let mut app = Application::default();
+        for request in [Request::SetMemoryBudget(512), Request::SetIdleMinutes(15)] {
+            assert!(
+                app.plugins_page_request(request).is_empty(),
+                "nothing to do without a runtime"
+            );
+        }
+        let view = app.plugins_page();
+        assert_eq!(view.advanced.memory_budget, 256);
+        assert_eq!(view.advanced.idle_minutes, 5);
+    }
+
+    /// The page opening without a runtime says why the marketplace is empty
+    /// rather than staying on a spinner; closing it drops what was there.
+    #[test]
+    fn the_marketplace_without_a_runtime_says_why_it_is_empty() {
+        let mut app = Application::default();
+        assert_eq!(
+            app.plugins_page_request(Request::Open).len(),
+            1,
+            "one redraw"
+        );
+        assert!(matches!(app.plugin_page.catalog, Catalog::Failed(_)));
+        // Nothing to browse, so the tab's state goes back to Unloaded, which
+        // is one redraw and nothing held.
+        assert_eq!(app.plugins_page_request(Request::Close).len(), 1);
+        assert!(matches!(app.plugins_page().catalog, Catalog::Unloaded));
+        // An install from a listing nobody read says so rather than hanging.
+        assert!(
+            app.plugins_page_request(Request::Install {
+                plugin: "com.example.word-filter".into()
+            })
+            .is_empty()
+        );
+        assert!(
+            app.state.notice.is_some(),
+            "it says the marketplace doesn't list it"
+        );
+    }
+
+    /// The marketplace's catalog, and the icons it holds, exist only while the
+    /// page is open: closing it drops the whole catalog, and nothing keeps a
+    /// copy.
+    #[test]
+    fn closing_the_page_drops_the_catalog_and_its_icons() {
+        let mut app = Application::default();
+        let catalog = registry(Some(webp_fixture()));
+        assert_eq!(catalog.icon_count(), 1, "its icon's bytes are held");
+        app.plugin_page.catalog = Catalog::Ready(std::sync::Arc::clone(&catalog.listings));
+        app.plugin_page.registry = Some(std::sync::Arc::new(catalog));
+        app.plugin_page.asked = true;
+        app.plugin_page.open = true;
+        assert!(matches!(app.plugins_page().catalog, Catalog::Ready(_)));
+
+        let effects = app.plugins_page_request(Request::Close);
+        assert_eq!(effects.len(), 1, "the page draws itself again");
+        assert!(
+            app.plugin_page.registry.is_none(),
+            "the entries and the icons' bytes are gone"
+        );
+        assert!(matches!(app.plugins_page().catalog, Catalog::Unloaded));
+    }
+
+    /// A registry read that arrives after the page closed is dropped rather
+    /// than held: the page is what keeps a marketplace in memory, and a fetch
+    /// in flight when it closes is no exception.
+    #[test]
+    fn a_catalog_that_arrives_after_the_page_closed_is_dropped() {
+        let mut app = Application::default();
+        app.plugins_page_request(Request::Open);
+        app.plugins_page_request(Request::Close);
+        app.plugins_catalog_read(
+            "https://codeberg.org/yapfast/plugin-registry".into(),
+            Ok(Box::new(registry(Some(webp_fixture())))),
+        );
+        assert!(app.plugin_page.registry.is_none(), "nothing is kept");
+        assert!(matches!(app.plugins_page().catalog, Catalog::Unloaded));
+    }
+
+    /// A registry holding one plugin, for the page's own tests: the entries
+    /// and the icons a closed page has to let go of.
+    fn registry(icon: Option<Vec<u8>>) -> crate::plugins::marketplace::Catalog {
+        let mut written = serde_json::json!({
+            "api": 1,
+            "id": "com.example.word-filter",
+            "name": "Word Filter",
+            "version": "1.4.0",
+            "repo": "https://codeberg.org/ada/word-filter",
+            "path": "",
+            "rev": "a".repeat(40),
+            "sha256": "0".repeat(64),
+            "source": "https://codeberg.org/ada/word-filter",
+            "license": "MIT"
+        });
+        let mut icons = Vec::new();
+        if let Some(bytes) = icon {
+            written["icon"] = serde_json::json!("icons/com.example.word-filter.webp");
+            icons.push(("icons/com.example.word-filter.webp".to_owned(), bytes));
+        }
+        crate::plugins::marketplace::Catalog::read(
+            "https://codeberg.org/yapfast/plugin-registry",
+            &"a".repeat(40),
+            r#"{ "api": 1, "plugins": ["com.example.word-filter"], "delisted": [] }"#,
+            &[(
+                "plugins/com.example.word-filter.json".to_owned(),
+                written.to_string(),
+            )],
+            &icons,
+        )
+        .expect("a registry")
+    }
+
+    /// A WebP header for a 128 by 128 picture, which is what a listing's icon
+    /// is measured by.
+    fn webp_fixture() -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&22u32.to_le_bytes());
+        bytes.extend_from_slice(b"WEBP");
+        bytes.extend_from_slice(b"VP8X");
+        bytes.extend_from_slice(&10u32.to_le_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&[0, 0, 0]);
+        bytes.extend_from_slice(&[127, 0, 0]);
+        bytes.extend_from_slice(&[127, 0, 0]);
+        bytes
+    }
+}

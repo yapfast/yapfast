@@ -3,6 +3,7 @@ import { ListView, ScrollView } from "scrollview.slint";
 import { Theme, Tip, ReactionHover, Middle, Label, Twemoji } from "theme.slint";
 import { ActionButton, IconButton, Avatar, Motion, Picture, UprightVolumeSlider, PictureStore, EmojiAnimations, Skeleton, SpoilerCover, MenuItem, TextField, ContextMenu, MenuRow, StyledName, NameStyleRow, ServerTagChip } from "controls.slint";
 import { FavoriteStar, GifFavorites } from "gifs.slint";
+import { PluginPart, PluginWidgets } from "plugins.slint";
 import { Composer } from "composer-field.slint";
 import { CommandChoice } from "app_commands.slint";
 import { BotSelectBox } from "bot_select.slint";
@@ -846,6 +847,9 @@ export struct MessageRow {
     thread-room: string, thread-name: string, thread-detail: string,
     /// The Discord poll it asks.
     poll: PollCard, has-poll: bool,
+    /// What plugins draw under it, each under its plugin's name: empty
+    /// unless a plugin decorated it.
+    plugin: [PluginPart],
     /// An app's answer only this account sees, with "Only you can see this ·
     /// Dismiss message" under it.
     ephemeral: bool,
@@ -2904,6 +2908,8 @@ export component MessageContent inherits VerticalLayout {
     /// A sticker in the message was clicked: its card opens there.
     callback open-sticker(string, int, length, length, length, length);
     callback media-menu(string, int, bool, length, length);
+    /// A plugin's widget under the message was used; see PluginWidgets.
+    callback plugin-acted(string, string, string, string, string);
     /// Long bodies fold to twelve lines of text, with Show more.
     in property <bool> collapse-long;
     /// Show more or Show less was clicked: the message's item, whether it
@@ -3183,6 +3189,10 @@ export component MessageContent inherits VerticalLayout {
                 padding-top: 4px; spacing: 6px;
                 Image { source: @image-url("icons/triangle-alert.svg"); width: 16px; colorize: Theme.danger; image-fit: contain; }
                 Text { text: root.bot-failed-text; color: Theme.danger; font-size: 14px; wrap: word-wrap; horizontal-stretch: 1; }
+            }
+            for part in message.plugin: PluginWidgets {
+                part: part; subject: message.item;
+                acted(plugin, slot, id, value, subject) => { root.plugin-acted(plugin, slot, id, value, subject); }
             }
             if message.thread-room != "": ThreadChip {
                 name: message.thread-name; detail: message.thread-detail;

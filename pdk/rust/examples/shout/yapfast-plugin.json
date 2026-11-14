@@ -1,0 +1,30 @@
+{
+  "api": 1,
+  "id": "com.example.shout",
+  "name": "Shout",
+  "version": "1.0.0",
+  "description": "Adds /shout, which sends your text in capitals",
+  "authors": ["Ada"],
+  "license": "GPL-3.0-or-later",
+  "wasm": "plugin.wasm",
+  "activation": {
+    "on": ["command"]
+  },
+  "permissions": {
+    "capabilities": ["messages.send"]
+  },
+  "commands": [
+    {
+      "name": "shout",
+      "description": "Send your text in capitals",
+      "options": [
+        {
+          "name": "text",
+          "type": "string",
+          "required": true,
+          "description": "What to shout"
+        }
+      ]
+    }
+  ]
+}

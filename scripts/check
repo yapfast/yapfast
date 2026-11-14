@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Formatting, doc links, Clippy, tests and a smoke run of the default build,
-# Discord on the desktop; --matrix adds the builds with Matrix.
+# Discord on the desktop; then the plugin system as yapfast-core builds it with
+# the `plugins` feature and no network feature beside it. --matrix adds the
+# builds with Matrix.
 # Usage: scripts/check [--fast] [--matrix]
 # --fast builds with the `fast` profile, which local work uses. Each step
 # prints `=== step` and `rc=N` when it ends; its full output is in
@@ -53,10 +55,14 @@ clippy=(cargo clippy --locked "${profile[@]}" --all-targets)
 # feature-union is for the Matrix steps below; with it, the default build would
 # resolve as the full one and compile Slint apart from `cargo build`.
 workspace=(--workspace --exclude feature-union)
-steps=(fmt doc-links clippy test build smoke)
+steps=(fmt doc-links fixtures clippy test build smoke)
 
 run fmt cargo fmt --all -- --check
 run doc-links scripts/check-doc-links
+# No compile: it hashes the committed modules against the record of the sources
+# they were built from, so a fixture that went stale fails here in a second
+# instead of passing tests that load yesterday's module.
+run fixtures scripts/check-plugin-fixtures
 # yapfast-ui is outside the workspace (see Cargo.toml), so Clippy checks it
 # only as a dependency, with plain rustc: it neither lints the generated
 # interface nor checks it a second time in test mode, as --all-targets would
@@ -71,6 +77,38 @@ if [[ "$(cat "$logs/build.rc")" == 0 ]]; then
 else
   echo "=== smoke: skipped, as the build failed"
 fi
+
+# The plugin system without the networks it shares code with. The steps above
+# already carry `plugins`: it is in the workspace's default features, so their
+# Clippy and tests check the plugin code with `discord` beside it, and `cargo
+# test` builds yapfast-plugin-host's binary, because that package has integration
+# tests, so the plugin tests that run the helper run there too. The three plugin
+# crates need no step of their own, since all of them are workspace members. What none
+# of them compiles is `plugins` on its own: the Matrix and headless steps below
+# take `--no-default-features` and turn plugins off with it. So these two do, and
+# they are what a build that wanted plugins and neither network would catch. See
+# docs/plugins/.
+run clippy-plugins "${clippy[@]}" -p yapfast-core --no-default-features --features plugins -- -D warnings
+# Compiled, not run: the `test` step above already ran these tests, with the same
+# `plugins` on through yapfast's default features, and a second run would pay
+# their 31 s sleep and six helper startups to assert the same things again. What
+# this combination alone adds is that the tests compile without `discord`.
+run test-plugins cargo test --locked "${profile[@]}" -p yapfast-core --no-default-features --features plugins --no-run
+steps+=(clippy-plugins test-plugins)
+# The plugin tests the `test` step ran are the real ones: they run the real
+# yapfast-plugins, which that step's build made in target/$profile_dir/. A helper
+# that isn't there fails them with the command that builds it, rather than
+# passing having run nothing. The gate's one test that needs DNS is #[ignore]d,
+# so it doesn't run here; .github/workflows/tests.yml runs it in its by-hand job.
+# The other direction is the Matrix steps', and only theirs: those select
+# yapfast-core with --no-default-features, `clippy-matrix-only` itself and
+# `clippy-headless` as yapfast's dependency, so both build it with `plugins`
+# off. Both need --matrix, so no step of a plain run compiles yapfast-core
+# without the feature. After changing what it gates, run
+# `cargo check -p yapfast-core`: it builds that configuration without waiting
+# for a --matrix run. A step for it isn't here because it costs a compile of
+# the whole crate in a second feature set, which a plain run would pay on
+# every Rust edit.
 
 # The builds with Matrix: Matrix beside Discord, with its tests; Matrix
 # alone, in the desktop and in the shared core with its tests; and the

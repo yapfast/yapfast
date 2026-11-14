@@ -1,0 +1,38 @@
+[package]
+name = "yapfast-plugin-host"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+license = "GPL-3.0-or-later"
+
+[lib]
+# The scheduler and the runtime are tested through the library; the binary is
+# a thin argument parser in front of it.
+doctest = false
+
+[[bin]]
+name = "yapfast-plugins"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+# The wire types shared with the parent.
+yapfast-plugin-api = { path = "../yapfast-plugin-api" }
+# A registry entry pins the SHA-256 of the module it lists, which `verify-entry`
+# checks against the module at that commit.
+sha2.workspace = true
+# WebAssembly, sandboxed, with the compile cache that takes a cold 22 ms to
+# 2.8 ms.
+extism.workspace = true
+# Shallow git fetches for `fetch`. Its own process, so its 11.4 MiB leaves with
+# it.
+gix.workspace = true
+
+[dev-dependencies]
+# The fetch tests build real repositories in directories of their own.
+tempfile.workspace = true

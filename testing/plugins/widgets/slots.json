@@ -1,0 +1,193 @@
+{
+  "banner": {
+    "rows": [
+      {
+        "cells": [
+          {
+            "kind": "heading",
+            "text": "Daily digest"
+          },
+          {
+            "kind": "badge",
+            "text": "New",
+            "tone": "accent"
+          },
+          {
+            "kind": "badge",
+            "text": "3 unread",
+            "tone": "warning"
+          }
+        ]
+      },
+      {
+        "cells": [
+          {
+            "kind": "text",
+            "text": "Your **three** most active channels today, and what's *new* in them."
+          }
+        ]
+      },
+      {
+        "framed": true,
+        "cells": [
+          {
+            "kind": "toggle",
+            "id": "digest",
+            "text": "Send a digest every morning",
+            "checked": true
+          },
+          {
+            "kind": "select",
+            "id": "hour",
+            "text": "Hour",
+            "options": [
+              "7:00",
+              "8:00",
+              "9:00"
+            ],
+            "value": "8:00"
+          }
+        ]
+      },
+      {
+        "cells": [
+          {
+            "kind": "input",
+            "id": "keyword",
+            "text": "Keyword to watch"
+          },
+          {
+            "kind": "slider",
+            "id": "volume",
+            "text": "Volume",
+            "min": 0,
+            "max": 10,
+            "value": "6"
+          }
+        ]
+      },
+      {
+        "cells": [
+          {
+            "kind": "muted",
+            "text": "Synced 2 minutes ago"
+          },
+          {
+            "kind": "progress",
+            "text": "Sync",
+            "value": "0.7"
+          },
+          {
+            "kind": "code",
+            "text": "v1.2.0"
+          }
+        ]
+      },
+      {
+        "cells": [
+          {
+            "kind": "divider"
+          }
+        ]
+      },
+      {
+        "cells": [
+          {
+            "kind": "button",
+            "id": "open",
+            "text": "Open digest",
+            "tone": "accent"
+          },
+          {
+            "kind": "button",
+            "id": "later",
+            "text": "Later"
+          },
+          {
+            "kind": "link",
+            "id": "about",
+            "text": "What's this?"
+          },
+          {
+            "kind": "spacer"
+          },
+          {
+            "kind": "button",
+            "id": "stop",
+            "text": "Stop",
+            "tone": "danger"
+          }
+        ]
+      }
+    ]
+  },
+  "toast": {
+    "rows": [
+      {
+        "cells": [
+          {
+            "kind": "text",
+            "text": "Saved the message to **Bookmarks**."
+          },
+          {
+            "kind": "button",
+            "id": "undo",
+            "text": "Undo"
+          }
+        ]
+      }
+    ]
+  },
+  "composer": {
+    "rows": [
+      {
+        "cells": [
+          {
+            "kind": "button",
+            "id": "shrug",
+            "text": "¯\\_(ツ)_/¯"
+          }
+        ]
+      }
+    ]
+  },
+  "message.actions": {
+    "rows": [
+      {
+        "cells": [
+          {
+            "kind": "button",
+            "id": "bookmark",
+            "text": "Save"
+          }
+        ]
+      }
+    ]
+  },
+  "message:general-4": {
+    "rows": [
+      {
+        "framed": true,
+        "cells": [
+          {
+            "kind": "badge",
+            "text": "Link checked",
+            "tone": "success"
+          },
+          {
+            "kind": "muted",
+            "text": "No trackers in the links above."
+          },
+          {
+            "kind": "spacer"
+          },
+          {
+            "kind": "button",
+            "id": "details",
+            "text": "Details"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -81,13 +81,22 @@ impl Application {
             vec![]
         } else {
             let typing = !body.trim().is_empty();
-            vec![
-                Effect::Backend(Command::Typing {
+            let mut effects = Vec::new();
+            // `typing.pre_send` sees the indicator before it goes: a plugin may
+            // withhold it, and then sends it itself when its chain answers, so
+            // the composer never waits on one.
+            #[cfg(feature = "plugins")]
+            let held = typing && self.plugins_typing(&id);
+            #[cfg(not(feature = "plugins"))]
+            let held = false;
+            if !held {
+                effects.push(Effect::Backend(Command::Typing {
                     room: id.clone(),
                     typing,
-                }),
-                Effect::Backend(Command::SaveDraft { room: id, body }),
-            ]
+                }));
+            }
+            effects.push(Effect::Backend(Command::SaveDraft { room: id, body }));
+            effects
         }
     }
 
@@ -151,10 +160,24 @@ impl Application {
         vec![]
     }
 
-    /// Saves the edit. Text that didn't change closes it without asking
-    /// Discord; no text at all asks whether to delete the message, unless
-    /// files stay on it, which an empty text may be left with.
+    /// Saves the edit, first asking the plugins that intercept sends about its
+    /// text, as [`Self::send_in`] asks them about a message's. Text that didn't
+    /// change closes it without asking Discord; no text at all asks whether to
+    /// delete the message, unless files stay on it, which an empty text may be
+    /// left with.
     pub(super) fn save_edit(&mut self) -> Vec<Effect> {
+        // A chain that holds the edit answers later; a chain that changes the
+        // text has already put its answer in the edit's field.
+        #[cfg(feature = "plugins")]
+        if let Some(effects) = self.plugins_edit() {
+            return effects;
+        }
+        self.save_edit_now()
+    }
+
+    /// Saves the edit once its interceptors are done with it, which is what a
+    /// held chain's answer calls.
+    pub(super) fn save_edit_now(&mut self) -> Vec<Effect> {
         let Some(edit) = self.state.edit.clone() else {
             return vec![];
         };
@@ -307,6 +330,29 @@ impl Application {
         if !self.state.can_send_in(&id) {
             return vec![];
         }
+        #[cfg(feature = "plugins")]
+        {
+            // A `/name option…` the plugin system declares is that command, not
+            // a message; anything else typed with a slash goes as text.
+            if let Some(effects) = self.plugins_typed_command(&id) {
+                return effects;
+            }
+            // Plugins that intercept outgoing messages see the draft before
+            // any of the message is composed from it, and may hold or stop it.
+            if let Some(effects) = self.plugins_send(&id) {
+                return effects;
+            }
+        }
+        self.send_composed_in(id)
+    }
+
+    /// Sends what a room on screen holds, once [`Self::send_in`] has said it
+    /// may: from the text to the command the network receives.
+    ///
+    /// Each send reads the composer as it runs, so a message a plugin's chain
+    /// answers with, which reaches this after the composer emptied, is sent by
+    /// putting that text in the composer first.
+    pub(super) fn send_composed_in(&mut self, id: String) -> Vec<Effect> {
         let draft = self.state.drafts.get(&id).cloned().unwrap_or_default();
         let compose = self.state.compose.get(&id).cloned();
         // Discord's `@silent` at the start sends a message that notifies
@@ -443,10 +489,11 @@ impl Application {
         else {
             return;
         };
-        let staged = self.state.staged.entry(id).or_default();
+        let mut files = Vec::new();
         let mut problem = None;
+        let mut taken = 0;
         for path in paths {
-            if staged.len() >= chat::MAX_FILES {
+            if self.state.staged.get(&id).map_or(0, Vec::len) + taken >= chat::MAX_FILES {
                 problem = Some(format!(
                     "A message carries up to {} files.",
                     chat::MAX_FILES
@@ -454,10 +501,23 @@ impl Application {
                 break;
             }
             match chat::Staged::read(path, limit) {
-                Ok(file) => staged.push(file),
+                Ok(file) => {
+                    // `attachment.pre_upload` sees the file before the composer
+                    // takes it: a plugin may rename it or withhold it, and the
+                    // answer stages it, so nothing here waits on a plugin.
+                    #[cfg(feature = "plugins")]
+                    if self.plugins_upload(&id, &file) {
+                        taken += 1;
+                        continue;
+                    }
+                    files.push(file);
+                    taken += 1;
+                }
                 Err(error) => problem = problem.or(Some(error)),
             }
         }
+        let staged = self.state.staged.entry(id).or_default();
+        staged.extend(files);
         self.state.notice = problem;
     }
 

@@ -20,6 +20,23 @@ discord = ["dep:yapfast-discord", "dep:rand", "dep:base64", "dep:nnnoiseless", "
 # Sample states other crates' tests start from, such as a Discord server
 # whose member menu they check.
 test-fixtures = []
+# The plugin system's state: manifests, the changes they make to the
+# interface and their settings (docs/plugins/interface.md), the registry of
+# what is enabled, the permissions and network gate in front of it, and the
+# bridge to the `yapfast-plugins` helper. Every build Yapfast ships carries
+# it: `yapfast` defaults to `plugins`, and `yapfast-plugin-host` is a default
+# member only because of it. What the feature buys is the choice of leaving
+# that state out, as `--no-plugins` does for one run: without it there is no
+# registry, no gate, and none of the dependencies they need (the HTTP client
+# alone is a TLS stack), and a plugin's commands are not in the `/` picker.
+# The wire types the helper speaks, `yapfast-plugin-api`, are compiled in
+# either build: serde and serde_json over plain data, cheap, so code that names
+# a plugin id or a command declaration needn't hide behind `cfg`; the plugin
+# state is the only thing the feature leaves out. It requires `discord`: what a
+# plugin reaches — a message, a member, a sticker, a sound — is a Discord type,
+# so a build with plugins and without Discord is not a build this repository
+# checks or ships.
+plugins = ["discord", "dep:yapfast-plugins", "dep:sha2"]
 
 [dependencies]
 anyhow.workspace = true
@@ -32,6 +49,8 @@ base64 = { version = "0.22", optional = true }
 # weights (MIT/Apache-2.0, 8 MB) into Yapfast.
 deep_filter = { git = "https://github.com/Rikorose/DeepFilterNet", rev = "d375b2d8309e0935d165700c91da9de862a99c31", default-features = false, features = ["tract", "default-model"], optional = true }
 directories.workspace = true
+# A plugin's own HTTP, through the gate: the same TLS stack Discord's client
+# uses, and no cookie jar, because nothing is kept between a plugin's requests.
 futures-util.workspace = true
 # Decode received images with bounded dimensions before the UI sees them.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
@@ -61,8 +80,20 @@ matrix-rtc-media = { workspace = true, optional = true }
 mime = { version = "0.3", optional = true }
 # Plain-text reply snippets from Markdown; the SDK already uses it to format messages.
 pulldown-cmark = { version = "0.13", default-features = false }
+# A plugin setting's `pattern`, matched in linear time whatever the
+# pattern; Yapfast's dependencies already build it.
 rustls.workspace = true
 serde.workspace = true
+# The wire types the plugin helper speaks, and the ones plugin code behind the
+# feature names: serde and serde_json over plain data, small enough to compile
+# in every build, so that the code outside `plugins` needn't be gated to name
+# them.
+yapfast-plugin-api = { path = "../yapfast-plugin-api" }
+# The plugin system's knowledge: manifests, the store, permissions and the
+# gate in front of them; see `crates/yapfast-plugins`.
+yapfast-plugins = { path = "../yapfast-plugins", optional = true }
+# The SHA-256 the lock file records, checked before a module is loaded.
+sha2 = { workspace = true, optional = true }
 serde_json.workspace = true
 yapfast-discord = { path = "../yapfast-discord", optional = true }
 # Go Live's and the camera's H264 encoder, built from source; see native/h264.c.

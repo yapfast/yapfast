@@ -665,6 +665,12 @@ pub fn live(
     done: &UnboundedSender<Done>,
     events: &UnboundedSender<Event>,
 ) {
+    // A plugin that subscribed hears of it here, where the gateway's own
+    // messages become this conversation's: one relaxed load while none did.
+    #[cfg(feature = "plugins")]
+    super::plugins_observed(&event, discord, channels, events);
+    // An app's answer to a command is its own event, and the interaction layer
+    // takes it before the rest of the gateway's do.
     let event = match event.map(|live| super::interactions::live(live, events)) {
         Ok(Some(live)) => Ok(live),
         Ok(None) => return,

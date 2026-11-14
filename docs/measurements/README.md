@@ -79,6 +79,27 @@ These are ceilings; aim lower where the numbers allow. Check them on a
 machine of about four cores with 8 GB of RAM and integrated graphics, and on
 real Windows.
 
+### Plugins
+
+| Scenario | Ceiling |
+| --- | --- |
+| Plugins compiled in, none enabled | No helper process and no thread of its own, the parent's `RssAnon` within noise (≤ 100 KiB), idle CPU unchanged, no timers |
+| Enabled, none activated yet | As above, plus ≤ 16 KiB a plugin for its registry entry |
+| The last plugin disabled or evicted | Helper exited; the parent back within 256 KiB of its earlier level |
+| The helper alive with one small plugin | ≤ 6 MiB `RssAnon` |
+| Ten activated plugins with 2 MiB modules | ≤ 16 MiB `RssAnon` before their own heaps |
+| An event to a subscribed plugin, 1 KiB | ≤ 50 µs p99 of overhead, pipe included |
+| An event nobody subscribed to | One relaxed atomic load |
+| Startup with plugins installed, none needing `startup` | ≤ 1 ms added on the UI thread |
+| The UI thread | Never runs WebAssembly, never waits on the helper |
+
+A ceiling here is what the design is meant to reach, not a reading: the helper
+stays inside one budget by admission control over its instances, and each
+instance inside its own. How the rules that follow from these numbers are kept
+is in [plugins](../plugins/README.md#keeping-it-small), and the budgets the
+helper enforces itself — 256 MiB of summed instance limits, 256 pages an
+instance by default — in [the helper](../plugins/host.md#eviction-and-the-memory-budget).
+
 ## How to measure
 
 Measure a `measure` build of the release features, not `fast`, which leaves
@@ -116,3 +137,497 @@ one build. Keep the hardware, workload, warm-up, window state and memory
 metric with every result. Dated records of past measurements are in the
 private `records.md` beside this file.
 
+### The plugin helper
+
+`testing/measure_plugins.py` measures `yapfast-plugins`, the plugin helper,
+alone: it spawns the helper and speaks its framed protocol, with no Yapfast
+process, Slint or display in the way. Build the helper and the fixture plugin
+first; [testing the plugin system](../plugins/testing.md) has the commands and
+the arguments.
+
+Its memory figure is the helper process's own, not the app's, and each OS names
+it differently: Linux reads `RssAnon` from `/proc/<pid>/status`, and Windows
+`GetProcessMemoryInfo`'s private usage. Both count memory that process alone
+owns. `RssAnon` counts resident pages only, while Windows' private usage also
+counts private pages the system has paged out, so a Windows record reads a
+little above the private working set Task Manager shows. Compare plugin records
+only with records from the same OS.
+
+### A hook's JSON
+
+The plugin ABI is JSON ([the ABI](../plugins/abi.md)), and MessagePack is worth
+adding only if JSON is over a fifth of a hook's time. It isn't:
+
+| | Per hook | JSON's share |
+| --- | --- | --- |
+| `message.pre_send` round trip | 68–131 µs | 1.6–3.9% |
+| The JSON in it | 2.0–2.8 µs | |
+
+Measured on 11 November 2026 on the same PC, with a `fast` build of the helper
+and `testing/plugins/echo.wasm`, whose `yf_hook` answers `"unchanged"`: 200
+sequential hook exchanges, each waited for, from the frame leaving the parent to
+`HookDone` arriving; and 200 encode-and-decode pairs of the same two messages,
+a `ToHelper::Hook` and a `FromHelper::HookDone`, in the helper's own test
+process. The round trip includes the pipe, the scheduler, Extism and the guest's
+call, so the JSON figure — both sides' serialization added together — is what
+the wire format costs of it. The spread is the machine's, not the measurement's:
+the three runs gave 131 µs, 73 µs and 68 µs per exchange with the JSON steady at
+2–3 µs, and not one of them came near the fifth that would justify a second
+encoding.
+
+```sh
+cargo test --profile fast -p yapfast-plugin-host --test e2e the_json_in_a_hook \
+  -- --nocapture
+```
+
+## Go as a plugin language
+
+**The question.** Should Yapfast ship a Go PDK, and if so built with the
+standard Go toolchain (`GOOS=wasip1 GOARCH=wasm`) or with TinyGo? A collected
+language carries its runtime inside the module, and every guest page is the
+helper's memory for as long as the instance lives, so the answer is a memory
+number: `limits::DEFAULT_MEMORY_PAGES` gives each instance 256 pages (16 MiB)
+unless its manifest says otherwise, `limits::MAX_HELPER_BYTES` is 256 MiB for
+all of them together, and `limits::MAX_WASM_BYTES` refuses a module over 8 MiB.
+A PDK that costs most of the default before the plugin has done anything is not
+a PDK this design can afford; one that costs a few hundred KiB is.
+
+Measured on 12 November 2026, on an Intel Core i7-14700K (28 threads) with
+31 GiB of RAM, which is not the machine the older records in this file were
+taken on: compare these numbers with each other, not with those.
+
+### What a module asks for at load
+
+The memory section is the request a module makes before a line of its code
+runs, and it is exactly what the page limit governs. The ABI-shaped Go module
+here is 74 lines, most of them comments: five exports (`yf_activate`,
+`yf_deactivate`, `yf_event`,
+`yf_command`, `yf_hook`, each `func() int32`) and five imports from
+`extism:host/env` (`input_length`, `input_load_u8`, `alloc`, `store_u8`,
+`output_set`), which is the whole of what the Extism guest ABI needs to read an
+input and set an answer.
+
+| Module | File | Memory: initial | max | Data segments | Exports |
+| --- | --- | --- | --- | --- | --- |
+| Rust PDK, `plugins/ping/plugin.wasm` (committed) | 160.8 KiB | 17 pages, 1,088 KiB | none | 1, 19.2 KiB | 5 + `memory` |
+| Rust PDK, `shout` example (local artifact, not committed) | 352.3 KiB | 17 pages, 1,088 KiB | none | 1, 43.7 KiB | 5 + `memory` |
+| Go std, ABI shape | **1,833.1 KiB** | **32 pages, 2,048 KiB** | none | 21,261, 522.6 KiB | 5 + `_initialize`, `memory` |
+| Go std, ABI shape + `runtime/debug` (`SetGCPercent`, `SetMemoryLimit`) | 2,005.1 KiB | 34 pages, 2,176 KiB | none | 24,262, 584.3 KiB | 5 + `_initialize`, `memory` |
+| Go std, ABI shape + a 1 MiB slice and a 10,000-entry map | 1,835.3 KiB | 32 pages, 2,048 KiB | none | 21,273, 523.3 KiB | 5 + `_initialize`, `memory` |
+| Go std, the five exports only, no imports at all | 1,829.8 KiB | 32 pages, 2,048 KiB | none | 21,139, 521.8 KiB | 5 + `_initialize`, `memory` |
+| Go std, `func main() {}` and nothing else | 1,825.6 KiB | 32 pages, 2,048 KiB | none | 20,926, 520.2 KiB | `_initialize`, `memory` |
+| Go std, ABI shape built without `-ldflags="-s -w"` | 1,867.6 KiB | 32 pages, 2,048 KiB | none | 21,261, 522.6 KiB | unchanged |
+| `testing/plugins/echo.wasm`, `filter.wasm`, `spin_hook.wasm` | 0.2–1.1 KiB | no memory section | — | 0 | 5–6 |
+
+Three things in that table decide the question.
+
+**The module is the runtime, and stripping it buys almost nothing.**
+`-ldflags="-s -w"` takes 34.5 KiB off, from 1,867.6 KiB to 1,833.1 KiB, because
+what is in the file is 1,156 KiB of the Go runtime's own machine code and 21,000
+data segments, not debug info. 1,833.1 KiB is 11.4× the Rust PDK's module and 32× the Zig
+example's 57 KiB, and it is inside `MAX_WASM_BYTES` (8 MiB) with room to spare,
+so nothing refuses it.
+
+**The load-time request is 2 MiB and cannot be turned down.** It is not a
+function of the program: `func main() {}`, the five exports with no imports, and
+the whole ABI shape all ask for the same 32 pages, and the only thing that moved
+it was static data (34 pages once `runtime/debug` was imported). The linker
+hardcodes both halves of it, in `cmd/link/internal/wasm/asm.go`:
+
+```go
+dataEnd := uint64(ldr.SymValue(ldr.Lookup("runtime.end", 0)))
+var initialSize = dataEnd + 1<<20 // 1 MB, for runtime init allocating a few pages
+...
+ctxt.Out.WriteByte(0x00)          // no maximum memory size
+```
+
+So every Go module asks for its static data plus a 1 MiB reserve, and declares
+no maximum at all; the page cap is the only ceiling on it. `MIN_MEMORY_PAGES`
+is 32, so a manifest may legally ask for exactly what an idle Go plugin needs
+and nothing more — the floor, with no room for the event it is there to handle.
+
+**The Go runtime is bigger than the module.** The 2 MiB is a reservation that
+is only paid for as it is touched; 522 KiB of data segments are touched at
+instantiation. What that grows to in use is the next table.
+
+### What it costs the helper
+
+`yapfast-plugins`'s own `RssAnon`, with a `fast` build of the helper (the
+`measure` build on this disk can't start: its Nix interpreter is gone), driven
+through `testing/measure_plugins.py`'s protocol with `wasi` set true for the Go
+modules. Four plugin ids, three runs, 256 pages each.
+
+| | Helper at rest | One instance, cold compile | One instance, warm compile cache | Each further instance |
+| --- | --- | --- | --- | --- |
+| Rust PDK, `ping` | 1.20 MiB | 37.5–39.3 MiB | 3.51 MiB | 1.18–1.37 MiB |
+| Go std, ABI shape | 1.20 MiB | 112.7–118.3 MiB | **9.63 MiB** | **6.42–9.12 MiB** |
+
+The cold column is wasmtime's JIT output in anonymous memory, and the ratio
+between the two compilations is the first sign of what a Go plugin costs to
+load: 34 MiB of JIT for `ping`'s 140 KiB of code, and 103–109 MiB for the Go
+module's 1,156 KiB. A warm on-disk artifact cache serves that from a mapped
+file instead, and the same module then costs 3.51 MiB of anonymous memory
+rather than 37–39, or 9.63 rather than 112–118.
+
+The last column is the number that decides a budget: **8.2 MiB of `RssAnon`
+per live Go instance against 1.3 MiB for Rust**, 6.5× on the means and 4.7–7.7×
+across the runs. Sixteen of them is 131 MiB of the helper's 256 MiB, and their
+declared caps alone sum to the whole 256 MiB.
+
+`load` and `activate` together, from the frame out to `Activated`: 0.29 s for
+the Go module cold and 0.02 s warm, against 0.19 s and 0.00 s for `ping`. The
+2 s activation budget is met either way, but a cold compile is longer than the
+25 ms a hook gets and longer than the 100 ms the whole chain gets, so a hook
+chain that has to load a Go plugin is answered unchanged that time.
+
+### A session's worth of events: 10,000 of 1 KiB
+
+What matters is not what an idle instance reserves but what it has grown to
+after a session's worth of events, because WebAssembly memory never shrinks.
+Each event here is a `message_create` whose payload is 1 KiB of text.
+
+| Go std, 1 KiB events | Instance at rest | Growth by 10,000 events | Peak total RSS |
+| --- | --- | --- | --- |
+| ABI shape, input read per event, 128 pages, warm cache | 9.63 MiB | +4.9 MiB (peak 14.54 at 6,000) | 25.7 MiB |
+| ABI shape + 1 MiB slice and a 10,000-entry map, built once, 256 pages, cold | 112.6 MiB | +8.4 MiB | 134.6 MiB |
+| The five exports only, no imports, 64 pages, warm cache | 9.61 MiB | +0.1 MiB | 22.9 MiB |
+
+At the **64-page (4 MiB)** limit a garbage-collected PDK would have to hold
+itself to, the default runtime does not get through the load, and it says so
+itself rather than trapping somewhere unexplained:
+
+| Go std, 1 KiB events, 64 pages | Result |
+| --- | --- |
+| ABI shape, input read per event, default `GOGC` | `out_of_memory` on event 2,891 |
+| ABI shape + 1 MiB slice and map, default `GOGC` | `out_of_memory` on event 1,379 |
+| ABI shape, `SetGCPercent(10)` + `SetMemoryLimit(3 MiB)` in `yf_activate` | ran all 10,000, 11.41 → 13.16 MiB |
+| ABI shape + slice and map, the same two calls | ran all 10,000, 11.41 → 14.38 MiB |
+| The five exports only, no imports (nothing allocated per event) | ran all 10,000, 9.61 → 9.68 MiB |
+
+The two rows that matter are the first and the last: a plugin that allocates
+1 KiB per event runs out of 4 MiB by event 2,891, and one that allocates nothing
+sits at 9.68 MiB the whole way. So the runtime's knobs do work under `wasip1` —
+choosing them by hand takes the default from "doesn't fit half the default page
+limit" to "fits 4 MiB with 1 MiB of data besides" — but what is being fixed is
+Go's own garbage, not a plugin's data, and the fix is two calls in `yf_activate`
+that nothing in the ABI asks for.
+
+<details>
+<summary>How these were measured</summary>
+
+Go 1.27.3 at `/usr/bin/go`, no network, nothing installed: `go build` with
+`GOOS=wasip1 GOARCH=wasm` works here, wasmtime, wasmer, wasm-tools and the
+`wasm-objdump` CLI are not, so every wasm number in this section was read out
+of the binary by a short Python script in `/tmp`.
+
+The module, in `/tmp/gopdk/abi`, is the ABI shape the tables name:
+
+```sh
+cd /tmp/gopdk/abi && printf 'module example.com/plugin\n\ngo 1.27\n' > go.mod
+GOOS=wasip1 GOARCH=wasm go build -trimpath -buildmode=c-shared \
+  -ldflags="-s -w" -o /tmp/gopdk/abi.wasm .
+```
+
+`-buildmode=c-shared` is what makes a reactor module — `_initialize` instead of
+`_start`, which Extism calls, and which is what starts the Go runtime. The
+exports take no arguments and answer an `int32`: Extism calls an export with no
+arguments and reads the answer out of the guest's memory with `output_set`, and
+it takes the call's status from a single `i32` result, defaulting to `-1` when
+the result is not one — so an `i64` result and a first parameter both make
+every call fail.
+
+Sections are read without a wasm tool, by walking the binary: section 5 is the
+memory section, and its first entry is flags, minimum pages, and the maximum
+when flag bit 0 is set.
+
+```python
+b = open(sys.argv[1], 'rb').read(); i = 8
+while i < len(b):
+    sid = b[i]; i += 1
+    size, i = uleb(b, i); end = i + size
+    if sid == 5:                       # memory
+        n, j = uleb(b, i)
+        for _ in range(n):
+            flags, j = uleb(b, j); mn, j = uleb(b, j)
+            mx = None
+            if flags & 1: mx, j = uleb(b, j)
+            print('initial', mn, 'pages', mn * 65536, 'bytes, max', mx)
+    i = end
+```
+
+For the runtime half, `testing/measure_plugins.py` drives the helper over its
+own pipe, with one change in a copy in `/tmp`: the `load` frame's `wasi` field
+set true, since a Go build imports `wasi_snapshot_preview1` for clocks and
+randomness and the helper refuses that for a manifest which doesn't ask:
+
+```sh
+WASI_OK=1 testing/measure_plugins.py --helper /tmp/helper-shim \
+  --plugin /tmp/gopdk/abi.wasm --pages 256 --plugins 4 --runs 3
+```
+
+`/tmp/helper-shim` is three lines: this disk has no `/nix/store`, so the built
+`target/fast/yapfast-plugins` can only start under the host's loader,
+`/lib64/ld-linux-x86-64.so.2`. It is a `fast` build, so read its numbers as the
+helper's shape rather than the shipped one.
+
+The event numbers come from `/tmp/event_probe.py`, which speaks the same frames:
+`hello`, `load` with `wasi`, `activate`, then N `Event` requests of one 1 KiB
+`message_create`, sampling `RssAnon` after the first, tenth, hundredth,
+thousandth and last event. Nothing answers an event frame, so a `deactivate`
+sent after the batch is the barrier — it is queued behind them on the plugin's
+mailbox — and the sample after its `Deactivated` is the last one. The faults in
+the 64-page table are the helper's own `out_of_memory`, which is `memory.grow`
+being refused at the page limit.
+
+The host was swapping while the long runs were taken: `/proc/PID/status` showed
+`VmSwap` rising to 9.20 MiB by event 10,000 in one run, and `RssAnon` falling
+with it, since a swapped page is not a resident one. That is why the event
+table gives growth and a peak rather than a final figure — a single sample
+taken at the end of a long run can read below the instance's own rest — and why
+the per-instance numbers, which come from runs of seconds rather than a minute,
+are the ones to weigh. The page-limit faults are unaffected: `memory.grow`
+counts pages, resident or not.
+
+</details>
+
+### Not measured
+
+- **TinyGo, all of it.** It is not installed here and nothing may be. Every
+  number above is standard Go; none of them stands in for TinyGo, in either
+  direction. TinyGo is the interesting comparison precisely because it has no
+  GC metadata, no reflection tables and no goroutine scheduler unless asked, so
+  it should be several times smaller — and its `-gc=` choice is what decides by
+  how much.
+- **The C, Zig and AssemblyScript PDK outputs.** `docs/plugins/pdk.md` records
+  the examples as 11.9 KiB, 17.7 KiB and 57 KiB, but no `.wasm` for them is
+  committed and their toolchains weren't run here, so the only non-Go module
+  measured in this section is the Rust one.
+- **A Rust plugin under the same event load.** `ping` subscribes to no events,
+  and building a Rust fixture needs `cargo`, which was out of bounds while this
+  was taken. The Rust column is an idle instance only; at 10,000 events the
+  comparison is Go against itself.
+- **`GOGC` and `GOMEMLIMIT` as environment variables.** A guest's environment
+  comes from Extism's WASI configuration, not from the helper's process, so a
+  plugin can't be handed either one from outside. Only `debug.SetGCPercent` and
+  `debug.SetMemoryLimit` inside the plugin are measured, and by their effect
+  (the last four rows of the 64-page table) rather than by reading the pacer's
+  state back.
+- **Windows and macOS.** These are Linux `RssAnon` numbers from one machine.
+- **What an event costs in time.** This is a memory measurement; the hook round
+  trip is in [A hook's JSON](#a-hooks-json).
+
+### The experiment for someone with TinyGo
+
+The same three numbers decide it — module bytes, the memory section at load,
+and resident memory per instance after 10,000 events of 1 KiB — and each flag
+moves one of them. Build with `-target=wasi` and `-buildmode=c-shared`, and
+record the same tables.
+
+| Flag | What it trades | What to record |
+| --- | --- | --- |
+| `-gc=conservative` (the default on most targets) | No allocation metadata, so free memory is found by scanning: the smallest code, and the heap it holds longest | The baseline: module bytes, initial pages, resident per instance, and the event at which 64 pages first refuses `memory.grow` |
+| `-gc=leaking` | Frees nothing: the smallest and fastest runtime, and every byte a plugin allocates is kept until eviction | The slope: growth per 10,000 events, and whether 256 pages holds for a session |
+| `-gc=precise` | Frees reliably, for a little more code and slower allocation | The steady state as `conservative`: the difference is what it holds after 10,000 events, not what it reserves |
+| `-scheduler=none` | No goroutines at all: smallest, and no `select` or `time.Sleep` in a plugin | Module bytes and initial pages; this is the floor |
+| `-scheduler=asyncify` | Goroutines by transform: the code and the stacks both grow | How much bigger, and whether it still fits 64 pages |
+| `-scheduler=cores` | Real threads, needing shared memory and atomics, which this host's single-call-at-a-time design does not offer | Whether the module links at all; not expected to be shippable |
+| `-opt=z` against `-opt=s` | Size against speed | Module bytes, and the hook round trip from [A hook's JSON](#a-hooks-json) |
+| `-no-debug` | Drops DWARF: a smaller file, worse panics | Module bytes — expect most of the saving standard Go did not get from `-s -w` |
+| `-panic=trap` | A trap instead of a message on panic | Module bytes only; the helper reports a trap as a fault either way |
+| `-ldflags="-s -w"` | Strips symbols and DWARF | Module bytes |
+| `-wasm-abi=generic` | The i64 ABI for the `wasip1` target; `js` is for the browser and is not what a plugin wants | That it is the default, and that a PDK built with `js` fails to link |
+
+The std-Go knobs to carry into the comparison, since a TinyGo PDK will be
+judged against the standard one: `debug.SetGCPercent` and
+`debug.SetMemoryLimit` work under `wasip1` (measured above — they are what gets
+a default Go plugin through 10,000 events at 64 pages), `GOGC` and `GOMEMLIMIT`
+can't be set from outside the guest, and the runtime's initial reserve is a
+linker constant, `dataEnd + 1 MiB` with no maximum declared, that no flag
+reaches. TinyGo's answer to that last one is its own: record its memory section
+first, because that is what a 256-page budget sees before anything runs.
+
+### The decision
+
+A Go PDK is worth shipping only if a plugin written against it meets all three
+of these, measured the way this section measured them:
+
+| Bar | Ceiling | Where it comes from |
+| --- | --- | --- |
+| Module size | **512 KiB** | 3.2× the Rust PDK's 160.8 KiB and 9× the Zig example's 57 KiB; a module is paid for at install, in the store on disk, and again in every cold compile |
+| Linear memory in steady state | **4 MiB (64 pages)** | Half of `DEFAULT_MEMORY_PAGES`, leaving 12 MiB of the default for a plugin's own data, a 64 KiB payload, a 256 KiB hand-off and the input |
+| Resident per live instance | **4 MiB above the helper's rest** | [Targets](#plugins) allows the helper 6 MiB `RssAnon` with one small plugin alive, and its rest is 1.2 MiB; the row under it allows ten plugins 16 MiB, which is 1.6 MiB each |
+
+By those bars, **the standard Go toolchain does not qualify and no Go PDK
+should be built on it.** 1,833.1 KiB is 3.6× the size bar; 8.2 MiB resident per
+instance is 2× the one-plugin ceiling and 5× the ten-plugin one; and against the
+64-page bar its default runtime runs out of memory on event 2,891 of a workload
+that only reads its input. It is not a marginal miss on one axis, and the two
+calls that fix the third are each a plugin author's private decision —
+unenforced by any PDK, invisible in the manifest, and undone by the next author
+who doesn't know about them.
+
+So: **the standard Go toolchain does not qualify, and the experiment above was
+run — TinyGo does.** It is measured in the next section: 143.7 KiB and two
+pages by default, 6.0 KiB with the runtime's fat turned off, resident about
+1 MiB an instance, under all three bars. That makes a Go PDK worth writing,
+built on TinyGo and documenting the flags its row names; the standard toolchain
+stays what the numbers above say it is. The ABI description also stays as it
+is, so a Go author can build against Extism's Go PDK directly if their plugin
+fits, and these three bars give them a way to check before they ship it.
+
+For someone writing a plugin rather than maintaining this one, the same verdict
+and bars are in [writing a plugin](../plugins/pdk.md#go); the numbers stay
+here.
+
+## The other collected languages, measured the same way
+
+TinyGo, AssemblyScript, JavaScript, .NET and Haskell, measured on the same day
+as the Go numbers above and against the same three bars: a module under
+**512 KiB**, linear memory under **4 MiB (64 pages)** in steady state, and
+**4 MiB resident per live instance**. Two numbers are taken for every row and
+they answer different questions:
+
+* **What the module asks for at load** — read out of the binary's memory
+  section, data segments and exports, with a parser that executes nothing (the
+  same one the Go rows used). This is what `DEFAULT_MEMORY_PAGES` governs.
+* **What a live instance costs** — `/tmp/tinygo-measure/rss.py`, a wasmtime
+  host that provides the five Extism imports and stubs everything else, then
+  reads `VmRSS` at instantiate, at `_initialize`, and after `yf_activate` and
+  one `yf_event`. The helper is the real harness, and its own rest is measured
+  above; this one is smaller, so compare the columns between modules and the
+  bars against `instantiate + init + run`, not against the helper's absolute
+  numbers. Instantiation alone is 552–628 KiB for the host's own bookkeeping,
+  the same for every module.
+
+| Language, build | Module | Memory at load | Memory in use | Resident per instance | Verdict |
+| --- | --- | --- | --- | --- | --- |
+| AssemblyScript 0.27.37, the repo's PDK, `asconfig.json` release | **6.8 KiB** | 1 page, 64 KiB | 1 page | ~0.7 MiB | under all three |
+| TinyGo 0.43.0, default (`gc=precise`, `scheduler=asyncify`) | 143.7 KiB | **2 pages, 128 KiB** | 4 pages | ~1.0 MiB | under all three |
+| TinyGo 0.43.0, `-scheduler=none -no-debug` | 11.6 KiB | 2 pages | 2 pages | ~0.7 MiB | under all three |
+| TinyGo 0.43.0, `-opt=z -gc=leaking -scheduler=none -no-debug -panic=trap` | **6.0 KiB** | 2 pages | 2 pages | ~0.7 MiB | under all three |
+| Rust PDK, `plugins/ping` | 160.8 KiB | 17 pages, 1,088 KiB | 18 pages | ~0.9 MiB | under all three |
+| C PDK, `examples/shout` (clang 22, `-O2 -nostdlib -ffreestanding`) | 12.1 KiB | 5 pages, 320 KiB | 5 pages | ~0.65 MiB | under all three |
+| C, the ABI shape alone, `-O2` / `-Oz` | **0.7 KiB** | 2 pages, 128 KiB | 2 pages | ~0.7 MiB | under all three |
+| Zig PDK, `examples/shout` (0.17.1, `ReleaseSmall`) | 56.4 KiB | 17 pages, 1,088 KiB | 19 pages | ~0.64 MiB | under all three |
+| Zig, the ABI shape alone, `ReleaseSmall` | **0.4 KiB** | 17 pages | 17 pages | ~0.7 MiB | under all three |
+| Javy 9.1.0, reads its input and answers | 1,328.1 KiB | 22 pages, 1,408 KiB | 22 pages | ~0.6 MiB (no `yf_*` export to call) | over on size, 2.6× |
+| Extism JS PDK 1.6.1 (`extism-js`, QuickJS-ng + Wizer) | 2,425.9 KiB | 38 pages, 2,432 KiB | **100 pages, 6,400 KiB** | **~5.9 MiB** | over on size (4.7×), memory (1.6×) and resident (1.5×) |
+| quickjs-ng 0.18.0 reactor — the engine floor, not a PDK | 1,523.6 KiB | 34 pages | — | — | over on size alone |
+| .NET 8, `WasmSingleFileBundle`, Mono interpreter | **24,567.4 KiB** | **800 pages, 51,200 KiB** | — | — | refused: 3.0× `MAX_WASM_BYTES`, 3.1× `DEFAULT_MEMORY_PAGES` |
+| .NET 8, multi-file `AppBundle` | 3,453.8 KiB + 17,069.6 KiB of assemblies | 800 pages | — | — | needs a preopened directory the helper does not give |
+| GHC 9.14 wasm32-wasi, `-O2 -split-sections --strip-all`, default RTS | 1,460.9 KiB | 7 pages, 448 KiB | **142 pages, 9,088 KiB** | ~1.3 MiB | over on size (2.9×) and memory (2.2×) |
+| the same, RTS options set through `hs_init_ghc` (`-A64k`) | 1,460.9 KiB | 7 pages | **75 pages, 4,800 KiB** | ~1.0 MiB | over on size (2.9×), memory 1.2× |
+| the same, `-A8k` | 1,460.9 KiB | 7 pages | 74 pages, 4,736 KiB | ~1.0 MiB | over on size, memory 1.16× |
+
+### Verdicts
+
+**C and Zig** are the two that ship, and they bracket the question. C with
+clang and no libc is 762 bytes and two pages; Zig with `ReleaseSmall` is 435
+bytes, and its 17 pages are not the plugin's data at all — Zig's wasm stack is
+1 MiB by default, so a module that allocates nothing still asks for 1,088 KiB,
+sixteen times what wasm-ld gives C (64 KiB of stack and a page of data). Zig
+0.17.1 has no flag to lower it: `-fstack-size` was rejected, and the linker's
+`-z stack-size` is not something `zig build-exe` passes through, so the floor
+belongs to the language's defaults until that changes. Both examples — the real
+plugins a person would copy — are 12.1 KiB (C) and 56.4 KiB (Zig), and both are
+comfortably under every bar; the difference between them is Zig compiling its
+own panic handler and formatting into the module, which C's `-nostdlib` build
+does not have.
+
+**AssemblyScript** is the control case and the reason "a real language" is not
+the problem: 6.8 KiB and one page for the PDK's own shape, 1.4 KiB of data, no
+runtime linked because a plugin that does not use the heap does not need one.
+It is 24× smaller than the Rust PDK and asks for 1/17 of its memory. This is
+already the shipped PDK (`pdk/assemblyscript`), so the measurement's job here
+was to prove the bars are reachable, not to decide anything.
+
+**TinyGo** answers the Go question the standard toolchain opened. Its default
+build already fits — 143.7 KiB, two pages, about a megabyte resident, which is
+smaller than the Rust PDK in the two columns that matter and only 4 pages worse
+than it in use — and the flags move it further: `-no-debug` alone takes the file
+from 143.7 to 11.6 KiB (most of the default module is DWARF), and
+`-gc=leaking -scheduler=none -no-debug -panic=trap` to 6.0 KiB, at the cost of
+no goroutine scheduling and no collection, which is a plugin author's decision
+the same way std Go's `GOGC` was. `-gc=conservative` costs 22 KiB more than
+precise at `-scheduler=none`; `-opt=2` costs 14 KiB more than `-opt=z`.
+`-scheduler=asyncify` is the default and is what makes the default build's
+memory grow to four pages on the first event. The one axis not measured for
+TinyGo is a 10,000-event workload and the helper's own RSS with it alive; both
+belong to the PDK that this row justifies writing.
+
+**JavaScript** fails, and on three axes rather than one. The honest PDK build —
+Extism's `extism-js`, which is QuickJS-ng compiled to wasm with a Wizer
+snapshot — is 2,425.9 KiB, 4.7× the size bar; it asks 38 pages at load and
+**grows to 100 pages (6.4 MiB) on the first event**, 1.6× the steady-state bar;
+and that event costs 5.4 MiB of resident memory, 1.5× the resident bar. Javy is
+cheaper on disk and memory (1,328 KiB, 22 pages) but cannot serve this ABI
+without `-C wit`, which renames the exports to kebab case (`yf-activate`), so
+it would need a different ABI rather than a PDK; and the `quickjs-emscripten`
+module that looks cheapest at 491.3 KiB is not a floor at all — it *imports* its
+memory and asks the host for 256 pages, the entire default budget, with a 2 GiB
+maximum. A JS PDK would need the default page budget raised for every plugin,
+which is the one thing this design does not do.
+
+**.NET** is refused before a line of a plugin's code is read. The only shape
+`store.rs` can install — one `.wasm`, since the guest gets no filesystem — is
+the single-file bundle at 24,567.4 KiB, 3.0× `MAX_WASM_BYTES`; the 3,453.8 KiB
+core module exists only as a multi-file `AppBundle` that needs `--dir .` and
+17 MiB of assemblies beside it. Every variant declares 800 pages (51,200 KiB)
+minimum with no maximum: 3.1× `DEFAULT_MEMORY_PAGES`, so an instance cannot be
+created under the default at all, and a manifest would have to ask for ~800
+pages — one idle .NET plugin holding 50 MiB of the 256 MiB `MAX_HELPER_BYTES`,
+five instances total. There is also no shape to hang the ABI on: the WASI SDK
+emits command modules only, `OutputType=Library` produces no wasm, and the
+linker's export list is `malloc`/`free`/`__heap_base`/`__data_end`. AOT would
+not save it — Mono AOT adds native code to the runtime rather than removing the
+interpreter, and no shipped workload builds NativeAOT-LLVM for wasi.
+
+**Haskell** is the nearest miss that is still a miss. GHC 9.14's wasm32-wasi
+backend compiles the ABI shape cleanly — the five Extism imports link for real,
+through a short C shim, because Haskell cannot name a wasm import module — and
+`-O2 -split-sections --strip-all` gives 1,460.9 KiB, **2.9× the size bar** and
+only 0.9 MiB under the std-Go module the section above rejected, so split
+sections and a strip together buy nothing that Go's `-ldflags="-s -w"` did not.
+An idle instance's request is the RTS's: **142 pages (9,088 KiB)** with the
+default options, 2.2× the steady-state bar before the plugin has done
+anything. The RTS options are the one knob that moves it, and they have to be
+set through `hs_init_ghc` — `-with-rtsopts` is *inert* with `-no-hs-main`, so a
+build that passes it silently measures the default. With `-A64k` the floor is
+75 pages (4,800 KiB), with `-A8k` 74 pages: still over the 64-page bar, and a
+10,000-event run of 1 KiB events settles at 78 pages, so the runtime plateaus
+rather than growing. Worst of all, at a 64-page maximum the module *never
+starts*: the RTS retries a refused `memory.grow` instead of failing, so a
+manifest that pins the default limit gets an instance that burns fuel until the
+host's own timeout instead of a clean out-of-memory. This is the one language
+whose failure is structural in every direction — the module, the idle request
+and the behaviour at the limit are all the runtime's, not a plugin's.
+
+### What was not measured
+
+* **Cold compile cost.** wasmtime's JIT is the dominant host-side cost and it is
+  not in these tables: compiling the 143.7 KiB TinyGo module added 19.5 MiB to
+  this host, the 2,425.9 KiB JS module 142.0 MiB, and the 1,460.9 KiB Haskell
+  module 128.8 MiB. The helper's own cold-compile column in the Go section is
+  the number to compare against, and it should be re-taken for whichever PDK is
+  built.
+* **A 10,000-event workload** for anything but std Go. The memory-in-use column
+  is after one event; a language whose heap grows with the events it reads is
+  not yet excluded by it.
+* **The helper's RSS with each of these alive.** This host's figures are a
+  comparison between modules; `MAX_HELPER_BYTES` is a helper figure.
+* **.NET NativeAOT-LLVM**, which no shipped workload builds for wasi.
+* **Haskell's warm-cache column.** The JIT of its 1.46 MiB module is 125–130 MiB
+  of anonymous memory, against 34 MiB for the Rust PDK's 140 KiB and 103–109 MiB
+  for std Go's 1,156 KiB; the helper's own cache would map it from a file, and
+  that measurement needs the helper.
+
+### How to reproduce
+
+Every row's commands are in this section's order: the toolchain, the module,
+the parser, the host. The two pieces are `measure.py` and `rss.py` beside this
+record's working files; both read a module without executing it and then
+instantiate it in turn. `measure.py` needs nothing but Python; `rss.py` needs
+`pip install wasmtime`. Toolchains: TinyGo 0.43.0 from nixpkgs, the repo's
+vendored `asc` 0.27.37, Javy 9.1.0 and `extism-js` 1.6.1 from their release
+binaries with Binaryen 133 on `PATH`, .NET SDK 8.0.404 with the
+`wasi-experimental` workload, and GHC 9.12 via `ghc-wasm-meta`.

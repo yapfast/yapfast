@@ -15,6 +15,9 @@ use crate::{
 /// sync have stopped successfully.
 pub struct Backend {
     commands: UnboundedSender<Command>,
+    /// The other end of the events this session produces, kept so the plugin
+    /// system can send its own into the same stream rather than a second one.
+    events: UnboundedSender<Event>,
     _actor: BackgroundTask<()>,
     // The actor must be cancelled before its runtime is released.
     _runtime: Arc<BackgroundRuntime>,
@@ -28,15 +31,23 @@ impl Backend {
     ) -> (Self, UnboundedReceiver<Event>) {
         let (commands, receiver) = mpsc::unbounded_channel();
         let (sender, events) = mpsc::unbounded_channel();
-        let actor = runtime.spawn(chat::run(root, start, receiver, sender));
+        let actor = runtime.spawn(chat::run(root, start, receiver, sender.clone()));
         (
             Self {
                 commands,
+                events: sender,
                 _actor: actor,
                 _runtime: runtime,
             },
             events,
         )
+    }
+
+    /// The session's event stream, which only one sender may add to besides
+    /// the actor: the plugin system, whose notices reach the application the
+    /// same way everything else does.
+    pub fn events(&self) -> UnboundedSender<Event> {
+        self.events.clone()
     }
 
     /// Return the command on failure so the application can clear pending state.

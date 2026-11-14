@@ -1,0 +1,28 @@
+{
+  "api": 1,
+  "id": "com.example.hello",
+  "name": "Hello",
+  "version": "0.1.0",
+  "description": "Says hello, in Zig, for Yapfast",
+  "wasm": "plugin.wasm",
+  "activation": {
+    "on": ["command"]
+  },
+  "permissions": {
+    "capabilities": []
+  },
+  "commands": [
+    {
+      "name": "hello",
+      "description": "Say hello",
+      "options": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": false,
+          "description": "Who to greet"
+        }
+      ]
+    }
+  ]
+}

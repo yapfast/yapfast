@@ -303,21 +303,7 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
                 text: text.into(),
                 subtitle: subtitle.into(),
                 icon: icon.clone(),
-                danger: matches!(
-                    choice,
-                    MenuChoice::Unfriend
-                        | MenuChoice::Block
-                        | MenuChoice::Timeout
-                        | MenuChoice::Kick
-                        | MenuChoice::Ban
-                        | MenuChoice::ServerMute
-                        | MenuChoice::ServerDeafen
-                        | MenuChoice::Disconnect
-                        | MenuChoice::DeleteChannel
-                        | MenuChoice::LeaveServer
-                        | MenuChoice::LeaveGroup
-                        | MenuChoice::TransferOwnership
-                ),
+                danger: danger(choice),
                 separated,
                 checkbox,
                 checked,
@@ -358,6 +344,21 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
             notify.dress(adapter, row);
         }
     }
+    #[cfg(feature = "plugins")]
+    if let Some(overrides) = adapter.ui_overrides()
+        && let Some(target) = super::plugins::menu_target(
+            adapter,
+            id,
+            super::plugins::Shape {
+                person,
+                voice: in_voice.is_some(),
+                thread: thread.is_some(),
+                header: id_is_header,
+            },
+        )
+    {
+        super::plugins::edit_menu(adapter, overrides, target, &mut rows);
+    }
     let submenus = rows
         .iter()
         .map(|row| {
@@ -390,6 +391,26 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
         })
         .collect();
     (rows, submenus)
+}
+
+/// A destructive choice, drawn in red. Plugins can't change these rows;
+/// `yapfast_core::plugins::ui::DANGER_ROWS` lists them by id.
+fn danger(choice: MenuChoice) -> bool {
+    matches!(
+        choice,
+        MenuChoice::Unfriend
+            | MenuChoice::Block
+            | MenuChoice::Timeout
+            | MenuChoice::Kick
+            | MenuChoice::Ban
+            | MenuChoice::ServerMute
+            | MenuChoice::ServerDeafen
+            | MenuChoice::Disconnect
+            | MenuChoice::DeleteChannel
+            | MenuChoice::LeaveServer
+            | MenuChoice::LeaveGroup
+            | MenuChoice::TransferOwnership
+    )
 }
 
 /// What a menu row says for a choice, and its icon.
@@ -879,6 +900,10 @@ pub(super) fn choose(
 ) {
     // The events popout only lists them.
     if target.starts_with(EVENTS) {
+        return;
+    }
+    #[cfg(feature = "plugins")]
+    if super::plugins::choose(adapter, window, &target, id) {
         return;
     }
     // A profile's More menu is its person's, said to come from the profile.
@@ -1426,6 +1451,27 @@ mod order_tests {
                 MenuChoice::CopyId,
             ]
         );
+    }
+
+    /// The rows plugins can name are real rows, and the danger rows they
+    /// can't are exactly those the menu draws in red.
+    #[cfg(feature = "plugins")]
+    #[test]
+    fn the_rows_plugins_can_name_are_the_menus_own() {
+        use yapfast_core::plugins::ui::{DANGER_ROWS, EDITABLE_ROWS};
+        let ids: Vec<&str> = CHOICES.into_iter().map(choice_id).collect();
+        for row in EDITABLE_ROWS {
+            assert!(ids.contains(&row), "{row} is no menu row");
+        }
+        let mut danger: Vec<&str> = CHOICES
+            .into_iter()
+            .filter(|&choice| danger(choice))
+            .map(choice_id)
+            .collect();
+        let mut listed = DANGER_ROWS.to_vec();
+        danger.sort_unstable();
+        listed.sort_unstable();
+        assert_eq!(danger, listed);
     }
 
     #[test]

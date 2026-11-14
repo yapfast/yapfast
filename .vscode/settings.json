@@ -1,0 +1,8 @@
+{
+  "json.schemas": [
+    {
+      "fileMatch": ["**/yapfast-plugin.json"],
+      "url": "./schemas/yapfast-plugin.schema.json"
+    }
+  ]
+}

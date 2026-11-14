@@ -1,0 +1,14 @@
+{
+  "name": "@yapfast/as-pdk",
+  "version": "0.1.0",
+  "description": "Write Yapfast plugins in AssemblyScript, compiled to WebAssembly",
+  "private": true,
+  "license": "GPL-3.0-or-later",
+  "main": "assembly/index.ts",
+  "scripts": {
+    "build": "asc --config asconfig.json"
+  },
+  "devDependencies": {
+    "assemblyscript": "^0.27"
+  }
+}

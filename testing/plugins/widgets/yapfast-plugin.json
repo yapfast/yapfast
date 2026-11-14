@@ -1,0 +1,8 @@
+{
+  "api": 1,
+  "id": "com.example.widgets",
+  "name": "Widget Tour",
+  "version": "1.0.0",
+  "description": "Shows each widget a plugin can draw, from slots.json, until the runtime can draw them. Its banner is a named part.",
+  "parts": [{ "name": "digest", "slot": "banner" }]
+}

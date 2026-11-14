@@ -263,7 +263,7 @@ fn too_big_emoji() -> String {
 
 /// The picture at `path` as a new emoji: its middle, square, at most 128
 /// pixels; a GIF goes as it is, so it stays animated.
-pub(super) fn read_emoji(path: &Path) -> Result<PickedPicture, String> {
+pub(crate) fn read_emoji(path: &Path) -> Result<PickedPicture, String> {
     let picked = read_shaped(path, EMOJI, EMOJI_PREVIEW, "an emoji")?;
     if picked.data.len() > EMOJI_LIMIT {
         return Err(too_big_emoji());
@@ -275,7 +275,7 @@ pub(super) fn read_emoji(path: &Path) -> Result<PickedPicture, String> {
 /// a GIF or an animated PNG goes as it is; a JPEG, or a PNG over 512 KB,
 /// becomes a PNG within 320 pixels, keeping its shape. Over 512 KB after
 /// that, it's refused.
-pub(super) fn read_sticker(path: &Path) -> Result<PickedPicture, String> {
+pub(crate) fn read_sticker(path: &Path) -> Result<PickedPicture, String> {
     let name = path
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())

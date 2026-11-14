@@ -1,0 +1,437 @@
+// What plugins draw: precompiled widgets that take a plugin's widget tree as
+// data, rows of cells, so no plugin ships Slint of its own. src/ui/plugins.rs
+// turns a checked tree from crates/yapfast-core/src/plugins/ui.rs into these
+// structs. Everything a plugin draws carries its name, so it can't pass for
+// Yapfast's own interface.
+import { Theme, Middle } from "theme.slint";
+import { ActionButton, Dropdown, IconButton, TextField, VolumeSlider } from "controls.slint";
+import { SettingsToggle } from "yapfast/settings-toggle.slint";
+
+/// What a cell is, in the order of `Kind` in Rust.
+export enum PluginKind { text, heading, muted, code, badge, icon, image, button, link, toggle, select, input, slider, progress, divider, spacer }
+
+/// A cell's colour, as a token: plugins name no colours of their own.
+export enum PluginTone { normal, muted, accent, success, warning, danger }
+
+export struct PluginCell {
+    kind: PluginKind,
+    /// What an interactive cell reports itself as.
+    id: string,
+    /// A control's label, and a text cell's words for accessibility.
+    text: string,
+    /// A text cell's words with their markdown.
+    styled: styled-text,
+    tone: PluginTone,
+    /// An input's text; a slider's or a progress bar's number as words.
+    value: string,
+    checked: bool,
+    enabled: bool,
+    picture: image,
+    options: [string],
+    /// A select's chosen option.
+    selected: int,
+    /// A slider's range, and its or a progress bar's place in it, 0 to 1.
+    minimum: float,
+    maximum: float,
+    amount: float,
+}
+
+export struct PluginRow { framed: bool, indent: int, cells: [PluginCell] }
+
+/// What one plugin draws in one slot: its id, which input reports, and its
+/// name, which labels what it draws. `part-id` is the part its manifest names
+/// it, as `<plugin-id>/<name>`, and empty for a tree it didn't name; the
+/// containers below expose it so a theme can style a part by name, and none
+/// draws differently for it.
+export struct PluginPart { plugin: string, name: string, slot: string, part-id: string, rows: [PluginRow] }
+
+/// A button a plugin's manifest puts where Yapfast draws rows of its own: at
+/// the bottom of the server rail, or in a conversation's header. It shows
+/// without the plugin running, and says whose it is.
+export struct PluginButton { plugin: string, name: string, id: string, label: string }
+
+/// What plugins put outside a slot, in parts of the window that are drawn far
+/// from the root: the server rail, the header and a person's card read these
+/// directly. The window sets them as its plugins load; choosing a row from a
+/// manifest comes back through `row-acted`, and a widget a plugin drew comes
+/// back through the window's own `plugin-acted`.
+export global PluginSurfaces {
+    /// Buttons from `rail_items`, at the bottom of the server rail.
+    in-out property <[PluginButton]> rail-items;
+    /// Buttons from `header_buttons`, in the conversation's header.
+    in-out property <[PluginButton]> header-buttons;
+    /// A static row from a manifest: the plugin, and its action.
+    callback row-acted(string, string);
+}
+
+export global PluginTones {
+    pure public function ink(tone: PluginTone) -> color {
+        if tone == PluginTone.muted { return Theme.muted; }
+        if tone == PluginTone.accent { return Theme.accent; }
+        if tone == PluginTone.success { return Theme.live; }
+        if tone == PluginTone.warning { return Theme.loud; }
+        if tone == PluginTone.danger { return Theme.danger; }
+        return Theme.text;
+    }
+}
+
+// A link a plugin draws: text the keyboard reaches, opened through the same
+// confirmation as a message's links.
+component PluginLink inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+    callback clicked;
+    min-width: link-text.preferred-width; min-height: link-text.preferred-height;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+    forward-focus: focus;
+    link-text := Text {
+        text: root.text; color: Theme.link; font-size: 14px; vertical-alignment: center;
+        font-weight: focus.has-focus ? 600 : 400;
+    }
+    Rectangle { y: parent.height - 2px; height: 1px; background: Theme.link; visible: pointer.has-hover || focus.has-focus; }
+    focus := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == "\n" || event.text == " " { root.clicked(); return accept; }
+            return reject;
+        }
+        pointer := TouchArea { enabled: root.enabled; mouse-cursor: MouseCursor.pointer; clicked => { root.clicked(); } }
+    }
+}
+
+// A plugin's switch: its label, then the switch, which Space and Enter flip.
+// It says only that it was flipped; the plugin's next tree shows the result,
+// so it flips on screen at once and stays as the plugin last drew it.
+component PluginSwitch inherits Rectangle {
+    in property <string> text;
+    in property <bool> checked;
+    in property <bool> enabled: true;
+    callback toggled(bool);
+    property <bool> on: root.checked;
+    changed checked => { root.on = root.checked; }
+    min-height: max(32px, label.preferred-height); min-width: label.min-width + 60px;
+    function flip() {
+        if root.enabled {
+            root.on = !root.on;
+            root.toggled(root.on);
+        }
+    }
+    HorizontalLayout {
+        spacing: 12px;
+        label := Text {
+            text: root.text; color: root.enabled ? Theme.text : Theme.muted; font-size: 14px;
+            vertical-alignment: center; wrap: word-wrap; horizontal-stretch: 1;
+        }
+        Middle { SettingsToggle { checked: root.on; enabled: root.enabled; hovered: pointer.has-hover; focused: focus.has-focus; } }
+    }
+    focus := FocusScope {
+        enabled: root.enabled;
+        accessible-role: switch;
+        accessible-label: root.text;
+        accessible-checkable: true;
+        accessible-checked: root.on;
+        accessible-enabled: root.enabled;
+        accessible-action-default => { root.flip(); }
+        key-pressed(event) => {
+            if event.text == " " || event.text == "\n" { root.flip(); return accept; }
+            return reject;
+        }
+        pointer := TouchArea { enabled: root.enabled; mouse-cursor: MouseCursor.pointer; clicked => { root.flip(); } }
+    }
+}
+
+// One cell. Only the element for its kind is made.
+component PluginCellView inherits HorizontalLayout {
+    in property <PluginCell> cell;
+    in property <string> plugin-name;
+    /// The cell's id and its value.
+    callback acted(string, string);
+    property <color> ink: PluginTones.ink(root.cell.tone);
+    horizontal-stretch: root.cell.kind == PluginKind.text || root.cell.kind == PluginKind.muted || root.cell.kind == PluginKind.heading
+        || root.cell.kind == PluginKind.code || root.cell.kind == PluginKind.input || root.cell.kind == PluginKind.slider
+        || root.cell.kind == PluginKind.progress || root.cell.kind == PluginKind.spacer || root.cell.kind == PluginKind.toggle ? 1 : 0;
+    if root.cell.kind == PluginKind.text || root.cell.kind == PluginKind.muted: StyledText {
+        horizontal-stretch: 1; text: root.cell.styled;
+        default-color: root.cell.kind == PluginKind.muted ? Theme.muted : root.ink; default-font-size: 14px;
+        accessible-role: text; accessible-label: root.cell.text;
+    }
+    if root.cell.kind == PluginKind.heading: Text {
+        horizontal-stretch: 1; text: root.cell.text; color: root.ink; font-size: 16px; font-weight: 700; wrap: word-wrap;
+        accessible-role: text;
+    }
+    if root.cell.kind == PluginKind.code: Rectangle {
+        horizontal-stretch: 1; background: Theme.sunken; border-radius: 4px;
+        min-height: code-text.preferred-height + 8px;
+        code-text := Text {
+            x: 6px; width: parent.width - 12px; text: root.cell.text; color: root.ink; font-family: "monospace"; font-size: 13px; wrap: word-wrap;
+            accessible-role: text;
+        }
+    }
+    if root.cell.kind == PluginKind.badge: Middle {
+        Rectangle {
+            height: 18px; width: badge-text.preferred-width + 12px; border-radius: 9px;
+            background: root.ink.with-alpha(0.18);
+            accessible-role: text; accessible-label: root.cell.text;
+            badge-text := Text { text: root.cell.text; color: root.ink; font-size: 12px; font-weight: 700; }
+        }
+    }
+    if root.cell.kind == PluginKind.icon: Middle {
+        Image {
+            width: 18px; height: 18px; source: root.cell.picture; image-fit: contain;
+            colorize: root.cell.tone == PluginTone.normal ? transparent : root.ink;
+            accessible-role: image; accessible-label: root.cell.text;
+        }
+    }
+    if root.cell.kind == PluginKind.image: Image {
+        max-height: 160px; max-width: 320px; source: root.cell.picture; image-fit: contain;
+        accessible-role: image; accessible-label: root.cell.text;
+    }
+    if root.cell.kind == PluginKind.button: Middle {
+        ActionButton {
+            text: root.cell.text; label: root.plugin-name + ": " + root.cell.text; small: true; enabled: root.cell.enabled;
+            primary: root.cell.tone == PluginTone.accent; success: root.cell.tone == PluginTone.success; danger: root.cell.tone == PluginTone.danger;
+            ghost: root.cell.tone == PluginTone.muted;
+            clicked => { root.acted(root.cell.id, ""); }
+        }
+    }
+    if root.cell.kind == PluginKind.link: Middle {
+        PluginLink { text: root.cell.text; enabled: root.cell.enabled; clicked => { root.acted(root.cell.id, root.cell.value); } }
+    }
+    if root.cell.kind == PluginKind.toggle: PluginSwitch {
+        horizontal-stretch: 1; text: root.cell.text; checked: root.cell.checked; enabled: root.cell.enabled;
+        toggled(on) => { root.acted(root.cell.id, on ? "true" : "false"); }
+    }
+    if root.cell.kind == PluginKind.select: Middle {
+        Dropdown {
+            model: root.cell.options; current-index: root.cell.selected; enabled: root.cell.enabled;
+            label: root.cell.text; small: true; fill: Theme.field;
+            selected(index, option) => { root.acted(root.cell.id, option); }
+        }
+    }
+    if root.cell.kind == PluginKind.input: TextField {
+        horizontal-stretch: 1; min-height: 32px; text-size: 14px; pad: 8px; fill: Theme.field;
+        text: root.cell.value; placeholder: root.cell.text; label: root.cell.text; enabled: root.cell.enabled;
+        accepted => { root.acted(root.cell.id, self.text); }
+    }
+    if root.cell.kind == PluginKind.slider: VolumeSlider {
+        horizontal-stretch: 1; label: root.cell.text; maximum: 100; step: 1; full-mark: false;
+        value: round(root.cell.amount * 100); shown: self.reported;
+        property <float> number: root.cell.minimum + self.value / 100 * (root.cell.maximum - root.cell.minimum);
+        property <string> reported: round(self.number * 100) / 100;
+        committed => { root.acted(root.cell.id, self.reported); }
+    }
+    if root.cell.kind == PluginKind.progress: Middle {
+        Rectangle {
+            horizontal-stretch: 1; height: 6px; border-radius: 3px; background: Theme.field;
+            accessible-role: progress-indicator; accessible-label: root.cell.text; accessible-value: root.cell.value;
+            Rectangle {
+                x: 0px; width: parent.width * max(0, min(1, root.cell.amount)); border-radius: 3px;
+                background: root.cell.tone == PluginTone.normal ? Theme.accent : root.ink;
+            }
+        }
+    }
+    if root.cell.kind == PluginKind.divider: Middle {
+        Rectangle { horizontal-stretch: 1; height: 1px; background: Theme.line; }
+    }
+    if root.cell.kind == PluginKind.spacer: Rectangle { horizontal-stretch: 1; min-width: 8px; }
+}
+
+// A plugin's rows, under its name.
+export component PluginWidgets inherits Rectangle {
+    in property <PluginPart> part;
+    /// What it's drawn on, such as a message's item; empty for none.
+    in property <string> subject;
+    /// The plugin, its slot, the cell's id, its value, and the subject.
+    callback acted(string, string, string, string, string);
+    /// The named part it draws, for a theme to style; empty when unnamed.
+    out property <string> part-id: root.part.part-id;
+    min-height: column.preferred-height; min-width: column.min-width;
+    accessible-role: groupbox;
+    accessible-label: "From " + root.part.name;
+    column := VerticalLayout {
+        spacing: 6px;
+        Text {
+            text: "From " + root.part.name; color: Theme.muted; font-size: 12px; font-weight: 600; overflow: elide;
+            accessible-role: none;
+        }
+        for row in root.part.rows: Rectangle {
+            background: row.framed ? Theme.raised : transparent;
+            border-radius: row.framed ? 8px : 0px;
+            border-width: row.framed ? 1px : 0px; border-color: Theme.line;
+            min-height: line.preferred-height;
+            line := HorizontalLayout {
+                padding: row.framed ? 10px : 0px;
+                padding-left: (row.framed ? 10px : 0px) + row.indent * 16px;
+                spacing: 8px;
+                for cell in row.cells: PluginCellView {
+                    cell: cell; plugin-name: root.part.name;
+                    acted(id, value) => { root.acted(root.part.plugin, root.part.slot, id, value, root.subject); }
+                }
+            }
+        }
+    }
+}
+
+// A plugin's button where Yapfast draws rows of its own: its label, and whose
+// it is to a screen reader, under it on the rail where there is room.
+export component PluginRowButton inherits Rectangle {
+    in property <PluginButton> entry;
+    /// The plugin's name under the label, which the rail has room for.
+    in property <bool> named: false;
+    callback clicked;
+    min-height: content.preferred-height; border-radius: 6px;
+    background: hover.has-hover ? Theme.hover : transparent;
+    vertical-stretch: 0;
+    content := VerticalLayout {
+        padding: 4px; spacing: 0px;
+        Text {
+            text: root.entry.label; color: Theme.secondary; font-size: 12px; font-weight: 600;
+            horizontal-alignment: center; overflow: elide;
+        }
+        if root.named: Text {
+            text: root.entry.name; color: Theme.muted; font-size: 9px;
+            horizontal-alignment: center; overflow: elide;
+        }
+    }
+    accessible-role: button;
+    accessible-label: root.entry.label + ", from " + root.entry.name;
+    accessible-action-default => { root.clicked(); }
+    forward-focus: focus;
+    focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == "\n" || event.text == " " { root.clicked(); return accept; }
+            return reject;
+        }
+        hover := TouchArea {
+            mouse-cursor: MouseCursor.pointer;
+            clicked => { root.clicked(); }
+        }
+    }
+}
+
+/// What a plugin badges a person with, as `member.decorate` answered.
+export struct PluginBadge { text: string, tone: PluginTone, name: string }
+
+// A plugin's badge beside a person's name in the member list: a few characters
+// and a tone, never a colour of its own, and whose it is to a screen reader.
+export component PluginBadgeView inherits Rectangle {
+    in property <PluginBadge> badge;
+    height: 18px; width: badge-text.preferred-width + 12px; border-radius: 9px;
+    background: PluginTones.ink(root.badge.tone).with-alpha(0.18);
+    accessible-role: text;
+    accessible-label: root.badge.text + ", from " + root.badge.name;
+    badge-text := Text {
+        text: root.badge.text; color: PluginTones.ink(root.badge.tone);
+        font-size: 11px; font-weight: 700;
+    }
+}
+
+// A plugin's notice above the conversation, beside Yapfast's own banners
+// but always under the plugin's name, with a way to close it.
+export component PluginBanner inherits Rectangle {
+    in property <PluginPart> part;
+    out property <string> part-id: root.part.part-id;
+    callback acted(string, string, string, string, string);
+    callback dismissed(string, string);
+    min-height: content.preferred-height; vertical-stretch: 0; background: Theme.raised;
+    content := HorizontalLayout {
+        padding-left: 16px; padding-right: 8px; padding-top: 8px; padding-bottom: 8px; spacing: 12px;
+        PluginWidgets {
+            horizontal-stretch: 1; part: root.part;
+            acted(plugin, slot, id, value, subject) => { root.acted(plugin, slot, id, value, subject); }
+        }
+        Middle { ActionButton { text: "Dismiss"; label: "Dismiss " + root.part.name + "'s notice"; ghost: true; small: true; clicked => { root.dismissed(root.part.plugin, root.part.slot); } } }
+    }
+}
+
+// A plugin's toast over the window's corner, which goes after a few seconds
+// in front unless the pointer rests on it.
+export component PluginToast inherits Rectangle {
+    in property <PluginPart> part;
+    out property <string> part-id: root.part.part-id;
+    /// It counts down only while the window is in front, so it isn't gone
+    /// before anyone could see it.
+    in property <bool> counting: true;
+    callback acted(string, string, string, string, string);
+    callback dismissed(string, string);
+    width: 340px; height: toast-content.preferred-height;
+    background: Theme.raised; border-radius: 8px; border-width: 1px; border-color: Theme.edge;
+    drop-shadow-blur: 16px; drop-shadow-color: #00000066; drop-shadow-offset-y: 4px;
+    accessible-role: groupbox;
+    accessible-label: root.part.name;
+    hover := TouchArea {}
+    Timer {
+        interval: 6s; running: root.counting && !hover.has-hover;
+        triggered => { root.dismissed(root.part.plugin, root.part.slot); }
+    }
+    toast-content := HorizontalLayout {
+        padding: 12px; spacing: 8px;
+        PluginWidgets {
+            horizontal-stretch: 1; part: root.part;
+            acted(plugin, slot, id, value, subject) => { root.acted(plugin, slot, id, value, subject); }
+        }
+        VerticalLayout {
+            alignment: start;
+            IconButton {
+                icon: @image-url("icons/x.svg"); label: "Close " + root.part.name + "'s toast"; size: 28px; glyph: 16px;
+                clicked => { root.dismissed(root.part.plugin, root.part.slot); }
+            }
+        }
+    }
+}
+
+// Plugins' buttons in a row of Yapfast's own, such as the composer's or a
+// message's hover bar: only buttons, compact, each saying whose it is.
+// `subject` is what they act on, such as the message.
+export component PluginButtons inherits HorizontalLayout {
+    in property <[PluginPart]> parts;
+    in property <string> subject;
+    callback acted(string, string, string, string, string);
+    spacing: 0px;
+    for part in root.parts: HorizontalLayout {
+        spacing: 0px;
+        for row in part.rows: HorizontalLayout {
+            spacing: 0px;
+            for cell in row.cells: Middle {
+                if cell.kind == PluginKind.button: ActionButton {
+                    text: cell.text; label: part.name + ": " + cell.text; ghost: true; small: true; enabled: cell.enabled;
+                    clicked => { root.acted(part.plugin, part.slot, cell.id, "", root.subject); }
+                }
+            }
+        }
+    }
+}
+
+// A plugin's question, over the window: the same widget renderer as a slot,
+// under the plugin's name, with a way to close it. It holds no answer of its
+// own: what the person chooses goes back as a widget's input, and the plugin
+// closes it with `ui.clear_slot` or replaces its tree.
+export component PluginDialog inherits Rectangle {
+    in property <PluginPart> part;
+    out property <string> part-id: root.part.part-id;
+    callback acted(string, string, string, string, string);
+    callback dismissed(string, string);
+    width: 420px; min-height: content.preferred-height;
+    background: Theme.panel; border-radius: 12px; border-width: 1px; border-color: Theme.edge;
+    drop-shadow-blur: 32px; drop-shadow-color: #00000080; drop-shadow-offset-y: 12px;
+    accessible-role: groupbox;
+    accessible-label: "From " + root.part.name;
+    // A click on the dialog stays on it instead of reaching the scrim.
+    TouchArea { }
+    content := VerticalLayout {
+        padding: 16px; spacing: 12px;
+        PluginWidgets {
+            part: root.part;
+            acted(plugin, slot, id, value, subject) => { root.acted(plugin, slot, id, value, subject); }
+        }
+        HorizontalLayout {
+            alignment: end;
+            ActionButton {
+                text: "Dismiss"; label: "Dismiss " + root.part.name + "'s dialog"; ghost: true; small: true;
+                clicked => { root.dismissed(root.part.plugin, root.part.slot); }
+            }
+        }
+    }
+}

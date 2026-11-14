@@ -32,6 +32,9 @@ rustPlatform.buildRustPackage {
     root = ../.;
     fileset = lib.fileset.unions [
       ../Cargo.toml ../Cargo.lock ../build.rs ../src ../crates ../ui ../vendor ../packaging
+      # The plugins page's fixture, which `--preview` shows, embeds this
+      # sample's manifest; the lib is built with it, not only the tests.
+      ../testing/plugins/word-filter/yapfast-plugin.json
     ];
   };
   cargoLock = {
@@ -46,7 +49,7 @@ rustPlatform.buildRustPackage {
     };
   };
   buildNoDefaultFeatures = true;
-  buildFeatures = [ "desktop" "discord" ];
+  buildFeatures = [ "desktop" "discord" "plugins" ];
   nativeBuildInputs = with pkgs; [
     pkg-config cmake llvmPackages_21.clang llvmPackages_21.llvm protobuf
     # Assembles x264's x86-64 code (vendor/x264-src).
@@ -86,6 +89,13 @@ rustPlatform.buildRustPackage {
     wrapProgram "$out/bin/yapfast" \
       --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath native.runtimeLibraries} \
       --suffix LD_LIBRARY_PATH : /run/opengl-driver/lib
+    # The helper the plugin system starts. It is a binary of its own, so a
+    # package that ships only `yapfast` has the feature and nothing to run it
+    # with. cargoInstallHook installs it beside the app, from the target
+    # directory the build hook names; here it gets the same library path, since
+    # it links libc and libgcc through the same toolchain as the app.
+    wrapProgram "$out/bin/yapfast-plugins" \
+      --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath native.runtimeLibraries}
   '';
   meta = {
     description = "Native Discord client that stays light on memory";
