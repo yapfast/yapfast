@@ -7913,7 +7913,7 @@ function unknown(req: Request, path: string): Response {
   return notFound();
 }
 
-function serveFile(path: string, url: URL): Response {
+function serveFile(path: string, url: URL, range: string | null): Response {
   const file = files.get(decodeURIComponent(path));
   if (!file) return notFound();
   let data = file.data;
@@ -7924,7 +7924,25 @@ function serveFile(path: string, url: URL): Response {
     data = scaled.get(key) ?? file.draw(width, height);
     scaled.set(key, data);
   }
-  return new Response(data, { headers: { "content-type": file.contentType } });
+  return servePart(data, file.contentType, range);
+}
+
+// A file, or the part a Range header asks for, as Discord's CDN answers it:
+// 206 with Content-Range for `bytes=FROM-` or `bytes=FROM-TO`, 416 past
+// the end.
+function servePart(data: Uint8Array, contentType: string, range: string | null): Response {
+  const headers = { "content-type": contentType, "accept-ranges": "bytes" };
+  const asked = range?.match(/^bytes=(\d+)-(\d*)$/);
+  if (!asked) return new Response(data, { headers });
+  const from = Number(asked[1]);
+  const to = Math.min(asked[2] ? Number(asked[2]) : data.length - 1, data.length - 1);
+  if (from >= data.length || to < from) {
+    return new Response(null, { status: 416, headers: { "content-range": `bytes */${data.length}` } });
+  }
+  return new Response(data.subarray(from, to + 1), {
+    status: 206,
+    headers: { ...headers, "content-range": `bytes ${from}-${to}/${data.length}` },
+  });
 }
 
 // --- Embeds -----------------------------------------------------------------
@@ -7951,7 +7969,7 @@ const gifVideo = readFileSync(new URL("gif-mandelbrot.mp4", fixtures));
 // at /external/{name}/video.mp4, the linked post's clip at
 // /external/post/video.mp4, and a GIF provider's file linked directly at
 // /external/klipy/https/static.klipy.com/ii/{name}.{webp,gif}.
-function serveExternal(path: string, url: URL): Response | undefined {
+function serveExternal(path: string, url: URL, range: string | null): Response | undefined {
   const linked = path.match(/^\/external\/klipy\/https\/static\.klipy\.com\/ii\/([a-z]+)\.(webp|gif)$/);
   if (linked) {
     try {
@@ -7963,7 +7981,7 @@ function serveExternal(path: string, url: URL): Response | undefined {
   }
   if (/^\/external\/[\w-]+\/video\.mp4$/.test(path)) {
     const data = path === "/external/post/video.mp4" ? clip : gifVideo;
-    return new Response(data, { headers: { "content-type": "video/mp4" } });
+    return servePart(data, "video/mp4", range);
   }
   const m = path.match(/^\/external\/([\w-]+)\/(\d+)x(\d+)\.png$/);
   if (!m) return undefined;
@@ -8832,7 +8850,7 @@ const server = Bun.serve<SocketData>({
       return withDeviceCookie(req, response);
     }
     if (req.method === "GET" && path.startsWith("/attachments/")) {
-      return serveFile(path.slice("/attachments/".length), url);
+      return serveFile(path.slice("/attachments/".length), url, req.headers.get("range"));
     }
     // The games Discord detects, from its CDN as the desktop client asks:
     // with the version it has, the answer is that it's unchanged.
@@ -8855,7 +8873,7 @@ const server = Bun.serve<SocketData>({
     }
     if (path === "/_control/gif-selects") return Response.json(gifSelects);
     if (req.method === "GET" && path.startsWith("/media/attachments/")) {
-      return serveFile(path.slice("/media/attachments/".length), url);
+      return serveFile(path.slice("/media/attachments/".length), url, req.headers.get("range"));
     }
     // Discord's CDN: server icons, avatars and banners, and those uploaded
     // as they came.
@@ -9292,7 +9310,7 @@ const server = Bun.serve<SocketData>({
       return new Response("chat started\n");
     }
     if (req.method === "GET" && path.startsWith("/external/")) {
-      return serveExternal(path, url) ?? notFound();
+      return serveExternal(path, url, req.headers.get("range")) ?? notFound();
     }
     // Discord's CDN: soundboard sounds.
     const sound = req.method === "GET" ? path.match(/^\/soundboard-sounds\/(\d+)$/) : null;

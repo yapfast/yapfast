@@ -3676,7 +3676,7 @@ impl Discord {
     }
 
     /// Downloads a file from Discord's CDN into `file` as it arrives,
-    /// returning its size; a video plays while it does.
+    /// returning its size, as a GIF favourite's is kept.
     pub async fn download_into(
         &self,
         url: &str,
@@ -3684,6 +3684,25 @@ impl Discord {
         limit: u64,
     ) -> Result<u64> {
         self.api.download_into(url, file, limit).await
+    }
+
+    /// Asks Discord's CDN for a file's bytes from `from`, up to `to`, as
+    /// [`Api::download_part`] does; a video plays while it downloads.
+    pub async fn download_part(
+        &self,
+        url: &str,
+        from: u64,
+        to: Option<u64>,
+        limit: u64,
+    ) -> Result<
+        api::FilePart<
+            impl futures_util::Stream<Item = Result<impl std::ops::Deref<Target = [u8]> + Send + use<>>>
+            + Send
+            + Unpin
+            + use<>,
+        >,
+    > {
+        self.api.download_part(url, from, to, limit).await
     }
 
     /// Changes whenever a name, avatar or role that messages show changes.
