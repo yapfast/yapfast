@@ -7,7 +7,7 @@ publish = false
 license = "GPL-3.0-or-later"
 
 [workspace]
-members = ["crates/feature-union", "crates/yapfast-core", "crates/yapfast-discord"]
+members = ["crates/feature-union", "crates/yapfast-core", "crates/yapfast-discord", "crates/yapfast-iced"]
 default-members = ["."]
 # crates/yapfast-ui is a path dependency outside the workspace: Clippy lints
 # every workspace member it compiles, even one --exclude leaves out, and
@@ -27,6 +27,12 @@ desktop = ["dep:slint", "dep:yapfast-ui", "dep:skia-safe", "dep:rfd", "dep:memma
 # The desktop app with a window that reloads ui/ on each save, for UI work;
 # see docs/building.md.
 live-preview = ["desktop", "yapfast-ui/live-preview"]
+# The iced front end in place of Slint's, drawn on the CPU: build with
+# --no-default-features --features iced. It can't share a build with
+# `desktop`; see docs/iced-client.md.
+iced = ["discord", "dep:yapfast-iced", "yapfast-iced/cpu"]
+# The iced front end on wgpu instead, for trying the GPU renderer.
+iced-gpu = ["discord", "dep:yapfast-iced", "yapfast-iced/gpu"]
 
 [dependencies]
 anyhow.workspace = true
@@ -46,6 +52,7 @@ memmap2 = { version = "0.9", optional = true }
 i-slint-core = { version = "=1.19.0", optional = true }
 yapfast-core = { path = "crates/yapfast-core", default-features = false }
 yapfast-ui = { path = "crates/yapfast-ui", optional = true }
+yapfast-iced = { path = "crates/yapfast-iced", default-features = false, optional = true }
 # Opens links clicked in messages in the default browser.
 webbrowser = { version = "1", optional = true }
 # Pictures copied from messages. Slint already carries arboard for text.
@@ -182,6 +189,9 @@ const-field-offset = { git = "https://github.com/slint-ui/slint", rev = "ac7d423
 davey = { path = "vendor/davey" }
 tungstenite = { path = "vendor/tungstenite" }
 const_panic = { git = "https://github.com/jplatte/const_panic", rev = "e0b317a9a7bde2d48a7d15b6a60d70e4a41d3b5f" }
+# iced 0.14's renderers with the iced front end's patches; see docs/building.md.
+iced_tiny_skia = { path = "vendor/iced_tiny_skia" }
+iced_wgpu = { path = "vendor/iced_wgpu" }
 
 # The crates of that commit reach these two by path, so they're patched there too.
 [patch."https://github.com/slint-ui/slint"]

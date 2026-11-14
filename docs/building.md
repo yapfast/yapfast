@@ -249,6 +249,16 @@ dependency in Cargo.toml:
   id changes, and reading a frame's overlong nonce without panicking.
 - `tungstenite`: tungstenite 0.26.2, giving back the read buffer a large frame
   such as Discord's READY grew.
+- `iced_tiny_skia`: iced 0.14's CPU renderer, 0.14.1, for the [iced
+  client](iced-client.md): pictures drawn from the app's own pixels and copied
+  onto the frame with their round corners, glyphs copied the same way, clips
+  by rectangle instead of a window-sized mask, quads, gradients and shadows
+  filled only inside the clip, damaged regions merged, and a hook through
+  which the client draws video frames itself with libyuv, which the libwebrtc
+  archive already links in.
+- `iced_wgpu`: iced 0.14's GPU renderer, 0.14.0: round image corners where
+  the quad shader puts them, each corner's own radius, and pictures up to 4K
+  uploaded in the frame that draws them, so a stream's frames show.
 
 `vendor/x264-src` isn't a patched crate but x264's own C source, unchanged and
 trimmed to what an 8-bit encoder library uses, with a build script in place of
@@ -324,7 +334,13 @@ missing file or heading; Clippy with warnings denied and the tests for the whole
 dependency, with plain rustc, and doesn't lint its generated code); a
 build; and the desktop smoke test, which runs `target/<profile>/yapfast`,
 the desktop build, from that build. These build the default features, the
-release's: Discord on the desktop (see [Networks](#networks)).
+release's: Discord on the desktop (see [Networks](#networks)). Before the
+default build come the [iced client](iced-client.md)'s steps: Clippy on its
+CPU and GPU builds (`--no-default-features --features iced` and `iced-gpu`),
+its tests, its CPU build and that build's smoke test. The default steps leave
+`yapfast-iced` out, so its dependencies don't change the default build's
+features, and the default build comes last, so `target/<profile>/yapfast` is
+the Slint client after a check.
 
 `scripts/check --matrix` adds the builds with Matrix, after those and one at
 a time, as each compile of the UI crate takes several GiB of memory: Clippy

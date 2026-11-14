@@ -1,6 +1,6 @@
 # Application core and client UI
 
-Yapfast's Cargo workspace has five packages, all in one process. The root `yapfast`
+Yapfast's Cargo workspace has six packages, all in one process. The root `yapfast`
 package is the executable: the Slint adapter and the command-line entry point.
 [`crates/yapfast-core`](../crates/yapfast-core) holds application behavior and the
 native Matrix, Discord and voice backend.
@@ -11,6 +11,9 @@ any `.slint` file rebuilds only that crate, and in a
 [live-preview build](building.md#seeing-the-app) nothing at all.
 [`crates/feature-union`](../crates/feature-union) holds no code; `scripts/check`
 uses it (see [building](building.md#checks)).
+[`crates/yapfast-iced`](../crates/yapfast-iced) is the [iced client](iced-client.md),
+a second front end that is to replace Slint's; the root package's `iced` feature
+builds it into the executable in place of the Slint client.
 
 ```mermaid
 flowchart LR
@@ -49,8 +52,8 @@ reads video files, `encode.rs` encodes Go Live and the camera, and
 `decode.rs` decodes a watched stream, each through C in `native/*.c`.
 `audio_io.rs` and `audio_io/` are Yapfast's own sound devices.
 
-`vendor/` holds patched Slint, webrtc-sys, matrix-rtc-livekit, davey and
-tungstenite, plus x264's and FFmpeg's C source; see
+`vendor/` holds patched Slint, iced's two renderers, webrtc-sys,
+matrix-rtc-livekit, davey and tungstenite, plus x264's and FFmpeg's C source; see
 [dependency sources](building.md#dependency-sources). LiveKit itself comes
 from crates.io, not `vendor/`.
 

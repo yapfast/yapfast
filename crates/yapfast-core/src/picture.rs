@@ -220,6 +220,15 @@ pub fn set_frame_buffers(make: MakeFrame) {
     let _ = MAKE_FRAME.set(make);
 }
 
+static FRAME_WAKE: OnceLock<fn()> = OnceLock::new();
+
+/// Calls `wake` each time any feed has a new frame for the UI to take, from
+/// the thread that made it: a UI that draws only when told can wait for
+/// frames rather than look for them.
+pub fn set_frame_wake(wake: fn()) {
+    let _ = FRAME_WAKE.set(wake);
+}
+
 fn make_frame(width: u32, height: u32) -> Box<dyn FrameBuffer> {
     match MAKE_FRAME.get() {
         Some(make) => make(width, height),
@@ -368,11 +377,16 @@ impl Feed {
         };
         let mut buffer = reuse.unwrap_or_else(|| make_frame(width, height));
         fill(buffer.pixels_mut());
-        let mut buffers = self.lock();
-        // Released while this one was written: it counts again.
-        buffers.made = buffers.made.max(1);
-        if let Some(older) = buffers.fresh.replace(buffer) {
-            buffers.give_back(older);
+        {
+            let mut buffers = self.lock();
+            // Released while this one was written: it counts again.
+            buffers.made = buffers.made.max(1);
+            if let Some(older) = buffers.fresh.replace(buffer) {
+                buffers.give_back(older);
+            }
+        }
+        if let Some(wake) = FRAME_WAKE.get() {
+            wake();
         }
     }
 
@@ -507,6 +521,20 @@ mod tests {
         assert!(told(), "in focus");
         feed.show_large(true);
         assert!(!told(), "still in focus");
+    }
+
+    #[test]
+    fn each_frame_made_wakes_the_ui() {
+        use std::sync::atomic::AtomicUsize;
+        static WAKES: AtomicUsize = AtomicUsize::new(0);
+        set_frame_wake(|| {
+            WAKES.fetch_add(1, Ordering::Relaxed);
+        });
+        let feed = Feed::new();
+        let before = WAKES.load(Ordering::Relaxed);
+        feed.write(2, 2, |pixels| pixels.fill(1));
+        assert!(WAKES.load(Ordering::Relaxed) > before);
+        assert!(feed.take(|_| ()).is_some(), "the frame is there to take");
     }
 
     #[test]

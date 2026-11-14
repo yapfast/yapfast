@@ -1,0 +1,164 @@
+//! The application and its backend, driven as the Slint client's adapter
+//! drives them (`src/ui.rs`): actions go to the application, its effects to
+//! the backend, and the backend's events back to the application.
+
+use std::{
+    path::PathBuf,
+    sync::Arc,
+    time::{Duration, Instant},
+};
+
+use tokio::sync::mpsc::UnboundedReceiver;
+use yapfast_core::{
+    application::{Action, AppState, Application, Effect},
+    backend::Backend,
+    chat::Event,
+    runtime::BackgroundRuntime,
+};
+
+/// Rows reported beyond each end of those in view, as the Slint client
+/// reports them, so the core decodes their previews before they show.
+const VISIBLE_MARGIN: usize = 6;
+
+/// The least time between two reports of the rows in view.
+pub const REPORT_EVERY: Duration = Duration::from_millis(50);
+
+pub struct Client {
+    runtime: Arc<BackgroundRuntime>,
+    root: PathBuf,
+    pub app: Application,
+    backend: Option<Backend>,
+    events: Option<UnboundedReceiver<Event>>,
+    last_visible: Option<Instant>,
+}
+
+impl Client {
+    pub fn new(runtime: Arc<BackgroundRuntime>, root: PathBuf) -> Self {
+        Self {
+            runtime,
+            root,
+            app: Application::default(),
+            backend: None,
+            events: None,
+            last_visible: None,
+        }
+    }
+
+    pub fn state(&self) -> &AppState {
+        &self.app.state
+    }
+
+    /// The owner of the selected room's server, whose member row wears a
+    /// crown.
+    pub fn server_owner(&self) -> Option<String> {
+        self.app
+            .state
+            .selected
+            .as_deref()
+            .and_then(|room| self.app.server_owner(room))
+    }
+
+    /// The backend's events once it has started; the window receives them
+    /// on its executor and hands each to [`Client::apply`].
+    pub fn take_events(&mut self) -> Option<UnboundedReceiver<Event>> {
+        self.events.take()
+    }
+
+    pub fn dispatch(&mut self, action: Action) {
+        let effects = self.app.dispatch(action);
+        self.execute(effects);
+    }
+
+    pub fn apply(&mut self, event: Event) {
+        let effects = self.app.apply(event);
+        self.execute(effects);
+    }
+
+    /// The backend's events ended: it stopped.
+    pub fn stopped(&mut self) {
+        self.app.stopped();
+        self.backend = None;
+    }
+
+    fn execute(&mut self, effects: Vec<Effect>) {
+        for effect in effects {
+            match effect {
+                Effect::Start(start) => {
+                    self.backend = None;
+                    let (backend, events) =
+                        Backend::start(self.runtime.clone(), self.root.clone(), start);
+                    self.backend = Some(backend);
+                    self.events = Some(events);
+                }
+                Effect::Backend(command) => {
+                    let result = match &self.backend {
+                        Some(backend) => backend.send(command),
+                        None => Err(command),
+                    };
+                    if let Err(command) = result {
+                        self.app.backend_failed(&command);
+                    }
+                }
+                // Sounds, notifications, links, the clipboard's pictures,
+                // device lists and Discord's sign-in come with the parts of
+                // the window that use them.
+                _ => {}
+            }
+        }
+    }
+
+    /// The rows from `first` to `last` of the open timeline are in view:
+    /// report them with a margin, so the backend decodes their previews and
+    /// lets go of distant ones, and ask for earlier history near the top.
+    /// Returns false when the last report was under [`REPORT_EVERY`] ago;
+    /// the window reports again after.
+    pub fn visible(&mut self, first: usize, last: usize, at_end: bool) -> bool {
+        if self
+            .last_visible
+            .is_some_and(|last| last.elapsed() < REPORT_EVERY)
+        {
+            return false;
+        }
+        self.last_visible = Some(Instant::now());
+        let state = &self.app.state;
+        let Some(room) = state.selected.clone() else {
+            return true;
+        };
+        let messages = &state.messages;
+        if messages.is_empty() {
+            return true;
+        }
+        let end = messages.len() - 1;
+        let first = first.min(end);
+        let last = last.max(first).min(end);
+        let items = messages
+            [first.saturating_sub(VISIBLE_MARGIN)..=(last + VISIBLE_MARGIN).min(end)]
+            .iter()
+            .map(|message| message.item.clone())
+            .collect();
+        self.dispatch(Action::VisibleMessages {
+            room,
+            items,
+            at_end,
+        });
+        self.dispatch(Action::Reading(at_end));
+        // Near the top, the next page of history, as the Slint timeline asks.
+        let state = &self.app.state;
+        if first < 5 && !state.loading_history && !state.history_start {
+            self.dispatch(Action::Earlier);
+        }
+        true
+    }
+
+    /// Avatars and icons the rows show, which the backend downloads and
+    /// decodes once; those already here are skipped.
+    pub fn want_pictures(&mut self, urls: Vec<String>) {
+        let urls: Vec<String> = urls
+            .into_iter()
+            .filter(|url| !url.is_empty() && !self.app.state.pictures.contains_key(url))
+            .collect();
+        if !urls.is_empty() {
+            self.dispatch(Action::LoadPictures(urls));
+        }
+    }
+}

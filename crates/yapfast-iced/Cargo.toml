@@ -1,0 +1,50 @@
+[package]
+name = "yapfast-iced"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+license = "GPL-3.0-or-later"
+description = "Yapfast's front end in iced, beside the Slint one until it replaces it; see docs/iced-client.md"
+
+[lib]
+doctest = false
+
+[features]
+default = ["cpu"]
+# iced's tiny-skia renderer into a softbuffer window, with the patches in
+# vendor/iced_tiny_skia: the build measured and used.
+cpu = ["iced/tiny-skia", "dep:iced_tiny_skia"]
+# iced's wgpu renderer alone, blending as tiny-skia does (`web-colors`: sRGB
+# values, not linear light), so both builds look the same. One of the two:
+# iced would otherwise build a fallback renderer of both.
+gpu = ["iced/wgpu", "iced/web-colors"]
+
+[dependencies]
+anyhow.workspace = true
+# Discord's names, activities and stream worker, which the window shows.
+yapfast-core = { path = "../yapfast-core", default-features = false, features = ["discord"] }
+tokio.workspace = true
+tracing.workspace = true
+# Pinned: vendor/iced_tiny_skia and vendor/iced_wgpu are 0.14's, patched.
+# `tokio` only because iced wants an executor feature; its futures run on
+# the core's runtime instead (`lib.rs`, `Exec`).
+iced = { version = "=0.14.0", default-features = false, features = ["x11", "wayland", "image-without-codecs", "advanced", "crisp", "tokio"] }
+# The renderer's hook for video frames (patch 13), set by `video::install`.
+iced_tiny_skia = { version = "=0.14.1", optional = true }
+# Pictures' handles over the core's own bytes, without a copy.
+bytes = "1.10"
+# The type of cosmic-text's `Fallback::script_fallback` argument.
+unicode-script = "0.5.5"
+# The Slint client's icons from ui/icons, drawn once per size and colour;
+# the version yapfast-core already builds. Without its default features it
+# has no text, so it makes no font database.
+resvg = { version = "0.49", default-features = false }
+# The emoji picker's categories and names, as the Slint client's.
+emojis = "0.9"
+
+[dev-dependencies]
+# The headless simulator for the UI tests; see docs/iced-client.md.
+iced_test = "=0.14.0"
+yapfast-core = { path = "../yapfast-core", default-features = false, features = ["discord", "test-fixtures"] }
+tempfile.workspace = true

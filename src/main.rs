@@ -4,6 +4,11 @@
 // `has_console`.
 #![cfg_attr(all(windows, feature = "desktop"), windows_subsystem = "windows")]
 
+// One front end per build: each brings its own window toolkit, and `launch`
+// starts one. See docs/iced-client.md.
+#[cfg(all(feature = "desktop", any(feature = "iced", feature = "iced-gpu")))]
+compile_error!("build `iced` or `iced-gpu` with --no-default-features, without `desktop`");
+
 #[cfg(feature = "desktop")]
 mod autostart;
 mod build_info;
@@ -336,7 +341,31 @@ fn relaunch_program(
     }
 }
 
-#[cfg(not(feature = "desktop"))]
+/// The iced front end (docs/iced-client.md). It has no tray and opens no
+/// links yet, so `--background` shows the window as a plain start does.
+#[cfg(all(not(feature = "desktop"), any(feature = "iced", feature = "iced-gpu")))]
+fn launch(
+    runtime: BackgroundRuntime,
+    root: std::path::PathBuf,
+    preview: bool,
+    start: Start<'_>,
+) -> Result<()> {
+    if start.background {
+        tracing::info!("the iced client has no tray yet; showing the window");
+    }
+    yapfast_core::keep_discord_files(&root);
+    yapfast_iced::run(
+        runtime,
+        root,
+        yapfast_iced::Options {
+            preview,
+            gpu: start.renderer == Some("gpu"),
+            twemoji: include_bytes!(concat!(env!("OUT_DIR"), "/twemoji.ttf")),
+        },
+    )
+}
+
+#[cfg(not(any(feature = "desktop", feature = "iced", feature = "iced-gpu")))]
 fn launch(_: BackgroundRuntime, _: std::path::PathBuf, _: bool, _: Start<'_>) -> Result<()> {
     bail!(
         "this build has no desktop UI; run --help for headless commands or rebuild with default features"

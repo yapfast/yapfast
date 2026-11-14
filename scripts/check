@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Formatting, doc links, Clippy, tests and a smoke run of the default build,
-# Discord on the desktop; --matrix adds the builds with Matrix.
+# Discord on the desktop, and of the iced client's build; --matrix adds the
+# builds with Matrix.
 # Usage: scripts/check [--fast] [--matrix]
 # --fast builds with the `fast` profile, which local work uses. Each step
 # prints `=== step` and `rc=N` when it ends; its full output is in
@@ -51,9 +52,12 @@ run() {
 
 clippy=(cargo clippy --locked "${profile[@]}" --all-targets)
 # feature-union is for the Matrix steps below; with it, the default build would
-# resolve as the full one and compile Slint apart from `cargo build`.
-workspace=(--workspace --exclude feature-union)
-steps=(fmt doc-links clippy test build smoke)
+# resolve as the full one and compile Slint apart from `cargo build`. The iced
+# client has steps of its own: in the default ones its dependencies would
+# change the default build's features.
+workspace=(--workspace --exclude feature-union --exclude yapfast-iced)
+iced=(-p yapfast -p yapfast-iced --no-default-features --features iced)
+steps=(fmt doc-links clippy test clippy-iced clippy-iced-gpu test-iced build-iced smoke-iced build smoke)
 
 run fmt cargo fmt --all -- --check
 run doc-links scripts/check-doc-links
@@ -63,6 +67,19 @@ run doc-links scripts/check-doc-links
 # a member despite its `test = false`.
 run clippy "${clippy[@]}" "${workspace[@]}" -- -D warnings
 run test cargo test --locked "${profile[@]}" "${workspace[@]}"
+# The iced client (docs/iced-client.md), before the default build: both make
+# target/<profile>/yapfast, and the default build's comes last, so the smoke
+# step and anyone after it run the Slint client.
+run clippy-iced "${clippy[@]}" "${iced[@]}" -- -D warnings
+# Its GPU renderer, which only Clippy builds here.
+run clippy-iced-gpu "${clippy[@]}" -p yapfast -p yapfast-iced --no-default-features --features iced-gpu -- -D warnings
+run test-iced cargo test --locked "${profile[@]}" "${iced[@]}"
+run build-iced cargo build --locked "${profile[@]}" "${iced[@]}"
+if [[ "$(cat "$logs/build-iced.rc")" == 0 ]]; then
+  run smoke-iced "target/$profile_dir/yapfast" --smoke-test
+else
+  echo "=== smoke-iced: skipped, as the build failed"
+fi
 run build cargo build --locked "${profile[@]}" "${workspace[@]}"
 # The binary the build step made: `cargo run` would resolve the dependencies'
 # features for yapfast alone, not the workspace, and compile it again.
@@ -82,8 +99,8 @@ fi
 # machine out of memory.
 if [[ $matrix ]]; then
   full=(--features yapfast/matrix,yapfast-core/matrix)
-  run clippy-matrix "${clippy[@]}" --workspace "${full[@]}" -- -D warnings
-  run test-matrix cargo test --locked "${profile[@]}" --workspace "${full[@]}"
+  run clippy-matrix "${clippy[@]}" --workspace --exclude yapfast-iced "${full[@]}" -- -D warnings
+  run test-matrix cargo test --locked "${profile[@]}" --workspace --exclude yapfast-iced "${full[@]}"
   run clippy-matrix-only "${clippy[@]}" -p yapfast -p yapfast-core -p feature-union \
     --no-default-features --features yapfast/desktop,yapfast/matrix,yapfast-core/matrix -- -D warnings
   # The headless build, in a target directory of its own, so its binary stays

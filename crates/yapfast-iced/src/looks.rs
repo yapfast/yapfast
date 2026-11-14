@@ -1,0 +1,461 @@
+//! What people wear, as the Slint client draws it: the member list's lines
+//! with their group headings, display name styles' fonts and colours, and
+//! the animated pictures of decorations and nameplates. The data is ported
+//! from `src/ui/name_style.rs`, `src/ui/refresh.rs` (`show_roster`) and
+//! `src/ui/pictures.rs` (`animated_url`); the chips a name wears beside it
+//! (server tag, APP) are at the end.
+
+use std::sync::Arc;
+
+use crate::{
+    app::{App, Message},
+    fonts::BOLD,
+    style::{faded, hex, rounded},
+    widgets::Pic,
+};
+use iced::{
+    Alignment, Color, Element, Font, Size,
+    widget::{Space, container, row, text},
+};
+use yapfast_core::{
+    application::AppState,
+    chat::{ChatMember, NameStyle, Presence, Role},
+};
+
+/// How long a member list stays as built while its people change, as the
+/// Slint client holds it (`ROSTER_PAUSE`): the first change shows at once,
+/// those within the pause after it together at its end.
+pub const ROSTER_PAUSE: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// One line of the member list: a group's heading or a member. Headings
+/// are lines of their own, as in the Slint client.
+#[derive(Clone, Debug, PartialEq)]
+pub enum MemberLine {
+    /// `Online — 12`, and the address of the group's role icon.
+    Heading {
+        text: String,
+        icon: Option<Arc<str>>,
+    },
+    Member(Box<MemberLook>),
+}
+
+/// A member's row as the Slint client's `MemberRow` has it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MemberLook {
+    pub id: String,
+    pub name: String,
+    pub avatar: Option<String>,
+    /// The still of the decoration around the avatar; [`animated_url`] gives
+    /// what plays while the row is pointed at.
+    pub decoration: Option<Arc<str>>,
+    /// The nameplate's still and its palette's colour on a dark theme.
+    pub nameplate: Option<(Arc<str>, Option<u32>)>,
+    /// The name's font, in a server, or its whole style elsewhere.
+    pub style: Option<NameLook>,
+    /// The name's colour, from their highest coloured role.
+    pub color: Option<u32>,
+    pub role_icon: Option<Arc<str>>,
+    /// The server tag's letters and its badge's address.
+    pub tag: Option<(Arc<str>, Option<Arc<str>>)>,
+    pub bot: bool,
+    pub owner: bool,
+    pub presence: Option<Presence>,
+    /// The line under the name: its words, the address of a custom emoji's
+    /// picture before them, the icon (0 none, 1 playing, 2 listening,
+    /// 3 watching, 4 streaming, 5 competing) and whether a bullet follows it.
+    pub activity: String,
+    pub activity_emoji: Option<String>,
+    pub activity_icon: u8,
+    pub activity_bullet: bool,
+}
+
+impl MemberLook {
+    /// Offline members are faded: the avatar to 0.4, the rest to 0.5.
+    pub fn offline(&self) -> bool {
+        self.presence == Some(Presence::Offline)
+    }
+}
+
+/// The member list's lines for `members`, with each group's heading.
+/// `owner` is the server owner's id (`Client::server_owner`).
+pub fn member_lines(
+    state: &AppState,
+    members: &[ChatMember],
+    owner: Option<&str>,
+) -> Vec<MemberLine> {
+    let cosmetics = state.cosmetics;
+    let in_server = in_server(state.selected.as_deref());
+    let mut lines = Vec::with_capacity(members.len() + 4);
+    for (index, member) in members.iter().enumerate() {
+        let heading = if let Some(group) = &member.group {
+            (index == 0 || members[index - 1].group.as_ref() != Some(group)).then(|| group.clone())
+        } else if index == 0 || members[index - 1].role != member.role {
+            let count = members
+                .iter()
+                .filter(|other| other.role == member.role)
+                .count();
+            let role = match member.role {
+                Role::Admin => "ADMINS",
+                Role::Moderator => "MODERATORS",
+                Role::Member => "MEMBERS",
+            };
+            Some(format!("{role} — {count}"))
+        } else {
+            None
+        };
+        if let Some(text) = heading {
+            lines.push(MemberLine::Heading {
+                text,
+                icon: member.group_icon.clone(),
+            });
+        }
+        let subline = yapfast_core::yapfast_discord::activity::subline(
+            &member.activities,
+            member.activity.as_deref(),
+        );
+        let line = subline.name.as_deref().or(member.activity.as_deref());
+        let (emoji, words) = line.map_or((None, ""), yapfast_core::discord::status_parts);
+        lines.push(MemberLine::Member(Box::new(MemberLook {
+            id: member.id.clone(),
+            name: member.name.clone(),
+            avatar: member.avatar.clone(),
+            decoration: cosmetics
+                .decoration(member.decoration.as_deref())
+                .map(Arc::from),
+            nameplate: member
+                .nameplate
+                .as_ref()
+                .filter(|_| !state.hide_nameplates)
+                .map(|plate| (plate.picture.clone(), plate.colors.map(|colors| colors[0]))),
+            style: name_look(
+                cosmetics.style(member.style.as_deref()),
+                &member.name,
+                in_server,
+            ),
+            color: member.color,
+            role_icon: member.role_icon.clone(),
+            tag: cosmetics
+                .tag(member.tag.as_ref())
+                .map(|tag| (tag.text.clone(), tag.badge.clone())),
+            bot: member.bot,
+            owner: owner == Some(member.id.as_str()),
+            presence: member.presence,
+            activity: words.split_whitespace().collect::<Vec<_>>().join(" "),
+            activity_emoji: emoji,
+            activity_icon: subline.icon,
+            activity_bullet: subline.bullet,
+        })));
+    }
+    lines
+}
+
+/// Whether a room is in a Discord server rather than a DM: there names show
+/// their style's font alone, in the row's own colour.
+pub fn in_server(room: Option<&str>) -> bool {
+    room.and_then(yapfast_core::discord::parse_room)
+        .is_some_and(|(guild, _)| guild != yapfast_core::discord::DM_GUILD)
+}
+
+/// The address of the animated picture of a decoration's or nameplate's
+/// still, which plays while its row is pointed at (and on an open profile
+/// card); other pictures, such as a banner, are their own.
+pub fn animated_url(url: &str) -> String {
+    match url.strip_suffix("/static") {
+        Some(base) if url.contains("/collectibles-shop/") => format!("{base}/animated"),
+        _ => url.to_owned(),
+    }
+}
+
+/// A display name style as the Slint client's `NameStyleRow` has it, on the
+/// dark theme.
+#[derive(Clone, Debug, PartialEq)]
+pub struct NameLook {
+    /// 1 solid, 2 gradient, 3 neon, 4 toon, 5 pop, 6 glow, 7 prism, 8 gummy.
+    /// In a server it's always 1 with no colours: the font alone, in the
+    /// row's own colour.
+    pub effect: u8,
+    /// The font's family, `None` for the usual font, and its weight.
+    pub family: Option<&'static str>,
+    pub weight: u16,
+    /// The colours picked, made readable; empty in a server.
+    pub colors: Vec<u32>,
+    /// Shades of the first colour, for solid, neon, toon and pop.
+    pub main: u32,
+    pub light1: u32,
+    pub light2: u32,
+    pub dark1: u32,
+    pub dark2: u32,
+    pub toon: u32,
+    pub neon: u32,
+    /// A gummy name's letters, each with its colour.
+    pub letters: Vec<(char, u32)>,
+}
+
+/// The style a name is drawn in, or none. In a server only its font counts
+/// (`font_only_in` in the Slint client); profiles show it whole.
+pub fn name_look(style: Option<&NameStyle>, name: &str, in_server: bool) -> Option<NameLook> {
+    let style = style.filter(|style| !style.colors().is_empty())?;
+    if in_server {
+        return Some(NameLook {
+            effect: 1,
+            family: family(style.font),
+            weight: weight(style.font),
+            colors: Vec::new(),
+            main: 0,
+            light1: 0,
+            light2: 0,
+            dark1: 0,
+            dark2: 0,
+            toon: 0,
+            neon: 0,
+            letters: Vec::new(),
+        });
+    }
+    Some(palette(style, name, DARK_GROUND))
+}
+
+/// The font family Discord's client draws a style's `font_id` in; none, the
+/// usual font, for 11 and the retired ids.
+fn family(font: u8) -> Option<&'static str> {
+    Some(match font {
+        3 => "Sakura",
+        4 => "Jellybean",
+        6 => "Modern",
+        7 => "Néo-castel",
+        8 => "8Bit",
+        10 => "Sinistre",
+        12 => "Tempo",
+        13 => "Monkey Bars",
+        14 => "Mainframe",
+        15 => "Headbang",
+        16 => "Journal",
+        _ => return None,
+    })
+}
+
+/// The weight of that font's only face.
+fn weight(font: u8) -> u16 {
+    match font {
+        6 | 8 => 500,
+        10 => 548,
+        12 => 600,
+        13 | 14 | 16 => 700,
+        _ => 400,
+    }
+}
+
+const DARK_GROUND: u32 = 0x121214;
+const TOON_GROUND: u32 = 0x333333;
+
+fn contrast_needed(effect: u8) -> f64 {
+    match effect {
+        2 | 6 | 7 => 2.5,
+        _ => 3.0,
+    }
+}
+
+type Rgb = (f64, f64, f64);
+
+fn unpack(rgb: u32) -> Rgb {
+    (
+        f64::from((rgb >> 16) as u8),
+        f64::from((rgb >> 8) as u8),
+        f64::from(rgb as u8),
+    )
+}
+
+fn pack((r, g, b): Rgb) -> u32 {
+    let byte = |value: f64| u32::from(value.round().clamp(0., 255.) as u8);
+    byte(r) << 16 | byte(g) << 8 | byte(b)
+}
+
+fn to_hsl((r, g, b): Rgb) -> (f64, f64, f64) {
+    let (r, g, b) = (r / 255., g / 255., b / 255.);
+    let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+    let lightness = (max + min) / 2.;
+    let delta = max - min;
+    if delta == 0. {
+        return (0., 0., lightness);
+    }
+    let saturation = delta / (1. - (2. * lightness - 1.).abs());
+    let hue = if max == r {
+        ((g - b) / delta).rem_euclid(6.)
+    } else if max == g {
+        (b - r) / delta + 2.
+    } else {
+        (r - g) / delta + 4.
+    };
+    (hue * 60., saturation, lightness)
+}
+
+fn from_hsl(hue: f64, saturation: f64, lightness: f64) -> Rgb {
+    let chroma = (1. - (2. * lightness - 1.).abs()) * saturation;
+    let sector = hue.rem_euclid(360.) / 60.;
+    let x = chroma * (1. - (sector % 2. - 1.).abs());
+    let (r, g, b) = match sector as u32 {
+        0 => (chroma, x, 0.),
+        1 => (x, chroma, 0.),
+        2 => (0., chroma, x),
+        3 => (0., x, chroma),
+        4 => (x, 0., chroma),
+        _ => (chroma, 0., x),
+    };
+    let m = lightness - chroma / 2.;
+    ((r + m) * 255., (g + m) * 255., (b + m) * 255.)
+}
+
+fn luminance((r, g, b): Rgb) -> f64 {
+    let linear = |value: f64| {
+        let value = value / 255.;
+        if value <= 0.03928 {
+            value / 12.92
+        } else {
+            ((value + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
+}
+
+fn contrast(a: Rgb, b: Rgb) -> f64 {
+    let (a, b) = (luminance(a), luminance(b));
+    (a.max(b) + 0.05) / (a.min(b) + 0.05)
+}
+
+fn readable(color: u32, ground: u32, ratio: f64) -> u32 {
+    let ground = unpack(ground);
+    let lighter = luminance(ground) <= 0.5;
+    let mut color = unpack(color);
+    for _ in 0..10 {
+        if contrast(color, ground) >= ratio {
+            break;
+        }
+        let (hue, saturation, lightness) = to_hsl(color);
+        if lighter && lightness >= 0.95 || !lighter && lightness <= 0.05 {
+            break;
+        }
+        let step = if lighter { 0.05 } else { -0.05 };
+        color = unpack(pack(from_hsl(hue, saturation, lightness + step)));
+    }
+    pack(color)
+}
+
+fn palette(style: &NameStyle, name: &str, ground: u32) -> NameLook {
+    let ratio = contrast_needed(style.effect);
+    let ground = if style.effect == 4 {
+        TOON_GROUND
+    } else {
+        ground
+    };
+    let colors: Vec<u32> = style
+        .colors()
+        .iter()
+        .map(|rgb| readable(*rgb, ground, ratio))
+        .collect();
+    let main = colors[0];
+    let (hue, saturation, lightness) = to_hsl(unpack(main));
+    let with_lightness = |lightness: f64| pack(from_hsl(hue, saturation, lightness.clamp(0., 1.)));
+    let letters = if style.effect == 8 {
+        let mut turn = 0;
+        name.chars()
+            .map(|letter| {
+                let color = colors[turn % colors.len()];
+                if !letter.is_whitespace() {
+                    turn += 1;
+                }
+                (letter, color)
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    NameLook {
+        effect: if (1..=8).contains(&style.effect) {
+            style.effect
+        } else {
+            1
+        },
+        family: family(style.font),
+        weight: weight(style.font),
+        main,
+        light1: with_lightness((1.2 * lightness).min(1.)),
+        light2: with_lightness((1.6 * lightness).min(1.)),
+        dark1: with_lightness((0.6 * lightness).max(0.)),
+        dark2: with_lightness((0.2 * lightness).max(0.)),
+        toon: with_lightness((0.4 * lightness).max(0.12)),
+        neon: pack(from_hsl(
+            hue,
+            (1.2 * saturation).min(1.),
+            (lightness + 0.1).min(0.6),
+        )),
+        colors,
+        letters,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The chips beside a name
+
+/// How a server tag's chip is drawn where it shows: the letters' size and
+/// font, the chip's height, side padding and corners, its ground and ink.
+pub struct Chip {
+    pub size: f32,
+    pub font: Font,
+    pub height: f32,
+    pub pad: f32,
+    pub radius: f32,
+    pub fill: Color,
+    pub ink: Color,
+}
+
+impl App {
+    /// A server tag as Discord's client draws it: a grey chip, the badge,
+    /// then up to four letters, all faded by `opacity`.
+    pub fn tag_chip(
+        &self,
+        letters: &str,
+        badge: Option<&str>,
+        chip: Chip,
+        opacity: f32,
+    ) -> Element<'_, Message> {
+        let side = (chip.size + 2.0).round();
+        let mut line = row![].spacing(2).align_y(Alignment::Center);
+        if let Some(badge) = badge {
+            // Its room is kept while the picture is on its way.
+            line = line.push(match self.picture(badge, side as u32, side as u32, false) {
+                Some(picture) => {
+                    Element::from(Pic::new(picture, Size::new(side, side)).opacity(opacity))
+                }
+                None => Space::new().width(side).height(side).into(),
+            });
+        }
+        line = line.push(
+            text(letters.to_owned())
+                .size(chip.size)
+                .font(chip.font)
+                .color(faded(chip.ink, opacity)),
+        );
+        let fill = faded(chip.fill, opacity);
+        container(line)
+            .padding([0.0, chip.pad])
+            .height(chip.height)
+            .align_y(Alignment::Center)
+            .style(move |_| rounded(fill, chip.radius))
+            .into()
+    }
+
+    /// The APP tag a bot's name wears.
+    pub fn bot_tag(&self, opacity: f32) -> Element<'_, Message> {
+        let fill = faded(hex(0x5865f2), opacity);
+        container(
+            text("APP")
+                .size(10)
+                .font(BOLD)
+                .color(faded(Color::WHITE, opacity)),
+        )
+        .padding([0, 4])
+        .height(16)
+        .align_y(Alignment::Center)
+        .style(move |_| rounded(fill, 4))
+        .into()
+    }
+}

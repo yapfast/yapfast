@@ -19,7 +19,10 @@ fn main() {
     println!("cargo:rerun-if-changed=vendor/twemoji/72x72");
     println!("cargo:rerun-if-changed=src/emoji_font_tables.rs");
     build_info();
-    if env::var_os("CARGO_FEATURE_DESKTOP").is_some() {
+    if env::var_os("CARGO_FEATURE_DESKTOP").is_some()
+        || env::var_os("CARGO_FEATURE_ICED").is_some()
+        || env::var_os("CARGO_FEATURE_ICED_GPU").is_some()
+    {
         pack_twemoji();
     }
     match env::var("CARGO_CFG_TARGET_OS").as_deref() {
