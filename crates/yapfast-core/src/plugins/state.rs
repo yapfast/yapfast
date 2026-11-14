@@ -163,6 +163,21 @@ impl PluginState {
         Ok(())
     }
 
+    /// What the person allows the helper: its whole memory budget and how long
+    /// an instance may sit without a call before it is evicted.
+    pub fn limits(&self) -> yapfast_plugin_api::limits::Limits {
+        self.bridge.limits()
+    }
+
+    /// Applies a new pair of limits, as [`Self::limits`] reports it from now on:
+    /// written to `budget.json`, and sent to a helper that is already running.
+    ///
+    /// The choice applies now even when it couldn't be written down, which is
+    /// what the error says: it is the save's, not the change's.
+    pub fn set_limits(&mut self, chosen: yapfast_plugin_api::limits::Limits) -> anyhow::Result<()> {
+        self.bridge.set_limits(chosen)
+    }
+
     /// Whether an enabled plugin intercepts outgoing messages.
     ///
     /// The send path asks this before it builds a draft, so a plugin system

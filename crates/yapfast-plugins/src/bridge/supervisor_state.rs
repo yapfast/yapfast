@@ -244,6 +244,39 @@ impl Bridge {
         }
     }
 
+    /// What the person allows the helper: its whole memory budget and how long
+    /// an instance may sit without a call before it is evicted.
+    pub fn limits(&self) -> limits::Limits {
+        self.shared.limits()
+    }
+
+    /// Applies what the person allows the helper, as [`Self::limits`] reports it
+    /// from now on.
+    ///
+    /// The pair is snapped to the offered steps, written to `budget.json` so it
+    /// is still there next time, kept here even when the write failed so the
+    /// choice applies now, and sent to a helper that is already running. A
+    /// helper that starts later is told the same pair right after its `Ready`,
+    /// so nothing is lost by the gate on the send: with no helper running there
+    /// is nothing to tell, and moving a picker must not start a process.
+    ///
+    /// An error is the write's, returned after everything else has been done:
+    /// the choice applies now but was not remembered, which is the caller's to
+    /// say.
+    pub fn set_limits(&mut self, chosen: limits::Limits) -> anyhow::Result<()> {
+        let chosen = chosen.snapped();
+        let root = self.shared.store().root().to_owned();
+        let saved = crate::budget::save(&root, chosen);
+        self.shared.set_limits(chosen);
+        if self.shared.helper_pid().is_some() {
+            self.send(Request::Limits {
+                memory_mib: chosen.memory_mib,
+                idle_minutes: chosen.idle_minutes,
+            });
+        }
+        saved
+    }
+
     /// Every plugin's state, for the page that lists them.
     pub fn statuses(&self) -> Vec<(PluginId, PluginStatus)> {
         self.shared.statuses()

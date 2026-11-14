@@ -17,7 +17,7 @@ use yapfast_plugin_api::message::PluginStatus;
 
 use crate::bridge::{self, Bridge};
 use crate::grants::Grants;
-use crate::page::{Grant, Helper, Installed, LogLine, Origin, Status, Suspension, View};
+use crate::page::{Advanced, Grant, Helper, Installed, LogLine, Origin, Status, Suspension, View};
 use crate::registry::Listed;
 use crate::settings::Form;
 
@@ -28,9 +28,18 @@ impl Bridge {
     /// `clock` writes a log line's time, because a clock is the application's:
     /// its hour format and its time zone are settings this crate doesn't hold.
     pub fn page(&self, grants: &Grants, clock: &dyn Fn(u64) -> String) -> View {
+        let limits = self.limits();
         View {
             helper: helper(self.helper()),
             installed: self.installed(grants, clock),
+            advanced: Advanced {
+                memory_budget: limits.memory_mib,
+                idle_minutes: limits.idle_minutes,
+                // Nothing here probes for an OS sandbox: the helper runs under
+                // wasmtime's alone wherever there is nothing more, and the page
+                // says so without asking the system.
+                sandbox_unavailable: false,
+            },
             ..View::default()
         }
     }

@@ -65,6 +65,11 @@ pub(crate) struct Shared {
     pub(super) helper_installed: bool,
     /// The helper's process id while it runs, and 0 when none does.
     pub(super) helper: AtomicU32,
+    /// What the person allows the helper: its whole memory budget and how long
+    /// an instance may sit without a call. The pair a helper is given on its
+    /// `Ready` is read from here, so a change made while one was starting
+    /// reaches it too.
+    pub(super) limits: Mutex<limits::Limits>,
     /// What the application knows, which the reads answer from: a host call
     /// is answered in this task, not on the thread that holds the state.
     pub(super) world: Arc<dyn World>,
@@ -179,5 +184,20 @@ impl Shared {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
+    }
+
+    /// What the person allows the helper right now.
+    ///
+    /// A poisoned lock means some thread panicked while holding it; the pair is
+    /// two numbers that were consistent when they were written, and refusing to
+    /// read them would turn one panic into a plugin system that never works
+    /// again.
+    pub(crate) fn limits(&self) -> limits::Limits {
+        *self.limits.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Keeps a new pair, for the next helper's `Ready` and the page's view.
+    pub(crate) fn set_limits(&self, chosen: limits::Limits) {
+        *self.limits.lock().unwrap_or_else(PoisonError::into_inner) = chosen;
     }
 }

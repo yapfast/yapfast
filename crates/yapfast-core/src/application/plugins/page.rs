@@ -168,16 +168,45 @@ impl Application {
                 self.plugins_setting_widget(&plugin, &key, &id, &value);
                 Vec::new()
             }
-            // The memory budgets are the milestone after this one: the page
-            // asks, and nothing answers yet.
-            other => {
-                tracing::info!(
-                    ?other,
-                    "Settings → Plugins asked for what the runtime can't do yet"
-                );
-                Vec::new()
+            // Advanced's two pickers. Each changes one number of the pair the
+            // runtime holds, and the page draws itself again so it shows the
+            // pair in force.
+            Request::SetMemoryBudget(mib) => {
+                self.plugins_set_limits(|limits| yapfast_plugin_api::limits::Limits {
+                    memory_mib: mib,
+                    ..limits
+                })
+            }
+            Request::SetIdleMinutes(minutes) => {
+                self.plugins_set_limits(|limits| yapfast_plugin_api::limits::Limits {
+                    idle_minutes: minutes,
+                    ..limits
+                })
             }
         }
+    }
+
+    /// What one Advanced picker asks for: the pair in force with one number
+    /// changed, kept in `budget.json` and sent to a helper that is running.
+    ///
+    /// The choice applies now even when it couldn't be written down, so a save
+    /// that failed is a notice and not a refusal. With no plugin runtime there
+    /// is nothing to keep and nothing to tell: the picker moves and changes
+    /// nothing, and the page keeps showing the defaults.
+    fn plugins_set_limits(
+        &mut self,
+        change: impl FnOnce(yapfast_plugin_api::limits::Limits) -> yapfast_plugin_api::limits::Limits,
+    ) -> Vec<AppEffect> {
+        let Some(plugins) = self.state.plugins.as_mut() else {
+            return Vec::new();
+        };
+        let chosen = change(plugins.limits());
+        if let Err(error) = plugins.set_limits(chosen) {
+            self.state.notice = Some(format!(
+                "These limits apply now, but couldn't be saved: {error:#}"
+            ));
+        }
+        vec![AppEffect::Plugin(crate::application::plugins::Effect::Page)]
     }
     /// Takes back one of a plugin's permissions, from its page.
     ///
@@ -872,6 +901,50 @@ mod tests {
                 "nothing to do without a runtime"
             );
         }
+    }
+
+    /// The Advanced pickers apply at once: each changes its own number, keeps
+    /// the other as it was, and redraws the page once with the pair in force.
+    #[test]
+    fn the_advanced_limits_apply_at_once_and_only_their_own_number() {
+        let directory = tempfile::tempdir().expect("a data directory");
+        let mut app = Application::default();
+        let (events, _received) = tokio::sync::mpsc::unbounded_channel();
+        app.open_plugins(directory.path(), "0.0.0", events);
+
+        let effects = app.plugins_page_request(Request::SetMemoryBudget(512));
+        assert_eq!(effects.len(), 1, "one redraw");
+        let view = app.plugins_page();
+        assert_eq!(view.advanced.memory_budget, 512);
+        assert_eq!(
+            view.advanced.idle_minutes, 5,
+            "the idle time is untouched by the budget"
+        );
+
+        let effects = app.plugins_page_request(Request::SetIdleMinutes(15));
+        assert_eq!(effects.len(), 1, "one redraw");
+        let view = app.plugins_page();
+        assert_eq!(
+            view.advanced.memory_budget, 512,
+            "the budget is untouched by the idle time"
+        );
+        assert_eq!(view.advanced.idle_minutes, 15);
+    }
+
+    /// Without a plugin runtime the pickers move and change nothing: the page
+    /// keeps showing the pair the helper would run with.
+    #[test]
+    fn the_advanced_limits_without_a_runtime_stay_the_defaults() {
+        let mut app = Application::default();
+        for request in [Request::SetMemoryBudget(512), Request::SetIdleMinutes(15)] {
+            assert!(
+                app.plugins_page_request(request).is_empty(),
+                "nothing to do without a runtime"
+            );
+        }
+        let view = app.plugins_page();
+        assert_eq!(view.advanced.memory_budget, 256);
+        assert_eq!(view.advanced.idle_minutes, 5);
     }
 
     /// The page opening without a runtime says why the marketplace is empty

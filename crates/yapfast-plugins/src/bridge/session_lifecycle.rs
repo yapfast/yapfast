@@ -119,6 +119,19 @@ impl Session {
             Ok(Err(reason)) => return Ending::Gone(reason),
             Err(_) => return Ending::Gone("it didn't answer the hello".to_owned()),
         }
+        // What the person allows the helper, before any work reaches it: a
+        // change made while this one was starting is already in the shared
+        // pair, and a change that arrives after this frame is sent again by
+        // its own command. Sent twice it is idempotent, so neither ordering
+        // loses a choice.
+        let limits = shared.limits();
+        self.send_message(
+            &ToHelper::Limits {
+                memory_mib: limits.memory_mib,
+                idle_minutes: limits.idle_minutes,
+            },
+            FrameKind::Request,
+        );
         loop {
             while let Some(command) = self.queued.pop_front() {
                 if let Some(ending) = self.on_command(shared, command).await {

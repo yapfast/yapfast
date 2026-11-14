@@ -47,6 +47,7 @@ Every payload is a JSON object with a `t` naming the variant. The first is
 | `t` | Fields | Meaning |
 | --- | --- | --- |
 | `hello` | `api` | Which API the parent speaks |
+| `limits` | `memory_mib`, `idle_minutes` | What the person allows the helper: the whole memory budget in MiB and the idle timeout in minutes, 256 and five by default. Sent right after `Ready` and again whenever the person changes one, with id `0` and no answer; a number that isn't an offered step is snapped to the nearest one |
 | `load` | `plugin`, `wasm`, `memory_pages`, `wasi` | Load a module and its limits, without activating it |
 | `unload` | `plugin` | Drop an instance, keeping nothing |
 | `activate` | `plugin`, `load` | Load the module when `load` is there, then instantiate and call `yf_activate`: one request for the whole phase, so the helper is never between a module and its instance. A `load` that replaces a running version carries the hand-off its `yf_deactivate` left, which is how a plugin's state crosses an update |

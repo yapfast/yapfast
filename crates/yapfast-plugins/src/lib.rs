@@ -20,6 +20,7 @@
 //! carries it ([`bridge::world::World`]). See `docs/plugins/`.
 
 pub mod bridge;
+mod budget;
 pub mod code_block;
 pub mod fetch;
 pub mod grants;

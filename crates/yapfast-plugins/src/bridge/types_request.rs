@@ -4,6 +4,12 @@ use super::*;
 pub(super) enum Request {
     /// Load and activate these plugins.
     Activate { plugins: Vec<PluginId> },
+    /// What the person allows the helper: its whole memory budget and how long
+    /// an instance may sit without a call before it is evicted. Sent as
+    /// [`ToHelper::Limits`] to a helper that is running; one that starts later
+    /// is given the pair after its `Ready`, so this is never a reason to start
+    /// a process.
+    Limits { memory_mib: u32, idle_minutes: u32 },
     /// Drop one plugin's instance, keeping what it handed over.
     Deactivate { plugin: PluginId },
     /// One event for one subscribed plugin.

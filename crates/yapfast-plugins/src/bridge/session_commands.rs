@@ -22,6 +22,23 @@ impl Session {
                 }
                 None
             }
+            Request::Limits {
+                memory_mib,
+                idle_minutes,
+            } => {
+                // Fire and forget, id 0: the helper applies what it is given
+                // and says nothing. Sent twice — once after `Ready` and again
+                // on a change — it is idempotent, so a change that raced the
+                // handshake is applied twice rather than lost.
+                self.send_message(
+                    &ToHelper::Limits {
+                        memory_mib,
+                        idle_minutes,
+                    },
+                    FrameKind::Request,
+                );
+                None
+            }
             Request::Deactivate { plugin } => {
                 self.deactivate(&plugin);
                 None

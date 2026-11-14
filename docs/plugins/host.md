@@ -71,7 +71,8 @@ A hook is on the path the person is waiting on, so each has a deadline. The
 watchdog holds each running call's deadline and the idle time of every instance,
 sleeps until the earliest of them, and fires the cancellation when a call's
 deadline passes. With nothing running and nothing to evict, it sleeps with no
-timer at all.
+timer at all. Changing the idle time wakes it, so a shorter one is measured from
+now rather than from the last look.
 
 | Call | Lane | Deadline |
 | --- | --- | --- |
@@ -155,23 +156,35 @@ trigger, and comes back unless it faults again inside the window.
 
 ## Eviction and the memory budget
 
+Both numbers come from the person: Settings → Plugins sends them in a `limits`
+frame right after the helper's `Ready`, and again whenever one of them changes,
+and the helper snaps each to the steps that page offers. They default to 256 MiB
+and five minutes, and are kept in `plugins/budget.json`, so what one run chose
+is what the next run starts with.
+
 An instance is evicted in three cases:
 
-- after five minutes with no calls;
+- after the idle timeout with no calls — five minutes unless the person chose
+  another step in Advanced;
 - at once when the window closes to the tray, as the rest of Yapfast gives memory
   back there;
 - under the memory budget, least recently used first.
 
 A plugin holding a timer or a request in flight isn't idle and isn't evicted
-under it. Eviction is not a fault, so it costs no strike: the plugin goes back to
+under it; one that is busy, waiting on an answer or holding a timer is never the
+instance a lowered budget gives up either. Shortening the idle timeout takes
+effect at once and wakes the watchdog, so it re-measures against the new one.
+Eviction is not a fault, so it costs no strike: the plugin goes back to
 `enabled` and is instantiated again on its next trigger.
 
 The budget is admission control rather than polling. Before an instance is
-activated the helper adds up the page limits of the live instances, and over
-256 MiB it evicts the least recently used idle instance or refuses with a notice.
-Summing limits is deliberately pessimistic and costs nothing at run time; adding
-up what instances actually touch would need a reading every time, for a number
-nobody acts on. The Plugins page shows the helper's actual total while it is
+activated the helper adds up the page limits of the live instances, and over the
+budget in force it evicts the least recently used idle instance or refuses with a
+notice that names that budget. Summing limits is deliberately pessimistic and
+costs nothing at run time; adding up what instances actually touch would need a
+reading every time, for a number nobody acts on. It counts the page limits of
+live instances only — not the helper's own memory, and not the compiled modules
+in its cache. The Plugins page shows the helper's actual total while it is
 open, sampled only then.
 
 The page limit itself is a ceiling, not a reservation. Only the pages a guest

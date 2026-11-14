@@ -14,6 +14,9 @@ impl Bridge {
     ) -> anyhow::Result<Self> {
         let store = Store::open(data_dir)?;
         let registry = Registry::load(&store);
+        // What the person allows the helper, from the last run: every helper
+        // is told the pair right after its `Ready`.
+        let limits = crate::budget::load(store.root());
         let shared = Arc::new(Shared {
             registry: RwLock::new(registry),
             store: Mutex::new(store),
@@ -34,6 +37,7 @@ impl Bridge {
             // Asked once: a file beside the app doesn't appear while it runs.
             helper_installed: spawn::program().is_ok(),
             helper: AtomicU32::new(0),
+            limits: Mutex::new(limits),
             world,
             wake,
         });

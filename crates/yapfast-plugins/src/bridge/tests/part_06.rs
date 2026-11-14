@@ -230,3 +230,169 @@ fn a_call_that_would_come_back_around_names_the_chain() {
     assert!(reason.contains("com.example.top"), "{reason}");
     assert!(reason.contains('→'), "{reason}");
 }
+
+/// The Advanced limits: applied at once, shown on the page, and still there
+/// when the bridge is opened again.
+#[test]
+fn changing_the_limits_writes_them_down_and_shows_them_again() {
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    let (wake, _notices) = notice_channel();
+    let mut opened = bridge(directory.path(), wake);
+    assert_eq!(opened.limits(), limits::Limits::default());
+    let grants = Grants::load(directory.path().join("grants.json")).expect("a grants file");
+    let view = opened.page(&grants, &|at| at.to_string());
+    assert_eq!(
+        view.advanced.memory_budget, 256,
+        "the page shows the pair the helper has always run with"
+    );
+    assert_eq!(view.advanced.idle_minutes, 5);
+
+    opened
+        .set_limits(limits::Limits {
+            memory_mib: 512,
+            idle_minutes: 15,
+        })
+        .expect("the choice is written down");
+    let stored: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(directory.path().join("plugins").join("budget.json"))
+            .expect("the choice is in budget.json"),
+    )
+    .expect("budget.json is JSON");
+    assert_eq!(stored["memory_mib"], 512);
+    assert_eq!(stored["idle_minutes"], 15);
+    let view = opened.page(&grants, &|at| at.to_string());
+    assert_eq!(view.advanced.memory_budget, 512, "the page projects it");
+    assert_eq!(view.advanced.idle_minutes, 15);
+    drop(opened);
+
+    // What was written down is what the next bridge starts with.
+    let (wake, _notices) = notice_channel();
+    let reopened = bridge(directory.path(), wake);
+    assert_eq!(
+        reopened.limits(),
+        limits::Limits {
+            memory_mib: 512,
+            idle_minutes: 15
+        }
+    );
+    let view = reopened.page(&grants, &|at| at.to_string());
+    assert_eq!(view.advanced.memory_budget, 512);
+    assert_eq!(view.advanced.idle_minutes, 15);
+}
+
+/// A picker moved with plugins enabled but nothing running starts no helper:
+/// choosing limits is not work, and a helper that starts later is told the
+/// pair after its `Ready`.
+#[test]
+fn changing_the_limits_starts_no_helper() {
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    installed(directory.path(), HOOK_MANIFEST, b"not a real module");
+    let (wake, _notices) = notice_channel();
+    let mut bridge = bridge(directory.path(), wake);
+    assert!(bridge.enabled(), "the plugin is on");
+    bridge
+        .set_limits(limits::Limits {
+            memory_mib: 128,
+            idle_minutes: 1,
+        })
+        .expect("the choice is written down");
+    assert!(
+        bridge.shared().helper_pid().is_none(),
+        "no helper process was started"
+    );
+    assert!(bridge.supervisor.is_none(), "and no supervisor either");
+    assert_eq!(bridge.helper(), HelperState::Stopped);
+    bridge.shutdown();
+}
+
+/// A helper is given the person's limits right after its `Ready` and before
+/// any work reaches it, and a change later is one frame with no answer.
+#[test]
+fn a_helper_gets_the_limits_after_its_hello_and_before_any_work() {
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    let plugin = installed(directory.path(), HOOK_MANIFEST, b"not a real module");
+    let (wake, _notices) = notice_channel();
+    let shared = shared(directory.path(), wake);
+    shared.set_limits(limits::Limits {
+        memory_mib: 512,
+        idle_minutes: 15,
+    });
+    let (_session_directory, mut session, written, inbound) = session_stub();
+    let (commands, mut receiver) = tokio::sync::mpsc::unbounded_channel::<Request>();
+    let run_shared = Arc::clone(&shared);
+    let runtime = runtime();
+    let running = runtime.spawn(async move { session.run(&run_shared, &mut receiver).await });
+
+    let hello = next_frame(&written);
+    assert_eq!(message(&hello), ToHelper::Hello { api: API_VERSION });
+    inbound
+        .send(Inbound::Frame(Frame::new(
+            FrameKind::Hello,
+            0,
+            serde_json::to_vec(&FromHelper::Ready {
+                api: API_VERSION,
+                version: "test".to_owned(),
+            })
+            .expect("it serializes"),
+        )))
+        .expect("the session is listening");
+    let limits = next_frame(&written);
+    assert_eq!(
+        message(&limits),
+        ToHelper::Limits {
+            memory_mib: 512,
+            idle_minutes: 15
+        },
+        "the pair the person chose goes first"
+    );
+    assert_eq!(limits.id, 0, "no answer is expected for it");
+
+    // Work reaches the helper after it.
+    commands
+        .send(Request::Activate {
+            plugins: vec![plugin],
+        })
+        .expect("the session is listening");
+    let work = next_frame(&written);
+    assert!(
+        matches!(message(&work), ToHelper::Activate { .. }),
+        "the first work frame comes after the limits: {:?}",
+        message(&work)
+    );
+
+    // A change reaches a running helper as the same frame again.
+    commands
+        .send(Request::Limits {
+            memory_mib: 128,
+            idle_minutes: 1,
+        })
+        .expect("the session is listening");
+    let changed = next_frame(&written);
+    assert_eq!(changed.id, 0, "no answer is expected for it");
+    assert_eq!(
+        message(&changed),
+        ToHelper::Limits {
+            memory_mib: 128,
+            idle_minutes: 1
+        }
+    );
+
+    drop(commands);
+    let ending = runtime.block_on(running).expect("the run ends");
+    assert!(matches!(ending, Ending::Asked));
+}
+
+/// A change to the limits waits for a swap, as an eviction does: lowering the
+/// budget evicts, and one that raced a swap would be undoing it.
+#[test]
+fn a_limits_change_waits_for_a_swap() {
+    let (_directory, session, _written, _inbound) = session_stub();
+    let change = Request::Limits {
+        memory_mib: 128,
+        idle_minutes: 1,
+    };
+    assert!(
+        session.holds_for_swap(&change),
+        "like an eviction, it goes after the swap"
+    );
+}

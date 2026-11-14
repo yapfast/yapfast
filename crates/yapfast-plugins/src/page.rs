@@ -388,19 +388,24 @@ pub struct Advanced {
 }
 
 impl Default for Advanced {
+    /// The pair the helper has always run with, from
+    /// [`yapfast_plugin_api::limits::Limits::default`]: one number for the
+    /// defaults, so the page and the runtime can't drift apart.
     fn default() -> Self {
+        let limits = yapfast_plugin_api::limits::Limits::default();
         Self {
-            memory_budget: 256,
-            idle_minutes: 5,
+            memory_budget: limits.memory_mib,
+            idle_minutes: limits.idle_minutes,
             sandbox_unavailable: false,
         }
     }
 }
 
-/// The budgets Advanced offers, in MiB.
-pub const MEMORY_BUDGETS: [u32; 4] = [128, 256, 512, 1024];
-/// The idle times Advanced offers, in minutes.
-pub const IDLE_MINUTES: [u32; 4] = [1, 5, 15, 60];
+/// The budgets and idle times Advanced offers.
+///
+/// They are [`yapfast_plugin_api::limits`]'s own arrays, re-exported so the
+/// page draws the same steps the runtime snaps to.
+pub use yapfast_plugin_api::limits::{IDLE_MINUTES, MEMORY_BUDGETS};
 
 /// What the page asks of the runtime.
 #[derive(Clone, Debug, PartialEq, Eq)]

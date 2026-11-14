@@ -155,6 +155,8 @@ pub(super) fn shared_with_world(
 ) -> Arc<Shared> {
     let store = Store::open(directory).expect("a store");
     let registry = Registry::load(&store);
+    // Seeded as the bridge seeds it: the pair the person chose last time.
+    let limits = Mutex::new(crate::budget::load(store.root()));
     Arc::new(Shared {
         registry: RwLock::new(registry),
         store: Mutex::new(store),
@@ -174,6 +176,7 @@ pub(super) fn shared_with_world(
         held: Mutex::new(BTreeMap::new()),
         helper_installed: false,
         helper: AtomicU32::new(0),
+        limits,
         world,
         wake,
     })

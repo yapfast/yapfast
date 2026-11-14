@@ -34,12 +34,14 @@ own, saying the plugin could send your messages there, and
 Advanced, at the page's foot, opens a dialog with **Install a .wasm file**, the
 memory budget and how long an idle plugin is kept. Choosing a file asks for it in
 the system's dialog: its `.wasm`, or the `yapfast-plugin.json` itself. The two
-pickers are drawn from the page's view and the choices are remembered by the page
-while it is open, but nothing applies them yet: both requests are logged as the
-runtime's (`SetMemoryBudget`, `SetIdleMinutes`), so the helper keeps its own
-256 MiB and five minutes ([the helper](host.md#eviction-and-the-memory-budget)).
-The dialog also says when the helper can't apply the OS sandbox here and runs
-under wasmtime's alone.
+pickers offer the steps the plugin API names — 128 MiB to 1 GiB, one minute to an
+hour — and start at 256 MiB and five minutes. A choice applies at once: it is
+kept in `plugins/budget.json`, so it is still there next time and shown again
+when the dialog opens, and a helper that is running is told the new pair right
+away ([the helper](host.md#eviction-and-the-memory-budget)); one that starts
+later is given it right after its `Ready`. A choice that couldn't be written
+down still applies, and the page says so. The dialog also says when the helper
+can't apply the OS sandbox here and runs under wasmtime's alone.
 
 **The manifest is what a plugin is** — its name and id, the commands it answers,
 its settings, what it may reach and when it runs — so it is what an install
@@ -202,8 +204,6 @@ draws, so a page that is closed holds nothing and holds no lock while it is
 open. `crates/yapfast-core/src/application/plugins/page.rs` answers the page's requests: each request
 is an `application::Action`, `Effect::Plugin` carries a status back to it, and
 `Effect::Plugin(Effect::Page)` redraws it once the runtime has applied a change.
-A request for something the runtime doesn't apply — the memory budget and the
-idle time, today — is logged and changes nothing.
 
 `--preview` keeps the sample plugins instead: the page shows `page::Fixture`,
 which answers at once, and `page::Unavailable` says plugins can't run only in a

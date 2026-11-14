@@ -46,9 +46,11 @@ impl Session {
             Request::Input { .. } => false,
             // An eviction is the application asking for memory back, and one
             // that raced a swap would be undoing it; it waits the 100 ms. A
-            // second swap waits for the one running for the same reason: the
-            // steps of one replace the other's.
-            Request::Evict { .. } | Request::Watch { .. } => true,
+            // change to the limits is the same ask from another direction: a
+            // lower budget evicts, so it waits too. A second swap waits for the
+            // one running for the same reason: the steps of one replace the
+            // other's.
+            Request::Limits { .. } | Request::Evict { .. } | Request::Watch { .. } => true,
             Request::Swap { .. } => self.swapping(),
             Request::Shutdown => false,
         }
