@@ -100,8 +100,13 @@ windows = { version = "0.62", features = ["Data_Xml_Dom", "UI_Notifications"], o
 i-slint-renderer-skia = { version = "=1.19.0", features = ["wgpu-30"], optional = true }
 
 # Slint's renderer, which a closed picker asks to let go of its caches.
-[target.'cfg(not(windows))'.dependencies]
+[target.'cfg(not(any(windows, target_os = "macos")))'.dependencies]
 i-slint-renderer-skia = { version = "=1.19.0", optional = true }
+
+# Slint's winit backend calls SkiaRenderer::default_metal on macOS, which
+# exists only with wgpu.
+[target.'cfg(target_os = "macos")'.dependencies]
+i-slint-renderer-skia = { version = "=1.19.0", features = ["wgpu-30"], optional = true }
 
 # A stand-in tray on the private test bus; see testing/tray_host.rs.
 [build-dependencies]

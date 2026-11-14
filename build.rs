@@ -25,6 +25,9 @@ fn main() {
     match env::var("CARGO_CFG_TARGET_OS").as_deref() {
         Ok("windows") => windows_icon(),
         Ok("linux") => linux_skia(),
+        // LiveKit requires -ObjC on macOS. Without it, libwebrtc aborts on an
+        // unrecognized selector.
+        Ok("macos") => println!("cargo:rustc-link-arg=-ObjC"),
         _ => {}
     }
 }
