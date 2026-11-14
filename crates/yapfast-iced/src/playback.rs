@@ -1,0 +1,530 @@
+//! What plays in the timeline. Voice messages, as the Slint client's voice
+//! `FileCard` mixes Discord's phone and desktop players: a pill with a
+//! round button that plays or pauses it, its waveform filled up to where it
+//! has played (pressed, it moves there, and follows the pointer while
+//! held), its time counting down, and while the pointer is on it the speed
+//! and mute. And videos, as its `VideoCell`: the poster with a play mark,
+//! then the video in its cell, its controls along the bottom while the
+//! pointer is on it or it's paused. The core plays both and says where
+//! they are; nothing here keeps time.
+
+use iced::{
+    Alignment, Background, Color, Element, Length, Padding, Size, Task, gradient,
+    widget::{Space, button, container, mouse_area, row, stack, text},
+};
+use yapfast_core::{
+    application::Action,
+    chat::{ChatMessage, VideoCommand, VoiceMessage},
+};
+
+use crate::{
+    app::{App, Message},
+    controls::lights,
+    fonts::BOLD,
+    pictures::Icon,
+    style::{faded, rounded},
+    video::Video,
+    widgets::Scrub,
+};
+
+/// The pill's height, the button across, its waveform's bars.
+const PILL: f32 = 52.0;
+const BUTTON: f32 = 36.0;
+const BARS: usize = 32;
+const BAR: f32 = 3.0;
+const BAR_PITCH: f32 = 6.0;
+const BAR_TALL: f32 = 24.0;
+
+/// What a voice message's card asks for.
+#[derive(Clone, Debug)]
+pub enum Event {
+    /// Play it, or pause it while it plays.
+    Toggle(String),
+    /// Move it this far through, from 0 to 1; pressing on its waveform
+    /// pauses it while it plays, until let go.
+    Seek(String, f32),
+    Released(String),
+    Speed,
+    Mute(bool),
+    /// The pointer came onto a card or left it.
+    Point(String, bool),
+}
+
+/// What a video's cell asks for.
+#[derive(Clone, Debug)]
+pub enum Clip {
+    /// Play a message's video (its item and attachment) at this size.
+    Play(String, usize, Size),
+    /// Pause the video playing, or play it on.
+    Toggle,
+    /// Move it this far through, from 0 to 1.
+    Seek(f32),
+    Mute(bool),
+    /// The pointer came onto a cell, by `{item}/{index}`, or left it.
+    Point(String, bool),
+}
+
+/// A video's controls' bar, its buttons, and its track.
+const CLIP_BAR: f32 = 36.0;
+const CLIP_BUTTON: f32 = 28.0;
+const TRACK: f32 = 4.0;
+/// The ground of the play mark, a pill's and the bar's foot.
+const CLIP_DIM: Color = Color::from_rgba8(0, 0, 0, 0xb3 as f32 / 255.0);
+const CLIP_SHADE: Color = Color::from_rgba8(0, 0, 0, 0.8);
+const TRACK_REST: Color = Color::from_rgba8(255, 255, 255, 0.3);
+
+/// A video's time, as the Slint client's: where it is and how long it
+/// plays, such as "0:12 / 1:30".
+pub fn video_time(at_ms: u64, duration_ms: Option<u64>) -> String {
+    let clock = |ms: u64| {
+        let seconds = ms / 1000;
+        match seconds / 3600 {
+            0 => format!("{}:{:02}", seconds / 60, seconds % 60),
+            hours => format!("{hours}:{:02}:{:02}", seconds / 60 % 60, seconds % 60),
+        }
+    };
+    match duration_ms {
+        Some(duration) => format!("{} / {}", clock(at_ms.min(duration)), clock(duration)),
+        None => clock(at_ms),
+    }
+}
+
+/// A voice message's time as Discord's: whole seconds rounded up, so the
+/// last moments read 0:01.
+pub fn voice_time(ms: u64) -> String {
+    let seconds = ms.div_ceil(1000);
+    match seconds / 3600 {
+        0 => format!("{}:{:02}", seconds / 60, seconds % 60),
+        hours => format!("{hours}:{:02}:{:02}", seconds / 60 % 60, seconds % 60),
+    }
+}
+
+/// The loudest of each of [`BARS`] stretches of a waveform, from 0 to 1.
+fn bars(waveform: &[u8]) -> impl Iterator<Item = f32> + '_ {
+    (0..BARS).map(move |bar| {
+        let start = bar * waveform.len() / BARS;
+        let end = ((bar + 1) * waveform.len() / BARS).max(start + 1);
+        let loudest = waveform.get(start..end.min(waveform.len()));
+        f32::from(loudest.into_iter().flatten().copied().max().unwrap_or(0)) / 255.0
+    })
+}
+
+impl App {
+    /// A voice message's card.
+    pub fn voice_card<'a>(
+        &'a self,
+        message: &'a ChatMessage,
+        voice: &'a VoiceMessage,
+    ) -> Element<'a, Message> {
+        let theme = &self.theme;
+        let state = self.client.state();
+        let item = &message.item;
+        let playback = state
+            .voice_message
+            .as_ref()
+            .filter(|playback| playback.item == *item);
+        let playing = playback.is_some_and(|playback| playback.playing);
+        let enabled = !state.preview && message.delivery == yapfast_core::chat::Delivery::default();
+        let played = playback.map_or(0.0, |playback| {
+            if voice.duration_ms == 0 {
+                0.0
+            } else {
+                (playback.position_ms as f32 / voice.duration_ms as f32).min(1.0)
+            }
+        });
+        // The accent shading towards the bottom right.
+        let accent = theme.accent;
+        let light = crate::theme::mix(Color::WHITE, accent, 0.2);
+        let face = container(self.glyph(
+            if playing { Icon::Pause } else { Icon::Play },
+            17,
+            Color::WHITE,
+        ))
+        .center(BUTTON);
+        let play = button(face)
+            .padding(0)
+            .width(BUTTON)
+            .height(BUTTON)
+            .on_press_maybe(enabled.then(|| Message::Voice(Event::Toggle(item.clone()))))
+            .style(move |_, status| {
+                let opacity = match (enabled, lights(status)) {
+                    (false, _) => 0.5,
+                    (true, true) => 0.9,
+                    (true, false) => 1.0,
+                };
+                button::Style {
+                    background: Some(Background::Gradient(
+                        gradient::Linear::new(std::f32::consts::FRAC_PI_4 * 3.0)
+                            .add_stop(0.0, faded(light, opacity))
+                            .add_stop(1.0, faded(accent, opacity))
+                            .into(),
+                    )),
+                    border: iced::Border::default().rounded(BUTTON / 2.0),
+                    text_color: Color::WHITE,
+                    ..button::Style::default()
+                }
+            });
+        let mut wave = row![].spacing(BAR_PITCH - BAR).align_y(Alignment::Center);
+        for (index, level) in bars(&voice.waveform).enumerate() {
+            let ink = if (index as f32 + 0.5) / BARS as f32 <= played {
+                theme.text
+            } else {
+                theme.muted
+            };
+            wave = wave.push(
+                container(Space::new())
+                    .width(BAR)
+                    .height((level * BAR_TALL).max(BAR))
+                    .style(move |_| rounded(ink, BAR / 2.0)),
+            );
+        }
+        let wave = container(wave).height(PILL).align_y(Alignment::Center);
+        let wave: Element<'_, Message> = if enabled {
+            let (seek, released) = (item.clone(), item.clone());
+            Scrub::new(wave, move |at| {
+                Message::Voice(Event::Seek(seek.clone(), at))
+            })
+            .released(Message::Voice(Event::Released(released)))
+            .into()
+        } else {
+            wave.into()
+        };
+        let error = playback.and_then(|playback| playback.error.as_deref());
+        let started = playback.is_some_and(|playback| playback.playing || playback.position_ms > 0);
+        let (time, ink) = match (error, playback) {
+            (Some(error), _) => (error.to_owned(), theme.danger),
+            (None, Some(playback)) if started => (
+                voice_time(voice.duration_ms.saturating_sub(playback.position_ms)),
+                theme.muted,
+            ),
+            _ => (voice_time(voice.duration_ms), theme.muted),
+        };
+        // As wide as its widest time, so the card keeps its width as the
+        // time counts down.
+        let widest = voice_time(voice.duration_ms).len() as f32 * 8.6;
+        let mut card = row![
+            play,
+            wave,
+            container(text(time).size(14).color(ink))
+                .width(if error.is_some() {
+                    Length::Shrink
+                } else {
+                    Length::Fixed(widest)
+                })
+                .height(PILL)
+                .align_y(Alignment::Center),
+        ]
+        .spacing(12)
+        .align_y(Alignment::Center);
+        // Speed and mute, while the pointer is on it.
+        if self.pointed_voice.as_ref() == Some(item) {
+            let tuning = state.voice_tuning;
+            let (rest, lit, text_ink) = (theme.raised, theme.hover, theme.text);
+            let speed = button(
+                container(text(format!("{}x", tuning.speed)).size(12).font(BOLD))
+                    .padding([0, 6])
+                    .height(22)
+                    .align_y(Alignment::Center),
+            )
+            .padding(0)
+            .on_press(Message::Voice(Event::Speed))
+            .style(move |_, status| button::Style {
+                background: Some(if lights(status) { lit } else { rest }.into()),
+                text_color: text_ink,
+                border: iced::Border::default().rounded(11),
+                ..button::Style::default()
+            });
+            card = card.push(
+                row![
+                    speed,
+                    self.icon_button(
+                        if tuning.muted {
+                            Icon::VolumeOff
+                        } else {
+                            Icon::Volume
+                        },
+                        if tuning.muted { "Unmute" } else { "Mute" },
+                        28.0,
+                        18,
+                        Message::Voice(Event::Mute(!tuning.muted)),
+                        false,
+                    )
+                ]
+                .spacing(4)
+                .align_y(Alignment::Center),
+            );
+        }
+        let ground = theme.sidebar;
+        let pill = container(card)
+            .padding(Padding {
+                left: 8.0,
+                right: 16.0,
+                ..Padding::ZERO
+            })
+            .height(PILL)
+            .style(move |_| rounded(ground, PILL / 2.0));
+        container(
+            mouse_area(pill)
+                .on_enter(Message::Voice(Event::Point(item.clone(), true)))
+                .on_exit(Message::Voice(Event::Point(item.clone(), false))),
+        )
+        .padding(Padding::ZERO.top(4))
+        .into()
+    }
+
+    /// What a voice message's card asked for.
+    pub fn voice_event(&mut self, event: Event) -> Task<Message> {
+        match event {
+            Event::Toggle(item) => self.client.dispatch(Action::ToggleVoiceMessage(item)),
+            Event::Seek(item, at) => {
+                // Playing, it pauses while held and plays on once let go.
+                let playing = self
+                    .client
+                    .state()
+                    .voice_message
+                    .as_ref()
+                    .is_some_and(|playback| playback.item == item && playback.playing);
+                if playing && self.voice_held.is_none() {
+                    self.voice_held = Some(item.clone());
+                    self.client
+                        .dispatch(Action::ToggleVoiceMessage(item.clone()));
+                }
+                self.client.dispatch(Action::MoveVoiceMessage(item, at));
+            }
+            Event::Released(item) => {
+                if self.voice_held.take().is_some() {
+                    self.client.dispatch(Action::ToggleVoiceMessage(item));
+                }
+            }
+            Event::Speed => self.client.dispatch(Action::CycleVoiceMessageSpeed),
+            Event::Mute(muted) => self.client.dispatch(Action::MuteVoiceMessages(muted)),
+            Event::Point(item, entered) => {
+                crate::app::point(&mut self.pointed_voice, item, entered);
+                return Task::none();
+            }
+        }
+        self.sync()
+    }
+}
+
+impl App {
+    /// A message's video in its gallery cell: `poster` with a play mark
+    /// until it plays, then its frames with the controls.
+    pub fn clip_cell<'a>(
+        &'a self,
+        message: &'a ChatMessage,
+        index: usize,
+        size: Size,
+        poster: Element<'a, Message>,
+    ) -> Element<'a, Message> {
+        let state = self.client.state();
+        let key = format!("{}/{index}", message.item);
+        let playing = state
+            .video
+            .as_ref()
+            .filter(|video| video.item == message.item && video.index == index);
+        let failed = playing.and_then(|video| video.error.as_deref());
+        let pointed = self.pointed_clip.as_deref() == Some(key.as_str());
+        let frame = playing.and_then(|_| self.frames.get(&format!("clip:{key}")));
+        let mut layers = stack![poster].width(size.width).height(size.height);
+        if failed.is_none()
+            && let Some((handle, frame_size)) = frame
+        {
+            layers = layers.push(Video::new(handle.clone(), *frame_size, Color::BLACK));
+        }
+        let ended = playing.is_some_and(|video| video.ended);
+        if playing.is_none() || failed.is_some() || (ended && !pointed) {
+            layers = layers.push(container(self.play_badge()).center(Length::Fill));
+        }
+        if let Some(video) = playing {
+            if let Some(why) = failed {
+                layers = layers.push(
+                    container(
+                        container(
+                            text(why)
+                                .size(13)
+                                .color(Color::WHITE)
+                                .wrapping(text::Wrapping::None),
+                        )
+                        .padding([0, 10])
+                        .height(28)
+                        .align_y(Alignment::Center)
+                        .clip(true)
+                        .style(|_| rounded(CLIP_SHADE, 6)),
+                    )
+                    .padding(8)
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .align_x(Alignment::Center)
+                    .align_y(Alignment::End),
+                );
+            } else if video.loading {
+                layers = layers.push(
+                    container(
+                        container(text("Loading...").size(13).color(Color::WHITE))
+                            .padding([0, 10])
+                            .height(28)
+                            .align_y(Alignment::Center)
+                            .style(|_| rounded(CLIP_DIM, 14)),
+                    )
+                    .center(Length::Fill),
+                );
+            } else if pointed || !video.playing {
+                layers = layers.push(
+                    container(self.clip_controls(video, size.width))
+                        .height(Length::Fill)
+                        .align_y(Alignment::End),
+                );
+            }
+        }
+        // A click plays it, pauses it, or plays it on; the controls take
+        // their own.
+        let press = match playing {
+            Some(_) if failed.is_none() => Message::Clip(Clip::Toggle),
+            _ => Message::Clip(Clip::Play(message.item.clone(), index, size)),
+        };
+        mouse_area(layers)
+            .on_press(press)
+            .on_enter(Message::Clip(Clip::Point(key.clone(), true)))
+            .on_exit(Message::Clip(Clip::Point(key, false)))
+            .interaction(iced::mouse::Interaction::Pointer)
+            .into()
+    }
+
+    /// The bar along a playing video's foot, as the Slint client's
+    /// `VideoControls`: play or pause, its time, the track to move through
+    /// it, and mute. A narrow video leaves out the time, then mute.
+    fn clip_controls<'a>(
+        &'a self,
+        video: &'a yapfast_core::chat::Video,
+        width: f32,
+    ) -> Element<'a, Message> {
+        let at = self.clip_time.unwrap_or(0);
+        let at = match video.duration_ms {
+            Some(duration) if video.ended => duration,
+            _ => at,
+        };
+        let progress = match video.duration_ms {
+            Some(duration) if duration > 0 => (at as f32 / duration as f32).min(1.0),
+            _ => 0.0,
+        };
+        let time = video_time(at, video.duration_ms);
+        // Play, the padding and the spacing; the track keeps 32 px.
+        let fixed = 4.0 + CLIP_BUTTON + 6.0 + 32.0 + 6.0;
+        let show_mute = video.sound && width >= fixed + 34.0;
+        let show_time =
+            width >= fixed + if show_mute { 34.0 } else { 0.0 } + time.len() as f32 * 7.0 + 6.0;
+        let button = |icon, label, message| {
+            self.icon_face_button(
+                self.glyph(icon, 16, Color::WHITE),
+                label,
+                CLIP_BUTTON,
+                message,
+                false,
+            )
+        };
+        let mut bar = row![if video.playing {
+            button(Icon::Pause, "Pause", Message::Clip(Clip::Toggle))
+        } else {
+            button(Icon::Play, "Play", Message::Clip(Clip::Toggle))
+        }]
+        .spacing(6)
+        .padding(Padding {
+            left: 4.0,
+            right: 6.0,
+            ..Padding::ZERO
+        })
+        .height(CLIP_BAR)
+        .align_y(Alignment::Center);
+        if show_time {
+            bar = bar.push(text(time).size(12).color(Color::WHITE));
+        }
+        let filled = row![
+            container(Space::new().height(TRACK))
+                .width(Length::FillPortion(
+                    ((progress * 1000.0).round() as u16).max(1)
+                ))
+                .style(|_| rounded(Color::WHITE, TRACK / 2.0)),
+            Space::new().width(Length::FillPortion(
+                ((1000.0 - progress * 1000.0).round() as u16).max(1)
+            )),
+        ];
+        let track = stack![
+            container(Space::new().width(Length::Fill).height(TRACK))
+                .style(|_| rounded(TRACK_REST, TRACK / 2.0)),
+            filled,
+        ];
+        bar = bar.push(Scrub::new(
+            container(track)
+                .height(CLIP_BAR)
+                .width(Length::Fill)
+                .align_y(Alignment::Center),
+            |at| Message::Clip(Clip::Seek(at)),
+        ));
+        if show_mute {
+            bar = bar.push(if video.muted {
+                button(Icon::VolumeOff, "Unmute", Message::Clip(Clip::Mute(false)))
+            } else {
+                button(Icon::Volume, "Mute", Message::Clip(Clip::Mute(true)))
+            });
+        }
+        // Between the controls, a click leaves the video be.
+        mouse_area(container(bar).width(Length::Fill).style(|_| {
+            iced::widget::container::Style {
+                background: Some(Background::Gradient(
+                    gradient::Linear::new(0.0)
+                        .add_stop(0.0, CLIP_SHADE)
+                        .add_stop(1.0, Color::TRANSPARENT)
+                        .into(),
+                )),
+                ..iced::widget::container::Style::default()
+            }
+        }))
+        .on_press(Message::Nothing)
+        .interaction(iced::mouse::Interaction::Idle)
+        .into()
+    }
+
+    /// What a video's cell asked for.
+    pub fn clip_event(&mut self, clip: Clip) -> Task<Message> {
+        let video = self.client.state().video.as_ref();
+        match clip {
+            Clip::Play(item, index, size) => {
+                let pixels = |side: f32| (side.round() as u32).max(1);
+                self.clip_time = None;
+                self.client.dispatch(Action::PlayVideo {
+                    item,
+                    index,
+                    width: pixels(size.width),
+                    height: pixels(size.height),
+                });
+            }
+            Clip::Toggle => {
+                let command = if video.is_some_and(|video| video.playing) {
+                    VideoCommand::Pause
+                } else {
+                    VideoCommand::Play
+                };
+                self.client.dispatch(Action::Video(command));
+            }
+            Clip::Seek(at) => {
+                let Some(duration) = video.and_then(|video| video.duration_ms) else {
+                    return Task::none();
+                };
+                let at = (f64::from(at.clamp(0.0, 1.0)) * duration as f64) as u64;
+                self.client.dispatch(Action::Video(VideoCommand::Seek(at)));
+            }
+            Clip::Mute(muted) => self
+                .client
+                .dispatch(Action::Video(VideoCommand::Mute(muted))),
+            Clip::Point(key, entered) => {
+                crate::app::point(&mut self.pointed_clip, key, entered);
+                return Task::none();
+            }
+        }
+        self.sync()
+    }
+}
+
+/// A voice message's card's height, with the room above it.
+pub const VOICE_CARD: f32 = PILL + 4.0;

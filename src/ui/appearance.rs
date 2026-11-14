@@ -22,7 +22,7 @@ impl Adapter {
     /// carries the old mention colour in its markup: message rows, the
     /// topic, pins and search results.
     pub(super) fn set_theme(&mut self, window: &YapfastWindow, theme: &theme::Theme) {
-        if theme.apply(window) {
+        if theme::apply(theme, window) {
             self.restyle_mentions();
             self.refresh(window);
         }

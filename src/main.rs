@@ -190,9 +190,7 @@ fn main() -> Result<()> {
             Ok(())
         }
         [argument] if argument == "--help" || argument == "-h" => {
-            println!(
-                "Usage: yapfast [--preview] [--data-dir PATH] [--renderer gpu|software] [--background] [LINK]\n       yapfast [--smoke-test | --version | --help | --release-discord-links]\n       yapfast --call-experiment [--resume PATH]\n       yapfast [--voice-demo | --audio-devices]\n       yapfast session login --homeserver URL --user USER --password-stdin [--data-dir PATH]\n       yapfast session status [--data-dir PATH]\n       yapfast session recover --key-stdin [--data-dir PATH]\n       yapfast session logout [--data-dir PATH]\n\nWithout arguments, opens native Slint chat and restores a saved session.\n--renderer selects Skia Software or Skia GPU for this start, over the setting.\nIf Skia GPU fails to start, Yapfast restarts with Skia Software.\n--background starts in the system tray with a saved session, as starting at sign-in does.\nLINK opens a Discord server, channel, message, profile or invite link in Yapfast.\n--release-discord-links gives discord:// links back to the app that had them, as uninstalling does.\n--preview opens local sample conversations without connecting to Matrix.\n--smoke-test checks the linked stack without signing in or opening audio devices.\n--version prints which build this is: its version, whether it is a stable release, a nightly or a development build, and its commit.\n--call-experiment creates disposable local accounts and checks encrypted synthetic audio. Start scripts/test-stack up first.\n--voice-demo creates two local accounts and a server with encrypted text and voice channels.\n--audio-devices lists native audio devices and cameras without recording.\nSession commands support password sign-in. Secrets are read from stdin."
-            );
+            println!("{}", help());
             Ok(())
         }
         _ => bail!("unknown argument; run yapfast --help"),
@@ -226,6 +224,50 @@ fn data_directory(arguments: &[String]) -> Option<std::path::PathBuf> {
         Some(index) => arguments.get(index + 1).map(Into::into),
         None => yapfast_core::default_directory().ok(),
     }
+}
+
+/// What `--help` prints: the commands, and what a start without them opens
+/// in this build's window.
+fn help() -> String {
+    let window = if cfg!(feature = "desktop") {
+        "Without arguments, opens Yapfast's Slint window and restores a saved session.\n\
+         --renderer selects Skia Software or Skia GPU for this start, over the setting.\n\
+         If Skia GPU fails to start, Yapfast restarts with Skia Software.\n\
+         --background starts in the system tray with a saved session, as starting at sign-in does.\n\
+         LINK opens a Discord server, channel, message, profile or invite link in Yapfast.\n\
+         --release-discord-links gives discord:// links back to the app that had them, as uninstalling does.\n"
+    } else if cfg!(any(feature = "iced", feature = "iced-gpu")) {
+        "Without arguments, opens Yapfast's iced window and restores a saved session.\n\
+         --renderer changes nothing: this build draws with the renderer it was built with,\n\
+         tiny-skia for --features iced, wgpu for --features iced-gpu.\n\
+         This window has no tray or links yet: --background shows the window, and LINK is ignored.\n"
+    } else {
+        "This build has no window; only the commands below that need none run.\n"
+    };
+    let links = if cfg!(feature = "desktop") {
+        " | --release-discord-links"
+    } else {
+        ""
+    };
+    format!(
+        "Usage: yapfast [--preview] [--data-dir PATH] [--renderer gpu|software] [--background] [LINK]\n\
+         \x20      yapfast [--smoke-test | --version | --help{links}]\n\
+         \x20      yapfast --call-experiment [--resume PATH]\n\
+         \x20      yapfast [--voice-demo | --audio-devices]\n\
+         \x20      yapfast session login --homeserver URL --user USER --password-stdin [--data-dir PATH]\n\
+         \x20      yapfast session status [--data-dir PATH]\n\
+         \x20      yapfast session recover --key-stdin [--data-dir PATH]\n\
+         \x20      yapfast session logout [--data-dir PATH]\n\
+         \n\
+         {window}\
+         --preview opens local sample conversations without connecting to Matrix.\n\
+         --smoke-test checks the linked stack without signing in or opening audio devices.\n\
+         --version prints which build this is: its version, whether it is a stable release, a nightly or a development build, and its commit.\n\
+         --call-experiment creates disposable local accounts and checks encrypted synthetic audio. Start scripts/test-stack up first.\n\
+         --voice-demo creates two local accounts and a server with encrypted text and voice channels.\n\
+         --audio-devices lists native audio devices and cameras without recording.\n\
+         Session commands support password sign-in. Secrets are read from stdin."
+    )
 }
 
 /// Set only for a process that replaces a failed GPU start.

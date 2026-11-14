@@ -21,7 +21,7 @@ resolver = "3"
 # each network, so a build can carry Matrix, Discord or both; scripts/check
 # --matrix checks the builds with Matrix.
 default = ["desktop", "discord"]
-matrix = ["yapfast-core/matrix"]
+matrix = ["yapfast-core/matrix", "yapfast-iced?/matrix"]
 discord = ["yapfast-core/discord", "dep:qrcode"]
 desktop = ["dep:slint", "dep:yapfast-ui", "dep:skia-safe", "dep:rfd", "dep:memmap2", "dep:emojis", "dep:webbrowser", "dep:i-slint-core", "dep:zbus", "dep:arboard", "dep:image", "dep:tempfile", "dep:wl-clipboard-rs", "dep:wayland-client", "dep:wayland-backend", "dep:wayland-protocols", "dep:ksni", "dep:windows-sys", "dep:windows", "dep:i-slint-renderer-skia", "dep:futures-util", "dep:x11rb", "dep:xkeysym", "dep:reqwest", "dep:rustls", "dep:sha2"]
 # The desktop app with a window that reloads ui/ on each save, for UI work;

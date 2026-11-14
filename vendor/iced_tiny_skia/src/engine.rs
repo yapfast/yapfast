@@ -41,17 +41,7 @@ impl Engine {
         // Yapfast port (patch 11): a quad whose shadow alone reaches into
         // the clip still draws (its shadow). Stock, it was skipped, and a
         // damaged region over only the shadow lost it.
-        let reach = if quad.shadow.color.a > 0.0 {
-            let shadow = quad.shadow;
-            Rectangle {
-                x: quad.bounds.x + shadow.offset.x - shadow.blur_radius,
-                y: quad.bounds.y + shadow.offset.y - shadow.blur_radius,
-                width: quad.bounds.width + shadow.blur_radius * 2.0,
-                height: quad.bounds.height + shadow.blur_radius * 2.0,
-            } * transformation
-        } else {
-            physical_bounds
-        };
+        let reach = shadow_reach(quad).map_or(physical_bounds, |reach| reach * transformation);
 
         if !clip_bounds.intersects(&physical_bounds.union(&reach)) {
             return;
@@ -1083,4 +1073,17 @@ pub fn adjust_clip_mask(clip_mask: &mut tiny_skia::Mask, bounds: Rectangle) {
     }
 
     LAST.set(Some((identity.0, identity.1, rect)));
+}
+
+/// Yapfast port (patches 11 and 15): where a quad's shadow reaches, if it
+/// has one: the quad moved by the shadow's offset and grown by its blur.
+/// Drawing takes the shadow inside it; the layer's damage counts it too.
+pub(crate) fn shadow_reach(quad: &Quad) -> Option<Rectangle> {
+    let shadow = quad.shadow;
+    (shadow.color.a > 0.0).then(|| Rectangle {
+        x: quad.bounds.x + shadow.offset.x - shadow.blur_radius,
+        y: quad.bounds.y + shadow.offset.y - shadow.blur_radius,
+        width: quad.bounds.width + shadow.blur_radius * 2.0,
+        height: quad.bounds.height + shadow.blur_radius * 2.0,
+    })
 }

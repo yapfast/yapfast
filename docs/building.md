@@ -345,7 +345,8 @@ the Slint client after a check.
 `scripts/check --matrix` adds the builds with Matrix, after those and one at
 a time, as each compile of the UI crate takes several GiB of memory: Clippy
 and the tests with Matrix beside Discord, Clippy for the Matrix-only build,
-then the headless build's Clippy and smoke test in
+Clippy and the tests of the iced client with Matrix (`--features
+iced,matrix`), then the headless build's Clippy and smoke test in
 `target/check-combinations/`, so the headless binary doesn't replace the
 desktop one. Run it before a release and after a change to code that Matrix
 shares, such as `#[cfg(feature = "matrix")]` branches in `yapfast-core` and

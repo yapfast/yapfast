@@ -10,11 +10,13 @@ use std::sync::Arc;
 use crate::{
     app::{App, Message},
     fonts::BOLD,
-    style::{faded, hex, rounded},
+    pictures::{Icon, Mark},
+    style::{BLURPLE, faded, hex, rounded},
+    theme::rgb,
     widgets::Pic,
 };
 use iced::{
-    Alignment, Color, Element, Font, Size,
+    Alignment, Color, Element, Font,
     widget::{Space, container, row, text},
 };
 use yapfast_core::{
@@ -48,7 +50,8 @@ pub struct MemberLook {
     /// The still of the decoration around the avatar; [`animated_url`] gives
     /// what plays while the row is pointed at.
     pub decoration: Option<Arc<str>>,
-    /// The nameplate's still and its palette's colour on a dark theme.
+    /// The nameplate's still and its palette's colour on the theme shown,
+    /// dark or light.
     pub nameplate: Option<(Arc<str>, Option<u32>)>,
     /// The name's font, in a server, or its whole style elsewhere.
     pub style: Option<NameLook>,
@@ -60,13 +63,49 @@ pub struct MemberLook {
     pub bot: bool,
     pub owner: bool,
     pub presence: Option<Presence>,
-    /// The line under the name: its words, the address of a custom emoji's
-    /// picture before them, the icon (0 none, 1 playing, 2 listening,
-    /// 3 watching, 4 streaming, 5 competing) and whether a bullet follows it.
-    pub activity: String,
-    pub activity_emoji: Option<String>,
-    pub activity_icon: u8,
-    pub activity_bullet: bool,
+    /// The line under the name.
+    pub status: Status,
+}
+
+/// What someone is up to, on one line under their name: its words, the
+/// address of a custom emoji's picture before them, the activity's icon
+/// (0 none, 1 playing, 2 listening, 3 watching, 4 streaming, 5 competing)
+/// and whether a bullet follows the icon.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Status {
+    pub words: String,
+    pub emoji: Option<String>,
+    pub icon: u8,
+    pub bullet: bool,
+}
+
+impl Status {
+    /// Words alone, such as a group DM's size.
+    pub fn words(words: String) -> Self {
+        Self {
+            words,
+            ..Self::default()
+        }
+    }
+
+    /// A custom status or activity as the core keeps it, its emoji apart.
+    pub fn of(activity: Option<&str>) -> Self {
+        let (emoji, words) = activity.map_or((None, ""), yapfast_core::discord::status_parts);
+        Self {
+            words: one_line(words),
+            emoji,
+            ..Self::default()
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.words.is_empty() && self.emoji.is_none() && self.icon == 0
+    }
+}
+
+/// `text` on one line, its runs of space as one.
+pub fn one_line(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 impl MemberLook {
@@ -82,6 +121,7 @@ pub fn member_lines(
     state: &AppState,
     members: &[ChatMember],
     owner: Option<&str>,
+    dark: bool,
 ) -> Vec<MemberLine> {
     let cosmetics = state.cosmetics;
     let in_server = in_server(state.selected.as_deref());
@@ -126,11 +166,15 @@ pub fn member_lines(
                 .nameplate
                 .as_ref()
                 .filter(|_| !state.hide_nameplates)
-                .map(|plate| (plate.picture.clone(), plate.colors.map(|colors| colors[0]))),
+                .map(|plate| {
+                    let palette = plate.colors.map(|colors| colors[usize::from(!dark)]);
+                    (plate.picture.clone(), palette)
+                }),
             style: name_look(
                 cosmetics.style(member.style.as_deref()),
                 &member.name,
                 in_server,
+                dark,
             ),
             color: member.color,
             role_icon: member.role_icon.clone(),
@@ -140,10 +184,12 @@ pub fn member_lines(
             bot: member.bot,
             owner: owner == Some(member.id.as_str()),
             presence: member.presence,
-            activity: words.split_whitespace().collect::<Vec<_>>().join(" "),
-            activity_emoji: emoji,
-            activity_icon: subline.icon,
-            activity_bullet: subline.bullet,
+            status: Status {
+                words: one_line(words),
+                emoji,
+                icon: subline.icon,
+                bullet: subline.bullet,
+            },
         })));
     }
     lines
@@ -166,8 +212,8 @@ pub fn animated_url(url: &str) -> String {
     }
 }
 
-/// A display name style as the Slint client's `NameStyleRow` has it, on the
-/// dark theme.
+/// A display name style as the Slint client's `NameStyleRow` has it, on a
+/// dark or a light theme.
 #[derive(Clone, Debug, PartialEq)]
 pub struct NameLook {
     /// 1 solid, 2 gradient, 3 neon, 4 toon, 5 pop, 6 glow, 7 prism, 8 gummy.
@@ -192,8 +238,14 @@ pub struct NameLook {
 }
 
 /// The style a name is drawn in, or none. In a server only its font counts
-/// (`font_only_in` in the Slint client); profiles show it whole.
-pub fn name_look(style: Option<&NameStyle>, name: &str, in_server: bool) -> Option<NameLook> {
+/// (`font_only_in` in the Slint client); profiles show it whole, its
+/// colours made readable on the theme's ground, dark or light.
+pub fn name_look(
+    style: Option<&NameStyle>,
+    name: &str,
+    in_server: bool,
+    dark: bool,
+) -> Option<NameLook> {
     let style = style.filter(|style| !style.colors().is_empty())?;
     if in_server {
         return Some(NameLook {
@@ -211,7 +263,8 @@ pub fn name_look(style: Option<&NameStyle>, name: &str, in_server: bool) -> Opti
             letters: Vec::new(),
         });
     }
-    Some(palette(style, name, DARK_GROUND))
+    let ground = if dark { DARK_GROUND } else { LIGHT_GROUND };
+    Some(palette(style, name, ground))
 }
 
 /// The font family Discord's client draws a style's `font_id` in; none, the
@@ -244,7 +297,9 @@ fn weight(font: u8) -> u16 {
     }
 }
 
+/// The grounds the Slint client makes a style's colours readable on.
 const DARK_GROUND: u32 = 0x121214;
+const LIGHT_GROUND: u32 = 0xfbfbfb;
 const TOON_GROUND: u32 = 0x333333;
 
 fn contrast_needed(effect: u8) -> f64 {
@@ -408,6 +463,44 @@ pub struct Chip {
 }
 
 impl App {
+    /// What someone is up to, under their name: the activity's icon, a
+    /// bullet, a custom emoji's picture, the words, 12 px.
+    pub fn status_line<'a>(&'a self, status: &'a Status, opacity: f32) -> Element<'a, Message> {
+        let theme = &self.theme;
+        let mut line = row![].spacing(4).align_y(Alignment::Center);
+        let side = 15.0;
+        let ink = faded(theme.muted, opacity);
+        if let Some(icon) = Icon::activity(status.icon) {
+            // Discord draws the game controller in its online green.
+            let color = rgb(if icon == Icon::Gamepad {
+                theme.live
+            } else {
+                theme.muted
+            });
+            if let Some(icon) = self.mark(Mark::Icon(icon, side as u32, color)) {
+                line = line.push(Pic::square(icon, side).opacity(opacity));
+            }
+            if status.bullet {
+                line = line.push(text("\u{2022}").size(12).color(ink));
+            }
+        }
+        if let Some(emoji) = &status.emoji {
+            line = line.push(match self.picture(emoji, side as u32, side as u32, false) {
+                Some(picture) => Element::from(Pic::square(picture, side).opacity(opacity)),
+                None => Space::new().width(side).height(side).into(),
+            });
+        }
+        if !status.words.is_empty() {
+            line = line.push(
+                text(status.words.as_str())
+                    .size(12)
+                    .color(ink)
+                    .wrapping(text::Wrapping::None),
+            );
+        }
+        line.into()
+    }
+
     /// A server tag as Discord's client draws it: a grey chip, the badge,
     /// then up to four letters, all faded by `opacity`.
     pub fn tag_chip(
@@ -422,9 +515,7 @@ impl App {
         if let Some(badge) = badge {
             // Its room is kept while the picture is on its way.
             line = line.push(match self.picture(badge, side as u32, side as u32, false) {
-                Some(picture) => {
-                    Element::from(Pic::new(picture, Size::new(side, side)).opacity(opacity))
-                }
+                Some(picture) => Element::from(Pic::square(picture, side).opacity(opacity)),
                 None => Space::new().width(side).height(side).into(),
             });
         }
@@ -445,7 +536,7 @@ impl App {
 
     /// The APP tag a bot's name wears.
     pub fn bot_tag(&self, opacity: f32) -> Element<'_, Message> {
-        let fill = faded(hex(0x5865f2), opacity);
+        let fill = faded(hex(BLURPLE), opacity);
         container(
             text("APP")
                 .size(10)

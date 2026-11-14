@@ -12546,15 +12546,21 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bytes",
+ "chrono",
  "emojis",
  "iced",
  "iced_test",
  "iced_tiny_skia",
+ "pulldown-cmark",
+ "qrcode",
  "resvg",
+ "serde",
+ "serde_json",
  "tempfile",
  "tokio",
  "tracing",
  "unicode-script",
+ "webbrowser",
  "yapfast-core",
 ]
 

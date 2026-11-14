@@ -11,14 +11,15 @@ use yapfast_core::voice::Participant;
 
 use crate::{
     app::{App, Message},
+    controls::{bar, lit_style},
     fonts::BOLD,
     header,
     pictures::Icon,
-    rail,
-    sidebar::{self, SideKind},
-    style::{ACCENT, BACKGROUND, DANGER, LINE, RAISED, SECONDARY, fill, hex, rounded},
+    rail, sidebar,
+    style::{fill, rounded},
+    theme::{Theme, rgb},
     video::{self, Fresh, Video},
-    widgets::{Above, Pic},
+    widgets::Above,
 };
 
 /// The room under the stage the Slint client's stage leaves for its
@@ -195,9 +196,13 @@ fn shown_at(bounds: Rectangle, height: f32) -> Option<(u32, u32)> {
 impl App {
     /// The open room is a voice channel: the window shows its call.
     pub fn voice_selected(&self) -> bool {
-        self.side
-            .iter()
-            .any(|item| item.selected && item.kind == SideKind::Voice)
+        let state = self.client.state();
+        state.selected.as_ref().is_some_and(|selected| {
+            state
+                .rooms
+                .iter()
+                .any(|room| &room.id == selected && room.voice && !room.direct)
+        })
     }
 
     /// The stage shows the call this account is in.
@@ -257,14 +262,32 @@ impl App {
         {
             sources.stream = Some((watching.user.clone(), frames.clone()));
         }
+        // A message's video, wherever it plays.
+        if let Some(playing) = &self.client.state().video
+            && let Some(frames) = &playing.frames
+        {
+            sources.clip = Some((
+                format!("{}/{}", playing.item, playing.index),
+                frames.clone(),
+            ));
+        }
         // Frames of what no longer shows go.
         let stream_key = sources
             .stream
             .as_ref()
             .map(|(user, _)| format!("stream:{user}"));
+        let clip_key = sources
+            .clip
+            .as_ref()
+            .map(|(clip, _)| format!("clip:{clip}"));
         self.frames.retain(|key, _| {
-            sources.feeds.iter().any(|(id, _)| id == key) || stream_key.as_deref() == Some(key)
+            sources.feeds.iter().any(|(id, _)| id == key)
+                || stream_key.as_deref() == Some(key)
+                || clip_key.as_deref() == Some(key)
         });
+        if clip_key.is_none() {
+            self.clip_time = None;
+        }
         self.video.set(sources);
     }
 
@@ -273,6 +296,10 @@ impl App {
         for fresh in found {
             if fresh.key.starts_with("stream:") {
                 self.video.stream_taken();
+            }
+            if fresh.key.starts_with("clip:") {
+                self.video.clip_taken();
+                self.clip_time = fresh.time;
             }
             self.frames.insert(fresh.key, (fresh.handle, fresh.size));
         }
@@ -300,11 +327,12 @@ impl App {
     }
 
     pub fn call_view(&self) -> Element<'_, Message> {
-        let (name, _) = &self.header;
+        let name = &self.header.name;
+        let theme = &self.theme;
         let head = container(
             row![
                 text("🔊").size(18),
-                text(name.as_str()).font(BOLD),
+                text(name.as_str()).font(BOLD).color(theme.text),
                 Space::new().width(Length::Fill)
             ]
             .spacing(8)
@@ -314,47 +342,45 @@ impl App {
         .width(Length::Fill)
         .height(header::HEIGHT)
         .align_y(Alignment::Center);
-        let line = container(Space::new())
-            .width(Length::Fill)
-            .height(1)
-            .style(|_| fill(LINE));
+        let outline = theme.outline_chat;
+        let line = bar(outline, Length::Fill, 1);
         if !self.stage_shown() {
             let id = self.client.state().selected.clone().unwrap_or_default();
-            let join = button(text("Join voice").font(BOLD).color(Color::WHITE))
+            let (accent, accent_hover) = (theme.accent, theme.accent_hover);
+            let join = button(text("Join voice").font(BOLD).color(theme.on_accent))
                 .padding([10, 18])
                 .on_press(Message::JoinVoice(id))
-                .style(|_, _| button::Style {
-                    background: Some(hex(ACCENT).into()),
-                    border: Border::default().rounded(8),
-                    ..Default::default()
-                });
-            let panel = column![text(name.as_str()).size(26).font(BOLD), join]
-                .spacing(14)
-                .align_x(Alignment::Center);
+                .style(lit_style(Some(accent), accent_hover, 8.0));
+            let panel = column![
+                text(name.as_str()).size(26).font(BOLD).color(theme.text),
+                join
+            ]
+            .spacing(14)
+            .align_x(Alignment::Center);
             return column![head, line, container(panel).center(Length::Fill)].into();
         }
-        let leave = button(
-            container(Pic::new(
-                self.icon(Icon::X, 24, 0xffffff),
-                Size::new(24.0, 24.0),
-            ))
-            .center(Length::Fill),
-        )
-        .width(76)
-        .height(48)
-        .on_press(Message::LeaveCall)
-        .style(|_, _| button::Style {
-            background: Some(hex(DANGER).into()),
-            border: Border::default().rounded(24),
-            ..Default::default()
-        });
+        let danger = theme.danger;
+        let leave = button(self.glyph(Icon::X, 24, theme.on_danger).boxed(Length::Fill))
+            .width(76)
+            .height(48)
+            .on_press(Message::LeaveCall)
+            .style(move |_, _| button::Style {
+                background: Some(danger.into()),
+                border: Border::default().rounded(24),
+                ..Default::default()
+            });
         let controls = container(leave)
             .center_x(Length::Fill)
             .height(CONTROLS)
             .align_y(Alignment::Center);
-        column![head, line, self.stage_view(), controls]
+        // The window's ground is the chat's; the stage paints its own only
+        // where a theme gives it another (none built in does), as a ground
+        // under the video is drawn again with every frame shown.
+        let stage = (theme.stage != theme.chat).then_some(theme.stage);
+        container(column![head, line, self.stage_view(), controls])
             .width(Length::Fill)
             .height(Length::Fill)
+            .style(move |_| stage.map(fill).unwrap_or_default())
             .into()
     }
 
@@ -405,7 +431,9 @@ impl App {
             Slot::Person(index) => (index, false),
         };
         let person = &voice.participants[index];
+        let theme = &self.theme;
         let tile = Tile {
+            theme,
             person,
             own_stream,
             streams_here: !own_stream
@@ -431,7 +459,7 @@ impl App {
         let video = |frame: Option<&(iced::advanced::image::Handle, (u32, u32))>| {
             frame.map(|(handle, size)| {
                 Element::from(
-                    Video::new(handle.clone(), *size, STAGE_BLACK).corners(12, BACKGROUND),
+                    Video::new(handle.clone(), *size, STAGE_BLACK).corners(12, rgb(theme.stage)),
                 )
             })
         };
@@ -442,11 +470,11 @@ impl App {
                 (frame, None)
             } else if tile.watched {
                 let starting =
-                    container(text("Starting the stream…").size(14).color(hex(SECONDARY)))
+                    container(text("Starting the stream…").size(14).color(theme.secondary))
                         .center(Length::Fill);
                 (starting.into(), Some(STAGE_BLACK))
             } else {
-                let watch = container(pill("Watch stream")).center(Length::Fill);
+                let watch = container(pill(theme, "Watch stream")).center(Length::Fill);
                 (watch.into(), Some(STAGE_BLACK))
             }
         } else if person.video.is_some() {
@@ -474,7 +502,7 @@ impl App {
                     bottom: 16.0,
                     ..Padding::ZERO
                 });
-            (content.into(), Some(hex(RAISED)))
+            (content.into(), Some(theme.raised))
         };
         tile.face(content, ground, on_press)
     }
@@ -482,6 +510,7 @@ impl App {
 
 /// What a tile shows of someone, beside what fills it.
 struct Tile<'a> {
+    theme: &'a Theme,
     person: &'a Participant,
     /// The tile is their stream's own.
     own_stream: bool,
@@ -511,7 +540,7 @@ impl<'a> Tile<'a> {
         .spacing(6)
         .align_y(Alignment::Center);
         if person.streaming && (person.local || person.video.is_none() || self.own_stream) {
-            chip = chip.push(live_pill());
+            chip = chip.push(live_pill(self.theme));
         }
         let chip = container(chip)
             .padding([0, 8])
@@ -529,7 +558,7 @@ impl<'a> Tile<'a> {
         let mut over = stack![pin(chip).x(10).y(self.size.height - 36.0)];
         if self.streams_here && !self.watched {
             over = over.push(
-                container(pill("Watch stream"))
+                container(pill(self.theme, "Watch stream"))
                     .align_right(Length::Fill)
                     .padding(10),
             );
@@ -551,19 +580,21 @@ impl<'a> Tile<'a> {
 }
 
 /// The red "Watch stream" button on a stream's tile.
-fn pill<'a>(label: &'static str) -> Element<'a, Message> {
-    container(text(label).size(13).font(BOLD).color(Color::WHITE))
+fn pill<'a>(theme: &Theme, label: &'static str) -> Element<'a, Message> {
+    let danger = theme.danger;
+    container(text(label).size(13).font(BOLD).color(theme.on_danger))
         .padding([0, 10])
         .height(26)
         .align_y(Alignment::Center)
-        .style(|_| rounded(hex(DANGER), 13))
+        .style(move |_| rounded(danger, 13))
         .into()
 }
 
-fn live_pill<'a>() -> Element<'a, Message> {
-    container(text("LIVE").size(10).font(BOLD).color(Color::WHITE))
+fn live_pill<'a>(theme: &Theme) -> Element<'a, Message> {
+    let danger = theme.danger;
+    container(text("LIVE").size(10).font(BOLD).color(theme.on_danger))
         .padding([1, 4])
-        .style(|_| rounded(hex(DANGER), 4))
+        .style(move |_| rounded(danger, 4))
         .into()
 }
 

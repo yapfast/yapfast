@@ -1,58 +1,33 @@
-//! The window's colours and the small style helpers every view uses.
-//!
-//! These are the port's stand-ins for the Slint client's dark Discord look
-//! (`ui/theme.slint`), as constants. M0's theme step replaces them with one
-//! struct of `src/ui/theme.rs`'s tokens that the widgets read.
+//! The small style helpers every view uses. The colours are the theme's
+//! ([`crate::theme::Theme`]); the few the Slint client draws the same in
+//! every theme are here.
 
 use iced::{
-    Background, Border, Color, Theme, border,
+    Background, Border, Color, border,
     widget::{container, scrollable},
 };
 
-pub const BACKGROUND: u32 = 0x1a1a1e;
-pub const PANEL: u32 = 0x131316;
-pub const LINE: u32 = 0x26262c;
-pub const TEXT: u32 = 0xdbdee1;
-pub const MUTED: u32 = 0x949ba4;
-pub const SELECTED: u32 = 0x35373c;
-pub const ACCENT: u32 = 0x5865f2;
-pub const FIELD: u32 = 0x232428;
+use crate::theme::Theme;
 
-/// The Slint client's colours for people, with its Discord look on.
-pub const SECONDARY: u32 = 0xb5b8c1;
-pub const ACTIVITY: u32 = 0x94959c;
+/// What the Slint client draws in the same colour whatever the theme:
+/// Discord's grey for a member list's headings, its wash for a member row
+/// under the pointer (`#97979f1f`) or whose card is open (`#97979f33`),
+/// the chips of server tags, and the crown and the APP tag.
 pub const HEADING: u32 = 0x81828a;
-pub const LIVE: u32 = 0x3ecf7e;
-/// The member list's ground, and the row under the pointer (`#97979f1f`).
-pub const MEMBER_GROUND: u32 = 0x1a1a1e;
-pub const MEMBER_HOVER: Color = Color {
-    r: 0x97 as f32 / 255.0,
-    g: 0x97 as f32 / 255.0,
-    b: 0x9f as f32 / 255.0,
-    a: 0x1f as f32 / 255.0,
-};
-pub const CARD_GROUND: u32 = 0x121214;
-pub const CARD_EDGE: u32 = 0x303036;
-pub const CARD_INK: u32 = 0xeef0f4;
-pub const RAISED: u32 = 0x28282e;
+pub const MEMBER_HOVER: Color = grey(0x1f);
+pub const MEMBER_OPEN: Color = grey(0x33);
+pub const CHIP: Color = grey(0x33);
+pub const CROWN: u32 = 0xf0b232;
+pub const BLURPLE: u32 = 0x5865f2;
 
-/// Menus, the tooltip, suggestions and the modal.
-pub const MENU: u32 = 0x28282d;
-pub const MENU_LINE: u32 = 0x35353b;
-pub const TOOLTIP: u32 = 0x0b0c0e;
-pub const SECONDARY_INK: u32 = 0xb5b8c1;
-pub const DANGER: u32 = 0xf0545e;
-pub const DANGER_TEXT: u32 = 0xfa777c;
-pub const EDGE: u32 = 0x0c0d0f;
-/// A lit row in a list of suggestions or categories.
-pub const LIT: u32 = 0x2c2d35;
-/// Text selected in the timeline and the composer.
-pub const SELECTION: Color = Color {
-    r: 0x58 as f32 / 255.0,
-    g: 0x65 as f32 / 255.0,
-    b: 0xf2 as f32 / 255.0,
-    a: 0.35,
-};
+const fn grey(alpha: u8) -> Color {
+    Color {
+        r: 0x97 as f32 / 255.0,
+        g: 0x97 as f32 / 255.0,
+        b: 0x9f as f32 / 255.0,
+        a: alpha as f32 / 255.0,
+    }
+}
 
 /// A colour from 0xRRGGBB.
 pub fn hex(rgb: u32) -> Color {
@@ -68,8 +43,7 @@ pub fn faded(color: Color, alpha: f32) -> Color {
 }
 
 /// `over` laid on the opaque colour `under`.
-pub fn blend(under: u32, over: Color) -> Color {
-    let under = hex(under);
+pub fn blend(under: Color, over: Color) -> Color {
     let mix = |a: f32, b: f32| a * (1.0 - over.a) + b * over.a;
     Color::from_rgb(
         mix(under.r, over.r),
@@ -78,18 +52,10 @@ pub fn blend(under: u32, over: Color) -> Color {
     )
 }
 
-/// White, see-through, for what the pointer lights.
-pub fn white(alpha: f32) -> Color {
-    Color {
-        a: alpha,
-        ..Color::WHITE
-    }
-}
-
 /// A container filled with one colour.
-pub fn fill(rgb: u32) -> container::Style {
+pub fn fill(color: Color) -> container::Style {
     container::Style {
-        background: Some(Background::Color(hex(rgb))),
+        background: Some(Background::Color(color)),
         ..Default::default()
     }
 }
@@ -113,7 +79,20 @@ pub fn corners([top_left, top_right, bottom_right, bottom_left]: [f32; 4]) -> bo
     }
 }
 
-/// The raised panels' shadow: menus, the picker, suggestions, the modal.
+/// A card's shadow, over the window or a dimmed one: the sign-in card, a
+/// dialog.
+pub fn card_shadow() -> iced::Shadow {
+    iced::Shadow {
+        color: Color {
+            a: 0.4,
+            ..Color::BLACK
+        },
+        offset: iced::Vector::new(0.0, 12.0),
+        blur_radius: 32.0,
+    }
+}
+
+/// The raised panels' shadow: menus, the picker, suggestions.
 pub fn raised_shadow() -> iced::Shadow {
     iced::Shadow {
         color: Color {
@@ -125,14 +104,34 @@ pub fn raised_shadow() -> iced::Shadow {
     }
 }
 
-/// A thin scroller on no rail, in the window's colours.
-pub fn scrollbar(theme: &Theme, status: scrollable::Status) -> scrollable::Style {
-    let mut style = scrollable::default(theme, status);
-    for rail in [&mut style.vertical_rail, &mut style.horizontal_rail] {
-        rail.background = None;
-        rail.border = Border::default();
-        rail.scroller.background = hex(SELECTED).into();
-        rail.scroller.border = Border::default().rounded(4);
+/// A thin scroller on no rail, as the Slint client's `ScrollView` draws it:
+/// faint on a dark theme, darker on a light one, and plainer under the
+/// pointer.
+pub fn scrollbar(
+    theme: &Theme,
+) -> impl Fn(&iced::Theme, scrollable::Status) -> scrollable::Style + use<> {
+    let dark = theme.dark;
+    move |iced_theme, status| {
+        let mut style = scrollable::default(iced_theme, status);
+        let pointed = matches!(
+            status,
+            scrollable::Status::Hovered {
+                is_vertical_scrollbar_hovered: true,
+                ..
+            } | scrollable::Status::Dragged { .. }
+        );
+        let scroller = match (dark, pointed) {
+            (true, false) => Color::from_rgba8(0xff, 0xff, 0xff, 0x14 as f32 / 255.0),
+            (true, true) => Color::from_rgba8(0xff, 0xff, 0xff, 0xc9 as f32 / 255.0),
+            (false, false) => Color::from_rgba8(0, 0, 0, 0x73 as f32 / 255.0),
+            (false, true) => Color::from_rgba8(0, 0, 0, 0x99 as f32 / 255.0),
+        };
+        for rail in [&mut style.vertical_rail, &mut style.horizontal_rail] {
+            rail.background = None;
+            rail.border = Border::default();
+            rail.scroller.background = scroller.into();
+            rail.scroller.border = Border::default().rounded(4);
+        }
+        style
     }
-    style
 }

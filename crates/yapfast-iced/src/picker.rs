@@ -19,7 +19,7 @@ use std::{
 };
 
 use iced::{
-    Alignment, Border, Color, Element, Length, Padding, Point, Size,
+    Alignment, Border, Element, Length, Padding, Point, Size,
     advanced::{graphics::text::cosmic_text, image::Handle},
     widget::{
         Id, Space, button, column, container, mouse_area, row, scrollable, scrollable::Viewport,
@@ -29,13 +29,12 @@ use iced::{
 
 use crate::{
     app::{Message, key},
+    controls::lit_style,
     field::{self, Draft, Field},
     fonts::BOLD,
     paint, pictures,
-    style::{
-        EDGE, LIT, MENU, MUTED, PANEL, SECONDARY_INK, SELECTION, TEXT, hex, raised_shadow,
-        scrollbar, white,
-    },
+    style::{raised_shadow, scrollbar},
+    theme::Theme,
     timeline::MARGIN,
     widgets::{Pic, Rows},
 };
@@ -329,28 +328,29 @@ impl Picker {
 
     fn face(&self, key: &'static str, side: f32, size: u32) -> Element<'_, Message> {
         match self.picture(key, size) {
-            Some(handle) => container(Pic::new(handle, Size::new(size as f32, size as f32)))
-                .center(side)
-                .into(),
+            Some(handle) => Pic::square(handle, size as f32).boxed(side).into(),
             None => Space::new().width(side).height(side).into(),
         }
     }
 
-    pub fn view(&self) -> Element<'_, Message> {
+    /// The picker in `theme`'s colours, as the Slint client's
+    /// `EmojiPicker`: the raised ground, the search field sunken, the rail
+    /// and the foot on the panel's ground.
+    pub fn view(&self, theme: &Theme) -> Element<'_, Message> {
         self.used.borrow_mut().clear();
         let size = self.size();
-        let raised = hex(MENU);
-        let panel = hex(PANEL);
+        let (raised, panel, edge) = (theme.raised, theme.panel, theme.edge);
+        let (wash, active) = (theme.wash(0.12), theme.active);
         let field = Field::new(
             &self.field,
             Id::new(FIELD),
             "Find an emoji".into(),
             |event| Message::Picker(Event::Field(event)),
             field::Colors {
-                ground: hex(0x0e0f12),
-                text: hex(TEXT),
-                placeholder: hex(MUTED),
-                selection: SELECTION,
+                ground: theme.sunken,
+                text: theme.text,
+                placeholder: theme.muted,
+                selection: theme.selection,
             },
         )
         .single()
@@ -386,24 +386,7 @@ impl Picker {
                     .width(36)
                     .height(36)
                     .on_press(Message::Picker(Event::Jump(index)))
-                    .style(move |_, status| button::Style {
-                        background:
-                            Some(
-                                if matches!(
-                                    status,
-                                    button::Status::Hovered | button::Status::Pressed
-                                ) {
-                                    white(0.12)
-                                } else if current {
-                                    hex(LIT)
-                                } else {
-                                    Color::TRANSPARENT
-                                }
-                                .into(),
-                            ),
-                        border: Border::default().rounded(6),
-                        ..Default::default()
-                    }),
+                    .style(lit_style(current.then_some(active), wash, 6.0)),
             );
         }
         let rail = container(rail)
@@ -428,7 +411,7 @@ impl Picker {
                     text(name.to_uppercase())
                         .size(13)
                         .font(BOLD)
-                        .color(hex(SECONDARY_INK)),
+                        .color(theme.secondary),
                 )
                 .padding(Padding {
                     top: 0.0,
@@ -452,15 +435,7 @@ impl Picker {
                                     .width(CELL)
                                     .height(CELL)
                                     .on_press(Message::Picker(Event::Pick(key)))
-                                    .style(|_, status| button::Style {
-                                        background: matches!(
-                                            status,
-                                            button::Status::Hovered | button::Status::Pressed
-                                        )
-                                        .then(|| white(0.12).into()),
-                                        border: Border::default().rounded(6),
-                                        ..Default::default()
-                                    }),
+                                    .style(lit_style(None, wash, 6.0)),
                             )
                             .on_enter(Message::Picker(Event::Hover(key))),
                         );
@@ -475,7 +450,7 @@ impl Picker {
             container(
                 text(format!("No emoji match \"{}\".", self.query))
                     .size(13)
-                    .color(hex(MUTED)),
+                    .color(theme.muted),
             )
             .padding(16)
             .width(Length::Fill)
@@ -487,14 +462,14 @@ impl Picker {
                 .on_scroll(|viewport| Message::Picker(Event::Scrolled(viewport)))
                 .width(Length::Fill)
                 .height(Length::Fill)
-                .style(scrollbar)
+                .style(scrollbar(theme))
                 .into()
         };
         // The pointed emoji, larger, with its name.
         let foot: Element<'_, Message> = match self.hover {
             Some(key) => row![
                 self.face(key, 30.0, 26),
-                text(name(key)).size(15).font(BOLD).color(hex(TEXT))
+                text(name(key)).size(15).font(BOLD).color(theme.text)
             ]
             .spacing(10)
             .align_y(Alignment::Center)
@@ -504,7 +479,7 @@ impl Picker {
                 Target::React(..) => "Pick an emoji to react with.",
             })
             .size(15)
-            .color(hex(MUTED))
+            .color(theme.muted)
             .into(),
         };
         let foot = container(foot)
@@ -522,14 +497,14 @@ impl Picker {
             // The expression picker's tabs, the Emoji one chosen; GIFs and
             // Stickers aren't in the port.
             let tab = |label: &'static str, chosen: bool| {
-                container(text(label).size(15).font(BOLD).color(hex(if chosen {
-                    TEXT
+                container(text(label).size(15).font(BOLD).color(if chosen {
+                    theme.text
                 } else {
-                    SECONDARY_INK
-                })))
+                    theme.secondary
+                }))
                 .padding([4, 10])
                 .style(move |_| container::Style {
-                    background: chosen.then(|| hex(LIT).into()),
+                    background: chosen.then(|| active.into()),
                     border: Border::default().rounded(4),
                     ..Default::default()
                 })
@@ -559,7 +534,7 @@ impl Picker {
             .style(move |_| container::Style {
                 background: Some(raised.into()),
                 border: Border {
-                    color: hex(EDGE),
+                    color: edge,
                     width: 1.0,
                     radius: 10.0.into(),
                 },

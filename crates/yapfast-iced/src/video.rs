@@ -332,25 +332,35 @@ fn draw(draw: &mut iced_tiny_skia::video::Draw<'_>) -> bool {
 // Finding new frames
 
 /// Where frames come from while they're on screen: each camera's feed, by
-/// participant id, and the watched stream, by its streamer's id.
+/// participant id, the watched stream, by its streamer's id, and the
+/// video playing in a message, by `{item}/{index}`. The stream and the
+/// message's video come through a worker's shared mapping.
 #[derive(Default)]
 pub struct Sources {
     pub feeds: Vec<(String, Feed)>,
     pub stream: Option<(String, Arc<Frames>)>,
+    pub clip: Option<(String, Arc<Frames>)>,
 }
 
 impl Sources {
     pub fn is_empty(&self) -> bool {
-        self.feeds.is_empty() && self.stream.is_none()
+        self.feeds.is_empty() && self.stream.is_none() && self.clip.is_none()
+    }
+
+    fn mapped(&self) -> bool {
+        self.stream.is_some() || self.clip.is_some()
     }
 
     fn same(&self, other: &Sources) -> bool {
-        self.feeds == other.feeds
-            && match (&self.stream, &other.stream) {
+        let same =
+            |a: &Option<(String, Arc<Frames>)>, b: &Option<(String, Arc<Frames>)>| match (a, b) {
                 (None, None) => true,
                 (Some((a, x)), Some((b, y))) => a == b && Arc::ptr_eq(x, y),
                 _ => false,
-            }
+            };
+        self.feeds == other.feeds
+            && same(&self.stream, &other.stream)
+            && same(&self.clip, &other.clip)
     }
 }
 
@@ -361,6 +371,8 @@ pub struct Shared {
     /// The stream's last frame went out and the window hasn't taken it in:
     /// its slot isn't taken back from the window until it has.
     stream_waiting: AtomicBool,
+    /// The same for the message's video.
+    clip_waiting: AtomicBool,
     changed: Notify,
 }
 
@@ -370,6 +382,8 @@ pub struct Fresh {
     pub key: String,
     pub handle: Handle,
     pub size: (u32, u32),
+    /// How far into a message's video the frame is, in milliseconds.
+    pub time: Option<u64>,
 }
 
 impl Shared {
@@ -381,12 +395,18 @@ impl Shared {
         }
         *current = sources;
         self.stream_waiting.store(false, Ordering::Relaxed);
+        self.clip_waiting.store(false, Ordering::Relaxed);
         self.changed.notify_one();
     }
 
     /// The window took the stream's frame in.
     pub fn stream_taken(&self) {
         self.stream_waiting.store(false, Ordering::Relaxed);
+    }
+
+    /// The window took the message video's frame in.
+    pub fn clip_taken(&self) {
+        self.clip_waiting.store(false, Ordering::Relaxed);
     }
 
     fn take(&self) -> Vec<Fresh> {
@@ -402,13 +422,22 @@ impl Shared {
                     key: key.clone(),
                     handle,
                     size,
+                    time: None,
                 });
             }
         }
-        if let Some((key, frames)) = &sources.stream
-            && !self.stream_waiting.load(Ordering::Relaxed)
-        {
-            let taken = frames.take(|width, height, pixels| {
+        let mapped = [
+            (&sources.stream, &self.stream_waiting, "stream"),
+            (&sources.clip, &self.clip_waiting, "clip"),
+        ];
+        for (source, waiting, kind) in mapped {
+            let Some((key, frames)) = source else {
+                continue;
+            };
+            if waiting.load(Ordering::Relaxed) {
+                continue;
+            }
+            let taken = frames.take_timed(|width, height, pixels| {
                 let address = pixels.as_ptr() as usize;
                 register(address);
                 let bytes = SlotBytes {
@@ -418,16 +447,17 @@ impl Shared {
                 };
                 Handle::from_rgba(width, height, bytes::Bytes::from_owner(bytes))
             });
-            if let Some(handle) = taken {
+            if let Some((handle, time)) = taken {
                 let size = match &handle {
                     raster::Handle::Rgba { width, height, .. } => (*width, *height),
                     _ => (0, 0),
                 };
-                self.stream_waiting.store(true, Ordering::Relaxed);
+                waiting.store(true, Ordering::Relaxed);
                 found.push(Fresh {
-                    key: format!("stream:{key}"),
+                    key: format!("{kind}:{key}"),
                     handle,
                     size,
+                    time: Some(time),
                 });
             }
         }
@@ -445,7 +475,7 @@ pub fn frames(shared: Arc<Shared>) -> impl Stream<Item = Vec<Fresh>> + Send + 's
         loop {
             let (idle, stream) = {
                 let sources = shared.sources.lock().expect("video sources");
-                (sources.is_empty(), sources.stream.is_some())
+                (sources.is_empty(), sources.mapped())
             };
             if idle {
                 shared.changed.notified().await;

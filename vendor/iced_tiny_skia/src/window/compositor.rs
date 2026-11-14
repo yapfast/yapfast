@@ -19,8 +19,11 @@ pub struct Surface {
         Box<dyn compositor::Window>,
     >,
     clip_mask: tiny_skia::Mask,
-    layer_stack: VecDeque<Vec<Layer>>,
-    background_color: Color,
+    /// Yapfast port (14): each past frame's layers with the background it
+    /// was drawn on. Stock kept one background for all of them, so after
+    /// the background changed, a buffer two frames old was diffed as if it
+    /// had the new one, and kept the old one where nothing else changed.
+    layer_stack: VecDeque<(Vec<Layer>, Color)>,
     max_age: u8,
 }
 
@@ -71,7 +74,6 @@ impl crate::graphics::Compositor for Compositor {
             window,
             clip_mask: tiny_skia::Mask::new(1, 1).expect("Create clip mask"),
             layer_stack: VecDeque::new(),
-            background_color: Color::BLACK,
             max_age: 0,
         };
 
@@ -174,8 +176,8 @@ pub fn present(
     };
 
     let damage = last_layers
-        .and_then(|last_layers| {
-            (surface.background_color == background_color).then(|| {
+        .and_then(|(last_layers, last_background)| {
+            (*last_background == background_color).then(|| {
                 damage::diff(
                     last_layers,
                     renderer.layers(),
@@ -191,8 +193,9 @@ pub fn present(
             surface.layer_stack.push_front(last_layers.clone());
         }
     } else {
-        surface.layer_stack.push_front(renderer.layers().to_vec());
-        surface.background_color = background_color;
+        surface
+            .layer_stack
+            .push_front((renderer.layers().to_vec(), background_color));
 
         let damage = merged(damage::group(
             damage,

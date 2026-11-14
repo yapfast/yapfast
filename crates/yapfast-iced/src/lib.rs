@@ -27,26 +27,41 @@ compile_error!("yapfast-iced draws with one renderer: `cpu` or `gpu`, not both")
 #[cfg(not(any(feature = "cpu", feature = "gpu")))]
 compile_error!("yapfast-iced needs a renderer: `cpu` or `gpu`");
 
+mod account;
 mod app;
+mod browser;
 mod call;
+mod cards;
 mod client;
 mod composer;
 mod control;
+mod controls;
+mod dialogs;
 mod field;
 mod fonts;
 mod header;
+mod layout;
 mod looks;
+mod markdown;
+mod media;
 mod members;
 mod menus;
+mod message;
+mod mfa;
 mod paint;
 mod picker;
 mod pictures;
+mod places;
+mod playback;
+mod polls;
 mod profile;
 mod rail;
 mod select;
 mod sidebar;
+mod signin;
 mod style;
 mod sync;
+mod theme;
 mod timeline;
 mod video;
 mod widgets;
@@ -93,12 +108,15 @@ pub fn run(runtime: BackgroundRuntime, root: PathBuf, options: Options) -> anyho
     fonts::install(options.twemoji);
     let runtime = Arc::new(runtime);
     let _ = EXECUTOR.set(runtime.block_on(async { tokio::runtime::Handle::current() }));
+    // As the Slint client starts: the preview, a saved session, or the
+    // sign-in screen.
+    let restore = !options.preview && yapfast_core::chat::can_restore(&root);
     let mut client = Client::new(runtime, root);
-    client.dispatch(if options.preview {
-        Action::Preview
-    } else {
-        Action::Restore
-    });
+    if options.preview {
+        client.dispatch(Action::Preview);
+    } else if restore {
+        client.dispatch(Action::Restore);
+    }
     let size = test_size().unwrap_or(SIZE);
     // iced calls `boot` once; the client goes into the window then.
     let client = RefCell::new(Some(client));

@@ -45,8 +45,10 @@ pub const ITALIC: Font = Font {
 pub const TWEMOJI: &str = "Yapfast Twemoji";
 
 const DM_SANS: &[u8] = include_bytes!("../../../ui/fonts/DMSans[opsz,wght].ttf");
+/// Its italic, for Markdown's emphasis.
+const DM_SANS_ITALIC: &[u8] = include_bytes!("../../../ui/fonts/DMSans-Italic[opsz,wght].ttf");
 
-/// Makes the window's font system: DM Sans, `twemoji` (the font the root
+/// Makes the window's font system: DM Sans and its italic, `twemoji` (the font the root
 /// crate's `build.rs` packs, or nothing), and the system's monospace face,
 /// with DM Sans then Twemoji first in the fallback list, so a display name
 /// font's missing space comes from DM Sans and ❤ from Twemoji rather than
@@ -54,6 +56,9 @@ const DM_SANS: &[u8] = include_bytes!("../../../ui/fonts/DMSans[opsz,wght].ttf")
 pub fn install(twemoji: &'static [u8]) {
     let mut db = cosmic_text::fontdb::Database::new();
     db.load_font_source(cosmic_text::fontdb::Source::Binary(Arc::new(DM_SANS)));
+    db.load_font_source(cosmic_text::fontdb::Source::Binary(Arc::new(
+        DM_SANS_ITALIC,
+    )));
     if !twemoji.is_empty() {
         db.load_font_source(cosmic_text::fontdb::Source::Binary(Arc::new(twemoji)));
     }

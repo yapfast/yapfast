@@ -18,7 +18,9 @@ use iced::{
 };
 use iced_test::{Simulator, selector::Candidate, simulator::click};
 use yapfast_core::{
-    application::{Action, Compose},
+    application::{Action, Compose, DiscordLink, Navigation},
+    chat::{Event, MfaMethod},
+    discord_link::Progress,
     runtime::BackgroundRuntime,
 };
 
@@ -26,19 +28,26 @@ use crate::{
     app::{App, Message},
     client::Client,
     composer::COMPOSER,
-    fonts,
+    fonts, mfa, signin,
 };
 
 /// The preview at the window's own size, its data in a folder of its own.
 fn preview() -> (App, tempfile::TempDir) {
+    let folder = tempfile::tempdir_in(local()).expect("test folder");
+    (start(&folder, true), folder)
+}
+
+/// The window on `folder`'s data: the preview, or else the sign-in screen
+/// of a Yapfast that has no account yet.
+fn start(folder: &tempfile::TempDir, preview: bool) -> App {
     static FONTS: Once = Once::new();
     FONTS.call_once(|| fonts::install(&[]));
-    let folder = tempfile::tempdir_in(local()).expect("test folder");
     let runtime = Arc::new(BackgroundRuntime::new().expect("runtime"));
     let mut client = Client::new(runtime, folder.path().into());
-    client.dispatch(Action::Preview);
-    let (app, _) = App::new(client, (1120, 760));
-    (app, folder)
+    if preview {
+        client.dispatch(Action::Preview);
+    }
+    App::new(client, (1120, 760)).0
 }
 
 /// The workspace's ignored `.local`, where tests keep their fixtures.
@@ -84,6 +93,24 @@ fn last(ui: &mut Simulator<'_, Message>, text: &str) -> Point {
     found.unwrap_or_else(|| panic!("{text:?} isn't in view"))
 }
 
+/// The middle of a text in view that starts with `prefix`.
+fn starting(ui: &mut Simulator<'_, Message>, prefix: &str) -> Option<Point> {
+    let mut found = None;
+    let _ = ui.find(|candidate: Candidate<'_>| {
+        if let Candidate::Text {
+            content,
+            visible_bounds: Some(bounds),
+            ..
+        } = candidate
+            && content.starts_with(prefix)
+        {
+            found = Some(bounds.center());
+        }
+        None::<()>
+    });
+    found
+}
+
 /// A right click on the message reading `text`.
 fn right_click(ui: &mut Simulator<'_, Message>, text: &str) {
     let body = ui.find(text).expect("the message");
@@ -118,7 +145,8 @@ fn a_channel_clicked_in_the_list_opens() {
         ui.click("games").expect("the games channel");
     });
     assert_eq!(app.client.state().selected.as_deref(), Some("games"));
-    assert_eq!(app.header, ("games".to_owned(), false));
+    assert_eq!(app.header.name, "games");
+    assert!(!app.header.direct);
     assert!(shows(&app, "What are we playing next?"));
 }
 
@@ -179,4 +207,639 @@ fn deleting_ones_own_message_asks_first() {
     });
     assert!(app.client.state().confirm_delete.is_none());
     assert!(!shows(&app, text), "the message went");
+}
+
+#[test]
+fn the_theme_command_switches_the_colours_and_keeps_the_choice() {
+    let (mut app, folder) = preview();
+    assert_eq!(app.theme.id, "bonfire", "the default with the Discord look");
+    let _ = app.update(Message::Control("theme sakura".into()));
+    assert_eq!(app.theme.id, "sakura");
+    assert!(!app.theme.dark);
+    assert_eq!(app.theme().palette().background, app.theme.chat);
+    let layout: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(folder.path().join("layout.json")).expect("the layout"),
+    )
+    .expect("JSON");
+    assert_eq!(layout["theme"], "sakura");
+    // A theme Yapfast doesn't have changes nothing.
+    let _ = app.update(Message::Control("theme gone".into()));
+    assert_eq!(app.theme.id, "sakura");
+    // The next start shows the one chosen.
+    assert_eq!(start(&folder, true).theme.id, "sakura");
+}
+
+#[test]
+fn a_custom_theme_in_the_layout_shows_from_the_start() {
+    let folder = tempfile::tempdir_in(local()).expect("test folder");
+    std::fs::write(
+        folder.path().join("layout.json"),
+        r##"{"theme": "custom:1", "custom_themes": [{"id": "custom:1", "name": "Plum",
+            "base": "yap", "colours": {"chat": "#2a1a3a", "accent": "#c04080"}}]}"##,
+    )
+    .expect("the layout");
+    let app = start(&folder, true);
+    assert_eq!(app.theme.id, "custom:1");
+    assert_eq!(app.theme.chat, crate::style::hex(0x2a1a3a));
+    assert_eq!(app.theme.accent, crate::style::hex(0xc04080));
+    assert_eq!(app.theme.selection.a, 0.35, "worked out from its accent");
+}
+
+#[test]
+fn without_an_account_the_sign_in_screen_shows_and_the_preview_leaves_it() {
+    let folder = tempfile::tempdir_in(local()).expect("test folder");
+    let mut app = start(&folder, false);
+    assert!(!app.workspace());
+    assert!(shows(&app, "Sign in to Yapfast"));
+    if signin::MATRIX {
+        assert!(shows(&app, "Use your existing Matrix account."));
+    } else {
+        assert!(shows(&app, "Show the code"));
+        interact(&mut app, |ui| {
+            ui.click("Use a token").expect("Use a token");
+        });
+        interact(&mut app, |ui| {
+            ui.click(Id::new(signin::TOKEN)).expect("the token's field");
+            ui.typewrite("a-token");
+        });
+        assert_eq!(app.sign_in.token, "a-token");
+        assert!(shows(&app, "Link"));
+    }
+    interact(&mut app, |ui| {
+        ui.click("Explore local preview").expect("the preview");
+    });
+    assert!(app.workspace());
+    assert!(shows(&app, "general"));
+}
+
+#[test]
+fn linking_shows_the_code_then_who_scanned_it() {
+    if signin::MATRIX {
+        return;
+    }
+    let folder = tempfile::tempdir_in(local()).expect("test folder");
+    let mut app = start(&folder, false);
+    // As "Show the code" starts it, without reaching Discord.
+    app.client.app.state.discord_link = Some(DiscordLink::Starting);
+    let _ = app.sync();
+    assert!(shows(&app, "Getting a code..."));
+    let _ = app.update(Message::Linking(Progress::Code(
+        "https://discord.com/ra/a-code".into(),
+    )));
+    assert!(app.sign_in.code.is_some(), "the QR code drawn");
+    assert!(shows(&app, "Scan it with the Discord app"));
+    let _ = app.update(Message::Linking(Progress::Scanned("riley".into())));
+    assert!(app.sign_in.code.is_none(), "the code let go");
+    assert!(shows(&app, "Scanned"));
+    assert!(shows(&app, "Confirm on your phone"));
+    let _ = app.update(Message::Linking(Progress::Failed("It broke.".into())));
+    assert!(shows(&app, "It broke."));
+    assert!(shows(&app, "Try again"));
+}
+
+#[test]
+fn a_held_request_asks_for_a_code_and_cancelling_closes_the_prompt() {
+    let (mut app, _folder) = preview();
+    app.client.apply(Event::MfaRequired {
+        id: 7,
+        methods: vec![MfaMethod::App, MfaMethod::Backup],
+    });
+    let _ = app.sync();
+    assert!(shows(&app, "Multi-Factor Authentication"));
+    assert!(shows(
+        &app,
+        "Enter the 6-digit code from your authenticator app."
+    ));
+    interact(&mut app, |ui| {
+        ui.click(Id::new(mfa::CODE)).expect("the code's field");
+        ui.typewrite("123456");
+    });
+    // Enter sends once the code is whole, in the view built after it.
+    interact(&mut app, |ui| {
+        ui.click(Id::new(mfa::CODE)).expect("the code's field");
+        ui.tap_key(keyboard::Key::Named(key::Named::Enter));
+    });
+    let prompt = app.client.app.mfa_prompt().expect("the prompt");
+    assert_eq!(prompt.code, "123456");
+    assert!(prompt.busy, "confirming");
+    assert!(shows(&app, "Confirming..."));
+    // Discord turned it down: the prompt stays for another try.
+    app.client.apply(Event::MfaFinished {
+        id: 7,
+        result: Err("Invalid two-factor code".into()),
+    });
+    let _ = app.sync();
+    assert!(shows(&app, "Invalid two-factor code"));
+    // The other way lists the methods, and a backup code warns first.
+    interact(&mut app, |ui| {
+        ui.click("Verify with something else")
+            .expect("the other way");
+    });
+    interact(&mut app, |ui| {
+        ui.click("Use a backup code").expect("a backup code");
+    });
+    assert!(shows(&app, "Slow down! Are you sure?"));
+    assert_eq!(app.wait.left, 10, "the button waits");
+    interact(&mut app, |ui| {
+        ui.click("Cancel").expect("Cancel");
+    });
+    assert!(app.client.app.mfa_prompt().is_none());
+    assert!(!shows(&app, "Multi-Factor Authentication"));
+}
+
+#[test]
+fn a_saved_account_restoring_at_start_shows_only_the_notice_until_it_fails() {
+    let folder = tempfile::tempdir_in(local()).expect("test folder");
+    let mut app = start(&folder, false);
+    // As a start on a saved account leaves the core, without reaching it.
+    let state = &mut app.client.app.state;
+    state.busy = true;
+    state.notice = Some("Connecting to Discord...".into());
+    app.sign_in.starting = true;
+    let _ = app.sync();
+    assert!(shows(&app, "Connecting to Discord..."));
+    assert!(!shows(&app, "Sign in to Yapfast"));
+    let state = &mut app.client.app.state;
+    state.busy = false;
+    state.notice = Some("Discord said no.".into());
+    let _ = app.sync();
+    assert!(!app.sign_in.starting);
+    assert!(shows(&app, "Sign in to Yapfast"));
+}
+
+/// The core's state, changed as the backend would, then taken in.
+fn change(app: &mut App, change: impl FnOnce(&mut yapfast_core::application::AppState)) {
+    change(&mut app.client.app.state);
+    app.client.app.state.list_changes += 1;
+    let _ = app.sync();
+}
+
+/// Marks a room unread with `mentions` of this account.
+fn unread(app: &mut App, id: &str, mentions: u64) {
+    change(app, |state| {
+        let room = state
+            .rooms
+            .iter_mut()
+            .map(Arc::make_mut)
+            .find(|room| room.id == id)
+            .expect("the room");
+        room.unread = mentions.max(1);
+        room.mentions = mentions;
+    });
+}
+
+#[test]
+fn an_unread_dm_shows_on_the_rail_above_the_servers_and_opens() {
+    use crate::rail::{Event, Kind};
+    let (mut app, _folder) = preview();
+    let servers = app.client.state().servers.len();
+    assert_eq!(app.rail.len(), servers + 1);
+    assert_eq!(
+        app.rail[0].kind,
+        Kind::Divider,
+        "the line leads the servers"
+    );
+    unread(&mut app, "riley", 2);
+    assert_eq!(app.rail[0].kind, Kind::Dm);
+    assert_eq!(
+        (app.rail[0].name.as_str(), app.rail[0].badge.as_str()),
+        ("Riley", "2")
+    );
+    assert_eq!(app.rail[1].kind, Kind::Divider);
+    assert_eq!(app.rail_home.badge, "2", "the DM home counts its mentions");
+    let _ = app.update(Message::Rail(Event::Dm("riley".into())));
+    let state = app.client.state();
+    assert_eq!(state.navigation, Navigation::DirectMessages);
+    assert_eq!(state.selected.as_deref(), Some("riley"));
+}
+
+#[test]
+fn a_folder_on_the_rail_holds_its_servers_until_opened_and_stays_so() {
+    use crate::rail::{Event, Kind};
+    let (mut app, folder) = preview();
+    let in_folder = yapfast_core::chat::ServerFolder {
+        id: "discord-folder:7".into(),
+        name: None,
+        color: Some(0xff0000),
+    };
+    change(&mut app, |state| {
+        for server in &mut state.servers {
+            Arc::make_mut(server).folder = Some(in_folder.clone());
+        }
+    });
+    let kinds = |app: &App| -> Vec<(String, bool)> {
+        app.rail
+            .iter()
+            .map(|item| (item.id.clone(), matches!(item.kind, Kind::Nested { .. })))
+            .collect()
+    };
+    let closed = kinds(&app);
+    assert_eq!(closed.len(), 2, "the line, and the folder");
+    assert_eq!(
+        app.rail[1].name, "Friends, Co-op crew",
+        "named by its servers"
+    );
+    assert!(
+        app.rail[1].selected,
+        "closed, it shows a server of its is open"
+    );
+    let _ = app.update(Message::Rail(Event::Folder("discord-folder:7".into())));
+    assert_eq!(
+        kinds(&app),
+        [
+            ("divider".into(), false),
+            ("discord-folder:7".into(), false),
+            ("friends".into(), true),
+            ("coop".into(), true),
+        ]
+    );
+    // Opened, it stays open the next time.
+    let again = start(&folder, true);
+    assert!(again.layout.open_folders.contains("discord-folder:7"));
+    let _ = app.update(Message::Rail(Event::Folder("discord-folder:7".into())));
+    assert_eq!(kinds(&app).len(), 2);
+}
+
+#[test]
+fn a_server_on_the_rail_opens_its_channels() {
+    let (mut app, _folder) = preview();
+    let _ = app.update(Message::Rail(crate::rail::Event::Server("coop".into())));
+    assert_eq!(app.side_header.name, "Co-op crew");
+    assert!(shows(&app, "looking-for-group"));
+    assert!(!shows(&app, "games"));
+}
+
+#[test]
+fn clicking_a_category_folds_it_and_it_stays_folded() {
+    let (mut app, folder) = preview();
+    assert!(shows(&app, "games"));
+    interact(&mut app, |ui| {
+        ui.click("TEXT CHANNELS").expect("the heading");
+    });
+    // The open channel stays; the others go.
+    assert!(shows(&app, "general"));
+    assert!(!shows(&app, "games"));
+    let again = start(&folder, true);
+    assert!(again.layout.collapsed["friends"].contains("TEXT CHANNELS"));
+    // An unread one stays too.
+    unread(&mut app, "games", 0);
+    assert!(shows(&app, "games"));
+    interact(&mut app, |ui| {
+        ui.click("TEXT CHANNELS").expect("the heading");
+    });
+    assert!(shows(&app, "weekend plans"));
+}
+
+#[test]
+fn opening_an_unread_channel_clears_its_mark() {
+    use crate::sidebar::SideRow;
+    let (mut app, _folder) = preview();
+    unread(&mut app, "games", 1);
+    let marked = |app: &App| {
+        app.side.iter().any(|row| {
+            matches!(row, SideRow::Room(room) if room.id == "games" && room.unread && room.badge == "1")
+        })
+    };
+    assert!(marked(&app));
+    assert!(
+        app.rail
+            .iter()
+            .any(|item| item.id == "friends" && item.badge == "1")
+    );
+    interact(&mut app, |ui| {
+        ui.click("games").expect("the games channel");
+    });
+    assert_eq!(app.client.state().selected.as_deref(), Some("games"));
+    // Read, the backend's room list says so, and the marks go.
+    unread(&mut app, "games", 0);
+    change(&mut app, |state| {
+        for room in &mut state.rooms {
+            Arc::make_mut(room).unread = 0;
+        }
+    });
+    assert!(!marked(&app));
+    assert!(
+        app.rail
+            .iter()
+            .any(|item| item.id == "friends" && item.badge.is_empty() && !item.unread)
+    );
+}
+
+#[test]
+fn the_dm_search_keeps_the_dms_whose_names_hold_it() {
+    let (mut app, _folder) = preview();
+    let _ = app.update(Message::Rail(crate::rail::Event::Home));
+    assert!(shows(&app, "Sam") && shows(&app, "Friday crew"));
+    let _ = app.update(Message::Side(crate::sidebar::Event::Filter("fri".into())));
+    assert!(shows(&app, "Friday crew"));
+    assert!(!shows(&app, "Riley"));
+}
+
+/// The open room's messages made `count` long, each its own, the newest
+/// last; returns their items.
+fn long_history(app: &mut App, count: usize) -> Vec<String> {
+    let mut items = Vec::new();
+    change(app, |state| {
+        let template = (*state.messages[0]).clone();
+        let messages: Vec<_> = (0..count)
+            .map(|index| {
+                let item = format!("long-{index}");
+                items.push(item.clone());
+                Arc::new(yapfast_core::chat::ChatMessage {
+                    id: item.clone(),
+                    item,
+                    body: format!("Message number {index}"),
+                    timestamp: template.timestamp + index as u64 * 600,
+                    reply: None,
+                    own: false,
+                    reactions: Vec::new(),
+                    attachments: Vec::new(),
+                    ..template.clone()
+                })
+            })
+            .collect();
+        state.messages = Arc::new(messages);
+    });
+    items
+}
+
+#[test]
+fn switching_channels_shows_each_ones_messages_header_and_topic() {
+    let (mut app, _folder) = preview();
+    change(&mut app, |state| {
+        state.topic = Some(Arc::new(yapfast_core::chat::Topic {
+            body: "Plans for **game night**".into(),
+            mentions: Vec::new(),
+            emoji: Vec::new(),
+        }));
+    });
+    let general = app.header.name.clone();
+    assert!(
+        shows(&app, "Plans for game night"),
+        "the topic, on one line"
+    );
+    interact(&mut app, |ui| {
+        ui.click("games").expect("the games channel");
+    });
+    assert_eq!(app.header.name, "games");
+    assert!(shows(&app, "What are we playing next?"));
+    interact(&mut app, |ui| {
+        ui.click(general.as_str()).expect("the first channel");
+    });
+    assert_eq!(app.header.name, general);
+    assert!(!shows(&app, "What are we playing next?"));
+    assert_eq!(app.from_end, 0.0, "a channel opens at its newest message");
+}
+
+#[test]
+fn the_history_edge_offers_earlier_messages_then_shows_them_loading() {
+    let (mut app, _folder) = preview();
+    change(&mut app, |state| {
+        state.history_start = false;
+    });
+    assert!(shows(&app, "Earlier messages"));
+    let _ = app.update(Message::Earlier);
+    assert!(
+        !app.client.state().loading_history,
+        "the preview has no earlier history"
+    );
+    change(&mut app, |state| state.loading_history = true);
+    assert!(shows(&app, "Loading earlier messages..."));
+    // The page comes: older messages above, the newest still in view.
+    let newest = app.messages.last().expect("messages").body.clone();
+    change(&mut app, |state| {
+        let mut older = (*state.messages[0]).clone();
+        older.id = "older".into();
+        older.item = "older".into();
+        older.body = "From long ago".into();
+        older.timestamp -= 3600;
+        let mut messages = vec![Arc::new(older)];
+        messages.extend(state.messages.iter().cloned());
+        state.messages = Arc::new(messages);
+        state.loading_history = false;
+        state.history_start = true;
+    });
+    assert!(shows(&app, "From long ago"));
+    assert!(shows(&app, &newest));
+    assert!(shows(&app, "This is the start of #general."));
+}
+
+#[test]
+fn the_unread_bar_jumps_to_the_new_divider_out_of_view() {
+    let (mut app, _folder) = preview();
+    let items = long_history(&mut app, 80);
+    change(&mut app, |state| {
+        state.first_unread = Some(items[10].clone());
+        state.caught_up = false;
+    });
+    assert!(
+        !shows(&app, "Message number 10"),
+        "the divider is above the view"
+    );
+    interact(&mut app, |ui| {
+        let bar = starting(ui, "70 new messages since ").expect("the bar counts what's new");
+        ui.point_at(bar);
+        ui.simulate(click());
+    });
+    let _ = app.sync();
+    assert!(shows(&app, "Message number 10"), "the view went to it");
+    assert!(shows(&app, "New"));
+    assert!(app.from_end > 0.0);
+}
+
+#[test]
+fn a_menus_keys_pass_over_greyed_rows_and_clicks_on_them_do_nothing() {
+    use crate::menus::{Menu, MenuAct, MenuRow};
+    use yapfast_core::application::MenuChoice;
+    let (mut app, _folder) = preview();
+    let row = |choice, disabled| MenuRow {
+        disabled,
+        ..MenuRow::new(MenuAct::Place(choice), "row", crate::pictures::Icon::Id)
+    };
+    app.menu = Some(Menu {
+        at: Point::new(200.0, 120.0),
+        rows: vec![
+            row(MenuChoice::MarkRead, false),
+            row(MenuChoice::AddFriend, true),
+            row(MenuChoice::OpenChat, false),
+            row(MenuChoice::AcceptFriend, true),
+        ],
+        lit: None,
+        item: None,
+        reactions: false,
+        place: Some("nowhere".into()),
+        header: false,
+    });
+    let down = || {
+        Message::Key(
+            keyboard::Key::Named(key::Named::ArrowDown),
+            keyboard::Modifiers::default(),
+        )
+    };
+    let mut lit = Vec::new();
+    for _ in 0..4 {
+        let _ = app.update(down());
+        lit.push(app.menu.as_ref().expect("the menu stays").lit);
+    }
+    assert_eq!(lit, [Some(0), Some(2), Some(0), Some(2)]);
+    let _ = app.update(Message::MenuChoose(1));
+    assert!(app.menu.is_some(), "a greyed row keeps the menu open");
+}
+
+#[test]
+fn a_link_preview_and_a_file_show_in_their_cards() {
+    let (mut app, _folder) = preview();
+    change(&mut app, |state| {
+        let mut message = (**state.messages.last().expect("a message")).clone();
+        message.id = "card".into();
+        message.item = "card".into();
+        message.body = "Look at this".into();
+        message.reply = None;
+        message.reactions = Vec::new();
+        message.embeds = vec![yapfast_core::chat::Embed {
+            provider: "Example".into(),
+            title: "Trip notes".into(),
+            url: "https://example.com/notes".into(),
+            description: "Everything for **Saturday**".into(),
+            ..Default::default()
+        }];
+        message.attachments = vec![yapfast_core::chat::Attachment {
+            name: "packing.txt".into(),
+            size: Some(2048),
+            image: false,
+            dimensions: None,
+            preview: None,
+            preview_failed: false,
+            placement: yapfast_core::chat::Placement::Message,
+            spoiler: false,
+            video: false,
+            gif: None,
+            url: None,
+            description: None,
+        }];
+        let mut messages = (*state.messages).clone();
+        messages.push(Arc::new(message));
+        state.messages = Arc::new(messages);
+    });
+    assert!(shows(&app, "Look at this"), "the message shows");
+    for text in [
+        "Example",
+        "Trip notes",
+        "Everything for Saturday",
+        "packing.txt",
+        "2 KB",
+    ] {
+        assert!(shows(&app, text), "{text:?} shows");
+    }
+}
+
+/// Scrolls the timeline `pixels` up from where the window shows it, as
+/// the wheel does over it.
+fn scroll_up(app: &mut App, pixels: f32) {
+    let middle = Point::new(
+        crate::rail::WIDTH + crate::sidebar::WIDTH + 200.0,
+        app.window.height / 2.0,
+    );
+    interact(app, |ui| {
+        ui.point_at(middle);
+        ui.simulate([iced::Event::Mouse(mouse::Event::WheelScrolled {
+            delta: mouse::ScrollDelta::Pixels { x: 0.0, y: pixels },
+        })]);
+    });
+}
+
+/// The message at the view's top, and how far into it the view starts.
+fn at_top(app: &App) -> (String, f32) {
+    app.reading().expect("reading earlier messages")
+}
+
+/// Messages like those of [`long_history`], numbered `from..to`.
+fn numbered(app: &App, from: usize, to: usize) -> Vec<Arc<yapfast_core::chat::ChatMessage>> {
+    let template = app.client.state().messages.last().expect("a message");
+    (from..to)
+        .map(|index| {
+            let item = format!("long-{index}");
+            Arc::new(yapfast_core::chat::ChatMessage {
+                id: item.clone(),
+                item,
+                body: format!("Message number {index}"),
+                timestamp: template.timestamp + 600,
+                ..(**template).clone()
+            })
+        })
+        .collect()
+}
+
+#[test]
+fn new_messages_leave_the_earlier_ones_being_read_where_they_are() {
+    let (mut app, _folder) = preview();
+    long_history(&mut app, 80);
+    scroll_up(&mut app, 900.0);
+    assert!(!app.at_end && app.from_end > 0.0, "the wheel went up");
+    let read = at_top(&app);
+    // Three come; then three more as the oldest three go, as the core
+    // keeps only so many.
+    let new = numbered(&app, 80, 83);
+    change(&mut app, |state| {
+        let mut messages = (*state.messages).clone();
+        messages.extend(new);
+        state.messages = Arc::new(messages);
+    });
+    assert_eq!(at_top(&app), read, "the view stayed on the same message");
+    let new = numbered(&app, 83, 86);
+    change(&mut app, |state| {
+        let mut messages = state.messages[3..].to_vec();
+        messages.extend(new);
+        state.messages = Arc::new(messages);
+    });
+    assert_eq!(at_top(&app), read, "and stays as the oldest go");
+    assert!(
+        !shows(&app, "Message number 85"),
+        "the newest is out of view"
+    );
+}
+
+#[test]
+fn sending_while_reading_earlier_messages_goes_to_the_newest() {
+    let (mut app, _folder) = preview();
+    long_history(&mut app, 80);
+    scroll_up(&mut app, 1500.0);
+    assert!(!app.at_end);
+    assert!(!shows(&app, "Message number 79"));
+    interact(&mut app, |ui| {
+        ui.click(Id::new(COMPOSER)).expect("the composer");
+        ui.typewrite("back to the present");
+        ui.tap_key(keyboard::Key::Named(key::Named::Enter));
+    });
+    assert!(
+        app.at_end && app.from_end == 0.0,
+        "the view went to the end"
+    );
+    // The preview's room takes its own history back as it sends.
+    assert!(shows(&app, "back to the present"));
+    let (_, last) = app.in_view(0.0);
+    assert_eq!(last, app.messages.len(), "the newest is in view");
+}
+
+#[test]
+fn messages_the_core_makes_anew_keep_their_text_laid_out() {
+    let (mut app, _folder) = preview();
+    long_history(&mut app, 40);
+    let laid: Vec<_> = app.looks.iter().map(|look| look.body.clone()).collect();
+    // As when a name or a role changes: every message anew, one with
+    // another author and one with other words.
+    change(&mut app, |state| {
+        let mut messages: Vec<_> = state
+            .messages
+            .iter()
+            .map(|message| Arc::new((**message).clone()))
+            .collect();
+        Arc::make_mut(&mut messages[36]).author = "Someone else".into();
+        Arc::make_mut(&mut messages[38]).body = "Other words".into();
+        state.messages = Arc::new(messages);
+    });
+    for (index, (look, before)) in app.looks.iter().zip(&laid).enumerate() {
+        assert_eq!(Arc::ptr_eq(&look.body, before), index != 38, "row {index}");
+    }
+    assert!(shows(&app, "Other words"));
 }

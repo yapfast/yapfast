@@ -7,7 +7,7 @@
 use std::{cell::RefCell, collections::HashMap, sync::Arc};
 
 use iced::{
-    Alignment, Border, Color, Element, Font, Padding, Point, Rectangle, Size, Task,
+    Alignment, Border, Element, Font, Padding, Point, Rectangle, Size, Task,
     advanced::{graphics::text::font_system, image::Handle},
     widget::{Space, column, container, mouse_area, opaque, rich_text, row, span, stack, text},
 };
@@ -22,8 +22,8 @@ use crate::{
     looks::{self, Chip},
     paint::{self, StyledPicture},
     pictures::{Mark, shared},
-    style::{CARD_EDGE, CARD_GROUND, CARD_INK, RAISED, corners, faded, hex, rounded},
-    timeline::runs,
+    style::{MEMBER_HOVER, corners, faded, hex, rounded},
+    theme::rgb,
     widgets::{Above, Pic, Place},
 };
 
@@ -47,10 +47,10 @@ pub struct Card {
 
 struct StyledName {
     name: String,
-    /// The style, by where the core keeps it, and the font system's
-    /// version: a font loaded since for a script the name uses draws it
-    /// again.
-    key: (usize, iced::advanced::graphics::text::Version),
+    /// The style, by where the core keeps it, the font system's version (a
+    /// font loaded since for a script the name uses draws it again), and
+    /// whether the theme is dark, which its colours are made readable on.
+    key: (usize, iced::advanced::graphics::text::Version, bool),
     image: Handle,
     picture: StyledPicture,
 }
@@ -109,7 +109,10 @@ impl App {
         let view = state.profile.as_ref().filter(|view| !view.large)?;
         let profile = &view.profile;
         let cosmetics = state.cosmetics;
-        let ink = hex(CARD_INK);
+        // As the Slint client's card beside a list: the sidebar's ground,
+        // the theme's text.
+        let theme = &self.theme;
+        let (ink, ink2, ground, edge) = (theme.text, theme.secondary, theme.sidebar, theme.edge);
         // The banner: its picture, playing while the card is open, else the
         // accent colour, else the raised grey.
         let banner_size = Size::new(WIDTH, BANNER);
@@ -125,7 +128,7 @@ impl App {
             .banner
             .as_deref()
             .and_then(|url| self.card_picture(card, url, WIDTH as u32, BANNER as u32, true));
-        let banner_ground = profile.accent.map_or(hex(RAISED), hex);
+        let banner_ground = profile.accent.map_or(theme.raised, hex);
         let mut banner = stack![
             container(Space::new())
                 .width(WIDTH)
@@ -144,7 +147,7 @@ impl App {
             container(Space::new())
                 .width(ring)
                 .height(ring)
-                .style(move |_| rounded(hex(CARD_GROUND), ring / 2.0))
+                .style(move |_| rounded(ground, ring / 2.0))
         ];
         let face: Element<'_, Message> = match profile
             .avatar
@@ -182,7 +185,7 @@ impl App {
         if let Some(presence) = profile
             .presence
             .filter(|presence| *presence != Presence::Offline)
-            && let Some(dot) = self.mark(Mark::Dot(presence, CARD_GROUND))
+            && let Some(dot) = self.mark(Mark::Dot(presence, rgb(ground)))
         {
             // The phone stands 5 px taller than the dot.
             let tall = if presence == Presence::Mobile {
@@ -218,7 +221,7 @@ impl App {
             handle_line = handle_line.push(
                 text(format!("{}{pronouns}", profile.handle))
                     .size(14)
-                    .color(ink),
+                    .color(ink2),
             );
         }
         if let Some(tag) = cosmetics.tag(profile.tag.as_ref()) {
@@ -231,7 +234,7 @@ impl App {
                     height: 24.0,
                     pad: 8.0,
                     radius: 8.0,
-                    fill: Color::from_rgba8(0x97, 0x97, 0x9f, 0x1f as f32 / 255.0),
+                    fill: MEMBER_HOVER,
                     ink,
                 },
                 1.0,
@@ -246,8 +249,18 @@ impl App {
         .spacing(12)
         .padding([0.0, PAD]);
         if !profile.bio.trim().is_empty() {
-            let spans: Vec<_> = runs(&profile.bio)
+            let bio = crate::markdown::parse(&profile.bio, &[], 0, "bio", |_| true);
+            let spans: Vec<_> = bio
+                .parts
                 .into_iter()
+                .enumerate()
+                .flat_map(|(index, part)| {
+                    let gap = (index > 0).then(|| crate::markdown::Run {
+                        text: "\n".to_owned(),
+                        ..Default::default()
+                    });
+                    gap.into_iter().chain(part.runs)
+                })
                 .map(|run| {
                     let font = if run.code {
                         Font::MONOSPACE
@@ -276,7 +289,7 @@ impl App {
         if !profile.roles.is_empty() {
             let mut chips = row![].spacing(4);
             for role in &profile.roles {
-                let dot = role.color.map_or(hex(0x5c606a), hex);
+                let dot = role.color.map_or(theme.faint, hex);
                 chips = chips.push(
                     container(
                         row![
@@ -316,10 +329,10 @@ impl App {
             left: 0.0,
         }))
         .width(WIDTH)
-        .style(|_| container::Style {
-            background: Some(hex(CARD_GROUND).into()),
+        .style(move |_| container::Style {
+            background: Some(ground.into()),
             border: Border {
-                color: hex(CARD_EDGE),
+                color: edge,
                 width: 1.0,
                 radius: 12.0.into(),
             },
@@ -340,11 +353,12 @@ impl App {
         };
         let profile = &view.profile;
         let style = state.cosmetics.style(profile.style.as_deref());
-        let Some(style) = looks::name_look(style, &profile.name, false) else {
+        let dark = self.theme.dark;
+        let Some(style) = looks::name_look(style, &profile.name, false, dark) else {
             return text(profile.name.clone())
                 .size(20)
                 .font(BOLD)
-                .color(hex(CARD_INK))
+                .color(self.theme.text)
                 .into();
         };
         let key = (
@@ -353,6 +367,7 @@ impl App {
                 .as_ref()
                 .map_or(0, |style| Arc::as_ptr(style) as *const () as usize),
             font_system().read().expect("font system").version(),
+            dark,
         );
         let mut cached = card.name.borrow_mut();
         if cached

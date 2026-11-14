@@ -6,7 +6,7 @@
 //! when a sent message empties it.
 
 use iced::{
-    Alignment, Border, Element, Length, Padding, Point, Size, Task,
+    Alignment, Border, Element, Length, Padding, Point, Task,
     widget::{Id, button, column, container, operation, row, scrollable::AbsoluteOffset, text},
 };
 use yapfast_core::{
@@ -16,33 +16,33 @@ use yapfast_core::{
 
 use crate::{
     app::{App, Message, NOBODY},
+    controls::lit_style,
     field::{self, Field, MenuEdit},
     fonts::{BOLD, SEMIBOLD},
     menus::{Menu, MenuAct, MenuRow},
     picker::{self, Picker, Target},
     pictures::Icon,
     rail, sidebar,
-    style::{
-        EDGE, FIELD, LIT, MENU, MUTED, PANEL, SECONDARY, SECONDARY_INK, SELECTION, TEXT, corners,
-        faded, hex, raised_shadow, rounded,
-    },
-    widgets::{Anchor, Pic, Place},
+    style::{corners, faded, hex, raised_shadow, rounded},
+    widgets::{Anchor, Place},
 };
 
 /// The composer's field, for the app's focus tasks.
 pub const COMPOSER: &str = "composer";
 /// The reply and edit bars' height.
 const BAR: f32 = 36.0;
-/// A mention suggestion under the pointer.
-const POINTED: u32 = 0x222329;
 
 impl App {
     pub fn composer_view(&self) -> Element<'_, Message> {
-        let (name, direct) = &self.header;
-        let placeholder = if *direct {
-            format!("Message @{name}")
-        } else {
-            format!("Message #{name}")
+        let header = &self.header;
+        let theme = &self.theme;
+        // Discord's words: `Message @sam` in a DM, `Message #general` in a
+        // channel, and a group's or thread's own name as it is.
+        let name = &header.name;
+        let placeholder = match (header.direct, header.one_to_one, header.thread) {
+            (true, true, _) => format!("Message @{name}"),
+            (false, _, false) => format!("Message #{name}"),
+            _ => format!("Message {name}"),
         };
         let field = Field::new(
             &self.draft,
@@ -51,9 +51,9 @@ impl App {
             Message::Composer,
             field::Colors {
                 ground: iced::Color::TRANSPARENT,
-                text: hex(TEXT),
-                placeholder: hex(MUTED),
-                selection: SELECTION,
+                text: theme.text,
+                placeholder: theme.placeholder,
+                selection: theme.selection,
             },
         )
         .suggesting(self.mentions_shown());
@@ -65,11 +65,7 @@ impl App {
             Message::OpenPicker(Target::Composer),
             false,
         );
-        let attach = container(Pic::new(
-            self.icon(Icon::Plus, 22, SECONDARY),
-            Size::new(22.0, 22.0),
-        ))
-        .center(32);
+        let attach = self.glyph(Icon::Plus, 22, theme.secondary).boxed(32);
         let field = container(
             row![
                 container(attach).height(48).align_y(Alignment::Center),
@@ -80,7 +76,17 @@ impl App {
             .padding([0, 6]),
         )
         .width(Length::Fill)
-        .style(|_| rounded(hex(FIELD), 8));
+        .style({
+            let (ground, edge) = (theme.composer, theme.outline_field);
+            move |_| container::Style {
+                border: Border {
+                    color: edge,
+                    width: 1.0,
+                    radius: 10.0.into(),
+                },
+                ..rounded(ground, 10)
+            }
+        });
         let mut compose = column![];
         if self.editing.is_some() {
             compose = compose.push(self.bar(
@@ -115,12 +121,14 @@ impl App {
         cancel: &'static str,
         message: Message,
     ) -> Element<'_, Message> {
+        let theme = &self.theme;
+        let ground = theme.panel;
         container(
             row![
-                Pic::new(self.icon(icon, 16, 0x8d919c), Size::new(16.0, 16.0)),
+                self.glyph(icon, 16, theme.muted),
                 text(label)
                     .size(14)
-                    .color(hex(SECONDARY_INK))
+                    .color(theme.secondary)
                     .wrapping(text::Wrapping::None)
                     .width(Length::Fill),
                 self.icon_button(Icon::X, cancel, 28.0, 16, message, false),
@@ -137,7 +145,7 @@ impl App {
         .height(BAR)
         .clip(true)
         .align_y(Alignment::Center)
-        .style(|_| rounded(hex(PANEL), corners([10.0, 10.0, 0.0, 0.0])))
+        .style(move |_| rounded(ground, corners([10.0, 10.0, 0.0, 0.0])))
         .into()
     }
 
@@ -179,13 +187,7 @@ impl App {
             }
             field::Event::Emoji => self.open_picker(Target::Composer),
             field::Event::Menu(at) => {
-                let row = |act, label, icon| MenuRow {
-                    act,
-                    label,
-                    icon,
-                    danger: false,
-                    separated: false,
-                };
+                let row = MenuRow::new;
                 let mut rows = Vec::new();
                 if self.draft.selection().is_some() {
                     rows.push(row(MenuAct::Field(MenuEdit::Cut), "Cut", Icon::Scissors));
@@ -203,6 +205,8 @@ impl App {
                     lit: None,
                     item: None,
                     reactions: false,
+                    place: None,
+                    header: false,
                 });
                 operation::focus(NOBODY)
             }
@@ -234,7 +238,20 @@ impl App {
             self.client.dispatch(Action::SaveEdit);
         } else {
             self.client.dispatch(Action::SetDraft(self.draft.text()));
+            // Sending goes to the newest message, as Discord does, so the
+            // sent one shows; from a window of older messages, once the
+            // newest have replaced it.
+            let mut to_end = Task::none();
+            if self.client.state().can_send() {
+                if self.client.state().detached {
+                    self.latest_due = true;
+                } else {
+                    to_end = self.go_to_end();
+                }
+            }
             self.client.dispatch(Action::Send);
+            self.mention_at = None;
+            return Task::batch([to_end, self.sync()]);
         }
         self.mention_at = None;
         self.sync()
@@ -344,6 +361,7 @@ impl App {
     pub fn mentions_view(&self) -> Option<Element<'_, Message>> {
         self.mention_at?;
         let state = self.client.state();
+        let theme = &self.theme;
         let suggestions = state.mention_suggestions();
         if suggestions.is_empty() {
             return None;
@@ -357,7 +375,7 @@ impl App {
                     (true, true) => "CHANNELS",
                 };
                 list = list.push(
-                    container(text(heading).size(11).font(BOLD).color(hex(MUTED)))
+                    container(text(heading).size(11).font(BOLD).color(theme.muted))
                         .padding([0, 6])
                         .height(24)
                         .align_y(Alignment::Center),
@@ -365,8 +383,8 @@ impl App {
             }
             let color = candidate.color.map(hex);
             let mark: Element<'_, Message> = if candidate.group {
-                let ink = color.unwrap_or(hex(SECONDARY_INK));
-                let ground = faded(color.unwrap_or(hex(MUTED)), 0.2);
+                let ink = color.unwrap_or(theme.secondary);
+                let ground = faded(color.unwrap_or(theme.muted), 0.2);
                 container(
                     text(candidate.sigil().to_string())
                         .size(13)
@@ -391,6 +409,7 @@ impl App {
                 _ => candidate.username.clone().unwrap_or_default(),
             };
             let lit = index == self.mention_index;
+            let (active, hover) = (theme.active, theme.hover);
             list = list.push(
                 button(
                     row![
@@ -398,11 +417,11 @@ impl App {
                         text(candidate.name.clone())
                             .size(14)
                             .font(SEMIBOLD)
-                            .color(color.unwrap_or(hex(TEXT)))
+                            .color(color.unwrap_or(theme.text))
                             .wrapping(text::Wrapping::None),
                         text(detail)
                             .size(13)
-                            .color(hex(MUTED))
+                            .color(theme.muted)
                             .wrapping(text::Wrapping::None),
                     ]
                     .spacing(10)
@@ -417,32 +436,30 @@ impl App {
                 .width(Length::Fill)
                 .height(36)
                 .on_press(Message::Mention(index))
-                .style(move |_, status| button::Style {
-                    background: if lit {
-                        Some(hex(LIT).into())
-                    } else {
-                        matches!(status, button::Status::Hovered | button::Status::Pressed)
-                            .then(|| hex(POINTED).into())
-                    },
-                    border: Border::default().rounded(6),
-                    ..Default::default()
-                }),
+                .style(lit_style(
+                    lit.then_some(active),
+                    if lit { active } else { hover },
+                    6.0,
+                )),
             );
         }
         let bar = if state.compose().is_some() { BAR } else { 0.0 };
         let left = rail::WIDTH + sidebar::WIDTH + 8.0;
         let width = self.chat_right() - left - 8.0;
         let bottom = self.window.height - 8.0 - self.draft.height() - bar - 8.0;
-        let frame = container(list).width(width).style(|_| container::Style {
-            background: Some(hex(MENU).into()),
-            border: Border {
-                color: hex(EDGE),
-                width: 1.0,
-                radius: 8.0.into(),
-            },
-            shadow: raised_shadow(),
-            ..Default::default()
-        });
+        let (ground, edge) = (theme.raised, theme.edge);
+        let frame = container(list)
+            .width(width)
+            .style(move |_| container::Style {
+                background: Some(ground.into()),
+                border: Border {
+                    color: edge,
+                    width: 1.0,
+                    radius: 8.0.into(),
+                },
+                shadow: raised_shadow(),
+                ..Default::default()
+            });
         Some(
             Place::new(frame, Point::new(left, bottom), 0.0)
                 .anchor(Anchor::Bottom)

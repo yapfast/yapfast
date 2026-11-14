@@ -1,0 +1,300 @@
+//! Discord's "Multi-Factor Authentication" prompt, as the Slint client's
+//! `MfaDialog` (`ui/mfa.slint`, its words from `show_mfa` in
+//! `src/ui/server_settings.rs`): for a request Discord holds back until
+//! this account confirms, with a code from an authenticator app or a text,
+//! the password, or a backup code; then the request goes again. Cancelling
+//! fails the request. The core keeps the prompts (`AppState::mfa`); this is
+//! their view.
+
+use std::time::Duration;
+
+use iced::{
+    Alignment, Element, Length, Task,
+    widget::{Space, column, operation, row, text},
+};
+use yapfast_core::{application::Action, chat::MfaMethod};
+
+use crate::{
+    after,
+    app::{App, Message},
+    controls::{Item, Kind, Light, action, field},
+    dialogs::dialog,
+    fonts::BOLD,
+    pictures::Icon,
+};
+
+/// The prompt's field, for focus and the tests.
+pub const CODE: &str = "mfa-code";
+
+/// How long Discord's warning before a backup code holds its button back.
+const WAIT: u32 = 10;
+
+/// What's done in the prompt.
+#[derive(Clone, Debug)]
+pub enum Event {
+    /// Use a method, or with none list them ("Verify with something else").
+    Choose(Option<MfaMethod>),
+    Write(String),
+    Resend,
+    Confirm,
+    Cancel,
+    /// A second of the warning's wait went by, for the prompt by its id.
+    Tick(u64),
+}
+
+/// The warning's wait: which prompt's warning it counts for, and the
+/// seconds left.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Wait {
+    pub prompt: Option<u64>,
+    pub left: u32,
+}
+
+impl App {
+    pub fn mfa_event(&mut self, event: Event) -> Task<Message> {
+        let action = match event {
+            Event::Choose(method) => Action::ChooseMfa(method),
+            Event::Write(code) => Action::WriteMfa(code),
+            Event::Resend => Action::ResendMfa,
+            Event::Confirm => Action::ConfirmMfa,
+            Event::Cancel => Action::CancelMfa,
+            Event::Tick(id) => {
+                if self.wait.prompt == Some(id) && self.wait.left > 0 {
+                    self.wait.left -= 1;
+                    if self.wait.left > 0 {
+                        return after(Duration::from_secs(1), Message::Mfa(Event::Tick(id)));
+                    }
+                }
+                return Task::none();
+            }
+        };
+        self.client.dispatch(action);
+        self.sync()
+    }
+
+    /// Takes in a prompt shown or changed: its field takes the keys, and
+    /// the warning before a backup code starts its ten seconds, each time
+    /// it shows. Nothing counts while no warning shows.
+    pub fn sync_mfa(&mut self) -> Task<Message> {
+        let Some(prompt) = self.client.app.mfa_prompt() else {
+            self.wait = Wait::default();
+            self.mfa_shown = None;
+            return Task::none();
+        };
+        let mut tasks = Vec::new();
+        let shown = (prompt.id, prompt.method);
+        if self.mfa_shown != Some(shown) {
+            self.mfa_shown = Some(shown);
+            tasks.push(if prompt.method.is_some() && !prompt.warning() {
+                operation::focus(CODE)
+            } else {
+                operation::focus(crate::app::NOBODY)
+            });
+        }
+        if prompt.warning() {
+            if self.wait.prompt != Some(prompt.id) {
+                self.wait = Wait {
+                    prompt: Some(prompt.id),
+                    left: WAIT,
+                };
+                tasks.push(after(
+                    Duration::from_secs(1),
+                    Message::Mfa(Event::Tick(prompt.id)),
+                ));
+            }
+        } else {
+            self.wait = Wait::default();
+        }
+        Task::batch(tasks)
+    }
+
+    /// The prompt over the dimmed window, while the core has one.
+    pub fn mfa_view(&self) -> Option<Element<'_, Message>> {
+        let prompt = self.client.app.mfa_prompt()?;
+        let theme = &self.theme;
+        let choices: Vec<MfaMethod> = prompt.usable().collect();
+        let listing = prompt.method.is_none() && !choices.is_empty();
+        let warning = prompt.warning();
+        let (words, placeholder) = match prompt.method {
+            Some(MfaMethod::App) => (
+                "Enter the 6-digit code from your authenticator app.".to_owned(),
+                "6-digit code",
+            ),
+            Some(MfaMethod::Sms) => (
+                match &prompt.phone {
+                    Some(phone) => format!("Enter the 6-digit code Discord sent to {phone}."),
+                    None => "Discord is sending a code to your phone.".to_owned(),
+                },
+                "6-digit code",
+            ),
+            Some(MfaMethod::Password) => ("Enter your password.".to_owned(), "Password"),
+            Some(MfaMethod::Backup) => (
+                "Enter one of your 8-digit backup codes. Each works only once.".to_owned(),
+                "Backup code",
+            ),
+            Some(MfaMethod::Passkey) | None => (
+                "Discord asks for a passkey or security key, which Yapfast can't use. Confirm \
+                 in Discord's app, then try again."
+                    .to_owned(),
+                "",
+            ),
+        };
+        let note = |words: String| text(words).size(13).color(theme.muted).width(Length::Fill);
+        let close = self.icon_button(
+            Icon::X,
+            "Cancel",
+            28.0,
+            18,
+            Message::Mfa(Event::Cancel),
+            false,
+        );
+        let mut body = column![
+            row![
+                text("Multi-Factor Authentication")
+                    .size(18)
+                    .font(BOLD)
+                    .color(theme.text)
+                    .width(Length::Fill),
+                close
+            ]
+            .align_y(Alignment::Center)
+        ]
+        .spacing(12)
+        .padding(20);
+        if listing {
+            let mut list = column![note("Choose how to confirm it's you.".into())].spacing(2);
+            for method in &choices {
+                let label = match method {
+                    MfaMethod::App => "Use your authenticator app",
+                    MfaMethod::Sms => "Use a code sent to your phone",
+                    MfaMethod::Password => "Use your password",
+                    MfaMethod::Backup => "Use a backup code",
+                    MfaMethod::Passkey => "Use a passkey or security key",
+                };
+                list = list.push(self.menu_item(
+                    Item {
+                        label,
+                        icon: None,
+                        danger: false,
+                        slot: true,
+                        disabled: false,
+                    },
+                    Light::Pointer,
+                    Message::Mfa(Event::Choose(Some(*method))),
+                ));
+            }
+            body = body.push(list);
+        }
+        if warning {
+            body = body.push(
+                text("Slow down! Are you sure?")
+                    .size(16)
+                    .font(BOLD)
+                    .color(theme.text),
+            );
+            body = body.push(note(
+                "Backup codes can only be used one time each and are for emergency access to \
+                 your account!"
+                    .into(),
+            ));
+            if choices.len() > 1 {
+                body = body.push(note(
+                    "If you have access to any of your other methods, select ‘Verify with \
+                     something else’ to go back."
+                        .into(),
+                ));
+            }
+            let left = self.wait.left;
+            body = body.push(note(if left > 0 {
+                format!(
+                    "If you do not have access to any other methods, the button below will \
+                     activate in {left} seconds."
+                )
+            } else {
+                "If you do not have access to any other methods, use the other button below \
+                 to proceed."
+                    .to_owned()
+            }));
+            body = body.push(
+                action(
+                    theme,
+                    "I’m sure, use a backup code",
+                    Kind::Primary,
+                    (left == 0).then_some(Message::Mfa(Event::Confirm)),
+                )
+                .wide(36.0),
+            );
+        }
+        let asks = !listing && !warning;
+        if asks {
+            body = body.push(note(words));
+            if !placeholder.is_empty() {
+                let mut code = field(
+                    theme,
+                    CODE,
+                    placeholder,
+                    &prompt.code,
+                    prompt.method == Some(MfaMethod::Password),
+                    !prompt.busy,
+                )
+                .size(15)
+                .padding([8, 10]);
+                if !prompt.busy {
+                    code = code.on_input(|code| Message::Mfa(Event::Write(code)));
+                    if prompt.ready() {
+                        code = code.on_submit(Message::Mfa(Event::Confirm));
+                    }
+                }
+                body = body.push(code);
+            }
+        }
+        if let Some(error) = &prompt.error {
+            body = body.push(
+                text(error.clone())
+                    .size(14)
+                    .color(theme.danger)
+                    .width(Length::Fill),
+            );
+        }
+        let open = !prompt.busy;
+        let mut buttons = row![].spacing(8).align_y(Alignment::Center);
+        if !listing && choices.len() > 1 {
+            buttons = buttons.push(action(
+                theme,
+                "Verify with something else",
+                Kind::Ghost,
+                open.then_some(Message::Mfa(Event::Choose(None))),
+            ));
+        }
+        if !listing && prompt.method == Some(MfaMethod::Sms) && prompt.phone.is_some() {
+            buttons = buttons.push(action(
+                theme,
+                "Resend Code",
+                Kind::Ghost,
+                open.then_some(Message::Mfa(Event::Resend)),
+            ));
+        }
+        buttons = buttons.push(Space::new().width(Length::Fill));
+        buttons = buttons.push(action(
+            theme,
+            "Cancel",
+            Kind::Ghost,
+            Some(Message::Mfa(Event::Cancel)),
+        ));
+        if asks && !placeholder.is_empty() {
+            buttons = buttons.push(action(
+                theme,
+                if prompt.busy {
+                    "Confirming..."
+                } else {
+                    "Confirm"
+                },
+                Kind::Primary,
+                prompt.ready().then_some(Message::Mfa(Event::Confirm)),
+            ));
+        }
+        body = body.push(buttons);
+        let width = (self.window.width - 48.0).min(440.0);
+        Some(dialog(theme, body.into(), width, Message::Nothing))
+    }
+}

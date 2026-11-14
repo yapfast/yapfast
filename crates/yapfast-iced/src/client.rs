@@ -13,7 +13,8 @@ use yapfast_core::{
     application::{Action, AppState, Application, Effect},
     backend::Backend,
     chat::Event,
-    runtime::BackgroundRuntime,
+    discord_link::Progress,
+    runtime::{BackgroundRuntime, BackgroundTask},
 };
 
 /// Rows reported beyond each end of those in view, as the Slint client
@@ -30,6 +31,12 @@ pub struct Client {
     backend: Option<Backend>,
     events: Option<UnboundedReceiver<Event>>,
     last_visible: Option<Instant>,
+    /// Linking a Discord account, while it runs: dropping it stops it. Its
+    /// progress goes to the window once ([`Client::take_linking`]); a stop
+    /// is noted for the window to let go of its listener.
+    linking: Option<BackgroundTask<()>>,
+    link_progress: Option<UnboundedReceiver<Progress>>,
+    link_stopped: bool,
 }
 
 impl Client {
@@ -41,7 +48,15 @@ impl Client {
             backend: None,
             events: None,
             last_visible: None,
+            linking: None,
+            link_progress: None,
+            link_stopped: false,
         }
+    }
+
+    /// The data folder.
+    pub fn root(&self) -> &std::path::Path {
+        &self.root
     }
 
     pub fn state(&self) -> &AppState {
@@ -74,6 +89,22 @@ impl Client {
         self.execute(effects);
     }
 
+    /// Linking's progress, once linking has started; the window hands each
+    /// step to [`Client::linking`].
+    pub fn take_linking(&mut self) -> Option<UnboundedReceiver<Progress>> {
+        self.link_progress.take()
+    }
+
+    /// Whether linking stopped since this was last asked.
+    pub fn link_stopped(&mut self) -> bool {
+        std::mem::take(&mut self.link_stopped)
+    }
+
+    pub fn linking(&mut self, step: Progress) {
+        let effects = self.app.linking(step);
+        self.execute(effects);
+    }
+
     /// The backend's events ended: it stopped.
     pub fn stopped(&mut self) {
         self.app.stopped();
@@ -99,12 +130,29 @@ impl Client {
                         self.app.backend_failed(&command);
                     }
                 }
-                // Sounds, notifications, links, the clipboard's pictures,
-                // device lists and Discord's sign-in come with the parts of
-                // the window that use them.
+                Effect::LinkDiscord => self.link_discord(None),
+                Effect::LinkDiscordToken(token) => self.link_discord(Some(token)),
+                Effect::StopDiscordLink => {
+                    self.linking = None;
+                    self.link_progress = None;
+                    self.link_stopped = true;
+                }
+                // Discord's captcha, while linking.
+                Effect::OpenPage(page) => crate::browser::open(&page),
+                // Sounds, notifications, the clipboard's pictures and device
+                // lists come with the parts of the window that use them.
                 _ => {}
             }
         }
+    }
+
+    /// Starts linking a Discord account, by QR code or with a pasted token,
+    /// in place of any linking under way, as the Slint client's
+    /// `link_discord`. The work runs on the backend's runtime.
+    fn link_discord(&mut self, token: Option<String>) {
+        let (task, progress) = yapfast_core::discord_link::start(&self.runtime, token);
+        self.linking = Some(task);
+        self.link_progress = Some(progress);
     }
 
     /// The rows from `first` to `last` of the open timeline are in view:

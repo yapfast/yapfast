@@ -3,22 +3,21 @@
 //! members with their looks (`looks::MemberLook`).
 
 use iced::{
-    Alignment, Border, Color, Element, Length, Padding, Point, Rectangle, Size, Task,
-    widget::{Space, column, container, mouse_area, row, scrollable, text},
+    Alignment, Border, Element, Length, Padding, Point, Rectangle, Size, Task,
+    widget::{column, container, mouse_area, row, scrollable, text},
 };
 use yapfast_core::chat::Presence;
 
 use crate::{
     app::{App, Message, key},
+    controls::bar,
     fonts::{MEDIUM, SEMIBOLD, shown_name, style_font},
     header,
     looks::{self, Chip, MemberLine, MemberLook},
-    pictures::{Face, Icon, Mark},
+    pictures::{Face, Icon},
     profile,
-    style::{
-        ACTIVITY, BACKGROUND, HEADING, LIVE, MEMBER_GROUND, MEMBER_HOVER, SECONDARY, TEXT, blend,
-        faded, fill, hex, scrollbar,
-    },
+    style::{CHIP, CROWN, HEADING, MEMBER_HOVER, MEMBER_OPEN, faded, fill, hex, scrollbar},
+    theme::rgb,
     widgets::{Pic, PlateRow, Rows},
 };
 
@@ -44,16 +43,18 @@ impl App {
             };
             rows.push(key(id), top, ROW, container(row).padding([0, 8]));
         }
-        container(
-            scrollable(rows)
-                .on_scroll(Message::Members)
-                .height(Length::Fill)
-                .style(scrollbar),
-        )
-        .width(WIDTH)
-        .height(Length::Fill)
-        .style(|_| fill(BACKGROUND))
-        .into()
+        // As the Slint client's `MemberPanel` with its Discord look: the
+        // chat's ground, an outline down its left edge.
+        let (ground, edge) = (self.theme.chat, self.theme.outline_chat);
+        let list = scrollable(rows)
+            .on_scroll(Message::Members)
+            .height(Length::Fill)
+            .style(scrollbar(&self.theme));
+        container(row![bar(edge, 1, Length::Fill), list])
+            .width(WIDTH)
+            .height(Length::Fill)
+            .style(move |_| fill(ground))
+            .into()
     }
 
     /// A group's heading: 14 px medium in the channel grey, 20 px above,
@@ -61,7 +62,7 @@ impl App {
     fn heading_row(&self, heading: &str, icon: Option<&str>) -> Element<'_, Message> {
         let mut line = row![].spacing(8).align_y(Alignment::Center);
         if let Some(icon) = icon.and_then(|icon| self.picture(icon, 20, 20, false)) {
-            line = line.push(Pic::new(icon, Size::new(20.0, 20.0)));
+            line = line.push(Pic::square(icon, 20.0));
         }
         line = line.push(
             text(heading.to_owned())
@@ -86,6 +87,7 @@ impl App {
     /// colour, the role icon, server tag, APP tag and crown, the activity
     /// line, and the nameplate behind it all.
     fn member_row<'a>(&'a self, index: usize, look: &'a MemberLook) -> Element<'a, Message> {
+        let theme = &self.theme;
         let pointed = self.pointed_member.as_ref() == Some(&look.id);
         // The member whose card is open.
         let selected = self.card.as_ref().is_some_and(|card| card.user == look.id);
@@ -101,9 +103,9 @@ impl App {
             dot: look
                 .presence
                 .filter(|presence| *presence != Presence::Offline)
-                .map(|presence| (presence, MEMBER_GROUND, Point::new(20.0, 20.0))),
+                .map(|presence| (presence, rgb(theme.sidebar), Point::new(20.0, 20.0))),
         });
-        let color = faded(look.color.map_or(hex(SECONDARY), hex), opacity);
+        let color = faded(look.color.map_or(theme.secondary, hex), opacity);
         let mut name_line = row![
             text(shown_name(&look.name, look.style.as_ref()))
                 .size(16)
@@ -118,7 +120,7 @@ impl App {
             .as_deref()
             .and_then(|icon| self.picture(icon, 16, 16, false))
         {
-            name_line = name_line.push(Pic::new(icon, Size::new(16.0, 16.0)).opacity(opacity));
+            name_line = name_line.push(Pic::square(icon, 16.0).opacity(opacity));
         }
         if let Some((letters, badge)) = &look.tag {
             name_line = name_line.push(self.tag_chip(
@@ -130,8 +132,8 @@ impl App {
                     height: 16.0,
                     pad: 4.0,
                     radius: 4.0,
-                    fill: Color::from_rgba8(0x97, 0x97, 0x9f, 0.2),
-                    ink: hex(TEXT),
+                    fill: CHIP,
+                    ink: theme.text,
                 },
                 opacity,
             ));
@@ -140,12 +142,12 @@ impl App {
             name_line = name_line.push(self.bot_tag(opacity));
         }
         if look.owner {
-            let crown = self.icon(Icon::Crown, 14, 0xf0b232);
-            name_line = name_line.push(Pic::new(crown, Size::new(14.0, 14.0)).opacity(opacity));
+            let crown = self.icon(Icon::Crown, 14, CROWN);
+            name_line = name_line.push(Pic::square(crown, 14.0).opacity(opacity));
         }
         let mut lines = column![name_line];
-        if !look.activity.is_empty() || look.activity_emoji.is_some() {
-            lines = lines.push(self.status_line(look, opacity));
+        if !look.status.words.is_empty() || look.status.emoji.is_some() {
+            lines = lines.push(self.status_line(&look.status, opacity));
         }
         let plate = look.nameplate.as_ref().and_then(|(url, _)| {
             let picture = self.client.state().pictures.get(&**url)?;
@@ -185,10 +187,14 @@ impl App {
             })
             .height(ROW)
             .align_y(Alignment::Center);
-        let ground = if pointed {
-            blend(MEMBER_GROUND, MEMBER_HOVER)
+        // The ground the nameplate fades into, as the Slint client's
+        // `PlateRow` has it.
+        let ground = if selected {
+            theme.active
+        } else if pointed {
+            theme.hover
         } else {
-            hex(MEMBER_GROUND)
+            theme.sidebar
         };
         let palette = look
             .nameplate
@@ -211,13 +217,7 @@ impl App {
                 .clip(true)
                 .style(move |_| container::Style {
                     background: if selected {
-                        Some(
-                            Color {
-                                a: 0x33 as f32 / 255.0,
-                                ..MEMBER_HOVER
-                            }
-                            .into(),
-                        )
+                        Some(MEMBER_OPEN.into())
                     } else {
                         pointed.then(|| MEMBER_HOVER.into())
                     },
@@ -229,45 +229,6 @@ impl App {
         .on_exit(Message::PointMember(id, false))
         .on_press(Message::OpenMember(index))
         .into()
-    }
-
-    /// What someone is up to, under their name: the activity's icon, a
-    /// bullet, a custom emoji's picture, the words, 12 px.
-    fn status_line<'a>(&'a self, look: &'a MemberLook, opacity: f32) -> Element<'a, Message> {
-        let mut line = row![].spacing(4).align_y(Alignment::Center);
-        let side = 15.0;
-        let ink = faded(hex(ACTIVITY), opacity);
-        if let Some(icon) = Icon::activity(look.activity_icon) {
-            // Discord draws the game controller in its online green.
-            let color = if icon == Icon::Gamepad {
-                LIVE
-            } else {
-                0x949599
-            };
-            if let Some(icon) = self.mark(Mark::Icon(icon, side as u32, color)) {
-                line = line.push(Pic::new(icon, Size::new(side, side)).opacity(opacity));
-            }
-            if look.activity_bullet {
-                line = line.push(text("\u{2022}").size(12).color(ink));
-            }
-        }
-        if let Some(emoji) = &look.activity_emoji {
-            line = line.push(match self.picture(emoji, side as u32, side as u32, false) {
-                Some(picture) => {
-                    Element::from(Pic::new(picture, Size::new(side, side)).opacity(opacity))
-                }
-                None => Space::new().width(side).height(side).into(),
-            });
-        }
-        if !look.activity.is_empty() {
-            line = line.push(
-                text(look.activity.as_str())
-                    .size(12)
-                    .color(ink)
-                    .wrapping(text::Wrapping::None),
-            );
-        }
-        line.into()
     }
 
     /// A member's line was clicked: their card opens beside the list, its

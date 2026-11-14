@@ -8441,7 +8441,7 @@ fn a_theme_paints_the_window_and_the_mentions_in_its_rows() {
     i_slint_backend_testing::init_no_event_loop();
     let window = classic_window();
     assert_eq!(
-        theme::Theme::shown(&window),
+        theme::shown(&window),
         theme::YAP,
         "the Slint defaults are Yap's, for the first frame"
     );
@@ -8459,15 +8459,15 @@ fn a_theme_paints_the_window_and_the_mentions_in_its_rows() {
     let yap_row = message_row_plain(&message);
     let light = theme::Theme {
         dark: false,
-        chat: slint::Color::from_rgb_u8(0xfa, 0xf8, 0xf5),
-        link: slint::Color::from_rgb_u8(0x1a, 0x5f, 0xb4),
+        chat: theme::Colour::rgb(0xfaf8f5),
+        link: theme::Colour::rgb(0x1a5fb4),
         ..theme::YAP
     };
-    assert!(light.apply(&window), "mentions change colour");
-    assert_eq!(theme::Theme::shown(&window), light);
+    assert!(theme::apply(&light, &window), "mentions change colour");
+    assert_eq!(theme::shown(&window), light);
     assert!(message_row_plain(&message).styled != yap_row.styled);
-    assert!(!light.apply(&window), "nothing to build again");
-    assert!(theme::YAP.apply(&window));
+    assert!(!theme::apply(&light, &window), "nothing to build again");
+    assert!(theme::apply(&theme::YAP, &window));
     assert!(message_row_plain(&message).styled == yap_row.styled);
 }
 
@@ -8488,7 +8488,7 @@ fn a_chosen_theme_is_kept_and_survives_a_window_made_again() {
     let nord = theme::find("nord").unwrap().theme;
     window.invoke_choose_theme("nord".into());
     assert_eq!(window.get_theme_id(), "nord");
-    assert_eq!(theme::Theme::shown(&window), nord);
+    assert_eq!(theme::shown(&window), nord);
     assert_eq!(
         Layout::read(directory.path()).theme.as_deref(),
         Some("nord")
@@ -8497,20 +8497,20 @@ fn a_chosen_theme_is_kept_and_survives_a_window_made_again() {
     // Closing to the tray drops the window; the next one starts in Nord.
     let again = classic_window();
     adapter.borrow_mut().attach(&again);
-    assert_eq!(theme::Theme::shown(&again), nord);
+    assert_eq!(theme::shown(&again), nord);
     assert_eq!(again.get_theme_id(), "nord");
 
     // An id Yapfast doesn't know changes nothing, and a stored one it no longer
     // has shows Yap.
     again.invoke_choose_theme("missing".into());
-    assert_eq!(theme::Theme::shown(&again), nord);
+    assert_eq!(theme::shown(&again), nord);
     let fresh = classic_window();
     Layout {
         theme: Some("gone".into()),
         ..Default::default()
     }
     .apply(&fresh);
-    assert_eq!(theme::Theme::shown(&fresh), theme::YAP);
+    assert_eq!(theme::shown(&fresh), theme::YAP);
     assert_eq!(fresh.get_theme_id(), "yap");
 }
 
@@ -8644,10 +8644,7 @@ fn a_custom_theme_is_made_edited_and_deleted_in_appearance() {
         .unwrap();
     assert_eq!(colours.row_data(chat).unwrap().hex, theme::hex(nord.chat));
     window.invoke_theme_colour_edited(chat as i32, "#102030".into());
-    assert_eq!(
-        theme::Theme::shown(&window).chat,
-        theme::parse("#102030").unwrap()
-    );
+    assert_eq!(theme::shown(&window).chat, theme::parse("#102030").unwrap());
     assert!(window.get_theme_can_save());
 
     // A field without a colour says so and holds Save back; the window keeps
@@ -8655,10 +8652,7 @@ fn a_custom_theme_is_made_edited_and_deleted_in_appearance() {
     window.invoke_theme_colour_edited(chat as i32, "#1020".into());
     assert!(colours.row_data(chat).unwrap().wrong);
     assert!(!window.get_theme_can_save());
-    assert_eq!(
-        theme::Theme::shown(&window).chat,
-        theme::parse("#102030").unwrap()
-    );
+    assert_eq!(theme::shown(&window).chat, theme::parse("#102030").unwrap());
     window.invoke_save_theme();
     assert!(window.get_theme_editor(), "Save waits for a colour");
     window.invoke_theme_colour_edited(chat as i32, "#123".into());
@@ -8686,7 +8680,7 @@ fn a_custom_theme_is_made_edited_and_deleted_in_appearance() {
         chat: theme::parse("#112233").unwrap(),
         ..nord
     };
-    assert_eq!(theme::Theme::shown(&window), midnight);
+    assert_eq!(theme::shown(&window), midnight);
     let layout = Layout::read(directory.path());
     assert_eq!(layout.theme.as_deref(), Some("custom:1"));
     assert_eq!(layout.custom_themes.len(), 1);
@@ -8697,7 +8691,7 @@ fn a_custom_theme_is_made_edited_and_deleted_in_appearance() {
     let again = classic_window();
     bind_callbacks(&again, &adapter);
     adapter.borrow_mut().attach(&again);
-    assert_eq!(theme::Theme::shown(&again), midnight);
+    assert_eq!(theme::shown(&again), midnight);
     assert_eq!(again.get_theme_id(), "custom:1");
     let window = again;
 
@@ -8707,12 +8701,9 @@ fn a_custom_theme_is_made_edited_and_deleted_in_appearance() {
     assert_eq!(window.get_theme_name(), "Midnight");
     window.invoke_theme_colour_edited(chat as i32, "#ff0000".into());
     window.set_theme_name("Red".into());
-    assert_eq!(
-        theme::Theme::shown(&window).chat,
-        theme::parse("#ff0000").unwrap()
-    );
+    assert_eq!(theme::shown(&window).chat, theme::parse("#ff0000").unwrap());
     window.invoke_cancel_theme();
-    assert_eq!(theme::Theme::shown(&window), midnight);
+    assert_eq!(theme::shown(&window), midnight);
     assert_eq!(adapter.borrow().layout.custom_themes[0].name, "Midnight");
 
     // A new theme from another start takes its colours and name.
@@ -8720,15 +8711,12 @@ fn a_custom_theme_is_made_edited_and_deleted_in_appearance() {
     assert_eq!(window.get_theme_name(), "Midnight copy");
     window.invoke_theme_start_chosen(9);
     assert_eq!(window.get_theme_name(), "Sakura copy");
-    assert_eq!(
-        theme::Theme::shown(&window),
-        theme::find("sakura").unwrap().theme
-    );
+    assert_eq!(theme::shown(&window), theme::find("sakura").unwrap().theme);
     window.set_theme_name("Blossom".into());
     window.invoke_theme_start_chosen(0);
     assert_eq!(window.get_theme_name(), "Blossom", "a name given stays");
     window.invoke_cancel_theme();
-    assert_eq!(theme::Theme::shown(&window), midnight);
+    assert_eq!(theme::shown(&window), midnight);
 
     // Renamed, then deleted while chosen: Yap shows.
     window.invoke_edit_theme("custom:1".into());
@@ -8746,7 +8734,7 @@ fn a_custom_theme_is_made_edited_and_deleted_in_appearance() {
     window.invoke_delete_theme();
     assert!(!window.get_theme_editor());
     assert_eq!(window.get_theme_id(), "yap");
-    assert_eq!(theme::Theme::shown(&window), theme::YAP);
+    assert_eq!(theme::shown(&window), theme::YAP);
     assert_eq!(window.get_themes().row_count(), theme::BUILT_IN.len());
     let layout = Layout::read(directory.path());
     assert_eq!(layout.theme.as_deref(), Some("yap"));
@@ -8781,7 +8769,7 @@ fn a_window_made_again_while_editing_drops_the_edit() {
         "rows lose the edited mention colour"
     );
     assert!(!again.get_theme_editor());
-    assert_eq!(theme::Theme::shown(&again), theme::YAP);
+    assert_eq!(theme::shown(&again), theme::YAP);
     assert_eq!(theme::mention_color(), 0x64adf6);
     assert!(Layout::read(directory.path()).custom_themes.is_empty());
 }

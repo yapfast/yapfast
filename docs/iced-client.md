@@ -6,13 +6,17 @@ does everything Slint's does. Until then Slint's is the default and the
 release, and the iced client is built on request. It drives `yapfast-core`
 as the Slint client does, through `Action`s, `AppState`, effects and the
 backend's events, so drafts, sending, the member list and voice behave the
-same. What it shows so far: the server rail, a server's channels or the
-DMs, the timeline with Markdown runs, pictures, reactions and their
-tooltips, selection across messages, the composer with replies, edits and
+same. What it shows so far: sign-in (Discord's link by code or token,
+Matrix's password sign-in), the window in any theme, the server rail with
+its folders and marks, the sidebar (a server's channels under categories
+that fold, or the DMs), the account's card, the conversation's header, the
+timeline with Discord's grouping, dividers, history edge, jump bars and
+Markdown, galleries, stickers, custom emoji, polls, voice messages, apps'
+buttons and cards, the hover bar, reactions and their tooltips, selection across messages, the composer with replies, edits and
 mention suggestions, the emoji picker, a message's and the composer's
 menus, Delete's confirmation, the member list with each member's looks,
 the profile card, and a voice channel's call with cameras and a watched
-stream.
+stream, and Discord's two-factor prompt.
 
 ## Building and running
 
@@ -24,11 +28,13 @@ nix develop path:./nix --command cargo build --profile fast --no-default-feature
 target/fast/yapfast --preview
 ```
 
+With `--features iced,matrix` it carries Matrix too, as the Slint build
+does with `matrix`, and signs in with Matrix instead of linking Discord.
 `iced-gpu` draws with wgpu instead. The renderer is chosen when it's built:
 a build has tiny-skia or wgpu, so `--renderer` only logs a warning when it
 asks for the other. `--data-dir`, `--preview` and `--stream-worker` work as
 in the default build; there is no tray, so `--background` shows the window,
-and links given on the command line aren't opened yet.
+and links given on the command line aren't opened yet; `--help` says so.
 
 `desktop` and `iced` can't be on together, and the build says so: each
 brings its own window toolkit and its own copy of the windowing stack, and
@@ -41,9 +47,174 @@ target/fast/yapfast` runs a built iced binary on the preview, and with
 window-control file (`YAPFAST_UI_TEST_CONTROL`) as the Slint client does
 (`control.rs`): `stats` logs the allocator's figures, `trim` gives back
 free heap, `hide` and `show` hide and show the window, `close` and `quit`
-end it, and `stage`, `stage-aside` and `pick` go to the core as the Slint
-client sends them. The tray's and themes' commands are logged and
-ignored.
+end it, `theme ID` chooses a theme and keeps it, and `stage`,
+`stage-aside` and `pick` go to the core as the Slint client sends them.
+The tray's commands are logged and ignored.
+
+## Theme
+
+`theme.rs` holds the theme every widget paints with: one struct of the
+colours of the Slint global `Theme`, taken from the core's palettes
+(`yapfast_core::theme`, see [themes](themes.md)) and turned into iced's
+colour type once, plus the colours `ui/theme.slint` works out from them
+(the menu's ground and outline, the composer's ground and placeholder, a
+destructive row's text, the selection, a mention's colour) and iced's own
+theme for the few styles iced draws itself. Views take it by reference;
+nothing else in the client names a colour, but for Discord's own (the
+crown, blurple, role and name colours, the nameplates' two grounds).
+
+It's the theme `layout.json` names, with the person's custom themes from
+the same file, as the Slint client keeps them; with none it's Bonfire, the
+Slint client's default with its Discord look, which is the only look this
+client has. There's no Appearance yet, so `theme ID` is how to choose one
+while it runs: it writes `theme` into `layout.json`, leaving the rest as it
+was, and swaps the struct. A switch costs no picture: the client's icons
+and dots are drawn per colour and the ones of the old theme go, but
+avatars, emoji and attachments are the same buffers; the names styled for
+the other ground (dark or light) are made again as they show.
+
+## Rail and sidebar
+
+The rail (`rail.rs`) is the Slint client's `ServerRail` with its Discord
+look: the DM home (the logo; its badge counts DM mentions and friend
+requests), the DMs with unread messages, a line, then the servers and
+folders, and "Join a server" at the foot. Each tile has its pill at the
+rail's edge (open, pointed at, unread), its mentions in a red badge, a
+speaker while this account is in a call there, and its name in a tooltip.
+A folder opens and closes on a click, its servers on a strip of its
+colour; closed it shows its first four servers' icons.
+
+The sidebar (`sidebar.rs`) is the Slint client's `RoomList`: on the DM
+home the search field (which keeps the DMs whose names hold its text),
+Friends and Requests, "Direct Messages" and each DM with its person's
+presence, the voice channel they're in and what they're up to; in a
+server its name, which opens the server's menu, then its pinned channels,
+then each category's heading and channels. A category folds on a click,
+keeping the open channel, unread ones and busy voice channels, as
+Discord's does. A channel's row shows its kind's icon, its unread mark at
+the sidebar's edge, its mentions, and muted or locked faint; a busy voice
+channel lists who is in it and how long the call has gone on, which a
+timer brings up to date each minute only while one shows. A right click on
+a row opens its menu (`places.rs`), built from the core's
+`menu_choices` in the Slint client's wording; the choices this client
+can't act on yet show greyed.
+
+The account's card (`account.rs`) spans the foot of both: the avatar with
+its presence, the name and status (the username under the pointer), and
+the mic, headphones and Settings, which mute and deafen in a call.
+
+Open folders, folded categories and Developer Mode (which shows Copy ID)
+are kept in the data folder's `layout.json`, which the Slint client keeps
+them in too (`layout.rs`); each change writes its one key back.
+
+## Header and timeline
+
+The header (`header.rs`) is the Slint client's: a DM's avatar and
+presence or a channel's icon, a thread's channel (which leads back to it),
+the name, a channel's topic on one line after a dot, what a DM's person is
+up to; then the room's buttons in Slint's order (calls, threads,
+notifications, pins, add people, the member list, the profile) and the
+search box. Only the member list's toggle acts yet.
+
+The timeline (`timeline.rs`, one message's content in `message.rs`) groups
+messages as Discord does: the same person within seven minutes, unless
+one replies, answers a command or is a notice. A new day's date and the
+"New" divider above the first unread message sit on a line across; a
+message that mentions this account (or replies to its message, while new)
+is tinted marigold with an edge. The first row holds the history's edge:
+"Earlier messages" (loading, or failed with a retry), the conversation's
+start, or Discord's welcome at a server channel's start. A short history
+is held down over the composer, as Slint's is. While the "New" divider is
+out of view a bar jumps to it, saying how many messages are new; a window
+of older messages has the bar back to the present; a reply's line jumps to
+the message it quotes and tints it a moment. Scrolling near the top asks
+for earlier history.
+
+A message shows the line above it (the reply it quotes, or who used the
+command it answers), the author line, its text, `(edited)`, its pictures,
+a file's card (its name and size), link previews and bots' cards (a bar of
+their colour, site, author, title, description, fields, pictures,
+thumbnail and footer), stickers, a poll, a voice message, an app's
+components, and reactions; a notice shows its icon in place of the avatar
+and its words in Discord's wording.
+
+- Pictures (`media.rs`): one shows at its own size, several as square
+  tiles two to a row, scaled down to the room there is. A spoiler's
+  picture is blurred under a cover until clicked. Copies at a tile's size
+  are made off the window's thread (`pictures::Fitter`) and dropped once
+  no view shows them.
+- A video (`playback.rs`) shows its poster with a play mark; clicked, it
+  plays in its cell, its frames coming through the stream worker's shared
+  mapping as a watched stream's do (`video::Sources::clip`). While the
+  pointer is on it, or it's paused, a bar along its foot plays or pauses
+  it, shows its time, moves through it and mutes it.
+- Stickers show at 160 px, playing if they move (Lottie ones as the core
+  renders them).
+- Custom emoji are pictures in the text's line, larger when the message is
+  only emoji; a copy gives back their `:name:`.
+- A poll (`polls.rs`) lists its answers to pick, one or several, then
+  Vote; once voted or ended it shows each answer's share with a bar, and
+  Show results looks without voting. Its time left counts down.
+- A voice message (`playback.rs`) plays and pauses from its button; its
+  waveform fills as it plays, and a press or a drag on it moves there
+  (pausing while held); its time counts down. While the pointer is on it,
+  its speed and mute show. The core plays it.
+- An app's components (`cards.rs`): text beside a thumbnail or a button,
+  galleries and files, gaps and dividers, rows of buttons and menus, in a
+  frame with the colour's bar when they're in a container. A link button
+  opens its page; one that asks its app does, and the message's other
+  controls wait until the app answers; why one failed shows under them.
+- With `collapse_long` in `layout.json`, a long message folds to its first
+  lines with Show more.
+- Under the pointer a message shows its hover bar: three quick reactions,
+  Add reaction, Edit (one's own) or Reply, and More, which opens the
+  message's menu.
+- A masked link (words that aren't where they go) asks first, as Slint's
+  does: Go back, or Visit site. The text, and its embeds', is laid out once per message (`markdown.rs`):
+the core's blocks (headings, subtext, quotes, fenced code) apart, and in
+each the inline styles as runs, with mentions on pills of their colour,
+links, and spoilers covered until clicked. A web address opens the browser; a
+mention or a notice's name opens the person's card.
+
+Rows are built only near the view at heights worked out ahead; once built,
+`Rows` measures them and the rows keep their real heights. While earlier
+messages are read, the message at the view's top stays where it is as
+rows change height, new messages come, or the oldest go; sending goes
+back to the newest message.
+
+## Sign-in
+
+Without a saved account the window opens on the sign-in screen
+(`signin.rs`), as the Slint client's `ui/login.slint` lays it out: on the
+left the network's sign-in, on the right "Just looking?" with the preview.
+It starts on a saved account when the core can restore one (a Discord
+login without Matrix, Matrix's `active.json` with it), so no notice shows
+for one it can't. While that account is restored the window shows only
+the core's notice ("Connecting to Discord..."), where the Slint client
+shows the card: the card would show for a moment at each start, and its
+text, at sizes the workspace doesn't use, would stay in the renderer's
+glyph cache. The card shows if the restore fails.
+
+- Discord, in a build without Matrix: "Show the code" asks the core to link
+  (`Action::LinkDiscord`); the client runs `discord_link` on the runtime and
+  hands each step to the core, and the screen shows the QR code (drawn once
+  per code, whole pixels per module), who scanned it, the captcha's notice
+  with "Open it again", or the error with "Try again". "Use a token" opens
+  the field instead; Link checks it with Discord. A linked account starts
+  the workspace.
+- Matrix, with `matrix`: the homeserver, Matrix ID and password go to the
+  core's `Login`; the password is let go once it's sent. "Retry saved
+  session" shows when there's one to retry. Until this device is verified,
+  a banner over the timeline takes a recovery key ("Recover") or checks
+  again after verifying from another device.
+- Discord's two-factor prompt (`mfa.rs`), the Slint client's `MfaDialog`:
+  for a request Discord holds back, with an authenticator's code, a text,
+  the password or a backup code, the warning before a backup code and its
+  ten seconds (one timer, only while the warning shows), and "Verify with
+  something else".
+
+Pages the core asks to open (the captcha) open in the browser
+(`browser.rs`), never from tests or the private test display.
 
 ## How it's built
 
@@ -55,7 +226,8 @@ what costs is kept out of the view:
   come as subscriptions.
 - Lists are virtualized by hand: `widgets::Rows` holds only the rows near
   its viewport, each keyed by its id, so its widget state follows it as
-  rows come and go.
+  rows come and go. A message's text is laid out once, when it comes, and
+  kept with its row.
 - Pictures are the core's own buffers in tiny-skia's format, premultiplied
   BGRA (`pictures.rs`, `chat::set_pixel_buffers`), handed to iced without a
   copy. Copies at other sizes are made once and go when the core lets go of
@@ -64,7 +236,7 @@ what costs is kept out of the view:
   window's redraws, all on one clock, so a frame costs no message and no
   rebuild of the view; decoders of pictures no longer shown go after each
   view.
-- Fonts: DM Sans, the packed Twemoji (the root `build.rs` makes it for this
+- Fonts: DM Sans and its italic, the packed Twemoji (the root `build.rs` makes it for this
   build too), the display-name fonts on first use, and for other scripts a
   system font loaded the first time a script is shaped (`fonts.rs`).
 - Video (`video.rs`, `call.rs`): cameras' frames are made in the client's
@@ -75,14 +247,67 @@ what costs is kept out of the view:
   (`picture::set_frame_wake`); a watched stream is made in another process,
   which has no wake, so while one shows it's looked at every 8 ms.
 
-Each part of the window has its module: `rail`, `sidebar`, `header`,
-`timeline`, `composer`, `members`, `profile`, `picker`, `menus`, `call`.
+Each part of the window has its module: `signin`, `mfa`, `rail`,
+`sidebar`, `account`, `header`, `timeline`, `message`, `composer`, `members`,
+`profile`, `picker`, `menus`, `places`, `dialogs`, `call`; `theme` holds
+the colours and `layout` what's kept in `layout.json`.
 `sync.rs` takes in what changed in the core's state after each message.
 `widgets.rs`, `field.rs` (the composer's text field), `select.rs`
 (selectable text) and `video.rs` are the client's own widgets. Overlays
-(the card, suggestions, the picker, menus, the modal) are layers of one
-stack, each over a backdrop that takes a click outside; a menu or the modal
+(the card, suggestions, the picker, menus, a dialog) are layers of one
+stack, each over a layer that takes a click outside; a menu or a dialog
 takes the keys by moving focus to an id nothing has (`app::NOBODY`).
+
+## The kit
+
+Screens build from shared pieces rather than styling their own, and take
+every colour from the theme and every repeated size from a named constant.
+When a second screen needs what a first one built, it moves here:
+
+- `controls::action`: the button of dialogs and forms (the Slint client's
+  `ActionButton`), by kind: primary, plain, ghost, danger.
+- `controls::field`: the single-line field (`TextField`).
+- `controls::lit_style`: a button with no face, or a fixed one, lit under
+  the pointer: icon buttons, list rows; `controls::ink_style` a button that
+  is only its text, brightening under the pointer.
+- `App::menu_item` with `controls::Item`: a row of a menu or a list of
+  choices (`MenuItem`), lit under the pointer or, in a context menu, where
+  the keys put the light; `controls::menu_panel` and `separator` are the
+  menu's ground and the line between its groups.
+- `controls::outside`: the full-window layer under an overlay that takes
+  a click outside it, clear, or dimmed under a dialog.
+- `dialogs::dialog`: the frame of every dialog over the dimmed window.
+- `controls::tip` and `tip_style`: the tooltip.
+- `controls::bar`: a box of one colour, for lines between parts of the
+  window, bars and dots; `controls::placed` puts a layer of a stack at a
+  point.
+- `controls::count_pill`: a count in a red pill, on a ring or not, with
+  the metrics of the rail's or a row's (`Count`).
+- `looks::Status` and `App::status_line`: what someone is up to, on one
+  line under their name (the member list, DMs, the account's card).
+- `App::glyph`: one of `ui/icons` at a size, in a colour; `Pic::boxed`
+  centres it (or any picture) in a square, for a button's face or a badge;
+  `App::icon_button` is the header's and composer's icon button.
+- `App::avatar` and `App::face`: an avatar, with its decoration and
+  presence dot.
+- `markdown.rs`: text laid out as Discord's client does (`parse`,
+  `plain`, `notice`), and drawn (`App::body_view`, `App::run_span`) as
+  selectable pieces (`select::Piece`), which follow their links.
+- `style.rs`: container grounds (`fill`, `rounded`, `corners`), the two
+  shadows, the scrollbar.
+- `widgets.rs`: `Pic`, `Animated`, the virtualized `Rows`, the anchored
+  overlays `Place` and `Above`, `PlateRow`, `Watch` and `RightPress`.
+  `Rows::measured` lays rows out at their content's height and hands the
+  heights that differ to the app with no message, apart from those below
+  the view of someone reading earlier messages. `Corner` holds a bar at a
+  row's top right over its edge, `Fold` cuts a long child with a link
+  under it, and `Scrub` says where along it it's pressed and dragged.
+- `media.rs`: `Shot`, a picture in a box (its own size, cut to cover,
+  fitted within, blurred under a cover), and `Gallery`, a message's
+  pictures laid out.
+- `App::emoji_button`: an emoji on a lit square, for quick reactions in
+  menus and the hover bar. `controls::action(..).small()` and `.icon()`
+  make an app's button; `Kind::Success` is the green one.
 
 ## The vendored toolkit
 
@@ -91,8 +316,13 @@ with Yapfast's changes, patched in through `[patch.crates-io]`; the crate
 pins iced to 0.14.0 to match. Their `README.yapfast.md` files list the
 changes, and each is marked `Yapfast port` in the source. The tiny-skia
 ones draw pictures from the app's own pixels, copy pictures and glyphs onto
-the frame directly, clip by rectangles instead of masks, merge damage, and
-draw video frames through the app's hook; the wgpu ones fix two shader
+the frame directly, clip by rectangles instead of masks, merge damage,
+draw video frames through the app's hook, keep each saved frame's
+background with it so a theme switch repaints regions an older frame
+painted in the old colour, count a shadow in its quad's damage so a
+shrinking overlay leaves no shadow behind, and keep one scaler context for
+every glyph, so fonts' hinting is set up once rather than for each text
+drawn; the wgpu ones fix two shader
 mistakes and upload large pictures in the frame.
 
 ## Tests
@@ -105,12 +335,28 @@ their id, as iced has no accessible labels yet; the client's own text
 widgets report their text for this. The tasks `update` returns (focus, the
 clipboard, timers) don't run in them, and the simulator keeps widget state
 only while it lives, so a field is clicked in the same simulator it's typed
-into. `scripts/check` lints both renderers' builds, runs the tests, and
+into. They cover the theme's switch and what it keeps, the sign-in screen
+on a data folder without an account, linking's steps and the two-factor
+prompt, the rail's unread DMs and folders, categories folding, unread
+marks and the DMs' search, switching channels with their headers and
+topics, the history's edge as earlier messages load, the unread bar's
+jump, the view staying put on earlier messages as new ones come, and
+sending from there going to the newest; `markdown.rs` has its own for Discord's Markdown. `scripts/check` lints both renderers' builds, runs the tests, and
 builds and smoke-tests the CPU build; see [building](building.md#checks).
 
 ## Not there yet
 
-The theme (the client draws in the default dark colours), sign-in (it
-starts on a saved session or the preview), settings, threads, the full
-profile, uploads, voice's controls beyond Leave, the tray, notifications,
-links, accessibility and Windows' own checks.
+Settings (Appearance among them, so themes are chosen by `theme ID` and
+custom ones are made in the Slint client), other accounts, threads, the
+full profile, uploads, voice's controls beyond Leave, the tray,
+notifications, links, accessibility and Windows' own checks. On the rail
+and in the sidebar: dragging servers, channels and people, the voice
+card beside a busy channel, the nameplates of DM rows, Wave, a server's
+banner, boost bar and events row, and the dialogs and settings its menus
+lead to (joining a server, invites, notification settings). In the header:
+calls from a DM, threads, pins, notification settings, adding people, the
+profile panel and the search. In the timeline: saving a file, a
+picture's full view, a video's full screen and volume, apps' menus
+opening, blocked people's messages folded away, the hover bar's actions
+the client doesn't have yet (Forward and the like are left out), editing
+in place, and the keyboard's way through messages.

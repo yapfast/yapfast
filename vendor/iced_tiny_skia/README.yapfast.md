@@ -55,5 +55,24 @@ marked `Yapfast port` in the source and numbered there:
     with libyuv, which the libwebrtc archive already links in; anything it
     declines draws as before.
 
+14. `window/compositor.rs`: each past frame's layers are kept with the
+    background colour they were drawn on, and a buffer whose background
+    differs is drawn whole. Stock kept one colour for all of them, so after
+    the window's background changed (a new theme), the next buffer, two
+    frames old, kept the old background wherever nothing else changed.
+
+15. `layer.rs` `Layer::damage`, `engine.rs` `shadow_reach`: a quad's
+    damage takes in its shadow's reach. Stock counted the quad's bounds
+    alone, so when a raised panel shrank or moved (the mention suggestions
+    narrowing from "@" to "@B"), its old shadow stayed outside the new one.
+
+16. `text.rs` `Pipeline`, `draw`: one `SwashCache`, the scaler context,
+    serves every glyph drawn, keeping its fonts and their hinting
+    instances. Stock made one for each text drawn, so every glyph missing
+    from the glyph cache set its font's hinting up again, running the
+    font's programs, at several times the cost of rasterizing it: a busy
+    channel's new names and messages spent most of their glyphs' time
+    there.
+
 Unmarked lines are iced's. Updating iced means taking the new
 iced_tiny_skia and carrying each marked change over.

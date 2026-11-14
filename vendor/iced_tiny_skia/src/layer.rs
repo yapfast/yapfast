@@ -217,8 +217,14 @@ impl Layer {
         let mut damage = damage::list(
             &previous.quads,
             &current.quads,
+            // Yapfast port (15): with its shadow's reach. Stock counted the
+            // quad alone, so where a raised panel shrank or moved (mention
+            // suggestions narrowing as a name is typed), the old shadow
+            // outside the new one stayed on screen.
             |(quad, _)| {
-                quad.bounds
+                let reach = crate::engine::shadow_reach(quad)
+                    .map_or(quad.bounds, |reach| reach.union(&quad.bounds));
+                reach
                     .expand(1.0)
                     .intersection(&current.bounds)
                     .into_iter()

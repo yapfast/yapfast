@@ -17,7 +17,9 @@ use iced::{
         layout, mouse, renderer,
         widget::{Operation, Tree, tree},
     },
-    gradient, window,
+    gradient,
+    widget::{Container, container},
+    window,
 };
 use yapfast_core::chat::Picture as CorePicture;
 
@@ -25,7 +27,8 @@ use crate::{app::Message, paint, pictures::Player};
 
 type Renderer = iced::Renderer;
 
-fn draw_picture(
+/// A picture drawn in `bounds`, scaled to it if it isn't its size.
+pub fn draw_picture(
     renderer: &mut Renderer,
     handle: &Handle,
     bounds: Rectangle,
@@ -77,6 +80,17 @@ impl Pic {
             radius: [0.0; 4],
             opacity: 1.0,
         }
+    }
+
+    /// A square picture, `side` across.
+    pub fn square(handle: Handle, side: f32) -> Self {
+        Self::new(handle, Size::new(side, side))
+    }
+
+    /// Centred in a box `side` across, as an icon on a button's face or a
+    /// badge; the box can be styled further.
+    pub fn boxed<'a>(self, side: impl Into<Length>) -> Container<'a, Message, Theme, Renderer> {
+        container(self).center(side)
     }
 
     pub fn at(mut self, at: Rectangle) -> Self {
@@ -322,12 +336,42 @@ impl<'a> From<Animated<'a>> for Element<'a, Message> {
 /// shift by one, as each new message does, every row got another row's
 /// state, and every paragraph was shaped again; iced's keyed column only
 /// follows one insertion or removal, not a window that slides.
+///
+/// A measured list ([`Rows::measured`]) lays each row out at the height its
+/// content takes, stacking them down from the first row's place, and
+/// reports the rows whose height differs from the one it was given, once
+/// drawn, so the app can keep the real heights: a message's Markdown,
+/// pictures and reactions are hard to know ahead.
 pub struct Rows<'a> {
     keys: Vec<u64>,
     children: Vec<Element<'a, Message>>,
     tops: Vec<f32>,
     heights: Vec<f32>,
     total: f32,
+    measured: Option<Measure>,
+}
+
+/// How a measured list reports its rows' heights, by key.
+pub type Report = fn(Vec<(u64, f32)>) -> Message;
+
+/// Heights a measured list found, by key, for the app to take in.
+pub type Found = std::rc::Rc<RefCell<Vec<(u64, f32)>>>;
+
+/// How a list measures its rows: see [`Rows::measured`].
+struct Measure {
+    report: Report,
+    found: Found,
+    /// The row (by its place among those pushed) at the view's top while
+    /// someone reads earlier ones; none while the list follows its end.
+    pivot: Option<usize>,
+}
+
+/// What a list keeps between builds: its rows' keys, in order, and the
+/// heights measured that differ from those given, not yet reported.
+#[derive(Default)]
+struct RowsState {
+    keys: Vec<u64>,
+    differ: Vec<(u64, f32)>,
 }
 
 impl<'a> Rows<'a> {
@@ -338,7 +382,25 @@ impl<'a> Rows<'a> {
             tops: Vec::new(),
             heights: Vec::new(),
             total,
+            measured: None,
         }
+    }
+
+    /// Rows take the height their content does. The list grows by what
+    /// rows above `pivot` (all of them without one) grew, so what's in view
+    /// stays put in a scrollable anchored to its end, and their heights go
+    /// in `found` for the app to take in when it next updates, at no cost
+    /// of a message and a view of their own. Rows from `pivot` on, from
+    /// the top of the view of someone reading earlier ones, run on into
+    /// the room below them instead, and their heights are reported with
+    /// `report` once drawn, so the app can keep what's read in place.
+    pub fn measured(mut self, report: Report, found: Found, pivot: Option<usize>) -> Self {
+        self.measured = Some(Measure {
+            report,
+            found,
+            pivot,
+        });
+        self
     }
 
     pub fn push(
@@ -357,15 +419,18 @@ impl<'a> Rows<'a> {
 
 impl Widget<Message, Theme, Renderer> for Rows<'_> {
     fn size(&self) -> Size<Length> {
-        Size::new(Length::Fill, Length::Fixed(self.total))
+        Size::new(Length::Fill, Length::Shrink)
     }
 
     fn tag(&self) -> tree::Tag {
-        tree::Tag::of::<Vec<u64>>()
+        tree::Tag::of::<RowsState>()
     }
 
     fn state(&self) -> tree::State {
-        tree::State::new(self.keys.clone())
+        tree::State::new(RowsState {
+            keys: self.keys.clone(),
+            ..RowsState::default()
+        })
     }
 
     fn children(&self) -> Vec<Tree> {
@@ -373,7 +438,7 @@ impl Widget<Message, Theme, Renderer> for Rows<'_> {
     }
 
     fn diff(&self, tree: &mut Tree) {
-        let keys = tree.state.downcast_mut::<Vec<u64>>();
+        let keys = &mut tree.state.downcast_mut::<RowsState>().keys;
         if *keys == self.keys {
             for (child, state) in self.children.iter().zip(&mut tree.children) {
                 state.diff(child);
@@ -400,6 +465,47 @@ impl Widget<Message, Theme, Renderer> for Rows<'_> {
         limits: &layout::Limits,
     ) -> layout::Node {
         let width = limits.max().width;
+        if let Some(measure) = &self.measured {
+            let loose = layout::Limits::new(Size::new(width, 0.0), Size::new(width, f32::INFINITY));
+            let pivot = measure.pivot.unwrap_or(usize::MAX);
+            let mut differ = Vec::new();
+            let mut found = Vec::new();
+            let mut grown = 0.0;
+            let mut next = self.tops.first().copied().unwrap_or(0.0);
+            let nodes = self
+                .children
+                .iter_mut()
+                .zip(&mut tree.children)
+                .zip(self.keys.iter().zip(&self.heights))
+                .enumerate()
+                .map(|(place, ((child, state), (&key, &height)))| {
+                    let node = child
+                        .as_widget_mut()
+                        .layout(state, renderer, &loose)
+                        .move_to((0.0, next));
+                    // Whole pixels: a row's height in halves would put the
+                    // rows after it, and in a list held to its end every
+                    // row, between pixels, where pictures and round
+                    // corners take the renderer's slow way.
+                    let measured = node.size().height.round();
+                    if (measured - height).abs() > 0.5 {
+                        if place < pivot {
+                            grown += measured - height;
+                            found.push((key, measured));
+                        } else {
+                            differ.push((key, measured));
+                        }
+                    }
+                    next += measured;
+                    node
+                })
+                .collect();
+            if !found.is_empty() {
+                measure.found.borrow_mut().extend(found);
+            }
+            tree.state.downcast_mut::<RowsState>().differ = differ;
+            return layout::Node::with_children(Size::new(width, self.total + grown), nodes);
+        }
         let nodes = self
             .children
             .iter_mut()
@@ -449,6 +555,15 @@ impl Widget<Message, Theme, Renderer> for Rows<'_> {
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
+        // The heights measured at the last layout, once it's drawn.
+        if let Some(measure) = &self.measured
+            && let iced::Event::Window(iced::window::Event::RedrawRequested(_)) = event
+        {
+            let differ = std::mem::take(&mut tree.state.downcast_mut::<RowsState>().differ);
+            if !differ.is_empty() {
+                shell.publish((measure.report)(differ));
+            }
+        }
         for ((child, state), layout) in self
             .children
             .iter_mut()
@@ -1433,5 +1548,628 @@ impl Widget<Message, Theme, Renderer> for RightPress<'_> {
 impl<'a> From<RightPress<'a>> for Element<'a, Message> {
     fn from(press: RightPress<'a>) -> Self {
         Element::new(press)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Something floating at a corner
+
+/// Its child at its own size, its right edge `right` in from the right of
+/// the space it's given and its top at `top` (which may be above that
+/// space, over what's before it), drawn in a layer of its own so it covers
+/// what it floats over: a message's hover bar over the row above.
+pub struct Corner<'a> {
+    child: Element<'a, Message>,
+    right: f32,
+    top: f32,
+}
+
+impl<'a> Corner<'a> {
+    pub fn new(child: impl Into<Element<'a, Message>>, right: f32, top: f32) -> Self {
+        Self {
+            child: child.into(),
+            right,
+            top,
+        }
+    }
+}
+
+impl Widget<Message, Theme, Renderer> for Corner<'_> {
+    fn size(&self) -> Size<Length> {
+        Size::new(Length::Fill, Length::Shrink)
+    }
+
+    fn children(&self) -> Vec<Tree> {
+        vec![Tree::new(&self.child)]
+    }
+
+    fn diff(&self, tree: &mut Tree) {
+        tree.diff_children(std::slice::from_ref(&self.child));
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut Tree,
+        renderer: &Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        let width = limits.max().width;
+        let child = self.child.as_widget_mut().layout(
+            &mut tree.children[0],
+            renderer,
+            &layout::Limits::new(Size::ZERO, Size::new(width, f32::INFINITY)),
+        );
+        let x = (width - self.right - child.size().width).max(0.0);
+        let child = child.move_to((x, self.top));
+        layout::Node::with_children(Size::new(width, 0.0), vec![child])
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        renderer: &Renderer,
+        operation: &mut dyn Operation,
+    ) {
+        if let Some(child) = layout.children().next() {
+            self.child
+                .as_widget_mut()
+                .operate(&mut tree.children[0], child, renderer, operation);
+        }
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut Tree,
+        event: &iced::Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        if let Some(child) = layout.children().next() {
+            self.child.as_widget_mut().update(
+                &mut tree.children[0],
+                event,
+                child,
+                cursor,
+                renderer,
+                clipboard,
+                shell,
+                viewport,
+            );
+        }
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &Tree,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &Renderer,
+    ) -> mouse::Interaction {
+        layout
+            .children()
+            .next()
+            .map_or_else(Default::default, |child| {
+                self.child.as_widget().mouse_interaction(
+                    &tree.children[0],
+                    child,
+                    cursor,
+                    viewport,
+                    renderer,
+                )
+            })
+    }
+
+    fn draw(
+        &self,
+        tree: &Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &renderer::Style,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        use iced::advanced::Renderer as _;
+        let Some(child) = layout.children().next() else {
+            return;
+        };
+        // Room for its shadow.
+        renderer.with_layer(child.bounds().expand(16.0), |renderer| {
+            self.child.as_widget().draw(
+                &tree.children[0],
+                renderer,
+                theme,
+                style,
+                child,
+                cursor,
+                viewport,
+            );
+        });
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut Tree,
+        layout: Layout<'b>,
+        renderer: &Renderer,
+        viewport: &Rectangle,
+        translation: Vector,
+    ) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
+        let child = layout.children().next()?;
+        self.child.as_widget_mut().overlay(
+            &mut tree.children[0],
+            child,
+            renderer,
+            viewport,
+            translation,
+        )
+    }
+}
+
+impl<'a> From<Corner<'a>> for Element<'a, Message> {
+    fn from(corner: Corner<'a>) -> Self {
+        Element::new(corner)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// A long body folded
+
+/// A body that folds once it's longer than `long` pixels: folded, it's cut
+/// off at `cut`, and `more` (Show more, or Show less unfolded) shows under
+/// it, `gap` below; a short body shows whole, without it.
+pub struct Fold<'a> {
+    body: Element<'a, Message>,
+    more: Element<'a, Message>,
+    folded: bool,
+    long: f32,
+    cut: f32,
+    gap: f32,
+}
+
+impl<'a> Fold<'a> {
+    pub fn new(
+        body: impl Into<Element<'a, Message>>,
+        more: impl Into<Element<'a, Message>>,
+        folded: bool,
+        (long, cut, gap): (f32, f32, f32),
+    ) -> Self {
+        Self {
+            body: body.into(),
+            more: more.into(),
+            folded,
+            long,
+            cut,
+            gap,
+        }
+    }
+}
+
+/// Whether the body was long at the last layout.
+#[derive(Default)]
+struct FoldState {
+    long: bool,
+}
+
+impl Widget<Message, Theme, Renderer> for Fold<'_> {
+    fn size(&self) -> Size<Length> {
+        Size::new(Length::Fill, Length::Shrink)
+    }
+
+    fn tag(&self) -> tree::Tag {
+        tree::Tag::of::<FoldState>()
+    }
+
+    fn state(&self) -> tree::State {
+        tree::State::new(FoldState::default())
+    }
+
+    fn children(&self) -> Vec<Tree> {
+        vec![Tree::new(&self.body), Tree::new(&self.more)]
+    }
+
+    fn diff(&self, tree: &mut Tree) {
+        tree.diff_children(&[&self.body, &self.more]);
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut Tree,
+        renderer: &Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        let width = limits.max().width;
+        let loose = layout::Limits::new(Size::ZERO, Size::new(width, f32::INFINITY));
+        let body = self
+            .body
+            .as_widget_mut()
+            .layout(&mut tree.children[0], renderer, &loose);
+        let long = body.size().height > self.long;
+        tree.state.downcast_mut::<FoldState>().long = long;
+        if !long {
+            let height = body.size().height;
+            let more = layout::Node::new(Size::ZERO);
+            return layout::Node::with_children(Size::new(width, height), vec![body, more]);
+        }
+        let shown = if self.folded {
+            self.cut
+        } else {
+            body.size().height
+        };
+        let more = self
+            .more
+            .as_widget_mut()
+            .layout(&mut tree.children[1], renderer, &loose)
+            .move_to((0.0, shown + self.gap));
+        let height = shown + self.gap + more.size().height;
+        layout::Node::with_children(Size::new(width, height), vec![body, more])
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        renderer: &Renderer,
+        operation: &mut dyn Operation,
+    ) {
+        let mut children = layout.children();
+        if let Some(body) = children.next() {
+            self.body
+                .as_widget_mut()
+                .operate(&mut tree.children[0], body, renderer, operation);
+        }
+        if tree.state.downcast_ref::<FoldState>().long
+            && let Some(more) = children.next()
+        {
+            self.more
+                .as_widget_mut()
+                .operate(&mut tree.children[1], more, renderer, operation);
+        }
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut Tree,
+        event: &iced::Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        let long = tree.state.downcast_ref::<FoldState>().long;
+        let shown = layout.bounds();
+        let mut children = layout.children();
+        if let Some(body) = children.next() {
+            // What's cut off takes no pointer.
+            let cursor = match cursor.position() {
+                Some(at) if self.folded && long && !shown.contains(at) => {
+                    mouse::Cursor::Unavailable
+                }
+                _ => cursor,
+            };
+            self.body.as_widget_mut().update(
+                &mut tree.children[0],
+                event,
+                body,
+                cursor,
+                renderer,
+                clipboard,
+                shell,
+                viewport,
+            );
+        }
+        if long && let Some(more) = children.next() {
+            self.more.as_widget_mut().update(
+                &mut tree.children[1],
+                event,
+                more,
+                cursor,
+                renderer,
+                clipboard,
+                shell,
+                viewport,
+            );
+        }
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &Tree,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &Renderer,
+    ) -> mouse::Interaction {
+        let long = tree.state.downcast_ref::<FoldState>().long;
+        let mut children = layout.children();
+        let body = children.next().map_or_else(Default::default, |body| {
+            self.body.as_widget().mouse_interaction(
+                &tree.children[0],
+                body,
+                cursor,
+                viewport,
+                renderer,
+            )
+        });
+        let more = match children.next() {
+            Some(more) if long => self.more.as_widget().mouse_interaction(
+                &tree.children[1],
+                more,
+                cursor,
+                viewport,
+                renderer,
+            ),
+            _ => mouse::Interaction::default(),
+        };
+        body.max(more)
+    }
+
+    fn draw(
+        &self,
+        tree: &Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &renderer::Style,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        use iced::advanced::Renderer as _;
+        let long = tree.state.downcast_ref::<FoldState>().long;
+        let mut children = layout.children();
+        let Some(body) = children.next() else {
+            return;
+        };
+        if long && self.folded {
+            let cut = Rectangle::new(body.position(), Size::new(body.bounds().width, self.cut));
+            renderer.with_layer(cut, |renderer| {
+                self.body.as_widget().draw(
+                    &tree.children[0],
+                    renderer,
+                    theme,
+                    style,
+                    body,
+                    cursor,
+                    viewport,
+                );
+            });
+        } else {
+            self.body.as_widget().draw(
+                &tree.children[0],
+                renderer,
+                theme,
+                style,
+                body,
+                cursor,
+                viewport,
+            );
+        }
+        if long && let Some(more) = children.next() {
+            self.more.as_widget().draw(
+                &tree.children[1],
+                renderer,
+                theme,
+                style,
+                more,
+                cursor,
+                viewport,
+            );
+        }
+    }
+}
+
+impl<'a> From<Fold<'a>> for Element<'a, Message> {
+    fn from(fold: Fold<'a>) -> Self {
+        Element::new(fold)
+    }
+}
+
+#[cfg(all(test, feature = "cpu"))]
+mod tests {
+    use iced::{
+        Border, Color, Font, Pixels, Rectangle, Size,
+        advanced::{
+            Renderer as _,
+            renderer::{Headless as _, Quad},
+        },
+    };
+
+    /// The pixel at `x`, `y` of a screenshot `width` wide.
+    fn pixel(rgba: &[u8], width: u32, x: u32, y: u32) -> [u8; 4] {
+        let at = ((y * width + x) * 4) as usize;
+        [rgba[at], rgba[at + 1], rgba[at + 2], rgba[at + 3]]
+    }
+
+    #[test]
+    fn a_round_quad_stays_inside_its_layers_clip() {
+        let clip = Rectangle::new(iced::Point::new(10.0, 10.0), Size::new(40.0, 20.0));
+        // Rounded, bordered and both; at whole and fractional scales; and
+        // as wide as a line of text that doesn't wrap.
+        let cases = [(4.0, 0.0), (4.0, 1.0), (0.0, 1.0)]
+            .into_iter()
+            .flat_map(|look| [(look, 1.0, 100.0), (look, 1.5, 100.0), (look, 1.25, 5000.0)]);
+        for ((radius, border), scale, width) in cases {
+            let mut renderer = iced_tiny_skia::Renderer::new(Font::default(), Pixels(16.0));
+            renderer.with_layer(clip, |renderer| {
+                renderer.fill_quad(
+                    Quad {
+                        bounds: Rectangle::new(
+                            iced::Point::new(20.0, 12.0),
+                            Size::new(width, 16.0),
+                        ),
+                        border: Border {
+                            color: Color::from_rgb(1.0, 0.0, 0.0),
+                            width: border,
+                            radius: radius.into(),
+                        },
+                        ..Quad::default()
+                    },
+                    Color::WHITE,
+                );
+            });
+            let rgba = renderer.screenshot(Size::new(200, 60), scale, Color::BLACK);
+            let at = |x: f32| ((x * scale) as u32, (20.0 * scale) as u32);
+            let (x, y) = at(30.0);
+            assert_eq!(pixel(&rgba, 200, x, y)[..3], [255, 255, 255], "inside");
+            for outside in [52.0, 80.0, 130.0] {
+                let (x, y) = at(outside);
+                assert_eq!(
+                    pixel(&rgba, 200, x, y)[..3],
+                    [0, 0, 0],
+                    "at {outside}, outside the clip: radius {radius}, border {border}, scale {scale}, width {width}"
+                );
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// A bar to move through something playing
+
+/// Its child, across which a press says where it was pressed (from 0 at
+/// its left to 1 at its right) with `seek`, and so does the pointer while
+/// it's held; letting go says `released`: a voice message's waveform.
+pub struct Scrub<'a> {
+    child: Element<'a, Message>,
+    seek: Box<dyn Fn(f32) -> Message + 'a>,
+    released: Option<Message>,
+}
+
+impl<'a> Scrub<'a> {
+    pub fn new(child: impl Into<Element<'a, Message>>, seek: impl Fn(f32) -> Message + 'a) -> Self {
+        Self {
+            child: child.into(),
+            seek: Box::new(seek),
+            released: None,
+        }
+    }
+
+    pub fn released(mut self, released: Message) -> Self {
+        self.released = Some(released);
+        self
+    }
+}
+
+/// Whether the button went down on it and is still down.
+#[derive(Default)]
+struct ScrubState {
+    held: bool,
+}
+
+impl Widget<Message, Theme, Renderer> for Scrub<'_> {
+    fn size(&self) -> Size<Length> {
+        self.child.as_widget().size()
+    }
+
+    fn tag(&self) -> tree::Tag {
+        tree::Tag::of::<ScrubState>()
+    }
+
+    fn state(&self) -> tree::State {
+        tree::State::new(ScrubState::default())
+    }
+
+    fn children(&self) -> Vec<Tree> {
+        vec![Tree::new(&self.child)]
+    }
+
+    fn diff(&self, tree: &mut Tree) {
+        tree.diff_children(std::slice::from_ref(&self.child));
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut Tree,
+        renderer: &Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        self.child
+            .as_widget_mut()
+            .layout(&mut tree.children[0], renderer, limits)
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut Tree,
+        event: &iced::Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        _renderer: &Renderer,
+        _clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, Message>,
+        _viewport: &Rectangle,
+    ) {
+        let bounds = layout.bounds();
+        let state = tree.state.downcast_mut::<ScrubState>();
+        let at = |x: f32| ((x - bounds.x) / bounds.width.max(1.0)).clamp(0.0, 1.0);
+        match event {
+            iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                if let Some(position) = cursor.position_over(bounds) {
+                    state.held = true;
+                    shell.publish((self.seek)(at(position.x)));
+                    shell.capture_event();
+                }
+            }
+            iced::Event::Mouse(mouse::Event::CursorMoved { position }) if state.held => {
+                shell.publish((self.seek)(at(position.x)));
+            }
+            iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) if state.held => {
+                state.held = false;
+                if let Some(released) = &self.released {
+                    shell.publish(released.clone());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn mouse_interaction(
+        &self,
+        _tree: &Tree,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        _viewport: &Rectangle,
+        _renderer: &Renderer,
+    ) -> mouse::Interaction {
+        if cursor.is_over(layout.bounds()) {
+            mouse::Interaction::Pointer
+        } else {
+            mouse::Interaction::default()
+        }
+    }
+
+    fn draw(
+        &self,
+        tree: &Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &renderer::Style,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        self.child.as_widget().draw(
+            &tree.children[0],
+            renderer,
+            theme,
+            style,
+            layout,
+            cursor,
+            viewport,
+        );
+    }
+}
+
+impl<'a> From<Scrub<'a>> for Element<'a, Message> {
+    fn from(scrub: Scrub<'a>) -> Self {
+        Element::new(scrub)
     }
 }

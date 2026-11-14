@@ -27,8 +27,9 @@ use crate::{
     looks::{self, MemberLine},
     members::{PITCH, TOP},
     rail::rail,
-    sidebar::{ROW, sidebar},
-    timeline::{self, MARGIN, TIMELINE, continues, row_height},
+    sidebar::sidebar,
+    theme::rgb,
+    timeline::{self, Edge, MARGIN, TIMELINE, row_height},
 };
 
 /// A list's viewport, as its scrollable last reported it.
@@ -65,26 +66,98 @@ impl Scroll {
     }
 }
 
+/// What the rail, the sidebar, the header and the history's edge are made
+/// from, as one number: the rooms' and servers' changes, where the window
+/// is, the smaller lists the sidebar shows, the topic, the history's state.
+pub fn lists_key(state: &yapfast_core::application::AppState, theme: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::hash::DefaultHasher::new();
+    (
+        state.list_changes,
+        state.category_changes,
+        &state.navigation,
+        &state.selected,
+        state.discord_online,
+        state.preview,
+        &state.voice.room,
+        state
+            .topic
+            .as_ref()
+            .map(|topic| Arc::as_ptr(topic) as usize),
+        (
+            state.room_ready,
+            state.loading_history,
+            state.history_failed,
+            state.history_start,
+        ),
+    )
+        .hash(&mut hasher);
+    (
+        &state.friends,
+        &state.friend_requests,
+        &state.discord_blocked,
+        &state.pinned,
+        theme,
+    )
+        .hash(&mut hasher);
+    hasher.finish()
+}
+
 impl App {
+    /// Makes the rail, the sidebar, the header and the history's edge
+    /// again, keeping each that comes out the same.
+    fn make_lists(&mut self) {
+        let state = self.client.state();
+        let rail = rail(state, &self.layout.open_folders);
+        if self.rail != rail {
+            self.rail = rail;
+        }
+        let home = crate::rail::home(state);
+        if self.rail_home != home {
+            self.rail_home = home;
+        }
+        let categories = match &state.navigation {
+            Navigation::Server(server) => self.client.app.categories(server),
+            Navigation::DirectMessages => Vec::new(),
+        };
+        let state = self.client.state();
+        let side = sidebar(state, &categories, &self.layout.collapsed, &self.filter);
+        if self.side != side {
+            self.side = side;
+        }
+        let head = crate::sidebar::side_header(state);
+        if self.side_header != head {
+            self.side_header = head;
+        }
+        let header = crate::header::header(state, &self.header, rgb(self.theme.mention));
+        if self.header != header {
+            self.header = header;
+        }
+        let edge = Edge::of(state);
+        if self.edge != edge {
+            self.edge = edge;
+            self.edge_changed = true;
+        }
+    }
+
     /// Takes in what changed in the client's state; returns the work that
     /// follows (a scroll, pictures to ask for, rows to report).
     pub fn sync(&mut self) -> Task<Message> {
         let state = self.client.state();
-        let rail = rail(state);
-        if self.rail != rail {
-            self.rail = rail;
+        // The lists and the header change with the rooms and servers, not
+        // with each message or presence: they're made again only then.
+        let key = lists_key(state, &self.theme.id);
+        if self.lists_shown != Some(key) {
+            self.lists_shown = Some(key);
+            self.make_lists();
         }
-        let side = sidebar(state);
-        if self.side != side {
-            self.side = side;
-        }
-        self.header = crate::header::room(state);
+        let state = self.client.state();
         self.server = matches!(state.navigation, Navigation::Server(_));
         self.in_server = looks::in_server(state.selected.as_deref());
-        self.account = (
-            state.account_name.clone().unwrap_or_default(),
-            state.account_avatar.clone(),
-        );
+        let account = crate::account::account(state);
+        if self.account != account {
+            self.account = account;
+        }
         // The card the core closed, or one showing someone else, goes.
         if self.card.is_some() && state.profile.as_ref().is_none_or(|view| view.large) {
             self.card = None;
@@ -109,6 +182,7 @@ impl App {
             self.selected = state.selected.clone();
             self.from_end = 0.0;
             self.at_end = true;
+            self.latest_due = false;
             // The composer shows the room's own draft, as the Slint client's.
             self.draft.reset(state.draft());
             self.draft_known = state.draft().to_owned();
@@ -132,26 +206,28 @@ impl App {
             }
         }
         tasks.push(self.roster(switched));
-        if !Arc::ptr_eq(&self.messages, &self.client.state().messages) {
+        let state = self.client.state();
+        let marks = (state.first_unread.clone(), state.seen.clone());
+        let edge_changed = std::mem::take(&mut self.edge_changed);
+        let messages_changed = !Arc::ptr_eq(&self.messages, &self.client.state().messages);
+        if messages_changed || edge_changed || self.marks_for != marks {
+            self.marks_for = marks;
+            // While someone reads earlier messages, what they read stays
+            // put as messages come, go or change around it.
+            let reading = if switched { None } else { self.reading() };
             let messages = self.client.state().messages.clone();
             let old = std::mem::replace(&mut self.messages, messages);
-            let old_total = self.total_height();
-            let below = self.measure(&old);
-            // Rows added below while the person reads earlier ones: keep
-            // those rows in view (the scrollable keeps the distance from the
-            // end, which suits rows added above and following the end).
-            if !switched && !self.at_end && below > 0.0 && self.total_height() > old_total {
-                self.from_end += below;
-                tasks.push(operation::scroll_to(
-                    TIMELINE,
-                    AbsoluteOffset {
-                        x: None,
-                        y: Some(self.from_end),
-                    },
-                ));
+            self.measure(&old, edge_changed);
+            tasks.push(self.keep_reading(reading));
+            // Sent from a window of older messages, or Jump to present: the
+            // newest show at the end once they've replaced the window.
+            if messages_changed && !self.client.state().detached && self.latest_due {
+                self.latest_due = false;
+                tasks.push(self.go_to_end());
             }
             tasks.push(self.report());
         }
+        tasks.push(self.follow_jumps());
         // Images of pictures the core let go of go too.
         self.previews.borrow_mut().prune(1);
         for converted in self.scaled.borrow_mut().values_mut() {
@@ -177,6 +253,39 @@ impl App {
         }
         self.place_videos();
         tasks.push(self.ask());
+        self.sync_sign_in();
+        tasks.push(self.sync_mfa());
+        tasks.push(self.follow_backend());
+        Task::batch(tasks)
+    }
+
+    /// A backend started (signing in, linking Discord, a saved session) or
+    /// linking began: their events come as messages, and whatever came from
+    /// the one before stops, as the Slint client aborts its old listener.
+    fn follow_backend(&mut self) -> Task<Message> {
+        let mut tasks = Vec::new();
+        if let Some(events) = self.client.take_events() {
+            let (task, handle) = Task::run(crate::app::batches(events), Message::Events)
+                .chain(Task::done(Message::Stopped))
+                .abortable();
+            self.backend_events = Some(handle.abort_on_drop());
+            tasks.push(task);
+        }
+        if let Some(progress) = self.client.take_linking() {
+            let (task, handle) = Task::run(
+                iced::futures::stream::unfold(progress, |mut progress| async move {
+                    let step = progress.recv().await?;
+                    Some((step, progress))
+                }),
+                Message::Linking,
+            )
+            .abortable();
+            self.linking = Some(handle.abort_on_drop());
+            tasks.push(task);
+        }
+        if self.client.link_stopped() {
+            self.linking = None;
+        }
         Task::batch(tasks)
     }
 
@@ -224,9 +333,12 @@ impl App {
             return;
         }
         let lines = match &members {
-            Some(members) => {
-                looks::member_lines(state, members, self.client.server_owner().as_deref())
-            }
+            Some(members) => looks::member_lines(
+                state,
+                members,
+                self.client.server_owner().as_deref(),
+                self.theme.dark,
+            ),
             None => Vec::new(),
         };
         if lines != self.lines {
@@ -241,50 +353,108 @@ impl App {
         self.tops.last().copied().unwrap_or(0.0)
     }
 
-    /// Works out the rows' heights for the current messages, reusing those
-    /// of rows that, with the row before them, are the same as in `old`.
-    /// Returns the height of the rows added after `old`'s last.
-    pub fn measure(&mut self, old: &Messages) -> f32 {
-        let messages = &self.messages;
-        let shift = old.first().and_then(|first| {
-            messages
-                .iter()
-                .position(|message| Arc::ptr_eq(message, first))
-        });
-        let mut heights = Vec::with_capacity(messages.len());
-        for index in 0..messages.len() {
-            let same = shift
-                .and_then(|shift| index.checked_sub(shift))
-                .filter(|&before| {
-                    before < old.len()
-                        && before < self.heights.len()
-                        && Arc::ptr_eq(&old[before], &messages[index])
-                        && (index == 0
-                            || (before > 0 && Arc::ptr_eq(&old[before - 1], &messages[index - 1])))
-                });
-            heights.push(match same {
-                Some(before) => self.heights[before],
-                None => row_height(&messages[index], continues(messages, index), self.width),
-            });
-        }
-        let below = old
-            .last()
-            .and_then(|last| {
+    /// Works out the rows' looks and heights for the current messages,
+    /// keeping the text laid out for messages that are the same `Arc` as in
+    /// `old`, and the heights of those laid out the same way; row 0's only
+    /// while the history's edge is the same.
+    pub fn measure(&mut self, old: &Messages, edge_changed: bool) {
+        let messages = self.messages.clone();
+        // Where the old rows are among the new: earlier history goes in
+        // above them, and the oldest go as the newest come. The core makes
+        // every message anew when names or roles change, so rows are found
+        // by their item.
+        let shift: Option<isize> = old
+            .first()
+            .and_then(|first| {
                 messages
                     .iter()
-                    .rposition(|message| message.item == last.item)
+                    .position(|message| message.item == first.item)
+                    .map(|at| at as isize)
             })
-            .map_or(0.0, |last| heights[last + 1..].iter().sum());
+            .or_else(|| {
+                messages.first().and_then(|first| {
+                    old.iter()
+                        .position(|message| message.item == first.item)
+                        .map(|at| -(at as isize))
+                })
+            });
+        let old_looks = std::mem::take(&mut self.looks);
+        let before = |index: usize| {
+            shift
+                .and_then(|shift| usize::try_from(index as isize - shift).ok())
+                .filter(|&before| {
+                    before < old.len()
+                        && before < old_looks.len()
+                        && old[before].item == messages[index].item
+                })
+        };
+        // The same message: its look and height stay.
+        let old_at = |index: usize| {
+            before(index).filter(|&before| {
+                Arc::ptr_eq(&old[before], &messages[index]) || old[before] == messages[index]
+            })
+        };
+        // Its text the same: its text's layout stays.
+        let same_text = |index: usize| {
+            before(index).filter(|&before| timeline::same_text(&old[before], &messages[index]))
+        };
+        let (mention, ink, muted) = (
+            rgb(self.theme.mention),
+            rgb(self.theme.text),
+            rgb(self.theme.muted),
+        );
+        let revealed = &self.revealed;
+        let looks = timeline::row_looks(
+            &messages,
+            self.client.state(),
+            |index| old_at(index).map(|before| &old_looks[before]),
+            |index| {
+                if let Some(before) = same_text(index) {
+                    return old_looks[before].body.clone();
+                }
+                let message = &messages[index];
+                Arc::new(timeline::body_of(message, mention, ink, muted, |spoiler| {
+                    revealed.contains(&format!("{}/{spoiler}", message.item))
+                }))
+            },
+        );
+        let edge = self.edge.height();
+        let heights: Vec<f32> = looks
+            .iter()
+            .enumerate()
+            .map(|(index, look)| {
+                let same = old_at(index).filter(|&before| {
+                    before < self.heights.len()
+                        && old_looks[before].same_place(look)
+                        && (before == 0) == (index == 0)
+                        && !(index == 0 && edge_changed)
+                });
+                match same {
+                    Some(before) => self.heights[before],
+                    None => row_height(
+                        &messages[index],
+                        look,
+                        self.width,
+                        if index == 0 { edge } else { 0.0 },
+                    ),
+                }
+            })
+            .collect();
+        self.looks = looks;
+        self.heights = heights;
+        self.place_rows();
+    }
+
+    /// Where each row starts, from the rows' heights.
+    pub fn place_rows(&mut self) {
         self.tops.clear();
-        self.tops.reserve(heights.len() + 1);
+        self.tops.reserve(self.heights.len() + 1);
         let mut top = 0.0;
         self.tops.push(top);
-        for height in &heights {
+        for height in &self.heights {
             top += height;
             self.tops.push(top);
         }
-        self.heights = heights;
-        below
     }
 
     /// The timeline's viewport moved or changed size.
@@ -296,7 +466,8 @@ impl App {
         if (width - self.width).abs() > 1.0 {
             self.width = width;
             self.heights.clear();
-            self.measure(&Messages::default());
+            let same = self.messages.clone();
+            self.measure(&same, true);
         }
         Task::batch([self.report(), self.ask()])
     }
@@ -353,16 +524,52 @@ impl App {
         };
         for item in &self.rail {
             want(item.icon.as_deref());
+            if let crate::rail::Kind::Folder {
+                open: false,
+                preview,
+                ..
+            } = &item.kind
+            {
+                for (_, icon) in preview {
+                    want(icon.as_deref());
+                }
+            }
         }
-        let (first, last) = self.side_scroll.range(self.side.len(), ROW, 0.0);
-        for item in &self.side[first..last] {
-            want(item.avatar.as_deref());
+        let mut top = 0.0;
+        let (from, to) = (
+            self.side_scroll.offset - MARGIN,
+            self.side_scroll.offset + self.side_scroll.height + MARGIN,
+        );
+        for row in &self.side {
+            let height = row.height();
+            if let crate::sidebar::SideRow::Room(room) = row
+                && top + height >= from
+                && top <= to
+            {
+                want(room.avatar.as_deref());
+                want(room.status.emoji.as_deref());
+                for person in &room.people {
+                    want(person.avatar.as_deref());
+                }
+            }
+            top += height;
         }
-        want(self.account.1.as_deref());
+        want(self.account.avatar.as_deref());
+        want(self.header.avatar.as_deref());
+        want(self.account.status.emoji.as_deref());
         let (first, last) = self.in_view(MARGIN);
         for index in first..last {
             let message = &self.messages[index];
-            if continues(&self.messages, index) {
+            if let Some(reply) = &message.reply {
+                want(reply.avatar.as_deref());
+            }
+            if let Some(used) = &message.used {
+                want(used.avatar.as_deref());
+            }
+            for emoji in &message.emoji {
+                want(Some(&emoji.picture));
+            }
+            if !self.looks.get(index).is_some_and(|look| look.first) {
                 continue;
             }
             want(message.avatar.as_deref());
@@ -387,7 +594,7 @@ impl App {
                     want(look.nameplate.as_ref().map(|(picture, _)| &**picture));
                     want(look.role_icon.as_deref());
                     want(look.tag.as_ref().and_then(|(_, badge)| badge.as_deref()));
-                    want(look.activity_emoji.as_deref());
+                    want(look.status.emoji.as_deref());
                     if self.pointed_member.as_ref() == Some(&look.id) {
                         want(
                             look.decoration

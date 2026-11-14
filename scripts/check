@@ -103,12 +103,17 @@ if [[ $matrix ]]; then
   run test-matrix cargo test --locked "${profile[@]}" --workspace --exclude yapfast-iced "${full[@]}"
   run clippy-matrix-only "${clippy[@]}" -p yapfast -p yapfast-core -p feature-union \
     --no-default-features --features yapfast/desktop,yapfast/matrix,yapfast-core/matrix -- -D warnings
+  # The iced client with Matrix, which signs in with Matrix instead of
+  # linking Discord.
+  iced_matrix=(-p yapfast -p yapfast-iced --no-default-features --features iced,matrix)
+  run clippy-iced-matrix "${clippy[@]}" "${iced_matrix[@]}" -- -D warnings
+  run test-iced-matrix cargo test --locked "${profile[@]}" "${iced_matrix[@]}"
   # The headless build, in a target directory of its own, so its binary stays
   # out of target/<profile>/.
   export CARGO_TARGET_DIR=target/check-combinations
   run clippy-headless "${clippy[@]}" -p yapfast --no-default-features --features matrix,discord -- -D warnings
   run smoke-headless cargo run --locked "${profile[@]}" --no-default-features --features matrix,discord -- --smoke-test
-  steps+=(clippy-matrix test-matrix clippy-matrix-only clippy-headless smoke-headless)
+  steps+=(clippy-matrix test-matrix clippy-matrix-only clippy-iced-matrix test-iced-matrix clippy-headless smoke-headless)
 fi
 
 failed=()

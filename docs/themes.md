@@ -3,11 +3,18 @@
 Settings → Appearance shows the window in one of the themes Yapfast comes with,
 or one of the person's own. Each is a full set of the colours of the Slint
 global `Theme` (`ui/theme.slint`), plus whether it's dark, which sets the
-std-widgets' colour scheme and the scrollbars'. `src/ui/theme.rs` holds the built-in ones as
-`BUILT_IN`; `ui/theme.slint` says what each colour paints. The choice
-is kept in `layout.json` as `theme`, the theme's id, and applied before the
-window's first frame, and again to a window made anew. An id Yapfast doesn't
-know, or a deleted theme's, shows Yap.
+std-widgets' colour scheme and the scrollbars'. `yapfast_core::theme`
+(`crates/yapfast-core/src/theme.rs`) holds the built-in ones as `BUILT_IN`,
+reads custom themes and hex colours, and is shared by both clients;
+`src/ui/theme.rs` sets them on the Slint global, and `ui/theme.slint` says
+what each colour paints. The choice is kept in `layout.json` as `theme`, the
+theme's id, and applied before the window's first frame, and again to a
+window made anew. An id Yapfast doesn't know, or a deleted theme's, shows
+Yap.
+
+The [iced client](iced-client.md#theme) reads the same `layout.json`: the
+same id and custom themes show the same colours there, and its `theme ID`
+window-control command chooses and keeps one as Appearance does.
 
 ## Custom themes
 

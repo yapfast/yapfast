@@ -7,9 +7,9 @@
 //! heap back to the system), `close` and `quit` (no tray yet, so both end
 //! the app), `hide` and `show`, `stage PATH` and `stage-aside PATH` (a file
 //! for the next message), `pick KIND PATH` (a picture for a profile or a
-//! server's settings). `open`, `create`, `destroy` and `theme ID` need the
-//! tray and the themes, which the iced client doesn't have yet; it logs
-//! them.
+//! server's settings), `theme ID` (a theme, built in or custom, as
+//! Appearance chooses it). `open`, `create` and `destroy` need the tray,
+//! which the iced client doesn't have yet; it logs them.
 
 use std::{collections::VecDeque, path::PathBuf, time::Duration};
 
@@ -60,6 +60,8 @@ pub enum Command {
     /// An action for the application, as the window's own controls would
     /// dispatch.
     Act(Action),
+    /// Show and keep a theme, by its id.
+    Theme(String),
     /// A command for what the iced client doesn't have yet.
     Later,
     Unknown,
@@ -81,8 +83,8 @@ pub fn parse(command: &str) -> Command {
             } else if let Some(rest) = command.strip_prefix("pick ") {
                 let (kind, path) = rest.split_once(' ').unwrap_or_default();
                 Command::Act(pick(kind, PathBuf::from(path)))
-            } else if command.starts_with("theme ") {
-                Command::Later
+            } else if let Some(id) = command.strip_prefix("theme ") {
+                Command::Theme(id.to_owned())
             } else {
                 Command::Unknown
             }
@@ -158,7 +160,8 @@ mod tests {
                 ..
             })
         ));
-        assert!(matches!(parse("theme sakura"), Command::Later));
+        assert!(matches!(parse("theme sakura"), Command::Theme(id) if id == "sakura"));
+        assert!(matches!(parse("open"), Command::Later));
         assert!(matches!(parse("dance"), Command::Unknown));
     }
 }
