@@ -464,7 +464,9 @@ Ctrl with + or -, or with the scroll wheel, zooms the whole window, text and
 layout together, from 50% to 200%: 5% a step up to 150%, then 10%. Ctrl+0
 returns to 100%. The level shows
 for a moment at the top and is kept in `layout.json`. Yapfast multiplies the
-display's scale factor by it, so the window lays out in fewer logical pixels,
+display's scale factor by it — the scale of the monitor the window is on,
+which Windows' HIGHDPIAWARE compatibility setting can otherwise hold to the
+primary display's — so the window lays out in fewer logical pixels,
 and zooming in stops before those would fall below the window's 800×560
 minimum, which would make it grow.
 

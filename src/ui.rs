@@ -419,9 +419,14 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                     slint::Timer::single_shot(Duration::ZERO, move || {
                         let Some(window) = weak.upgrade() else { return };
                         if std::env::var("SLINT_SCALE_FACTOR").is_err()
-                            && let Some(scale) = window
-                                .window()
-                                .with_winit_window(|winit| winit.scale_factor() as f32)
+                            && let Some(scale) = window.window().with_winit_window(|winit| {
+                                zoom::display_scale(
+                                    winit
+                                        .current_monitor()
+                                        .map(|monitor| monitor.scale_factor() as f32),
+                                    winit.scale_factor() as f32,
+                                )
+                            })
                         {
                             base.set(scale);
                         }
@@ -513,8 +518,13 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                     move_loop::moved(&weak);
                     // Once for the events a move or resize sends together.
                     if !placing.replace(true) {
-                        let (weak, adapter, placing) =
-                            (weak.clone(), adapter.clone(), placing.clone());
+                        let (weak, adapter, placing, base, level) = (
+                            weak.clone(),
+                            adapter.clone(),
+                            placing.clone(),
+                            base.clone(),
+                            level.clone(),
+                        );
                         slint::Timer::single_shot(Duration::ZERO, move || {
                             placing.set(false);
                             if let (Some(adapter), Some(window)) =
@@ -522,6 +532,26 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                             {
                                 window.set_window_maximized(window.window().is_maximized());
                                 placement::moved(&mut adapter.borrow_mut(), &window);
+                            }
+                            // A window held to one display's density, as by
+                            // Windows' HIGHDPIAWARE compatibility setting, is
+                            // sent no ScaleFactorChanged on the others. The
+                            // monitor it has come to still names its own
+                            // scale, so a move can already mean another one.
+                            if let Some(window) = weak.upgrade()
+                                && std::env::var("SLINT_SCALE_FACTOR").is_err()
+                                && let Some(scale) = window
+                                    .window()
+                                    .with_winit_window(|winit| {
+                                        winit
+                                            .current_monitor()
+                                            .map(|monitor| monitor.scale_factor() as f32)
+                                    })
+                                    .flatten()
+                                && (scale - base.get()).abs() >= f32::EPSILON
+                            {
+                                base.set(scale);
+                                zoom::apply(window.window(), base.get(), level.get());
                             }
                         });
                     }
