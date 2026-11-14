@@ -1294,6 +1294,7 @@ export component YapfastWindow inherits Window {
     in-out property <int> animate;
     in-out property <bool> unmute-on-join;
     in-out property <bool> deafen-on-join;
+    in-out property <int> alone-timeout: 10;
     in-out property <bool> level-voice: true;
     in-out property <int> noise-suppression;
     /// The suppression the call panel's toggle turns back on: the one last
@@ -4404,7 +4405,7 @@ export component YapfastWindow inherits Window {
             speakers: root.speakers; speaker-index <=> root.speaker-index;
             cameras: root.cameras; camera-index <=> root.camera-index;
             camera-testing <=> root.camera-testing; camera-preview: root.camera-preview; camera-note: root.camera-note;
-            unmute-on-join <=> root.unmute-on-join; level-voice <=> root.level-voice;
+            unmute-on-join <=> root.unmute-on-join; alone-timeout <=> root.alone-timeout; level-voice <=> root.level-voice;
             noise-suppression <=> root.noise-suppression; noise-strength <=> root.noise-strength; dereverb <=> root.dereverb; discord: root.discord-linked;
             windows-effects <=> root.windows-effects; windows-effects-choice: root.windows-effects-choice;
             sensitivity <=> root.sensitivity; gate-level: root.gate-level; gate-sending: root.gate-sending; gate-meter-note: root.gate-meter-note;

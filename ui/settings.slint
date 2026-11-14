@@ -506,6 +506,7 @@ export component VoiceSettings inherits VerticalLayout {
     in property <image> camera-preview;
     in property <string> camera-note;
     in-out property <bool> unmute-on-join;
+    in-out property <int> alone-timeout: 10;
     in-out property <bool> level-voice;
     /// What suppresses noise in Discord calls: 0 DeepFilterNet, 1 RNNoise, 2
     /// nothing; and how far: 0 full, 1 medium, 2 light.
@@ -646,6 +647,20 @@ export component VoiceSettings inherits VerticalLayout {
         description: "Keeps your voice steady as you lean towards the microphone or away from it. Whispers and shouts still come through as they are.";
         checked <=> root.level-voice;
         toggled => { root.preferences-changed(); }
+    }
+    if root.discord: VerticalLayout {
+        spacing: 8px;
+        SettingsHeading { text: "PRIVATE CALLS"; }
+        VolumeSlider {
+            label: "Leave a call when you're alone";
+            value <=> root.alone-timeout;
+            maximum: 120;
+            step: 1;
+            full-mark: false;
+            shown: self.value == 0 ? "Never" : self.value == 60 ? "1 hour" : self.value + " min";
+            committed => { root.preferences-changed(); }
+        }
+        Label { text: "Choose Never to stay connected, or 1–120 minutes. The timer starts when everyone else leaves a Discord DM or group call and stops if someone joins. Server voice channels stay connected."; }
     }
     if root.discord: VerticalLayout {
         spacing: 8px;
