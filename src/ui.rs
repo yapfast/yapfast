@@ -2227,7 +2227,7 @@ struct Adapter {
     /// What the person did with what a plugin drew, as the window dispatched
     /// it, for the tests that check a click produces one. Delivering it is the
     /// application's, which owns the bridge, so this is the shell's half only.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "plugins"))]
     plugin_inputs: std::cell::RefCell<Vec<yapfast_core::plugins::Input>>,
     /// What a page's request set off, to run once the page has let go of its
     /// own borrow: see `defer`.
@@ -2554,7 +2554,7 @@ impl Adapter {
                 emoji_rows_filled: (0, 0),
                 emoji_grid: Default::default(),
                 app,
-                #[cfg(test)]
+                #[cfg(all(test, feature = "plugins"))]
                 plugin_inputs: std::cell::RefCell::new(Vec::new()),
                 #[cfg(feature = "plugins")]
                 deferred: Vec::new(),
@@ -3213,7 +3213,7 @@ impl Adapter {
     }
 
     fn action(&mut self, window: &YapfastWindow, action: Action) {
-        #[cfg(test)]
+        #[cfg(all(test, feature = "plugins"))]
         if let Action::PluginInput(input) = &action {
             self.plugin_inputs.borrow_mut().push(input.clone());
         }

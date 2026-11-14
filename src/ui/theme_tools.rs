@@ -43,6 +43,35 @@ fn data_dir(arguments: &mut Vec<String>) -> Result<PathBuf, String> {
     }
 }
 
+/// Installs a checked local theme folder into the active theme store.
+pub fn run_install(arguments: &[String]) -> i32 {
+    theme_look::register_bases();
+    let result = (|| -> Result<(), String> {
+        let mut args = arguments.to_vec();
+        let data = data_dir(&mut args)?;
+        let args = positional(
+            &args,
+            "usage: yapfast theme install <folder> [--data-dir <folder>]",
+        )?;
+        if args.len() != 1 {
+            return Err("usage: yapfast theme install <folder> [--data-dir <folder>]".into());
+        }
+        let fetched = yapfast_core::themes::install::Fetched::local(Path::new(&args[0]))?;
+        Themes::open(&data)
+            .install(&fetched)
+            .map_err(|error| format!("{error:#}"))?;
+        println!("Installed {}", fetched.package().id);
+        Ok(())
+    })();
+    match result {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("{error}");
+            1
+        }
+    }
+}
+
 /// The person's name for a theme they make here: `--author`, or their
 /// account's name on this computer.
 fn author(arguments: &mut Vec<String>) -> Result<String, String> {

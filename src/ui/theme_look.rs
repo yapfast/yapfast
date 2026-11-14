@@ -1872,6 +1872,7 @@ pub fn marketplace(_: &YapfastWindow) -> Vec<Listed> {
 /// Fills the Themes tab: installed themes, and the marketplace's.
 pub fn show_page(window: &YapfastWindow, listed: &[Listed]) {
     let page = window.global::<ThemesPage>();
+    page.set_url_available(cfg!(feature = "plugins"));
     let query = page.get_query().to_lowercase();
     let applied = applied_id();
     let installed: Vec<ThemeListing> = STATE.with_borrow(|state| {
@@ -2371,6 +2372,36 @@ mod tests {
         Themes::open(data.path()).install(&fetched).unwrap();
         init(data.path());
         data
+    }
+
+    #[test]
+    fn six_local_themes_install_load_and_switch() {
+        let root = std::env::var_os("YAPFAST_TEST_THEMES")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("themes"));
+        let data = tempfile::tempdir().unwrap();
+        register_bases();
+        let store = Themes::open(data.path());
+        let mut ids = Vec::new();
+        for name in [
+            "bubblegum",
+            "daydream",
+            "eyeliner",
+            "hurt",
+            "phosphor",
+            "zine",
+        ] {
+            let fetched = Fetched::local(&root.join(name)).unwrap();
+            ids.push(fetched.package().id.clone());
+            store.install(&fetched).unwrap();
+        }
+        assert_eq!(store.installed().len(), 6);
+        init(data.path());
+        let window = window();
+        for id in ids {
+            show(&window, &format!("{INSTALLED}{id}"))
+                .unwrap_or_else(|error| panic!("{id}: {error}"));
+        }
     }
 
     fn stock_shape() -> Shape {

@@ -2665,6 +2665,7 @@ impl Adapter {
                         activity_detail,
                         // What plugins badge them with, which a plugin that
                         // hasn't answered yet leaves empty.
+                        #[cfg(feature = "plugins")]
                         plugin: state
                             .plugin_slots
                             .as_ref()
@@ -4410,10 +4411,9 @@ impl Adapter {
                 self.unhidden(&state.messages),
             );
             #[cfg(not(feature = "plugins"))]
-            let (hidden_shown, hidden_timeline): (
-                Option<Vec<Arc<ChatMessage>>>,
-                Option<Vec<Arc<ChatMessage>>>,
-            ) = (None, None);
+            let hidden_shown: Option<Vec<Arc<ChatMessage>>> = None;
+            #[cfg(not(feature = "plugins"))]
+            let hidden_timeline: Option<Vec<Arc<ChatMessage>>> = None;
             let built_for = hidden_shown.as_ref().map_or(self.messages.len(), Vec::len);
             if hidden_changed || built_for != self.rows.len() {
                 // The list the rows were built for is another one now, so they
@@ -5104,6 +5104,7 @@ impl Adapter {
     ///
     /// It is shown again on its own when a plugin says how its person looks:
     /// that changes the card and nothing else on screen.
+    #[cfg(feature = "plugins")]
     pub(super) fn show_profile_card(&mut self, window: &YapfastWindow) {
         self.show_profile(window);
     }

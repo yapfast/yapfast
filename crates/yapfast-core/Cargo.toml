@@ -23,10 +23,8 @@ test-fixtures = []
 # The plugin system's state: manifests, the changes they make to the
 # interface and their settings (docs/plugins/interface.md), the registry of
 # what is enabled, the permissions and network gate in front of it, and the
-# bridge to the `yapfast-plugins` helper. Every build Yapfast ships carries
-# it: `yapfast` defaults to `plugins`, and `yapfast-plugin-host` is a default
-# member only because of it. What the feature buys is the choice of leaving
-# that state out, as `--no-plugins` does for one run: without it there is no
+# bridge to the `yapfast-plugins` helper. This is opt-in; build the helper
+# separately when packaging plugins. Without the feature there is no
 # registry, no gate, and none of the dependencies they need (the HTTP client
 # alone is a TLS stack), and a plugin's commands are not in the `/` picker.
 # The wire types the helper speaks, `yapfast-plugin-api`, are compiled in

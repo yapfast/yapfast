@@ -2129,6 +2129,8 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     });
     let state = adapter.clone();
     let weak = window.as_weak();
+    #[cfg(test)]
+    let _ = (&state, &weak);
     window.on_open_link(move |link| {
         // A blocked message shows when asked for.
         if let Some(item) = link.strip_prefix(BLOCKED_LINK) {

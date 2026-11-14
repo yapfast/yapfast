@@ -64,6 +64,7 @@ export struct ThemeReview {
 export global ThemesPage {
     /// 0 Marketplace, 1 Installed, 2 Add from URL.
     in property <int> tab: 1;
+    in property <bool> url-available: false;
     /// How Installed draws themes: 0 a list, 1 cards.
     in-out property <int> view: 1;
     in property <[ThemeListing]> installed;
@@ -309,7 +310,7 @@ export component ThemesSettings inherits Rectangle {
         spacing: 16px;
         SettingsTitle { title: "Themes"; }
         Choices {
-            label: "Themes"; options: ["Marketplace", "Installed", "Add from URL"];
+            label: "Themes"; options: ThemesPage.url-available ? ["Marketplace", "Installed", "Add from URL"] : ["Marketplace", "Installed"];
             current: ThemesPage.tab; controlled: true;
             chosen(index) => { ThemesPage.tab-chosen(index); }
         }
@@ -347,9 +348,9 @@ export component ThemesSettings inherits Rectangle {
                 if ThemesPage.installed.length == 0: EmptyState {
                     icon: IconPack.brush;
                     title: "No themes yet";
-                    text: "Find one in the Marketplace, or add one from its GitHub repository. Themes change how Yapfast looks and never what it does.";
+                    text: ThemesPage.url-available ? "Find one in the Marketplace, or add one from its GitHub repository. Themes change how Yapfast looks and never what it does." : "Install a local theme with yapfast theme install <folder>.";
                     ActionButton { text: "Browse the Marketplace"; primary: true; clicked => { ThemesPage.tab-chosen(0); } }
-                    ActionButton { text: "Add from URL"; clicked => { ThemesPage.tab-chosen(2); } }
+                    if ThemesPage.url-available: ActionButton { text: "Add from URL"; clicked => { ThemesPage.tab-chosen(2); } }
                 }
                 if ThemesPage.installed.length > 0: HorizontalLayout {
                     vertical-stretch: 0; spacing: 8px;

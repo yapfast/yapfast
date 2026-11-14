@@ -207,7 +207,14 @@ Plugins is: *Marketplace*, *Installed* (as a list or cards) and *Add from
 URL*. Appearance keeps the built-in and custom colour themes, says which
 installed theme shows, and has *Browse themes*, which opens the page.
 
-A theme installs the way a plugin does (`PLAN.md` §8): *Add from URL* asks the `yapfast-plugins fetch` helper to read the
+Install a local folder with `yapfast theme install path/to/theme` (add
+`--data-dir path/to/data` to select a data directory). The folder is checked
+and copied into a content-addressed store; select the installed theme in
+Settings → Themes. Without the plugins feature the store and lock file are
+`<data>/themes/store/` and `<data>/themes/lock.json`. The URL control and
+plugin catalog are unavailable in that configuration.
+
+With the plugins feature, *Add from URL* asks the `yapfast-plugins fetch` helper to read the
 repository with gix at one commit. The helper reads `theme.json` and only the
 files it names (fonts, pictures and sounds by their extension) plus a licence
 file, at most 256 files, each at most 4 MiB and 24 MiB together, with no checkout, symlink or LFS

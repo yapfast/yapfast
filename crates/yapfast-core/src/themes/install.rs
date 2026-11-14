@@ -1,26 +1,8 @@
-//! Installed themes, in the plugin directory beside plugins.
+//! Installed themes are checked and pinned in a content-addressed store.
 //!
-//! A theme installs like a plugin and is pinned the same way (`PLAN.md` §8):
-//! the helper fetches its repository with gix at one commit, the files are
-//! checked here, and they're written content-addressed into
-//! `<data>/plugins/store/<sha256>/`, which `lock.json` names under `themes`:
-//!
-//! ```json
-//! { "version": 1, "plugins": { … },
-//!   "themes": { "com.example.vaporwave": {
-//!       "source": "https://github.com/ada/vaporwave", "path": "", "ref": "main",
-//!       "rev": "051b765b…", "store": "9f1c…", "manifest_sha256": "…",
-//!       "origin": "url", "previous": { … } } } }
-//! ```
-//!
-//! The lock file is edited as JSON, as the plugin store edits it, so neither
-//! drops the other's entries; the plugin store never reads `themes`, and its
-//! clean-up only removes directories its own entries named. A theme never
-//! runs anything, so it has no grants, no data directory and no enabled
-//! switch: whether it shows is Appearance's choice.
-//!
-//! Only public GitHub repositories are accepted for themes, for now, so every
-//! file has a public history and an accountable account.
+//! With plugins enabled the store and lock file are shared with plugins;
+//! otherwise they live under `<data>/themes`. Local folders can be installed
+//! in either configuration, while repository fetching requires plugins.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -84,6 +66,24 @@ impl Fetched {
         })
     }
 
+    /// Reads and validates a local folder for installation.
+    pub fn local(folder: &Path) -> Result<Self, String> {
+        let folder = fs::canonicalize(folder).map_err(|error| error.to_string())?;
+        let files = Files::read(&folder)?;
+        let report = check::check(&files, Strictness::Install);
+        if let Some(reason) = report.reason() {
+            return Err(format!("This theme can't be installed: {reason}"));
+        }
+        Ok(Self {
+            source: folder.to_string_lossy().into_owned(),
+            path: String::new(),
+            reference: String::new(),
+            rev: String::new(),
+            files,
+            report,
+        })
+    }
+
     pub fn package(&self) -> &Package {
         self.report
             .package
@@ -122,16 +122,20 @@ pub struct Installed {
     pub package: Package,
 }
 
-/// The themes half of the plugin directory.
+/// The installed theme store.
 pub struct Themes {
     root: PathBuf,
 }
 
 impl Themes {
-    /// Points at `<data>/plugins`, creating nothing.
+    /// Points at the plugin store when enabled, or the standalone theme store.
     pub fn open(data_dir: &Path) -> Self {
         Themes {
-            root: data_dir.join("plugins"),
+            root: data_dir.join(if cfg!(feature = "plugins") {
+                "plugins"
+            } else {
+                "themes"
+            }),
         }
     }
 
@@ -238,7 +242,7 @@ impl Themes {
             "path": fetched.path,
             "ref": if fetched.reference.is_empty() { "HEAD" } else { fetched.reference.as_str() },
             "rev": fetched.rev,
-            "origin": "url",
+            "origin": if check::github(&fetched.source) { "url" } else { "local" },
             "store": address,
             "manifest_sha256": manifest_sha256,
         });
@@ -307,7 +311,11 @@ impl Themes {
         let text = match fs::read_to_string(&path) {
             Ok(text) => text,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(serde_json::json!({ "version": LOCK_VERSION, "plugins": {} }));
+                return Ok(if cfg!(feature = "plugins") {
+                    serde_json::json!({ "version": LOCK_VERSION, "plugins": {} })
+                } else {
+                    serde_json::json!({ "version": LOCK_VERSION, "themes": {} })
+                });
             }
             Err(error) => {
                 return Err(error).with_context(|| format!("could not read {}", path.display()));
@@ -449,6 +457,28 @@ mod tests {
             files(version, chat),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn local_folder_installs_into_the_configured_store() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("source");
+        fs::create_dir(&source).unwrap();
+        fs::write(source.join(MANIFEST), files("1.0.0", "#2a1a3a").manifest).unwrap();
+        let themes = Themes::open(directory.path());
+        assert_eq!(
+            themes.root(),
+            directory.path().join(if cfg!(feature = "plugins") {
+                "plugins"
+            } else {
+                "themes"
+            })
+        );
+        themes.install(&Fetched::local(&source).unwrap()).unwrap();
+        let installed = themes.installed();
+        assert_eq!(installed.len(), 1);
+        assert_eq!(installed[0].entry.origin, "local");
+        assert_eq!(installed[0].package.id, "com.example.plum");
     }
 
     #[test]

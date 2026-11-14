@@ -22,6 +22,7 @@ pub fn picture(file: Vec<u8>) {
 
 /// Puts `text` on the clipboard, from a thread of its own: the clipboard on
 /// Linux is answered for by this app while it holds the text.
+#[cfg(feature = "plugins")]
 pub fn text(text: String) {
     let copying = std::thread::Builder::new()
         .name("copy-text".into())
@@ -35,6 +36,7 @@ pub fn text(text: String) {
     }
 }
 
+#[cfg(feature = "plugins")]
 fn copy_text(text: &str) -> anyhow::Result<()> {
     let mut clipboard = arboard::Clipboard::new()?;
     let set = clipboard.set();
