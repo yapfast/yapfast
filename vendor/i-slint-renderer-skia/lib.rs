@@ -40,13 +40,13 @@ mod cached_image;
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub enum FontSmoothing {
     None,
-    Grayscale,
     #[default]
+    Grayscale,
     Subpixel,
 }
 
 thread_local! {
-    static FONT_SMOOTHING: Cell<FontSmoothing> = Cell::new(FontSmoothing::Subpixel);
+    static FONT_SMOOTHING: Cell<FontSmoothing> = Cell::new(FontSmoothing::Grayscale);
 }
 
 type BitmapGlyphImage = fn(u16, f32) -> Option<(skia_safe::Image, skia_safe::Vector)>;

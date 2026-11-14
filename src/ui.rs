@@ -1602,7 +1602,7 @@ impl Layout {
 
     // Appearance checks can apply these preferences without changing global audio gains.
     fn apply_appearance(&self, window: &YapfastWindow) {
-        let smoothing = self.font_smoothing.unwrap_or(2).clamp(0, 2);
+        let smoothing = self.font_smoothing.unwrap_or(1).clamp(0, 2);
         window.set_font_smoothing(smoothing);
         apply_font_smoothing(smoothing);
         // Before the first frame, which the event loop draws. A window made

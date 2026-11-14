@@ -2239,7 +2239,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.apply_date_format();
         layout.text_size = Some(window.get_text_size());
         let smoothing = window.get_font_smoothing();
-        if layout.font_smoothing.unwrap_or(2) != smoothing {
+        if layout.font_smoothing.unwrap_or(1) != smoothing {
             layout.font_smoothing = Some(smoothing);
             apply_font_smoothing(smoothing);
             window.window().request_redraw();
