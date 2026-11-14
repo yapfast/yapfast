@@ -107,9 +107,18 @@ pub fn default_directory() -> anyhow::Result<std::path::PathBuf> {
 }
 
 /// Keeps the cookies Discord sets, and the account as last seen, in `root`
-/// across restarts.
+/// across restarts. A missing `root` is made readable only by its owner
+/// first, as the Matrix session store asks of it; the caches' folders
+/// would otherwise make it with the default permissions.
 #[cfg(feature = "discord")]
 pub fn keep_discord_files(root: &std::path::Path) {
+    let mut folder = std::fs::DirBuilder::new();
+    folder.recursive(true);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut folder, 0o700);
+    if let Err(error) = folder.create(root) {
+        tracing::warn!(%error, "could not create the data folder");
+    }
     yapfast_discord::cookies::keep_in(root.join("discord-cookies.json"));
     yapfast_discord::cache::keep_in(root.join("discord-account.json"));
 }
