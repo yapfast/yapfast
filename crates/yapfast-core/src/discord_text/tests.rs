@@ -2022,7 +2022,9 @@ async fn a_server_tags_card_shows_its_servers_profile() {
     })
     .await
     .expect("timed out waiting for Discord");
-    let shown = answer.expect("what the tag's card shows");
+    let shown = answer
+        .expect("what the tag's card shows")
+        .expect("its profile");
     assert_eq!(shown.name, "Server");
     assert!(shown.icon.is_some());
     assert_eq!(shown.online, Some(1));

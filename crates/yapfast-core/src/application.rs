@@ -626,9 +626,9 @@ pub struct AppState {
     /// by server id, once Discord answered for it: how many of its members are
     /// online, and whether Discover lists it.
     pub server_previews: HashMap<String, chat::ServerPreview>,
-    /// What a server tag's card shows of the server it's from, by server id,
-    /// as Discord last answered: its profile, or why it didn't show it.
-    pub tag_servers: HashMap<String, Result<chat::TagServer, String>>,
+    /// What Discord last answered for a server tag's card, by the id of the
+    /// server it asked about; the card shows it while it's for its server.
+    pub tag_server: Option<(String, chat::TagServerAnswer)>,
     /// Who else is typing, by room.
     pub typing: HashMap<String, Vec<String>>,
     /// The `@` or `#` word being typed in the composer, if any: its sigil and

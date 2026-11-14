@@ -30,9 +30,9 @@ export struct MemberRow {
     timed-out: bool,
     /// An application's account, marked APP, and the server's owner, marked with a crown.
     bot: bool, owner: bool,
-    /// The server tag they wear by their name, its badge's address, and the
-    /// id of the server it's from, whose card a click opens.
-    tag: string, tag-badge: string, tag-server: string,
+    /// The server tag they wear by their name, and its badge's address. It
+    /// opens no card here, as in Discord's client.
+    tag: string, tag-badge: string,
     /// The pictures of the role their group is and of their highest role that
     /// has one, which Discord draws by the group's heading and their name.
     group-icon: string, role-icon: string,
@@ -300,7 +300,7 @@ export component MemberPanel inherits Rectangle {
                                 RoleIcon { url: member.role-icon; size: 16px; opacity: member.presence == "offline" ? 0.5 : 1; }
                             }
                             if member.tag != "": Middle {
-                                ServerTagChip { text: member.tag; badge: member.tag-badge; server: member.tag-server; opacity: member.presence == "offline" ? 0.5 : 1; }
+                                ServerTagChip { text: member.tag; badge: member.tag-badge; opacity: member.presence == "offline" ? 0.5 : 1; }
                             }
                             if member.bot: Middle { BotTag { opacity: member.presence == "offline" ? 0.5 : 1; } }
                             if member.owner: Middle {
@@ -948,21 +948,25 @@ export struct TagCard {
     server: string, name: string, initial: string, picture-url: string,
     /// The tag's letters and its badge's address.
     tag: string, badge: string,
-    /// "1,200 Online" and "4,644 Members", when Discord counts them, and what
-    /// the server says of itself.
-    online: string, members: string, description: string,
+    /// "1,200 Online" and "4,644 Members", when Discord counts them, when it
+    /// was made ("Est. Nov 2026"), and what the server says of itself.
+    online: string, members: string, established: string, description: string,
     /// Why there's no more to show, when Discord didn't show the server.
     note: string,
-    /// This account is in the server, which Go to Server opens.
+    /// Discord hasn't answered yet; the server shows its profile only to its
+    /// members; or it failed to load, which a click on the note tries again.
+    loading: bool, limited: bool, failed: bool,
+    /// This account is in the server, which Go to Server and its name open.
     joined: bool,
 }
 
 // A server tag's card, 300px wide, as Discord's: the server's icon beside its
-// name and the tag, its counts and description, and a way in when this
-// account is in it. What Discord hasn't said yet stays out.
+// name and the tag, its counts, when it was made and its description, and a
+// way in when this account is in it. What Discord hasn't said yet loads.
 export component TagCardView inherits Rectangle {
     in property <TagCard> card;
     callback open;
+    callback retry;
     /// The server's icon, asked for as it shows, as `Avatar` asks for one.
     property <image> picture: PictureStore.picture(root.card.picture-url, PictureStore.revision(root.card.picture-url));
     function request-picture() {
@@ -986,19 +990,29 @@ export component TagCardView inherits Rectangle {
             spacing: 12px;
             Middle {
                 Rectangle {
-                    width: 48px; height: 48px; border-radius: 14px; clip: true;
+                    width: 64px; height: 64px; border-radius: 18px; clip: true;
                     background: root.picture.width > 0 ? transparent : Theme.raised;
-                    if root.picture.width > 0: Image { source: root.picture; width: 48px; height: 48px; image-fit: cover; }
-                    if root.picture.width == 0: Text {
-                        text: root.card.initial; color: Theme.text; font-size: 18px; font-weight: 700;
+                    if root.picture.width > 0: Image { source: root.picture; width: 64px; height: 64px; image-fit: cover; }
+                    if root.picture.width == 0 && (root.card.limited || root.card.failed): Image {
+                        source: root.card.failed ? @image-url("icons/triangle-alert.svg") : @image-url("icons/lock.svg");
+                        width: 24px; height: 24px; colorize: Theme.secondary;
+                    }
+                    if root.picture.width == 0 && !root.card.limited && !root.card.failed: Text {
+                        text: root.card.initial; color: Theme.text; font-size: 22px; font-weight: 700;
                     }
                 }
             }
             VerticalLayout {
                 alignment: center; spacing: 4px; horizontal-stretch: 1;
                 if root.card.name != "": Text {
-                    text: root.card.name; color: Theme.text; font-size: 16px; font-weight: 700; overflow: elide;
+                    text: root.card.name; color: Theme.text; font-size: 16px; font-weight: 600; overflow: elide;
+                    TouchArea {
+                        enabled: root.card.joined;
+                        mouse-cursor: self.enabled ? MouseCursor.pointer : MouseCursor.default;
+                        clicked => { root.open(); }
+                    }
                 }
+                if root.card.name == "" && root.card.loading: Skeleton { width: 140px; height: 16px; border-radius: 4px; }
                 HorizontalLayout {
                     alignment: start;
                     ServerTagChip { text: root.card.tag; badge: root.card.badge; }
@@ -1018,11 +1032,25 @@ export component TagCardView inherits Rectangle {
                 Text { text: root.card.members; color: Theme.secondary; font-size: 13px; }
             }
         }
+        if root.card.loading: Skeleton { height: 14px; border-radius: 4px; }
+        if root.card.established != "": Text {
+            text: root.card.established; color: Theme.secondary; font-size: 13px;
+        }
         if root.card.description != "": Text {
             text: root.card.description; color: Theme.text; font-size: 14px; wrap: word-wrap; max-lines: 4; overflow: elide;
         }
-        if root.card.note != "": Text {
+        if root.card.note != "" && !root.card.failed: Text {
             text: root.card.note; color: Theme.muted; font-size: 13px; wrap: word-wrap;
+        }
+        // A failure's note tries again when clicked, as in Discord's client.
+        if root.card.failed: Text {
+            text: root.card.note; color: retry-area.has-hover ? Theme.text : Theme.muted; font-size: 13px; wrap: word-wrap;
+            accessible-role: button;
+            accessible-action-default => { root.retry(); }
+            retry-area := TouchArea {
+                mouse-cursor: MouseCursor.pointer;
+                clicked => { root.retry(); }
+            }
         }
         if root.card.joined: ActionButton { text: "Go to Server"; primary: true; clicked => { root.open(); } }
     }

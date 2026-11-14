@@ -426,6 +426,8 @@ const CHAT_INTERVAL = 2_000;
 
 // Fixed ids, so runs compare.
 const GUILD = "1400000000000000100";
+/** A server Alice isn't in, which shows its profile only to its members. */
+const PRIVATE_GUILD = "1400000000000000990";
 const CATEGORY = "1400000000000000101";
 const GENERAL = "1400000000000000102";
 const LOUNGE = "1400000000000000103";
@@ -2461,8 +2463,10 @@ function guildChannels(): GuildChannel[] {
 
 // Server Settings. GET /guilds/{id}/profile gives "Server"'s profile as
 // Server Profile and the card of Bob's tag, "BOB", show it, with its tag and
-// badge, and answers 404 for any other server; PATCH changes its name, icon (a data URI,
-// served back from the CDN as it came, or null) and description, as
+// badge. PRIVATE_GUILD, a server Alice isn't in that shows its profile only
+// to its members, answers 403 Missing Access, as Discord does, and any other
+// server 404. PATCH changes its name, icon (a data URI, served back from the
+// CDN as it came, or null) and description, as
 // Manage Server allows, answering with the profile and GUILD_UPDATE. POST
 // /_control/guild-reset puts "Server" back as it started.
 // Two-factor authentication: POST /_control/mfa, with an optional JSON body
@@ -5703,6 +5707,7 @@ async function api(req: Request, path: string, origin: string): Promise<Response
 
   // "Server"'s profile in Server Settings; see "Server Settings" above.
   if ((m = path.match(/^\/guilds\/(\d+)\/profile$/))) {
+    if (m[1] === PRIVATE_GUILD && method === "GET") return json({ message: "Missing Access", code: 50001 }, 403);
     if (m[1] !== GUILD) return notFound("Unknown Guild", 10004);
     if (method === "GET") return json(guildProfile());
     if (method === "PATCH") {

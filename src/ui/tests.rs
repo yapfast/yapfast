@@ -2844,7 +2844,7 @@ fn a_click_on_a_server_tag_opens_its_servers_card() {
         tag: Some(yapfast_core::chat::ServerTag {
             text: "BOB".into(),
             badge: None,
-            guild: "10".into(),
+            guild: std::num::NonZeroU64::new(10),
         }),
         ..Default::default()
     }]);
@@ -2907,23 +2907,25 @@ fn a_server_tags_card_fills_in_as_discord_answers() {
         text: "UFO".into(),
         badge: "https://cdn.discordapp.com/clan-badges/10/abc.png?size=32".into(),
     };
-    // Before Discord answers, the tag shows alone, its letter in the icon's place.
+    // Before Discord answers, the tag shows alone, its letter in the icon's
+    // place, and the rest loads.
     let asked = tag_card(&tag, &state);
     assert_eq!((asked.name.as_str(), asked.initial.as_str()), ("", "U"));
     assert_eq!(asked.tag, "UFO");
     assert_eq!(asked.badge, tag.badge);
     assert_eq!((asked.online.as_str(), asked.note.as_str()), ("", ""));
+    assert!(asked.loading);
     assert!(!asked.joined, "no way in to a server this account isn't in");
-    state.tag_servers.insert(
-        tag.server.clone(),
-        Ok(yapfast_core::chat::TagServer {
-            name: "Aliens".into(),
-            icon: Some("https://cdn.discordapp.com/icons/10/abc.png".into()),
-            description: "We come in peace".into(),
-            members: Some(4644),
-            online: Some(1),
-        }),
-    );
+    let answer = |result| Some(("discord:10".to_owned(), result));
+    state.tag_server = answer(Ok(Some(yapfast_core::chat::TagServer {
+        name: "Aliens".into(),
+        icon: Some("https://cdn.discordapp.com/icons/10/abc.png".into()),
+        description: "We come in peace".into(),
+        members: Some(4644),
+        online: Some(1),
+        // 2026-11-05, as the server's id says.
+        created_ms: 1_793_880_000_000,
+    })));
     let answered = tag_card(&tag, &state);
     assert_eq!(answered.name, "Aliens");
     assert_eq!(answered.initial, "A");
@@ -2936,16 +2938,28 @@ fn a_server_tags_card_fills_in_as_discord_answers() {
         answered.members, "4,644 Members",
         "grouped as Discord writes it"
     );
+    assert!(answered.established.starts_with("Est. "));
+    assert!(answered.established.ends_with(" 2026"));
     assert_eq!(answered.description, "We come in peace");
-    assert!(!answered.joined);
-    // A server Discord keeps from those outside it says so, quietly.
-    state.tag_servers.insert(
-        tag.server.clone(),
-        Err("Discord doesn't show this server".into()),
+    assert!(!answered.loading && !answered.joined);
+    // Another server's answer isn't this card's.
+    state.tag_server = Some(("discord:11".into(), Ok(None)));
+    assert!(tag_card(&tag, &state).loading);
+    // A server that shows its profile only to its members says so, as
+    // Discord's client does; one that failed to load offers to try again.
+    state.tag_server = answer(Ok(None));
+    let limited = tag_card(&tag, &state);
+    assert_eq!(limited.name, "Private Server");
+    assert_eq!(
+        limited.note,
+        "The server has limited who can see this profile."
     );
-    let refused = tag_card(&tag, &state);
-    assert_eq!(refused.name, "");
-    assert!(!refused.note.is_empty());
+    assert!(limited.limited && !limited.failed);
+    state.tag_server = answer(Err("Discord is out of reach".into()));
+    let failed = tag_card(&tag, &state);
+    assert_eq!(failed.name, "Unknown Server");
+    assert_eq!(failed.note, "Unable to load server profile");
+    assert!(failed.failed && !failed.limited);
 }
 
 #[test]

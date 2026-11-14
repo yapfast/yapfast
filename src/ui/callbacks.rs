@@ -627,10 +627,24 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 badge,
             };
             let mut adapter = state.borrow_mut();
+            // Asked first, so a card that failed before loads afresh.
+            adapter.action(&window, Action::OpenServerTag(server.into()));
             window.set_tag_card(tag_card(&tag, &adapter.app.state));
             window.set_tag_card_open(true);
             adapter.tag_card = Some(tag);
+        }
+    });
+    // A click on "Unable to load server profile" asks again.
+    window.global::<ServerTags>().on_retry({
+        let state = adapter.clone();
+        let weak = window.as_weak();
+        move |server| {
+            let Some(window) = weak.upgrade() else { return };
+            let mut adapter = state.borrow_mut();
             adapter.action(&window, Action::OpenServerTag(server.into()));
+            if let Some(tag) = &adapter.tag_card {
+                window.set_tag_card(tag_card(tag, &adapter.app.state));
+            }
         }
     });
     // UI bindings can request images while refresh borrows the adapter.

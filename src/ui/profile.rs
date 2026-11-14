@@ -999,9 +999,9 @@ pub(super) fn tag_badge(tag: Option<&yapfast_core::chat::ServerTag>) -> slint::S
 /// The id of the Discord server a tag is from, whose card a click on the tag
 /// opens, for Slint; nothing when it isn't known.
 pub(super) fn tag_server(tag: Option<&yapfast_core::chat::ServerTag>) -> slint::SharedString {
-    tag.filter(|tag| !tag.guild.is_empty())
-        .map_or_else(Default::default, |tag| {
-            yapfast_core::discord::server_id(&tag.guild).into()
+    tag.and_then(|tag| tag.guild)
+        .map_or_else(Default::default, |guild| {
+            yapfast_core::discord::server_id(&guild.to_string()).into()
         })
 }
 
@@ -1013,20 +1013,33 @@ pub(super) struct ShownTag {
     pub(super) badge: slint::SharedString,
 }
 
-/// What a server tag's card shows: the tag at once, the server's name and icon
-/// when this account is in it, and the rest as Discord's answer brings it, or
-/// a word on why there's none.
+/// What a server tag's card shows, as Discord's client does: the tag, and the
+/// server's name and icon when this account is in it, while it loads; then
+/// the server's profile, or, for a server that shows it only to its members
+/// or that failed to load, a word on why there's none, the latter clickable
+/// to try again.
 pub(super) fn tag_card(tag: &ShownTag, state: &AppState) -> TagCard {
     let joined = state
         .servers
         .iter()
         .find(|server| server.id == tag.server && !server.unavailable);
-    let answer = state.tag_servers.get(&tag.server);
-    let profile = answer.and_then(|answer| answer.as_ref().ok());
-    let name = profile
-        .map(|profile| profile.name.as_str())
-        .or(joined.map(|server| server.name.as_str()))
-        .unwrap_or_default();
+    let answer = state
+        .tag_server
+        .as_ref()
+        .filter(|(server, _)| *server == tag.server)
+        .map(|(_, answer)| answer);
+    let profile = answer.and_then(|answer| answer.as_ref().ok()?.as_ref());
+    let (private, failed) = (
+        matches!(answer, Some(Ok(None))),
+        matches!(answer, Some(Err(_))),
+    );
+    let known = joined.map(|server| server.name.as_str());
+    let name = match (profile, private, failed) {
+        (Some(profile), ..) => profile.name.as_str(),
+        (None, true, _) => known.unwrap_or("Private Server"),
+        (None, _, true) => known.unwrap_or("Unknown Server"),
+        _ => known.unwrap_or_default(),
+    };
     let icon = profile
         .and_then(|profile| profile.icon.as_deref())
         .or(joined.and_then(|server| server.icon.as_deref()))
@@ -1062,15 +1075,22 @@ pub(super) fn tag_card(tag: &ShownTag, state: &AppState) -> TagCard {
             "Member",
             "Members",
         ),
+        established: profile
+            .map(|profile| yapfast_core::clock::month(profile.created_ms / 1000))
+            .filter(|month| !month.is_empty())
+            .map_or_else(Default::default, |month| format!("Est. {month}").into()),
         description: profile
             .map_or("", |profile| profile.description.as_str())
             .into(),
-        note: if profile.is_none() && answer.is_some() {
-            "Discord doesn't show this server to those outside it."
-        } else {
-            ""
+        note: match (private, failed) {
+            (true, _) => "The server has limited who can see this profile.",
+            (_, true) => "Unable to load server profile",
+            _ => "",
         }
         .into(),
+        loading: answer.is_none(),
+        limited: private,
+        failed,
         joined: joined.is_some(),
     }
 }

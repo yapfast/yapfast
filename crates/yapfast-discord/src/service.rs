@@ -850,7 +850,7 @@ struct Kept {
 }
 
 /// A server's profile fetched lately for a server tag's card, or none for one
-/// Discord refused to show.
+/// Discord keeps private.
 struct KeptServer {
     guild: String,
     at: Instant,
@@ -861,6 +861,10 @@ const LIVE_BACKLOG: usize = 256;
 /// Profiles are fetched again after this long; Discord limits how often.
 const PROFILE_AGE: Duration = Duration::from_secs(5 * 60);
 const PROFILES: usize = 32;
+/// A server tag's card asks again after this long, as Discord's client does.
+const TAG_SERVER_AGE: Duration = Duration::from_secs(60);
+/// Discord's code for a server's profile it shows only to its members.
+const MISSING_ACCESS: u64 = 50001;
 
 /// How many users' notes are kept before they're read afresh.
 const NOTES: usize = 256;
@@ -1955,28 +1959,28 @@ impl Discord {
 
     /// What a server tag's card shows of the server it's from, from the
     /// server's profile, which Discord shows to its members and to anyone for
-    /// a server it lists publicly. An answer, or a refusal, from the last few
-    /// minutes is given again rather than asked for.
-    pub async fn tag_server(&self, guild: &str) -> Result<guild::Profile> {
-        let refused = || anyhow!("Discord doesn't show this server");
+    /// a server it lists publicly; none for a server it keeps private. An
+    /// answer, or that refusal, from the last minute is given again rather
+    /// than asked for, as Discord's client does; a failure is not kept.
+    pub async fn tag_server(&self, guild: &str) -> Result<Option<guild::Profile>> {
         let kept = {
             let servers = self.lock_tag_servers();
             servers
                 .iter()
-                .find(|kept| kept.guild == guild && kept.at.elapsed() < PROFILE_AGE)
+                .find(|kept| kept.guild == guild && kept.at.elapsed() < TAG_SERVER_AGE)
                 .map(|kept| kept.profile.clone())
         };
         if let Some(kept) = kept {
-            return kept.ok_or_else(refused);
+            return Ok(kept);
         }
         let profile = match self.api.server_profile(guild).await {
             Ok(answer) => Some(
                 guild::Profile::of(guild, &answer)
                     .ok_or_else(|| anyhow!("could not understand Discord's answer"))?,
             ),
-            // Discord refused, as it does for a server it keeps private: it
-            // would again.
-            Err(error) if api::code(&error).is_some() => None,
+            // Missing Access: the server shows its profile only to its
+            // members, as Discord's client says on the card.
+            Err(error) if api::code(&error) == Some(MISSING_ACCESS) => None,
             Err(error) => return Err(error),
         };
         let mut servers = self.lock_tag_servers();
@@ -1989,7 +1993,7 @@ impl Discord {
         if servers.len() > PROFILES {
             servers.remove(0);
         }
-        profile.ok_or_else(refused)
+        Ok(profile)
     }
 
     /// Changes a server's profile with `body`'s fields, as Server Profile's

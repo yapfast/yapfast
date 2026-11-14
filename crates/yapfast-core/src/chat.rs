@@ -2,7 +2,7 @@
 //! Matrix and Discord are Cargo features, so a build carries either or both.
 //! Each network runs in its own module beside this one: `matrix_chat` and
 //! `discord_text`. This module routes the UI's commands to them.
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, num::NonZeroU64, path::PathBuf, sync::Arc};
 
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
@@ -725,8 +725,8 @@ pub struct ServerTag {
     /// The address of the badge's picture; see [`DiscordCommand::Pictures`].
     pub badge: Option<Arc<str>>,
     /// The Discord server it's from, by its guild id, whose card it opens;
-    /// empty when that isn't known.
-    pub guild: Arc<str>,
+    /// none when that isn't known.
+    pub guild: Option<NonZeroU64>,
 }
 
 /// A nameplate someone equips from Discord's shop: a strip of picture behind
@@ -2553,7 +2553,13 @@ pub struct TagServer {
     /// counts them.
     pub members: Option<u64>,
     pub online: Option<u64>,
+    /// When it was made, from its id, in Unix milliseconds.
+    pub created_ms: u64,
 }
+
+/// What Discord answered for a server tag's card: the server's profile, none
+/// for a server that shows it only to its members, or why it failed.
+pub type TagServerAnswer = Result<Option<TagServer>, String>;
 
 /// A Discord server joined by an invite.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -4461,10 +4467,10 @@ pub enum Event {
         result: Result<ServerPreview, String>,
     },
     /// What a server tag's card shows of the server it's from, as
-    /// [`DiscordCommand::TagServer`] asked; or why Discord didn't show it.
+    /// [`DiscordCommand::TagServer`] asked.
     TagServer {
         server: String,
-        result: Result<TagServer, String>,
+        result: TagServerAnswer,
     },
     /// Whether what Emoji asked of Discord went, uploading or not, and the
     /// server's emoji after it, when Discord sent them.

@@ -18,7 +18,7 @@ use super::{
 };
 use crate::chat::{
     EmojiAction, PickedPicture, Picture, Pixels, RoleMember, ServerEmoji, ServerPreview,
-    ServerSticker, StickerAction, StickerForm, TagServer, file_size,
+    ServerSticker, StickerAction, StickerForm, TagServer, TagServerAnswer, file_size,
 };
 
 /// An emoji as Discord's client sends one: square, at most 128 pixels, and
@@ -139,18 +139,19 @@ async fn server_preview(discord: &Discord, guild: &str) -> Result<ServerPreview,
 }
 
 /// What a server tag's card shows of the server it's from.
-async fn tag_server(discord: &Discord, guild: &str) -> Result<TagServer, String> {
+async fn tag_server(discord: &Discord, guild: &str) -> TagServerAnswer {
     let profile = discord
         .tag_server(guild)
         .await
         .map_err(|error| error.to_string())?;
-    Ok(TagServer {
+    Ok(profile.map(|profile| TagServer {
         name: profile.name,
         icon: profile.icon,
         description: profile.description,
         members: profile.members,
         online: profile.online,
-    })
+        created_ms: yapfast_discord::message::snowflake_ms(guild),
+    }))
 }
 
 async fn emoji(discord: &Discord, guild: &str, action: EmojiAction) -> Result<(), String> {

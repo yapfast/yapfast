@@ -427,6 +427,8 @@ export global EmojiAnimations {
 // beside. The window's adapter answers it.
 export global ServerTags {
     callback open(string, string, string, length, length, length, length);
+    /// The card of the server with this id failed to load: try again.
+    callback retry(string);
 }
 
 // The server tag someone wears by their name, as Discord's client draws it: a

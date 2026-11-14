@@ -389,19 +389,28 @@ carries the new one; a user object without `primary_guild`, as a partial one
 is, changes nothing, and `null` takes it away. They are kept with the names
 across restarts, with the server each is from.
 
-Clicking a tag in a message, the member list or a profile card opens a small
-card about its server beside it, as Discord's client does; Tab reaches the tag
-on a profile card, and Enter opens it there. The card shows the tag at once,
-with the server's name and icon when the account is in it, and asks Discord
-for the server's profile with `GET /guilds/{id}/profile`, whose `name`,
-`icon_hash`, `description`, `member_count` and `online_count` fill in its
-icon, name, description and its online and member counts. Discord shows the
-profile to the server's members, and to anyone for a server it lists
-publicly; when it refuses, the card says so quietly under the tag. An answer,
-or a refusal, is given again for five minutes, as profiles are, rather than
-asked for. A server the account is in has Go to Server, which opens it as the
-server rail does. A server it's not in has no button, as Yapfast joins
-servers only by invite. Escape or a click outside closes the card.
+Clicking a tag in a message or on a profile card opens a small card about its
+server beside it, as Discord's client does; in the member list a tag opens
+nothing, as there. Tab reaches the tag on a profile card, and Enter opens it
+there. The card shows the tag at once, with the server's name and icon when
+the account is in it, while it asks Discord for the server's profile with
+`GET /guilds/{id}/profile`. Its `name`, `icon_hash`, `member_count`,
+`online_count` and `description` fill in the icon, name, online and member
+counts and description, and the server's id gives "Est." and the month it
+was made. The banner, games and traits Discord's card also shows aren't
+drawn.
+
+Discord shows the profile to the server's members, and to anyone for a
+server it lists publicly; to anyone else it answers 50001 Missing Access, and
+the card says "The server has limited who can see this profile." under
+"Private Server", or the server's name when the account is in it. Any other
+failure says "Unable to load server profile" under "Unknown Server", and a
+click on it asks again. An answer, or Missing Access, is given again for a
+minute, as Discord's client does, rather than asked for; a failure isn't
+kept. A server the account is in has Go to Server, and its name opens it
+too, as the server rail does. A server it's not in has no button, as Yapfast
+joins servers only by invite, where Discord's client offers Join for one it
+lists in Discover. Escape or a click outside closes the card.
 
 The card shows the person's badges, as Discord's does, in pills of pictures
 under the name and handle, twelve to a row, more going on to the next row:

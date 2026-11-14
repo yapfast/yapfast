@@ -43,7 +43,7 @@ import { TitleBar, ResizeEdges } from "title_bar.slint";
 import { InboxRow, InboxPopout } from "yapfast/inbox.slint";
 import { GifPicker, GifTile, PickerTab } from "gifs.slint";
 import { StickerPicker, StickerGridTile } from "stickers.slint";
-import { ActionButton, IconButton, Motion, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, QuickDeviceMenu, HeaderToggle, Banner, StatusText, Nameplate, AccountLook, PictureStore } from "controls.slint";
+import { ServerTags, ActionButton, IconButton, Motion, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, QuickDeviceMenu, HeaderToggle, Banner, StatusText, Nameplate, AccountLook, PictureStore } from "controls.slint";
 import { PersonRow, VoiceCard, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, StreamPip, CallInvite, JoinVoice, ParticipantGrid, CallControls, IncomingCall, SwitchDialog, InputLevel, ShareMenu, ShareScreen, VolumeMenu, Soundboard, SoundRow } from "voice.slint";
 import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList, VoiceCardView } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
@@ -4802,6 +4802,7 @@ export component YapfastWindow inherits Window {
             y: root.anchor-y + root.anchor-height + 4px + self.height <= root.height - 8px
                 ? root.anchor-y + root.anchor-height + 4px : max(8px, root.anchor-y - self.height - 4px);
             card: root.tag-card;
+            retry => { ServerTags.retry(root.tag-card.server); }
             open => {
                 root.tag-card-open = false;
                 root.close-profile();

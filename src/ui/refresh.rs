@@ -2546,7 +2546,6 @@ impl Adapter {
                         role_icon: member.role_icon.as_deref().unwrap_or_default().into(),
                         tag: tag_text(cosmetics.tag(member.tag.as_ref())),
                         tag_badge: tag_badge(cosmetics.tag(member.tag.as_ref())),
-                        tag_server: tag_server(cosmetics.tag(member.tag.as_ref())),
                         decoration_url: cosmetics
                             .decoration(member.decoration.as_deref())
                             .unwrap_or_default()

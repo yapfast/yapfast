@@ -6,7 +6,7 @@
 use super::*;
 use crate::chat::{
     DiscordCommand, NotificationChange, Notifications, Permission, ServerNotifications,
-    ServerPreview, ServerRole, TagServer,
+    ServerPreview, ServerRole, TagServerAnswer,
 };
 
 #[cfg(feature = "discord")]
@@ -348,35 +348,46 @@ impl Application {
     }
 
     /// Asks Discord for the profile of the server a tag is from, for the
-    /// tag's card. Discord's service answers from what it fetched in the last
-    /// few minutes, so a card opened again soon asks Discord nothing.
+    /// tag's card, which loads until it answers; opened again after a
+    /// failure, it tries again. Discord's service answers from what it
+    /// fetched in the last minute, so a card opened again soon asks Discord
+    /// nothing.
     pub(super) fn open_server_tag(&mut self, server: String) -> Vec<Effect> {
-        if self.state.preview
-            || !self.state.discord_online
-            || Network::of(&server) != Network::Discord
-        {
+        if self.state.preview || Network::of(&server) != Network::Discord {
             return vec![];
+        }
+        if !self.state.discord_online {
+            let failed = Err("Discord is out of reach".to_owned());
+            self.state.tag_server = Some((server, failed));
+            return vec![];
+        }
+        if self
+            .state
+            .tag_server
+            .as_ref()
+            .is_some_and(|(asked, answer)| *asked == server && answer.is_err())
+        {
+            self.state.tag_server = None;
         }
         vec![Effect::Backend(Command::Discord(
             DiscordCommand::TagServer { server },
         ))]
     }
 
-    /// Keeps what Discord said of a tag's server, for its card. A refusal
-    /// shows on a card that has nothing else, and a failure leaves what an
-    /// earlier answer said.
-    pub(super) fn show_tag_server(&mut self, server: String, result: Result<TagServer, String>) {
+    /// Keeps what Discord said of a tag's server, for its card. A failure
+    /// leaves what an earlier answer for the same server said.
+    pub(super) fn show_tag_server(&mut self, server: String, result: TagServerAnswer) {
         if let Err(error) = &result {
             tracing::debug!(%error, "Discord didn't show a server tag's server");
             if self
                 .state
-                .tag_servers
-                .get(&server)
-                .is_some_and(Result::is_ok)
+                .tag_server
+                .as_ref()
+                .is_some_and(|(shown, answer)| *shown == server && answer.is_ok())
             {
                 return;
             }
         }
-        self.state.tag_servers.insert(server, result);
+        self.state.tag_server = Some((server, result));
     }
 }
