@@ -133,7 +133,7 @@ impl App {
         if self.side != side {
             self.side = side;
         }
-        let head = crate::sidebar::side_header(state);
+        let head = crate::sidebar::side_header(&self.client.app);
         if self.side_header != head {
             self.side_header = head;
         }
@@ -258,6 +258,9 @@ impl App {
         self.call_sync();
         self.picker_sync();
         self.person_sync();
+        tasks.push(self.server_settings_sync());
+        tasks.push(self.server_dialogs_sync());
+        tasks.push(self.channel_settings_sync());
         tasks.push(self.ask());
         self.sync_sign_in();
         tasks.push(self.sync_mfa());
@@ -596,6 +599,10 @@ impl App {
             }
         }
         want(self.account.avatar.as_deref());
+        // The open server's banner, over its channels.
+        if self.side_header.server.is_some() {
+            want(self.side_header.banner.as_deref());
+        }
         want(self.header.avatar.as_deref());
         want(self.account.status.emoji.as_deref());
         let (first, last) = self.in_view(MARGIN);
@@ -668,6 +675,15 @@ impl App {
             want(Some(&url));
         }
         for url in self.reactions_pictures() {
+            want(Some(&url));
+        }
+        for url in self.server_settings_pictures() {
+            want(Some(&url));
+        }
+        for url in self.server_dialog_pictures() {
+            want(Some(&url));
+        }
+        for url in self.channel_settings_pictures() {
             want(Some(&url));
         }
         urls

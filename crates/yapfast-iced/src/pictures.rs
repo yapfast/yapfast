@@ -222,6 +222,7 @@ pub enum Icon {
     ChevronUp,
     ChevronRight,
     UserPlus,
+    Calendar,
     SquarePen,
     Inbox,
     Hash,
@@ -282,6 +283,7 @@ pub enum Icon {
     MessageCircle,
     PinOff,
     CircleStop,
+    CirclePlus,
     TrendingUp,
     /// Discord's plain plus, the composer's.
     Add,
@@ -315,6 +317,10 @@ pub enum Icon {
     Brush,
     Pen,
     ChevronsRight,
+    Shield,
+    Gavel,
+    StickyNote,
+    Slash,
 }
 
 impl Icon {
@@ -347,6 +353,7 @@ impl Icon {
             Icon::MessageCircle => icon!("message-circle.svg"),
             Icon::PinOff => icon!("pin-off.svg"),
             Icon::CircleStop => icon!("circle-stop.svg"),
+            Icon::CirclePlus => icon!("circle-plus.svg"),
             Icon::TrendingUp => icon!("trending-up.svg"),
             Icon::Add => icon!("plus.svg"),
             Icon::ChevronLeft => icon!("chevron-left.svg"),
@@ -397,6 +404,7 @@ impl Icon {
                 r#"<svg xmlns="http://www.w3.org/2000/svg" width="33" height="33" viewBox="0 0 33 33" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 14 V7 A6 6 0 0 1 7 1 H33" /></svg>"#
             }
             Icon::UserPlus => icon!("user-plus.svg"),
+            Icon::Calendar => icon!("calendar.svg"),
             Icon::SquarePen => icon!("square-pen.svg"),
             Icon::Inbox => icon!("inbox.svg"),
             Icon::Hash => icon!("hash.svg"),
@@ -442,6 +450,10 @@ impl Icon {
             Icon::Brush => icon!("brush.svg"),
             Icon::Pen => icon!("pen.svg"),
             Icon::ChevronsRight => icon!("chevrons-right.svg"),
+            Icon::Shield => icon!("shield.svg"),
+            Icon::Gavel => icon!("gavel.svg"),
+            Icon::StickyNote => icon!("sticky-note.svg"),
+            Icon::Slash => icon!("slash.svg"),
             Icon::VideoOff => icon!("video-off.svg"),
             Icon::Maximize => icon!("maximize.svg"),
             Icon::Minimize => icon!("minimize.svg"),

@@ -81,7 +81,7 @@ the other ground (dark or light) are made again as they show.
 The rail (`rail.rs`) is the Slint client's `ServerRail` with its Discord
 look: the DM home (the logo; its badge counts DM mentions and friend
 requests), the DMs with unread messages, a line, then the servers and
-folders, and "Join a server" at the foot. Each tile has its pill at the
+folders, and "Join a server" at the foot, which opens Join a Server. Each tile has its pill at the
 rail's edge (open, pointed at, unread), its mentions in a red badge, a
 speaker while this account is in a call there, and its name in a tooltip.
 A folder opens and closes on a click, its servers on a strip of its
@@ -99,8 +99,31 @@ the sidebar's edge, its mentions, and muted or locked faint; a busy voice
 channel lists who is in it and how long the call has gone on, which a
 timer brings up to date each minute only while one shows. A right click on
 a row opens its menu (`places.rs`), built from the core's
-`menu_choices` in the Slint client's wording; the choices this client
-can't act on yet show greyed.
+`menu_choices` in the Slint client's wording, at the pointer. A server's
+menu mutes it (for a time, in a submenu, or until it's turned back on
+with a click on the row itself) or unmutes it, saying until when; its
+Notification settings' submenu picks the level and ticks Suppress
+@everyone and @here and Suppress all role @mentions; Hide muted channels
+and Show all channels are boxes ticked in place. A channel's or category's
+mutes it the same way and picks its level (or its category's or server's
+default, named under it); the header's bell opens the open channel's
+mute and levels. Pin and Unpin, Add to and Remove from the channel list,
+Unfollow category, Join and Leave thread, Invite, Create channel and
+category, Duplicate and Delete, and Leave server go to the core, those
+that ask first or need more opening their dialog (see Dialogs). A menu
+taller than the window scrolls, kept inside it. A
+DM's menu mutes it for a time and, for its person, offers what their own
+menu does, with Invite to server and Apps in submenus.
+
+A server's top is the Slint client's: with a banner, the picture with a
+shade over its top and the name and chevron in white on it, the banner
+asked for only while the server is open; Invite people beside the name for
+those who may invite; under it, while the server shows its Boost progress
+bar, the Boost Goal pill (its boosts of 33, filled in pink); and on a
+community server or one with events, the "N Events" row, whose menu lists
+each event with "Happening now" or when it starts and where, or "No
+upcoming events" greyed. An event's row does nothing yet. The server's
+verified badge isn't drawn (its icon has two colours).
 
 The account's card (`account.rs`) spans the foot of both: the avatar with
 its presence, the name and status (the username under the pointer), and
@@ -187,6 +210,135 @@ round.
 - Game Activity: sharing the game played (Discord keeps it), and the games
   named by hand, added, edited and removed, which detection takes at once.
 - About: the build with Copy version, the update switches, and the links.
+
+## Server settings
+
+A Discord server's settings (`server_settings/`) are the Slint client's
+`ServerSettingsScreen`, opened from the server's menu (Server settings): on
+the settings frame (`sheet.rs`), a card over the window dimmed by 70%,
+48 px in from its edges, the pages this account may change down its left
+on the sidebar's ground, headed by the server's name and grouped under
+Expression, People and Moderation as Discord's are, with Delete Server
+after a line for its owner; the open page on the right, at most 660 px
+wide, with the round close button and ESC at its top right. What each page
+holds, what this account may do there and what saving sends are the
+core's (`ServerSettings`); the screen keeps only its own (an open
+dropdown, the description's field, the bar's shake) and lets go of it,
+and of the pages' pictures, when they close. Once a page's draft differs
+from what Discord has, the form kit's `unsaved_bar` floats over its foot
+with Reset and Save Changes; leaving the page or the settings then shakes
+it red instead, as Discord's does. Escape closes an open dropdown, then a
+dialog over the page, then the settings.
+
+- Server Profile (`profile.rs`): the name, the icon with Change and
+  Remove (the file dialog, then the core reads it), and the description
+  with what's left of its 300 characters.
+- Engagement: the system messages' channel and its four switches, which
+  wait for a channel; the default notifications; the inactive channel and
+  its timeout, which waits for one.
+- Boost Perks: the server's level, the progress bar's switch, and the
+  banner and invite background at 16 by 9, each with the level that
+  unlocks it.
+- Roles (`roles.rs`, the Slint client's `RolesSection`): @everyone's card,
+  the search with Create Role, and the roles in their order with how many
+  hold each, Edit (View for a locked one) and More (Move Up, Move Down,
+  Duplicate Role, Delete). A role at or above this account's highest is
+  locked, with Discord's words why under its lock; the others move by
+  dragging their handle or from More. Edit opens the editor: Back, the
+  role's name, a notice for a locked or managed role, and the Display
+  (name, colour swatches and a custom hex, the icon, hoist and mention
+  switches), Permissions (searchable, a permission this account lacks or
+  would lose locked with why) and Manage Members (search, Add Members,
+  remove) tabs. Delete Role's and Remove member's question, and Add
+  members (search, up to 30 ticked), open over the settings; Escape closes
+  the More menu, then them. What may change is the core's `RoleRules`.
+- Members (`people.rs`, the Slint client's `MembersSection`): the search,
+  sent once the typing has stopped for 300 ms (a timer task numbered by
+  the typing, so only the last one's ending searches; Enter at once), the
+  order, and the columns' headings sharing the row as Discord's grow, Join
+  Method only with Manage Server. The members on the page are rows of
+  56 px, only those in view built and their pictures asked for: the
+  avatar, the name in its highest coloured role's colour, the username,
+  Member Since and Joined Discord as Discord words them, the join method,
+  the first role as a chip with "+N", and Discord's signals (unusual DMs,
+  timed out with what's left, spam, quarantined) as icons with tips. A
+  click opens the member's profile over the settings, More Options and a
+  right click their menu; Escape closes either before the settings, and
+  the composer under them doesn't take the keys back. The footer: the
+  page size, how many in all, and the pager.
+- Invites: Pause or Enable Invites (Security Actions: how long, invites,
+  DMs, Save once changed), Create Invite Link (the invite dialog), and
+  the invites with their inviter, code, uses, a countdown ticking each
+  second while there are rows, and roles; dimmed while paused, the X under
+  the pointer revokes.
+- Safety Setup (`moderation.rs`): the verification levels and content
+  filters as the kit's radio `options`, in Discord's colours, and those a
+  Community server can't choose in Discord's words why; the switch
+  requiring 2FA for moderators, locked with why unless its owner has 2FA,
+  with Discord's note. Each choice goes to Discord as it's made.
+- Audit Log: filters by user and action, the rows in bordered cards (who
+  did what in bold, when on the chosen clock, an arrow for a row with
+  lines), an open row's numbered lines in its kind's colour; Load More,
+  and older entries loading at the list's end; empty and failed states.
+- Bans: the search, the bans a page at a time with the pager, No Bans, and
+  a ban's dialog with its reason and Revoke Ban.
+- Emoji (`expressions.rs`, the Slint client's `EmojiSection`): Discord's
+  words with the slots, Upload Emoji while one is free (the file dialog,
+  then the core reads it), and the two tables, newest first, under their
+  headings with the slots left, or No Emoji. The list is rows of 52 px,
+  only those in view built and their pictures asked for: the emoji, its
+  name (a field this account may change, its ground showing under the
+  pointer or while it has the keys, the name going to Discord on Enter, a
+  click beside it, or once another row's is written), who uploaded it, and
+  Delete under the pointer. Upload Emoji's dialog shows the picture at
+  chat's three sizes over the name, its field taking the keys.
+- Stickers: Discord's four cards (Free Slots, then Levels 1 to 3, a lock
+  and the boosts it takes on one the server hasn't reached) with their
+  tiles wrapping 140 px apiece, Edit and Delete in a tile's corner under
+  the pointer, and Upload Sticker where the next one goes. The sticker
+  form: the preview, Browse for a new one's file, the related emoji, name
+  and description, Upload or Update.
+- Delete Server and Transfer Ownership (`ownership.rs`): Discord's
+  question with the server's (and the new owner's) name in bold. Delete
+  Server asks for the server's name without two-factor authentication;
+  Transfer Ownership, from a member's menu on Members, shows both owners'
+  avatars, a Verified server's warning and the acknowledgement, then the
+  code Discord emailed with Resend. A dialog's field takes the keys when it
+  shows, and Escape or a click beside it closes it unless Discord is
+  answering.
+
+## Channel settings
+
+A Discord channel's or category's settings (`channel_settings.rs`) are the
+Slint client's `ChannelSettingsScreen`, opened by Edit channel (or Edit
+category) in its menu; a category's heading in the sidebar opens its menu
+on a right click. They sit on the same settings frame: the channel's name
+in capitals (a text channel's with its `#`) over Overview and Permissions,
+and Delete Channel (or Category) in red after a line where the channel's
+menu offers it, which closes them and asks. What they hold and may change
+is the core's (`ChannelSettingsScreen`); the screen keeps only the bar's
+shake and whether Add's search has had the keys, takes the keys from the
+composer as it opens and gives them back when it closes. The form kit's
+`unsaved_bar` saves the page's draft, and leaving the page or the
+settings with changes shakes it. Escape closes Add, then the question,
+then the settings.
+
+- Overview: the name, and for a text channel the topic, slowmode stepped
+  through Discord's intervals with the arrows either side of it, and the
+  Age-Restricted Channel switch.
+- Permissions (the page fills the frame and scrolls its own list): the
+  notice of whether a channel's permissions follow its category, with
+  Sync Now when they don't; Private Channel (or Category), which takes
+  View Channel (and a voice channel's Connect) from @everyone, locked
+  with why when this account lacks them; and under Advanced Permissions
+  the roles and members with an overwrite, 180 px wide with Add, beside
+  the chosen one's permissions in Discord's groups, each a `tri_line`
+  (denied, left to the roles, or allowed; locked with Discord's words
+  where this account lacks it), then Remove for any but @everyone.
+- Over the page: Delete Permission Settings, Sync permissions? and
+  Discord's refusal to deny a permission to the account's own roles, and
+  Add, its search taking the keys, listing the roles without an overwrite
+  that match and the members Discord finds, one chosen added at once.
 
 ## Header and timeline
 
@@ -286,7 +438,11 @@ and its words in Discord's wording.
 the core's blocks (headings, subtext, quotes, fenced code) apart, and in
 each the inline styles as runs, with mentions on pills of their colour,
 links, and spoilers covered until clicked. A web address opens the browser; a
-mention or a notice's name opens the person's card.
+mention or a notice's name opens the person's card. A Discord link this
+account can follow stays in the app, as the core's `discord_route` reads
+it: an invite opens its Join dialog, a server, channel or message goes
+there, and a person's opens their card; an app's authorization, a gift
+and an event still open the browser.
 
 ## Writing
 
@@ -400,7 +556,12 @@ member list, the DMs, and the lists still to come build on it.
   menu (`person.rs`), built from the core's `person_choices` in the Slint
   client's order and wording: Profile, Mention, Message, Call, Add Note,
   the friend and block choices, Mute, Timeout, Kick and Ban by name, Pin,
-  and Copy ID. A choice that asks first (remove friend, block, kick, ban,
+  and Copy ID. Roles, Invite to server, Mute and Apps open submenus built
+  as the menu opens: the server's roles this account may give or take
+  (ticked where held, each tick sent at once with the menu kept open), the
+  servers to invite them to, how long to mute their DM, and the open
+  room's user commands with their apps' names, which the menu's opening
+  asks the core to fetch. A choice that asks first (remove friend, block, kick, ban,
   timeout and its length, a nickname, a note) opens the person dialog,
   with its options, field and "Don't ask again" as Slint's, and sends the
   answer to the core.
@@ -542,8 +703,9 @@ parts of `ui/yapfast.slint`, with the adapter's logic beside them.
 - Someone's voice menu (`menus.rs` with the person's choices) has their
   user and stream volumes above its rows and checkboxes for muting them
   for this account, muting their soundboard, and on Discord the server's
-  mute and deafen; one's own has mute and deafen. Volumes play while
-  dragged and are kept when let go, as are those muted.
+  mute and deafen; one's own has mute and deafen. Move to opens the voice
+  channels they may be moved to (this account moves by joining). Volumes
+  play while dragged and are kept when let go, as are those muted.
 - The dock (`call/dock.rs`) at the sidebar's foot: the connection's state
   and the call's time, the channel line (underlined under the pointer)
   that shows the call, noise suppression's toggle, which turns back on the
@@ -594,14 +756,38 @@ each, and what each lists or makes is the core's.
   the answers each with an emoji from the picker and a bin, Add another
   answer, the duration, Allow Multiple Answers, what's too long, and Post.
 
+The dialogs a server's and a channel's menus lead to are
+`server_dialogs.rs`'s, as the Slint client's `InviteDialog`, `JoinDialog`
+and `ChannelDialog` (which asks before leaving too) in `ui/server.slint`.
+An opening one's field takes the keys, else nothing under it does, and
+Escape closes it.
+
+- Invite: "Invite friends to" the server and the channel the link lands
+  people in, the link with Copy (Copied once copied), how long it lasts
+  and how often it works, why it couldn't be made, and Expire after and
+  Max number of uses, starting from the link's, for Generate a new link.
+- Join a Server, from the rail's button or a clicked invite link: the
+  field (Join's alone; Enter finds the invite), the server once found
+  with its icon and who is online, how joining goes (looking up, joining,
+  already in it, a captcha or a form to finish in the browser), and Find
+  Invite, Join Server or Open Server; Open the captcha again and Open in
+  browser go through the core to `browser.rs`.
+- Create channel (Text or Voice) and Create category, in the server or
+  the category the menu was for, Duplicate channel with its name to change,
+  and Delete channel or category in red, which Delete Channel in the
+  channel's settings opens too; Enter does what the button does, and the
+  core says while it saves and why it couldn't.
+- Leave a server or group, in red: a group's offers to leave without
+  notifying its other members; Enter leaves.
+
 ## How it's built
 
 iced builds the whole view again after every message and lays it out, so
 what costs is kept out of the view:
 
 - The backend's events come on its receiver, batched, as messages
-  (`app.rs`); nothing polls. Fonts the shaper wants and the control file
-  come as subscriptions.
+  (`app.rs`); nothing polls. Fonts the shaper wants, the control file and
+  the window's size as it opens and is resized come as subscriptions.
 - Lists are virtualized by hand: `widgets::Rows` holds only the rows near
   its viewport, each keyed by its id, so its widget state follows it as
   rows come and go. A message's text is laid out once, when it comes, and
@@ -629,7 +815,7 @@ what costs is kept out of the view:
 
 Each part of the window has its module: `signin`, `mfa`, `rail`,
 `sidebar`, `account`, `header`, `timeline`, `message`, `cards`, `bot_select`, `browse`, `composer`, `edit`, `suggest`, `commands`, `typing`, `uploads`, `forward`, `members`,
-`people`, `person`, `profile` (with `editor`), `friends`, `active_now`, `reactions`, `picker` (with its tabs `emoji`, `gifs`, `stickers`), `menus`, `places`, `dialogs`, `call` (with `stage`, `dock`, `popups`, `dm`, `corner`), `settings` (with `pages`, `voice`, `appearance`), `status`, `switcher`; `form` is Settings' kit; `theme` holds
+`people`, `person`, `profile` (with `editor`), `friends`, `active_now`, `reactions`, `picker` (with its tabs `emoji`, `gifs`, `stickers`), `menus`, `places`, `dialogs`, `call` (with `stage`, `dock`, `popups`, `dm`, `corner`), `settings` (with `pages`, `voice`, `appearance`), `server_settings` (with `profile`, `roles`, `people`, `moderation`, `expressions`, `ownership`), `channel_settings`, `server_dialogs`, `status`, `switcher`; `form` and `sheet` are the settings' kit; `theme` holds
 the colours and `layout` what's kept in `layout.json`.
 `sync.rs` takes in what changed in the core's state after each message.
 `widgets.rs`, `field.rs` (the composer's text field), `select.rs`
@@ -654,9 +840,37 @@ When a second screen needs what a first one built, it moves here:
   choices (`MenuItem`), lit under the pointer or, in a context menu, where
   the keys put the light; `controls::menu_panel` and `separator` are the
   menu's ground and the line between its groups.
+- Submenus (`menus.rs`): a `MenuRow` with a `submenu` shows a chevron and
+  opens it beside itself, its first row level with the row, under the
+  pointer, on a click or with Right; on the left when the right has no
+  room, and kept in the window. Left or Escape closes it, the pointer onto
+  another row too. A row's `click` is what a click on the row itself does
+  instead (a mute's "until I turn it back on"); a row's `key` carries what
+  it's about (a role, a server, a command, a channel) for `sub_act`. A
+  `Check::Box` row ticks in place and keeps the menu open, in the menu or
+  a submenu; a `Check::Current` row's tick makes every row of its menu
+  leave room for one. A menu or submenu is as wide as its widest row, at
+  least its own width, measured once as it first shows. `Place::beside`
+  lays the submenu out next to a row found by its path in the menu's
+  layout, so the menu never moves.
 - `controls::outside`: the full-window layer under an overlay that takes
   a click outside it, clear, or dimmed under a dialog.
-- `dialogs::dialog`: the frame of every dialog over the dimmed window.
+- `menus.rs`: a menu taller than the window scrolls, at most the window's
+  height less a margin each side, and `Place` keeps one below the pointer,
+  above it, or else pinned to the window's foot.
+- `dialogs::dialog`: the frame of every dialog over the dimmed window;
+  `dialogs::panel` a dialog of a width (and height) of its own on the
+  chat's ground, as Roles' questions and Add members are, a click on the
+  dimmed window sending its own message.
+- `reorder::Reorder`: a list of rows that dragging reorders: a row taken
+  by the strip at its left (its handle, for those that may move) follows
+  the pointer, lifted on a ground of its own, and where it's let go,
+  rounded to whole rows, is sent as from and to for its owner to move.
+- `App::filled_icon_button`: an icon button on a round ground of its own
+  (the Slint client's `IconButton` with a `fill`), greyed without a
+  message, its tip above; an empty label shows no tip.
+  `App::danger_icon_button` is one with `danger`: red on a red wash under
+  the pointer, on a `fill` or none.
 - `controls::tip` and `tip_style`: the tooltip.
 - `controls::bar`: a box of one colour, for lines between parts of the
   window, bars and dots; `controls::placed` puts a layer of a stack at a
@@ -728,10 +942,27 @@ When a second screen needs what a first one built, it moves here:
   its options in a list under it that its owner opens and closes),
   `readout` (a value set elsewhere in a sunken box), `capture` (a key's
   box, "Press a key..." while recording), `field` (a form's text field),
+  `entry` (the Slint client's 40 px `TextField`), `area` (a text several
+  lines high with what's left of it),
   `colour_row` (a swatch, its name and its hex) and `card`. Rows of choices
   are `controls::choices` (`choices_within` for a wider row), sliders
   `controls::Slider` with `step`, `shown` (the value in other words) and
-  `mark`. `unsaved_bar` is an editor's bar once something changed.
+  `mark`. `unsaved_bar` is an editor's bar once something changed, which
+  `Shake` shakes red after leaving was refused; `Dropdown::enabled`
+  greys a dropdown and `Dropdown::height` sets its box's. `options` is a
+  list of radio choices (`Choice`: a title in its own colour, what it
+  means, greyed when not offered), one chosen. `tri_state` is Discord's
+  three-way choice of a permission (`Tri`: deny, pass to the roles,
+  allow; the chosen one filled red, grey or green), and `tri_line` a
+  permission's row of it: the title (dimmed, with a lock saying why, when
+  it can't change), the choice at its end, what it means, and a line.
+- `server_settings::moderation::pager`: Previous, "Page 2 of 3" (or "2 of
+  3") and Next, for Bans' and Members' footers.
+- `sheet.rs`: the settings frame of a server's and a channel's settings
+  (`Sheet`: the pages' column of `Nav` rows, the page, the close button,
+  the bar over the page's foot, a page that fills its height for a list
+  of its own); `backdrop`, the card over the dimmed window that Settings
+  shares, and `nav_row`, a section's row in either.
 - `App::emoji_button`: an emoji on a lit square, for quick reactions in
   menus and the hover bar. `controls::action(..).small()` and `.icon()`
   make an app's button; `Kind::Success` is the green one.
@@ -772,7 +1003,13 @@ sending from there going to the newest; and in `tests/writing.rs` the
 composer's line breaks, the reply's mention toggle and Escape, editing in
 place, `:name` suggestions, the emoji picker's search, Forward from a
 message's menu, and the keyboard's steps through messages; and in
-`tests/people.rs` a profile's More menu being the person's own and asking
+`tests/menus.rs` a server's notification choices and what each sends,
+the bell's and a channel's alike, a submenu beside its row (on the left
+without room) that the pointer and keys open and close, roles ticked in
+place, the servers to invite someone to, Delete channel, Invite and
+Leave server asking first, a server's boost goal and events row with the
+events' menu (and "No upcoming events" without any), and the window's size
+following a resize; and in `tests/people.rs` a profile's More menu being the person's own and asking
 before a block, the profile beside a DM and the header's button, the
 friends list's tabs and search, requests listing someone once, a blocked
 person's message folded until asked, View Reactions, and the full
@@ -785,11 +1022,30 @@ Appearance shown at once and kept, a custom theme made, edited, cancelled
 and deleted, preferences kept across a restart (and message times
 following the clock), a device chosen in Voice & video, push to talk's key
 recorded and kept, and closing Settings letting go of an edited theme;
+in `tests/server.rs`, on a Discord server `discord_server` builds, server
+settings opening from the server's menu and holding their changes until
+saved, Roles locking what ranks above this account and the permissions it
+lacks, a role dragged by its handle moving, Safety Setup's levels and
+locked 2FA switch with Bans and a ban's dialog, Audit Log's rows opening
+their numbered lines and a filter fetching anew, and Members (columns,
+the search settling, a profile and Escape over it, an order) with Invites
+(countdowns and Security Actions), Emoji's tables (only this account's own
+a field, renamed on Enter, deleted) and Stickers' cards and form, and
+Delete Server asking for the name;
+in `tests/channel_settings.rs`, on the same server, channel settings
+opening from the channel's menu, Overview holding its draft until Reset
+(another page waiting for it), Permissions' @everyone with its locks,
+and Delete Channel closing them to ask;
 in `tests/editor.rs` the profile editor's card and bar (Escape ending the
 editing, Reset putting it back), a bio too long that can't be saved, and
 a banner colour that isn't one; in `tests/dialogs.rs` the custom status
 starting from the one set and saving what's written, and the quick
-switcher finding a place and going there with the keys. `call/stage.rs` tests the tiles' layout, the
+switcher finding a place and going there with the keys; in
+`tests/server_dialogs.rs`, on the same server, the invite dialog's link,
+how long it lasts and its choices for a new one, Create channel and
+category, Duplicate and Delete from the menus, leaving a server or group
+in red (a group's without telling anyone), and Join a Server from the
+rail and a clicked invite link. `call/stage.rs` tests the tiles' layout, the
 stage's slots and the corner, `call/dock.rs` the call's time and
 `viewer.rs` the fit. The emoji
 ones need the Twemoji font the root crate's `build.rs` packs: they take
@@ -809,13 +1065,15 @@ nothing), the nameplate's and effect's art on their tiles, the theme
 colours' picker (each is its code alone), a moving banner, and the avatar's
 colour behind a banner without one, which the profile cards lack too.
 Other accounts, threads, profile effects and frames, a mutual server's card, an
-activity's menu, the Invite to server submenu, the tray,
+activity's menu, the tray,
 notifications, links, accessibility and Windows' own checks. On the rail
 and in the sidebar: dragging servers, channels and people, the voice
 card beside a busy channel and a voice channel's chat, a server's
-banner, boost bar and events row, and the dialogs and settings its menus
-lead to (joining a server, invites, notification settings). In the header:
-threads, pins, notification settings, adding people, the
+verified badge and its events' own cards, and the dialog that asks whether a
+dragged channel takes its category's permissions (there's no dragging
+yet). An app's authorization, a gift's and an event's dialogs: their
+links open the browser. In the header:
+threads, pins, adding people, the
 search. In the timeline: saving a file, a
 picture's full view, apps' forms
 (modals), and the actions that
@@ -823,7 +1081,7 @@ lead to what the client doesn't have yet: Create Thread
 and View Thread, Apps' message commands, a picture's Copy Image, Save and
 Open Link; keys typed in the timeline going to the composer. In the composer: dragging the expression
 picker's left edge to widen it, and Nitro's offer on a locked emoji or
-sticker. In calls: the voice menu's Move To, push to talk's fallback while the
+sticker. In calls: push to talk's fallback while the
 window has focus where no global shortcut is had, the ringing card's
 pulse, and the video over the switch dialog's dim (the renderer draws
 video after the layers above it).

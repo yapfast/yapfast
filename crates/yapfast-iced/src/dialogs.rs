@@ -190,3 +190,45 @@ pub fn dialog<'a>(
         container(card).center(Length::Fill)
     ])
 }
+
+/// How dark the window goes under a dialog over a server's or channel's
+/// settings, as the Slint client's (`#000000aa`).
+pub const PANEL_DIM: iced::Color = iced::Color {
+    r: 0.0,
+    g: 0.0,
+    b: 0.0,
+    a: 0.667,
+};
+
+/// A dialog over a server's or a channel's settings, as the Slint client
+/// draws those (Delete Role, Add members, a ban, Security Actions): on the
+/// chat's ground with 8 px corners and no edge, `width` across and, when
+/// given, `height` tall, the window dimmed by [`PANEL_DIM`] under it. A
+/// click on the dimmed window sends `on_outside`; nothing under it takes a
+/// key.
+pub fn panel<'a>(
+    theme: &Theme,
+    body: Element<'a, Message>,
+    width: f32,
+    height: Option<f32>,
+    on_outside: Message,
+) -> Element<'a, Message> {
+    let ground = theme.chat;
+    let mut card = container(body)
+        .width(width)
+        .style(move |_| crate::style::rounded(ground, 8));
+    if let Some(height) = height {
+        card = card.height(height);
+    }
+    let dim = iced::widget::mouse_area(
+        container(Space::new())
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(|_| crate::style::fill(PANEL_DIM)),
+    )
+    .on_press(on_outside);
+    opaque(stack![
+        opaque(dim),
+        container(opaque(card)).center(Length::Fill)
+    ])
+}

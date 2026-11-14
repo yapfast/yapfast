@@ -20,15 +20,15 @@ pub use pages::message_size;
 pub mod voice;
 
 use iced::{
-    Alignment, Border, Color, Element, Length, Task,
-    widget::{Space, button, column, container, mouse_area, opaque, row, scrollable, stack, text},
+    Alignment, Color, Element, Length, Task,
+    widget::{Space, button, column, container, row, scrollable, text},
 };
 use yapfast_core::application::Action;
 
 use crate::{
     app::{App, Message},
-    controls::{self, bar, lights},
-    fonts::{BOLD, MEDIUM},
+    controls::{self, bar},
+    fonts::BOLD,
     form,
     pictures::Icon,
     style::scrollbar,
@@ -44,17 +44,9 @@ pub fn appearance_event(event: ThemeEvent) -> Message {
     Message::Settings(Event::Theme(event))
 }
 
-/// How far the card sits in from the window's edges, how dark the window
-/// goes under it, and the sections' column's width.
+/// How far the card sits in from the window's edges, and the sections'
+/// column's width.
 const MARGIN: f32 = 72.0;
-/// The card at its widest, centred beyond that, as the Slint client's.
-const WIDEST: f32 = 1400.0;
-const DIM: Color = Color {
-    r: 0.0,
-    g: 0.0,
-    b: 0.0,
-    a: 0.7,
-};
 const NAV: f32 = 266.0;
 /// A section's row in the column, the page's header over it.
 const NAV_ROW: f32 = 40.0;
@@ -377,43 +369,20 @@ impl App {
             .width(Length::Fill)
             .height(Length::Fill)
             .style(move |_| crate::style::fill(panel));
-        let (edge, chat) = (theme.edge, theme.chat);
-        let card = container(row![
+        let chat = theme.chat;
+        let card = row![
             container(self.settings_nav(settings))
                 .width(NAV)
                 .height(Length::Fill)
                 .style(move |_| crate::style::fill(chat)),
             content
-        ])
-        .width(Length::Fill)
-        .max_width(WIDEST)
-        .height(Length::Fill)
-        .clip(true)
-        // No shadow: over the window dimmed by 70% it hardly shows, and the
-        // renderer works a card this large's out pixel by pixel each time
-        // anything on it is drawn again.
-        .style(move |_| iced::widget::container::Style {
-            border: Border {
-                color: edge,
-                width: 1.0,
-                radius: 12.0.into(),
-            },
-            ..Default::default()
-        });
-        let dim = mouse_area(
-            container(Space::new())
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .style(|_| crate::style::fill(DIM)),
-        )
-        .on_press(Message::Settings(Event::Close));
-        Some(opaque(stack![
-            opaque(dim),
-            container(opaque(card))
-                .padding(MARGIN)
-                .center_x(Length::Fill)
-                .height(Length::Fill)
-        ]))
+        ];
+        Some(crate::sheet::backdrop(
+            theme,
+            card,
+            MARGIN,
+            Message::Settings(Event::Close),
+        ))
     }
 
     /// The sections' column: the account with Edit Profile, the search,
@@ -520,51 +489,15 @@ impl App {
 
     /// A section's row, as the Slint client's `ChannelRow`.
     fn nav_row(&self, section: Section, selected: bool) -> Element<'_, Message> {
-        let theme = &self.theme;
-        let icon_ink = if selected { theme.text } else { theme.faint };
-        let (active, hover, text_ink, rest_ink, lit_ink) = (
-            theme.active,
-            theme.hover,
-            theme.text,
-            theme.muted,
-            theme.secondary,
-        );
-        button(
-            container(
-                row![
-                    self.glyph(section.icon(), 20, icon_ink),
-                    text(section.title()).size(15).font(MEDIUM)
-                ]
-                .spacing(8)
-                .align_y(Alignment::Center),
-            )
-            .height(Length::Fill)
-            .align_y(Alignment::Center),
+        crate::sheet::nav_row(
+            self,
+            section.icon(),
+            section.title(),
+            selected,
+            false,
+            NAV_ROW,
+            Message::Settings(Event::Open(section)),
         )
-        .padding([0, 8])
-        .width(Length::Fill)
-        .height(NAV_ROW)
-        .on_press(Message::Settings(Event::Open(section)))
-        .style(move |_, status| {
-            let lit = lights(status);
-            button::Style {
-                background: if selected {
-                    Some(active.into())
-                } else {
-                    lit.then(|| hover.into())
-                },
-                text_color: if selected {
-                    text_ink
-                } else if lit {
-                    lit_ink
-                } else {
-                    rest_ink
-                },
-                border: Border::default().rounded(6),
-                ..Default::default()
-            }
-        })
-        .into()
     }
 
     /// Which build this is, under the sections, as the Slint client's

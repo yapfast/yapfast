@@ -381,9 +381,7 @@ impl App {
                 return self.ask();
             }
             Event::Dm(id) => self.client.dispatch(Action::Open(id)),
-            // Joining a server is one of the Slint client's dialogs, still
-            // to come here.
-            Event::Join => return Task::none(),
+            Event::Join => self.client.dispatch(Action::OpenJoinServer),
         }
         self.sync()
     }

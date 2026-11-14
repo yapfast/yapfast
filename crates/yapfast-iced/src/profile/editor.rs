@@ -643,6 +643,7 @@ impl App {
                 core.saving,
                 ready,
                 may_save,
+                form::Shake::default(),
                 message(Event::Undo),
                 message(Event::Save),
             ));

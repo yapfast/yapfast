@@ -592,8 +592,16 @@ impl App {
     }
 
     /// The keys go back to the field being written in: the edit while one
-    /// is open, else the composer.
+    /// is open, else the composer; not while a server's or a channel's
+    /// settings cover it, as after a member's profile from Members.
     pub fn refocus(&self) -> Task<Message> {
+        // A screen or dialog over the window keeps the keys itself.
+        if self.server_screen.is_some()
+            || self.channel_screen.is_some()
+            || self.server_dialog_open()
+        {
+            return Task::none();
+        }
         operation::focus(if self.editing.is_some() {
             EDIT
         } else {
@@ -623,6 +631,11 @@ impl App {
             field::Event::Choose => self.choose_suggestion(which),
             field::Event::Escape => {
                 if self.dismiss_suggestions() {
+                    return Task::none();
+                }
+                // Under a server's or a channel's settings, Escape is
+                // theirs: it comes to them as a key.
+                if self.server_screen.is_some() || self.channel_screen.is_some() {
                     return Task::none();
                 }
                 // Escape in the edit's field ends the edit.

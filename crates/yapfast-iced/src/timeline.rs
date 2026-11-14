@@ -1204,6 +1204,18 @@ impl App {
             self.client.dispatch(Action::SelectRoom(room));
             return self.sync();
         }
+        // Discord's own links open their place here, when this client can
+        // show it, and in the browser otherwise, as the Slint client's do:
+        // an invite shows its server first and joins only when asked.
+        if let Some(action) = self.discord_link(link, at) {
+            return match action {
+                Ok(action) => {
+                    self.client.dispatch(action);
+                    self.sync()
+                }
+                Err(task) => task,
+            };
+        }
         // A masked link, whose words aren't where it goes, asks first.
         if let Some(target) = yapfast_core::links::masked(link) {
             self.leaving = Some(target.to_owned());
@@ -1213,6 +1225,48 @@ impl App {
             crate::browser::open(link);
         }
         Task::none()
+    }
+
+    /// What one of Discord's own links does here: an action for the core,
+    /// or a profile's card at the words clicked; none for a link this
+    /// client can't show yet (an app's authorization, a gift, an event),
+    /// which opens in the browser.
+    fn discord_link(
+        &mut self,
+        link: &str,
+        at: iced::Point,
+    ) -> Option<Result<Action, Task<Message>>> {
+        use yapfast_core::discord::{self, DiscordRoute};
+        let route = discord::discord_route(yapfast_core::links::masked(link).unwrap_or(link))
+            .filter(|route| self.client.state().opens_discord_route(route))?;
+        Some(Ok(match route {
+            DiscordRoute::Invite { code } => Action::OpenInviteLink(code),
+            DiscordRoute::DirectMessages => {
+                Action::Navigate(yapfast_core::application::Navigation::DirectMessages)
+            }
+            DiscordRoute::Server { guild } => Action::Navigate(
+                yapfast_core::application::Navigation::Server(discord::server_id(&guild)),
+            ),
+            DiscordRoute::Channel { guild, channel } => {
+                Action::Open(discord::room_id(&guild, &channel))
+            }
+            DiscordRoute::Message {
+                guild,
+                channel,
+                message,
+            } => Action::JumpInRoom {
+                room: discord::room_id(&guild, &channel),
+                item: format!("d:{message}"),
+            },
+            DiscordRoute::User { user } => {
+                return Some(Err(self.open_card(user, iced::Point::new(at.x + 8.0, at.y))));
+            }
+            DiscordRoute::Authorize { .. }
+            | DiscordRoute::Gift { .. }
+            | DiscordRoute::Event { .. } => {
+                return None;
+            }
+        }))
     }
 
     /// A spoiler over a message's attachment was clicked: it shows.

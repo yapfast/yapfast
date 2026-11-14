@@ -926,11 +926,27 @@ impl<'a> From<PlateRow<'a>> for Element<'a, Message> {
 
 /// Its child at `at`, moved up or left as far as it must be to stay
 /// `margin` inside the window, as the Slint client clamps a profile card.
+/// With [`Place::beside`], a second child stands beside a part of the
+/// first (a submenu beside its row): on its right, or its left without
+/// room, its top level with that part's, moved up to stay in the window;
+/// the first doesn't move for it.
 pub struct Place<'a> {
     child: Element<'a, Message>,
     at: Point,
     margin: f32,
     anchor: Anchor,
+    beside: Option<Beside<'a>>,
+}
+
+/// What stands beside a [`Place`]'s child.
+struct Beside<'a> {
+    child: Element<'a, Message>,
+    /// The part of the first child it lines up with, by the indices of its
+    /// layout's children from the first child's root.
+    path: Vec<usize>,
+    /// Above the part's top, as a submenu's padding lifts it.
+    lift: f32,
+    gap: f32,
 }
 
 /// How `Place` reads its point.
@@ -951,12 +967,39 @@ impl<'a> Place<'a> {
             at,
             margin,
             anchor: Anchor::Corner,
+            beside: None,
         }
     }
 
     pub fn anchor(mut self, anchor: Anchor) -> Self {
         self.anchor = anchor;
         self
+    }
+
+    /// `child` beside the part of the first at `path` (its layout's
+    /// children's indices), `gap` from it, its top `lift` above the part's.
+    pub fn beside(
+        mut self,
+        child: impl Into<Element<'a, Message>>,
+        path: Vec<usize>,
+        lift: f32,
+        gap: f32,
+    ) -> Self {
+        self.beside = Some(Beside {
+            child: child.into(),
+            path,
+            lift,
+            gap,
+        });
+        self
+    }
+
+    fn children_mut(&mut self) -> impl Iterator<Item = &mut Element<'a, Message>> {
+        std::iter::once(&mut self.child).chain(self.beside.as_mut().map(|beside| &mut beside.child))
+    }
+
+    fn children_ref(&self) -> impl Iterator<Item = &Element<'a, Message>> {
+        std::iter::once(&self.child).chain(self.beside.as_ref().map(|beside| &beside.child))
     }
 }
 
@@ -966,11 +1009,12 @@ impl Widget<Message, Theme, Renderer> for Place<'_> {
     }
 
     fn children(&self) -> Vec<Tree> {
-        vec![Tree::new(&self.child)]
+        self.children_ref().map(Tree::new).collect()
     }
 
     fn diff(&self, tree: &mut Tree) {
-        tree.diff_children(std::slice::from_ref(&self.child));
+        let children: Vec<&Element<'_, Message>> = self.children_ref().collect();
+        tree.diff_children(&children);
     }
 
     fn layout(
@@ -980,11 +1024,11 @@ impl Widget<Message, Theme, Renderer> for Place<'_> {
         limits: &layout::Limits,
     ) -> layout::Node {
         let room = limits.max();
-        let node = self.child.as_widget_mut().layout(
-            &mut tree.children[0],
-            renderer,
-            &layout::Limits::new(Size::ZERO, room),
-        );
+        let free = layout::Limits::new(Size::ZERO, room);
+        let node = self
+            .child
+            .as_widget_mut()
+            .layout(&mut tree.children[0], renderer, &free);
         let size = node.size();
         let x = self
             .at
@@ -996,11 +1040,43 @@ impl Widget<Message, Theme, Renderer> for Place<'_> {
             Anchor::Pointer if self.at.y + 4.0 + size.height <= room.height - self.margin => {
                 self.at.y
             }
-            Anchor::Pointer => self.at.y - size.height - 4.0,
+            // Above it, kept inside the window where it fits neither way.
+            Anchor::Pointer if self.at.y - size.height - 4.0 >= self.margin => {
+                self.at.y - size.height - 4.0
+            }
+            Anchor::Pointer => room.height - size.height - self.margin,
             Anchor::Bottom => self.at.y - size.height,
         }
         .max(self.margin);
-        layout::Node::with_children(room, vec![node.move_to((x, y))])
+        let mut nodes = vec![node.move_to((x, y))];
+        if let Some(beside) = &mut self.beside {
+            let sub = beside
+                .child
+                .as_widget_mut()
+                .layout(&mut tree.children[1], renderer, &free);
+            let sub_size = sub.size();
+            // The part's top within the first child.
+            let mut part = &nodes[0];
+            let mut top = 0.0;
+            for &index in &beside.path {
+                let Some(child) = part.children().get(index) else {
+                    break;
+                };
+                top += child.bounds().y;
+                part = child;
+            }
+            let right = x + size.width + beside.gap;
+            let sub_x = if right + sub_size.width <= room.width - self.margin {
+                right
+            } else {
+                (x - beside.gap - sub_size.width).max(self.margin)
+            };
+            let sub_y = (y + top - beside.lift)
+                .min(room.height - sub_size.height - self.margin)
+                .max(self.margin);
+            nodes.push(sub.move_to((sub_x, sub_y)));
+        }
+        layout::Node::with_children(room, nodes)
     }
 
     fn operate(
@@ -1010,10 +1086,15 @@ impl Widget<Message, Theme, Renderer> for Place<'_> {
         renderer: &Renderer,
         operation: &mut dyn Operation,
     ) {
-        let child = layout.children().next().expect("child's");
-        self.child
-            .as_widget_mut()
-            .operate(&mut tree.children[0], child, renderer, operation);
+        for ((child, state), layout) in self
+            .children_mut()
+            .zip(&mut tree.children)
+            .zip(layout.children())
+        {
+            child
+                .as_widget_mut()
+                .operate(state, layout, renderer, operation);
+        }
     }
 
     fn update(
@@ -1027,17 +1108,18 @@ impl Widget<Message, Theme, Renderer> for Place<'_> {
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
-        let child = layout.children().next().expect("child's");
-        self.child.as_widget_mut().update(
-            &mut tree.children[0],
-            event,
-            child,
-            cursor,
-            renderer,
-            clipboard,
-            shell,
-            viewport,
-        );
+        // The one beside first: it's drawn over the first.
+        let layouts: Vec<Layout<'_>> = layout.children().collect();
+        let mut pairs: Vec<_> = self
+            .children_mut()
+            .zip(&mut tree.children)
+            .zip(layouts)
+            .collect();
+        for ((child, state), layout) in pairs.iter_mut().rev() {
+            child.as_widget_mut().update(
+                state, event, *layout, cursor, renderer, clipboard, shell, viewport,
+            );
+        }
     }
 
     fn mouse_interaction(
@@ -1048,14 +1130,16 @@ impl Widget<Message, Theme, Renderer> for Place<'_> {
         viewport: &Rectangle,
         renderer: &Renderer,
     ) -> mouse::Interaction {
-        let child = layout.children().next().expect("child's");
-        self.child.as_widget().mouse_interaction(
-            &tree.children[0],
-            child,
-            cursor,
-            viewport,
-            renderer,
-        )
+        self.children_ref()
+            .zip(&tree.children)
+            .zip(layout.children())
+            .map(|((child, state), layout)| {
+                child
+                    .as_widget()
+                    .mouse_interaction(state, layout, cursor, viewport, renderer)
+            })
+            .max()
+            .unwrap_or_default()
     }
 
     fn draw(
@@ -1068,16 +1152,15 @@ impl Widget<Message, Theme, Renderer> for Place<'_> {
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
-        let child = layout.children().next().expect("child's");
-        self.child.as_widget().draw(
-            &tree.children[0],
-            renderer,
-            theme,
-            style,
-            child,
-            cursor,
-            viewport,
-        );
+        for ((child, state), layout) in self
+            .children_ref()
+            .zip(&tree.children)
+            .zip(layout.children())
+        {
+            child
+                .as_widget()
+                .draw(state, renderer, theme, style, layout, cursor, viewport);
+        }
     }
 
     fn overlay<'b>(

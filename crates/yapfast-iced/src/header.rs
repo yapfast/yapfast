@@ -303,11 +303,11 @@ impl App {
                 push(
                     Icon::BellOff,
                     "Notification settings, muted",
-                    Message::Nothing,
+                    Message::Bell,
                     false,
                 );
             } else {
-                push(Icon::Bell, "Notification settings", Message::Nothing, false);
+                push(Icon::Bell, "Notification settings", Message::Bell, false);
             }
         }
         if header.can_pin {
@@ -447,6 +447,53 @@ impl App {
         self.icon_face_button(face, label, size, message, below)
     }
 
+    /// An icon button on a ground of its own, as the Slint client's
+    /// `IconButton` with a `fill`: `size` across, round to `radius`, the
+    /// ground a tenth of the overlay lighter under the pointer, its tip
+    /// above (none for an empty label); greyed and faint without a message.
+    #[allow(clippy::too_many_arguments)]
+    pub fn filled_icon_button<'a>(
+        &self,
+        icon: Icon,
+        label: impl Into<std::borrow::Cow<'a, str>>,
+        size: f32,
+        glyph: u32,
+        fill: iced::Color,
+        radius: f32,
+        message: Option<Message>,
+    ) -> Element<'a, Message> {
+        let theme = &self.theme;
+        let enabled = message.is_some();
+        let ink = if enabled {
+            theme.secondary
+        } else {
+            theme.faint
+        };
+        let lit = crate::theme::mix(fill, theme.overlay, 0.9);
+        let face = button(self.glyph(icon, glyph, ink).boxed(size))
+            .padding(0)
+            .width(size)
+            .height(size)
+            .on_press_maybe(message)
+            .style(lit_style(
+                Some(fill),
+                if enabled { lit } else { fill },
+                radius,
+            ));
+        let label: std::borrow::Cow<'a, str> = label.into();
+        // No label, no tip: as while the menu the button opens is showing.
+        if label.is_empty() {
+            return face.into();
+        }
+        tooltip(
+            face,
+            controls::tip(theme, label.into_owned()),
+            tooltip::Position::Top,
+        )
+        .gap(6)
+        .into()
+    }
+
     /// An icon button with a face of its own.
     pub fn icon_face_button(
         &self,
@@ -471,6 +518,58 @@ impl App {
         tooltip(face, controls::tip(&self.theme, label), side)
             .gap(6)
             .into()
+    }
+}
+
+impl App {
+    /// A destructive icon button, as the Slint client's `IconButton` with
+    /// `danger`: its glyph in the secondary ink on `fill` (or no ground),
+    /// red on a red wash under the pointer, its label in a tooltip above;
+    /// greyed and faint without a message.
+    #[allow(clippy::too_many_arguments)]
+    pub fn danger_icon_button<'a>(
+        &self,
+        icon: Icon,
+        label: &'a str,
+        size: f32,
+        glyph: u32,
+        fill: Option<iced::Color>,
+        radius: f32,
+        message: Option<Message>,
+    ) -> Element<'a, Message> {
+        let theme = &self.theme;
+        let enabled = message.is_some();
+        let face = |ink, ground: Option<iced::Color>| {
+            button(self.glyph(icon, glyph, ink).boxed(size))
+                .padding(0)
+                .width(size)
+                .height(size)
+                .on_press_maybe(message.clone())
+                .style(lit_style(ground, ground.unwrap_or_default(), radius))
+        };
+        let rest = face(
+            if enabled {
+                theme.secondary
+            } else {
+                theme.faint
+            },
+            fill,
+        );
+        if !enabled {
+            return rest.into();
+        }
+        let red = iced::Color {
+            a: 0.16,
+            ..theme.danger
+        };
+        let lit = face(theme.danger, Some(red));
+        tooltip(
+            crate::widgets::Hover::new(rest, lit),
+            controls::tip(theme, label),
+            tooltip::Position::Top,
+        )
+        .gap(6)
+        .into()
     }
 }
 

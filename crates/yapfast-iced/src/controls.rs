@@ -31,6 +31,8 @@ pub const DIM: Color = Color {
 /// `MenuItem`.
 pub const ITEM: f32 = 32.0;
 pub const ITEM_ICON: u32 = 16;
+/// The chevron at the end of a row that opens a submenu.
+pub const SUBMENU_ARROW: u32 = 24;
 
 /// What an [`action`] button is, as the Slint client's `ActionButton`
 /// properties name it.
@@ -251,8 +253,8 @@ pub fn lights(status: button::Status) -> bool {
 pub fn field<'a>(
     theme: &Theme,
     id: &'static str,
-    placeholder: &'a str,
-    value: &'a str,
+    placeholder: &str,
+    value: &str,
     secure: bool,
     enabled: bool,
 ) -> text_input::TextInput<'a, Message> {
@@ -392,6 +394,8 @@ pub enum Check {
     None,
     Current,
     Box(bool),
+    /// It opens a submenu: a chevron at its end.
+    Submenu,
 }
 
 /// Which light a menu row shows: under the pointer, or only while the menu
@@ -472,6 +476,14 @@ impl App {
         let mut face = face.push(container(words).width(Length::Fill).clip(true));
         if let Check::Box(ticked) = item.check {
             face = face.push(self.checkbox(ticked, lit));
+        }
+        if item.check == Check::Submenu {
+            let ink = if item.danger && lit {
+                theme.on_danger
+            } else {
+                theme.text
+            };
+            face = face.push(self.glyph(Icon::ChevronRight, SUBMENU_ARROW, ink));
         }
         let height = if tall { 44.0 } else { ITEM };
         let face = container(face)

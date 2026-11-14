@@ -13,14 +13,16 @@ use std::{
 };
 
 use iced::{
-    Alignment, Color, Element, Length, Padding, Point, Task,
+    Alignment, Background, Color, Element, Length, Padding, Point, Task,
     widget::{
         Space, button, column, container, mouse_area, row, scrollable, scrollable::Viewport, stack,
         text, text_input,
     },
 };
 use yapfast_core::{
-    application::{Action, AppState, DmScreen, ListedCategory, Navigation},
+    application::{
+        Action, AppState, Application, DmScreen, ListedCategory, MenuChoice, Navigation,
+    },
     chat::{ChatRoom, MarkKind, Presence, VoicePerson},
     discord,
     network::Network,
@@ -37,7 +39,7 @@ use crate::{
     style::{corners, faded, rounded, scrollbar},
     sync::Scroll,
     timeline::MARGIN,
-    widgets::{RightPress, Rows},
+    widgets::{Pic, RightPress, Rows},
 };
 
 /// The sidebar's width, as the Slint client's Discord look sets it.
@@ -63,6 +65,25 @@ const ROW_COUNT: Count = Count {
 };
 /// The search field's id.
 pub const FILTER: &str = "sidebar-filter";
+/// How much taller the header is with the server's banner behind it, and
+/// how far down the banner's shade reaches.
+const BANNER: f32 = 81.0;
+/// The boost goal's row, and the pill in it.
+const BOOST_ROW: f32 = 39.0;
+const BOOST_PILL: f32 = 26.0;
+/// The boosts the goal counts to, as Discord's bar.
+const BOOST_GOAL: u32 = 33;
+/// Discord's boost pink, which the goal's fill fades in.
+const BOOST_PINK: Color = Color {
+    r: 1.0,
+    g: 0x73 as f32 / 255.0,
+    b: 0xfa as f32 / 255.0,
+    a: 1.0,
+};
+/// The events row.
+const EVENTS_ROW: f32 = 60.0;
+/// The header's button that invites people, and the icon in it.
+const INVITE: f32 = 32.0;
 
 /// What's done in the sidebar.
 #[derive(Clone, Debug)]
@@ -81,6 +102,10 @@ pub enum Event {
     Browse,
     /// The server's name: its menu, below it.
     Header,
+    /// The header's Invite people.
+    Invite,
+    /// The events row: the server's scheduled events, under it.
+    Events,
     /// A right click on a row, by its room id, where the pointer is.
     Menu(String, Point),
     /// Wave, in an empty DM, by its person.
@@ -201,17 +226,28 @@ impl SideRow {
     }
 }
 
-/// The sidebar's header: the server's name and badge, or the DMs' search.
+/// The sidebar's header: the server's name and badge, or the DMs' search;
+/// and over a server's channels, its banner, boost goal and events row.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SideHeader {
     /// The open server, by id; none on the DM home.
     pub server: Option<String>,
     pub name: String,
     pub community: bool,
+    /// Its banner's address, which the header sits over.
+    pub banner: Option<String>,
+    /// This account may invite people to it, from the header's button.
+    pub invite: bool,
+    /// How many boosts it has, while its owner shows the progress bar.
+    pub boosts: Option<u32>,
+    /// How many scheduled events it has, while the events row shows: a
+    /// Community server's always, another's while it has some.
+    pub events: Option<usize>,
 }
 
 /// The header, from the core's state.
-pub fn side_header(state: &AppState) -> SideHeader {
+pub fn side_header(app: &Application) -> SideHeader {
+    let state = &app.state;
     match &state.navigation {
         Navigation::Server(id) => state
             .servers
@@ -221,6 +257,11 @@ pub fn side_header(state: &AppState) -> SideHeader {
                 server: Some(server.id.clone()),
                 name: server.name.clone(),
                 community: server.community,
+                banner: server.banner.clone(),
+                invite: app.header_choices(id).contains(&MenuChoice::Invite),
+                boosts: server.boosts,
+                events: (server.community || !server.events.is_empty())
+                    .then_some(server.events.len()),
             }),
         Navigation::DirectMessages => SideHeader::default(),
     }
@@ -587,6 +628,24 @@ impl App {
                 let at = Point::new(crate::rail::WIDTH + INSET, HEADER - 4.0);
                 return self.open_place_menu(&server, at, true);
             }
+            Event::Invite => {
+                let Some(server) = self.side_header.server.clone() else {
+                    return Task::none();
+                };
+                self.client.dispatch(Action::OpenInvite(server));
+                return Task::batch([
+                    self.sync(),
+                    iced::widget::operation::focus(crate::app::NOBODY),
+                ]);
+            }
+            Event::Events => {
+                let Some(server) = self.side_header.server.clone() else {
+                    return Task::none();
+                };
+                let top = self.side_top_height() - EVENTS_ROW;
+                let at = Point::new(crate::rail::WIDTH + INSET, top + EVENTS_ROW - INSET);
+                return self.open_events_menu(&server, at);
+            }
             Event::Menu(id, at) => return self.open_place_menu(&id, at, false),
             Event::Wave(user) => self.client.dispatch(Action::MessageFromProfile {
                 user,
@@ -618,7 +677,22 @@ impl App {
             .height(Length::Fill)
             .style(scrollbar(theme));
         let ground = theme.sidebar;
-        container(column![self.side_header_view(), list])
+        let mut top = column![self.side_header_view()];
+        if let Some(boosts) = self
+            .side_header
+            .boosts
+            .filter(|_| self.side_header.server.is_some())
+        {
+            top = top.push(self.boost_goal(boosts));
+        }
+        if let Some(events) = self
+            .side_header
+            .events
+            .filter(|_| self.side_header.server.is_some())
+        {
+            top = top.push(self.events_row(events));
+        }
+        container(column![top, list])
             .width(WIDTH)
             .height(Length::Fill)
             .clip(true)
@@ -626,11 +700,34 @@ impl App {
             .into()
     }
 
-    /// The sidebar's top: a server's name, or the DMs' search field, over
-    /// the outline.
+    /// How tall the sidebar's top is over its list: the header (taller
+    /// with a banner), the boost goal and the events row.
+    pub fn side_top_height(&self) -> f32 {
+        let head = &self.side_header;
+        if head.server.is_none() {
+            return HEADER;
+        }
+        HEADER
+            + if head.banner.is_some() { BANNER } else { 0.0 }
+            + if head.boosts.is_some() {
+                BOOST_ROW
+            } else {
+                0.0
+            }
+            + if head.events.is_some() {
+                EVENTS_ROW
+            } else {
+                0.0
+            }
+    }
+
+    /// The sidebar's top: a server's name (with Invite people beside it),
+    /// or the DMs' search field, over the outline; with a banner, the
+    /// header grows over it, shaded at its top, with no line under it.
     fn side_header_view(&self) -> Element<'_, Message> {
         let theme = &self.theme;
-        let inner: Element<'_, Message> = match &self.side_header.server {
+        let head = &self.side_header;
+        let inner: Element<'_, Message> = match &head.server {
             None => {
                 let (ground, ink, hint, selection) =
                     (theme.field, theme.text, theme.muted, theme.selection);
@@ -649,14 +746,184 @@ impl App {
                     })
                     .into()
             }
-            Some(_) => self.server_name_button(),
+            Some(_) => {
+                let mut line = row![self.server_name_button()].spacing(INSET);
+                if head.invite {
+                    line = line.push(self.icon_button(
+                        Icon::UserPlus,
+                        "Invite people",
+                        INVITE,
+                        20,
+                        Message::Side(Event::Invite),
+                        true,
+                    ));
+                }
+                line.into()
+            }
         };
-        column![
-            container(inner)
-                .padding(INSET)
-                .height(HEADER - 1.0)
+        let bar_ = container(inner)
+            .padding(INSET)
+            .height(HEADER - 1.0)
+            .width(Length::Fill);
+        let banner = head.banner.as_deref().filter(|_| head.server.is_some());
+        let Some(banner) = banner else {
+            return column![bar_, bar(theme.outline, Length::Fill, 1)].into();
+        };
+        let height = HEADER + BANNER;
+        let mut layers = stack![];
+        if let Some(picture) = self.picture(banner, WIDTH as u32, height as u32, true) {
+            layers = layers.push(
+                Pic::new(picture, iced::Size::new(WIDTH, height))
+                    .radius_each([12.0, 0.0, 0.0, 0.0]),
+            );
+        }
+        let shade = Background::Gradient(
+            iced::gradient::Linear::new(iced::Degrees(180.0))
+                .add_stop(0.0, Color::from_rgba(0.0, 0.0, 0.0, 0.6))
+                .add_stop(1.0, Color::TRANSPARENT)
+                .into(),
+        );
+        layers = layers
+            .push(
+                container(Space::new())
+                    .width(Length::Fill)
+                    .height(HEADER)
+                    .style(move |_| container::Style {
+                        background: Some(shade),
+                        border: iced::Border::default().rounded(corners([12.0, 0.0, 0.0, 0.0])),
+                        ..Default::default()
+                    }),
+            )
+            .push(bar_);
+        layers.width(Length::Fill).height(height).into()
+    }
+
+    /// Discord's boost goal under the server's name: a pill whose pink
+    /// fill is the share of the goal the boosts reach, "Boost Goal" and
+    /// how many of the goal's boosts, with a line under the row.
+    fn boost_goal(&self, boosts: u32) -> Element<'_, Message> {
+        let theme = &self.theme;
+        let share = (boosts as f32 / BOOST_GOAL as f32).min(1.0);
+        let fill = Background::Gradient(
+            iced::gradient::Linear::new(iced::Degrees(270.0))
+                .add_stop(
+                    0.0,
+                    Color {
+                        a: 0.4,
+                        ..BOOST_PINK
+                    },
+                )
+                .add_stop(
+                    1.0,
+                    Color {
+                        a: 0.1,
+                        ..BOOST_PINK
+                    },
+                )
+                .into(),
+        );
+        let inner = BOOST_PILL - 4.0;
+        // The fill takes its share of the pill's inside, 2 px in.
+        let filled = (share * 1000.0).round() as u16;
+        let mut track = row![];
+        if filled > 0 {
+            track = track.push(
+                container(Space::new())
+                    .width(Length::FillPortion(filled))
+                    .height(inner)
+                    .style(move |_| container::Style {
+                        background: Some(fill),
+                        border: iced::Border::default().rounded(inner / 2.0),
+                        ..Default::default()
+                    }),
+            );
+        }
+        if filled < 1000 {
+            track = track.push(Space::new().width(Length::FillPortion(1000 - filled)));
+        }
+        // The stack's first layer sets its size: the whole pill.
+        let pill = container(track)
+            .padding(2)
+            .width(Length::Fill)
+            .height(Length::Fill);
+        let words = row![
+            text("Boost Goal")
+                .size(14)
+                .font(SEMIBOLD)
+                .color(theme.text)
+                .wrapping(text::Wrapping::None)
                 .width(Length::Fill),
-            bar(theme.outline, Length::Fill, 1)
+            text(format!("{boosts}/{BOOST_GOAL} Boosts"))
+                .size(14)
+                .font(MEDIUM)
+                .color(faded(theme.text, 0.7))
+                .wrapping(text::Wrapping::None),
+            self.glyph(Icon::ChevronRight, 16, theme.muted),
+        ]
+        .spacing(10)
+        .padding([0, 8])
+        .height(BOOST_PILL)
+        .align_y(Alignment::Center);
+        let hover = theme.hover;
+        let pill = container(stack![pill, words])
+            .width(Length::Fill)
+            .height(BOOST_PILL)
+            .style(move |_| rounded(hover, BOOST_PILL / 2.0));
+        column![
+            container(pill)
+                .padding(Padding {
+                    top: 4.0,
+                    right: 4.0,
+                    bottom: 0.0,
+                    left: 12.0,
+                })
+                .height(BOOST_ROW - 1.0),
+            container(bar(theme.outline, Length::Fill, 1)).padding(Padding {
+                left: INSET,
+                ..Padding::ZERO
+            })
+        ]
+        .into()
+    }
+
+    /// Discord's "N Events" row under the server's name, which opens the
+    /// server's scheduled events under it.
+    fn events_row(&self, events: usize) -> Element<'_, Message> {
+        let theme = &self.theme;
+        let label = match events {
+            0 => "Events".to_owned(),
+            1 => "1 Event".to_owned(),
+            count => format!("{count} Events"),
+        };
+        let (hover, muted) = (theme.hover, theme.muted);
+        let face = button(
+            row![
+                self.glyph(Icon::Calendar, 20, muted),
+                text(label)
+                    .size(14)
+                    .font(MEDIUM)
+                    .color(muted)
+                    .wrapping(text::Wrapping::None)
+            ]
+            .spacing(8)
+            .height(Length::Fill)
+            .align_y(Alignment::Center),
+        )
+        .padding(Padding {
+            left: INSET,
+            right: INSET,
+            ..Padding::ZERO
+        })
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .on_press(Message::Side(Event::Events))
+        .style(lit_style(None, hover, 6.0));
+        column![
+            container(face)
+                .padding(INSET)
+                .height(EVENTS_ROW - 1.0)
+                .width(Length::Fill),
+            container(bar(theme.outline, Length::Fill, 1)).padding([0.0, 16.0])
         ]
         .into()
     }
@@ -668,16 +935,23 @@ impl App {
         let theme = &self.theme;
         let head = &self.side_header;
         let open = self.menu.as_ref().is_some_and(|menu| menu.header);
+        // Over the banner, in white.
+        let on_banner = head.banner.is_some();
+        let (ink, chevron) = if on_banner {
+            (Color::WHITE, Color::WHITE)
+        } else {
+            (theme.text, theme.secondary)
+        };
         let mut face = row![].spacing(10).align_y(Alignment::Center);
         if head.community {
-            face = face.push(self.glyph(Icon::Community, 16, theme.text));
+            face = face.push(self.glyph(Icon::Community, 16, ink));
         }
         face = face.push(
             row![
                 text(head.name.clone())
                     .size(15)
                     .font(SEMIBOLD)
-                    .color(theme.text)
+                    .color(ink)
                     .wrapping(text::Wrapping::None),
                 self.glyph(
                     if open {
@@ -686,7 +960,7 @@ impl App {
                         Icon::ChevronDown
                     },
                     16,
-                    theme.secondary
+                    chevron
                 ),
             ]
             .align_y(Alignment::Center),
@@ -834,7 +1108,8 @@ impl App {
 
     /// A category's heading, as the Slint client's `CategoryHeading`: 17 px
     /// above its name, the chevron after it turned while folded; a click
-    /// folds it or opens it.
+    /// folds it or opens it, and a Discord category's opens its menu on a
+    /// right click.
     fn heading<'a>(
         &'a self,
         name: &'a str,
@@ -867,7 +1142,7 @@ impl App {
         ]
         .spacing(4)
         .align_y(Alignment::Center);
-        mouse_area(
+        let area = mouse_area(
             container(face)
                 .padding(Padding {
                     left: 16.0,
@@ -882,7 +1157,16 @@ impl App {
         .interaction(iced::mouse::Interaction::Pointer)
         .on_enter(Message::Side(Event::Point(id.clone(), true)))
         .on_exit(Message::Side(Event::Point(id, false)))
-        .on_press(Message::Side(Event::Toggle(fold.to_owned())))
+        .on_press(Message::Side(Event::Toggle(fold.to_owned())));
+        if !self.client.state().is_category(fold) {
+            return area.into();
+        }
+        // Where in the window it was pressed: the list's own space is under
+        // the header, and scrolled.
+        let (room, spot) = (fold.to_owned(), &self.pressed);
+        RightPress::new(area, move |_| {
+            Message::Side(Event::Menu(room.clone(), spot.get()))
+        })
         .into()
     }
 
@@ -956,9 +1240,9 @@ impl App {
             .on_press(message);
         match menu {
             Some(room) => {
-                let origin = iced::Vector::new(crate::rail::WIDTH, 0.0);
-                RightPress::new(area, move |at| {
-                    Message::Side(Event::Menu(room.clone(), at + origin))
+                let spot = &self.pressed;
+                RightPress::new(area, move |_| {
+                    Message::Side(Event::Menu(room.clone(), spot.get()))
                 })
                 .into()
             }
@@ -1375,12 +1659,12 @@ impl App {
         .on_enter(Message::Side(Event::Point(id.clone(), true)))
         .on_exit(Message::Side(Event::Point(id, false)));
         let (room, user) = (room.to_owned(), person.id.clone());
-        let origin = iced::Vector::new(crate::rail::WIDTH, 0.0);
-        RightPress::new(area, move |at| {
+        let spot = &self.pressed;
+        RightPress::new(area, move |_| {
             Message::Call(crate::call::Event::Person(
                 room.clone(),
                 user.clone(),
-                at + origin,
+                spot.get(),
             ))
         })
         .into()

@@ -341,7 +341,8 @@ impl App {
             voice: slider(yapfast_core::volume::Kind::Voice),
             stream: slider(yapfast_core::volume::Kind::Stream),
         });
-        let mut choices = self.client.app.voice_person_choices(&room, &person);
+        let app = &self.client.app;
+        let mut choices = app.voice_person_choices(&room, &person);
         choices.sort_by_key(|choice| crate::person::discord_rank(*choice));
         let developer = self.layout.developer_mode;
         let voice = &state.voice;
@@ -363,18 +364,26 @@ impl App {
                     MenuChoice::ServerDeafen => Some(server_deafened),
                     _ => None,
                 };
-                MenuRow {
-                    act: MenuAct::Person(choice),
-                    label: Cow::Borrowed(crate::places::label(choice)),
+                let mut row = MenuRow {
                     icon: (choice == MenuChoice::CopyId).then_some(Icon::Id),
                     danger: crate::person::danger(choice),
                     separated,
-                    disabled: !(crate::person::acts(choice)
-                        || ticked.is_some()
-                        || choice == MenuChoice::Disconnect),
-                    subtitle: None,
                     check: ticked.map_or(Check::None, Check::Box),
-                }
+                    ..MenuRow::plain(MenuAct::Person(choice), crate::places::label(choice))
+                };
+                crate::person::submenu(
+                    app,
+                    &mut row,
+                    choice,
+                    Some(&person),
+                    state.selected.as_deref(),
+                    Some((&room, &person)),
+                );
+                row.disabled = !(crate::person::acts(choice)
+                    || ticked.is_some()
+                    || choice == MenuChoice::Disconnect
+                    || !row.submenu.is_empty());
+                row
             })
             .collect();
         if rows.is_empty() && volumes.is_none() {

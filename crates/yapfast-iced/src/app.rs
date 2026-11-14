@@ -109,6 +109,9 @@ pub enum Message {
     /// The menu's row under the pointer or the keys, by its place.
     MenuLight(usize),
     MenuChoose(usize),
+    /// The open submenu's row under the pointer, or chosen.
+    SubLight(usize),
+    SubChoose(usize),
     CloseMenu,
     /// Someone's menu, at the pointer, by their id; the person dialog.
     PersonMenu(String, Point),
@@ -134,6 +137,8 @@ pub enum Message {
     Act(crate::menus::MenuAct, String, Point),
     /// Nothing to do: a click a backdrop takes.
     Nothing,
+    /// The header's bell: the open channel's notification choices.
+    Bell,
     AskPictures,
     Report,
     /// The held member list's changes are due.
@@ -182,8 +187,16 @@ pub enum Message {
     Call(crate::call::Event),
     /// Something done in Settings (`settings/`).
     Settings(crate::settings::Event),
+    /// Something done in a server's settings (`server_settings/`).
+    ServerSettings(crate::server_settings::Event),
+    /// Something done in the invite, join, channel or leave dialog
+    /// (`server_dialogs.rs`).
+    ServerDialog(crate::server_dialogs::Event),
+    ChannelSettings(crate::channel_settings::Event),
     Status(crate::status::Event),
     Switcher(crate::switcher::Event),
+    /// The window took another size, or opened at one.
+    Resized(Size),
 }
 
 pub struct App {
@@ -348,6 +361,13 @@ pub struct App {
     pub call: crate::call::Call,
     /// Settings while it's open, and which build this is, which it shows.
     pub settings: Option<Box<crate::settings::Settings>>,
+    /// A server's settings' own state while they're open.
+    pub server_screen: Option<Box<crate::server_settings::Screen>>,
+    /// What's chosen or typed in the invite, join and channel dialogs, and
+    /// whether the leave dialog showed at the last sync.
+    pub server_dialogs: crate::server_dialogs::Dialogs,
+    pub leave_shown: bool,
+    pub channel_screen: Option<Box<crate::channel_settings::Screen>>,
     /// The account's popover, and the custom status's dialog's draft.
     pub popover: Option<crate::status::Popover>,
     pub status_draft: Option<crate::status::Draft>,
@@ -485,6 +505,10 @@ impl App {
             frames: HashMap::new(),
             call: Default::default(),
             settings: None,
+            server_screen: None,
+            server_dialogs: Default::default(),
+            leave_shown: false,
+            channel_screen: None,
             popover: None,
             status_draft: None,
             switcher_chosen: 0,
@@ -598,12 +622,14 @@ impl App {
                 Task::none()
             }
             Message::RowMenu(index, at) => self.open_menu(index, at),
-            Message::MenuLight(index) => {
+            Message::MenuLight(index) => self.menu_light(index),
+            Message::SubLight(index) => {
                 if let Some(menu) = &mut self.menu {
-                    menu.lit = Some(index);
+                    menu.sub_lit = Some(index);
                 }
                 Task::none()
             }
+            Message::SubChoose(index) => self.choose_sub(index),
             Message::MenuChoose(index) => self.choose(index),
             Message::Act(act, item, at) => self.act(act, item, at, None),
             Message::CloseMenu => {
@@ -649,6 +675,7 @@ impl App {
                 Task::none()
             }
             Message::Nothing => Task::none(),
+            Message::Bell => self.open_bell(self.pressed.get()),
             Message::React(item, key) => {
                 self.menu = None;
                 self.client.dispatch(Action::React { item, key });
@@ -707,6 +734,13 @@ impl App {
             }
             Message::Call(event) => self.call_event(event),
             Message::Settings(event) => self.settings_event(event),
+            Message::ServerSettings(event) => self.server_settings_event(event),
+            Message::Resized(size) => {
+                self.window = size;
+                Task::none()
+            }
+            Message::ServerDialog(event) => self.server_dialog_event(event),
+            Message::ChannelSettings(event) => self.channel_settings_event(event),
             Message::Status(event) => self.status_event(event),
             Message::Switcher(event) => self.switcher_event(event),
         }
@@ -776,6 +810,9 @@ impl App {
                 _ => Task::none(),
             };
         }
+        if self.server_dialog_open() {
+            return self.server_dialog_key(named);
+        }
         if self.client.state().status_editor.is_some() {
             return match named {
                 Some(key::Named::Escape) if self.picker.is_some() => self.close_picker(),
@@ -798,6 +835,18 @@ impl App {
         if self.settings.is_some() {
             return match named {
                 Some(key::Named::Escape) => self.settings_escape(),
+                _ => Task::none(),
+            };
+        }
+        if self.server_screen.is_some() {
+            return match named {
+                Some(key::Named::Escape) => self.server_settings_escape(),
+                _ => Task::none(),
+            };
+        }
+        if self.channel_screen.is_some() {
+            return match named {
+                Some(key::Named::Escape) => self.channel_settings_escape(),
                 _ => Task::none(),
             };
         }
@@ -931,7 +980,15 @@ impl App {
             iced::Event::Window(event) => crate::uploads::drops(&event),
             _ => None,
         });
-        let mut subscriptions = vec![keys, fonts, drops];
+        // What the overlays are placed by: the window's size as it is,
+        // not as it was asked for.
+        let sizes = iced::event::listen_with(|event, _, _| match event {
+            iced::Event::Window(
+                iced::window::Event::Resized(size) | iced::window::Event::Opened { size, .. },
+            ) => Some(Message::Resized(size)),
+            _ => None,
+        });
+        let mut subscriptions = vec![keys, fonts, drops, sizes];
         // Ctrl+K opens the quick switcher wherever the keys are, as the
         // Slint client's does.
         if self.workspace() {
@@ -959,11 +1016,14 @@ impl App {
             || state.person_dialog.is_some()
             || state.forwarding.is_some()
             || self.settings.is_some()
+            || self.server_screen.is_some()
+            || self.channel_screen.is_some()
             || state.profile_editor.is_some()
             || state.status_editor.is_some()
             || state.new_dm.is_some()
             || state.poll_draft.is_some()
             || state.switcher.is_some()
+            || self.server_dialog_open()
         {
             subscriptions.push(iced::event::listen_with(|event, status, _| match event {
                 iced::Event::Keyboard(keyboard::Event::KeyPressed {
@@ -988,7 +1048,7 @@ impl App {
             subscriptions.push(iced::time::every(Duration::from_secs(15)).map(|_| Message::Minute));
         }
         // A shown activity's time, each second.
-        if self.profile_ticks() || self.active_now_ticks() {
+        if self.profile_ticks() || self.active_now_ticks() || self.invites_ticking() {
             subscriptions.push(iced::time::every(Duration::from_secs(1)).map(|_| Message::Second));
         }
         // The microphone's level while the input menu shows it, the call's
@@ -1073,9 +1133,6 @@ impl App {
                 .push(outside(Message::CloseProfile, false))
                 .push(card);
         }
-        if let Some(full) = self.full_profile_view() {
-            layers = layers.push(full);
-        }
         // The picker for a dialog's emoji opens over the dialog.
         let mut over_dialogs = None;
         if let Some(picker) = &self.picker
@@ -1123,6 +1180,16 @@ impl App {
         if let Some(settings) = self.settings_view() {
             layers = layers.push(settings);
         }
+        if let Some(settings) = self.server_settings_view() {
+            layers = layers.push(settings);
+        }
+        if let Some(settings) = self.channel_settings_view() {
+            layers = layers.push(settings);
+        }
+        // Over the settings, as a member's from Members.
+        if let Some(full) = self.full_profile_view() {
+            layers = layers.push(full);
+        }
         if let Some(editor) = self.profile_editor_view() {
             layers = layers.push(editor);
         }
@@ -1138,6 +1205,7 @@ impl App {
             self.new_dm_view(),
             self.poll_draft_view(),
             self.switcher_view(),
+            self.server_dialog_view(),
         ]
         .into_iter()
         .flatten()

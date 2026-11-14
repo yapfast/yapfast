@@ -2,15 +2,21 @@
 //! channel's, a category's or a DM's (a right click on its row), as the
 //! Slint client builds them from the core's `menu_choices`: Discord's
 //! wording, a line between groups, no icons but Copy ID's, and Copy ID
-//! only with Developer Mode on. Choices this client can't act on yet (the
-//! dialogs and settings still to come) show greyed.
+//! only with Developer Mode on. Muting opens the times it mutes for (a
+//! click on the row itself mutes until it's turned back on), notification
+//! settings their levels, and a server's switches tick in place. The
+//! header's bell opens the open channel's notification choices.
 
 use iced::{Point, Task, widget::operation};
-use yapfast_core::application::{Action, MenuChoice, network_id, network_link};
+use yapfast_core::{
+    application::{Action, ChannelAsk, MUTE_TIMES, MenuChoice, network_id, network_link},
+    chat::{ChannelKind, MemberChange, Muting, NotificationChange, Notifications, NotifyLevel},
+};
 
 use crate::{
     app::{App, Message, NOBODY},
-    menus::{Menu, MenuAct, MenuRow},
+    controls::Check,
+    menus::{Context, Menu, MenuAct, MenuRow},
     pictures::Icon,
 };
 
@@ -28,15 +34,39 @@ impl App {
         let server = state.servers.iter().any(|server| server.id == id);
         let category = !server && state.is_category(id);
         let voice = state.rooms.iter().any(|room| room.id == id && room.voice);
-        // A conversation's and a server's menu starts with Mark as read.
+        // A conversation's and a server's menu starts with Mark as read,
+        // greyed when there's nothing to read.
+        let mut unread = true;
         if !header
             && !state.preview
             && (server || state.rooms.iter().any(|room| room.id == id))
             && !choices.contains(&MenuChoice::MarkRead)
         {
             choices.insert(0, MenuChoice::MarkRead);
+            unread = false;
         }
         let developer = self.layout.developer_mode;
+        let twelve = self.layout.prefs.twelve_hour_clock;
+        let server_notifications = if server {
+            app.server_notifications(id)
+        } else {
+            None
+        };
+        // A channel's or category's own notification choices.
+        let notify = (!server)
+            .then(|| app.notifications(id))
+            .flatten()
+            .filter(|_| state.rooms.iter().any(|room| room.id == id && !room.direct) || category)
+            .map(|settings| Notify {
+                category,
+                in_category: app.category_of(id).is_some(),
+                settings,
+            });
+        let person = state
+            .rooms
+            .iter()
+            .find(|room| room.id == id)
+            .and_then(|room| room.person.as_deref());
         let mut group = None;
         let rows: Vec<MenuRow> = choices
             .into_iter()
@@ -52,21 +82,69 @@ impl App {
                 };
                 let starts = group_of(choice);
                 let separated = group.replace(starts).is_some_and(|last| last != starts);
-                MenuRow {
-                    act: MenuAct::Place(choice),
-                    label: label.into(),
+                let mut row = MenuRow {
                     icon: (choice == MenuChoice::CopyId).then_some(Icon::Id),
-                    danger: matches!(
-                        choice,
-                        MenuChoice::DeleteChannel
-                            | MenuChoice::LeaveServer
-                            | MenuChoice::LeaveGroup
-                    ),
+                    danger: crate::person::danger(choice),
                     separated,
-                    disabled: !acts(choice),
-                    subtitle: None,
-                    check: crate::controls::Check::None,
+                    disabled: choice == MenuChoice::MarkRead && !unread,
+                    ..MenuRow::plain(MenuAct::Place(choice), label)
+                };
+                match choice {
+                    MenuChoice::MuteServer => {
+                        row.submenu =
+                            mute_times(|muting| MenuAct::Notify(NotificationChange::Mute(muting)));
+                        row.click = Some(MenuAct::Notify(NotificationChange::Mute(Muting::Always)));
+                    }
+                    MenuChoice::UnmuteServer => {
+                        row.act = MenuAct::Notify(NotificationChange::Mute(Muting::Off));
+                        row.subtitle = server_notifications
+                            .and_then(|known| known.own.muted_until)
+                            .map(|until| muted_until(until / 1000, twelve).into());
+                    }
+                    MenuChoice::ServerNotifications => {
+                        if let Some(known) = server_notifications {
+                            let own = known.own;
+                            row.subtitle =
+                                Some(level_name(own.level.unwrap_or(own.inherited)).into());
+                            row.submenu = server_levels(&known);
+                        }
+                    }
+                    MenuChoice::HideMuted => {
+                        let hidden = server_notifications.is_some_and(|known| known.hide_muted);
+                        row.act = MenuAct::Notify(NotificationChange::HideMuted(!hidden));
+                        row.check = Check::Box(hidden);
+                    }
+                    MenuChoice::ShowAllChannels => {
+                        row.act = MenuAct::ShowAll;
+                        row.check = Check::Box(
+                            server_notifications.is_some_and(|known| known.show_all == Some(true)),
+                        );
+                    }
+                    MenuChoice::ChannelMute => {
+                        if let Some(notify) = &notify {
+                            row = MenuRow {
+                                separated,
+                                ..notify.mute_row(twelve)
+                            };
+                        }
+                    }
+                    MenuChoice::ChannelNotifications => {
+                        if let Some(notify) = &notify {
+                            let settings = notify.settings;
+                            row.subtitle = Some(
+                                level_name(settings.level.unwrap_or(settings.inherited)).into(),
+                            );
+                            row.submenu = notify.levels();
+                        }
+                    }
+                    // A DM's, about its person.
+                    MenuChoice::Mute | MenuChoice::InviteToServer | MenuChoice::Apps => {
+                        crate::person::submenu(app, &mut row, choice, person, Some(id), None);
+                    }
+                    MenuChoice::Unmute => row.act = MenuAct::MuteDm(Muting::Off),
+                    _ => {}
                 }
+                row
             })
             .collect();
         if rows.is_empty() {
@@ -80,6 +158,78 @@ impl App {
         operation::focus(NOBODY)
     }
 
+    /// The header's bell: the open channel's mute and levels, under the
+    /// button.
+    pub fn open_bell(&mut self, at: Point) -> Task<Message> {
+        let app = &self.client.app;
+        let Some(room) = app.state.selected.clone() else {
+            return Task::none();
+        };
+        let Some(settings) = app.notifications(&room) else {
+            return Task::none();
+        };
+        let notify = Notify {
+            category: false,
+            in_category: app.category_of(&room).is_some(),
+            settings,
+        };
+        let mut rows = vec![notify.mute_row(self.layout.prefs.twelve_hour_clock)];
+        let mut levels = notify.levels();
+        if let Some(first) = levels.first_mut() {
+            first.separated = true;
+        }
+        rows.extend(levels);
+        self.menu = Some(Menu {
+            place: Some(room),
+            ..Menu::new(at, rows).width(crate::menus::FIELD_WIDTH)
+        });
+        operation::focus(NOBODY)
+    }
+
+    /// The server's scheduled events, under its events row, as the Slint
+    /// client's `events` menu: each one's name, with when it starts (or
+    /// "Happening now") and where under it; "No upcoming events", greyed,
+    /// for a server with none, as Discord's opens all the same.
+    pub fn open_events_menu(&mut self, server: &str, at: Point) -> Task<Message> {
+        let twelve = self.layout.prefs.twelve_hour_clock;
+        let mut rows: Vec<MenuRow> = self
+            .client
+            .state()
+            .servers
+            .iter()
+            .find(|found| found.id == server)
+            .into_iter()
+            .flat_map(|server| &server.events)
+            .map(|event| {
+                let when = match u64::try_from(event.start) {
+                    Ok(_) if event.active => "Happening now".to_owned(),
+                    Ok(start) => until(start, twelve),
+                    Err(_) => String::new(),
+                };
+                let subtitle = match &event.location {
+                    Some(place) if !when.is_empty() => format!("{when} · {place}"),
+                    Some(place) => place.clone(),
+                    None => when,
+                };
+                MenuRow {
+                    subtitle: (!subtitle.is_empty()).then(|| subtitle.into()),
+                    ..MenuRow::plain(MenuAct::Event, event.name.clone())
+                }
+            })
+            .collect();
+        if rows.is_empty() {
+            rows.push(MenuRow {
+                disabled: true,
+                ..MenuRow::plain(MenuAct::Event, "No upcoming events")
+            });
+        }
+        self.menu = Some(Menu {
+            place: Some(server.to_owned()),
+            ..Menu::new(at, rows).width(crate::menus::FIELD_WIDTH)
+        });
+        operation::focus(NOBODY)
+    }
+
     /// A place's menu row was chosen.
     pub fn choose_place(&mut self, place: String, choice: MenuChoice) -> Task<Message> {
         let action = match choice {
@@ -87,37 +237,325 @@ impl App {
             MenuChoice::JoinVoice => Action::RequestJoinVoice(place),
             MenuChoice::OpenChat => Action::OpenChat(place),
             MenuChoice::Profile => Action::ShowDmProfile(place),
+            MenuChoice::Call => Action::RequestJoinVoice(place),
             MenuChoice::Pin | MenuChoice::Unpin => Action::Pin {
                 room: place,
                 pinned: choice == MenuChoice::Pin,
             },
             MenuChoice::CloseDm => Action::CloseDm(place),
+            MenuChoice::LeaveGroup => Action::AskLeaveGroup(place),
             MenuChoice::EditServerProfile => Action::EditServerProfile(place),
+            MenuChoice::ServerSettings => Action::OpenServerSettings(place),
+            MenuChoice::EditChannel => Action::OpenChannelSettings(place),
+            MenuChoice::Invite => Action::OpenInvite(place),
+            MenuChoice::PinChannel | MenuChoice::UnpinChannel => Action::PinChannel {
+                room: place,
+                pinned: choice == MenuChoice::PinChannel,
+            },
+            MenuChoice::AddToChannelList | MenuChoice::RemoveFromChannelList => {
+                Action::FollowChannel {
+                    room: place,
+                    follow: choice == MenuChoice::AddToChannelList,
+                }
+            }
+            // The channel's category goes, with every channel it lists.
+            MenuChoice::UnfollowCategory => {
+                let Some(category) = self.client.app.category_of(&place) else {
+                    return Task::none();
+                };
+                Action::FollowChannel {
+                    room: category,
+                    follow: false,
+                }
+            }
+            MenuChoice::CreateChannel => Action::NewChannel {
+                place,
+                kind: ChannelKind::Text,
+            },
+            MenuChoice::CreateCategory => Action::NewChannel {
+                place,
+                kind: ChannelKind::Category,
+            },
+            MenuChoice::DuplicateChannel => Action::AskChannel(ChannelAsk::Duplicate(place)),
+            MenuChoice::DeleteChannel => Action::AskChannel(ChannelAsk::Delete(place)),
+            MenuChoice::LeaveServer => Action::AskLeaveServer(place),
+            MenuChoice::JoinThread | MenuChoice::LeaveThread => Action::JoinThread {
+                room: place,
+                join: choice == MenuChoice::JoinThread,
+                location: "Context Menu",
+            },
             MenuChoice::CopyLink => return iced::clipboard::write(network_link(&place)),
             MenuChoice::CopyId => return iced::clipboard::write(network_id(&place).to_owned()),
-            _ => return Task::none(),
+            // The rest of a DM's are about its person, as their own menu.
+            choice => {
+                let person = self
+                    .client
+                    .state()
+                    .rooms
+                    .iter()
+                    .find(|room| room.id == place)
+                    .and_then(|room| room.person.clone());
+                return match person {
+                    Some(user) => self.choose_person(user, crate::person::CONTEXT_MENU, choice),
+                    None => Task::none(),
+                };
+            }
         };
         self.client.dispatch(action);
         self.keep_pins();
         self.sync()
     }
+
+    /// What a submenu's row, or a row that carries what it's about, does:
+    /// `ticked` is a checkbox's new state.
+    pub fn sub_act(
+        &mut self,
+        menu: &Context,
+        row: &MenuRow,
+        ticked: Option<bool>,
+    ) -> Task<Message> {
+        let app = &self.client.app;
+        let state = &app.state;
+        let place = menu.place.clone().unwrap_or_default();
+        // A conversation's menu is about it and its person; someone's
+        // about them and their DM.
+        let listed = state.rooms.iter().find(|room| room.id == place);
+        let (room, user) = match (&menu.voice, listed) {
+            (Some((_, user)), _) => (None, Some(user.clone())),
+            (None, Some(listed)) => (Some(place.clone()), listed.person.clone()),
+            (None, None) => {
+                let dm = state
+                    .rooms
+                    .iter()
+                    .find(|room| room.direct && room.person.as_deref() == Some(place.as_str()))
+                    .map(|room| room.id.clone());
+                (dm, Some(place.clone()))
+            }
+        };
+        // A member's choices act in the server of the channel they're in,
+        // or of the settings listing them.
+        let member_place = |user: &str| match &menu.voice {
+            Some((room, _)) => Some(room.clone()),
+            None => app
+                .member_place(user)
+                .map(str::to_owned)
+                .or_else(|| state.selected.clone()),
+        };
+        let action = match row.act {
+            MenuAct::Notify(change) => {
+                // A switch says what it's turned to now.
+                let change = match (change, ticked) {
+                    (NotificationChange::HideMuted(_), Some(on)) => {
+                        NotificationChange::HideMuted(on)
+                    }
+                    (NotificationChange::SuppressEveryone(_), Some(on)) => {
+                        NotificationChange::SuppressEveryone(on)
+                    }
+                    (NotificationChange::SuppressRoles(_), Some(on)) => {
+                        NotificationChange::SuppressRoles(on)
+                    }
+                    (change, _) => change,
+                };
+                Some(Action::ChangeNotifications { place, change })
+            }
+            // A DM's own menu, or its person's.
+            MenuAct::MuteDm(muting) => room.map(|room| Action::MuteDm { room, muting }),
+            MenuAct::ShowAll => Some(Action::ShowAllChannels {
+                server: place,
+                show: ticked.unwrap_or(true),
+            }),
+            MenuAct::Role => user.as_deref().and_then(|user| {
+                Some(Action::ChangeMember {
+                    place: member_place(user)?,
+                    user: user.to_owned(),
+                    change: MemberChange::Role {
+                        role: row.key.clone(),
+                        add: ticked.unwrap_or(true),
+                    },
+                })
+            }),
+            MenuAct::InviteTo => user.map(|user| Action::InviteToServer {
+                user,
+                server: row.key.clone(),
+            }),
+            MenuAct::App => user.map(|user| Action::RunAppCommand {
+                command: row.key.clone(),
+                target: Some(user),
+            }),
+            // This account moves by joining there.
+            MenuAct::MoveTo => menu
+                .voice
+                .as_ref()
+                .and_then(|(room, user)| app.move_to(room, user, &row.key)),
+            _ => None,
+        };
+        match action {
+            Some(action) => {
+                self.client.dispatch(action);
+                self.sync()
+            }
+            None => Task::none(),
+        }
+    }
 }
 
-/// Whether this client acts on a choice yet; the rest show greyed.
-fn acts(choice: MenuChoice) -> bool {
-    matches!(
-        choice,
-        MenuChoice::MarkRead
-            | MenuChoice::JoinVoice
-            | MenuChoice::OpenChat
-            | MenuChoice::Profile
-            | MenuChoice::Pin
-            | MenuChoice::Unpin
-            | MenuChoice::CloseDm
-            | MenuChoice::EditServerProfile
-            | MenuChoice::CopyLink
-            | MenuChoice::CopyId
-    )
+/// A Discord channel's or category's notification choices, which its
+/// menu and the header's bell build alike, as the Slint client's `Notify`.
+struct Notify {
+    category: bool,
+    /// A channel listed under a category, whose default is the category's.
+    in_category: bool,
+    settings: Notifications,
+}
+
+impl Notify {
+    fn kind(&self) -> &'static str {
+        if self.category { "category" } else { "channel" }
+    }
+
+    /// Mute for a time, in a submenu (a click on the row itself mutes
+    /// until it's turned back on), or while muted, unmute, saying till
+    /// when.
+    fn mute_row(&self, twelve: bool) -> MenuRow {
+        let muted = self.settings.muted;
+        let label = format!("{} {}", if muted { "Unmute" } else { "Mute" }, self.kind());
+        let mut row = MenuRow {
+            icon: Some(if muted { Icon::Bell } else { Icon::BellOff }),
+            subtitle: self
+                .settings
+                .muted_until
+                .map(|until| muted_until(until / 1000, twelve).into()),
+            ..MenuRow::plain(
+                MenuAct::Notify(NotificationChange::Mute(Muting::Off)),
+                label,
+            )
+        };
+        if !muted {
+            row.submenu = mute_times(|muting| MenuAct::Notify(NotificationChange::Mute(muting)));
+            row.click = Some(MenuAct::Notify(NotificationChange::Mute(Muting::Always)));
+        }
+        row
+    }
+
+    /// The levels, the one chosen checked; following the category's or the
+    /// server's says which that is.
+    fn levels(&self) -> Vec<MenuRow> {
+        [
+            None,
+            Some(NotifyLevel::All),
+            Some(NotifyLevel::Mentions),
+            Some(NotifyLevel::Nothing),
+        ]
+        .into_iter()
+        .map(|level| {
+            let label = match level {
+                None if self.in_category => "Use category default",
+                None => "Use server default",
+                Some(level) => level_name(level),
+            };
+            MenuRow {
+                subtitle: level
+                    .is_none()
+                    .then(|| level_name(self.settings.inherited).into()),
+                check: if self.settings.level == level {
+                    Check::Current
+                } else {
+                    Check::None
+                },
+                ..MenuRow::plain(MenuAct::Notify(NotificationChange::Level(level)), label)
+            }
+        })
+        .collect()
+    }
+}
+
+/// The levels a server's notification submenu offers, the one that
+/// applies checked, then its switches.
+fn server_levels(known: &yapfast_core::chat::ServerNotifications) -> Vec<MenuRow> {
+    let current = known.own.level.unwrap_or(known.own.inherited);
+    let mut rows: Vec<MenuRow> = [
+        NotifyLevel::All,
+        NotifyLevel::Mentions,
+        NotifyLevel::Nothing,
+    ]
+    .into_iter()
+    .map(|level| MenuRow {
+        check: if level == current {
+            Check::Current
+        } else {
+            Check::None
+        },
+        ..MenuRow::plain(
+            MenuAct::Notify(NotificationChange::Level(Some(level))),
+            level_name(level),
+        )
+    })
+    .collect();
+    rows.push(MenuRow {
+        separated: true,
+        check: Check::Box(known.suppress_everyone),
+        ..MenuRow::plain(
+            MenuAct::Notify(NotificationChange::SuppressEveryone(
+                !known.suppress_everyone,
+            )),
+            "Suppress @everyone and @here",
+        )
+    });
+    rows.push(MenuRow {
+        check: Check::Box(known.suppress_roles),
+        ..MenuRow::plain(
+            MenuAct::Notify(NotificationChange::SuppressRoles(!known.suppress_roles)),
+            "Suppress all role @mentions",
+        )
+    });
+    rows
+}
+
+/// What a level is called, as Discord's client words it.
+fn level_name(level: NotifyLevel) -> &'static str {
+    match level {
+        NotifyLevel::All => "All messages",
+        NotifyLevel::Mentions => "Only @mentions",
+        NotifyLevel::Nothing => "Nothing",
+    }
+}
+
+/// How long a mute lasts, as its submenu offers: each time, as `act` makes
+/// it.
+pub fn mute_times(act: fn(Muting) -> MenuAct) -> Vec<MenuRow> {
+    MUTE_TIMES
+        .into_iter()
+        .map(|muting| {
+            let label: String = match muting {
+                Muting::Minutes(15) => "For 15 minutes".into(),
+                Muting::Minutes(60) => "For 1 hour".into(),
+                Muting::Minutes(minutes) if minutes % 60 == 0 => {
+                    format!("For {} hours", minutes / 60)
+                }
+                Muting::Minutes(minutes) => format!("For {minutes} minutes"),
+                Muting::Always | Muting::Off => "Until I turn it back on".into(),
+            };
+            MenuRow::plain(act(muting), label)
+        })
+        .collect()
+}
+
+/// When a mute ends, as its Unmute row says it.
+fn muted_until(seconds: u64, twelve_hour: bool) -> String {
+    format!("Muted until {}", until(seconds, twelve_hour))
+}
+
+/// When something ends, a Unix time: the time today, or the day too.
+fn until(seconds: u64, twelve_hour: bool) -> String {
+    use yapfast_core::clock;
+    let now = clock::now_ms() / 1000;
+    let time = clock::time_on(seconds, twelve_hour);
+    let on = clock::day(seconds);
+    if on == clock::day(now) {
+        time
+    } else {
+        format!("{on}, {time}")
+    }
 }
 
 /// Which group a choice is in, as the Slint client draws lines between

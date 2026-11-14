@@ -4,8 +4,9 @@
 //! Discord's order, with an icon on Copy ID alone. Unfriending, blocking, a
 //! note, a friend's nickname, a call's question and a server's moderation
 //! ask first in the person dialog (`PersonDialog` in `ui/dialogs.slint`).
-//! What opens a submenu (roles, servers to invite to, mute times, apps)
-//! shows greyed until submenus come.
+//! Roles, Invite to server, Mute and Apps open submenus beside their rows:
+//! the server's roles to tick, the servers to invite them to, how long to
+//! mute their DM, and the apps' user commands to run on them.
 
 use std::borrow::Cow;
 
@@ -14,7 +15,8 @@ use iced::{
     widget::{Space, column, operation, row, text},
 };
 use yapfast_core::application::{
-    Action, BAN_HISTORY, MenuChoice, PersonAsk, TIMEOUT_TIMES, network_id, network_link,
+    Action, BAN_HISTORY, CommandTarget, MenuChoice, OwnershipInput, PersonAsk, TIMEOUT_TIMES,
+    network_id, network_link,
 };
 use yapfast_core::chat::RelationshipChange;
 
@@ -87,16 +89,16 @@ impl App {
                 };
                 let starts = crate::places::group_of(choice);
                 let separated = group.replace(starts).is_some_and(|last| last != starts);
-                MenuRow {
-                    act: MenuAct::Person(choice),
-                    label,
+                let mut row = MenuRow {
                     icon: (choice == MenuChoice::CopyId).then_some(Icon::Id),
                     danger: danger(choice),
                     separated,
-                    disabled: !acts(choice),
-                    subtitle: None,
-                    check: crate::controls::Check::None,
-                }
+                    ..MenuRow::plain(MenuAct::Person(choice), label)
+                };
+                let selected = state.selected.as_deref();
+                submenu(app, &mut row, choice, Some(user), selected, None);
+                row.disabled = !acts(choice) && row.submenu.is_empty();
+                row
             })
             .collect();
         if rows.is_empty() {
@@ -107,7 +109,9 @@ impl App {
             location,
             ..Menu::new(at, rows).width(crate::menus::FIELD_WIDTH)
         });
-        operation::focus(NOBODY)
+        // Its Apps follow the permissions as they are now.
+        self.client.dispatch(Action::AskAppCommands);
+        Task::batch([operation::focus(NOBODY), self.sync()])
     }
 
     /// A row of someone's menu was chosen.
@@ -178,6 +182,10 @@ impl App {
             MenuChoice::Timeout => ask_member(PersonAsk::Timeout),
             MenuChoice::Kick => ask_member(PersonAsk::Kick),
             MenuChoice::Ban => ask_member(PersonAsk::Ban),
+            // Offered only on Members, whose settings show the dialog.
+            MenuChoice::TransferOwnership => {
+                Some(Action::Ownership(OwnershipInput::Transfer(user.clone())))
+            }
             MenuChoice::RemoveTimeout => place.map(|place| Action::ChangeMember {
                 place,
                 user: user.clone(),
@@ -559,13 +567,15 @@ pub(crate) fn danger(choice: MenuChoice) -> bool {
             | MenuChoice::ServerMute
             | MenuChoice::ServerDeafen
             | MenuChoice::Disconnect
+            | MenuChoice::DeleteChannel
+            | MenuChoice::LeaveServer
             | MenuChoice::LeaveGroup
             | MenuChoice::TransferOwnership
     )
 }
 
 /// Whether this client acts on a choice of someone's menu yet; what opens
-/// a submenu, a call's controls and ownership's transfer show greyed.
+/// a submenu and a call's controls show greyed.
 pub(crate) fn acts(choice: MenuChoice) -> bool {
     matches!(
         choice,
@@ -592,10 +602,79 @@ pub(crate) fn acts(choice: MenuChoice) -> bool {
             | MenuChoice::Kick
             | MenuChoice::Ban
             | MenuChoice::RemoveTimeout
+            | MenuChoice::TransferOwnership
             | MenuChoice::Mention
             | MenuChoice::CopyLink
             | MenuChoice::CopyId
     )
+}
+
+/// Gives a row of someone's menu, or a conversation's, the submenu its
+/// choice opens, built as the menu opens: the roles `user` may be given in
+/// the open channel's server, the servers to invite them to, how long to
+/// mute their DM for, the user commands `apps` (a room) offers, the voice
+/// channels to move them to from `voice`'s. A row that has none to offer
+/// keeps none.
+pub(crate) fn submenu(
+    app: &yapfast_core::application::Application,
+    row: &mut MenuRow,
+    choice: MenuChoice,
+    user: Option<&str>,
+    apps: Option<&str>,
+    voice: Option<(&str, &str)>,
+) {
+    let state = &app.state;
+    row.submenu = match choice {
+        MenuChoice::Roles => match (state.selected.as_deref(), user) {
+            (Some(place), Some(user)) => app
+                .role_choices(place, user)
+                .into_iter()
+                // As Discord's list: a role this account can't give or take
+                // shows only while the member holds it, and can't be changed.
+                .filter(|choice| choice.grantable || choice.held)
+                .map(|choice| MenuRow {
+                    check: crate::controls::Check::Box(choice.held),
+                    disabled: !choice.grantable,
+                    ..MenuRow::plain(MenuAct::Role, choice.role.name).key(choice.role.id)
+                })
+                .collect(),
+            _ => Vec::new(),
+        },
+        MenuChoice::InviteToServer => user
+            .map(|user| {
+                app.invite_servers(user)
+                    .into_iter()
+                    .map(|server| {
+                        MenuRow::plain(MenuAct::InviteTo, server.name.clone()).key(&server.id)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        MenuChoice::Mute => {
+            row.click = Some(MenuAct::MuteDm(yapfast_core::chat::Muting::Always));
+            crate::places::mute_times(MenuAct::MuteDm)
+        }
+        MenuChoice::Apps => apps
+            .map(|room| {
+                app.commands_for_target(room, CommandTarget::User)
+                    .into_iter()
+                    .map(|command| MenuRow {
+                        subtitle: Some(command.app_name.into()),
+                        ..MenuRow::plain(MenuAct::App, command.name).key(command.command)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        MenuChoice::MoveTo => voice
+            .map(|(room, user)| {
+                app.move_targets(room, user)
+                    .into_iter()
+                    .map(|(room, name)| MenuRow::plain(MenuAct::MoveTo, name).key(room))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    };
 }
 
 /// Where a choice goes in Discord's member menu: Profile, Mention, Message,

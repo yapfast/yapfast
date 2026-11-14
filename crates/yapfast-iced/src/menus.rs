@@ -1,11 +1,15 @@
-//! Context menus (a message's, the composer's), as the Slint client's
-//! `ContextMenu`. While one is open it has the keys: the window's focus
-//! goes to [`NOBODY`].
+//! Context menus (a message's, the composer's, a place's, someone's), as
+//! the Slint client's `ContextMenu`. While one is open it has the keys: the
+//! window's focus goes to [`NOBODY`]. A row may open a submenu beside it
+//! (mute times, notification levels, roles, servers to invite to, apps,
+//! channels to move to), under the pointer, on a click, or with Right;
+//! Left or Escape closes it. A row whose submenu is a choice of how (a
+//! mute's times) does its own thing when clicked itself.
 
 use iced::{
-    Element, Padding, Point, Task,
+    Element, Length, Padding, Point, Task,
     keyboard::key,
-    widget::{Space, column, container, mouse_area, opaque, operation, row},
+    widget::{Space, column, container, mouse_area, opaque, operation, row, scrollable},
 };
 use yapfast_core::application::Action;
 
@@ -18,6 +22,9 @@ use crate::{
     style::blend,
     widgets::{Anchor, Place},
 };
+
+/// How far a menu stays in from the window's edges.
+const MENU_MARGIN: f32 = 8.0;
 
 /// A message's menu's width; the composer's is wider, as in the Slint
 /// client.
@@ -51,6 +58,12 @@ pub struct Menu {
     /// their volumes over its rows while they're someone else.
     pub voice: Option<(String, String)>,
     pub volumes: Option<crate::call::Volumes>,
+    /// The row whose submenu shows, and the submenu's row the keys light.
+    pub sub: Option<usize>,
+    pub sub_lit: Option<usize>,
+    /// How wide its rows need it, and each row's submenu, measured once
+    /// as it first shows: the words don't change while it's open.
+    pub fits: std::cell::OnceCell<Vec<f32>>,
 }
 
 impl Menu {
@@ -69,6 +82,34 @@ impl Menu {
             width: WIDTH,
             voice: None,
             volumes: None,
+            sub: None,
+            sub_lit: None,
+            fits: Default::default(),
+        }
+    }
+
+    /// Whether its rows leave room for an icon or tick: a message's always,
+    /// others when a row has a tick.
+    fn slot(&self) -> bool {
+        self.place.is_none() || ticks(&self.rows)
+    }
+
+    /// How wide the menu (`None`) or row `sub`'s submenu shows.
+    fn fit(&self, sub: Option<usize>) -> f32 {
+        let fits = self.fits.get_or_init(|| {
+            std::iter::once(fit(&self.rows, self.slot()))
+                .chain(self.rows.iter().map(|row| {
+                    if row.submenu.is_empty() {
+                        0.0
+                    } else {
+                        fit(&row.submenu, ticks(&row.submenu))
+                    }
+                }))
+                .collect()
+        });
+        match sub {
+            None => fits[0].max(self.width),
+            Some(sub) => fits.get(sub + 1).copied().unwrap_or(0.0).max(SUB_WIDTH),
         }
     }
 
@@ -81,6 +122,26 @@ impl Menu {
         self.width = width;
         self
     }
+
+    /// What a chosen row acts in: the menu without its rows.
+    fn context(&self) -> Context {
+        Context {
+            at: self.at,
+            item: self.item.clone(),
+            place: self.place.clone(),
+            location: self.location,
+            voice: self.voice.clone(),
+        }
+    }
+}
+
+/// What a menu's chosen row acts in.
+pub struct Context {
+    pub at: Point,
+    pub item: Option<String>,
+    pub place: Option<String>,
+    pub location: &'static str,
+    pub voice: Option<(String, String)>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -109,6 +170,22 @@ pub enum MenuAct {
     Place(yapfast_core::application::MenuChoice),
     /// A row of someone's menu (`person.rs`).
     Person(yapfast_core::application::MenuChoice),
+    /// A change to the place's notifications: a mute for a time, a level,
+    /// a server's switch.
+    Notify(yapfast_core::chat::NotificationChange),
+    /// A DM muted for a time, its own or the person's.
+    MuteDm(yapfast_core::chat::Muting),
+    /// Every channel of a community server shown, or only those followed.
+    ShowAll,
+    /// The rows that carry what they're about in their `key`: a role
+    /// given or taken, a server to invite to, an app's command, a voice
+    /// channel to move to.
+    Role,
+    InviteTo,
+    App,
+    MoveTo,
+    /// One of a server's scheduled events, which only shows.
+    Event,
 }
 
 #[derive(Clone)]
@@ -126,23 +203,56 @@ pub struct MenuRow {
     /// A second line under it, and its tick or checkbox.
     pub subtitle: Option<std::borrow::Cow<'static, str>>,
     pub check: crate::controls::Check,
+    /// What the row is about, for the acts that need it (a role's or a
+    /// server's id, a command, a channel).
+    pub key: String,
+    /// The submenu it opens beside it; empty for none.
+    pub submenu: Vec<MenuRow>,
+    /// What a click on the row itself does instead of opening its submenu,
+    /// as a mute row mutes until it's turned back on.
+    pub click: Option<MenuAct>,
 }
 
 impl MenuRow {
     /// A row with its icon.
     pub fn new(act: MenuAct, label: &'static str, icon: Icon) -> Self {
         Self {
+            icon: Some(icon),
+            ..Self::plain(act, label)
+        }
+    }
+
+    /// A row without an icon.
+    pub fn plain(act: MenuAct, label: impl Into<std::borrow::Cow<'static, str>>) -> Self {
+        Self {
             act,
             label: label.into(),
-            icon: Some(icon),
+            icon: None,
             danger: false,
             separated: false,
             disabled: false,
             subtitle: None,
             check: crate::controls::Check::None,
+            key: String::new(),
+            submenu: Vec::new(),
+            click: None,
         }
     }
+
+    /// The row with `key`.
+    pub fn key(mut self, key: impl Into<String>) -> Self {
+        self.key = key.into();
+        self
+    }
 }
+
+/// A submenu's width, as the Slint client's narrowest menu.
+pub const SUB_WIDTH: f32 = FIELD_WIDTH;
+/// Between a menu and its submenu.
+const SUB_GAP: f32 = 4.0;
+/// A menu's padding, which lifts a submenu so its first row is level with
+/// the row that opened it.
+const PAD: f32 = 6.0;
 
 impl App {
     /// A right click on a message: what one may do with it, in the Slint
@@ -227,45 +337,127 @@ impl App {
         operation::focus(NOBODY)
     }
 
+    /// The pointer came onto a row: it's lit, and its submenu opens, or
+    /// another's closes.
+    pub fn menu_light(&mut self, index: usize) -> Task<Message> {
+        if let Some(menu) = &mut self.menu {
+            menu.lit = Some(index);
+            let opens = menu
+                .rows
+                .get(index)
+                .is_some_and(|row| !row.submenu.is_empty() && !row.disabled);
+            if menu.sub != Some(index) {
+                menu.sub = opens.then_some(index);
+                menu.sub_lit = None;
+            }
+        }
+        Task::none()
+    }
+
     /// A row of the open menu was chosen, by click or key.
     pub fn choose(&mut self, index: usize) -> Task<Message> {
         // A greyed row does nothing, and the menu stays.
-        if self
+        let Some(row) = self
             .menu
             .as_ref()
             .and_then(|menu| menu.rows.get(index))
-            .is_none_or(|row| row.disabled)
-        {
-            return Task::none();
-        }
-        let Some(menu) = self.menu.take() else {
+            .filter(|row| !row.disabled)
+            .cloned()
+        else {
             return Task::none();
         };
-        let Some(row) = menu.rows.get(index) else {
-            return Task::none();
-        };
-        if let MenuAct::Person(choice) = row.act
-            && let Some((room, user)) = &menu.voice
-        {
-            let (room, user, check) = (room.clone(), user.clone(), row.check);
-            // A checkbox keeps the menu open, ticked the other way.
-            if let crate::controls::Check::Box(ticked) = check {
-                if let Some(row) = self.menu.insert(menu).rows.get_mut(index) {
-                    row.check = crate::controls::Check::Box(!ticked);
+        // One with a submenu opens it, unless clicking it does its own thing.
+        if !row.submenu.is_empty() {
+            match row.click {
+                Some(click) => {
+                    let row = MenuRow {
+                        act: click,
+                        check: crate::controls::Check::None,
+                        ..row
+                    };
+                    return self.pick(row, None);
                 }
-                return self.choose_voice(room, user, choice, Some(!ticked));
+                None => {
+                    if let Some(menu) = &mut self.menu {
+                        menu.sub = Some(index);
+                        menu.lit = Some(index);
+                    }
+                    return Task::none();
+                }
             }
-            return Task::batch([self.refocus(), self.choose_voice(room, user, choice, None)]);
         }
-        if let MenuAct::Person(choice) = row.act {
-            let user = menu.place.clone().unwrap_or_default();
-            return Task::batch([
-                self.refocus(),
-                self.choose_person(user, menu.location, choice),
-            ]);
+        self.pick(row, Some(index))
+    }
+
+    /// A row of the open submenu was chosen.
+    pub fn choose_sub(&mut self, index: usize) -> Task<Message> {
+        let Some(row) = self
+            .menu
+            .as_ref()
+            .and_then(|menu| menu.rows.get(menu.sub?)?.submenu.get(index))
+            .filter(|row| !row.disabled)
+            .cloned()
+        else {
+            return Task::none();
+        };
+        if let crate::controls::Check::Box(ticked) = row.check {
+            if let Some(menu) = &mut self.menu
+                && let Some(sub) = menu.sub
+                && let Some(row) = menu.rows[sub].submenu.get_mut(index)
+            {
+                row.check = crate::controls::Check::Box(!ticked);
+            }
+            return self.carry_out(&row, Some(!ticked), true);
         }
-        let item = menu.item.clone().unwrap_or_default();
-        self.act(row.act, item, menu.at, menu.place)
+        self.carry_out(&row, None, false)
+    }
+
+    /// Carries out a chosen row of the menu's own: a checkbox's flips and
+    /// the menu stays; anything else closes it.
+    fn pick(&mut self, row: MenuRow, index: Option<usize>) -> Task<Message> {
+        if let (crate::controls::Check::Box(ticked), Some(index)) = (row.check, index) {
+            if let Some(shown) = self.menu.as_mut().and_then(|menu| menu.rows.get_mut(index)) {
+                shown.check = crate::controls::Check::Box(!ticked);
+            }
+            return self.carry_out(&row, Some(!ticked), true);
+        }
+        self.carry_out(&row, None, false)
+    }
+
+    /// What a chosen row does, in the open menu's place: `ticked` is a
+    /// checkbox's new state, and `stays` keeps the menu open.
+    fn carry_out(&mut self, row: &MenuRow, ticked: Option<bool>, stays: bool) -> Task<Message> {
+        let Some(menu) = (if stays {
+            self.menu.as_ref().map(Menu::context)
+        } else {
+            self.menu.take().map(|menu| menu.context())
+        }) else {
+            return Task::none();
+        };
+        let focus = if stays { Task::none() } else { self.refocus() };
+        match row.act {
+            MenuAct::Person(choice) => match &menu.voice {
+                Some((room, user)) => {
+                    let task = self.choose_voice(room.clone(), user.clone(), choice, ticked);
+                    Task::batch([focus, task])
+                }
+                None => {
+                    let user = menu.place.clone().unwrap_or_default();
+                    Task::batch([focus, self.choose_person(user, menu.location, choice)])
+                }
+            },
+            MenuAct::Notify(_)
+            | MenuAct::MuteDm(_)
+            | MenuAct::ShowAll
+            | MenuAct::Role
+            | MenuAct::InviteTo
+            | MenuAct::App
+            | MenuAct::MoveTo => Task::batch([focus, self.sub_act(&menu, row, ticked)]),
+            act => {
+                let item = menu.item.clone().unwrap_or_default();
+                self.act(act, item, menu.at, menu.place)
+            }
+        }
     }
 
     /// What a menu's row, or the button of a message's hover bar, does:
@@ -335,11 +527,14 @@ impl App {
             }
             MenuAct::Field(which, edit) => self.field_menu(which, edit),
             MenuAct::Upload => Task::batch([focus, self.attach()]),
-            MenuAct::NewThread => focus,
+            MenuAct::NewThread | MenuAct::Event => focus,
             MenuAct::NewPoll => self.switcher_event(crate::switcher::Event::OpenPoll),
             MenuAct::Place(choice) => {
                 let place = place.unwrap_or_default();
-                Task::batch([self.choose_place(place, choice), focus])
+                let chose = self.choose_place(place, choice);
+                // Asked after the choice, which may have opened settings
+                // that keep the keys from the composer.
+                Task::batch([chose, self.refocus()])
             }
             MenuAct::Person(choice) => {
                 let user = place.unwrap_or_default();
@@ -348,40 +543,81 @@ impl App {
                     self.choose_person(user, crate::person::CONTEXT_MENU, choice),
                 ])
             }
+            // A menu's own, which `carry_out` hands to `sub_act`.
+            MenuAct::Notify(_)
+            | MenuAct::MuteDm(_)
+            | MenuAct::ShowAll
+            | MenuAct::Role
+            | MenuAct::InviteTo
+            | MenuAct::App
+            | MenuAct::MoveTo => focus,
         }
     }
 
     /// The open menu's keys: the arrows, Tab, Home and End light a row,
-    /// Enter or Space chooses it, Escape closes the menu.
+    /// Enter or Space chooses it, Right opens its submenu and Left leaves
+    /// it, Escape closes the submenu, then the menu.
     pub fn menu_key(&mut self, named: Option<key::Named>) -> Task<Message> {
         let Some(menu) = &mut self.menu else {
             return Task::none();
         };
+        // In a submenu the keys move through its rows.
+        if let Some(sub) = menu.sub {
+            let rows = &menu.rows[sub].submenu;
+            if let Some(lit) = menu.sub_lit {
+                match named {
+                    Some(key::Named::ArrowDown | key::Named::Tab) => {
+                        menu.sub_lit = step(rows, lit + 1, 1).or(Some(lit));
+                    }
+                    Some(key::Named::ArrowUp) => {
+                        let count = rows.len();
+                        menu.sub_lit = step(rows, lit + count - 1, count - 1).or(Some(lit));
+                    }
+                    Some(key::Named::Home) => menu.sub_lit = step(rows, 0, 1),
+                    Some(key::Named::End) => {
+                        let count = rows.len();
+                        menu.sub_lit = step(rows, count - 1, count - 1);
+                    }
+                    Some(key::Named::Enter | key::Named::Space) => return self.choose_sub(lit),
+                    Some(key::Named::ArrowLeft | key::Named::Escape) => {
+                        menu.sub = None;
+                        menu.sub_lit = None;
+                    }
+                    _ => {}
+                }
+                return Task::none();
+            }
+            if named == Some(key::Named::Escape) || named == Some(key::Named::ArrowLeft) {
+                menu.sub = None;
+                return Task::none();
+            }
+        }
         let count = menu.rows.len();
         if count == 0 {
             return Task::none();
         }
         let lit = menu.lit;
-        // The next row the keys can light from `from` on, `step` at a time,
-        // past greyed ones.
         let rows = &menu.rows;
-        let next = |from: usize, step: usize| {
-            (0..count)
-                .map(|offset| (from + offset * step) % count)
-                .find(|&index| !rows[index].disabled)
-        };
         match named {
             Some(key::Named::ArrowDown | key::Named::Tab) => {
-                menu.lit = next(lit.map_or(0, |lit| (lit + 1) % count), 1).or(lit);
+                menu.lit = step(rows, lit.map_or(0, |lit| lit + 1), 1).or(lit);
+                menu.sub = None;
             }
             Some(key::Named::ArrowUp) => {
-                let from = lit.map_or(count - 1, |lit| (lit + count - 1) % count);
-                menu.lit = next(from, count - 1).or(lit);
+                let from = lit.map_or(count - 1, |lit| lit + count - 1);
+                menu.lit = step(rows, from, count - 1).or(lit);
+                menu.sub = None;
             }
-            Some(key::Named::Home) => menu.lit = next(0, 1),
-            Some(key::Named::End) => menu.lit = next(count - 1, count - 1),
-            Some(key::Named::Enter | key::Named::Space) => {
-                if let Some(lit) = lit {
+            Some(key::Named::Home) => menu.lit = step(rows, 0, 1),
+            Some(key::Named::End) => menu.lit = step(rows, count - 1, count - 1),
+            Some(key::Named::ArrowRight | key::Named::Enter | key::Named::Space) => {
+                let Some(lit) = lit else {
+                    return Task::none();
+                };
+                if !rows[lit].submenu.is_empty() && !rows[lit].disabled {
+                    menu.sub = Some(lit);
+                    menu.sub_lit = step(&rows[lit].submenu, 0, 1);
+                } else if named != Some(key::Named::ArrowRight) {
                     return self.choose(lit);
                 }
             }
@@ -422,49 +658,184 @@ impl App {
             }
             rows = rows.push(quick);
         }
+        // Rows line up past a tick's room when one row has a tick, and the
+        // menu widens to its widest row.
+        let (slot, width) = (menu.slot(), menu.fit(None));
+        // The child of the rows' column the open submenu lines up with.
+        let mut children = usize::from(menu.reactions && menu.item.is_some());
+        let mut sub_child = None;
         for (index, entry) in menu.rows.iter().enumerate() {
             if entry.separated && index > 0 {
                 rows = rows.push(separator(theme));
+                children += 1;
             }
-            let item = Item {
-                label: entry.label.as_ref().into(),
-                icon: entry.icon,
-                danger: entry.danger,
-                slot: menu.place.is_none(),
-                disabled: entry.disabled,
-                subtitle: entry.subtitle.as_deref().map(Into::into),
-                check: entry.check,
-            };
-            let light = Light::Lit(menu.lit == Some(index) && !entry.disabled);
+            let lit =
+                (menu.lit == Some(index) && menu.sub_lit.is_none()) || menu.sub == Some(index);
+            let light = Light::Lit(lit && !entry.disabled);
             rows = rows.push(
-                mouse_area(self.menu_item(item, light, Message::MenuChoose(index)))
-                    .on_enter(Message::MenuLight(index)),
+                mouse_area(self.menu_item(
+                    self.menu_entry(entry, slot),
+                    light,
+                    Message::MenuChoose(index),
+                ))
+                .on_enter(Message::MenuLight(index)),
             );
+            if menu.sub == Some(index) {
+                sub_child = Some(children);
+            }
+            children += 1;
         }
         let panel: Element<'_, Message> = if menu.rows.is_empty() {
             Space::new().into()
         } else {
-            container(rows)
-                .width(menu.width)
-                .style(menu_panel(theme))
-                .into()
+            container(rows).width(width).style(menu_panel(theme)).into()
         };
         // Someone's volumes, in a panel of their own over their rows.
         let panel: Element<'_, Message> = match volumes {
             Some(volumes) => column![
-                container(volumes)
-                    .width(menu.width)
-                    .style(menu_panel(theme)),
+                container(volumes).width(width).style(menu_panel(theme)),
                 panel
             ]
             .spacing(8)
             .into(),
             None => panel,
         };
-        Some(
-            Place::new(opaque(panel), menu.at, 8.0)
-                .anchor(menu.anchor)
-                .into(),
+        // A menu taller than the window scrolls, as the Slint client's
+        // does past its tallest.
+        let panel = container(
+            scrollable(panel)
+                .height(Length::Shrink)
+                .style(crate::style::scrollbar(theme)),
         )
+        .max_height(self.window.height - 2.0 * MENU_MARGIN);
+        let mut place = Place::new(opaque(panel), menu.at, MENU_MARGIN).anchor(menu.anchor);
+        if let (Some(sub), Some(child)) = (menu.sub, sub_child) {
+            // Through the frame and the scrollable to the rows.
+            let mut path = if menu.volumes.is_some() {
+                vec![0, 0, 1, 0]
+            } else {
+                vec![0, 0, 0]
+            };
+            path.push(child);
+            place = place.beside(opaque(self.submenu_view(menu, sub)), path, PAD, SUB_GAP);
+        }
+        Some(place.into())
     }
+
+    /// A menu row as [`App::menu_item`] draws it, with its submenu's
+    /// chevron.
+    fn menu_entry<'a>(&self, entry: &'a MenuRow, slot: bool) -> Item<'a> {
+        Item {
+            label: entry.label.as_ref().into(),
+            icon: entry.icon,
+            danger: entry.danger,
+            slot,
+            disabled: entry.disabled,
+            subtitle: entry.subtitle.as_deref().map(Into::into),
+            check: if entry.submenu.is_empty() {
+                entry.check
+            } else {
+                crate::controls::Check::Submenu
+            },
+        }
+    }
+
+    /// The open submenu: its rows, beside the row that opened it.
+    fn submenu_view<'a>(&'a self, menu: &'a Menu, sub: usize) -> Element<'a, Message> {
+        let theme = &self.theme;
+        let entries = &menu.rows[sub].submenu;
+        let slot = ticks(entries);
+        let mut rows = column![].spacing(2).padding(PAD);
+        for (index, entry) in entries.iter().enumerate() {
+            if entry.separated && index > 0 {
+                rows = rows.push(separator(theme));
+            }
+            let light = Light::Lit(menu.sub_lit == Some(index) && !entry.disabled);
+            rows = rows.push(
+                mouse_area(self.menu_item(
+                    self.menu_entry(entry, slot),
+                    light,
+                    Message::SubChoose(index),
+                ))
+                .on_enter(Message::SubLight(index)),
+            );
+        }
+        container(rows)
+            .width(menu.fit(Some(sub)))
+            .style(menu_panel(theme))
+            .into()
+    }
+}
+
+/// Whether a row of `rows` has a tick, so that all leave room for one.
+fn ticks(rows: &[MenuRow]) -> bool {
+    rows.iter()
+        .any(|row| row.check == crate::controls::Check::Current)
+}
+
+/// How wide a menu of `rows` has to be to show each whole, as the Slint
+/// client's grows past its narrowest: a row's padding, its icon or tick's
+/// room, its words, and its checkbox or chevron, inside the panel's padding.
+fn fit(rows: &[MenuRow], slot: bool) -> f32 {
+    use crate::controls::{Check, ITEM_ICON};
+    use iced::advanced::{
+        graphics::text::Paragraph,
+        text::{self, LineHeight, Paragraph as _, Shaping, Wrapping},
+    };
+    let words = |content: &str, size: f32, font| {
+        Paragraph::with_text(text::Text {
+            content,
+            bounds: iced::Size::INFINITE,
+            size: size.into(),
+            line_height: LineHeight::default(),
+            font,
+            align_x: text::Alignment::Default,
+            align_y: iced::alignment::Vertical::Top,
+            shaping: Shaping::Advanced,
+            wrapping: Wrapping::None,
+        })
+        .min_width()
+    };
+    rows.iter()
+        .map(|row| {
+            let current = row.check == Check::Current;
+            let font = if current {
+                crate::fonts::BOLD
+            } else {
+                crate::fonts::MEDIUM
+            };
+            let label = words(&row.label, 14.0, font);
+            let subtitle = row
+                .subtitle
+                .as_deref()
+                .map_or(0.0, |subtitle| words(subtitle, 12.0, crate::fonts::REGULAR));
+            let icon = if slot || row.icon.is_some() || current {
+                ITEM_ICON as f32 + ROW_GAP
+            } else {
+                0.0
+            };
+            let end = match row.check {
+                Check::Box(_) => CHECKBOX + ROW_GAP,
+                _ if !row.submenu.is_empty() => crate::controls::SUBMENU_ARROW as f32 + ROW_GAP,
+                _ => 0.0,
+            };
+            2.0 * (ROW_PAD + PAD) + icon + label.max(subtitle) + end
+        })
+        .fold(0.0, f32::max)
+        .ceil()
+}
+
+/// A row's padding at each side, the gap between its parts, and its
+/// checkbox, as [`App::menu_item`] draws them.
+const ROW_PAD: f32 = 8.0;
+const ROW_GAP: f32 = 8.0;
+const CHECKBOX: f32 = 18.0;
+
+/// The next row the keys can light from `from` on (wrapping), `step` at a
+/// time, past greyed ones.
+fn step(rows: &[MenuRow], from: usize, step: usize) -> Option<usize> {
+    let count = rows.len();
+    (0..count)
+        .map(|offset| (from + offset * step) % count)
+        .find(|&index| !rows[index].disabled)
 }

@@ -42,6 +42,9 @@ pub struct Client {
     /// Others see when this account types, as Messages' settings say; off,
     /// the core's typing commands go nowhere.
     pub share_typing: bool,
+    /// What the core sent its backend, for the tests to read.
+    #[cfg(test)]
+    pub sent: Vec<yapfast_core::chat::Command>,
 }
 
 impl Client {
@@ -58,6 +61,8 @@ impl Client {
             link_stopped: false,
             sounds: Vec::new(),
             share_typing: true,
+            #[cfg(test)]
+            sent: Vec::new(),
         }
     }
 
@@ -141,6 +146,8 @@ impl Client {
                 Effect::Backend(yapfast_core::chat::Command::Typing { .. })
                     if !self.share_typing => {}
                 Effect::Backend(command) => {
+                    #[cfg(test)]
+                    self.sent.push(command.clone());
                     let result = match &self.backend {
                         Some(backend) => backend.send(command),
                         None => Err(command),

@@ -196,6 +196,127 @@ impl<'a> Switch<'a> {
     }
 }
 
+/// A permission's three choices in a channel, as Discord's: deny it, leave
+/// it to the roles, or allow it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tri {
+    Deny,
+    Pass,
+    Allow,
+}
+
+/// The tri-state's size, as the Slint client's `ThreeState`.
+pub const TRI_WIDTH: f32 = 108.0;
+pub const TRI_HEIGHT: f32 = 28.0;
+const TRI_GLYPH: u32 = 16;
+
+/// Discord's three buttons for a permission, as the Slint client's
+/// `ThreeState`: X, a slash and a tick in a box outlined in the line's
+/// colour, the chosen one filled (red, faint, green) with a white mark.
+/// Without `on` it can't change, its marks faint.
+pub fn tri_state<'a>(
+    app: &App,
+    state: Tri,
+    on: Option<&(dyn Fn(Tri) -> Message + 'a)>,
+) -> Element<'a, Message> {
+    let theme = &app.theme;
+    let enabled = on.is_some();
+    let mut choices = row![];
+    for (choice, icon, fill) in [
+        (Tri::Deny, Icon::X, theme.danger),
+        (Tri::Pass, Icon::Slash, theme.faint),
+        (Tri::Allow, Icon::Check, theme.live),
+    ] {
+        let chosen = choice == state;
+        let ink = if chosen {
+            Color::WHITE
+        } else if enabled {
+            theme.secondary
+        } else {
+            theme.faint
+        };
+        let hover = theme.hover;
+        choices = choices.push(
+            button(app.glyph(icon, TRI_GLYPH, ink).boxed(Length::Fill))
+                .padding(0)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .on_press_maybe(on.map(|on| on(choice)))
+                .style(move |_, status| button::Style {
+                    background: if chosen {
+                        Some(fill.into())
+                    } else if enabled && lights(status) {
+                        Some(hover.into())
+                    } else {
+                        None
+                    },
+                    border: Border::default().rounded(5),
+                    ..Default::default()
+                }),
+        );
+    }
+    let line = theme.line;
+    container(choices)
+        .padding(1)
+        .width(TRI_WIDTH)
+        .height(TRI_HEIGHT)
+        .style(move |_| container::Style {
+            border: Border {
+                color: line,
+                width: 1.0,
+                radius: 6.0.into(),
+            },
+            ..Default::default()
+        })
+        .into()
+}
+
+/// A permission's line, as the Slint client's `ThreeStateLine`: its title
+/// (with a lock saying why while `locked` says so) and its [`tri_state`] on
+/// one line, what it does under them, and a rule.
+pub fn tri_line<'a>(
+    app: &App,
+    title: &'a str,
+    description: &'a str,
+    state: Tri,
+    locked: Option<&'a str>,
+    on: Option<&(dyn Fn(Tri) -> Message + 'a)>,
+) -> Element<'a, Message> {
+    let theme = &app.theme;
+    let usable = on.is_some() && locked.is_none();
+    let mut label = row![
+        text(title)
+            .size(15)
+            .color(if usable { theme.text } else { theme.muted })
+    ]
+    .spacing(6)
+    .align_y(Alignment::Center);
+    if let Some(why) = locked {
+        label = label.push(iced::widget::tooltip(
+            app.glyph(Icon::Lock, 14, theme.muted),
+            controls::tip(theme, why),
+            iced::widget::tooltip::Position::Top,
+        ));
+    }
+    column![
+        row![
+            container(label).width(Length::Fill),
+            tri_state(app, state, on.filter(|_| usable))
+        ]
+        .spacing(12)
+        .align_y(Alignment::Center),
+        text(description).size(13).color(theme.secondary),
+        rule(theme),
+    ]
+    .spacing(4)
+    .padding(iced::Padding {
+        bottom: 12.0,
+        right: 12.0,
+        ..iced::Padding::ZERO
+    })
+    .into()
+}
+
 /// A switch's toggle, as the Slint client's `SettingsToggle` with its
 /// Discord look: a 48 by 24 pill, the accent's while on (lighter under the
 /// pointer), the field's while off, its knob at the end it's on.
@@ -266,6 +387,8 @@ pub struct Dropdown<'a> {
     toggle: Message,
     pick: Box<dyn Fn(usize) -> Message + 'a>,
     width: Length,
+    height: f32,
+    enabled: bool,
 }
 
 pub fn dropdown<'a>(
@@ -282,30 +405,48 @@ pub fn dropdown<'a>(
         toggle,
         pick: Box::new(pick),
         width: Length::Fill,
+        height: DROPDOWN,
+        enabled: true,
     }
 }
 
 impl<'a> Dropdown<'a> {
+    /// Taller than [`DROPDOWN`], as one a row's field stretches.
+    pub fn height(mut self, height: f32) -> Self {
+        self.height = height;
+        self
+    }
+
     pub fn width(mut self, width: impl Into<Length>) -> Self {
         self.width = width.into();
         self
     }
 
+    /// Greyed, its list closed, while not `enabled`.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
     pub fn view(self, app: &'a App) -> Element<'a, Message> {
         let theme = &app.theme;
-        let enabled = !self.options.is_empty();
+        let enabled = self.enabled && !self.options.is_empty();
         let shown = self
             .current
             .and_then(|index| self.options.get(index))
             .cloned()
             .unwrap_or_default();
         let ink = if enabled { theme.text } else { theme.faint };
+        // The chevron keeps its place however long the choice's name.
         let face = row![
-            text(shown)
-                .size(14)
-                .color(ink)
-                .wrapping(text::Wrapping::None)
-                .width(Length::Fill),
+            container(
+                text(shown)
+                    .size(14)
+                    .color(ink)
+                    .wrapping(text::Wrapping::None)
+            )
+            .width(Length::Fill)
+            .clip(true),
             app.glyph(
                 if self.open {
                     Icon::ChevronUp
@@ -337,7 +478,7 @@ impl<'a> Dropdown<'a> {
         )
         .padding([0, 12])
         .width(self.width)
-        .height(DROPDOWN)
+        .height(self.height)
         .on_press_maybe(enabled.then(|| self.toggle.clone()))
         .style(move |_, status| button::Style {
             background: Some(if lights(status) { lit } else { ground }.into()),
@@ -348,7 +489,7 @@ impl<'a> Dropdown<'a> {
             },
             ..Default::default()
         });
-        let list = self.open.then(|| {
+        let list = (self.open && enabled).then(|| {
             let mut rows = column![].spacing(2);
             for (index, option) in self.options.iter().enumerate() {
                 let item = Item {
@@ -384,6 +525,90 @@ impl<'a> Dropdown<'a> {
             .outside(self.toggle)
             .into()
     }
+}
+
+/// A choice of [`options`]: its title (in a colour of its own, as
+/// Discord's verification levels), what it means under it, and whether it
+/// may be chosen.
+pub struct Choice<'a> {
+    pub title: Cow<'a, str>,
+    pub description: Cow<'a, str>,
+    pub colour: Option<Color>,
+    pub offered: bool,
+}
+
+/// The radio button's ring and its dot.
+const RADIO: f32 = 20.0;
+const RADIO_DOT: f32 = 10.0;
+
+/// Exclusive choices as Discord's Safety Setup lists them (the Slint
+/// client's `SafetyChoices`): each a row with its radio button, title and
+/// what it means, the chosen one on a light wash, lit under the pointer; a
+/// choice not offered (or all while not `enabled`) can't be chosen, and
+/// one not offered is faded.
+pub fn options<'a>(
+    theme: &Theme,
+    choices: Vec<Choice<'a>>,
+    chosen: Option<usize>,
+    enabled: bool,
+    on_choose: impl Fn(usize) -> Message,
+) -> Element<'a, Message> {
+    let mut list = column![].spacing(4).width(Length::Fill);
+    for (index, choice) in choices.into_iter().enumerate() {
+        let on = chosen == Some(index);
+        let usable = enabled && choice.offered;
+        let fade = if choice.offered { 1.0 } else { 0.5 };
+        let faded = |colour: Color| crate::style::faded(colour, fade);
+        let (accent, ring) = (faded(theme.accent), faded(theme.secondary));
+        let dot = container(Space::new())
+            .width(RADIO_DOT)
+            .height(RADIO_DOT)
+            .style(move |_| rounded(accent, RADIO_DOT / 2.0));
+        let radio = container(if on {
+            Element::from(dot)
+        } else {
+            Space::new().into()
+        })
+        .center(RADIO)
+        .style(move |_| container::Style {
+            border: Border {
+                color: if on { accent } else { ring },
+                width: 2.0,
+                radius: (RADIO / 2.0).into(),
+            },
+            ..Default::default()
+        });
+        let words = column![
+            text(choice.title)
+                .size(15)
+                .font(SEMIBOLD)
+                .color(faded(choice.colour.unwrap_or(theme.text))),
+            text(choice.description)
+                .size(13)
+                .color(faded(theme.secondary))
+                .width(Length::Fill),
+        ]
+        .spacing(2);
+        let (chosen_ground, lit) = (theme.wash(0.08), theme.wash(0.05));
+        list = list.push(
+            button(row![radio, words].spacing(12).align_y(Alignment::Center))
+                .padding(10)
+                .width(Length::Fill)
+                .on_press_maybe(usable.then(|| on_choose(index)))
+                .style(move |_, status| button::Style {
+                    background: if on {
+                        Some(chosen_ground.into())
+                    } else if lights(status) {
+                        Some(lit.into())
+                    } else {
+                        None
+                    },
+                    border: Border::default().rounded(6),
+                    ..Default::default()
+                }),
+        );
+    }
+    list.into()
 }
 
 /// A value set elsewhere, in a sunken box: the entrance sound chosen, a
@@ -443,6 +668,17 @@ pub fn field<'a>(
     value: &'a str,
 ) -> text_input::TextInput<'a, Message> {
     controls::field(theme, id, placeholder, value, false, true).size(15)
+}
+
+/// A single-line field as the Slint client's `TextField` at its own size,
+/// as a server's settings have them: 16 px text, 40 px tall.
+pub fn entry<'a>(
+    theme: &Theme,
+    id: &'static str,
+    placeholder: &'a str,
+    value: &'a str,
+) -> text_input::TextInput<'a, Message> {
+    controls::field(theme, id, placeholder, value, false, true).padding([9.6, 12.0])
 }
 
 /// A colour in an editor, as the Slint client's `ThemeColourRow`: a swatch,
@@ -532,22 +768,27 @@ pub fn card<'a>(theme: &Theme, body: impl Into<Element<'a, Message>>) -> Element
 
 /// The bar an editor shows once something changed, as the Slint client's
 /// `UnsavedBar`: what it says, Reset and Save Changes ("Saving..." while
-/// it saves), `pad` in from its left.
+/// it saves), `pad` in from its left. While `shake` says, it shakes red,
+/// as after leaving was refused for the changes.
+#[allow(clippy::too_many_arguments)]
 pub fn unsaved_bar<'a>(
     theme: &Theme,
     pad: f32,
     saving: bool,
     may_reset: bool,
     may_save: bool,
+    shake: Shake,
     undo: Message,
     save: Message,
 ) -> Element<'a, Message> {
-    let (raised, edge) = (theme.raised, theme.edge);
+    let red = shake.red;
+    let (raised, edge, danger) = (theme.raised, theme.edge, theme.danger);
+    let offset = shake.offset();
     let bar = row![
         text("Careful — you have unsaved changes!")
             .size(14)
             .font(SEMIBOLD)
-            .color(theme.text)
+            .color(if red { theme.on_danger } else { theme.text })
             .width(Length::Fill),
         controls::action(
             theme,
@@ -566,21 +807,16 @@ pub fn unsaved_bar<'a>(
     .align_y(Alignment::Center)
     .padding(iced::Padding {
         top: 12.0,
-        right: 12.0,
+        right: 12.0 - offset,
         bottom: 12.0,
-        left: pad,
+        left: pad + offset,
     });
     container(bar)
         .width(Length::Fill)
         .height(60)
         .align_y(Alignment::Center)
         .style(move |_| container::Style {
-            background: Some(raised.into()),
-            border: Border {
-                color: edge,
-                width: 0.0,
-                radius: 0.0.into(),
-            },
+            background: Some(if red { danger } else { raised }.into()),
             shadow: iced::Shadow {
                 color: edge,
                 offset: iced::Vector::new(0.0, -1.0),
@@ -589,4 +825,102 @@ pub fn unsaved_bar<'a>(
             ..Default::default()
         })
         .into()
+}
+
+/// How the unsaved bar shakes, as the Slint client's: each time leaving is
+/// refused for the changes (the core's nudge goes up) it goes red for a
+/// little over a second and jumps side to side six times. Its owner keeps
+/// it and calls [`Shake::follow`] with each nudge, then [`Shake::tick`]
+/// every [`SHAKE_STEP`] while it says, and [`Shake::calm`] after
+/// [`SHAKE_RED`].
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Shake {
+    seen: u32,
+    left: u8,
+    pub red: bool,
+}
+
+pub const SHAKE_STEP: std::time::Duration = std::time::Duration::from_millis(60);
+pub const SHAKE_RED: std::time::Duration = std::time::Duration::from_millis(1200);
+
+impl Shake {
+    /// Takes the core's nudge: whether it went up, so the shake starts.
+    pub fn follow(&mut self, nudge: u32) -> bool {
+        if nudge == self.seen {
+            return false;
+        }
+        self.seen = nudge;
+        self.left = 6;
+        self.red = true;
+        true
+    }
+
+    /// One step of the shake: whether another is due.
+    pub fn tick(&mut self) -> bool {
+        self.left = self.left.saturating_sub(1);
+        self.left > 0
+    }
+
+    pub fn calm(&mut self) {
+        self.red = false;
+    }
+
+    /// How far the bar's contents stand from their place.
+    fn offset(self) -> f32 {
+        match self.left {
+            0 => 0.0,
+            left if left % 2 == 0 => -6.0,
+            _ => 6.0,
+        }
+    }
+}
+
+/// A text of a form several lines high, as the Slint client's
+/// `SettingsArea`: 96 px of the sunken ground, ringed while it has the
+/// keys, with how many characters are `left` under it ("Too long by" in
+/// red once below none). Its owner keeps the `draft`.
+pub fn area<'a>(
+    theme: &Theme,
+    draft: &'a crate::field::Draft,
+    id: &'static str,
+    placeholder: &str,
+    left: i64,
+    enabled: bool,
+    on: fn(crate::field::Event) -> Message,
+) -> Element<'a, Message> {
+    let colors = crate::field::Colors {
+        ground: theme.sunken,
+        text: if enabled { theme.text } else { theme.muted },
+        placeholder: theme.muted,
+        selection: theme.selection,
+    };
+    let field = crate::field::Field::new(
+        draft,
+        iced::widget::Id::new(id),
+        placeholder.to_owned(),
+        on,
+        colors,
+    )
+    .enabled(enabled)
+    .size(14.0)
+    .lines(4.0)
+    .padding(iced::Padding::from([8.0, 10.0]));
+    let sunken = theme.sunken;
+    let count = if left < 0 {
+        text(format!("Too long by {}", -left))
+            .size(12)
+            .color(theme.danger)
+    } else {
+        text(format!("{left} left")).size(12).color(theme.muted)
+    };
+    column![
+        container(field)
+            .height(96)
+            .width(Length::Fill)
+            .clip(true)
+            .style(move |_| rounded(sunken, 6)),
+        container(count).align_right(Length::Fill)
+    ]
+    .spacing(4)
+    .into()
 }
