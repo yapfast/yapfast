@@ -265,30 +265,57 @@ static AudioStreamBasicDescription make_asbd(uint32_t rate, uint16_t channels, i
 typedef struct {
     AudioQueueRef queue;
     AudioQueueBufferRef buffers[NUM_BUFFERS];
-    AudioQueueBufferRef free_list[NUM_BUFFERS];
-    int free_count;
     uint32_t rate;
     uint32_t frame_bytes;
-    uint64_t queued_bytes;
+    uint32_t buffer_bytes;
+    uint8_t *ring;
+    uint32_t ring_cap;
+    uint32_t ring_head;
+    uint32_t ring_tail;
+    uint32_t ring_len;
     int stopped;
+    int failed;
     pthread_mutex_t mu;
     pthread_cond_t cv;
 } MacOutput;
 
 static void output_cb(void *user, AudioQueueRef queue, AudioQueueBufferRef buf) {
-    (void)queue;
     MacOutput *out = (MacOutput *)user;
     pthread_mutex_lock(&out->mu);
-    if (out->queued_bytes >= buf->mAudioDataByteSize) {
-        out->queued_bytes -= buf->mAudioDataByteSize;
-    } else {
-        out->queued_bytes = 0;
+    if (out->stopped || out->failed) {
+        pthread_mutex_unlock(&out->mu);
+        return;
     }
-    if (out->free_count < NUM_BUFFERS) {
-        out->free_list[out->free_count++] = buf;
+
+    uint32_t cap = out->buffer_bytes;
+    if (cap > buf->mAudioDataBytesCapacity) {
+        cap = buf->mAudioDataBytesCapacity;
     }
+    uint32_t take = out->ring_len < cap ? out->ring_len : cap;
+    if (take > 0) {
+        uint32_t first = out->ring_cap - out->ring_head;
+        if (first > take) first = take;
+        memcpy(buf->mAudioData, out->ring + out->ring_head, first);
+        if (take > first) {
+            memcpy((uint8_t *)buf->mAudioData + first, out->ring, take - first);
+        }
+        out->ring_head = (out->ring_head + take) % out->ring_cap;
+        out->ring_len -= take;
+    }
+    if (take < cap) {
+        memset((uint8_t *)buf->mAudioData + take, 0, cap - take);
+    }
+    buf->mAudioDataByteSize = cap;
     pthread_cond_broadcast(&out->cv);
     pthread_mutex_unlock(&out->mu);
+
+    OSStatus err = AudioQueueEnqueueBuffer(queue, buf, 0, NULL);
+    if (err != noErr) {
+        pthread_mutex_lock(&out->mu);
+        out->failed = 1;
+        pthread_cond_broadcast(&out->cv);
+        pthread_mutex_unlock(&out->mu);
+    }
 }
 
 int yapfast_macos_output_open(const char *device_uid, uint32_t rate, uint16_t channels,
@@ -302,33 +329,60 @@ int yapfast_macos_output_open(const char *device_uid, uint32_t rate, uint16_t ch
     if (buffer_bytes == 0) {
         buffer_bytes = (out->rate / 50) * out->frame_bytes; /* 20ms */
     }
+    out->buffer_bytes = buffer_bytes;
+    out->ring_cap = buffer_bytes * 10; /* ~200ms ring buffer */
+    if (out->ring_cap < 65536) out->ring_cap = 65536;
+    out->ring = (uint8_t *)malloc(out->ring_cap);
+    if (!out->ring) {
+        pthread_mutex_destroy(&out->mu);
+        pthread_cond_destroy(&out->cv);
+        free(out);
+        return -1;
+    }
 
     AudioStreamBasicDescription asbd = make_asbd(out->rate, channels, is_float);
     OSStatus err = AudioQueueNewOutput(&asbd, output_cb, out, NULL, NULL, 0, &out->queue);
     if (err != noErr) {
+        free(out->ring);
         pthread_mutex_destroy(&out->mu);
         pthread_cond_destroy(&out->cv);
         free(out);
         return (int)err;
     }
 
-    set_queue_device(out->queue, device_uid, 0);
-
-    for (int i = 0; i < NUM_BUFFERS; i++) {
-        err = AudioQueueAllocateBuffer(out->queue, buffer_bytes, &out->buffers[i]);
+    if (device_uid && device_uid[0]) {
+        err = set_queue_device(out->queue, device_uid, 0);
         if (err != noErr) {
             AudioQueueDispose(out->queue, true);
+            free(out->ring);
             pthread_mutex_destroy(&out->mu);
             pthread_cond_destroy(&out->cv);
             free(out);
             return (int)err;
         }
-        out->free_list[out->free_count++] = out->buffers[i];
+    }
+
+    for (int i = 0; i < NUM_BUFFERS; i++) {
+        err = AudioQueueAllocateBuffer(out->queue, buffer_bytes, &out->buffers[i]);
+        if (err == noErr) {
+            memset(out->buffers[i]->mAudioData, 0, buffer_bytes);
+            out->buffers[i]->mAudioDataByteSize = buffer_bytes;
+            err = AudioQueueEnqueueBuffer(out->queue, out->buffers[i], 0, NULL);
+        }
+        if (err != noErr) {
+            AudioQueueDispose(out->queue, true);
+            free(out->ring);
+            pthread_mutex_destroy(&out->mu);
+            pthread_cond_destroy(&out->cv);
+            free(out);
+            return (int)err;
+        }
     }
 
     err = AudioQueueStart(out->queue, NULL);
     if (err != noErr) {
         AudioQueueDispose(out->queue, true);
+        free(out->ring);
         pthread_mutex_destroy(&out->mu);
         pthread_cond_destroy(&out->cv);
         free(out);
@@ -342,53 +396,57 @@ int yapfast_macos_output_open(const char *device_uid, uint32_t rate, uint16_t ch
 int yapfast_macos_output_write(void *handle, const uint8_t *data, uint32_t len) {
     MacOutput *out = (MacOutput *)handle;
     uint32_t offset = 0;
+    pthread_mutex_lock(&out->mu);
     while (offset < len) {
-        pthread_mutex_lock(&out->mu);
-        while (out->free_count == 0 && !out->stopped) {
+        while (out->ring_len == out->ring_cap && !out->stopped && !out->failed) {
             pthread_cond_wait(&out->cv, &out->mu);
         }
-        if (out->stopped) {
+        if (out->stopped || out->failed) {
             pthread_mutex_unlock(&out->mu);
             return -1;
         }
-        AudioQueueBufferRef buf = out->free_list[--out->free_count];
+        uint32_t space = out->ring_cap - out->ring_len;
         uint32_t chunk = len - offset;
-        if (chunk > buf->mAudioDataBytesCapacity) {
-            chunk = buf->mAudioDataBytesCapacity;
+        if (chunk > space) chunk = space;
+        uint32_t first = out->ring_cap - out->ring_tail;
+        if (first > chunk) first = chunk;
+        memcpy(out->ring + out->ring_tail, data + offset, first);
+        if (chunk > first) {
+            memcpy(out->ring, data + offset + first, chunk - first);
         }
-        memcpy(buf->mAudioData, data + offset, chunk);
-        buf->mAudioDataByteSize = chunk;
-        out->queued_bytes += chunk;
-        pthread_mutex_unlock(&out->mu);
-
-        OSStatus err = AudioQueueEnqueueBuffer(out->queue, buf, 0, NULL);
-        if (err != noErr) {
-            return (int)err;
-        }
+        out->ring_tail = (out->ring_tail + chunk) % out->ring_cap;
+        out->ring_len += chunk;
         offset += chunk;
     }
+    pthread_mutex_unlock(&out->mu);
     return 0;
 }
 
 int yapfast_macos_output_drain(void *handle) {
     MacOutput *out = (MacOutput *)handle;
     pthread_mutex_lock(&out->mu);
-    while (out->free_count < NUM_BUFFERS && !out->stopped) {
+    while (out->ring_len > 0 && !out->stopped && !out->failed) {
         pthread_cond_wait(&out->cv, &out->mu);
     }
+    int failed = out->failed;
     pthread_mutex_unlock(&out->mu);
-    return 0;
+    return failed ? -1 : 0;
 }
 
 void yapfast_macos_output_flush(void *handle) {
     MacOutput *out = (MacOutput *)handle;
-    AudioQueueReset(out->queue);
+    pthread_mutex_lock(&out->mu);
+    out->ring_head = 0;
+    out->ring_tail = 0;
+    out->ring_len = 0;
+    pthread_cond_broadcast(&out->cv);
+    pthread_mutex_unlock(&out->mu);
 }
 
 uint64_t yapfast_macos_output_latency_us(void *handle) {
     MacOutput *out = (MacOutput *)handle;
     pthread_mutex_lock(&out->mu);
-    uint64_t bytes = out->queued_bytes;
+    uint64_t bytes = out->ring_len;
     pthread_mutex_unlock(&out->mu);
     if (out->frame_bytes == 0 || out->rate == 0) return 0;
     uint64_t frames = bytes / out->frame_bytes;
@@ -405,6 +463,7 @@ void yapfast_macos_output_close(void *handle) {
 
     AudioQueueStop(out->queue, true);
     AudioQueueDispose(out->queue, true);
+    free(out->ring);
     pthread_mutex_destroy(&out->mu);
     pthread_cond_destroy(&out->cv);
     free(out);
@@ -496,7 +555,17 @@ int yapfast_macos_input_open(const char *device_uid, uint32_t rate, uint16_t cha
         return (int)err;
     }
 
-    set_queue_device(inp->queue, device_uid, 1);
+    if (device_uid && device_uid[0]) {
+        err = set_queue_device(inp->queue, device_uid, 1);
+        if (err != noErr) {
+            AudioQueueDispose(inp->queue, true);
+            free(inp->ring);
+            pthread_mutex_destroy(&inp->mu);
+            pthread_cond_destroy(&inp->cv);
+            free(inp);
+            return (int)err;
+        }
+    }
 
     for (int i = 0; i < NUM_BUFFERS; i++) {
         err = AudioQueueAllocateBuffer(inp->queue, fragment_bytes, &inp->buffers[i]);
