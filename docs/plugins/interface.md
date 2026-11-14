@@ -162,9 +162,13 @@ exists for them. Each change applies where Yapfast already builds that part:
   group DM's is `group_dm`, a thread's `thread`, and any other channel's
   `channel`. The message menu is drawn in Slint and takes no changes yet.
 - **Choosing a plugin's row.** `choose` checks for the `plugin/` prefix
-  before anything else, and sends `Action::PluginInput(Input::Menu)`, which the
-  application returns as `Effect::PluginInput`. The adapter hands it to the
-  `Runtime` it holds, which is `None` until the runtime exists.
+  before anything else and sends `Action::PluginInput(Input::Menu)`, carrying
+  the row's target and its action. No `Effect` carries it back: `plugin_input`
+  in [`application.rs`](../../crates/yapfast-core/src/application.rs) hands it
+  to `PluginState::deliver`, which sends `Request::Input` down the pipe, and
+  the helper activates the plugin if it was evicted, then calls `yf_input`
+  with it ([the ABI](abi.md)). Nothing answers, so nothing waits on it: a
+  plugin that wants to be seen draws again or calls a host method.
 - **Parts.** The `UiParts` global in
   [`ui/yapfast/parts.slint`](../../ui/yapfast/parts.slint) holds one switch per
   part that can be hidden, and each part sits behind an `if` on it: the
@@ -334,13 +338,19 @@ view. `Slots::hidden(message)` says what is hidden for one message across every
 plugin that asked: a row any of them hides is hidden.
 
 **Which surfaces draw it.** The kept row is drawn by the timeline like any other,
-with the `deleted` flag the row already had. The hide is kept in
-[`plugins/slots.rs`](../../crates/yapfast-plugins/src/slots.rs) and read per
-row, and the message rows do not consume it yet: `show_timeline` in
-`src/ui/messages.rs` builds one row per message and has no way to skip one, so a
-hidden row is still drawn. Wiring it is a `hidden(message)` test in that
-function and, for media, one where a row's images, stickers and files are
-collected.
+with the `deleted` flag the row already had. What a plugin hides is kept in
+[`plugins/slots.rs`](../../crates/yapfast-plugins/src/slots.rs) and consumed
+where the channel's timeline is built. `unhidden` in
+[`src/ui/refresh.rs`](../../src/ui/refresh.rs) filters out every message whose
+`hidden(message).row` is set, for the list it shows and for the one it compares
+against, so a hidden row takes its place away rather than leaving a gap; it
+answers `None` while no plugin hides a row, so an unfiltered timeline is passed
+along rather than copied, and the rows are built again when what is hidden
+changes. For media, the same row build applies
+[`hide_media`](../../src/ui/messages.rs) to a row whose `hidden(message).media`
+is set, which empties its galleries, stickers and files and keeps its text.
+The thread panel beside a channel builds its rows from its own timeline and
+applies neither, so a hidden message is still a row there.
 
 ## Colouring code blocks
 
@@ -469,8 +479,8 @@ as `Input::Widget`: the plugin, the slot, the cell's id, its value (`true`
 or `false` for a toggle, the option, the text, the number; nothing for a
 button) and its subject, the message a widget is drawn on, or the open
 conversation for a composer button. Closing a notice, a toast or a dialog sends
-`Input::Dismissed` and takes it away at once. Both reach the `Runtime` as
-`Effect::PluginInput`.
+`Input::Dismissed`, which takes it away at once and then reaches the plugin.
+Both go to `yf_input` the way a menu row's choice does, and neither comes back.
 
 ### Named parts
 

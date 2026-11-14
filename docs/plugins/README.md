@@ -214,7 +214,7 @@ subcommand, permissions, the network gate and the dialog that asks about a host,
 grants and the page that revokes them, the application's actions and taps, the
 Rust PDK, and the fixtures and tests for all of it.
 
-Three things are deliberately not there yet:
+Two things are deliberately not there yet:
 
 - **Reading a body larger than one answer.** A response body past 752 KiB is
   streamed to a file in `<data>/plugins-http/` rather than carried in the answer,
@@ -222,10 +222,6 @@ Three things are deliberately not there yet:
   field naming the file and no reason saying why, and nothing deletes the file
   afterwards. A chunked-body frame is what would let a plugin read what it
   spilled.
-- **Input from the interface to a plugin.** Choosing a plugin's menu row, rail or
-  header button, or using a widget it drew, becomes `Input` and comes back to the
-  window as `Effect::PluginInput`; the `Runtime` that would take it is never
-  attached in a build, so the click is logged and stops there.
 - **Matrix messages.** Selection, voice, focus and account-ready events are
   tapped where both networks pass; a Matrix message isn't tapped yet, so only
   Discord's gateway feeds `message_create`, `message_update` and
