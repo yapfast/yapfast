@@ -322,10 +322,12 @@ impl<B: Backend + 'static> Scheduler<B> {
     /// the helper remains over budget rather than dropping it. The victims are
     /// queued as conditional work for a worker — this runs on the pipe loop,
     /// which must never touch the runtime — and each one is checked again
-    /// before it is dropped: work or a hold that arrived after the victim was
-    /// chosen keeps the instance, because the choice was made under this lock
-    /// and carried out later. The parent's own `Evict` is a different thing and
-    /// stays unconditional: it is the parent saying the instance goes now.
+    /// where it is dropped: a hold or work that arrived after the victim was
+    /// chosen keeps the instance, and so does a drop or a raised budget that
+    /// has already made the eviction unnecessary, because the choice was made
+    /// under this lock and carried out later. The parent's own `Evict` is a
+    /// different thing and stays unconditional: it is the parent saying the
+    /// instance goes now.
     /// The watchdog is woken too, so a shorter idle is measured now rather than
     /// when the old deadline would have come round.
     pub fn set_limits(&self, idle_after: Duration, budget_bytes: u64) {
@@ -337,7 +339,7 @@ impl<B: Backend + 'static> Scheduler<B> {
         };
         self.shared.watch.notify_all();
         for plugin in victims {
-            self.shared.evict_for_limits(&plugin);
+            self.shared.queue_evict_for_limits(&plugin);
         }
     }
 
@@ -687,9 +689,9 @@ impl<B: Backend + 'static> Shared<B> {
     /// The same mailbox and lane the parent's own `Evict` takes, but a job that
     /// is conditional: the victims were chosen under the state lock and a
     /// worker carries the drop out later, so the worker is the one that sees
-    /// whether the instance may still go. This runs on the pipe loop, which
-    /// must never touch the runtime.
-    fn evict_for_limits(&self, plugin: &PluginId) {
+    /// whether the instance may still go and whether the budget still needs it
+    /// gone. This runs on the pipe loop, which must never touch the runtime.
+    fn queue_evict_for_limits(&self, plugin: &PluginId) {
         let mut state = lock(&self.state);
         let slot = state.slot_for(plugin);
         state.push(slot, Lane::Interactive, 0, Job::EvictIfIdle);
@@ -727,13 +729,9 @@ impl<B: Backend + 'static> Shared<B> {
                 }
             }
             // A lowered budget's victim, checked against the world as it is
-            // now rather than as it was when the victim was chosen.
-            Job::EvictIfIdle => {
-                let slot = task.owner();
-                if self.may_evict_for_limits(slot) {
-                    self.evict(slot);
-                }
-            }
+            // now rather than as it was when the victim was chosen, and
+            // dropped in the same breath as the check.
+            Job::EvictIfIdle => self.evict_for_limits(task.owner()),
             Job::Activate => self.activate(task.owner(), task.id),
             Job::Deactivate => self.deactivate(task.owner(), task.id),
             Job::Kick => self.kick(task.owner()),
@@ -1462,21 +1460,53 @@ impl<B: Backend + 'static> Shared<B> {
         }
     }
 
-    /// Whether a lowered budget may still take this instance: live, with
-    /// nothing a guest is waiting on and no work in its mailbox.
+    /// Drops a lowered budget's victim, if the world still wants it gone.
     ///
-    /// This is the check [`State::over_budget`] made when it chose the victim,
-    /// made again where the drop happens. The task asking holds its plugin
-    /// busy by its own claim and has taken itself out of the mailbox already,
-    /// so neither says anything here; what this sees is what arrived since the
-    /// choice — a host call a guest is now waiting on, a timer, work queued
-    /// behind this very task — and each of those keeps the instance. Work that
-    /// ran and left no hold and no queue behind it doesn't: the instance is as
-    /// idle as the choice found it.
-    fn may_evict_for_limits(&self, slot: usize) -> bool {
-        let state = lock(&self.state);
-        let entry = &state.slots[slot];
-        entry.live && entry.unheld() && !entry.has_work()
+    /// Both halves of the question are asked against the live state in one
+    /// critical section: the eligibility [`State::over_budget`] chose the
+    /// victim by — live, with nothing a guest is waiting on and no work in its
+    /// mailbox — and whether the live caps still exceed the live budget at
+    /// all. Another drop may already have made room, or the person may have
+    /// raised the budget since the victim was chosen; then the eviction is not
+    /// needed and nothing happens. A queued victim is never dropped to meet a
+    /// number that is already met.
+    ///
+    /// A drop both checks allow is committed in that same critical section, by
+    /// clearing the instance before the lock goes. That is what makes the
+    /// check and the drop one step: work that arrives after it finds a slot
+    /// that is not live and takes the ordinary path to a fresh instance
+    /// through `ensure_active`, and no admission can count a cap that is
+    /// already logically dead. The runtime is told outside the state lock, as
+    /// every backend call is.
+    ///
+    /// The task asking holds its plugin busy by its own claim and has taken
+    /// itself out of the mailbox already, so neither says anything here; what
+    /// this sees is what arrived since the choice — a host call a guest is now
+    /// waiting on, a timer, work queued behind this very task — and each of
+    /// those keeps the instance. Work that ran and left no hold and no queue
+    /// behind it doesn't: the instance is as idle as the choice found it.
+    fn evict_for_limits(&self, slot: usize) {
+        let plugin = {
+            let mut state = lock(&self.state);
+            let entry = &state.slots[slot];
+            let eligible = entry.live && entry.unheld() && !entry.has_work();
+            let used: u64 = state
+                .slots
+                .iter()
+                .filter(|entry| entry.live)
+                .map(|entry| u64::from(entry.memory_pages) * PAGE_BYTES)
+                .sum();
+            if !eligible || used <= state.budget_bytes {
+                return;
+            }
+            let entry = &mut state.slots[slot];
+            entry.pending = false;
+            entry.live = false;
+            Arc::clone(&entry.id)
+        };
+        self.backend.evict(&plugin);
+        self.status(slot, PluginStatus::Enabled);
+        self.check_empty();
     }
 
     /// Drops an instance because it has been idle, which is how its guest
@@ -2186,8 +2216,9 @@ impl State {
     /// one a guest is waiting on, one holding a timer or with work in its
     /// mailbox is not dropped to meet a number, and the helper stays over
     /// budget for as long as only such instances are in the way. The choice is
-    /// one moment's view, and a worker checks each victim again before
-    /// dropping it: the world can move between here and there.
+    /// one moment's view, and a worker checks each victim again where it drops
+    /// it — against the holds, the work and the budget the world has then: the
+    /// world moves between here and there.
     fn over_budget(&self) -> Vec<PluginId> {
         let cap = |slot: &Slot| u64::from(slot.memory_pages) * PAGE_BYTES;
         let mut used: u64 = self.slots.iter().filter(|slot| slot.live).map(cap).sum();

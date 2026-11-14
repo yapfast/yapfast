@@ -784,6 +784,263 @@ fn a_lower_budget_rechecks_its_victims_before_dropping_them() {
     harness.finish();
 }
 
+/// A queued victim that another drop has already made unnecessary is not
+/// evicted when its turn comes.
+///
+/// A lowered budget queues its victims as work, and the world moves before a
+/// worker reaches them: here the parent's own `Evict` takes one instance away
+/// first. At execution the caps are 192 MiB against a 192 MiB budget — not
+/// over any more — so the victim that drop made unnecessary keeps its
+/// instance.
+#[test]
+fn a_queued_victim_another_drop_made_unnecessary_is_kept() {
+    let harness = Harness::new(config(1));
+    let plugins: Vec<PluginId> = ["a", "b", "c", "d"]
+        .iter()
+        .map(|name| plugin(name))
+        .collect();
+    // Four maximum-cap instances are 256 MiB, the whole starting budget.
+    for (index, name) in plugins.iter().enumerate() {
+        harness.load(name, 1024);
+        harness.live(name, index as u64 + 1);
+    }
+
+    // The only worker is held inside d's call: d is busy, which is what keeps
+    // it off the victims, and nothing runs until the test says so.
+    harness.hold(true);
+    harness.send(Message::Command {
+        id: 5,
+        plugin: plugins[3].clone(),
+        command: command("blocker"),
+    });
+    harness.wait_log("command:com.example.d:blocker");
+
+    // The parent takes c now, queued ahead of anything the budget queues;
+    // c has work of its own, so the budget's only victim is a.
+    harness.send(Message::Evict {
+        plugin: plugins[2].clone(),
+    });
+    // 192 MiB against 256 MiB of caps: one instance has to go, the oldest.
+    harness.scheduler.set_limits(
+        Duration::from_millis(yapfast_plugin_api::limits::IDLE_EVICTION_MS),
+        192 << 20,
+    );
+    // Behind the victim in d's own mailbox, so its reply says the victim's
+    // job has run and whatever the worker did about a is done.
+    harness.send(Message::Command {
+        id: 6,
+        plugin: plugins[3].clone(),
+        command: command("marker"),
+    });
+    harness.hold(false);
+    harness.wait_for_reply(6);
+
+    // The proof that a kept its own instance arrives after its job ran.
+    for (id, name) in [(7u64, &plugins[0]), (8, &plugins[1])] {
+        harness.send(Message::Command {
+            id,
+            plugin: name.clone(),
+            command: command("still-here"),
+        });
+    }
+    harness.wait_for_reply(8);
+
+    let log = harness.log();
+    let evicted: Vec<&str> = log
+        .iter()
+        .filter(|call| call.starts_with("evict:"))
+        .map(|call| call.as_str())
+        .collect();
+    assert_eq!(
+        evicted,
+        ["evict:com.example.c"],
+        "the drop c's eviction made unnecessary is not carried out: {log:?}"
+    );
+    for name in ["a", "b", "d"] {
+        let activate = format!("activate:com.example.{name}");
+        assert_eq!(
+            log.iter()
+                .filter(|call| call.as_str() == activate.as_str())
+                .count(),
+            1,
+            "{name} answered on its own instance, not a fresh one: {log:?}"
+        );
+    }
+    harness.finish();
+}
+
+/// A queued victim a raised budget has made unnecessary is not evicted when
+/// its turn comes.
+///
+/// The victims of a lower budget are queued before a worker can reach them,
+/// and the person can raise the budget again in between. The check at
+/// execution measures the caps against the budget that is in force then —
+/// 256 MiB against 256 MiB, not over — so nothing is dropped at all.
+#[test]
+fn a_queued_victim_a_raised_budget_made_unnecessary_is_kept() {
+    let harness = Harness::new(config(1));
+    let plugins: Vec<PluginId> = ["a", "b", "c", "d"]
+        .iter()
+        .map(|name| plugin(name))
+        .collect();
+    // Four maximum-cap instances are 256 MiB, the whole starting budget.
+    for (index, name) in plugins.iter().enumerate() {
+        harness.load(name, 1024);
+        harness.live(name, index as u64 + 1);
+    }
+
+    // The only worker is held inside d's call, so nothing a lower budget
+    // queues can run until the test says so.
+    harness.hold(true);
+    harness.send(Message::Command {
+        id: 5,
+        plugin: plugins[3].clone(),
+        command: command("blocker"),
+    });
+    harness.wait_log("command:com.example.d:blocker");
+
+    // 64 MiB against 256 MiB of caps: the three oldest have to go.
+    harness.scheduler.set_limits(
+        Duration::from_millis(yapfast_plugin_api::limits::IDLE_EVICTION_MS),
+        64 << 20,
+    );
+    // The person changes their mind before a worker reaches one of them.
+    harness.scheduler.set_limits(
+        Duration::from_millis(yapfast_plugin_api::limits::IDLE_EVICTION_MS),
+        256 << 20,
+    );
+    // Behind the victims in d's own mailbox, so its reply says their jobs
+    // have run and whatever the worker did about them is done.
+    harness.send(Message::Command {
+        id: 6,
+        plugin: plugins[3].clone(),
+        command: command("marker"),
+    });
+    harness.hold(false);
+    harness.wait_for_reply(6);
+
+    for (id, name) in [(7u64, &plugins[0]), (8, &plugins[1]), (9, &plugins[2])] {
+        harness.send(Message::Command {
+            id,
+            plugin: name.clone(),
+            command: command("still-here"),
+        });
+    }
+    harness.wait_for_reply(9);
+
+    let log = harness.log();
+    assert!(
+        !log.iter().any(|call| call.starts_with("evict:")),
+        "a raised budget leaves the queued victims alone: {log:?}"
+    );
+    for name in ["a", "b", "c"] {
+        let activate = format!("activate:com.example.{name}");
+        assert_eq!(
+            log.iter()
+                .filter(|call| call.as_str() == activate.as_str())
+                .count(),
+            1,
+            "{name} answered on its own instance, not a fresh one: {log:?}"
+        );
+    }
+    harness.finish();
+}
+
+/// Work arriving as a lowered budget's victim is dropped takes the ordinary
+/// path: a fresh activation of its own, and an activation of another plugin
+/// that the dead cap must not refuse.
+///
+/// The drop is held at the instant the runtime is told, which is where the
+/// fix shows. The instance is already logically gone by then, so c's
+/// activation sees the 128 MiB of room the budget has and is admitted; a cap
+/// counted after it is dead would refuse c and evict b for room that is
+/// already there. a's own work, arriving with it, runs against a fresh
+/// activation of its own rather than the dropped instance.
+#[test]
+fn work_arriving_with_a_conditional_drop_takes_the_ordinary_path() {
+    let harness = Harness::new(config(2));
+    let a = plugin("a");
+    let b = plugin("b");
+    let c = plugin("c");
+    // a's cap is 128 MiB; b's and c's are 64 MiB each.
+    harness.load(&a, 2048);
+    harness.load(&b, 1024);
+    harness.load(&c, 1024);
+    harness.live(&a, 1);
+    harness.live(&b, 2);
+
+    // Hold the drop of a where it happens: the world moves at the instant the
+    // runtime is told to let the instance go.
+    harness.hold_drop(&a);
+    // 128 MiB against 192 MiB of caps: the one instance the budget may take
+    // has to go, and it is a.
+    harness.scheduler.set_limits(
+        Duration::from_millis(yapfast_plugin_api::limits::IDLE_EVICTION_MS),
+        128 << 20,
+    );
+    harness.wait_log("evict:com.example.a");
+
+    // c's activation arrives while a's drop is held. The dead cap must not
+    // count against it: b's 64 MiB and c's 64 MiB are the whole budget.
+    harness.activate(&c, 10);
+    harness.wait_for_reply(10);
+    // a's own work arrives after the decision that dropped its instance.
+    harness.send(Message::Command {
+        id: 11,
+        plugin: a.clone(),
+        command: command("later"),
+    });
+    harness.release_drop();
+    harness.wait_for_reply(11);
+
+    let reports = harness.reports();
+    assert!(
+        reports.iter().any(|report| matches!(
+            report,
+            FromHelper::Activated { plugin, .. } if *plugin == c
+        )),
+        "c's activation is admitted against the room the drop left: {reports:?}"
+    );
+    assert!(
+        reports.iter().any(|report| matches!(
+            report,
+            FromHelper::CommandDone {
+                plugin,
+                outcome: CommandOutcome::None,
+            } if *plugin == a
+        )),
+        "a's work runs to an answer of its own: {reports:?}"
+    );
+    let log = harness.log();
+    assert_eq!(
+        log.iter()
+            .filter(|call| call.as_str() == "evict:com.example.a")
+            .count(),
+        1,
+        "a's instance is dropped once: {log:?}"
+    );
+    assert_eq!(
+        log.iter()
+            .filter(|call| call.as_str() == "activate:com.example.a")
+            .count(),
+        2,
+        "a's work runs against a fresh activation, not the dropped instance: {log:?}"
+    );
+    let fresh = log
+        .iter()
+        .rposition(|call| call.as_str() == "activate:com.example.a")
+        .expect("a's fresh activation is in the log");
+    let ran = log
+        .iter()
+        .position(|call| call.as_str() == "command:com.example.a:later")
+        .expect("a's work ran");
+    assert!(
+        fresh < ran,
+        "the fresh activation comes before its work: {log:?}"
+    );
+    harness.finish();
+}
+
 /// The activation after a lower budget is refused with the budget the person
 /// set, and such a refusal is the helper's limit rather than the plugin's
 /// doing: it costs no strike, or three of them would suspend the plugin.
@@ -1044,6 +1301,18 @@ impl Harness {
         }
     }
 
+    /// Holds the drop of `plugin` at the instant the runtime is told to let
+    /// the instance go: the world can move while it is half gone, which is the
+    /// moment a test needs to catch. Every other call runs.
+    fn hold_drop(&self, plugin: &PluginId) {
+        *lock(&self.fake.holding_drop) = Some(format!("evict:{plugin}"));
+    }
+
+    fn release_drop(&self) {
+        *lock(&self.fake.holding_drop) = None;
+        self.fake.dropped.notify_all();
+    }
+
     fn sleep(&self, duration: Duration) {
         *lock(&self.fake.sleep) = duration;
     }
@@ -1214,6 +1483,11 @@ struct FakeLog {
     /// Where the runtime would report a guest's waits; the scheduler installs
     /// it, and a test writes through it the way a guest's host call does.
     waits: Mutex<Option<Waits>>,
+    /// While set, the drop it names is held where it happens, so a test can
+    /// catch the world at the instant the runtime is told to let an instance
+    /// go. Every other drop runs.
+    holding_drop: Mutex<Option<String>>,
+    dropped: Condvar,
     /// Set when the module writes none of the optional exports. Inverted
     /// because `#[derive(Default)]` is what makes this struct, and a test that
     /// says nothing should be the one where the exports are there.
@@ -1253,6 +1527,17 @@ impl FakeLog {
     fn note(&self, call: String) {
         let thread = thread::current().name().unwrap_or("a worker").to_owned();
         lock(&self.calls).push(Entry { thread, call });
+    }
+
+    /// Holds the one drop `call` names until a test releases it.
+    fn hold_drop(&self, call: &str) {
+        let mut holding = lock(&self.holding_drop);
+        while holding.as_deref() == Some(call) {
+            holding = self
+                .dropped
+                .wait(holding)
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+        }
     }
 }
 
@@ -1336,7 +1621,9 @@ impl Backend for Fake {
     }
 
     fn evict(&self, plugin: &PluginId) {
-        self.calls.note(format!("evict:{plugin}"));
+        let call = format!("evict:{plugin}");
+        self.calls.note(call.clone());
+        self.calls.hold_drop(&call);
     }
 
     fn memory_pages(&self, _plugin: &PluginId) -> Option<u32> {
