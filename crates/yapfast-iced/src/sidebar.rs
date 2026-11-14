@@ -7,7 +7,10 @@
 //! voice channel under it. The list is virtualized: only rows near its
 //! viewport are built.
 
-use std::collections::{BTreeSet, HashMap};
+use std::{
+    collections::{BTreeSet, HashMap},
+    sync::Arc,
+};
 
 use iced::{
     Alignment, Color, Element, Length, Padding, Point, Task,
@@ -28,6 +31,7 @@ use crate::{
     controls::{self, Count, bar, count_pill, lit_style},
     fonts::{BOLD, MEDIUM, SEMIBOLD},
     looks::Status,
+    people::{NameInk, Person},
     pictures::{Face, Icon},
     rail::count_badge,
     style::{corners, faded, rounded, scrollbar},
@@ -79,6 +83,8 @@ pub enum Event {
     Header,
     /// A right click on a row, by its room id, where the pointer is.
     Menu(String, Point),
+    /// Wave, in an empty DM, by its person.
+    Wave(String),
 }
 
 /// A conversation's row, as the Slint client's `RoomRow` has it.
@@ -98,6 +104,16 @@ pub struct Room {
     pub avatar: Option<String>,
     pub presence: Option<Presence>,
     pub status: Status,
+    /// A DM's person's looks: the decoration round the avatar, the
+    /// nameplate's still and palette, the name's style, the server tag's
+    /// letters and badge; Discord's own account; and a DM nobody has
+    /// written in yet, which offers to wave, by its person.
+    pub decoration: Option<Arc<str>>,
+    pub nameplate: Option<(Arc<str>, Option<u32>)>,
+    pub style: Option<crate::looks::NameLook>,
+    pub tag: Option<(Arc<str>, Option<Arc<str>>)>,
+    pub official: bool,
+    pub wave: Option<String>,
     /// The server voice channel a one-to-one DM's person is in: its room
     /// id, its name and its server's.
     pub voice_spot: Option<(String, String, String)>,
@@ -255,29 +271,18 @@ pub fn sidebar(
     categories: &[ListedCategory],
     collapsed: &HashMap<String, BTreeSet<String>>,
     filter: &str,
+    dark: bool,
 ) -> Vec<SideRow> {
+    let cosmetics = state.cosmetics;
     let direct = state.navigation == Navigation::DirectMessages;
     let query = filter.to_lowercase();
     // Who is in a voice channel of a server this account is in, as the DM
     // list marks them.
-    let mut spots: HashMap<&str, (&str, &str, &str)> = HashMap::new();
-    if direct {
-        let rooms: HashMap<&str, &ChatRoom> = state
-            .rooms
-            .iter()
-            .map(|room| (room.id.as_str(), &**room))
-            .collect();
-        for server in &state.servers {
-            for channel in &server.channels {
-                let Some(room) = rooms.get(channel.as_str()).filter(|room| room.voice) else {
-                    continue;
-                };
-                for person in &room.people {
-                    spots.insert(&person.id, (&room.id, &room.name, &server.name));
-                }
-            }
-        }
-    }
+    let spots = if direct {
+        crate::people::voice_spots(state)
+    } else {
+        HashMap::new()
+    };
     let mut listed: Vec<&ChatRoom> = state
         .scoped_rooms()
         .filter(|room| room.name.to_lowercase().contains(&query))
@@ -285,19 +290,10 @@ pub fn sidebar(
     let mut rows = Vec::new();
     if direct {
         if state.discord_linked && !state.preview {
-            let incoming = state
-                .friend_requests
-                .iter()
-                .filter(|request| request.incoming && !request.spam)
-                .count();
-            let waiting = state
-                .scoped_rooms()
-                .filter(|room| room.category == discord::REQUESTS)
-                .count();
             rows.push(SideRow::Screens {
                 friends: state.dm_screen == Some(DmScreen::Friends),
                 requests: state.dm_screen == Some(DmScreen::Requests),
-                badge: count_badge((incoming + waiting) as u64),
+                badge: count_badge(crate::friends::waiting(state) as u64),
             });
         }
         if !state.preview {
@@ -449,6 +445,35 @@ pub fn sidebar(
                 room.presence
             },
             status,
+            decoration: cosmetics
+                .decoration(room.decoration.as_deref())
+                .map(Arc::from),
+            nameplate: room
+                .nameplate
+                .as_ref()
+                .filter(|_| !state.hide_nameplates && room.direct)
+                .map(|plate| {
+                    let palette = plate.colors.map(|colors| colors[usize::from(!dark)]);
+                    (plate.picture.clone(), palette)
+                }),
+            style: room
+                .direct
+                .then(|| {
+                    crate::looks::name_look(
+                        cosmetics.style(room.style.as_deref()),
+                        &room.name,
+                        false,
+                        dark,
+                    )
+                })
+                .flatten(),
+            tag: cosmetics
+                .tag(room.tag.as_ref())
+                .map(|tag| (tag.text.clone(), tag.badge.clone())),
+            official: room.official,
+            wave: (room.direct && room.empty && !room.request)
+                .then(|| room.person.clone())
+                .flatten(),
             voice_spot: room
                 .person
                 .as_deref()
@@ -518,7 +543,9 @@ impl App {
             }
             Event::Point(id, entered) => {
                 crate::app::point(&mut self.pointed_side, id, entered);
-                return Task::none();
+                // A DM's nameplate and moving decoration come as it's
+                // pointed at.
+                return self.ask();
             }
             Event::Select(id) => self.client.dispatch(Action::SelectRoom(id)),
             // As the Slint client: the core's `SelectRoom` joins a voice
@@ -561,6 +588,10 @@ impl App {
                 return self.open_place_menu(&server, at, true);
             }
             Event::Menu(id, at) => return self.open_place_menu(&id, at, false),
+            Event::Wave(user) => self.client.dispatch(Action::MessageFromProfile {
+                user,
+                text: "\u{1F44B}".to_owned(),
+            }),
         }
         self.sync()
     }
@@ -985,55 +1016,14 @@ impl App {
 
     /// A conversation's row, as the Slint client's `ChannelRow`.
     fn room_row<'a>(&'a self, room: &'a Room) -> Element<'a, Message> {
+        if room.direct {
+            return self.dm_row(room);
+        }
         let theme = &self.theme;
         let pointed = self.pointed_side.as_deref() == Some(room.id.as_str());
-        let ink = if room.locked {
-            if room.selected {
-                theme.muted
-            } else {
-                theme.faint
-            }
-        } else if room.selected || room.unread {
-            theme.text
-        } else if pointed {
-            theme.secondary
-        } else {
-            theme.muted
-        };
-        // A muted one is faint until it's selected or pointed at.
-        let opacity = if room.muted && !room.selected && !pointed {
-            0.5
-        } else {
-            1.0
-        };
-        let ink = faded(ink, opacity);
-        let row_ground = if room.selected {
-            theme.active
-        } else if pointed {
-            theme.hover
-        } else {
-            theme.sidebar
-        };
-        let mut face = row![]
-            .spacing(if room.direct { 12 } else { 8 })
-            .align_y(Alignment::Center);
-        if room.direct {
-            face = face.push(self.face(Face {
-                url: room.avatar.as_deref(),
-                name: &room.name,
-                size: 32.0,
-                opacity,
-                decoration: None,
-                play: false,
-                dot: room.presence.map(|presence| {
-                    (
-                        presence,
-                        crate::theme::rgb(row_ground),
-                        Point::new(20.0, 20.0),
-                    )
-                }),
-            }));
-        } else if !room.thread {
+        let (ink, opacity) = self.row_ink(room, pointed);
+        let mut face = row![].spacing(8).align_y(Alignment::Center);
+        if !room.thread {
             let icon_ink = if room.selected {
                 theme.text
             } else if room.unread {
@@ -1048,36 +1038,7 @@ impl App {
             .font(MEDIUM)
             .color(ink)
             .wrapping(text::Wrapping::None);
-        let mut lines = column![name].width(Length::Fill);
-        if room.direct {
-            // Their voice channel in full when nothing else is said, else a
-            // speaker before what is, as the friends list has it.
-            let mut line = row![].spacing(4).align_y(Alignment::Center);
-            if let Some((_, channel, server)) = &room.voice_spot {
-                line = line.push(self.glyph(Icon::Voice, 13, theme.live));
-                if room.status.is_empty() {
-                    line = line.push(
-                        text(format!("{channel} — {server}"))
-                            .size(12)
-                            .color(theme.muted)
-                            .wrapping(text::Wrapping::None),
-                    );
-                }
-            }
-            if !room.status.is_empty() {
-                line = line.push(self.status_line(&room.status, opacity));
-            }
-            if room.voice_spot.is_some() || !room.status.is_empty() {
-                lines = lines.push(line);
-            }
-        }
-        face = face.push(lines);
-        if room.call {
-            face = face.push(self.glyph(Icon::Phone, 16, theme.live));
-        }
-        if room.pinned {
-            face = face.push(self.glyph(Icon::Pin, 14, theme.faint));
-        }
+        face = face.push(column![name].width(Length::Fill));
         if let Some(started) = room.started {
             let lasted = yapfast_core::clock::lasted(started, self.minute);
             face = face.push(text(lasted).size(12).color(theme.muted));
@@ -1090,7 +1051,6 @@ impl App {
         } else {
             Message::Side(Event::Select(room.id.clone()))
         };
-
         self.row_face(
             room.id.clone(),
             face.into(),
@@ -1099,6 +1059,193 @@ impl App {
             message,
             Some(room.id.clone()),
         )
+    }
+
+    /// A row's ink, and its opacity: a muted one is faint until it's
+    /// selected or pointed at.
+    fn row_ink(&self, room: &Room, pointed: bool) -> (Color, f32) {
+        let theme = &self.theme;
+        let ink = if room.locked {
+            if room.selected {
+                theme.muted
+            } else {
+                theme.faint
+            }
+        } else if room.selected || room.unread {
+            theme.text
+        } else if pointed {
+            theme.secondary
+        } else {
+            theme.muted
+        };
+        let opacity = if room.muted && !room.selected && !pointed {
+            0.5
+        } else {
+            1.0
+        };
+        (faded(ink, opacity), opacity)
+    }
+
+    /// A DM's row: the person's face with its decoration and presence, the
+    /// name in its style with the server tag or OFFICIAL, what they're up
+    /// to or the voice channel they're in, Wave for a DM nobody wrote in
+    /// yet, the call, pin and mentions; the nameplate behind it while it's
+    /// pointed at or selected, as Discord's client draws it only then.
+    fn dm_row<'a>(&'a self, room: &'a Room) -> Element<'a, Message> {
+        let theme = &self.theme;
+        let pointed = self.pointed_side.as_deref() == Some(room.id.as_str());
+        let (ink, opacity) = self.row_ink(room, pointed);
+        let row_ground = if room.selected {
+            theme.active
+        } else if pointed {
+            theme.hover
+        } else {
+            theme.sidebar
+        };
+        let face = Face {
+            url: room.avatar.as_deref(),
+            name: &room.name,
+            size: 32.0,
+            opacity,
+            decoration: room.decoration.as_deref(),
+            play: pointed,
+            dot: room.presence.map(|presence| {
+                (
+                    presence,
+                    crate::theme::rgb(row_ground),
+                    Point::new(20.0, 20.0),
+                )
+            }),
+        };
+        let mut name = row![self.person_name(
+            &room.name,
+            NameInk::new(15.0, 500, ink).style(room.style.as_ref()),
+        )]
+        .spacing(4)
+        .align_y(Alignment::Center);
+        if let Some((letters, badge)) = &room.tag {
+            name = name.push(self.tag_chip(
+                letters,
+                badge.as_deref(),
+                crate::looks::Chip {
+                    size: 12.0,
+                    font: SEMIBOLD,
+                    height: 16.0,
+                    pad: 4.0,
+                    radius: 4.0,
+                    fill: crate::style::CHIP,
+                    ink: theme.text,
+                },
+                opacity,
+            ));
+        }
+        if room.official {
+            name = name.push(self.official_tag());
+        }
+        let mut person = Person::new(face, name);
+        // Their voice channel in full when nothing else is said, else a
+        // speaker before what is, as the friends list has it.
+        let spot = room
+            .voice_spot
+            .as_ref()
+            .map(|(id, channel, server)| (id.as_str(), channel.as_str(), server.as_str()));
+        let mut line = row![].spacing(4).align_y(Alignment::Center);
+        if let Some(spot) = spot {
+            line = line.push(self.voice_spot(spot, 12.0, !room.status.is_empty()));
+        }
+        if !room.status.is_empty() {
+            line = line.push(self.status_line(&room.status, opacity));
+        } else if room.official && spot.is_none() {
+            line = line.push(
+                text("Official Discord Message")
+                    .size(12)
+                    .color(theme.muted)
+                    .wrapping(text::Wrapping::None),
+            );
+        }
+        if spot.is_some() || !room.status.is_empty() || room.official {
+            person = person.sub(line);
+        }
+        let mut face = self.person(person);
+        if let Some(user) = room.wave.as_ref().filter(|_| pointed || room.selected) {
+            face = face.push(self.wave_button(user));
+        }
+        if room.call {
+            face = face.push(self.glyph(Icon::Phone, 16, theme.live));
+        }
+        if room.pinned {
+            face = face.push(self.glyph(Icon::Pin, 14, theme.faint));
+        }
+        if !room.badge.is_empty() {
+            face = face.push(count_pill(theme, &room.badge, ROW_COUNT, None));
+        }
+        let plated: Element<'a, Message> = match &room.nameplate {
+            Some((url, palette)) if pointed || room.selected => {
+                let plate = self.nameplate(url, DM_ROW, pointed, room.selected, 1.0);
+                crate::widgets::PlateRow::new(
+                    face,
+                    plate,
+                    palette.map(crate::style::hex),
+                    row_ground,
+                    crate::members::plate_end(pointed, room.selected),
+                    1.0,
+                )
+                .into()
+            }
+            _ => face.into(),
+        };
+        self.row_face(
+            room.id.clone(),
+            plated,
+            room.row_height(),
+            room.selected,
+            Message::Side(Event::Select(room.id.clone())),
+            Some(room.id.clone()),
+        )
+    }
+
+    /// Discord's OFFICIAL badge by its own account's name: blurple, a
+    /// check and the word.
+    fn official_tag(&self) -> Element<'_, Message> {
+        let theme = &self.theme;
+        let accent = theme.accent;
+        container(
+            row![
+                self.glyph(Icon::Check, 12, theme.on_accent),
+                text("OFFICIAL").size(10).font(BOLD).color(theme.on_accent),
+            ]
+            .spacing(2)
+            .align_y(Alignment::Center),
+        )
+        .padding([0, 4])
+        .height(16)
+        .align_y(Alignment::Center)
+        .style(move |_| rounded(accent, 4))
+        .into()
+    }
+
+    /// Wave, which Discord offers in a DM nobody has written in yet: it
+    /// sends a waving hand.
+    fn wave_button(&self, user: &str) -> Element<'_, Message> {
+        let theme = &self.theme;
+        let (rest, lit, on) = (theme.accent, theme.accent_hover, theme.on_accent);
+        button(
+            container(
+                row![
+                    self.glyph(Icon::Hand, 14, on),
+                    text("Wave").size(12).font(MEDIUM).color(on),
+                ]
+                .spacing(4)
+                .align_y(Alignment::Center),
+            )
+            .padding([0, 8])
+            .height(24)
+            .align_y(Alignment::Center),
+        )
+        .padding(0)
+        .on_press(Message::Side(Event::Wave(user.to_owned())))
+        .style(controls::lit_style(Some(rest), lit, 4.0))
+        .into()
     }
 
     /// Someone in a voice channel, under its row: their avatar and name, and

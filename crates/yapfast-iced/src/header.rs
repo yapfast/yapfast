@@ -328,7 +328,14 @@ impl App {
             push(Icon::Ellipsis, "More", Message::Nothing, false);
         }
         if header.profile_available {
-            push(Icon::User, "Show profile", Message::Nothing, false);
+            let open = self.client.state().profile_panel;
+            let label = if open { "Hide profile" } else { "Show profile" };
+            push(
+                Icon::User,
+                label,
+                Message::Profile(crate::profile::Event::TogglePanel),
+                open,
+            );
         }
         if header.members_available && header.direct {
             buttons.push(self.members_toggle(members, shown));

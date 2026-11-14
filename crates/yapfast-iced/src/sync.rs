@@ -17,7 +17,7 @@ use iced::{
         scrollable::{AbsoluteOffset, Viewport},
     },
 };
-use yapfast_core::{application::Navigation, chat};
+use yapfast_core::application::Navigation;
 
 use crate::{
     after,
@@ -33,7 +33,7 @@ use crate::{
 };
 
 /// A list's viewport, as its scrollable last reported it.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Scroll {
     pub offset: f32,
     pub height: f32,
@@ -77,6 +77,9 @@ pub fn lists_key(state: &yapfast_core::application::AppState, theme: &str) -> u6
         state.category_changes,
         &state.navigation,
         &state.selected,
+        state
+            .dm_screen
+            .map(|screen| screen == yapfast_core::application::DmScreen::Friends),
         state.discord_online,
         state.preview,
         &state.voice.room,
@@ -121,7 +124,13 @@ impl App {
             Navigation::DirectMessages => Vec::new(),
         };
         let state = self.client.state();
-        let side = sidebar(state, &categories, &self.layout.collapsed, &self.filter);
+        let side = sidebar(
+            state,
+            &categories,
+            &self.layout.collapsed,
+            &self.filter,
+            self.theme.dark,
+        );
         if self.side != side {
             self.side = side;
         }
@@ -158,11 +167,11 @@ impl App {
         if self.account != account {
             self.account = account;
         }
-        // The card the core closed, or one showing someone else, goes.
-        if self.card.is_some() && state.profile.as_ref().is_none_or(|view| view.large) {
-            self.card = None;
-        }
-        let mut tasks = Vec::new();
+        let mut tasks = vec![self.profile_sync()];
+        self.friends_sync();
+        self.active_now_sync();
+        self.reactions_page();
+        let state = self.client.state();
         let switched = self.selected != state.selected;
         if switched && self.editing.is_some() {
             self.client
@@ -207,6 +216,19 @@ impl App {
             tasks.push(self.previews());
         }
         tasks.push(self.roster(switched));
+        // The feed came or changed whom it may show.
+        let state = self.client.state();
+        let feed = (
+            Arc::as_ptr(&state.activity_feed) as *const () as usize,
+            state
+                .activity_people
+                .as_ref()
+                .map_or(0, |(_, people)| Arc::as_ptr(people) as *const () as usize),
+        );
+        if feed != self.activity_for {
+            self.activity_for = feed;
+            self.make_activity_cards();
+        }
         let state = self.client.state();
         let marks = (state.first_unread.clone(), state.seen.clone());
         let edge_changed = std::mem::take(&mut self.edge_changed);
@@ -254,6 +276,7 @@ impl App {
         }
         self.place_videos();
         self.picker_sync();
+        self.person_sync();
         tasks.push(self.ask());
         self.sync_sign_in();
         tasks.push(self.sync_mfa());
@@ -348,6 +371,7 @@ impl App {
         }
         self.members = members;
         self.roster_shown = Some(Instant::now());
+        self.make_activity_cards();
     }
 
     /// The timeline's whole height.
@@ -550,6 +574,20 @@ impl App {
             {
                 want(room.avatar.as_deref());
                 want(room.status.emoji.as_deref());
+                want(room.decoration.as_deref());
+                want(room.tag.as_ref().and_then(|(_, badge)| badge.as_deref()));
+                if room.selected || self.pointed_side.as_deref() == Some(room.id.as_str()) {
+                    if let Some((plate, _)) = &room.nameplate {
+                        want(Some(plate));
+                        want(Some(&looks::animated_url(plate)));
+                    }
+                    want(
+                        room.decoration
+                            .as_deref()
+                            .map(looks::animated_url)
+                            .as_deref(),
+                    );
+                }
                 for person in &room.people {
                     want(person.avatar.as_deref());
                 }
@@ -628,32 +666,22 @@ impl App {
                 }
             }
         }
+        for url in self.activity_pictures() {
+            want(Some(url));
+        }
         if self.stage_shown() {
             for person in &state.voice.participants {
                 want(person.avatar.as_deref());
             }
         }
-        if let (Some(card), Some(view)) = (&self.card, &state.profile) {
-            let profile = &view.profile;
-            want(profile.avatar.as_deref());
-            let decoration = cosmetics.decoration(profile.decoration.as_deref());
-            want(decoration);
-            if card.pointed {
-                want(decoration.map(looks::animated_url).as_deref());
-            }
-            want(profile.banner.as_deref());
-            want(
-                profile
-                    .banner
-                    .as_deref()
-                    .and_then(chat::moving_banner)
-                    .as_deref(),
-            );
-            want(
-                cosmetics
-                    .tag(profile.tag.as_ref())
-                    .and_then(|tag| tag.badge.as_deref()),
-            );
+        for url in self.profile_pictures() {
+            want(Some(&url));
+        }
+        for url in self.friends_pictures() {
+            want(Some(&url));
+        }
+        for url in self.reactions_pictures() {
+            want(Some(&url));
         }
         urls
     }

@@ -366,9 +366,9 @@ pub fn separator<'a>(theme: &Theme) -> Element<'a, Message> {
 }
 
 /// A row of a menu or of a list of choices, as [`App::menu_item`] draws it.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct Item<'a> {
-    pub label: &'a str,
+    pub label: std::borrow::Cow<'a, str>,
     pub icon: Option<Icon>,
     /// A destructive choice, drawn in the danger colours.
     pub danger: bool,

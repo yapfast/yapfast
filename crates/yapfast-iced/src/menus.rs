@@ -42,6 +42,8 @@ pub struct Menu {
     /// server's header menu.
     pub place: Option<String>,
     pub header: bool,
+    /// Where Discord's client says someone's menu was opened from.
+    pub location: &'static str,
     /// How its point is read, and its width.
     pub anchor: Anchor,
     pub width: f32,
@@ -58,6 +60,7 @@ impl Menu {
             reactions: false,
             place: None,
             header: false,
+            location: crate::person::CONTEXT_MENU,
             anchor: Anchor::Pointer,
             width: WIDTH,
         }
@@ -77,6 +80,7 @@ impl Menu {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum MenuAct {
     AddReaction,
+    ViewReactions,
     Edit,
     Reply,
     Forward,
@@ -97,12 +101,14 @@ pub enum MenuAct {
     NewThread,
     NewPoll,
     Place(yapfast_core::application::MenuChoice),
+    /// A row of someone's menu (`person.rs`).
+    Person(yapfast_core::application::MenuChoice),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct MenuRow {
     pub act: MenuAct,
-    pub label: &'static str,
+    pub label: std::borrow::Cow<'static, str>,
     /// Its icon; a place's menu has none but Copy ID's, and no room kept
     /// for one.
     pub icon: Option<Icon>,
@@ -118,7 +124,7 @@ impl MenuRow {
     pub fn new(act: MenuAct, label: &'static str, icon: Icon) -> Self {
         Self {
             act,
-            label,
+            label: label.into(),
             icon: Some(icon),
             danger: false,
             separated: false,
@@ -144,6 +150,9 @@ impl App {
         let sent = message.delivery == yapfast_core::chat::Delivery::default();
         if message.can_react {
             rows.push(row(MenuAct::AddReaction, "Add reaction", Icon::SmilePlus));
+        }
+        if !message.reactions.is_empty() {
+            rows.push(row(MenuAct::ViewReactions, "View Reactions", Icon::Smile));
         }
         if message.can_edit && writes {
             rows.push(row(MenuAct::Edit, "Edit message", Icon::Pencil));
@@ -224,6 +233,13 @@ impl App {
         let Some(row) = menu.rows.get(index) else {
             return Task::none();
         };
+        if let MenuAct::Person(choice) = row.act {
+            let user = menu.place.clone().unwrap_or_default();
+            return Task::batch([
+                self.refocus(),
+                self.choose_person(user, menu.location, choice),
+            ]);
+        }
         let item = menu.item.clone().unwrap_or_default();
         self.act(row.act, item, menu.at, menu.place)
     }
@@ -240,6 +256,11 @@ impl App {
         let focus = self.refocus();
         match act {
             MenuAct::AddReaction => self.open_picker(Target::React(item, at), Tab::Emoji),
+            MenuAct::ViewReactions => {
+                self.client
+                    .dispatch(Action::ShowReactions { item, key: None });
+                Task::batch([self.sync(), operation::focus(crate::app::NOBODY)])
+            }
             MenuAct::Edit => self.begin_edit(item),
             MenuAct::Reply => {
                 self.client.dispatch(Action::Reply(item));
@@ -294,6 +315,13 @@ impl App {
             MenuAct::Place(choice) => {
                 let place = place.unwrap_or_default();
                 Task::batch([self.choose_place(place, choice), focus])
+            }
+            MenuAct::Person(choice) => {
+                let user = place.unwrap_or_default();
+                Task::batch([
+                    focus,
+                    self.choose_person(user, crate::person::CONTEXT_MENU, choice),
+                ])
             }
         }
     }
@@ -370,7 +398,7 @@ impl App {
                 rows = rows.push(separator(theme));
             }
             let item = Item {
-                label: entry.label,
+                label: entry.label.as_ref().into(),
                 icon: entry.icon,
                 danger: entry.danger,
                 slot: menu.place.is_none(),

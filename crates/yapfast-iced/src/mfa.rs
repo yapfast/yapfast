@@ -173,7 +173,7 @@ impl App {
                 };
                 list = list.push(self.menu_item(
                     Item {
-                        label,
+                        label: label.into(),
                         icon: None,
                         danger: false,
                         slot: true,

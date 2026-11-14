@@ -14,8 +14,10 @@ timeline with Discord's grouping, dividers, history edge, jump bars and
 Markdown, galleries, stickers, custom emoji, polls, voice messages, apps'
 buttons and cards, the hover bar, reactions and their tooltips, selection across messages, the composer (below), editing in
 place, the expression picker (GIFs, emoji, stickers), a message's and the composer's
-menus, Delete's confirmation, the member list with each member's looks,
-the profile card, and a voice channel's call with cameras and a watched
+menus, Delete's confirmation, the member list with each member's looks
+and its Activity panel, people's menus and their questions, the profile
+card, the full profile and the panel beside a DM, the friends list with
+Active Now, requests and Add Friend, and a voice channel's call with cameras and a watched
 stream, and Discord's two-factor prompt.
 
 ## Building and running
@@ -114,7 +116,7 @@ presence or a channel's icon, a thread's channel (which leads back to it),
 the name, a channel's topic on one line after a dot, what a DM's person is
 up to; then the room's buttons in Slint's order (calls, threads,
 notifications, pins, add people, the member list, the profile) and the
-search box. Only the member list's toggle acts yet.
+search box. Only the member list's toggle and the profile button act yet.
 
 The timeline (`timeline.rs`, one message's content in `message.rs`) groups
 messages as Discord does: the same person within seven minutes, unless
@@ -178,9 +180,13 @@ and its words in Discord's wording.
   doesn't ask, as Discord's client does, unless its menu or picker is
   open.
 - A message's menu, on a right click or More, is the Slint client's: the
-  four reactions used most, Add reaction, Edit, Reply, Forward, Copy text,
-  Copy selection, End Poll Now (asked about in the poll's card), Pin or
+  four reactions used most, Add reaction, View Reactions, Edit, Reply,
+  Forward, Copy text, Copy selection, End Poll Now (asked about in the poll's card), Pin or
   Unpin, Mark Unread, Copy Message Link, Delete and Copy Message ID.
+  View Reactions opens who reacted (`reactions.rs`): the reactions down
+  the left, the most first, and the people with the one chosen, a page at
+  a time as the list nears its end; one's own reaction, or as a moderator
+  anyone's, comes off from its row.
   Forward opens Discord's dialog (`forward.rs`): up to five conversations
   the core finds, an optional message, the slowmode warning, Send.
 - The keyboard steps through messages (`browse.rs`): Alt+Up from the
@@ -189,6 +195,9 @@ and its words in Discord's wording.
   opens its menu, + reacts, R replies, E edits, Delete deletes, C copies,
   F forwards, Alt+Enter marks it unread, and Escape goes back to the
   composer.
+- A message from someone this account blocked shows as "Blocked user"
+  and "Blocked message." with Show it, as Discord's does, until asked; with
+  blocked messages hidden in Settings, the core leaves them out.
 - A masked link (words that aren't where they go) asks first, as Slint's
   does: Go back, or Visit site. The text, and its embeds', is laid out once per message (`markdown.rs`):
 the core's blocks (headings, subtext, quotes, fenced code) apart, and in
@@ -286,6 +295,72 @@ messages are read, the message at the view's top stays where it is as
 rows change height, new messages come, or the oldest go; sending goes
 back to the newest message.
 
+## People
+
+A person's row is built from `people.rs`: their face (avatar, decoration,
+presence), their name in its style (`NameInk`), and a line under it. The
+member list, the DMs, and the lists still to come build on it.
+
+- The member list (`members.rs`) is the Slint client's: role groups with
+  their counts, the offline section, each member's decoration, nameplate,
+  name style, server tag, role icon, boosting gem, timeout clock and
+  activity line; the nameplate and the decoration play under the pointer
+  or while their card is open. Over the list, a server's Activity panel
+  shows the first three cards of Discord's activity feed (what each person
+  plays, listens to or watches, and since when); its eye hides the cards,
+  kept in `layout.json`, and its arrow opens the whole feed.
+- A DM's row (`sidebar.rs`) shows the person's face, styled name and server
+  tag (OFFICIAL on Discord's own), the voice channel they're in or what
+  they're up to, a group's members, and its nameplate under the pointer or
+  while open; a new DM offers Wave, which sends 👋.
+- A right click on a member, a DM or a message's author opens the person's
+  menu (`person.rs`), built from the core's `person_choices` in the Slint
+  client's order and wording: Profile, Mention, Message, Call, Add Note,
+  the friend and block choices, Mute, Timeout, Kick and Ban by name, Pin,
+  and Copy ID. A choice that asks first (remove friend, block, kick, ban,
+  timeout and its length, a nickname, a note) opens the person dialog,
+  with its options, field and "Don't ask again" as Slint's, and sends the
+  answer to the core.
+- Profiles (`profile/`): `look.rs` works out what a profile shows once
+  each time the core's view of it changes (its theme's inks, the status's
+  bubble, activities, the bio laid out, the mutual line, the tabs). The
+  card (`body.rs`) is the Slint client's `ProfileCard`: the banner (moving
+  ones play), the avatar on its ring with its decoration and presence, the
+  status's bubble, Add Friend or Friends and More over the banner, the
+  name drawn once in its style, the username, pronouns and server tag,
+  badges twelve to a row, the activities with their times, the mutual line
+  (which opens the full profile on its tab), the bio cut to three lines
+  with View full bio, the roles, and a box that messages them. The full
+  profile (`full.rs`) has the card down its left, with Friends, Message and
+  More under the name, Member Since, Friends Since, the roles, connections
+  and the note (saved on Enter or as it closes), and its tabs on the right:
+  Board, Activity (with recent activity), Wishlist, Mutual Friends and
+  Mutual Servers, rows the shape of what's coming while Discord hasn't
+  said, and Discord's words while a tab is empty. A one-to-one DM has the
+  card docked beside it, with what the DM list knows of them now, and
+  View Full Profile at its foot; the header's profile button shows or
+  hides it, kept in `layout.json`. Activities' times move each second
+  while one shows.
+- The friends list (`friends.rs`), from Friends on the DM home: the
+  header's Online and All tabs and Add Friend, a search, and each friend
+  with their presence, voice channel and status, ruled apart, with a
+  message button; a click opens their DM, a right click their menu. Only
+  the rows in view are built. With the conversation at least 1000 px wide,
+  Active Now (`active_now.rs`) stands beside it: friends together in a
+  voice channel, in one game party, or each doing something Discord can
+  name, a card each, made as Discord's `NowPlayingViewStore` makes them,
+  only while the list shows; a card's head opens its person's menu, a
+  voice channel's row the channel.
+- Requests: friend requests and message requests, a person's on one row
+  with Accept and Ignore (or Cancel for those sent) and their latest
+  message, which opens the conversation; then those sent, and spam folded
+  away. The Requests row counts a person's two requests once.
+- Add Friend's dialog sends a request by username and says how it went.
+- Menus opened by a button rather than a right click open where it was
+  pressed: the window notes each press's point (`RightPress::spot`).
+- Escape closes a dialog whose field has the keys (Add Friend, a person's
+  question, Forward), as the field alone would only let go of them.
+
 ## Sign-in
 
 Without a saved account the window opens on the sign-in screen
@@ -353,7 +428,7 @@ what costs is kept out of the view:
 
 Each part of the window has its module: `signin`, `mfa`, `rail`,
 `sidebar`, `account`, `header`, `timeline`, `message`, `cards`, `bot_select`, `browse`, `composer`, `edit`, `suggest`, `commands`, `typing`, `uploads`, `forward`, `members`,
-`profile`, `picker` (with its tabs `emoji`, `gifs`, `stickers`), `menus`, `places`, `dialogs`, `call`; `theme` holds
+`people`, `person`, `profile`, `friends`, `active_now`, `reactions`, `picker` (with its tabs `emoji`, `gifs`, `stickers`), `menus`, `places`, `dialogs`, `call`; `theme` holds
 the colours and `layout` what's kept in `layout.json`.
 `sync.rs` takes in what changed in the core's state after each message.
 `widgets.rs`, `field.rs` (the composer's text field), `select.rs`
@@ -394,6 +469,15 @@ When a second screen needs what a first one built, it moves here:
   `App::icon_button` is the header's and composer's icon button.
 - `App::avatar` and `App::face`: an avatar, with its decoration and
   presence dot.
+- `people::Person` and `App::person`: a person's row, their face, then
+  their name over its line; `App::person_name` draws a name in its style
+  (`NameInk`), `App::voice_spot` the voice channel someone is in, and
+  `App::list_heading` a list's heading.
+- `App::open_person_menu` and `person::choose_person`: a person's menu
+  and what its choices do, wherever the person shows.
+- `members::nameplate`: a nameplate behind a row.
+- `App::status_text`: an emoji and words on one line at a size of their
+  own.
 - `markdown.rs`: text laid out as Discord's client does (`parse`,
   `plain`, `notice`), and drawn (`App::body_view`, `App::run_span`) as
   selectable pieces (`select::Piece`), which follow their links.
@@ -459,7 +543,12 @@ jump, the view staying put on earlier messages as new ones come, and
 sending from there going to the newest; and in `tests/writing.rs` the
 composer's line breaks, the reply's mention toggle and Escape, editing in
 place, `:name` suggestions, the emoji picker's search, Forward from a
-message's menu, and the keyboard's steps through messages. The emoji
+message's menu, and the keyboard's steps through messages; and in
+`tests/people.rs` a profile's More menu being the person's own and asking
+before a block, the profile beside a DM and the header's button, the
+friends list's tabs and search, requests listing someone once, a blocked
+person's message folded until asked, View Reactions, and the full
+profile's tabs, labels and theme inks. The emoji
 ones need the Twemoji font the root crate's `build.rs` packs: they take
 the newest any build left under `target/`, and say so and pass without
 it. `markdown.rs` has its own for Discord's Markdown. `scripts/check` lints both renderers' builds, runs the tests, and
@@ -468,18 +557,19 @@ builds and smoke-tests the CPU build; see [building](building.md#checks).
 ## Not there yet
 
 Settings (Appearance among them, so themes are chosen by `theme ID` and
-custom ones are made in the Slint client), other accounts, threads, the
-full profile, voice's controls beyond Leave, the tray,
+custom ones are made in the Slint client), other accounts, threads,
+Edit Profile, profile effects and frames, a mutual server's card, an
+activity's menu, the Invite to server submenu, voice's controls beyond Leave, the tray,
 notifications, links, accessibility and Windows' own checks. On the rail
 and in the sidebar: dragging servers, channels and people, the voice
-card beside a busy channel, the nameplates of DM rows, Wave, a server's
+card beside a busy channel, a server's
 banner, boost bar and events row, and the dialogs and settings its menus
 lead to (joining a server, invites, notification settings). In the header:
 calls from a DM, threads, pins, notification settings, adding people, the
-profile panel and the search. In the timeline: saving a file, a
+search. In the timeline: saving a file, a
 picture's full view, a video's full screen and volume, apps' forms
-(modals), blocked people's messages folded away, and the actions that
-lead to what the client doesn't have yet: View Reactions, Create Thread
+(modals), and the actions that
+lead to what the client doesn't have yet: Create Thread
 and View Thread, Apps' message commands, a picture's Copy Image, Save and
 Open Link; keys typed in the timeline going to the composer. In the composer: dragging the expression
 picker's left edge to widen it, and Nitro's offer on a locked emoji or

@@ -54,7 +54,7 @@ impl App {
                 let separated = group.replace(starts).is_some_and(|last| last != starts);
                 MenuRow {
                     act: MenuAct::Place(choice),
-                    label,
+                    label: label.into(),
                     icon: (choice == MenuChoice::CopyId).then_some(Icon::Id),
                     danger: matches!(
                         choice,
@@ -95,6 +95,7 @@ impl App {
             _ => return Task::none(),
         };
         self.client.dispatch(action);
+        self.keep_pins();
         self.sync()
     }
 }
@@ -119,7 +120,7 @@ fn acts(choice: MenuChoice) -> bool {
 /// them: what it does; how this account stands with someone;
 /// notifications; copying and the channel list; roles; moderation; a
 /// channel's management; deleting or leaving.
-fn group_of(choice: MenuChoice) -> u8 {
+pub fn group_of(choice: MenuChoice) -> u8 {
     match choice {
         MenuChoice::InviteToServer
         | MenuChoice::AddFriend
@@ -175,7 +176,7 @@ fn group_of(choice: MenuChoice) -> u8 {
 }
 
 /// What a menu row says for a choice, in the Slint client's words.
-fn label(choice: MenuChoice) -> &'static str {
+pub fn label(choice: MenuChoice) -> &'static str {
     match choice {
         MenuChoice::MarkRead => "Mark as read",
         MenuChoice::JoinVoice => "Join voice",

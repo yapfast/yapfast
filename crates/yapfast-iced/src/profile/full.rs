@@ -1,0 +1,576 @@
+//! The full profile, as the Slint client's `ProfileModal`: the card down
+//! its left, and on the right the tabs, Board, Activity, Wishlist and what's
+//! shared, each with Discord's words while it's empty and rows the shape of
+//! what's coming while Discord hasn't said.
+
+use iced::{
+    Alignment, Border, Color, Element, Length, Padding,
+    widget::{Space, button, column, container, mouse_area, row, scrollable, stack, text},
+};
+use yapfast_core::chat::{Presence, Wishlist};
+
+use super::{
+    Event, Mode, Shown,
+    look::{Inks, Tab, time_ago},
+};
+use crate::{
+    app::{App, Message},
+    controls::{Kind, action, lit_style, placed},
+    fonts::{BOLD, MEDIUM, SEMIBOLD},
+    pictures::{Icon, Mark, initials},
+    style::{faded, rounded, scrollbar},
+    theme::rgb,
+    widgets::Pic,
+};
+
+impl App {
+    /// The full profile at its size.
+    pub(super) fn full_view<'a>(
+        &'a self,
+        shown: &'a Shown,
+        width: f32,
+        height: f32,
+    ) -> Element<'a, Message> {
+        let look = &shown.look;
+        let inks = self.inks(look, Mode::Side);
+        let side_width = (width * 0.4 - 8.0).max(340.0);
+        let side = container(
+            scrollable(self.profile_body(shown, Mode::Side, true))
+                .height(Length::Fill)
+                .style(scrollbar(&self.theme)),
+        )
+        .width(side_width)
+        .height(Length::Fill)
+        .clip(true)
+        .style(super::frame_style(inks, self.theme.edge, 12.0, true));
+        let tab = self.profile_tab(look);
+        let mut tabs = row![].spacing(20).height(40);
+        for entry in &look.tabs {
+            let label = match entry {
+                Tab::Board => "Board",
+                Tab::Activity => "Activity",
+                Tab::Wishlist => "Wishlist",
+                Tab::Friends => look.friends_label.as_str(),
+                Tab::Servers => look.servers_label.as_str(),
+            };
+            let chosen = *entry == tab;
+            let (ink, ink3) = (inks.ink, inks.ink3);
+            let words = text(label)
+                .size(14)
+                .font(if chosen { BOLD } else { MEDIUM })
+                .wrapping(text::Wrapping::None);
+            let face = button(
+                column![
+                    container(words).height(38).align_y(Alignment::Center),
+                    container(Space::new())
+                        .width(Length::Fill)
+                        .height(2)
+                        .style(move |_| {
+                            if chosen {
+                                rounded(ink, 1)
+                            } else {
+                                container::Style::default()
+                            }
+                        }),
+                ]
+                .width(Length::Shrink),
+            )
+            .padding(0)
+            .on_press(Message::Profile(Event::Tab(*entry)))
+            .style(move |_, status| button::Style {
+                text_color: if chosen || crate::controls::lights(status) {
+                    ink
+                } else {
+                    ink3
+                },
+                ..Default::default()
+            });
+            tabs = tabs.push(face);
+        }
+        let close = button(self.glyph(Icon::X, 18, inks.ink2).boxed(32))
+            .padding(0)
+            .width(32)
+            .height(32)
+            .on_press(Message::Profile(Event::Close))
+            .style(lit_style(None, inks.hover, 16.0));
+        let head = row![
+            tabs,
+            Space::new().width(Length::Fill),
+            container(close).padding(Padding {
+                top: 4.0,
+                ..Padding::ZERO
+            })
+        ];
+        let rule_ink = if inks.themed {
+            faded(inks.ink, 0.12)
+        } else {
+            self.theme.line
+        };
+        let rule = container(Space::new())
+            .width(Length::Fill)
+            .height(1)
+            .style(move |_| rounded(rule_ink, 0));
+        let page = self.tab_page(shown, tab, &inks);
+        let right = column![head, rule, page]
+            .spacing(12)
+            .padding(Padding {
+                top: 4.0,
+                left: 12.0,
+                right: 12.0,
+                bottom: 0.0,
+            })
+            .width(Length::Fill)
+            .height(Length::Fill);
+        let edge = self.theme.edge;
+        container(row![side, right].spacing(8).padding(8))
+            .width(width)
+            .height(height)
+            .style(super::frame_style(inks, edge, 8.0, true))
+            .into()
+    }
+
+    /// A tab's page: rows the shape of what's coming while Discord hasn't
+    /// said, its words while there's nothing, else what it shows.
+    fn tab_page<'a>(&'a self, shown: &'a Shown, tab: Tab, inks: &Inks) -> Element<'a, Message> {
+        let look = &shown.look;
+        let profile = look.profile();
+        let blank = match tab {
+            Tab::Activity => look.activities.is_empty() && profile.recent.is_empty(),
+            Tab::Friends => profile.friends.is_empty(),
+            Tab::Servers => profile.servers.is_empty(),
+            Tab::Board | Tab::Wishlist => false,
+        };
+        let loading = blank
+            && if tab == Tab::Activity {
+                !look.recent_known
+            } else {
+                !look.mutuals_known
+            };
+        if loading {
+            return self.skeleton_rows(tab == Tab::Servers);
+        }
+        if blank {
+            return self.empty_tab(shown, tab, inks);
+        }
+        let content: Element<'a, Message> = match tab {
+            Tab::Activity => self.activity_tab(shown, inks),
+            Tab::Board => self.board_tab(shown, inks),
+            Tab::Wishlist => self.wishlist_tab(shown, inks),
+            Tab::Friends => {
+                let mut list = column![];
+                for (index, friend) in profile.friends.iter().enumerate() {
+                    let presence = look.presences.get(index).copied();
+                    let face = self.list_face(
+                        friend.avatar.as_deref(),
+                        &friend.name,
+                        true,
+                        presence,
+                        inks,
+                    );
+                    list = list.push(list_row(
+                        face,
+                        &friend.name,
+                        None,
+                        inks,
+                        Message::Profile(Event::Friend(friend.id.clone())),
+                    ));
+                }
+                list.into()
+            }
+            Tab::Servers => {
+                let mut list = column![];
+                for server in &profile.servers {
+                    let face =
+                        self.list_face(server.icon.as_deref(), &server.name, false, None, inks);
+                    list = list.push(list_row(
+                        face,
+                        &server.name,
+                        server.nick.as_deref(),
+                        inks,
+                        Message::Profile(Event::Server(server.id.clone())),
+                    ));
+                }
+                list.into()
+            }
+        };
+        scrollable(content)
+            .height(Length::Fill)
+            .style(scrollbar(&self.theme))
+            .into()
+    }
+
+    /// Rows the shape of what's coming, as Discord's client shows while it
+    /// waits: round faces for people, rounded squares for servers.
+    fn skeleton_rows<'a>(&self, servers: bool) -> Element<'a, Message> {
+        let shimmer = self.theme.shimmer;
+        let bone = move |width: f32, height: f32, radius: f32| {
+            container(Space::new())
+                .width(width)
+                .height(height)
+                .style(move |_| rounded(shimmer, radius))
+        };
+        let mut rows = column![].spacing(12).padding(Padding {
+            top: 12.0,
+            ..Padding::ZERO
+        });
+        for line in [180.0, 140.0, 210.0, 120.0, 170.0, 150.0] {
+            rows = rows.push(
+                row![
+                    bone(40.0, 40.0, if servers { 12.0 } else { 20.0 }),
+                    column![bone(line, 12.0, 6.0), bone(line * 0.6, 10.0, 5.0)].spacing(8),
+                ]
+                .spacing(12)
+                .align_y(Alignment::Center),
+            );
+        }
+        rows.into()
+    }
+
+    /// Discord's words for an empty tab; a bot's profile words its servers
+    /// as the client's does.
+    fn empty_tab<'a>(&'a self, shown: &'a Shown, tab: Tab, inks: &Inks) -> Element<'a, Message> {
+        let look = &shown.look;
+        let profile = look.profile();
+        let (heading, body) = match tab {
+            Tab::Activity if look.own => (
+                "You don't have any activity here".to_owned(),
+                "Connect your accounts to share your in-game status and activity. You're in control of what you share.",
+            ),
+            Tab::Activity => (
+                format!("{} doesn't have any activity to share here", profile.name),
+                "Looks like this profile is still a work in progress - send them a message to say hi!",
+            ),
+            Tab::Friends => (
+                "You don't have any friends in common".to_owned(),
+                "No mutual friends yet - perfect time to make a new connection",
+            ),
+            _ if look.bot => (String::new(), "No servers in common"),
+            _ => (
+                "You don't have any servers in common".to_owned(),
+                "Time to impress them with your taste...drop an invite link to your favorite server",
+            ),
+        };
+        let mut words = column![].spacing(8).align_x(Alignment::Center);
+        if !heading.is_empty() {
+            words = words.push(
+                text(heading)
+                    .size(16)
+                    .font(BOLD)
+                    .color(inks.ink)
+                    .align_x(Alignment::Center),
+            );
+        }
+        words = words.push(
+            text(body)
+                .size(14)
+                .color(inks.ink2)
+                .align_x(Alignment::Center),
+        );
+        if tab == Tab::Activity && !look.own && look.can_message {
+            let icon = self.icon(Icon::MessageCircle, 16, rgb(self.theme.text));
+            words = words.push(
+                container(
+                    action(
+                        &self.theme,
+                        "Message",
+                        Kind::Plain,
+                        Some(Message::Profile(Event::Message(profile.id.clone()))),
+                    )
+                    .icon(icon),
+                )
+                .padding(Padding {
+                    top: 12.0,
+                    ..Padding::ZERO
+                }),
+            );
+        }
+        container(words)
+            .padding([0, 32])
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_y(Alignment::Center)
+            .align_x(Alignment::Center)
+            .into()
+    }
+
+    /// What they're doing, and what they did lately from Discord's outbox.
+    fn activity_tab<'a>(&'a self, shown: &'a Shown, inks: &Inks) -> Element<'a, Message> {
+        let look = &shown.look;
+        let profile = look.profile();
+        let now = yapfast_core::clock::now_ms() / 1000;
+        let mut list = column![].spacing(8);
+        for activity in &look.activities {
+            list = list.push(self.activity_card_view(activity, inks, now));
+        }
+        if !profile.recent.is_empty() {
+            list = list.push(
+                text("Recent activity")
+                    .size(12)
+                    .font(MEDIUM)
+                    .color(inks.ink2),
+            );
+        }
+        let tile = inks.tile;
+        for entry in &profile.recent {
+            let mut lines = column![
+                text(entry.title.as_str())
+                    .size(14)
+                    .font(SEMIBOLD)
+                    .color(inks.ink)
+                    .wrapping(text::Wrapping::None)
+            ]
+            .spacing(2)
+            .width(Length::Fill);
+            if !entry.subtitle.is_empty() {
+                lines = lines.push(
+                    text(entry.subtitle.as_str())
+                        .size(13)
+                        .color(inks.ink2)
+                        .wrapping(text::Wrapping::None),
+                );
+            }
+            if let Some(at) = entry.at {
+                let music = if entry.music { "\u{266b} " } else { "" };
+                lines = lines.push(
+                    text(format!("{music}{}", time_ago(at)))
+                        .size(12)
+                        .color(inks.ink3),
+                );
+            }
+            list = list.push(
+                container(
+                    row![
+                        self.showcase(
+                            shown,
+                            entry.picture.as_deref(),
+                            &entry.title,
+                            60.0,
+                            22.0,
+                            inks
+                        ),
+                        lines
+                    ]
+                    .spacing(12)
+                    .align_y(Alignment::Center),
+                )
+                .padding(12)
+                .height(84)
+                .width(Length::Fill)
+                .clip(true)
+                .style(move |_| rounded(tile, 10)),
+            );
+        }
+        list.into()
+    }
+
+    /// Their board's widgets, each with its games.
+    fn board_tab<'a>(&'a self, shown: &'a Shown, inks: &Inks) -> Element<'a, Message> {
+        let profile = shown.look.profile();
+        if profile.board_asked && !profile.board_named {
+            return note(inks.ink2, "Loading the board...");
+        }
+        if profile.widgets.is_empty() {
+            return note(inks.ink3, "Nothing on the board yet.");
+        }
+        let tile = inks.tile;
+        let mut list = column![].spacing(12);
+        for widget in &profile.widgets {
+            let mut card = column![
+                text(widget.title.as_str())
+                    .size(14)
+                    .font(SEMIBOLD)
+                    .color(inks.ink)
+                    .wrapping(text::Wrapping::None)
+            ]
+            .spacing(10);
+            for game in &widget.games {
+                let mut words = column![
+                    text(game.name.as_str())
+                        .size(13)
+                        .font(MEDIUM)
+                        .color(inks.ink)
+                        .wrapping(text::Wrapping::None)
+                ]
+                .spacing(2);
+                if let Some(comment) = &game.comment {
+                    words = words.push(text(comment.as_str()).size(12).color(inks.ink2));
+                }
+                card = card.push(
+                    row![
+                        self.showcase(shown, game.icon.as_deref(), &game.name, 44.0, 16.0, inks),
+                        words
+                    ]
+                    .spacing(10)
+                    .align_y(Alignment::Center),
+                );
+            }
+            if !widget.lists_games {
+                card = card.push(
+                    text("This one only shows in Discord for now.")
+                        .size(12)
+                        .color(inks.ink3),
+                );
+            }
+            list = list.push(
+                container(card)
+                    .padding(14)
+                    .width(Length::Fill)
+                    .style(move |_| rounded(tile, 12)),
+            );
+        }
+        list.into()
+    }
+
+    /// Their wishlist, three to a row.
+    fn wishlist_tab<'a>(&'a self, shown: &'a Shown, inks: &Inks) -> Element<'a, Message> {
+        let look = &shown.look;
+        let profile = look.profile();
+        let mut list = column![].spacing(12);
+        if !look.wishlist_note.is_empty() {
+            list = list.push(note(inks.ink2, look.wishlist_note));
+        }
+        let items = match &profile.wishlist {
+            Wishlist::Loaded(items) => items.as_slice(),
+            _ => &[],
+        };
+        if look.wishlist_note.is_empty() && items.is_empty() {
+            let words = if look.own {
+                "Nothing on your wishlist yet."
+            } else {
+                "Nothing on their wishlist."
+            };
+            return list.push(note(inks.ink3, words)).into();
+        }
+        let tile = inks.tile;
+        let card_width = 168.0;
+        for chunk in items.chunks(3) {
+            let mut cards = row![].spacing(12);
+            for item in chunk {
+                cards = cards.push(
+                    container(
+                        column![
+                            self.showcase(
+                                shown,
+                                item.picture.as_deref(),
+                                &item.name,
+                                card_width - 20.0,
+                                40.0,
+                                inks
+                            ),
+                            text(item.name.as_str())
+                                .size(12)
+                                .font(MEDIUM)
+                                .color(inks.ink)
+                                .wrapping(text::Wrapping::None)
+                                .width(Length::Fill)
+                                .align_x(Alignment::Center),
+                        ]
+                        .spacing(8),
+                    )
+                    .padding(10)
+                    .width(card_width)
+                    .clip(true)
+                    .style(move |_| rounded(tile, 12)),
+                );
+            }
+            list = list.push(cards);
+        }
+        list.into()
+    }
+
+    /// A picture on the Board, Wishlist or Activity tab; what has none
+    /// shows its name's first letter.
+    fn showcase<'a>(
+        &'a self,
+        shown: &'a Shown,
+        url: Option<&str>,
+        name: &str,
+        side: f32,
+        initial: f32,
+        inks: &Inks,
+    ) -> Element<'a, Message> {
+        let well = inks.tile;
+        let picture =
+            url.and_then(|url| self.profile_picture(shown, url, side as u32, side as u32, false));
+        match picture {
+            Some(picture) => Pic::square(picture, side).radius(8.0).into(),
+            None => container(
+                text(initials(name).chars().take(1).collect::<String>())
+                    .size(initial)
+                    .font(BOLD)
+                    .color(inks.ink3),
+            )
+            .center(side)
+            .style(move |_| rounded(well, 8))
+            .into(),
+        }
+    }
+
+    /// A mutual friend's round face with their presence, or a server's
+    /// rounded square.
+    fn list_face<'a>(
+        &'a self,
+        url: Option<&str>,
+        name: &str,
+        person: bool,
+        presence: Option<Presence>,
+        inks: &Inks,
+    ) -> Element<'a, Message> {
+        let face = self.avatar(url, name, 32.0, if person { 16.0 } else { 10.0 }, 1.0);
+        let Some(dot) = presence
+            .filter(|presence| *presence != Presence::Offline)
+            .and_then(|presence| self.mark(Mark::Dot(presence, rgb(inks.ground))))
+        else {
+            return face;
+        };
+        stack![face, placed(Pic::square(dot, 16.0), 20.0, 20.0)]
+            .width(36)
+            .height(36)
+            .into()
+    }
+}
+
+/// A line of the card's words, wrapped.
+fn note<'a>(ink: Color, words: &'a str) -> Element<'a, Message> {
+    text(words).size(13).color(ink).into()
+}
+
+/// A mutual server or friend; a click goes there.
+fn list_row<'a>(
+    face: Element<'a, Message>,
+    name: &'a str,
+    detail: Option<&'a str>,
+    inks: &Inks,
+    message: Message,
+) -> Element<'a, Message> {
+    let mut words = column![
+        text(name)
+            .size(15)
+            .font(MEDIUM)
+            .color(inks.ink)
+            .wrapping(text::Wrapping::None)
+    ];
+    if let Some(detail) = detail {
+        words = words.push(text(detail).size(12).color(inks.ink3));
+    }
+    let hover = inks.hover;
+    let height = if detail.is_some() { 46.0 } else { 40.0 };
+    mouse_area(
+        button(
+            row![face, words.width(Length::Fill)]
+                .spacing(12)
+                .align_y(Alignment::Center),
+        )
+        .padding([0, 8])
+        .height(height)
+        .width(Length::Fill)
+        .on_press(message)
+        .style(move |_, status| button::Style {
+            background: crate::controls::lights(status).then_some(hover.into()),
+            border: Border::default().rounded(6),
+            ..Default::default()
+        }),
+    )
+    .interaction(iced::mouse::Interaction::Pointer)
+    .into()
+}

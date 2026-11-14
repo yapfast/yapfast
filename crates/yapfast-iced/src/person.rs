@@ -1,0 +1,624 @@
+//! Someone's menu and the dialog it leads to, as the Slint client's: a right
+//! click on a member, a friend or Active Now's card, or a profile's More,
+//! lists what the core offers for them (`Application::person_choices`) in
+//! Discord's order, with an icon on Copy ID alone. Unfriending, blocking, a
+//! note, a friend's nickname, a call's question and a server's moderation
+//! ask first in the person dialog (`PersonDialog` in `ui/dialogs.slint`).
+//! What opens a submenu (roles, servers to invite to, mute times, apps)
+//! shows greyed until submenus come.
+
+use std::borrow::Cow;
+
+use iced::{
+    Alignment, Element, Length, Point, Task,
+    widget::{Space, column, operation, row, text},
+};
+use yapfast_core::application::{
+    Action, BAN_HISTORY, MenuChoice, PersonAsk, TIMEOUT_TIMES, network_id, network_link,
+};
+use yapfast_core::chat::RelationshipChange;
+
+use crate::{
+    app::{App, Message, NOBODY},
+    controls::{Item, Kind, Light, action, field},
+    dialogs::{CONFIRM_WIDTH, dialog},
+    fonts::BOLD,
+    menus::{Menu, MenuAct, MenuRow},
+    pictures::Icon,
+};
+
+/// Where Discord's client says a choice in someone's menu came from: a
+/// right click, or a profile's More.
+pub const CONTEXT_MENU: &str = "ContextMenu";
+pub const PROFILE_OVERFLOW: &str = "user profile overflow menu";
+
+/// The dialog's field.
+pub const PERSON_FIELD: &str = "person-field";
+
+/// What's done in the person dialog.
+#[derive(Clone, Debug)]
+pub enum Event {
+    Text(String),
+    Choose(usize),
+    Tick,
+    Answer,
+    Close,
+}
+
+/// The dialog's own state: what's typed, and Don't ask again.
+#[derive(Default)]
+pub struct Dialog {
+    pub text: String,
+    pub ticked: bool,
+    /// The core's text it was filled from, so it fills once it comes.
+    pub filled: bool,
+}
+
+impl App {
+    /// Opens `user`'s menu at `at`, said to come from `location`.
+    pub fn open_person_menu(
+        &mut self,
+        user: &str,
+        at: Point,
+        location: &'static str,
+    ) -> Task<Message> {
+        let app = &self.client.app;
+        let state = &app.state;
+        let mut choices = app.person_choices(user);
+        choices.sort_by_key(|choice| discord_rank(*choice));
+        let name = state
+            .person(user)
+            .map_or_else(|| "them".to_owned(), |person| person.name);
+        let in_call = state.rooms.iter().any(|room| {
+            room.direct && room.person.as_deref() == Some(user) && !room.people.is_empty()
+        });
+        let developer = self.layout.developer_mode;
+        let mut group = None;
+        let rows: Vec<MenuRow> = choices
+            .into_iter()
+            .filter(|choice| developer || *choice != MenuChoice::CopyId)
+            .map(|choice| {
+                let label: Cow<'static, str> = match choice {
+                    MenuChoice::Timeout => format!("Time out {name}").into(),
+                    MenuChoice::Kick => format!("Kick {name}").into(),
+                    MenuChoice::Ban => format!("Ban {name}").into(),
+                    MenuChoice::Call if in_call => "Join call".into(),
+                    choice => crate::places::label(choice).into(),
+                };
+                let starts = crate::places::group_of(choice);
+                let separated = group.replace(starts).is_some_and(|last| last != starts);
+                MenuRow {
+                    act: MenuAct::Person(choice),
+                    label,
+                    icon: (choice == MenuChoice::CopyId).then_some(Icon::Id),
+                    danger: danger(choice),
+                    separated,
+                    disabled: !acts(choice),
+                }
+            })
+            .collect();
+        if rows.is_empty() {
+            return Task::none();
+        }
+        self.menu = Some(Menu {
+            place: Some(user.to_owned()),
+            location,
+            ..Menu::new(at, rows).width(crate::menus::FIELD_WIDTH)
+        });
+        operation::focus(NOBODY)
+    }
+
+    /// A row of someone's menu was chosen.
+    pub fn choose_person(
+        &mut self,
+        user: String,
+        location: &'static str,
+        choice: MenuChoice,
+    ) -> Task<Message> {
+        let state = self.client.state();
+        // Their DM, for what acts on the conversation.
+        let room = state
+            .rooms
+            .iter()
+            .find(|room| room.direct && room.person.as_deref() == Some(user.as_str()))
+            .map(|room| room.id.clone());
+        let place = self
+            .client
+            .app
+            .member_place(&user)
+            .map(str::to_owned)
+            .or_else(|| state.selected.clone());
+        let ask = |ask| Action::AskPerson {
+            user: user.clone(),
+            ask,
+            location,
+        };
+        let change = |change| Action::ChangeRelationship {
+            user: user.clone(),
+            change,
+            location,
+        };
+        let ask_member = |ask| {
+            place.clone().map(|place| Action::AskMember {
+                place,
+                user: user.clone(),
+                ask,
+            })
+        };
+        let action = match choice {
+            MenuChoice::Profile => Some(Action::ShowProfile {
+                user: user.clone(),
+                large: true,
+            }),
+            MenuChoice::Message => Some(Action::MessagePerson(user.clone())),
+            MenuChoice::Call => Some(ask(PersonAsk::Call)),
+            MenuChoice::AddFriend | MenuChoice::AcceptFriend => {
+                Some(Action::Befriend(user.clone()))
+            }
+            MenuChoice::CancelFriendRequest => Some(Action::RemoveFriendRequest(user.clone())),
+            MenuChoice::AddNote => Some(ask(PersonAsk::Note)),
+            MenuChoice::AddNickname | MenuChoice::EditNickname => Some(ask(PersonAsk::Nickname)),
+            MenuChoice::Unfriend => Some(ask(PersonAsk::Unfriend)),
+            MenuChoice::Block => Some(ask(PersonAsk::Block)),
+            MenuChoice::Ignore => Some(change(RelationshipChange::Ignore)),
+            MenuChoice::Unignore => Some(change(RelationshipChange::Unignore)),
+            MenuChoice::Unblock => Some(change(RelationshipChange::Unblock)),
+            MenuChoice::Pin | MenuChoice::Unpin => room.map(|room| Action::Pin {
+                room,
+                pinned: choice == MenuChoice::Pin,
+            }),
+            MenuChoice::CloseDm => room.map(Action::CloseDm),
+            MenuChoice::Unmute => room.map(|room| Action::MuteDm {
+                room,
+                muting: yapfast_core::chat::Muting::Off,
+            }),
+            MenuChoice::ServerNickname => ask_member(PersonAsk::ServerNickname),
+            MenuChoice::Timeout => ask_member(PersonAsk::Timeout),
+            MenuChoice::Kick => ask_member(PersonAsk::Kick),
+            MenuChoice::Ban => ask_member(PersonAsk::Ban),
+            MenuChoice::RemoveTimeout => place.map(|place| Action::ChangeMember {
+                place,
+                user: user.clone(),
+                change: yapfast_core::chat::MemberChange::Timeout {
+                    until_ms: None,
+                    reason: String::new(),
+                },
+            }),
+            MenuChoice::Mention => {
+                self.client.dispatch(Action::MentionPerson(user));
+                let draft = self.client.state().draft().to_owned();
+                self.draft.reset(&draft);
+                self.draft_known = draft;
+                return Task::batch([self.sync(), operation::focus(crate::composer::COMPOSER)]);
+            }
+            MenuChoice::CopyLink => return iced::clipboard::write(network_link(&user)),
+            MenuChoice::CopyId => return iced::clipboard::write(network_id(&user).to_owned()),
+            _ => None,
+        };
+        let Some(action) = action else {
+            return Task::none();
+        };
+        self.client.dispatch(action);
+        self.keep_pins();
+        let focus = self.person_focus();
+        Task::batch([self.sync(), focus])
+    }
+
+    /// The dialog's field takes the keys when it has one, else nothing does,
+    /// so Enter and Escape reach the dialog.
+    pub fn person_focus(&mut self) -> Task<Message> {
+        let Some(dialog) = &self.client.state().person_dialog else {
+            return Task::none();
+        };
+        self.person.filled = dialog.text.is_some();
+        self.person.text = dialog.text.clone().unwrap_or_default();
+        self.person.ticked = false;
+        if prompt(self, dialog).field.is_empty() {
+            operation::focus(NOBODY)
+        } else {
+            operation::focus(PERSON_FIELD)
+        }
+    }
+
+    /// What's done in the person dialog.
+    pub fn person_event(&mut self, event: Event) -> Task<Message> {
+        match event {
+            Event::Text(text) => {
+                self.person.text = text;
+                return Task::none();
+            }
+            Event::Choose(index) => self.client.dispatch(Action::ChoosePersonOption(index)),
+            Event::Tick => {
+                self.person.ticked = !self.person.ticked;
+                return Task::none();
+            }
+            Event::Answer => {
+                let Some(dialog) = &self.client.state().person_dialog else {
+                    return Task::none();
+                };
+                if dialog.text.is_none() || dialog.saving {
+                    return Task::none();
+                }
+                if dialog.ask == PersonAsk::Call && self.person.ticked {
+                    self.client.dispatch(Action::SkipCallPrompt(true));
+                    crate::layout::store(self.client.root(), "skip_call_prompt", true);
+                }
+                let text = std::mem::take(&mut self.person.text);
+                self.client.dispatch(Action::AnswerPerson(text));
+            }
+            Event::Close => self.client.dispatch(Action::ClosePersonDialog),
+        }
+        let refocus = if self.client.state().person_dialog.is_none() {
+            self.refocus()
+        } else {
+            Task::none()
+        };
+        Task::batch([self.sync(), refocus])
+    }
+
+    /// The note or nickname the core was waiting for came: the field takes
+    /// it, once.
+    pub fn person_sync(&mut self) {
+        match &self.client.state().person_dialog {
+            Some(dialog) if !self.person.filled => {
+                if let Some(text) = &dialog.text {
+                    self.person.text = text.clone();
+                    self.person.filled = true;
+                }
+            }
+            Some(_) => {}
+            None => self.person = Dialog::default(),
+        }
+    }
+
+    /// The person dialog over the dimmed window: its title and what it
+    /// explains, a timeout's or a ban's choices, the field, Don't ask
+    /// again, why it failed, Cancel and its button.
+    pub fn person_view(&self) -> Option<Element<'_, Message>> {
+        let dialog = self.client.state().person_dialog.as_ref()?;
+        let prompt = prompt(self, dialog);
+        let theme = &self.theme;
+        let close = Message::Person(Event::Close);
+        let mut body = column![
+            row![
+                text(prompt.title)
+                    .size(18)
+                    .font(BOLD)
+                    .color(theme.text)
+                    .wrapping(text::Wrapping::None)
+                    .width(Length::Fill),
+                self.icon_button(Icon::X, "Close", 28.0, 18, close.clone(), true),
+            ]
+            .align_y(Alignment::Center),
+        ]
+        .spacing(12)
+        .padding(20);
+        if !prompt.text.is_empty() {
+            body = body.push(text(prompt.text).size(15).color(theme.secondary));
+        }
+        if !prompt.options.is_empty() {
+            let mut options =
+                column![text(prompt.heading).size(12).font(BOLD).color(theme.muted)].spacing(2);
+            for (index, option) in prompt.options.into_iter().enumerate() {
+                let chosen = index == dialog.choice;
+                options = options.push(self.choice_item(option, chosen, index));
+            }
+            body = body.push(options);
+        }
+        let loading = dialog.text.is_none();
+        if !prompt.field.is_empty() {
+            let placeholder = if loading { "Loading..." } else { prompt.field };
+            let mut input = field(
+                theme,
+                PERSON_FIELD,
+                placeholder,
+                &self.person.text,
+                false,
+                !loading,
+            )
+            .size(15)
+            .padding(10);
+            if !loading {
+                input = input
+                    .on_input(|text| Message::Person(Event::Text(text)))
+                    .on_submit(Message::Person(Event::Answer));
+            }
+            body = body.push(input);
+        }
+        if dialog.ask == PersonAsk::Call {
+            body = body.push(self.menu_item(
+                Item {
+                    label: "Don't ask again".into(),
+                    icon: Some(if self.person.ticked {
+                        Icon::Check
+                    } else {
+                        Icon::Square
+                    }),
+                    danger: false,
+                    slot: true,
+                    disabled: false,
+                },
+                Light::Pointer,
+                Message::Person(Event::Tick),
+            ));
+        }
+        if let Some(error) = &dialog.error {
+            body = body.push(text(error.as_str()).size(14).color(theme.danger));
+        }
+        let kind = if prompt.danger {
+            Kind::Danger
+        } else {
+            Kind::Primary
+        };
+        let answer = (!loading && !dialog.saving).then_some(Message::Person(Event::Answer));
+        body = body.push(
+            row![
+                Space::new().width(Length::Fill),
+                action(theme, "Cancel", Kind::Ghost, Some(close.clone())),
+                action(theme, prompt.confirm, kind, answer),
+            ]
+            .spacing(8),
+        );
+        Some(dialog_frame(theme, body.into(), close))
+    }
+
+    /// One of a timeout's or a ban's choices, ticked when chosen.
+    fn choice_item(&self, label: String, chosen: bool, index: usize) -> Element<'_, Message> {
+        self.menu_item(
+            Item {
+                label: label.into(),
+                icon: chosen.then_some(Icon::Check),
+                danger: false,
+                slot: true,
+                disabled: false,
+            },
+            Light::Pointer,
+            Message::Person(Event::Choose(index)),
+        )
+    }
+
+    /// The person dialog's keys: Enter answers one without a field, Escape
+    /// closes it.
+    pub fn person_key(&mut self, named: Option<iced::keyboard::key::Named>) -> Task<Message> {
+        use iced::keyboard::key::Named;
+        match named {
+            Some(Named::Escape) => self.person_event(Event::Close),
+            Some(Named::Enter) => self.person_event(Event::Answer),
+            _ => Task::none(),
+        }
+    }
+
+    /// DMs pinned to the top are kept in `layout.json`, as the Slint client
+    /// keeps them.
+    pub fn keep_pins(&mut self) {
+        let pinned = &self.client.state().pinned;
+        if *pinned != self.layout.pinned {
+            self.layout.pinned = pinned.clone();
+            crate::layout::store(self.client.root(), "pinned", pinned);
+        }
+    }
+}
+
+fn dialog_frame<'a>(
+    theme: &crate::theme::Theme,
+    body: Element<'a, Message>,
+    close: Message,
+) -> Element<'a, Message> {
+    dialog(theme, body, CONFIRM_WIDTH, close)
+}
+
+/// What the person dialog says, as the Slint client words it.
+struct Prompt {
+    title: String,
+    text: String,
+    heading: &'static str,
+    options: Vec<String>,
+    field: &'static str,
+    confirm: &'static str,
+    danger: bool,
+}
+
+fn prompt(app: &App, dialog: &yapfast_core::application::PersonDialog) -> Prompt {
+    let name = &dialog.name;
+    let me = app.client.state().relation(&dialog.user) == yapfast_core::application::Relation::Me;
+    let (title, text, field, confirm, danger) = match dialog.ask {
+        PersonAsk::Note => (
+            format!("Note on {name}"),
+            "Only you see your note, in Discord too.".to_owned(),
+            "Note",
+            "Save",
+            false,
+        ),
+        PersonAsk::Call => (
+            "Ready to start a call?".to_owned(),
+            "Enjoy this moment. Then jump in when you're ready.".to_owned(),
+            "",
+            "Start Call",
+            false,
+        ),
+        PersonAsk::Nickname => (
+            format!("Nickname for {name}"),
+            "Only you see the nickname you give a friend. Leave it empty to remove it.".to_owned(),
+            "Nickname",
+            "Save",
+            false,
+        ),
+        PersonAsk::Unfriend => (
+            format!("Remove {name} as a friend?"),
+            format!("You'll need to send {name} a friend request to be friends again."),
+            "",
+            "Remove friend",
+            true,
+        ),
+        PersonAsk::Block => (
+            format!("Block {name}?"),
+            format!(
+                "Blocking {name} also removes them as a friend. Their messages show collapsed, and they can't message you."
+            ),
+            "",
+            "Block",
+            true,
+        ),
+        PersonAsk::ServerNickname if me => (
+            "Change your nickname".to_owned(),
+            "Everyone in this server sees it. Leave it empty to go by your name.".to_owned(),
+            "Nickname",
+            "Save",
+            false,
+        ),
+        PersonAsk::ServerNickname => (
+            format!("Change {name}'s nickname"),
+            "Everyone in this server sees it. Leave it empty to reset it to their name.".to_owned(),
+            "Nickname",
+            "Save",
+            false,
+        ),
+        PersonAsk::Timeout => (
+            format!("Time out {name}"),
+            format!(
+                "Until it ends, {name} can read the server but can't send messages, react, or join voice. The reason goes in the server's audit log."
+            ),
+            "Reason (optional)",
+            "Time out",
+            true,
+        ),
+        PersonAsk::Kick => (
+            format!("Kick {name}?"),
+            format!(
+                "{name} can join again with a new invite. The reason goes in the server's audit log."
+            ),
+            "Reason (optional)",
+            "Kick",
+            true,
+        ),
+        PersonAsk::Ban => (
+            format!("Ban {name}?"),
+            format!(
+                "{name} can't join again until unbanned. The reason goes in the server's audit log."
+            ),
+            "Reason (optional)",
+            "Ban",
+            true,
+        ),
+    };
+    let (heading, options) = match dialog.ask {
+        PersonAsk::Timeout => ("DURATION", TIMEOUT_TIMES.map(span).to_vec()),
+        PersonAsk::Ban => (
+            "DELETE THEIR MESSAGES FROM",
+            // As Discord's: hours up to a day, then days.
+            BAN_HISTORY
+                .map(|seconds| match seconds / 3600 {
+                    0 => "Don't delete any".to_owned(),
+                    1 => "The last hour".to_owned(),
+                    hours if hours <= 24 => format!("The last {hours} hours"),
+                    hours => format!("The last {} days", hours / 24),
+                })
+                .to_vec(),
+        ),
+        _ => ("", Vec::new()),
+    };
+    Prompt {
+        title,
+        text,
+        heading,
+        options,
+        field,
+        confirm,
+        danger,
+    }
+}
+
+/// A timeout's length in words: "60 seconds", "1 hour", "1 week".
+fn span(seconds: u32) -> String {
+    let (count, unit) = match seconds {
+        seconds if seconds % (7 * 86400) == 0 => (seconds / (7 * 86400), "week"),
+        seconds if seconds % 86400 == 0 => (seconds / 86400, "day"),
+        seconds if seconds % 3600 == 0 => (seconds / 3600, "hour"),
+        seconds if seconds % 60 == 0 && seconds > 60 => (seconds / 60, "minute"),
+        seconds => (seconds, "second"),
+    };
+    let plural = if count == 1 { "" } else { "s" };
+    format!("{count} {unit}{plural}")
+}
+
+/// A destructive choice, in the danger colours.
+fn danger(choice: MenuChoice) -> bool {
+    matches!(
+        choice,
+        MenuChoice::Unfriend
+            | MenuChoice::Block
+            | MenuChoice::Timeout
+            | MenuChoice::Kick
+            | MenuChoice::Ban
+            | MenuChoice::ServerMute
+            | MenuChoice::ServerDeafen
+            | MenuChoice::Disconnect
+            | MenuChoice::LeaveGroup
+            | MenuChoice::TransferOwnership
+    )
+}
+
+/// Whether this client acts on a choice of someone's menu yet; what opens
+/// a submenu, a call's controls and ownership's transfer show greyed.
+fn acts(choice: MenuChoice) -> bool {
+    matches!(
+        choice,
+        MenuChoice::Profile
+            | MenuChoice::Message
+            | MenuChoice::Call
+            | MenuChoice::AddFriend
+            | MenuChoice::AcceptFriend
+            | MenuChoice::CancelFriendRequest
+            | MenuChoice::AddNote
+            | MenuChoice::AddNickname
+            | MenuChoice::EditNickname
+            | MenuChoice::Unfriend
+            | MenuChoice::Block
+            | MenuChoice::Ignore
+            | MenuChoice::Unignore
+            | MenuChoice::Unblock
+            | MenuChoice::Pin
+            | MenuChoice::Unpin
+            | MenuChoice::CloseDm
+            | MenuChoice::Unmute
+            | MenuChoice::ServerNickname
+            | MenuChoice::Timeout
+            | MenuChoice::Kick
+            | MenuChoice::Ban
+            | MenuChoice::RemoveTimeout
+            | MenuChoice::Mention
+            | MenuChoice::CopyLink
+            | MenuChoice::CopyId
+    )
+}
+
+/// Where a choice goes in Discord's member menu: Profile, Mention, Message,
+/// Start call and Add note; then Invite to server and how this account
+/// stands with them; then the server's nickname and roles; then what the
+/// call and moderation offer; Copy ID last. What a DM adds as a
+/// conversation comes before them all.
+fn discord_rank(choice: MenuChoice) -> u8 {
+    match choice {
+        MenuChoice::MarkRead | MenuChoice::JoinVoice | MenuChoice::OpenChat => 0,
+        MenuChoice::Profile => 1,
+        MenuChoice::Mention => 2,
+        MenuChoice::Message => 3,
+        MenuChoice::Call => 4,
+        MenuChoice::AddNote => 5,
+        MenuChoice::AddNickname | MenuChoice::EditNickname => 6,
+        MenuChoice::EditServerProfile => 7,
+        MenuChoice::Apps => 10,
+        MenuChoice::InviteToServer => 11,
+        MenuChoice::AddFriend
+        | MenuChoice::AcceptFriend
+        | MenuChoice::CancelFriendRequest
+        | MenuChoice::Unfriend => 12,
+        MenuChoice::Ignore | MenuChoice::Unignore => 13,
+        MenuChoice::Block | MenuChoice::Unblock => 14,
+        MenuChoice::ServerNickname => 20,
+        MenuChoice::Roles => 21,
+        MenuChoice::CopyId => 100,
+        MenuChoice::CopyLink => 99,
+        _ => 50,
+    }
+}

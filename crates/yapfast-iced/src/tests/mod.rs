@@ -866,4 +866,5 @@ fn messages_the_core_makes_anew_keep_their_text_laid_out() {
     assert!(shows(&app, "Other words"));
 }
 
+mod people;
 mod writing;

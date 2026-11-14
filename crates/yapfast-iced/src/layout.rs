@@ -2,7 +2,8 @@
 //! Slint client keeps the same things in, so both clients share them: the
 //! theme and the person's own themes (`theme.rs`), the rail's open folders,
 //! each server's collapsed channel categories, whether the member list
-//! is hidden, and whether long messages fold. Each change writes its one key back, leaving the rest of the
+//! is hidden, whether long messages fold, pinned DMs, and the people
+//! settings the core is told of as the window opens ([`Layout::actions`]). Each change writes its one key back, leaving the rest of the
 //! file as it was.
 
 use std::{
@@ -34,6 +35,31 @@ pub struct Layout {
     pub deafen_on_join: bool,
     /// Long messages fold to twelve lines, with Show more.
     pub collapse_long: bool,
+    /// DMs pinned to the top of the list, by room id, the first pinned
+    /// first.
+    pub pinned: Vec<String>,
+    /// A one-to-one DM's profile beside it is hidden; messages from people
+    /// blocked don't show at all; a call from someone's menu starts without
+    /// asking; the member list's Activity shows its header alone.
+    pub profile_panel_hidden: bool,
+    pub hide_blocked: bool,
+    pub skip_call_prompt: bool,
+    pub activity_cards_hidden: bool,
+}
+
+impl Layout {
+    /// What the core is told of these as the window opens, as the Slint
+    /// client tells it.
+    pub fn actions(&self) -> Vec<yapfast_core::application::Action> {
+        use yapfast_core::application::Action;
+        vec![
+            Action::ShowProfilePanel(!self.profile_panel_hidden),
+            Action::HideBlocked(self.hide_blocked),
+            Action::SkipCallPrompt(self.skip_call_prompt),
+            Action::ActivityCardsHidden(self.activity_cards_hidden),
+            Action::SetPinned(self.pinned.clone()),
+        ]
+    }
 }
 
 impl Layout {

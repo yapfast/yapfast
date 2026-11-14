@@ -1423,14 +1423,27 @@ impl<'a> From<Watch<'a>> for Element<'a, Message> {
 /// pointer.
 pub struct RightPress<'a> {
     child: Element<'a, Message>,
-    on: Box<dyn Fn(Point) -> Message + 'a>,
+    on: Option<Box<dyn Fn(Point) -> Message + 'a>>,
+    spot: Option<&'a std::cell::Cell<Point>>,
 }
 
 impl<'a> RightPress<'a> {
     pub fn new(child: impl Into<Element<'a, Message>>, on: impl Fn(Point) -> Message + 'a) -> Self {
         Self {
             child: child.into(),
-            on: Box::new(on),
+            on: Some(Box::new(on)),
+            spot: None,
+        }
+    }
+
+    /// Around the whole window: notes where in it each press is, before
+    /// what's pressed hears of it, so a button that opens a menu can open
+    /// it there without a message for each move of the pointer.
+    pub fn spot(child: impl Into<Element<'a, Message>>, spot: &'a std::cell::Cell<Point>) -> Self {
+        Self {
+            child: child.into(),
+            on: None,
+            spot: Some(spot),
         }
     }
 }
@@ -1482,6 +1495,12 @@ impl Widget<Message, Theme, Renderer> for RightPress<'_> {
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
+        if let Some(spot) = self.spot
+            && let iced::Event::Mouse(mouse::Event::ButtonPressed(_)) = event
+            && let Some(at) = cursor.position()
+        {
+            spot.set(at);
+        }
         self.child.as_widget_mut().update(
             &mut tree.children[0],
             event,
@@ -1492,7 +1511,8 @@ impl Widget<Message, Theme, Renderer> for RightPress<'_> {
             shell,
             viewport,
         );
-        if let iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)) = event
+        if let Some(on) = &self.on
+            && let iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)) = event
             && !shell.is_event_captured()
             && let Some(at) = cursor.position_over(layout.bounds())
             && viewport.contains(at)
@@ -1500,7 +1520,7 @@ impl Widget<Message, Theme, Renderer> for RightPress<'_> {
             // From the corner of what shows of the list it's in: a
             // scrollable's children see the pointer in the list's own
             // space, scrolled.
-            shell.publish((self.on)(at - Vector::new(viewport.x, viewport.y)));
+            shell.publish(on(at - Vector::new(viewport.x, viewport.y)));
             shell.capture_event();
         }
     }

@@ -68,6 +68,9 @@ impl App {
     /// Row `index`'s message, beside its gutter.
     pub fn message_content<'a>(&'a self, index: usize, look: &'a RowLook) -> Element<'a, Message> {
         let message = &self.messages[index];
+        if message.blocked && !self.revealed.contains(&blocked_key(&message.item)) {
+            return self.blocked_row(index, look);
+        }
         let theme = &self.theme;
         let header = message.reply.is_some() || message.used.is_some();
         let mut content = column![].width(Length::Fill);
@@ -192,6 +195,61 @@ impl App {
             placed(spine, (GUTTER - AVATAR) / 2.0 + 19.0, CONTENT_PAD + 11.0)
         ]
         .into()
+    }
+
+    /// A message from someone this account blocked, as Discord shows it
+    /// until asked: "Blocked user" by a blank face, and "Blocked message."
+    /// with Show it.
+    fn blocked_row<'a>(&'a self, index: usize, look: &RowLook) -> Element<'a, Message> {
+        let theme = &self.theme;
+        let mut content = column![].width(Length::Fill);
+        let mut gutter =
+            stack![
+                Space::new()
+                    .width(AVATAR)
+                    .height(if look.first { AVATAR } else { 0.0 })
+            ];
+        if look.first {
+            content = content.push(
+                container(
+                    text("Blocked user")
+                        .size(FONT_SIZE)
+                        .font(MEDIUM)
+                        .color(theme.text)
+                        .height(AUTHOR_LINE),
+                )
+                .padding(Padding::ZERO.bottom(AUTHOR_GAP)),
+            );
+            gutter = gutter.push(placed(
+                self.avatar(None, "?", AVATAR, AVATAR / 2.0, 1.0),
+                0.0,
+                2.0,
+            ));
+        }
+        content = content.push(
+            row![
+                text("Blocked message.")
+                    .size(FONT_SIZE)
+                    .font(ITALIC)
+                    .color(theme.text),
+                button(text("Show it").size(FONT_SIZE))
+                    .padding(0)
+                    .on_press(Message::ShowBlocked(index))
+                    .style(controls::ink_style(theme.link, theme.text)),
+            ]
+            .spacing(4)
+            .height(LINE_HEIGHT)
+            .align_y(Alignment::Center),
+        );
+        container(row![container(gutter).width(AVATAR), content].spacing(16))
+            .width(Length::Fill)
+            .padding(Padding {
+                top: CONTENT_PAD,
+                bottom: CONTENT_PAD,
+                left: (GUTTER - AVATAR) / 2.0,
+                right: END_PAD,
+            })
+            .into()
     }
 
     /// What's left of a message: its author's avatar, a notice's icon, the
@@ -1041,6 +1099,11 @@ pub fn files(message: &ChatMessage, placement: Placement) -> impl Iterator<Item 
         .attachments
         .iter()
         .filter(move |attachment| attachment.placement == placement && !media::pictured(attachment))
+}
+
+/// What `revealed` holds for a blocked person's message shown.
+pub fn blocked_key(item: &str) -> String {
+    format!("{item}/blocked")
 }
 
 /// What `revealed` holds for a long message shown whole.

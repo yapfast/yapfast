@@ -62,6 +62,10 @@ pub struct MemberLook {
     pub tag: Option<(Arc<str>, Option<Arc<str>>)>,
     pub bot: bool,
     pub owner: bool,
+    /// Timed out in the server, marked with a clock; boosting it, a gem
+    /// whose tooltip says since when.
+    pub timed_out: bool,
+    pub boosting: Option<String>,
     pub presence: Option<Presence>,
     /// The line under the name.
     pub status: Status,
@@ -125,6 +129,7 @@ pub fn member_lines(
 ) -> Vec<MemberLine> {
     let cosmetics = state.cosmetics;
     let in_server = in_server(state.selected.as_deref());
+    let now = yapfast_core::clock::now_ms();
     let mut lines = Vec::with_capacity(members.len() + 4);
     for (index, member) in members.iter().enumerate() {
         let heading = if let Some(group) = &member.group {
@@ -183,6 +188,13 @@ pub fn member_lines(
                 .map(|tag| (tag.text.clone(), tag.badge.clone())),
             bot: member.bot,
             owner: owner == Some(member.id.as_str()),
+            timed_out: member.timed_out_until.is_some_and(|until| until > now),
+            boosting: member.boosting_since.map(|since| {
+                format!(
+                    "Server boosting since {}",
+                    yapfast_core::clock::day(since / 1000)
+                )
+            }),
             presence: member.presence,
             status: Status {
                 words: one_line(words),

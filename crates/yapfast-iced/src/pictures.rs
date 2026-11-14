@@ -286,6 +286,11 @@ pub enum Icon {
     /// Discord's plain plus, the composer's.
     Add,
     ChevronLeft,
+    /// An empty box, an unticked choice's.
+    Square,
+    Gem,
+    Hand,
+    Discord,
 }
 
 impl Icon {
@@ -352,6 +357,10 @@ impl Icon {
             Icon::Logo => icon!("logo.svg"),
             Icon::TriangleAlert => icon!("triangle-alert.svg"),
             Icon::Check => icon!("check.svg"),
+            Icon::Square => icon!("square.svg"),
+            Icon::Gem => icon!("gem.svg"),
+            Icon::Hand => icon!("hand.svg"),
+            Icon::Discord => icon!("discord.svg"),
             Icon::Lock => icon!("lock.svg"),
             Icon::Folder => icon!("folder.svg"),
             Icon::Speaker => icon!("volume-2-bold.svg"),

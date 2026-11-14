@@ -456,16 +456,30 @@ impl App {
         }
         let outline = self.theme.outline_chat;
         let line = bar(outline, Length::Fill, 1);
+        if let Some(screen) = self.dm_screen() {
+            let width = self.window.width - crate::rail::WIDTH - crate::sidebar::WIDTH;
+            let page = match screen {
+                yapfast_core::application::DmScreen::Friends => self.friends_screen(width),
+                yapfast_core::application::DmScreen::Requests => self.requests_screen(),
+            };
+            return column![self.friends_header(screen), line, page]
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into();
+        }
         let mut chat = column![].width(Length::Fill).height(Length::Fill);
         if let Some(banner) = self.verify_banner() {
             chat = chat.push(banner);
         }
         let chat = chat.push(self.timeline()).push(self.composer_view());
-        let body = if self.members_shown() {
-            row![chat, self.members_view()]
-        } else {
-            row![chat]
-        };
+        let mut body = row![chat];
+        if self.members_shown() {
+            body = body.push(self.members_view());
+        } else if self.panel_shown()
+            && let Some(panel) = self.profile_panel_view()
+        {
+            body = body.push(panel);
+        }
         column![self.header_view(), line, body.height(Length::Fill)]
             .width(Length::Fill)
             .height(Length::Fill)
@@ -477,6 +491,8 @@ impl App {
         self.window.width
             - if self.members_shown() {
                 crate::members::WIDTH
+            } else if self.panel_shown() {
+                crate::profile::PANEL_WIDTH
             } else {
                 0.0
             }

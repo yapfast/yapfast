@@ -85,6 +85,8 @@ pub enum Message {
     /// A link in the timeline's text, and where the pointer is.
     Link(String, Point),
     Members(Viewport),
+    /// The member list's Activity panel.
+    MemberActivity(crate::members::Event),
     /// The server rail, the sidebar, the account's card.
     Rail(crate::rail::Event),
     Side(crate::sidebar::Event),
@@ -109,6 +111,9 @@ pub enum Message {
     MenuLight(usize),
     MenuChoose(usize),
     CloseMenu,
+    /// Someone's menu, at the pointer, by their id; the person dialog.
+    PersonMenu(String, Point),
+    Person(crate::person::Event),
     /// The delete confirmation's answers.
     ConfirmDelete,
     CancelDelete,
@@ -141,6 +146,8 @@ pub enum Message {
     Reveal(usize, usize),
     /// A long message's Show more or Show less, by its place.
     Unfold(usize),
+    /// A blocked person's message, shown when asked for.
+    ShowBlocked(usize),
     /// A poll's card.
     Poll(crate::polls::Event),
     /// A voice message's card.
@@ -157,12 +164,19 @@ pub enum Message {
     /// The pointer came onto or left a member's row, a message, the card.
     PointMember(String, bool),
     PointRow(String, bool),
-    PointCard(bool),
     /// A member's line was clicked, by its place in the list.
     OpenMember(usize),
     /// A message's avatar or author was clicked, by its place.
     OpenAuthor(usize),
     CloseProfile,
+    /// Something done on a profile: the card, the full one, the DM's panel.
+    Profile(crate::profile::Event),
+    /// Something done on the friends list, the requests or Add Friend.
+    Friends(crate::friends::Event),
+    /// Something done in the Reactions window.
+    Reactions(crate::reactions::Event),
+    /// A second passed while a profile times an activity.
+    Second,
     /// New video frames; the call's Join button; watch someone's stream,
     /// or stop; a tile clicked (shown large), or beside the tiles (none);
     /// leave the call.
@@ -240,6 +254,12 @@ pub struct App {
     /// `ROSTER_PAUSE`, and its lines.
     pub members: Option<Arc<Vec<ChatMember>>>,
     pub lines: Vec<MemberLine>,
+    /// The Activity panel's cards over the member list, and whether it's
+    /// opened past its first three.
+    pub activity_cards: Vec<crate::members::ActivityCard>,
+    pub activity_open: bool,
+    /// The feed and its people the cards were made from, by address.
+    pub activity_for: (usize, usize),
     pub roster_shown: Option<Instant>,
     pub roster_waiting: bool,
     /// A server is open, and the open room is in one.
@@ -308,6 +328,18 @@ pub struct App {
     /// A masked link clicked, while the question before it shows.
     pub leaving: Option<String>,
     pub card: Option<Card>,
+    /// The profiles on screen.
+    pub profiles: crate::profile::Profiles,
+    /// Where in the window the last press was, for a menu its button opens.
+    pub pressed: std::cell::Cell<Point>,
+    /// The friends list's and the requests' own state, and Active Now's
+    /// cards while the friends list shows.
+    pub friends: crate::friends::Friends,
+    pub active_now: Vec<crate::active_now::Card>,
+    /// The Reactions window's scroll and pointer.
+    pub reactions: crate::reactions::Reactions,
+    /// The person dialog's field and tick.
+    pub person: crate::person::Dialog,
     /// Video: what [`video::frames`] looks at; the newest frame of each
     /// camera (by participant id) and of the watched stream ("stream:" and
     /// the streamer's id), with its size; the tile shown large, and whose
@@ -338,6 +370,10 @@ impl App {
         let themes = Themes::read(&layout);
         let theme = themes.shown();
         let (fitter, fitted) = crate::pictures::Fitter::new();
+        let mut client = client;
+        for action in layout.actions() {
+            client.dispatch(action);
+        }
         let mut app = Self {
             client,
             window: Size::new(width, height),
@@ -375,6 +411,9 @@ impl App {
             edge_changed: false,
             members: None,
             lines: Vec::new(),
+            activity_cards: Vec::new(),
+            activity_open: false,
+            activity_for: (0, 0),
             roster_shown: None,
             roster_waiting: false,
             server: false,
@@ -417,6 +456,12 @@ impl App {
             voice_held: None,
             leaving: None,
             card: None,
+            profiles: Default::default(),
+            pressed: Default::default(),
+            friends: Default::default(),
+            active_now: Vec::new(),
+            reactions: Default::default(),
+            person: Default::default(),
             video: Default::default(),
             frames: HashMap::new(),
             focus: None,
@@ -495,11 +540,13 @@ impl App {
                 self.member_scroll = Scroll::of(viewport);
                 self.ask()
             }
+            Message::MemberActivity(event) => self.member_activity(event),
             Message::Rail(event) => self.rail_event(event),
             Message::Side(event) => self.sidebar_event(event),
             Message::Account(event) => self.account_event(event),
             Message::Minute => {
                 self.minute = yapfast_core::clock::now_ms() / 1000 / 60 * 60;
+                self.make_activity_cards();
                 Task::none()
             }
             Message::Write(event) => self.write_event(event),
@@ -532,6 +579,10 @@ impl App {
                 self.menu = None;
                 self.refocus()
             }
+            Message::PersonMenu(user, at) => {
+                self.open_person_menu(&user, at, crate::person::CONTEXT_MENU)
+            }
+            Message::Person(event) => self.person_event(event),
             Message::ConfirmDelete => {
                 self.client.dispatch(Action::ConfirmDelete);
                 Task::batch([self.sync(), self.refocus()])
@@ -583,6 +634,13 @@ impl App {
             }
             Message::Reveal(row, attachment) => self.reveal(row, attachment),
             Message::Unfold(row) => self.unfold(row),
+            Message::ShowBlocked(row) => {
+                if let Some(message) = self.messages.get(row) {
+                    self.revealed
+                        .insert(crate::message::blocked_key(&message.item));
+                }
+                self.ask()
+            }
             Message::Poll(event) => self.poll_event(event),
             Message::Voice(event) => self.voice_event(event),
             Message::Clip(clip) => self.clip_event(clip),
@@ -605,19 +663,13 @@ impl App {
                 point(&mut self.pointed_message, item, entered);
                 self.ask()
             }
-            Message::PointCard(pointed) => {
-                if let Some(card) = &mut self.card {
-                    card.pointed = pointed;
-                }
-                self.ask()
-            }
             Message::OpenMember(index) => self.open_member(index),
             Message::OpenAuthor(index) => self.open_author(index),
-            Message::CloseProfile => {
-                self.client.dispatch(Action::CloseProfile);
-                self.card = None;
-                self.sync()
-            }
+            Message::CloseProfile => self.profile_event(crate::profile::Event::Close),
+            Message::Profile(event) => self.profile_event(event),
+            Message::Friends(event) => self.friends_event(event),
+            Message::Reactions(event) => self.reactions_event(event),
+            Message::Second => Task::none(),
             Message::Frames(found) => {
                 self.frames_found(found);
                 Task::none()
@@ -696,6 +748,21 @@ impl App {
         if self.client.state().confirm_delete.is_some() {
             return self.confirm_key(named);
         }
+        if self.client.state().person_dialog.is_some() {
+            return self.person_key(named);
+        }
+        if self.client.state().reactions.is_some() {
+            return match named {
+                Some(key::Named::Escape) => self.reactions_event(crate::reactions::Event::Close),
+                _ => Task::none(),
+            };
+        }
+        if self.client.state().add_friend.is_some() {
+            return match named {
+                Some(key::Named::Escape) => self.friends_event(crate::friends::Event::CloseAdd),
+                _ => Task::none(),
+            };
+        }
         if self.leaving.is_some() {
             return match named {
                 Some(key::Named::Escape) => self.leave(false),
@@ -738,7 +805,7 @@ impl App {
         if self.picker.is_some() {
             return self.picker_event(picker::Event::Field(field::Event::Escape));
         }
-        if self.card.is_some() {
+        if self.card.is_some() || self.profiles.shown.is_some() {
             return self.update(Message::CloseProfile);
         }
         if self.selection.is_some() {
@@ -792,6 +859,21 @@ impl App {
             _ => None,
         });
         let mut subscriptions = vec![keys, fonts, drops];
+        // A dialog's field keeps Escape to itself, only letting go of the
+        // keys: while a dialog with one is open, Escape closes the dialog,
+        // as the Slint client's do.
+        let state = self.client.state();
+        if state.add_friend.is_some() || state.person_dialog.is_some() || state.forwarding.is_some()
+        {
+            subscriptions.push(iced::event::listen_with(|event, status, _| match event {
+                iced::Event::Keyboard(keyboard::Event::KeyPressed {
+                    key: key @ keyboard::Key::Named(key::Named::Escape),
+                    modifiers,
+                    ..
+                }) if status == iced::event::Status::Captured => Some(Message::Key(key, modifiers)),
+                _ => None,
+            }));
+        }
         // Busy voice channels show how long their call has gone on, to the
         // minute.
         // Open polls, how long they have left.
@@ -800,8 +882,14 @@ impl App {
             .iter()
             .any(|row| matches!(row, crate::sidebar::SideRow::Room(room) if room.started.is_some()))
             || crate::polls::open_poll(&self.messages, self.minute)
+            || !self.activity_cards.is_empty()
+            || self.active_now_minutes()
         {
             subscriptions.push(iced::time::every(Duration::from_secs(15)).map(|_| Message::Minute));
+        }
+        // A shown activity's time, each second.
+        if self.profile_ticks() || self.active_now_ticks() {
+            subscriptions.push(iced::time::every(Duration::from_secs(1)).map(|_| Message::Second));
         }
         if let Some(path) = control::path() {
             subscriptions.push(
@@ -842,6 +930,9 @@ impl App {
                 .push(outside(Message::CloseProfile, false))
                 .push(card);
         }
+        if let Some(full) = self.full_profile_view() {
+            layers = layers.push(full);
+        }
         if let Some(picker) = &self.picker
             && let Some(shown) = self.picker_view()
         {
@@ -870,8 +961,17 @@ impl App {
         if let Some(menu) = self.menu_view() {
             layers = layers.push(outside(Message::CloseMenu, false)).push(menu);
         }
+        if let Some(window) = self.reactions_view() {
+            layers = layers.push(window);
+        }
         if let Some(modal) = self.delete_view() {
             layers = layers.push(modal);
+        }
+        if let Some(dialog) = self.person_view() {
+            layers = layers.push(dialog);
+        }
+        if let Some(dialog) = self.add_friend_view() {
+            layers = layers.push(dialog);
         }
         if let Some(forward) = self.forward_view() {
             layers = layers.push(forward);
@@ -892,7 +992,11 @@ impl App {
         self.playing
             .borrow_mut()
             .retain(|key, _| moving.contains(key));
-        layers.width(Length::Fill).height(Length::Fill).into()
+        crate::widgets::RightPress::spot(
+            layers.width(Length::Fill).height(Length::Fill),
+            &self.pressed,
+        )
+        .into()
     }
 
     pub fn window_style(&self, _: &iced::Theme) -> iced::theme::Style {

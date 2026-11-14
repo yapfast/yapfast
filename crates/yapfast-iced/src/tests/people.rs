@@ -1,0 +1,418 @@
+//! People, as the Slint client's tests check them (`src/ui/tests.rs`): a
+//! profile's More menu being the person's own and asking before a block,
+//! the profile docked beside a DM and the header's button, the friends
+//! list's tabs and search, requests listing someone once, a blocked
+//! person's message folded until asked, and View Reactions.
+
+use std::sync::Arc;
+
+use iced::{
+    Point,
+    keyboard::{self, key},
+};
+use yapfast_core::{
+    application::{Action, DmScreen, Navigation, PersonAsk},
+    chat::{ChatMessage, ChatRoom, Friend, FriendRequest, Presence, Reaction, RequestPreview},
+    discord,
+};
+
+use super::{change, interact, preview, right_click, shows};
+use crate::{
+    app::{App, Message},
+    friends, person, profile,
+};
+
+/// Riley's message in the preview's #general.
+const RILEYS: &str = "Yep. I should be free after dinner.";
+
+/// The labels of the open menu's rows.
+fn menu_rows(app: &App) -> Vec<String> {
+    app.menu
+        .as_ref()
+        .expect("a menu")
+        .rows
+        .iter()
+        .map(|row| row.label.to_string())
+        .collect()
+}
+
+/// The DM home's screen open, with no conversation.
+fn dm_screen(app: &mut App, screen: DmScreen) {
+    app.client
+        .dispatch(Action::Navigate(Navigation::DirectMessages));
+    app.client.dispatch(Action::OpenDmScreen(screen));
+    let _ = app.sync();
+    assert_eq!(app.dm_screen(), Some(screen));
+}
+
+fn friend(id: &str, name: &str, presence: Presence) -> Friend {
+    Friend {
+        id: id.into(),
+        name: name.into(),
+        nickname: None,
+        avatar: None,
+        presence: Some(presence),
+        activity: None,
+        activities: Default::default(),
+        since: None,
+    }
+}
+
+#[test]
+fn a_profiles_more_menu_is_the_persons_own_and_asks_before_a_block() {
+    let (mut app, _folder) = preview();
+    // Alice, "1", has #general open; Dave, "4", is her friend there.
+    app.client.app = yapfast_core::application::member_server(&["30"]);
+    change(&mut app, |_| {});
+    let _ = app.open_person_menu("4", Point::new(300.0, 200.0), person::CONTEXT_MENU);
+    let from_list = menu_rows(&app);
+    assert!(from_list.iter().any(|row| row == "Block"));
+    app.menu = None;
+    let _ = app.update(Message::Profile(profile::Event::More("4".into())));
+    assert_eq!(
+        menu_rows(&app),
+        from_list,
+        "the same menu as a right click's"
+    );
+    // The fixture has no account, so its window is the sign-in screen: the
+    // row is chosen as a click on it chooses it.
+    let block = from_list
+        .iter()
+        .position(|row| row == "Block")
+        .expect("Block");
+    let _ = app.update(Message::MenuChoose(block));
+    let dialog = app
+        .client
+        .state()
+        .person_dialog
+        .clone()
+        .expect("Block asks first");
+    assert_eq!(
+        (dialog.user.as_str(), dialog.ask, dialog.location),
+        ("4", PersonAsk::Block, person::PROFILE_OVERFLOW)
+    );
+    let _ = app.person_focus();
+    let mut ui = iced_test::Simulator::with_size(
+        iced::Settings::default(),
+        app.window,
+        app.person_view().expect("the question"),
+    );
+    assert!(ui.find("Block Dave?").is_ok());
+    drop(ui);
+    // Escape closes the question, as the Slint client's does.
+    let _ = app.update(Message::Key(
+        keyboard::Key::Named(key::Named::Escape),
+        keyboard::Modifiers::default(),
+    ));
+    assert!(app.client.state().person_dialog.is_none());
+}
+
+#[test]
+fn the_friends_list_shows_those_around_or_all_and_its_search_narrows_it() {
+    let (mut app, _folder) = preview();
+    change(&mut app, |state| {
+        state.friends = vec![
+            friend("1", "Ann", Presence::Online),
+            friend("2", "Bob", Presence::Offline),
+            friend("3", "Bea", Presence::Idle),
+        ];
+    });
+    dm_screen(&mut app, DmScreen::Friends);
+    assert!(shows(&app, "ONLINE — 2"));
+    assert!(shows(&app, "Ann") && shows(&app, "Bea"));
+    assert!(!shows(&app, "Bob"), "offline friends wait for All");
+    assert!(shows(&app, "Idle"), "a friend's presence in words");
+    interact(&mut app, |ui| {
+        ui.click("All").expect("the All tab");
+    });
+    assert!(shows(&app, "ALL FRIENDS — 3"));
+    assert!(shows(&app, "Bob"));
+    let _ = app.update(Message::Friends(friends::Event::Filter("b".into())));
+    assert!(shows(&app, "ALL FRIENDS — 2"));
+    assert!(!shows(&app, "Ann"));
+    let _ = app.update(Message::Friends(friends::Event::Filter("zed".into())));
+    assert!(shows(&app, "No friend's name matches that."));
+    // Back to those around, the search cleared.
+    let _ = app.update(Message::Friends(friends::Event::Filter(String::new())));
+    let _ = app.update(Message::Friends(friends::Event::All(false)));
+    assert!(shows(&app, "ONLINE — 2"));
+}
+
+#[test]
+fn requests_list_someone_once_with_their_message() {
+    let (mut app, _folder) = preview();
+    let request = |id: &str, name: &str, incoming, spam| FriendRequest {
+        id: id.into(),
+        name: name.into(),
+        avatar: None,
+        incoming,
+        spam,
+    };
+    change(&mut app, |state| {
+        // Lena asked to be friends and wrote too, Max was asked by this
+        // account, and Sam's came as spam.
+        state.friend_requests = vec![
+            request("10", "Lena", true, false),
+            request("11", "Max", false, false),
+            request("12", "Sam", true, true),
+        ];
+        let template = (*state.rooms[0]).clone();
+        state.rooms.push(Arc::new(ChatRoom {
+            id: "discord:dm:10".into(),
+            name: "Lena".into(),
+            direct: true,
+            request: true,
+            person: Some("10".into()),
+            category: discord::REQUESTS.into(),
+            unread: 1,
+            preview: Some(Box::new(RequestPreview {
+                text: "Hi from Lena".into(),
+                at: 1_700_000_000_000,
+            })),
+            ..template
+        }));
+    });
+    // Lena's friend request and message are one request.
+    assert_eq!(friends::waiting(app.client.state()), 1);
+    dm_screen(&mut app, DmScreen::Requests);
+    assert!(shows(&app, "REQUESTS — 1"));
+    assert!(shows(&app, "Sent you a friend request and a message"));
+    assert!(shows(&app, "Hi from Lena"));
+    assert!(shows(&app, "Accept") && shows(&app, "Ignore"));
+    assert!(shows(&app, "SENT — 1"));
+    assert!(shows(&app, "You sent a friend request"));
+    assert!(shows(&app, "Cancel"));
+    // Spam folds away until opened.
+    assert!(shows(&app, "SPAM — 1"));
+    assert!(!shows(&app, "Maybe spam"));
+    interact(&mut app, |ui| {
+        ui.click("SPAM — 1").expect("the spam heading");
+    });
+    assert!(shows(&app, "Maybe spam"));
+}
+
+#[test]
+fn a_blocked_persons_message_shows_folded_until_asked() {
+    let (mut app, _folder) = preview();
+    change(&mut app, |state| {
+        let messages: Vec<Arc<ChatMessage>> = state
+            .messages
+            .iter()
+            .map(|message| {
+                let mut message = (**message).clone();
+                message.blocked = message.body == RILEYS;
+                Arc::new(message)
+            })
+            .collect();
+        state.messages = Arc::new(messages);
+    });
+    assert!(!shows(&app, RILEYS));
+    assert!(shows(&app, "Blocked message."));
+    assert!(shows(&app, "Blocked user"));
+    interact(&mut app, |ui| {
+        ui.click("Show it").expect("Show it");
+    });
+    assert!(shows(&app, RILEYS));
+    assert!(!shows(&app, "Blocked message."));
+}
+
+#[test]
+fn view_reactions_opens_from_a_messages_menu_and_escape_closes_it() {
+    let (mut app, _folder) = preview();
+    change(&mut app, |state| {
+        let messages: Vec<Arc<ChatMessage>> = state
+            .messages
+            .iter()
+            .map(|message| {
+                let mut message = (**message).clone();
+                if message.body == RILEYS {
+                    message.reactions = vec![
+                        Reaction {
+                            key: "👍".into(),
+                            count: 2,
+                            mine: true,
+                        },
+                        Reaction {
+                            key: "🎉".into(),
+                            count: 5,
+                            mine: false,
+                        },
+                    ];
+                }
+                Arc::new(message)
+            })
+            .collect();
+        state.messages = Arc::new(messages);
+    });
+    interact(&mut app, |ui| right_click(ui, RILEYS));
+    interact(&mut app, |ui| {
+        ui.click("View Reactions").expect("View Reactions");
+    });
+    let window = app.client.state().reactions.as_ref().expect("the window");
+    assert_eq!(window.key, "🎉", "the one most reacted with first");
+    assert!(shows(&app, "Reactions"));
+    assert!(shows(&app, "5") && shows(&app, "2"));
+    let _ = app.update(Message::Key(
+        keyboard::Key::Named(key::Named::Escape),
+        keyboard::Modifiers::default(),
+    ));
+    assert!(app.client.state().reactions.is_none());
+}
+
+#[test]
+fn the_header_shows_and_hides_the_profile_beside_a_dm_and_remembers_it() {
+    let (mut app, folder) = preview();
+    app.client
+        .dispatch(Action::Navigate(Navigation::DirectMessages));
+    let _ = app.update(Message::Side(crate::sidebar::Event::Select("riley".into())));
+    assert!(app.header.profile_available, "a one-to-one DM offers it");
+    assert!(app.panel_shown(), "shown until hidden");
+    assert!(shows(&app, "View Full Profile"));
+    let _ = app.update(Message::Profile(profile::Event::TogglePanel));
+    assert!(!app.panel_shown());
+    assert!(!shows(&app, "View Full Profile"));
+    let layout: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(folder.path().join("layout.json")).expect("the layout"),
+    )
+    .expect("JSON");
+    assert_eq!(layout["profile_panel_hidden"], true);
+}
+
+#[test]
+fn a_profile_theme_is_light_by_its_first_colour_as_in_discord() {
+    use crate::profile::look::Inks;
+    let (app, _folder) = preview();
+    let inks = |first: u32| Inks::new(&app.theme, Some([first, 0]), iced::Color::BLACK);
+    // Discord's client: light when 0.299 red, 0.587 green and 0.114 blue come
+    // to at least half of full, whatever the second colour or the app's theme.
+    assert!(inks(0xfde2e4).light, "a pale pink");
+    assert!(inks(0x808080).light, "the middle grey");
+    assert!(!inks(0x7f7f7f).light, "just under it");
+    assert!(!inks(0x5865f2).light, "Discord's blurple");
+    assert!(!inks(0xff0000).light, "red is dark");
+    assert!(inks(0x00ff00).light, "green is light");
+    // A light theme lies under 60% white and takes black text; a dark one
+    // under 60% black and takes white.
+    let near = |color: iced::Color, rgb: u32| {
+        let [_, r, g, b] = rgb.to_be_bytes();
+        let channels = color.into_rgba8();
+        [r, g, b]
+            .iter()
+            .zip(channels)
+            .all(|(want, got)| want.abs_diff(got) <= 1)
+    };
+    let light = Inks::new(&app.theme, Some([0xfde2e4, 0xff0000]), iced::Color::BLACK);
+    assert!(near(light.end, 0xff9999));
+    assert!(near(inks(0xff0000).start, 0x660000));
+    assert_eq!(
+        light.ink,
+        iced::Color {
+            a: 0.96,
+            ..iced::Color::BLACK
+        }
+    );
+    assert_eq!(
+        inks(0xff0000).ink,
+        iced::Color {
+            a: 0.96,
+            ..iced::Color::WHITE
+        }
+    );
+}
+
+#[test]
+fn the_full_profiles_tabs_and_dates_are_discords() {
+    use crate::profile::look::{Look, Tab};
+    use yapfast_core::{
+        application::{AppState, ProfileView},
+        chat::{Profile, ProfileFriend, ProfileServer},
+    };
+    let view = |id: &str| ProfileView {
+        profile: Profile {
+            id: id.into(),
+            name: "Sam".into(),
+            servers: vec![ProfileServer {
+                id: "s".into(),
+                name: "Server".into(),
+                icon: None,
+                banner: None,
+                members: None,
+                channels: 2,
+                nick: None,
+            }],
+            friends: vec![ProfileFriend {
+                id: "7".into(),
+                name: "Bob".into(),
+                avatar: None,
+            }],
+            created: Some("May 4, 2024".into()),
+            joined: Some("Nov 5, 2026".into()),
+            server_name: "Server".into(),
+            // Discord said what they did lately: nothing.
+            recent_came: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let mut state = AppState::default();
+    state.discord_user = Some("42".into());
+    // Sam, "7", is a friend since a day the friend list says; "9" is a bot.
+    let since = |id: &str| Friend {
+        // 2025-03-03 at noon UTC, in milliseconds.
+        since: Some(1_741_003_200_000),
+        ..friend(id, "Sam", Presence::Online)
+    };
+    state.friends = vec![since("7"), since("42")];
+    let mut names = yapfast_core::yapfast_discord::message::Names::default();
+    names.learn_user(&serde_json::json!({"id": "9", "username": "helper", "bot": true}));
+    state.discord_names = Some(yapfast_core::yapfast_discord::service::SharedNames::new(
+        std::sync::Arc::new(std::sync::RwLock::new(names)),
+    ));
+    let look = |view: &ProfileView| Look::new(&state, view, None, &[], 0);
+
+    // Anyone else's card and full profile name what the account shares with
+    // them, as the client words it, and when they became friends.
+    let other = look(&view("7"));
+    assert_eq!(other.mutual_friends, "1 Mutual Friend");
+    assert_eq!(other.mutual_servers, "1 Mutual Server");
+    assert_eq!(other.friends_label, "1 Mutual Friend");
+    assert_eq!(other.servers_label, "1 Mutual Server");
+    assert!(other.mutuals_known);
+    assert_eq!(other.tabs, [Tab::Activity, Tab::Friends, Tab::Servers]);
+    assert_eq!(other.friends_since, "Mar 3, 2025");
+    assert!(!other.own);
+
+    // The tabs say "Mutual Friends" till Discord has said, then "No Mutual
+    // Friends" for none.
+    let mut loading = view("7");
+    loading.loading = true;
+    let loading = look(&loading);
+    assert!(!loading.mutuals_known);
+    assert_eq!(loading.friends_label, "Mutual Friends");
+    let mut none = view("7");
+    none.profile.friends.clear();
+    none.profile.servers.clear();
+    let none = look(&none);
+    assert_eq!(none.friends_label, "No Mutual Friends");
+    assert_eq!(none.servers_label, "No Mutual Servers");
+    // A profile Discord didn't give says nothing of who's shared.
+    let mut failed = view("7");
+    failed.note = Some("Discord didn't share the rest of this profile.".into());
+    let failed = look(&failed);
+    assert!(!failed.mutuals_known);
+    assert_eq!(failed.friends_label, "Mutual Friends");
+
+    // A bot's full profile has Mutual Servers alone, as the client's bot
+    // profile does.
+    let bot = look(&view("9"));
+    assert!(bot.bot);
+    assert_eq!(bot.tabs, [Tab::Activity, Tab::Servers]);
+    assert_eq!(bot.friends_since, "");
+
+    // Its own shares them with nobody, so its full profile has no mutual
+    // tabs, but a Board; nor is anyone their own friend.
+    let own = look(&view("42"));
+    assert!(own.own);
+    assert_eq!(own.tabs, [Tab::Board, Tab::Activity, Tab::Wishlist]);
+    assert_eq!(own.friends_since, "");
+}
