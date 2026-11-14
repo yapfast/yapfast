@@ -73,6 +73,11 @@ fi
 # Ad-hoc code sign so Apple Silicon and macOS Gatekeeper/permissions work cleanly.
 codesign --force --deep --sign - "$APP"
 
+if [ "$ARCH" = "$(uname -m)" ] || [ "$ARCH" = "universal" ]; then
+  echo "==> Running smoke test on $APP/Contents/MacOS/yapfast"
+  "$APP/Contents/MacOS/yapfast" --smoke-test
+fi
+
 ZIP="$ROOT/target/dist/macos/Yapfast-$VERSION-$LABEL.zip"
 DMG="$ROOT/target/dist/macos/Yapfast-$VERSION-$LABEL.dmg"
 rm -f "$ZIP" "$DMG"

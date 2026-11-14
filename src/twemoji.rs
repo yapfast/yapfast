@@ -54,6 +54,50 @@ pub fn has_picture(glyph: &str) -> bool {
     picture_bytes(glyph).is_some()
 }
 
+/// Checks that Skia's platform font manager loads [`FONT`] and draws an emoji
+/// glyph in colour.
+pub fn check_rendering() -> anyhow::Result<()> {
+    use anyhow::{Context, ensure};
+    use skia_safe::{Color, Data, Font, FontMgr, Paint, Point, image::CachingHint, surfaces};
+    let typeface = FontMgr::new()
+        .new_from_data(Data::new_copy(FONT), None)
+        .context("Skia could not load Twemoji font")?;
+    let code = glyph("🍕").context("pizza emoji missing from Twemoji")? as i32;
+    let glyph_id = typeface.unichar_to_glyph(code);
+    ensure!(glyph_id != 0, "Twemoji font did not map pizza code point");
+    let mut surface =
+        surfaces::raster_n32_premul((100, 100)).context("could not create Skia surface")?;
+    surface.canvas().clear(Color::WHITE);
+    surface.canvas().draw_glyphs_at(
+        &[glyph_id],
+        &[Point::new(10.0, 60.0)][..],
+        Point::default(),
+        &Font::from_typeface(typeface, 40.0),
+        &Paint::default(),
+    );
+    let image = surface.image_snapshot();
+    let mut pixels = vec![0u8; 100 * 100 * 4];
+    ensure!(
+        image.read_pixels(
+            image.image_info(),
+            &mut pixels,
+            400,
+            (0, 0),
+            CachingHint::Allow
+        ),
+        "could not read rendered emoji pixels"
+    );
+    let painted = pixels
+        .chunks(4)
+        .filter(|px| px[0] < 250 || px[1] < 250 || px[2] < 250)
+        .count();
+    ensure!(
+        painted > 50,
+        "Twemoji glyph drew {painted} non-white pixels (expected > 50)"
+    );
+    Ok(())
+}
+
 /// The picture at `pixels` square, its alpha premultiplied, as Skia draws it.
 /// Drawn at 72px into a smaller cell, Skia scaled every picture again on every
 /// frame a scroll drew, a quarter of the scroll's time; shrunk here once, a

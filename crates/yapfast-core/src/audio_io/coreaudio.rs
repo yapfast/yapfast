@@ -13,6 +13,12 @@ use super::Format;
 unsafe extern "C" {
     fn yapfast_macos_raise_priority(is_playback: c_int) -> c_int;
     fn yapfast_macos_default_device_uid(input: c_int, buf: *mut c_char, cap: c_int) -> c_int;
+    fn yapfast_macos_resolve_device_uid(
+        requested: *const c_char,
+        input: c_int,
+        buf: *mut c_char,
+        cap: c_int,
+    ) -> c_int;
     fn yapfast_macos_output_open(
         device_uid: *const c_char,
         rate: u32,
@@ -185,13 +191,16 @@ impl Drop for Input {
 }
 
 #[cfg(feature = "discord")]
-pub fn endpoint(device: Option<&str>, input: bool) -> String {
-    if let Some(id) = device.filter(|id| !id.is_empty() && *id != "default") {
-        return id.to_owned();
+pub fn endpoint(device: Option<&str>, output: bool) -> String {
+    let input = c_int::from(!output);
+    let uid = device_cstr(device);
+    let uid_ptr = uid.as_ref().map_or(ptr::null(), |s| s.as_ptr());
+    let mut buf = [0 as c_char; 512];
+    // SAFETY: buf is valid for 512 bytes and NUL-terminated by macos_audio.c.
+    let mut ok = unsafe { yapfast_macos_resolve_device_uid(uid_ptr, input, buf.as_mut_ptr(), 512) };
+    if ok != 0 && !uid_ptr.is_null() {
+        ok = unsafe { yapfast_macos_default_device_uid(input, buf.as_mut_ptr(), 512) };
     }
-    let mut buf = [0 as c_char; 256];
-    // SAFETY: buf is valid for 256 bytes and NUL-terminated by macos_audio.c.
-    let ok = unsafe { yapfast_macos_default_device_uid(c_int::from(input), buf.as_mut_ptr(), 256) };
     if ok == 0 {
         unsafe { CStr::from_ptr(buf.as_ptr()) }
             .to_string_lossy()

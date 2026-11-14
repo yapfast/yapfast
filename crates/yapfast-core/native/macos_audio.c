@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #define NUM_BUFFERS 4
 
@@ -16,44 +17,231 @@ int yapfast_macos_raise_priority(int is_playback) {
     return pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
 }
 
-int yapfast_macos_default_device_uid(int input, char *buf, int cap) {
+static void trim_ascii(char *s) {
+    if (!s) return;
+    size_t len = strlen(s);
+    while (len > 0 && (s[len - 1] == ' ' || s[len - 1] == '\t' || s[len - 1] == '\r' || s[len - 1] == '\n')) {
+        s[--len] = '\0';
+    }
+    size_t start = 0;
+    while (s[start] == ' ' || s[start] == '\t' || s[start] == '\r' || s[start] == '\n') {
+        start++;
+    }
+    if (start > 0) {
+        memmove(s, s + start, len - start + 1);
+    }
+}
+
+static int device_has_channels(AudioDeviceID dev_id, int is_input) {
+    if (dev_id == kAudioObjectUnknown) return 0;
+    AudioObjectPropertyAddress addr = {
+        kAudioDevicePropertyStreamConfiguration,
+        is_input ? kAudioDevicePropertyScopeInput : kAudioDevicePropertyScopeOutput,
+        kAudioObjectPropertyElementMain
+    };
+    UInt32 size = 0;
+    if (AudioObjectGetPropertyDataSize(dev_id, &addr, 0, NULL, &size) != noErr || size == 0) {
+        return 0;
+    }
+    AudioBufferList *list = (AudioBufferList *)malloc(size);
+    if (!list) return 0;
+    UInt32 total = 0;
+    if (AudioObjectGetPropertyData(dev_id, &addr, 0, NULL, &size, list) == noErr) {
+        for (UInt32 i = 0; i < list->mNumberBuffers; i++) {
+            total += list->mBuffers[i].mNumberChannels;
+        }
+    }
+    free(list);
+    return total > 0;
+}
+
+static int get_device_string_prop(AudioDeviceID dev_id, AudioObjectPropertySelector sel, char *buf, int cap) {
+    if (!buf || cap <= 0 || dev_id == kAudioObjectUnknown) return -1;
+    buf[0] = '\0';
+    AudioObjectPropertyAddress addr = {
+        sel,
+        kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain
+    };
+    CFStringRef str = NULL;
+    UInt32 size = sizeof(str);
+    if (AudioObjectGetPropertyData(dev_id, &addr, 0, NULL, &size, &str) != noErr || !str) {
+        return -1;
+    }
+    Boolean ok = CFStringGetCString(str, buf, cap, kCFStringEncodingUTF8);
+    CFRelease(str);
+    if (!ok) {
+        buf[0] = '\0';
+        return -1;
+    }
+    return 0;
+}
+
+static UInt32 get_device_transport(AudioDeviceID dev_id) {
+    if (dev_id == kAudioObjectUnknown) return 0;
+    AudioObjectPropertyAddress addr = {
+        kAudioDevicePropertyTransportType,
+        kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain
+    };
+    UInt32 transport = 0;
+    UInt32 size = sizeof(transport);
+    if (AudioObjectGetPropertyData(dev_id, &addr, 0, NULL, &size, &transport) != noErr) {
+        return 0;
+    }
+    return transport;
+}
+
+static int is_bluetooth_transport(UInt32 transport) {
+    return transport == kAudioDeviceTransportTypeBluetooth ||
+           transport == kAudioDeviceTransportTypeBluetoothLE;
+}
+
+static int non_bt_input_priority(UInt32 transport) {
+    if (is_bluetooth_transport(transport)) return 0;
+    switch (transport) {
+        case kAudioDeviceTransportTypeUSB:
+        case kAudioDeviceTransportTypePCI:
+        case kAudioDeviceTransportTypeThunderbolt:
+        case kAudioDeviceTransportTypeFireWire:
+        case kAudioDeviceTransportTypeDisplayPort:
+        case kAudioDeviceTransportTypeHDMI:
+            return 3; /* Prefer external wired microphone / interface when plugged in */
+        case kAudioDeviceTransportTypeBuiltIn:
+            return 2; /* Next prefer built-in microphone */
+        case kAudioDeviceTransportTypeVirtual:
+        case kAudioDeviceTransportTypeAggregate:
+            return 0;
+        default:
+            return 1;
+    }
+}
+
+int yapfast_macos_resolve_device_uid(const char *requested, int input, char *buf, int cap) {
     if (!buf || cap <= 0) return -1;
     buf[0] = '\0';
 
-    AudioObjectPropertyAddress addr = {
+    char query[512];
+    query[0] = '\0';
+    if (requested) {
+        if (strncmp(requested, "name:", 5) == 0) {
+            requested += 5;
+        }
+        snprintf(query, sizeof(query), "%s", requested);
+        trim_ascii(query);
+        if (strcasecmp(query, "default") == 0 ||
+            strncasecmp(query, "default:", 8) == 0 ||
+            strncasecmp(query, "default -", 9) == 0) {
+            query[0] = '\0';
+        }
+    }
+
+    AudioObjectPropertyAddress list_addr = {
+        kAudioHardwarePropertyDevices,
+        kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain
+    };
+    UInt32 list_size = 0;
+    AudioDeviceID *devs = NULL;
+    UInt32 dev_count = 0;
+    if (AudioObjectGetPropertyDataSize(kAudioObjectSystemObject, &list_addr, 0, NULL, &list_size) == noErr &&
+        list_size >= sizeof(AudioDeviceID)) {
+        devs = (AudioDeviceID *)malloc(list_size);
+        if (devs && AudioObjectGetPropertyData(kAudioObjectSystemObject, &list_addr, 0, NULL, &list_size, devs) == noErr) {
+            dev_count = list_size / sizeof(AudioDeviceID);
+        }
+    }
+
+    /* If a specific device name or UID was requested, find its CoreAudio DeviceUID in the matching scope. */
+    if (query[0] != '\0') {
+        int found = -1;
+        for (UInt32 i = 0; i < dev_count; i++) {
+            if (!device_has_channels(devs[i], input)) continue;
+            char uid[512], name[512], uid_trimmed[512];
+            if (get_device_string_prop(devs[i], kAudioDevicePropertyDeviceUID, uid, sizeof(uid)) != 0) {
+                continue;
+            }
+            snprintf(uid_trimmed, sizeof(uid_trimmed), "%s", uid);
+            trim_ascii(uid_trimmed);
+            if (strcmp(uid, query) == 0 || strcmp(uid_trimmed, query) == 0) {
+                snprintf(buf, (size_t)cap, "%s", uid);
+                found = 0;
+                break;
+            }
+            if (get_device_string_prop(devs[i], kAudioObjectPropertyName, name, sizeof(name)) == 0) {
+                trim_ascii(name);
+                if (strcmp(name, query) == 0) {
+                    snprintf(buf, (size_t)cap, "%s", uid);
+                    found = 0;
+                    break;
+                }
+            }
+        }
+        free(devs);
+        return found;
+    }
+
+    /* Default device requested. */
+    AudioObjectPropertyAddress def_addr = {
         input ? kAudioHardwarePropertyDefaultInputDevice : kAudioHardwarePropertyDefaultOutputDevice,
         kAudioObjectPropertyScopeGlobal,
         kAudioObjectPropertyElementMain
     };
-    AudioDeviceID dev_id = kAudioObjectUnknown;
-    UInt32 size = sizeof(dev_id);
-    if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &addr, 0, NULL, &size, &dev_id) != noErr ||
-        dev_id == kAudioObjectUnknown) {
+    AudioDeviceID def_id = kAudioObjectUnknown;
+    UInt32 size = sizeof(def_id);
+    if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &def_addr, 0, NULL, &size, &def_id) != noErr ||
+        def_id == kAudioObjectUnknown) {
+        free(devs);
         return -1;
     }
 
-    AudioObjectPropertyAddress uid_addr = {
-        kAudioDevicePropertyDeviceUID,
-        kAudioObjectPropertyScopeGlobal,
-        kAudioObjectPropertyElementMain
-    };
-    CFStringRef uid = NULL;
-    size = sizeof(uid);
-    if (AudioObjectGetPropertyData(dev_id, &uid_addr, 0, NULL, &size, &uid) != noErr || !uid) {
-        return -1;
+    /* If the system default input is a Bluetooth headset, opening its mic forces HFP/SCO hands-free
+     * mode (degrading headphone output to mono 8/16 kHz and disrupting 2.4 GHz Wi-Fi). When another
+     * physical microphone (wired USB/jack/PCI or built-in) is available, prefer it for Default input. */
+    if (input && is_bluetooth_transport(get_device_transport(def_id))) {
+        AudioDeviceID best_id = kAudioObjectUnknown;
+        int best_prio = 0;
+        for (UInt32 i = 0; i < dev_count; i++) {
+            if (!device_has_channels(devs[i], 1)) continue;
+            int prio = non_bt_input_priority(get_device_transport(devs[i]));
+            if (prio > best_prio) {
+                best_prio = prio;
+                best_id = devs[i];
+            }
+        }
+        if (best_id != kAudioObjectUnknown) {
+            def_id = best_id;
+        }
     }
-    Boolean ok = CFStringGetCString(uid, buf, cap, kCFStringEncodingUTF8);
-    CFRelease(uid);
-    return ok ? 0 : -1;
+
+    free(devs);
+    return get_device_string_prop(def_id, kAudioDevicePropertyDeviceUID, buf, cap);
 }
 
-static void set_queue_device(AudioQueueRef queue, const char *device_uid) {
-    if (!device_uid || device_uid[0] == '\0') return;
-    CFStringRef cf_uid = CFStringCreateWithCString(kCFAllocatorDefault, device_uid, kCFStringEncodingUTF8);
-    if (cf_uid) {
-        AudioQueueSetProperty(queue, kAudioQueueProperty_CurrentDevice, &cf_uid, sizeof(cf_uid));
-        CFRelease(cf_uid);
+int yapfast_macos_default_device_uid(int input, char *buf, int cap) {
+    return yapfast_macos_resolve_device_uid(NULL, input, buf, cap);
+}
+
+static int set_queue_device(AudioQueueRef queue, const char *device_uid, int is_input) {
+    char resolved[512];
+    if (device_uid && device_uid[0] != '\0') {
+        if (yapfast_macos_resolve_device_uid(device_uid, is_input, resolved, sizeof(resolved)) != 0) {
+            if (yapfast_macos_resolve_device_uid(NULL, is_input, resolved, sizeof(resolved)) != 0) {
+                return 0;
+            }
+        }
+    } else if (is_input) {
+        if (yapfast_macos_resolve_device_uid(NULL, 1, resolved, sizeof(resolved)) != 0) {
+            return 0;
+        }
+    } else {
+        return 0;
     }
+    CFStringRef cf_uid = CFStringCreateWithCString(kCFAllocatorDefault, resolved, kCFStringEncodingUTF8);
+    if (!cf_uid) return -1;
+    OSStatus err = AudioQueueSetProperty(queue, kAudioQueueProperty_CurrentDevice, &cf_uid, sizeof(cf_uid));
+    CFRelease(cf_uid);
+    return (err == noErr) ? 0 : (int)err;
 }
 
 static AudioStreamBasicDescription make_asbd(uint32_t rate, uint16_t channels, int is_float) {
@@ -124,7 +312,7 @@ int yapfast_macos_output_open(const char *device_uid, uint32_t rate, uint16_t ch
         return (int)err;
     }
 
-    set_queue_device(out->queue, device_uid);
+    set_queue_device(out->queue, device_uid, 0);
 
     for (int i = 0; i < NUM_BUFFERS; i++) {
         err = AudioQueueAllocateBuffer(out->queue, buffer_bytes, &out->buffers[i]);
@@ -308,7 +496,7 @@ int yapfast_macos_input_open(const char *device_uid, uint32_t rate, uint16_t cha
         return (int)err;
     }
 
-    set_queue_device(inp->queue, device_uid);
+    set_queue_device(inp->queue, device_uid, 1);
 
     for (int i = 0; i < NUM_BUFFERS; i++) {
         err = AudioQueueAllocateBuffer(inp->queue, fragment_bytes, &inp->buffers[i]);
