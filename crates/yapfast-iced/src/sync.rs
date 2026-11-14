@@ -74,9 +74,10 @@ pub struct Measuring<'a> {
     pub marks: timeline::Marks<'a>,
     pub width: f32,
     /// The history's edge's height over the first row, and whether it
-    /// changed since.
+    /// changed since; and the newer messages' under the last.
     pub edge: f32,
     pub edge_changed: bool,
+    pub foot: f32,
 }
 
 /// What the rail, the sidebar, the header and the history's edge are made
@@ -105,6 +106,9 @@ pub fn lists_key(state: &yapfast_core::application::AppState, theme: &str) -> u6
             state.loading_history,
             state.history_failed,
             state.history_start,
+            state.detached,
+            state.loading_later,
+            state.later_failed,
         ),
     )
         .hash(&mut hasher);
@@ -287,6 +291,7 @@ impl App {
         tasks.push(self.channel_settings_sync());
         tasks.push(self.ask());
         self.sync_sign_in();
+        tasks.push(self.shell_sync());
         tasks.push(self.sync_mfa());
         tasks.push(self.follow_backend());
         Task::batch(tasks)
@@ -406,6 +411,7 @@ impl App {
             width: self.width,
             edge: self.edge.height(),
             edge_changed,
+            foot: self.edge.foot(),
         });
         self.looks = looks;
         self.heights = heights;
@@ -424,6 +430,7 @@ impl App {
             width,
             edge,
             edge_changed,
+            foot,
         } = rows;
         // Where the old rows are among the new: earlier history goes in
         // above them, and the oldest go as the newest come. The core makes
@@ -493,20 +500,27 @@ impl App {
             .iter()
             .enumerate()
             .map(|(index, look)| {
+                // The last row is measured each time, as it may carry the
+                // newer messages' edge, or have carried it.
+                let last = index + 1 == looks.len();
                 let same = old_at(index).filter(|&before| {
                     before < old_heights.len()
                         && old_looks[before].same_place(look)
                         && (before == 0) == (index == 0)
                         && !(index == 0 && edge_changed)
+                        && !last
+                        && before + 1 != old_heights.len()
                 });
                 match same {
                     Some(before) => old_heights[before],
-                    None => row_height(
-                        &messages[index],
-                        look,
-                        width,
-                        if index == 0 { edge } else { 0.0 },
-                    ),
+                    None => {
+                        row_height(
+                            &messages[index],
+                            look,
+                            width,
+                            if index == 0 { edge } else { 0.0 },
+                        ) + if last { foot } else { 0.0 }
+                    }
                 }
             })
             .collect();

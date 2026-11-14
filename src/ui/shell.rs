@@ -62,7 +62,9 @@ impl Shell {
                 }
             }));
         });
-        let tray = Tray::start(chosen);
+        let tray = Tray::start(std::sync::Arc::new(|choice| {
+            let _ = slint::invoke_from_event_loop(move || chosen(choice));
+        }));
         let mut adapter = shell.adapter.borrow_mut();
         adapter.tray = tray;
         adapter.show_tray();

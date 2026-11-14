@@ -394,6 +394,7 @@ impl App {
                 0.0
             },
             edge_changed,
+            foot: 0.0,
         });
         if let Some(aside) = &mut self.aside {
             aside.looks = looks;

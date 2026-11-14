@@ -35,8 +35,12 @@ enum Source {
 }
 
 impl Pointer {
-    pub fn of(window: &slint::winit_030::winit::window::Window) -> Option<Self> {
-        use slint::winit_030::winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    /// For `window`, whose physical pixels are `scale` of its logical ones.
+    pub fn of(
+        window: &(impl raw_window_handle::HasWindowHandle + ?Sized),
+        scale: f64,
+    ) -> Option<Self> {
+        use raw_window_handle::RawWindowHandle;
         let handle = window.window_handle().ok()?.as_raw();
         let source = match handle {
             #[cfg(target_os = "linux")]
@@ -47,10 +51,7 @@ impl Pointer {
             RawWindowHandle::Win32(handle) => Source::Win32(handle.hwnd.get()),
             _ => return None,
         };
-        Some(Self {
-            source,
-            scale: window.scale_factor(),
-        })
+        Some(Self { source, scale })
     }
 
     #[cfg(target_os = "linux")]

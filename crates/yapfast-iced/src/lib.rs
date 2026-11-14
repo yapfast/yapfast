@@ -42,6 +42,7 @@ mod commands;
 mod composer;
 mod control;
 mod controls;
+mod desktop;
 mod dialogs;
 mod edit;
 mod elide;
@@ -83,6 +84,7 @@ mod server_dialogs;
 mod server_settings;
 mod settings;
 mod sheet;
+mod shell;
 mod sidebar;
 mod signin;
 mod status;
@@ -99,6 +101,13 @@ mod uploads;
 mod video;
 mod viewer;
 mod widgets;
+mod window_bar;
+// The root crate's zoom levels and keys, which the Slint window steps through
+// too: one file, compiled into both. Its wheel isn't read here: iced's lists
+// would scroll as the window zooms.
+#[path = "../../../src/zoom.rs"]
+#[allow(dead_code)]
+mod zoom;
 
 #[cfg(test)]
 mod tests;
@@ -110,10 +119,16 @@ use std::{
     time::Duration,
 };
 
-use iced::{Size, Task};
+use iced::Task;
 use yapfast_core::{application::Action, runtime::BackgroundRuntime};
 
 use crate::{app::App, client::Client};
+pub use desktop::{
+    Desktop, Drag, Heard, Notifier, Offered, Tell, Tray, TrayChoice, UpdateChoices, UpdateStatus,
+    Updates, UpdatesShown,
+};
+/// The window the desktop's parts act on, by its handles.
+pub use iced::window::Window;
 pub use settings::Build;
 
 /// How the window starts.
@@ -134,6 +149,31 @@ pub struct Options {
     pub push_to_talk: Option<TalkKey>,
     /// Which build this is, as Settings shows it.
     pub build: settings::Build,
+    /// `--background`: start in the tray with a saved session, as starting
+    /// at sign-in does.
+    pub background: bool,
+    /// A Discord link handed to this start, as one word.
+    pub open_link: Option<String>,
+    /// The tray, notifications, links and the rest the root crate's
+    /// desktop modules do.
+    pub desktop: Arc<dyn Desktop>,
+}
+
+/// How the window ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Exit {
+    Closed,
+    /// An update was downloaded and checked; `main` finishes it.
+    Update,
+}
+
+/// How the window ended, set as it ends.
+static EXIT: std::sync::Mutex<Exit> = std::sync::Mutex::new(Exit::Closed);
+
+pub(crate) fn exit_for(exit: Exit) {
+    *EXIT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = exit;
 }
 
 /// See [`Options::push_to_talk`].
@@ -172,8 +212,12 @@ pub(crate) fn paste_reader() -> Option<fn() -> Option<Vec<PathBuf>>> {
 /// The window's size when the private test display doesn't set one.
 const SIZE: (u32, u32) = (1120, 760);
 
-/// Opens the window and runs until it closes.
-pub fn run(runtime: BackgroundRuntime, root: PathBuf, options: Options) -> anyhow::Result<()> {
+/// Opens the window, or starts in the tray, and runs until Yapfast quits.
+pub fn run(
+    runtime: Arc<BackgroundRuntime>,
+    root: PathBuf,
+    options: Options,
+) -> anyhow::Result<Exit> {
     if options.gpu != cfg!(feature = "gpu") {
         tracing::warn!(
             gpu = options.gpu,
@@ -189,10 +233,10 @@ pub fn run(runtime: BackgroundRuntime, root: PathBuf, options: Options) -> anyho
         let _ = TALK_KEY.set(watch);
     }
     let _ = BUILD.set(options.build);
+    desktop::install(options.desktop);
     pictures::install();
     video::install();
     fonts::install(options.twemoji);
-    let runtime = Arc::new(runtime);
     let _ = EXECUTOR.set(runtime.block_on(async { tokio::runtime::Handle::current() }));
     // As the Slint client starts: the preview, a saved session, or the
     // sign-in screen.
@@ -204,26 +248,37 @@ pub fn run(runtime: BackgroundRuntime, root: PathBuf, options: Options) -> anyho
         client.dispatch(Action::Restore);
     }
     let size = test_size().unwrap_or(SIZE);
-    // iced calls `boot` once; the client goes into the window then.
-    let client = RefCell::new(Some(client));
+    // iced calls `boot` once; the client goes into the window then. It runs
+    // as a daemon, which goes on without a window: closing to the tray drops
+    // the window, its renderer and its widgets, as the Slint client's does.
+    let start = shell::Start {
+        background: options.background && !options.preview && restore,
+        link: options.open_link.filter(|_| !options.preview),
+    };
+    let client = RefCell::new(Some((client, start)));
     let boot = move || {
-        let client = client
+        let (client, start) = client
             .borrow_mut()
             .take()
             .expect("iced boots the window once");
-        App::new(client, size)
+        let (mut app, task) = App::new(client, size);
+        let shell = app.start_shell(start);
+        (app, Task::batch([task, shell]))
     };
-    tracing::info!("starting the iced window");
-    iced::application(boot, App::update, App::view)
+    tracing::info!(background = options.background, "starting the iced window");
+    iced::daemon(boot, App::update, App::view_of)
         .executor::<Exec>()
         .subscription(App::subscription)
-        .title("Yapfast")
+        .title(App::title)
         .default_font(fonts::REGULAR)
-        .window_size(Size::new(size.0 as f32, size.1 as f32))
         .style(App::window_style)
-        .theme(App::theme)
+        .theme(|app: &App, _| app.theme())
+        .scale_factor(App::scale_factor)
         .run()
-        .map_err(|error| anyhow::anyhow!("the iced window failed: {error}"))
+        .map_err(|error| anyhow::anyhow!("the iced window failed: {error}"))?;
+    Ok(*EXIT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner))
 }
 
 /// The size the private test display asks for, as the Slint client takes it.

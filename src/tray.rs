@@ -25,7 +25,9 @@ pub fn take_activation_token() -> Option<String> {
     }
 }
 
-/// What the tray asks for, or says. Each runs on Slint's event loop.
+/// What the tray asks for, or says, handed to the [`Chosen`] the tray was
+/// started with, from the tray's own thread or window procedure: each window
+/// toolkit takes it onto its event loop.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Choice {
     Open,
@@ -44,15 +46,20 @@ pub struct Shown {
     pub call: bool,
 }
 
+/// Where the tray's choices go. It runs off the window's event loop, so it
+/// only hands the choice on.
+pub type Chosen = std::sync::Arc<dyn Fn(Choice) + Send + Sync>;
+
 pub struct Tray {
     platform: platform::Tray,
     shown: Cell<Shown>,
 }
 
 impl Tray {
-    /// Puts Yapfast's icon in the tray. `chosen` runs on Slint's event loop with
-    /// what the person picked. `None` where there's no tray to use.
-    pub fn start(chosen: fn(Choice)) -> Option<Self> {
+    /// Puts Yapfast's icon in the tray. `chosen` is handed what the person
+    /// picked. `None` where there's no tray to use. On Windows it starts on
+    /// the window's thread, whose message loop runs the icon's window.
+    pub fn start(chosen: Chosen) -> Option<Self> {
         let platform = platform::Tray::start(chosen)?;
         Some(Self {
             platform,
@@ -76,7 +83,7 @@ impl Tray {
 
 /// Yapfast's logo in Yap's marigold, `size` pixels square, with a red dot for
 /// unread messages cut into its corner.
-fn logo(size: u32, unread: bool) -> Option<slint::SharedPixelBuffer<slint::Rgba8Pixel>> {
+fn logo(size: u32, unread: bool) -> Option<crate::icon::Rgba> {
     let mut svg = include_str!("../ui/icons/logo.svg")
         .replacen(
             r#"width="24" height="24""#,
@@ -93,9 +100,7 @@ fn logo(size: u32, unread: bool) -> Option<slint::SharedPixelBuffer<slint::Rgba8
                 1,
             );
     }
-    slint::Image::load_from_svg_data(svg.as_bytes())
-        .ok()?
-        .to_rgba8()
+    crate::icon::rasterize(svg.as_bytes(), size)
 }
 
 #[cfg(target_os = "linux")]
@@ -127,19 +132,19 @@ mod linux {
     }
 
     impl Tray {
-        pub fn start(chosen: fn(Choice)) -> Option<Self> {
+        pub fn start(chosen: super::Chosen) -> Option<Self> {
             let icons = |unread| {
                 SIZES
                     .iter()
                     .filter_map(|&size| super::logo(size, unread))
                     .map(|pixels| ksni::Icon {
-                        width: pixels.width() as i32,
-                        height: pixels.height() as i32,
+                        width: pixels.width as i32,
+                        height: pixels.height as i32,
                         // ARGB, in network byte order.
                         data: pixels
-                            .as_slice()
-                            .iter()
-                            .flat_map(|pixel| [pixel.a, pixel.r, pixel.g, pixel.b])
+                            .pixels
+                            .chunks_exact(4)
+                            .flat_map(|pixel| [pixel[3], pixel[0], pixel[1], pixel[2]])
                             .collect(),
                     })
                     .collect()
@@ -175,7 +180,7 @@ mod linux {
     fn run(item: Item, shown: mpsc::Receiver<Shown>) {
         use ksni::blocking::TrayMethods;
         let online = item.online.clone();
-        let chosen = item.chosen;
+        let chosen = item.chosen.clone();
         // Until registering says otherwise; it reports a missing watcher.
         online.store(true, Ordering::Relaxed);
         // A tray that starts after Yapfast, or comes back, still gets the icon.
@@ -189,7 +194,7 @@ mod linux {
         };
         if online.load(Ordering::Relaxed) {
             tracing::info!("tray icon shown");
-            choose(chosen, Choice::Available);
+            choose(&chosen, Choice::Available);
         }
         for shown in shown {
             handle.update(|item| item.shown = shown);
@@ -201,11 +206,11 @@ mod linux {
         shown: Shown,
         /// The icon without the unread dot, and with it.
         icons: [Vec<ksni::Icon>; 2],
-        chosen: fn(Choice),
+        chosen: super::Chosen,
         online: Arc<AtomicBool>,
     }
 
-    fn choose(chosen: fn(Choice), choice: Choice) {
+    fn choose(chosen: &super::Chosen, choice: Choice) {
         // KDE Plasma sends a click on the icon or a menu item its
         // xdg-activation token just before the click, and ksni hands it to
         // the click. Most other trays, such as Waybar, send none.
@@ -215,7 +220,7 @@ mod linux {
                 .unwrap_or_else(std::sync::PoisonError::into_inner) =
                 ksni::current_xdg_activation_token();
         }
-        let _ = slint::invoke_from_event_loop(move || chosen(choice));
+        chosen(choice);
     }
 
     impl ksni::Tray for Item {
@@ -248,14 +253,14 @@ mod linux {
         }
 
         fn activate(&mut self, _x: i32, _y: i32) {
-            choose(self.chosen, Choice::Open);
+            choose(&self.chosen, Choice::Open);
         }
 
         fn menu(&self) -> Vec<MenuItem<Self>> {
             let item = |label: &str, choice| {
                 StandardItem {
                     label: label.into(),
-                    activate: Box::new(move |item: &mut Self| choose(item.chosen, choice)),
+                    activate: Box::new(move |item: &mut Self| choose(&item.chosen, choice)),
                     ..Default::default()
                 }
                 .into()
@@ -272,13 +277,13 @@ mod linux {
         fn watcher_online(&self) {
             tracing::info!("tray icon shown");
             self.online.store(true, Ordering::Relaxed);
-            choose(self.chosen, Choice::Available);
+            choose(&self.chosen, Choice::Available);
         }
 
         fn watcher_offline(&self, reason: ksni::OfflineReason) -> bool {
             tracing::info!(?reason, "no tray to show the icon");
             self.online.store(false, Ordering::Relaxed);
-            choose(self.chosen, Choice::Available);
+            choose(&self.chosen, Choice::Available);
             // Wait for it to come back.
             true
         }
@@ -336,7 +341,7 @@ mod windows {
         /// Without the unread dot, and with it.
         icons: [HICON; 2],
         shown: Shown,
-        chosen: fn(Choice),
+        chosen: super::Chosen,
     }
 
     pub struct Tray {
@@ -344,7 +349,7 @@ mod windows {
     }
 
     impl Tray {
-        pub fn start(chosen: fn(Choice)) -> Option<Self> {
+        pub fn start(chosen: super::Chosen) -> Option<Self> {
             // SAFETY: plain Win32 calls on the UI thread; every pointer passed
             // lives across the call, and the window and icons are released in
             // `drop`.
@@ -452,9 +457,9 @@ mod windows {
             return std::ptr::null_mut();
         };
         let colour: Vec<u8> = pixels
-            .as_slice()
-            .iter()
-            .flat_map(|pixel| [pixel.b, pixel.g, pixel.r, pixel.a])
+            .pixels
+            .chunks_exact(4)
+            .flat_map(|pixel| [pixel[2], pixel[1], pixel[0], pixel[3]])
             .collect();
         // Rows of the 1-bit mask are padded to 16 bits.
         let mask = vec![0u8; size.div_ceil(16) as usize * 2 * size as usize];
@@ -504,9 +509,10 @@ mod windows {
     }
 
     fn choose(choice: Choice) {
-        if let Some(chosen) = ICON.with_borrow(|icon| icon.as_ref().map(|icon| icon.chosen)) {
-            // Not from inside the window procedure, which the menu's own loop runs.
-            let _ = slint::invoke_from_event_loop(move || chosen(choice));
+        // Not while `ICON` is borrowed: the choice may come back to it.
+        if let Some(chosen) = ICON.with_borrow(|icon| icon.as_ref().map(|icon| icon.chosen.clone()))
+        {
+            chosen(choice);
         }
     }
 
@@ -557,7 +563,7 @@ mod none {
     pub struct Tray;
 
     impl Tray {
-        pub fn start(_: fn(Choice)) -> Option<Self> {
+        pub fn start(_: super::Chosen) -> Option<Self> {
             None
         }
 
@@ -575,18 +581,14 @@ mod tests {
     fn the_logo_is_marigold_and_unread_adds_a_red_dot() {
         let plain = super::logo(32, false).unwrap();
         let unread = super::logo(32, true).unwrap();
-        assert_eq!((plain.width(), plain.height()), (32, 32));
-        let marigold = |pixel: &slint::Rgba8Pixel| {
-            pixel.a == 255 && (pixel.r, pixel.g, pixel.b) == (0xff, 0xbf, 0x47)
-        };
-        let red = |pixel: &slint::Rgba8Pixel| {
-            pixel.a == 255 && (pixel.r, pixel.g, pixel.b) == (0xf0, 0x54, 0x5e)
-        };
-        assert!(plain.as_slice().iter().any(marigold));
-        assert!(!plain.as_slice().iter().any(red));
-        assert!(unread.as_slice().iter().any(marigold));
+        assert_eq!((plain.width, plain.height), (32, 32));
+        let marigold = |pixel: &[u8]| pixel == [0xff, 0xbf, 0x47, 255];
+        let red = |pixel: &[u8]| pixel == [0xf0, 0x54, 0x5e, 255];
+        assert!(plain.pixels.chunks_exact(4).any(marigold));
+        assert!(!plain.pixels.chunks_exact(4).any(red));
+        assert!(unread.pixels.chunks_exact(4).any(marigold));
         // The dot is in the bottom-right corner.
-        let corner = (24 * 32 + 24) as usize;
-        assert!(red(&unread.as_slice()[corner]));
+        let corner = (24 * 32 + 24) * 4;
+        assert!(red(&unread.pixels[corner..corner + 4]));
     }
 }

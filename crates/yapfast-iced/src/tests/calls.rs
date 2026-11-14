@@ -122,7 +122,8 @@ fn call_volumes_play_while_dragged_and_are_remembered() {
 fn the_share_menu_fits_a_short_window_and_keeps_its_button() {
     use crate::call::{Listing, ShareEvent};
     let (mut app, _folder, _) = in_call();
-    app.window = Size::new(800.0, 560.0);
+    app.shell.frame = Size::new(800.0, 560.0);
+    app.fit_window();
     // More than the window is tall: a screen, twelve windows, four cameras.
     let mut listed = vec![Shareable {
         source: Source::Display(1),

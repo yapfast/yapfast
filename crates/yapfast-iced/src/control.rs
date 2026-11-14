@@ -4,12 +4,13 @@
 //! `YAPFAST_UI_TEST_CONTROL`, and the window carries out each new one.
 //!
 //! The commands it knows: `stats` (glibc's heap to the log), `trim` (free
-//! heap back to the system), `close` and `quit` (no tray yet, so both end
-//! the app), `hide` and `show`, `stage PATH` and `stage-aside PATH` (a file
-//! for the next message), `pick KIND PATH` (a picture for a profile or a
-//! server's settings), `theme ID` (a theme, built in or custom, as
-//! Appearance chooses it). `open`, `create` and `destroy` need the tray,
-//! which the iced client doesn't have yet; it logs them.
+//! heap back to the system), `close` (as the window's close button: to the
+//! tray, or quit), `destroy` (the window dropped without giving its memory
+//! back, which `trim` then does), `open` and `create` (as the tray's Open
+//! Yapfast), `quit`, `hide` and `show`, `stage PATH` and `stage-aside PATH`
+//! (a file for the next message), `pick KIND PATH` (a picture for a profile
+//! or a server's settings), `theme ID` (a theme, built in or custom, as
+//! Appearance chooses it).
 
 use std::{collections::VecDeque, path::PathBuf, time::Duration};
 
@@ -55,6 +56,9 @@ pub enum Command {
     Stats,
     Trim,
     Quit,
+    Close,
+    Destroy,
+    Open,
     Hide,
     Show,
     /// An action for the application, as the window's own controls would
@@ -62,8 +66,6 @@ pub enum Command {
     Act(Action),
     /// Show and keep a theme, by its id.
     Theme(String),
-    /// A command for what the iced client doesn't have yet.
-    Later,
     Unknown,
 }
 
@@ -71,10 +73,12 @@ pub fn parse(command: &str) -> Command {
     match command {
         "stats" => Command::Stats,
         "trim" => Command::Trim,
-        "close" | "quit" => Command::Quit,
+        "quit" => Command::Quit,
+        "close" => Command::Close,
+        "destroy" => Command::Destroy,
+        "open" | "create" => Command::Open,
         "hide" => Command::Hide,
         "show" => Command::Show,
-        "open" | "create" | "destroy" => Command::Later,
         _ => {
             if let Some(path) = command.strip_prefix("stage ") {
                 Command::Act(Action::Stage(vec![PathBuf::from(path)]))
@@ -148,7 +152,7 @@ mod tests {
     #[test]
     fn the_sessions_commands_are_read_as_the_slint_client_reads_them() {
         assert!(matches!(parse("stats"), Command::Stats));
-        assert!(matches!(parse("close"), Command::Quit));
+        assert!(matches!(parse("close"), Command::Close));
         assert!(matches!(
             parse("stage testing/a.png"),
             Command::Act(Action::Stage(paths)) if paths == [PathBuf::from("testing/a.png")]
@@ -161,7 +165,7 @@ mod tests {
             })
         ));
         assert!(matches!(parse("theme sakura"), Command::Theme(id) if id == "sakura"));
-        assert!(matches!(parse("open"), Command::Later));
+        assert!(matches!(parse("open"), Command::Open));
         assert!(matches!(parse("dance"), Command::Unknown));
     }
 }

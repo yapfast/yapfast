@@ -379,6 +379,7 @@ impl App {
                 ),
                 tiles,
             ]),
+            self.title_bar_switch(),
             column![
                 form::heading(theme, "PROFILES"),
                 profile(
@@ -743,4 +744,24 @@ fn preview<'a>(palette: &palette::Theme, width: f32) -> Element<'a, Message> {
             ..Default::default()
         })
         .into()
+}
+
+impl App {
+    /// Appearance's "Use the system title bar", where Yapfast can draw its
+    /// own: the desktop's way until it's chosen.
+    pub(super) fn title_bar_switch(&self) -> Element<'_, Message> {
+        if !crate::window_bar::offered() {
+            return Space::new().into();
+        }
+        let system = !self.shell.own_title_bar;
+        switch(
+            "Use the system title bar",
+            system,
+            Some(Message::Settings(SettingsEvent::Pref(
+                super::pages::Pref::SystemTitleBar(!system),
+            ))),
+        )
+        .description("Your desktop draws the window's title bar and buttons, as on its other windows. Off, Yapfast draws its own.")
+        .view(self)
+    }
 }

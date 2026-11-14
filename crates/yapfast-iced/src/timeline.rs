@@ -326,6 +326,11 @@ pub struct Edge {
     pub loading: bool,
     pub failed: bool,
     pub start: bool,
+    /// The timeline is a window of older messages: newer ones follow its
+    /// last row, loading or failed to.
+    pub detached: bool,
+    pub loading_later: bool,
+    pub later_failed: bool,
     pub direct: bool,
     pub thread: bool,
     pub name: String,
@@ -375,6 +380,9 @@ impl Edge {
             loading: state.loading_history,
             failed: state.history_failed,
             start: state.history_start,
+            detached: state.detached,
+            loading_later: state.loading_later,
+            later_failed: state.later_failed,
             direct: room.is_some_and(|room| room.direct),
             thread: room.is_some_and(|room| room.parent.is_some()),
             name: room.map(|room| room.name.clone()).unwrap_or_default(),
@@ -384,6 +392,16 @@ impl Edge {
 
     fn welcome(&self) -> bool {
         self.start && self.intro != Intro::None
+    }
+
+    /// The height under the last row's message: Newer messages, while the
+    /// timeline is a window of older ones.
+    pub fn foot(&self) -> f32 {
+        if self.ready && self.detached {
+            EDGE
+        } else {
+            0.0
+        }
     }
 
     /// Its height above the first row's message.
@@ -753,6 +771,27 @@ impl App {
         if look.last {
             whole = whole.push(Space::new().height(TAIL - ROW_GAP));
         }
+        // A window of older messages ends with what's after it: newer
+        // messages loading, or a way to load them.
+        if !aside && index + 1 == self.messages.len() && self.edge.foot() > 0.0 {
+            let edge = &self.edge;
+            whole = whole.push(
+                container(self.edge_button(
+                    edge.loading_later,
+                    edge.later_failed,
+                    true,
+                    Message::Later,
+                ))
+                .height(edge.foot())
+                .padding(Padding {
+                    top: 4.0,
+                    bottom: 8.0,
+                    ..Padding::ZERO
+                })
+                .center_x(Length::Fill)
+                .align_y(Alignment::Center),
+            );
+        }
         whole.into()
     }
 
@@ -827,54 +866,7 @@ impl App {
             };
             text(words).size(14).color(theme.muted).into()
         } else {
-            let (icon, ink, words) = if edge.loading {
-                (
-                    Icon::History,
-                    theme.secondary,
-                    "Loading earlier messages...",
-                )
-            } else if edge.failed {
-                (
-                    Icon::TriangleAlert,
-                    theme.danger,
-                    "Couldn't load earlier messages. Retry",
-                )
-            } else {
-                (Icon::History, theme.secondary, "Earlier messages")
-            };
-            let face = row![
-                self.glyph(icon, 16, ink),
-                text(words).size(14).font(MEDIUM).color(theme.secondary)
-            ]
-            .spacing(6)
-            .align_y(Alignment::Center);
-            let enabled = !edge.loading && !self.client.state().preview;
-            let (rest, lit) = (theme.raised, theme.active);
-            button(
-                container(face)
-                    .padding(Padding {
-                        left: 12.0,
-                        right: 14.0,
-                        ..Padding::ZERO
-                    })
-                    .height(30)
-                    .align_y(Alignment::Center),
-            )
-            .padding(0)
-            .on_press_maybe(enabled.then_some(earlier))
-            .style(move |_, status| button::Style {
-                background: Some(
-                    if matches!(status, button::Status::Hovered | button::Status::Pressed) {
-                        lit
-                    } else {
-                        rest
-                    }
-                    .into(),
-                ),
-                border: iced::Border::default().rounded(15),
-                ..button::Style::default()
-            })
-            .into()
+            self.edge_button(edge.loading, edge.failed, false, earlier)
         };
         container(shown)
             .width(Length::Fill)
@@ -887,6 +879,73 @@ impl App {
             .center_x(Length::Fill)
             .align_y(Alignment::Center)
             .into()
+    }
+
+    /// Earlier messages, or with `newer` Newer messages, as a pill that
+    /// loads them (`load`): loading, or failed and offering a retry.
+    fn edge_button(
+        &self,
+        loading: bool,
+        failed: bool,
+        newer: bool,
+        load: Message,
+    ) -> Element<'_, Message> {
+        let theme = &self.theme;
+        let which = if newer { "newer" } else { "earlier" };
+        let (icon, ink, words) = if loading {
+            (
+                Icon::History,
+                theme.secondary,
+                format!("Loading {which} messages..."),
+            )
+        } else if failed {
+            (
+                Icon::TriangleAlert,
+                theme.danger,
+                format!("Couldn't load {which} messages. Retry"),
+            )
+        } else if newer {
+            (Icon::History, theme.secondary, "Newer messages".to_owned())
+        } else {
+            (
+                Icon::History,
+                theme.secondary,
+                "Earlier messages".to_owned(),
+            )
+        };
+        let face = row![
+            self.glyph(icon, 16, ink),
+            text(words).size(14).font(MEDIUM).color(theme.secondary)
+        ]
+        .spacing(6)
+        .align_y(Alignment::Center);
+        let enabled = !loading && !self.client.state().preview;
+        let (rest, lit) = (theme.raised, theme.active);
+        button(
+            container(face)
+                .padding(Padding {
+                    left: 12.0,
+                    right: 14.0,
+                    ..Padding::ZERO
+                })
+                .height(30)
+                .align_y(Alignment::Center),
+        )
+        .padding(0)
+        .on_press_maybe(enabled.then_some(load))
+        .style(move |_, status| button::Style {
+            background: Some(
+                if matches!(status, button::Status::Hovered | button::Status::Pressed) {
+                    lit
+                } else {
+                    rest
+                }
+                .into(),
+            ),
+            border: iced::Border::default().rounded(15),
+            ..button::Style::default()
+        })
+        .into()
     }
 
     /// Discord's welcome: a server's in two lines over its line of text, a

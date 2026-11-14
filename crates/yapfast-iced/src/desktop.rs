@@ -1,0 +1,206 @@
+//! What the window asks of the desktop beyond iced: the tray icon,
+//! notifications, a later start of Yapfast handing over, starting at sign-in,
+//! Discord's links, copied pictures, updates, the window's icon and files
+//! dragged over it on Wayland. The root crate's shared desktop modules do
+//! each (`src/iced_desktop.rs`), as they do for the Slint client, and tell
+//! the window what they hear through a [`Tell`], from threads of their own.
+//! Without them, as in the tests, each does nothing.
+
+use std::{path::Path, sync::Arc};
+
+use yapfast_core::chat::Alert;
+
+/// What the tray's icon or its menu asks for, or says.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TrayChoice {
+    Open,
+    Disconnect,
+    Quit,
+    /// A tray came or went, which decides what closing the window does.
+    Available,
+}
+
+/// What the desktop said, for the window to act on.
+#[derive(Clone, Debug)]
+pub enum Heard {
+    Tray(TrayChoice),
+    /// A notification was clicked: its conversation, or [`ABOUT`].
+    Opened(String),
+    /// Yapfast was started again on this folder: the desktop's activation
+    /// token for that start, and the link it brought.
+    Launched {
+        token: Option<String>,
+        link: Option<String>,
+    },
+    /// The look at the releases, or the update, went a step further.
+    Updates,
+    /// Files dragged over the window, where winit doesn't follow them.
+    Drag(Drag),
+}
+
+/// A drag of files over the window, as the root crate's `drop.rs` follows it.
+#[derive(Clone, Debug)]
+pub enum Drag {
+    Entered,
+    Left,
+    Dropped(Vec<std::path::PathBuf>),
+}
+
+/// Hands what the desktop heard to the window's event loop.
+pub type Tell = Arc<dyn Fn(Heard) + Send + Sync>;
+
+/// The "conversation" of the notification of a newer release: opening it
+/// shows About, as the Slint client's does.
+pub const ABOUT: &str = "yapfast:about";
+
+/// The tray's icon while it's there.
+pub trait Tray {
+    /// A tray shows the icon now, so the window can close into it.
+    fn available(&self) -> bool;
+    /// The unread dot, and Disconnect in its menu during a call.
+    fn show(&self, unread: bool, call: bool);
+}
+
+/// Shows desktop notifications.
+pub trait Notifier {
+    /// `text` says what the message says, rather than only who wrote.
+    fn show(&self, alert: Alert, text: bool);
+}
+
+/// What About shows of the releases, as the Slint client's `Updates`.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct UpdatesShown {
+    pub status: UpdateStatus,
+    /// The release offered or skipped.
+    pub latest: String,
+    pub error: String,
+    pub notes: String,
+    /// A package manager installed this copy, which updates it.
+    pub manager: String,
+    pub can_install: bool,
+    /// What Update and restart will do, or why this copy can't.
+    pub install_note: String,
+    pub install_error: String,
+    /// Downloading or finishing an update: how far, in words and as a
+    /// fraction (below 0 while it can't say), and whether it can stop.
+    pub installing: bool,
+    pub install_text: String,
+    pub install_progress: f32,
+    pub can_cancel: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum UpdateStatus {
+    #[default]
+    Idle,
+    Checking,
+    Current,
+    Available,
+    Skipped,
+    Failed,
+    Source,
+}
+
+/// The choices about updates the layout keeps.
+#[derive(Clone, Debug, Default)]
+pub struct UpdateChoices {
+    pub nightlies: bool,
+    pub skipped: Option<String>,
+}
+
+/// The release the last look found worth telling of: its tag and its page.
+#[derive(Clone, Debug)]
+pub struct Offered {
+    pub tag: String,
+    pub page: String,
+    /// Skipped by the person: About still links it, but offers nothing.
+    pub skipped: bool,
+}
+
+/// Looks at the releases and installs one, as the Slint client's About.
+pub trait Updates {
+    /// Asks GitHub for the releases, unless a look is under way; tells
+    /// [`Heard::Updates`] when it's done.
+    fn look(&self);
+    fn shown(&self, choices: &UpdateChoices) -> UpdatesShown;
+    /// The newest release the choices let through.
+    fn offered(&self, choices: &UpdateChoices) -> Option<Offered>;
+    /// Downloads the offered release and checks it; tells [`Heard::Updates`]
+    /// as it goes, and once it's [`Updates::ready`].
+    fn install(&self, choices: &UpdateChoices);
+    fn cancel(&self);
+    /// The update is ready for Yapfast to end and finish it.
+    fn ready(&self) -> bool;
+}
+
+/// The desktop's parts, which the root crate fills in.
+pub trait Desktop: Send + Sync {
+    /// The window's app ID on Linux, which names its desktop entry.
+    fn app_id(&self) -> &'static str {
+        ""
+    }
+    /// Starts what talks back to the window: later starts of Yapfast on this
+    /// folder handing over, and updates' results.
+    fn start(&self, _tell: Tell) {}
+    /// Puts Yapfast's icon in the tray; none where there's no tray.
+    fn tray(&self, _tell: Tell) -> Option<Box<dyn Tray>> {
+        None
+    }
+    /// The activation token of the tray click that's opening the window.
+    fn tray_token(&self) -> Option<String> {
+        None
+    }
+    fn notifier(&self, _root: &Path, _tell: Tell) -> Option<Box<dyn Notifier>> {
+        None
+    }
+    /// Brings a shown window forward with a later start's token.
+    fn activate(&self, _window: &dyn iced::window::Window, _token: &str) {}
+    /// Gives a window just made what iced can't: its icon on Windows; and
+    /// on Wayland follows files dragged over it.
+    fn decorate(&self, _window: &dyn iced::window::Window, _tell: Tell) {}
+    /// The window's icon where the window carries one (X11), as RGBA.
+    fn window_icon(&self) -> Option<(Vec<u8>, u32, u32)> {
+        None
+    }
+    /// Whether Yapfast starts when the person signs in; none where it can't.
+    fn autostart(&self) -> Option<bool> {
+        None
+    }
+    fn set_autostart(&self, _on: bool) -> Result<(), String> {
+        Err("this build can't start at sign-in".into())
+    }
+    /// Whether `discord:` links open here; none where they can't.
+    fn discord_links(&self, _root: &Path) -> Option<bool> {
+        None
+    }
+    fn set_discord_links(&self, _root: &Path, _on: bool) -> Result<(), String> {
+        Err("this build can't open Discord links".into())
+    }
+    /// Puts a picture, as it was downloaded, on the clipboard.
+    fn copy_picture(&self, _bytes: Vec<u8>) {}
+    /// Gives back memory freed with the window.
+    fn release_memory(&self) {}
+    fn updates(&self) -> Option<&dyn Updates> {
+        None
+    }
+}
+
+/// What a build without the root crate's modules has: nothing.
+pub struct Nothing;
+
+impl Desktop for Nothing {}
+
+/// The root crate's desktop, set once as the window opens.
+static DESKTOP: std::sync::OnceLock<Arc<dyn Desktop>> = std::sync::OnceLock::new();
+
+pub(crate) fn install(desktop: Arc<dyn Desktop>) {
+    let _ = DESKTOP.set(desktop);
+}
+
+/// The desktop's parts, or [`Nothing`].
+pub(crate) fn desktop() -> &'static dyn Desktop {
+    match DESKTOP.get() {
+        Some(desktop) => desktop.as_ref(),
+        None => &Nothing,
+    }
+}

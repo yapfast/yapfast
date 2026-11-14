@@ -23,16 +23,20 @@ resolver = "3"
 default = ["desktop", "discord"]
 matrix = ["yapfast-core/matrix", "yapfast-iced?/matrix"]
 discord = ["yapfast-core/discord", "dep:qrcode"]
-desktop = ["dep:slint", "dep:yapfast-ui", "dep:skia-safe", "dep:rfd", "dep:memmap2", "dep:emojis", "dep:webbrowser", "dep:i-slint-core", "dep:zbus", "dep:arboard", "dep:image", "dep:tempfile", "dep:wl-clipboard-rs", "dep:wayland-client", "dep:wayland-backend", "dep:wayland-protocols", "dep:ksni", "dep:windows-sys", "dep:windows", "dep:i-slint-renderer-skia", "dep:futures-util", "dep:x11rb", "dep:xkeysym", "dep:reqwest", "dep:rustls", "dep:sha2"]
+desktop = ["dep:slint", "dep:yapfast-ui", "dep:skia-safe", "dep:rfd", "dep:memmap2", "dep:emojis", "dep:webbrowser", "dep:i-slint-core", "dep:zbus", "dep:arboard", "dep:image", "dep:tempfile", "dep:wl-clipboard-rs", "dep:wayland-client", "dep:wayland-backend", "dep:wayland-protocols", "dep:ksni", "dep:windows-sys", "dep:windows", "dep:i-slint-renderer-skia", "dep:futures-util", "dep:x11rb", "dep:xkeysym", "dep:reqwest", "dep:rustls", "dep:sha2", "dep:raw-window-handle", "dep:resvg"]
 # The desktop app with a window that reloads ui/ on each save, for UI work;
 # see docs/building.md.
 live-preview = ["desktop", "yapfast-ui/live-preview"]
 # The iced front end in place of Slint's, drawn on the CPU: build with
 # --no-default-features --features iced. It can't share a build with
 # `desktop`; see docs/iced-client.md.
-iced = ["discord", "dep:yapfast-iced", "yapfast-iced/cpu", "pasting", "talking"]
+iced = ["discord", "dep:yapfast-iced", "yapfast-iced/cpu", "pasting", "talking", "platform"]
 # The iced front end on wgpu instead, for trying the GPU renderer.
-iced-gpu = ["discord", "dep:yapfast-iced", "yapfast-iced/gpu", "pasting", "talking"]
+iced-gpu = ["discord", "dep:yapfast-iced", "yapfast-iced/gpu", "pasting", "talking", "platform"]
+# What the iced client's tray, notifications, single instance, links,
+# start at sign-in, updates, icon and copied pictures are made with: the
+# desktop modules `desktop` has too (`src/iced_desktop.rs`).
+platform = ["dep:raw-window-handle", "dep:resvg", "dep:ksni", "dep:zbus", "dep:windows-sys", "dep:windows", "dep:reqwest", "dep:rustls", "dep:sha2", "dep:wayland-client", "dep:wayland-backend", "dep:wayland-protocols", "dep:arboard", "dep:image", "dep:tempfile"]
 # What a paste in the iced client reads files and pictures with (`paste.rs`),
 # which `desktop` has too.
 pasting = ["dep:image", "dep:tempfile", "dep:wl-clipboard-rs", "dep:x11rb", "dep:windows-sys"]
@@ -76,6 +80,12 @@ rustls = { workspace = true, optional = true }
 sha2 = { version = "0.10", optional = true }
 # The code the Discord phone app scans to link an account.
 qrcode = { version = "0.14", default-features = false, optional = true }
+# The window's handles, which bringing it forward, following a drag over it
+# and its icon on Windows act on; the version winit's are.
+raw-window-handle = { version = "0.6.2", optional = true }
+# The tray's and the window's icons drawn from their SVGs; the version
+# yapfast-core already builds, without text.
+resvg = { version = "0.49", default-features = false, optional = true }
 
 # Desktop notifications through the freedesktop service, on the session bus Slint and
 # the keyring already use.

@@ -84,7 +84,7 @@ fn local() -> PathBuf {
 /// Builds the view, lets `act` work on it, and applies what came out.
 fn interact(app: &mut App, act: impl FnOnce(&mut Simulator<'_, Message>)) {
     let messages: Vec<Message> = {
-        let mut ui = Simulator::with_size(Settings::default(), app.window, app.view());
+        let mut ui = Simulator::with_size(Settings::default(), app.shell.frame, app.view());
         act(&mut ui);
         ui.into_messages().collect()
     };
@@ -95,7 +95,7 @@ fn interact(app: &mut App, act: impl FnOnce(&mut Simulator<'_, Message>)) {
 
 /// Whether the window shows `text`.
 fn shows(app: &App, text: &str) -> bool {
-    let mut ui = Simulator::with_size(Settings::default(), app.window, app.view());
+    let mut ui = Simulator::with_size(Settings::default(), app.shell.frame, app.view());
     ui.find(text).is_ok()
 }
 
@@ -649,6 +649,34 @@ fn the_history_edge_offers_earlier_messages_then_shows_them_loading() {
 }
 
 #[test]
+fn a_window_of_older_messages_ends_with_newer_messages_loading_or_failed() {
+    let (mut app, _folder) = preview();
+    let height = *app.heights.last().expect("rows");
+    assert!(!shows(&app, "Newer messages"));
+    change(&mut app, |state| state.detached = true);
+    assert!(shows(&app, "Newer messages"));
+    assert_eq!(
+        *app.heights.last().expect("rows"),
+        height + crate::timeline::EDGE,
+        "the last row makes room for it"
+    );
+    change(&mut app, |state| state.loading_later = true);
+    assert!(shows(&app, "Loading newer messages..."));
+    change(&mut app, |state| {
+        state.loading_later = false;
+        state.later_failed = true;
+    });
+    assert!(shows(&app, "Couldn't load newer messages. Retry"));
+    // Back at the present: the edge goes, and its room with it.
+    change(&mut app, |state| {
+        state.later_failed = false;
+        state.detached = false;
+    });
+    assert!(!shows(&app, "Newer messages"));
+    assert_eq!(*app.heights.last().expect("rows"), height);
+}
+
+#[test]
 fn the_unread_bar_jumps_to_the_new_divider_out_of_view() {
     let (mut app, _folder) = preview();
     let items = long_history(&mut app, 80);
@@ -876,5 +904,6 @@ mod people;
 mod server;
 mod server_dialogs;
 mod settings;
+mod shell;
 mod threads;
 mod writing;

@@ -15,6 +15,7 @@
 
 mod appearance;
 mod pages;
+pub mod updates;
 
 pub use pages::message_size;
 pub mod voice;
@@ -155,6 +156,17 @@ pub struct Settings {
     pub game: pages::GameDraft,
     /// How many people blocked the Discord page lists.
     pub blocked_shown: usize,
+    /// What the desktop says of starting at sign-in and Discord's links,
+    /// read as Settings opens and after each change.
+    pub platform: Platform,
+}
+
+/// Starting at sign-in and opening Discord's links here, where the build and
+/// the desktop can: none where they can't.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Platform {
+    pub autostart: Option<bool>,
+    pub discord_links: Option<bool>,
 }
 
 impl Settings {
@@ -180,6 +192,8 @@ pub enum Event {
     Game(pages::GameEvent),
     Voice(voice::Event),
     Theme(appearance::Event),
+    /// About's updates.
+    Updates(updates::Event),
 }
 
 impl App {
@@ -190,6 +204,7 @@ impl App {
         self.close_popup();
         let settings = self.settings.get_or_insert_with(Default::default);
         settings.blocked_shown = 5;
+        self.read_platform_choices();
         let task = self.show_section(section);
         Task::batch([task, iced::widget::operation::focus(crate::app::NOBODY)])
     }
@@ -227,12 +242,16 @@ impl App {
         self.cancel_theme();
         self.leave_voice_settings();
         self.settings = None;
+        // Linking Discord from its page stops with it, as the Slint client's.
+        if self.client.state().discord_link.is_some() {
+            self.client.dispatch(Action::CancelDiscordLink);
+        }
         // The pictures only its pages showed go with it.
         Task::batch([self.sync(), self.refocus()])
     }
 
     pub fn settings_event(&mut self, event: Event) -> Task<Message> {
-        if self.settings.is_none() && !matches!(event, Event::Open(_)) {
+        if self.settings.is_none() && !matches!(event, Event::Open(_) | Event::Updates(_)) {
             return Task::none();
         }
         match event {
@@ -283,6 +302,20 @@ impl App {
             Event::Game(event) => self.game_event(event),
             Event::Voice(event) => self.voice_settings_event(event),
             Event::Theme(event) => self.theme_event(event),
+            Event::Updates(event) => self.updates_event(event),
+        }
+    }
+
+    /// Reads what the desktop says of starting at sign-in and Discord's
+    /// links, for Advanced. A Discord build only offers the links.
+    pub fn read_platform_choices(&mut self) {
+        let desktop = crate::desktop::desktop();
+        let platform = Platform {
+            autostart: desktop.autostart(),
+            discord_links: desktop.discord_links(self.client.root()),
+        };
+        if let Some(settings) = &mut self.settings {
+            settings.platform = platform;
         }
     }
 
@@ -478,7 +511,11 @@ impl App {
         }))
         .style(scrollbar(theme))
         .height(Length::Fill);
-        column![head, search, list, self.build_stamp(settings.copied)]
+        let mut nav = column![head, search, list];
+        if let Some(notice) = self.update_notice() {
+            nav = nav.push(notice);
+        }
+        nav.push(self.build_stamp(settings.copied))
             .spacing(16)
             .padding(iced::Padding {
                 top: 16.0,

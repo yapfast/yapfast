@@ -1,6 +1,7 @@
 """What scripts/package-windows.py and scripts/package-linux.py share: the
 source snapshot each release carries, and the dependencies' licenses and
 notices each package holds."""
+import contextlib
 import hashlib
 import os
 import shutil
@@ -70,7 +71,8 @@ def source_snapshot(metadata, base, temporary, destination):
 def dependency_notices(metadata, package, licenses, skia_archive, skia_source, webrtc):
     """Copies each crate's, Skia's and libwebrtc's licenses and notices into
     licenses, and returns the crates' entries for THIRD-PARTY.json, with
-    paths relative to package."""
+    paths relative to package. A build without Skia (the iced client's)
+    passes None for its archive and source."""
     dependencies = []
     licenses.mkdir()
     font_notices = licenses / "fonts"
@@ -98,15 +100,15 @@ def dependency_notices(metadata, package, licenses, skia_archive, skia_source, w
             "name": item["name"], "version": item["version"], "license": item["license"],
             "source": item["source"], "repository": item["repository"], "license_files": copied,
         })
-    with tarfile.open(skia_archive) as native:
-        for member in native.getmembers():
+    with tarfile.open(skia_archive) if skia_archive else contextlib.nullcontext() as native:
+        for member in native.getmembers() if native else []:
             if member.isfile() and Path(member.name).name.upper().startswith(("LICENSE", "COPYING", "NOTICE")):
                 notice_file = native.extractfile(member)
                 if notice_file is None:
                     continue
                 with notice_file as notice:
                     (licenses / ("skia-native-" + Path(member.name).name)).write_bytes(notice.read())
-    for notice in skia_source.rglob("*"):
+    for notice in skia_source.rglob("*") if skia_source else []:
         if license_file(notice):
             destination = licenses / "skia-source" / notice.relative_to(skia_source)
             destination.parent.mkdir(parents=True, exist_ok=True)

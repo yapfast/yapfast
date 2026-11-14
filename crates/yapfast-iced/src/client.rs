@@ -37,8 +37,11 @@ pub struct Client {
     linking: Option<BackgroundTask<()>>,
     link_progress: Option<UnboundedReceiver<Progress>>,
     link_stopped: bool,
-    /// Sounds the core asked for, for the window to play.
+    /// Sounds the core asked for, for the window to play; new messages to
+    /// tell of; a picture to put on the clipboard.
     sounds: Vec<yapfast_core::sounds::Sound>,
+    alerts: Vec<yapfast_core::chat::Alert>,
+    copied_picture: Option<Vec<u8>>,
     /// Others see when this account types, as Messages' settings say; off,
     /// the core's typing commands go nowhere.
     pub share_typing: bool,
@@ -60,6 +63,8 @@ impl Client {
             link_progress: None,
             link_stopped: false,
             sounds: Vec::new(),
+            alerts: Vec::new(),
+            copied_picture: None,
             share_typing: true,
             #[cfg(test)]
             sent: Vec::new(),
@@ -117,6 +122,16 @@ impl Client {
         std::mem::take(&mut self.sounds)
     }
 
+    /// The new messages to tell of since this was last asked.
+    pub fn take_alerts(&mut self) -> Vec<yapfast_core::chat::Alert> {
+        std::mem::take(&mut self.alerts)
+    }
+
+    /// The picture to put on the clipboard, since this was last asked.
+    pub fn take_copied_picture(&mut self) -> Option<Vec<u8>> {
+        self.copied_picture.take()
+    }
+
     /// Whether linking stopped since this was last asked.
     pub fn link_stopped(&mut self) -> bool {
         std::mem::take(&mut self.link_stopped)
@@ -167,9 +182,12 @@ impl Client {
                 Effect::OpenPage(page) => crate::browser::open(&page),
                 // The window plays them, as loud as Voice's settings say.
                 Effect::Sound(sound) => self.sounds.push(sound),
-                // Notifications, the clipboard's pictures and the preview's
-                // device lists come with the parts of the window that use
-                // them.
+                // The window tells of them, as its focus and the settings
+                // say (`shell.rs`).
+                Effect::Notify(alert) => self.alerts.push(alert),
+                Effect::CopyPicture(bytes) => self.copied_picture = Some(bytes),
+                // The preview's device lists and camera come with the parts
+                // of the window that use them.
                 _ => {}
             }
         }
@@ -186,7 +204,8 @@ impl Client {
 
     /// The rows from `first` to `last` of the open timeline are in view:
     /// report them with a margin, so the backend decodes their previews and
-    /// lets go of distant ones, and ask for earlier history near the top.
+    /// lets go of distant ones, and ask for earlier history near the top,
+    /// and newer near the end of a window of older messages.
     /// Returns false when the last report was under [`REPORT_EVERY`] ago;
     /// the window reports again after.
     pub fn visible(&mut self, first: usize, last: usize, at_end: bool) -> bool {
@@ -221,8 +240,18 @@ impl Client {
         self.dispatch(Action::Reading(at_end));
         // Near the top, the next page of history, as the Slint timeline asks.
         let state = &self.app.state;
-        if first < 5 && !state.loading_history && !state.history_start {
+        if first < 5 && !state.loading_history && !state.history_start && !state.history_failed {
             self.dispatch(Action::Earlier);
+        }
+        let state = &self.app.state;
+        if last + 5 >= end
+            && state.detached
+            && state.room_ready
+            && !state.preview
+            && !state.loading_later
+            && !state.later_failed
+        {
+            self.dispatch(Action::Later);
         }
         true
     }

@@ -1,14 +1,10 @@
 //! Zooming the whole window, as browsers do: Ctrl with + or -, or with the
 //! scroll wheel, steps through [`LEVELS`], and Ctrl+0 returns to 100%.
 //!
-//! Slint draws everything in logical pixels, so the zoom multiplies the
-//! display's own scale factor: text, spacing and pictures all grow together,
-//! and the layout gets fewer logical pixels to fill.
-
-use slint::winit_030::winit::{
-    event::{ElementState, MouseScrollDelta, WindowEvent},
-    keyboard::{Key, KeyCode, PhysicalKey},
-};
+//! The zoom multiplies the display's own scale factor: text, spacing and
+//! pictures all grow together, and the layout gets fewer logical pixels to
+//! fill. What a key or the wheel asks for and where the levels stop are here;
+//! each window toolkit reads its own events into them and draws at the level.
 
 /// The zoom levels, smallest first: 5% apart up to 150%, where small changes
 /// matter most, then 10% apart.
@@ -35,133 +31,71 @@ pub enum Step {
     Reset,
 }
 
-/// Follows Ctrl and the keys and wheel that zoom.
-#[derive(Default)]
-pub struct Keys {
-    control: bool,
-    alt: bool,
-    shift: bool,
-    /// Scrolling not yet worth a step, in pixels; positive scrolls up.
-    scrolled: f64,
-    /// The keys whose press zoomed, so their release is kept from Slint too.
-    pressed: Vec<PhysicalKey>,
-}
-
-/// What a window event means for zooming.
-pub enum Outcome {
-    /// Not about zooming: Slint handles it.
-    Pass,
-    /// Zooming took it, without a step yet.
-    Taken,
-    /// Zooming took it, and asks for a step.
-    Step(Step),
-}
-
-impl Keys {
-    /// Ctrl is held, without Alt or Shift.
-    pub fn control_only(&self) -> bool {
-        self.control && !self.alt && !self.shift
-    }
-
-    /// Alt is held, without Ctrl or Shift.
-    pub fn alt_only(&self) -> bool {
-        self.alt && !self.control && !self.shift
-    }
-
-    /// Shift is held, as far as the window knows: losing the focus lets go
-    /// of it, since it may be let go elsewhere.
-    pub fn shift(&self) -> bool {
-        self.shift
-    }
-
-    pub fn event(&mut self, event: &WindowEvent) -> Outcome {
-        match event {
-            WindowEvent::ModifiersChanged(modifiers) => {
-                self.control = modifiers.state().control_key();
-                self.alt = modifiers.state().alt_key();
-                self.shift = modifiers.state().shift_key();
-                if !self.control {
-                    self.scrolled = 0.;
-                }
-                Outcome::Pass
-            }
-            WindowEvent::KeyboardInput { event, .. } => {
-                if event.state == ElementState::Released {
-                    let index = self
-                        .pressed
-                        .iter()
-                        .position(|key| *key == event.physical_key);
-                    return match index {
-                        Some(index) => {
-                            self.pressed.swap_remove(index);
-                            Outcome::Taken
-                        }
-                        None => Outcome::Pass,
-                    };
-                }
-                if !self.control || self.alt {
-                    return Outcome::Pass;
-                }
-                let Some(step) = key_step(&event.logical_key, event.physical_key) else {
-                    return Outcome::Pass;
-                };
-                if !self.pressed.contains(&event.physical_key) {
-                    self.pressed.push(event.physical_key);
-                }
-                Outcome::Step(step)
-            }
-            WindowEvent::MouseWheel { delta, .. } if self.control => {
-                let up = match delta {
-                    MouseScrollDelta::LineDelta(_, y) => {
-                        self.scrolled = 0.;
-                        f64::from(*y)
-                    }
-                    MouseScrollDelta::PixelDelta(position) => {
-                        self.scrolled += position.y;
-                        if self.scrolled.abs() < PIXELS_PER_STEP {
-                            return Outcome::Taken;
-                        }
-                        std::mem::take(&mut self.scrolled)
-                    }
-                };
-                if up > 0. {
-                    Outcome::Step(Step::In)
-                } else if up < 0. {
-                    Outcome::Step(Step::Out)
-                } else {
-                    Outcome::Taken
-                }
-            }
-            WindowEvent::Focused(false) => {
-                // Ctrl may be let go elsewhere.
-                self.control = false;
-                self.alt = false;
-                self.shift = false;
-                self.scrolled = 0.;
-                Outcome::Pass
-            }
-            _ => Outcome::Pass,
-        }
-    }
+/// Where a key is, for the keys that zoom whatever they type: the keypad's
+/// + and -, and the 0 key's place.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyPlace {
+    NumpadAdd,
+    NumpadSubtract,
+    Zero,
+    Other,
 }
 
 /// The step a key asks for with Ctrl held. The typed character decides, so
 /// any keyboard layout's + and - work; the keypad's keys and the 0 key's
 /// place work too, for layouts whose 0 key types something else.
-fn key_step(key: &Key, physical: PhysicalKey) -> Option<Step> {
-    if let Key::Character(text) = key {
-        match text.as_str() {
-            "+" | "=" => return Some(Step::In),
-            "-" | "_" => return Some(Step::Out),
-            "0" => return Some(Step::Reset),
-            _ => {}
-        }
+pub fn key_step(text: Option<&str>, place: KeyPlace) -> Option<Step> {
+    match text {
+        Some("+" | "=") => return Some(Step::In),
+        Some("-" | "_") => return Some(Step::Out),
+        Some("0") => return Some(Step::Reset),
+        _ => {}
     }
-    match physical {
-        PhysicalKey::Code(KeyCode::NumpadAdd) => Some(Step::In),
-        PhysicalKey::Code(KeyCode::NumpadSubtract) => Some(Step::Out),
-        PhysicalKey::Code(KeyCode::Digit0 | KeyCode::Numpad0) => Some(Step::Reset),
-        _ => None,
+    match place {
+        KeyPlace::NumpadAdd => Some(Step::In),
+        KeyPlace::NumpadSubtract => Some(Step::Out),
+        KeyPlace::Zero => Some(Step::Reset),
+        KeyPlace::Other => None,
+    }
+}
+
+/// The scroll wheel with Ctrl held: a mouse's notch is a step, a
+/// touchpad's many small scrolls one step for each [`PIXELS_PER_STEP`].
+#[derive(Default)]
+pub struct Wheel {
+    /// Scrolling not yet worth a step, in pixels; positive scrolls up.
+    scrolled: f64,
+}
+
+impl Wheel {
+    /// A wheel's notches, positive up: a step, unless it's none.
+    pub fn lines(&mut self, up: f64) -> Option<Step> {
+        self.scrolled = 0.;
+        direction(up)
+    }
+
+    /// A touchpad's pixels, positive up: a step once there are enough.
+    pub fn pixels(&mut self, up: f64) -> Option<Step> {
+        self.scrolled += up;
+        if self.scrolled.abs() < PIXELS_PER_STEP {
+            return None;
+        }
+        direction(std::mem::take(&mut self.scrolled))
+    }
+
+    /// Ctrl went up, or the window lost the focus.
+    pub fn reset(&mut self) {
+        self.scrolled = 0.;
+    }
+}
+
+fn direction(up: f64) -> Option<Step> {
+    if up > 0. {
+        Some(Step::In)
+    } else if up < 0. {
+        Some(Step::Out)
+    } else {
+        None
     }
 }
 
@@ -201,25 +135,8 @@ pub fn saved(level: Option<f32>) -> f32 {
 
 /// The furthest the window can zoom in at its physical size and its
 /// display's scale factor before its layout would need more room.
-pub fn most(physical: slint::PhysicalSize, base: f32) -> f32 {
-    (physical.width as f32 / (MIN_WIDTH * base)).min(physical.height as f32 / (MIN_HEIGHT * base))
-}
-
-/// Draws the window at `level` of its display's scale factor `base`: Slint
-/// takes the new scale, then lays the window out in its new logical size.
-pub fn apply(window: &slint::Window, base: f32, level: f32) {
-    let scale_factor = base * level;
-    if (window.scale_factor() - scale_factor).abs() < f32::EPSILON {
-        return;
-    }
-    let physical = window.size();
-    let _ = window.dispatch_event_with_result(slint::platform::WindowEvent::ScaleFactorChanged {
-        scale_factor,
-    });
-    let _ = window.dispatch_event_with_result(slint::platform::WindowEvent::Resized {
-        size: physical.to_logical(scale_factor),
-    });
-    window.request_redraw();
+pub fn most(width: u32, height: u32, base: f32) -> f32 {
+    (width as f32 / (MIN_WIDTH * base)).min(height as f32 / (MIN_HEIGHT * base))
 }
 
 #[cfg(test)]
@@ -241,7 +158,7 @@ mod tests {
 
     #[test]
     fn zooming_in_stops_before_the_window_must_grow() {
-        let most = most(slint::PhysicalSize::new(1200, 800), 1.);
+        let most = most(1200, 800, 1.);
         assert!((most - 1.4285).abs() < 0.001, "{most}");
         assert_eq!(stepped(1.4, Step::In, most), 1.4);
         assert_eq!(stepped(1.4, Step::Out, most), 1.35);
@@ -249,7 +166,7 @@ mod tests {
         assert_eq!(stepped(1.4, Step::In, 0.9), 1.4);
         assert_eq!(stepped(1.4, Step::Reset, 0.9), 1.);
         // A high-DPI display needs twice the pixels.
-        assert_eq!(super::most(slint::PhysicalSize::new(2400, 1600), 2.), most);
+        assert_eq!(super::most(2400, 1600, 2.), most);
     }
 
     #[test]
@@ -260,49 +177,20 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_counts_alone_without_alt_or_shift_and_both_let_go_with_the_focus() {
-        use slint::winit_030::winit::keyboard::ModifiersState;
-        let mut keys = Keys::default();
-        let modifiers = |state: ModifiersState| WindowEvent::ModifiersChanged(state.into());
-        keys.event(&modifiers(ModifiersState::CONTROL));
-        assert!(keys.control_only());
-        keys.event(&modifiers(ModifiersState::CONTROL | ModifiersState::SHIFT));
-        assert!(!keys.control_only() && keys.shift());
-        keys.event(&modifiers(ModifiersState::CONTROL | ModifiersState::ALT));
-        assert!(!keys.control_only() && !keys.shift());
-        keys.event(&modifiers(ModifiersState::CONTROL | ModifiersState::SHIFT));
-        keys.event(&WindowEvent::Focused(false));
-        assert!(!keys.control_only());
-        assert!(!keys.shift(), "Shift may be let go elsewhere too");
+    fn touchpads_step_once_per_swipe_worth() {
+        let mut wheel = Wheel::default();
+        assert_eq!(wheel.pixels(30.), None);
+        assert_eq!(wheel.pixels(40.), Some(Step::In));
+        assert_eq!(wheel.pixels(-20.), None);
+        assert_eq!(wheel.lines(-1.), Some(Step::Out));
     }
 
     #[test]
-    fn touchpads_step_once_per_swipe_worth() {
-        use slint::winit_030::winit::{
-            dpi::PhysicalPosition,
-            event::{DeviceId, TouchPhase},
-            keyboard::ModifiersState,
-        };
-        let mut keys = Keys::default();
-        let wheel = |delta| WindowEvent::MouseWheel {
-            device_id: DeviceId::dummy(),
-            delta,
-            phase: TouchPhase::Moved,
-        };
-        let pixels = |y| wheel(MouseScrollDelta::PixelDelta(PhysicalPosition::new(0., y)));
-        assert!(
-            matches!(keys.event(&pixels(30.)), Outcome::Pass),
-            "without Ctrl it scrolls"
-        );
-        keys.event(&WindowEvent::ModifiersChanged(
-            ModifiersState::CONTROL.into(),
-        ));
-        assert!(matches!(keys.event(&pixels(30.)), Outcome::Taken));
-        assert!(matches!(keys.event(&pixels(40.)), Outcome::Step(Step::In)));
-        assert!(matches!(keys.event(&pixels(-20.)), Outcome::Taken));
-        assert!(matches!(
-            keys.event(&wheel(MouseScrollDelta::LineDelta(0., -1.))),
-            Outcome::Step(Step::Out)
-        ));
+    fn keys_zoom_by_what_they_type_or_where_they_are() {
+        assert_eq!(key_step(Some("="), KeyPlace::Other), Some(Step::In));
+        assert_eq!(key_step(Some("_"), KeyPlace::Other), Some(Step::Out));
+        assert_eq!(key_step(Some("à"), KeyPlace::Zero), Some(Step::Reset));
+        assert_eq!(key_step(None, KeyPlace::NumpadAdd), Some(Step::In));
+        assert_eq!(key_step(Some("k"), KeyPlace::Other), None);
     }
 }

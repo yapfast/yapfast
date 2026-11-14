@@ -88,7 +88,7 @@ fn key(app: &mut App, named: key::Named) {
 
 /// Where the text `label` shows in the window.
 fn bounds(app: &App, label: &str) -> Rectangle {
-    let mut ui = Simulator::with_size(Settings::default(), app.window, app.view());
+    let mut ui = Simulator::with_size(Settings::default(), app.shell.frame, app.view());
     let mut found = None;
     let _ = ui.find(|candidate: Candidate<'_>| {
         if let Candidate::Text {

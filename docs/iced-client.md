@@ -18,7 +18,9 @@ menus, Delete's confirmation, the member list with each member's looks
 and its Activity panel, people's menus and their questions, the profile
 card, the full profile and the panel beside a DM, the friends list with
 Active Now, requests and Add Friend, calls (below) in voice channels and
-DMs, Settings (below), and Discord's two-factor prompt.
+DMs, Settings (below), Discord's two-factor prompt, and round the window
+the tray, notifications, links handed over, its own title bar, the zoom
+and updates (below).
 
 ## Building and running
 
@@ -34,9 +36,9 @@ With `--features iced,matrix` it carries Matrix too, as the Slint build
 does with `matrix`, and signs in with Matrix instead of linking Discord.
 `iced-gpu` draws with wgpu instead. The renderer is chosen when it's built:
 a build has tiny-skia or wgpu, so `--renderer` only logs a warning when it
-asks for the other. `--data-dir`, `--preview` and `--stream-worker` work as
-in the default build; there is no tray, so `--background` shows the window,
-and links given on the command line aren't opened yet; `--help` says so.
+asks for the other. `--data-dir`, `--preview`, `--stream-worker`,
+`--background`, `--release-discord-links` and a `LINK` work as in the
+default build.
 
 `desktop` and `iced` can't be on together, and the build says so: each
 brings its own window toolkit and its own copy of the windowing stack, and
@@ -49,9 +51,71 @@ target/fast/yapfast` runs a built iced binary on the preview, and with
 window-control file (`YAPFAST_UI_TEST_CONTROL`) as the Slint client does
 (`control.rs`): `stats` logs the allocator's figures, `trim` gives back
 free heap, `hide` and `show` hide and show the window, `close` and `quit`
-end it, `theme ID` chooses a theme and keeps it, and `stage`,
-`stage-aside` and `pick` go to the core as the Slint client sends them.
-The tray's commands are logged and ignored.
+end it, `destroy` drops the window without giving its memory back,
+`open` and `create` open it as the tray's Open Yapfast does, `theme ID`
+chooses a theme and keeps it, and `stage`, `stage-aside` and `pick` go to
+the core as the Slint client sends them.
+
+## The window and the desktop
+
+The client runs as an iced daemon (`lib.rs`, `shell.rs`): it lives without
+a window, so closing to the tray drops the window, its renderer and its
+widgets, and the tray's Open Yapfast makes a new one at the size it had.
+What iced doesn't do, the root crate's shared desktop modules do, the same
+copy the Slint client uses: `src/iced_desktop.rs` fills in the iced
+crate's `Desktop` (`desktop.rs`) with the tray, notifications, the single
+instance, starting at sign-in, Discord's links, the clipboard's pictures,
+updates, the window's icon and, on Wayland, files dragged over it. They
+tell the window what they hear through a `Tell`, from threads of their
+own, which a stream hands to the event loop as messages; nothing polls.
+The root package's `platform` feature brings those modules to an iced
+build.
+
+- The tray (`shell.rs`): its icon, with the unread dot for a mention or an
+  unread DM, and Disconnect in its menu during a call; Open Yapfast, and a
+  click on it, brings the window back with the click's activation token.
+  Closing the window goes to the tray when Close to tray is on and a tray
+  shows the icon, and quits otherwise; with the tray gone, a closed window
+  opens again. The window's memory is given back half a second after it
+  closes. `--background` starts in the tray with a saved session, as
+  starting at sign-in does, unless there's no tray to start in.
+- New messages, as the Slint client tells of them: a sound unless it's
+  the conversation in front; while Yapfast isn't in front the taskbar
+  flashes and a notification shows, as the settings allow. A click on the
+  notification opens its conversation, over Settings, and brings the
+  window back.
+- A later start of Yapfast on the same data folder hands over to the
+  running one and ends: the window comes forward with that start's token,
+  and a Discord link it brought (a `LINK` on its command line, or a
+  `discord://` link the desktop opened) opens once Discord is online and
+  nothing is open over the window, as a link clicked in a message does.
+  Each start installs the desktop entry and keeps the link handler and
+  autostart entry pointing at this executable, outside the preview.
+- The title bar (`window_bar.rs`): where the desktop doesn't frame windows
+  (Windows, and desktops such as GNOME and KDE that `frame.rs` names),
+  Yapfast draws its own, as Slint's does; elsewhere it takes the system's.
+  Appearance's "Use the system title bar" switches, and the window is made
+  again to take the change. The bar holds Back and Forward through the
+  conversations visited, the place's name, the Inbox (Unreads and Mentions
+  of the rooms the core knows, a click going there), Help, and minimize,
+  maximize and close; its ground moves the window after a 3 px drag and a
+  double click maximizes it, and its edges resize it. It goes while the
+  window or a video is full screen. The content under it is laid out in
+  the room below (`widgets::Below`), so overlays placed by the layout's
+  sums or at the pointer needn't know it's there, and `App::window` is
+  that room's size. Alt+Left and Alt+Right, and the mouse's back and
+  forward buttons, go back and forward too, whichever bar there is.
+- Zoom: Ctrl with + or - steps through the shared `zoom.rs` levels, no
+  further in than the window's room allows, and Ctrl+0 goes back to 100%;
+  the level is kept in `layout.json` and shows a moment at the top. iced
+  scales the whole window by it.
+- Updates (`settings/updates.rs`): with the check on, a look at the
+  releases at start and every six hours, and Check now on About; a newer
+  release shows in About with its notes, Update and restart (which
+  downloads and checks it, its progress shown and Cancel offered, then
+  ends the window so `main` finishes it), View release and Skip this
+  version, and as a banner under Settings' sections. A look nobody asked
+  for tells of a newer release once in a notification that opens About.
 
 ## Theme
 
@@ -200,7 +264,10 @@ round.
   to and tracking taken out of links.
 - Notifications, Sounds (the set, which plays a sound when chosen, the
   volume, and each sound's own with its play button) and Advanced, in the
-  Slint client's words.
+  Slint client's words. Advanced holds Start when you sign in, Open Discord
+  links in Yapfast (outside the preview), Close to tray, saying where
+  there's no tray, and the renderer's switch, with which renderer this
+  build has: it's chosen when the build is.
 - Appearance (`appearance.rs`): each theme as a small window in its own
   colours, as many 150 px or wider across as fit; a click shows one and
   keeps it. New theme opens the editor on a copy of the theme shown (Start
@@ -208,7 +275,8 @@ round.
   theme's pencil edits it. A colour's field shows its change at once, or
   says "Not a colour"; Save keeps the theme among the person's own and
   chooses it, Cancel (or leaving Appearance or Settings) shows the theme
-  from before, and a saved one's Delete asks once more. Then the profile
+  from before, and a saved one's Delete asks once more. Then the system
+  title bar's switch, where Yapfast can draw its own, and the profile
   switches, which the core is told of.
 - Discord: linking, as the sign-in screen's panel, while none is linked;
   then Unlink in a build with Matrix, hidden channels, reads marked on
@@ -216,7 +284,8 @@ round.
   blocked, five more at a time, each with Unblock.
 - Game Activity: sharing the game played (Discord keeps it), and the games
   named by hand, added, edited and removed, which detection takes at once.
-- About: the build with Copy version, the update switches, and the links.
+- About: the build with Copy version, the update switches, the releases
+  (above), and the links.
 
 ## Server settings
 
@@ -388,9 +457,12 @@ is tinted marigold with an edge. The first row holds the history's edge:
 start, or Discord's welcome at a server channel's start. A short history
 is held down over the composer, as Slint's is. While the "New" divider is
 out of view a bar jumps to it, saying how many messages are new; a window
-of older messages has the bar back to the present; a reply's line jumps to
-the message it quotes and tints it a moment. Scrolling near the top asks
-for earlier history.
+of older messages has the bar back to the present, and its last row ends
+with "Newer messages" (loading, or failed with a retry); a reply's line
+jumps to the message it quotes and tints it a moment. Scrolling near the
+top asks for earlier history, and near the end of a window of older
+messages for newer, until it reaches the present; after a failure, each
+waits for its retry.
 
 A message shows the line above it (the reply it quotes, or who used the
 command it answers), the author line, its text, `(edited)`, its pictures,
@@ -911,7 +983,7 @@ what costs is kept out of the view:
 
 Each part of the window has its module: `signin`, `mfa`, `rail`,
 `sidebar`, `account`, `header`, `timeline`, `message`, `cards`, `bot_select`, `browse`, `browse_channels`, `found`, `popovers`, `search`, `thread`, `image_viewer`, `composer`, `edit`, `suggest`, `commands`, `typing`, `uploads`, `forward`, `members`,
-`people`, `person`, `profile` (with `editor`), `friends`, `active_now`, `reactions`, `picker` (with its tabs `emoji`, `gifs`, `stickers`), `menus`, `places`, `dialogs`, `call` (with `stage`, `dock`, `popups`, `dm`, `corner`), `settings` (with `pages`, `voice`, `appearance`), `server_settings` (with `profile`, `roles`, `people`, `moderation`, `expressions`, `ownership`), `channel_settings`, `server_dialogs`, `status`, `switcher`; `form` and `sheet` are the settings' kit; `theme` holds
+`people`, `person`, `profile` (with `editor`), `friends`, `active_now`, `reactions`, `picker` (with its tabs `emoji`, `gifs`, `stickers`), `menus`, `places`, `dialogs`, `call` (with `stage`, `dock`, `popups`, `dm`, `corner`), `settings` (with `pages`, `voice`, `appearance`, `updates`), `shell` and `window_bar` (with `desktop`, the desktop's parts), `server_settings` (with `profile`, `roles`, `people`, `moderation`, `expressions`, `ownership`), `channel_settings`, `server_dialogs`, `status`, `switcher`; `form` and `sheet` are the settings' kit; `theme` holds
 the colours and `layout` what's kept in `layout.json`.
 `sync.rs` takes in what changed in the core's state after each message.
 `widgets.rs`, `field.rs` (the composer's text field), `select.rs`
@@ -951,6 +1023,10 @@ When a second screen needs what a first one built, it moves here:
   layout, so the menu never moves.
 - `controls::outside`: the full-window layer under an overlay that takes
   a click outside it, clear, or dimmed under a dialog.
+- `widgets::Below`: its child laid out, drawn and pointed at in the room
+  under the window's own title bar as if that were the whole window, and
+  told to operations as a scrollable that can't scroll, so what they find
+  is where it shows.
 - `menus.rs`: a menu taller than the window scrolls, at most the window's
   height less a margin each side, and `Place` keeps one below the pointer,
   above it, or else pinned to the window's foot.
@@ -1110,7 +1186,8 @@ into. They cover the theme's switch and what it keeps, the sign-in screen
 on a data folder without an account, linking's steps and the two-factor
 prompt, the rail's unread DMs and folders, categories folding, unread
 marks and the DMs' search, switching channels with their headers and
-topics, the history's edge as earlier messages load, the unread bar's
+topics, the history's edge as earlier messages load, a window of older
+messages ending with newer ones loading or failed, the unread bar's
 jump, the view staying put on earlier messages as new ones come, and
 sending from there going to the newest; and in `tests/writing.rs` the
 composer's line breaks, the reply's mention toggle and Escape, editing in
@@ -1165,7 +1242,10 @@ how long it lasts and its choices for a new one, Create channel and
 category, Duplicate and Delete from the menus, leaving a server or group
 in red (a group's without telling anyone), and Join a Server from the
 rail and a clicked invite link, and Browse Channels opening from a
-Community server's list and searching. `call/stage.rs` tests the tiles' layout, the
+Community server's list and searching; in `tests/shell.rs` closing to the
+tray and back, quitting without one, the tray's dot, a notification's
+click and the release's, a later start's link, the own title bar's place
+and inbox, clicks under it landing, Back and Forward, and the zoom. `call/stage.rs` tests the tiles' layout, the
 stage's slots and the corner, `call/dock.rs` the call's time and
 `viewer.rs` the fit. The emoji
 ones need the Twemoji font the root crate's `build.rs` packs: they take
@@ -1175,18 +1255,17 @@ builds and smoke-tests the CPU build; see [building](building.md#checks).
 
 ## Not there yet
 
-In Settings: the NEW tags on settings not yet seen, Start when you sign
-in, Discord links and the system title bar (which come with the platform's
-parts), Check now and the rest of About's updates, the renderer's restart
-(this build's renderer is chosen when it's built), the entrance sound's
+In Settings: the NEW tags on settings not yet seen, the entrance sound's
 soundboard (it's a list), and idle while away, which isn't sent yet.
 In the profile editor: Display Name Style's window (its tile does
 nothing), the nameplate's and effect's art on their tiles, the theme
 colours' picker (each is its code alone), a moving banner, and the avatar's
 colour behind a banner without one, which the profile cards lack too.
 Other accounts, profile effects and frames, a mutual server's card, an
-activity's menu, the tray,
-notifications, links, accessibility and Windows' own checks. On the rail
+activity's menu, accessibility and Windows' own checks. Zooming with
+Ctrl and the wheel (iced's lists would scroll with it too), and the
+inbox's avatars tinted by the room's id rather than its name, as Slint's
+are. On the rail
 and in the sidebar: dragging servers, channels and people, the voice
 card beside a busy channel and a voice channel's chat, a server's
 verified badge and its events' own cards, and the dialog that asks whether a

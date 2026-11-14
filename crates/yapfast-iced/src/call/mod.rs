@@ -367,7 +367,7 @@ impl App {
 
     /// One of Yapfast's sounds, as loud as Voice's settings say, unless a
     /// call is deafened.
-    fn play(&self, sound: Sound) {
+    pub(crate) fn play(&self, sound: Sound) {
         let voice = &self.client.state().voice;
         if voice.active() && voice.deafened && !matches!(sound, Sound::Deafen | Sound::Undeafen) {
             return;

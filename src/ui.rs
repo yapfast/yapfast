@@ -68,6 +68,7 @@ mod tiles;
 mod title_bar;
 mod updates;
 mod yapfast;
+mod zoom_keys;
 
 use callbacks::bind_callbacks;
 use messages::*;
@@ -146,7 +147,7 @@ pub fn run(
     };
     selector
         .with_winit_window_attributes_hook(|attributes| {
-            crate::instance::attributes(title_bar::attributes(crate::icon::attributes(attributes)))
+            activation_attributes(title_bar::attributes(icon_attributes(attributes)))
         })
         .select()
         .context("could not select the Slint desktop backend")?;
@@ -271,6 +272,57 @@ pub fn run(
     }
 }
 
+/// Gives each window Slint makes Yapfast's icon (`crate::icon`).
+fn icon_attributes(
+    attributes: slint::winit_030::winit::window::WindowAttributes,
+) -> slint::winit_030::winit::window::WindowAttributes {
+    #[cfg(target_os = "linux")]
+    {
+        use slint::winit_030::winit::window::Icon;
+        // Wayland takes the icon only from the desktop entry, and ignores it.
+        let icon = crate::icon::window_icon()
+            .and_then(|icon| Icon::from_rgba(icon.pixels, icon.width, icon.height).ok());
+        attributes.with_window_icon(icon)
+    }
+    #[cfg(windows)]
+    {
+        use slint::winit_030::winit::{
+            dpi::PhysicalSize,
+            platform::windows::{IconExtWindows, WindowAttributesExtWindows},
+            window::Icon,
+        };
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            GetSystemMetrics, SM_CXICON, SM_CXSMICON, SYSTEM_METRICS_INDEX,
+        };
+        // Each at the size Windows draws it rather than scaled from one picture.
+        let icon = |metric: SYSTEM_METRICS_INDEX| {
+            // SAFETY: GetSystemMetrics only reads a setting.
+            let side = unsafe { GetSystemMetrics(metric) } as u32;
+            Icon::from_resource(crate::icon::RESOURCE, Some(PhysicalSize::new(side, side))).ok()
+        };
+        attributes
+            .with_window_icon(icon(SM_CXSMICON))
+            .with_taskbar_icon(icon(SM_CXICON))
+    }
+    #[cfg(not(any(target_os = "linux", windows)))]
+    attributes
+}
+
+/// Gives the window Slint makes the token a later start brought, if one
+/// waits (`crate::instance`).
+fn activation_attributes(
+    attributes: slint::winit_030::winit::window::WindowAttributes,
+) -> slint::winit_030::winit::window::WindowAttributes {
+    #[cfg(target_os = "linux")]
+    if let Some(token) = crate::instance::take_next_token() {
+        use slint::winit_030::winit::{
+            platform::startup_notify::WindowAttributesExtStartupNotify, window::ActivationToken,
+        };
+        return attributes.with_activation_token(ActivationToken::from_raw(token));
+    }
+    attributes
+}
+
 /// Only the private test compositor can request a different initial size.
 fn isolated_display() -> bool {
     std::env::var("YAPFAST_FRAMEWORK_ISOLATED_DISPLAY").as_deref() == Ok("1")
@@ -387,12 +439,15 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
         let base = Rc::new(Cell::new(window.window().scale_factor()));
         let level = Rc::new(Cell::new(
             saved
-                .min(zoom::most(window.window().size(), base.get()))
+                .min({
+                    let size = window.window().size();
+                    zoom::most(size.width, size.height, base.get())
+                })
                 .max(zoom::LEVELS[0]),
         ));
-        zoom::apply(window.window(), base.get(), level.get());
+        zoom_keys::apply(window.window(), base.get(), level.get());
         let note = Rc::new(slint::Timer::default());
-        let mut keys = zoom::Keys::default();
+        let mut keys = zoom_keys::Keys::default();
         let mut cursor = None;
         // The winit window exists by the first event it sends.
         #[cfg(target_os = "linux")]
@@ -425,7 +480,7 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                         {
                             base.set(scale);
                         }
-                        zoom::apply(window.window(), base.get(), level.get());
+                        zoom_keys::apply(window.window(), base.get(), level.get());
                     });
                 }
                 #[cfg(target_os = "linux")]
@@ -443,7 +498,9 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                     WindowEvent::HoveredFile(_) if !hovering => {
                         hovering = true;
                         let found = slint_window
-                            .with_winit_window(crate::drop::Pointer::of)
+                            .with_winit_window(|winit| {
+                                crate::drop::Pointer::of(winit, winit.scale_factor())
+                            })
                             .flatten();
                         if let Some(moved) = found.as_ref().and_then(crate::drop::Pointer::at) {
                             dragged(moved);
@@ -535,7 +592,7 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                     let (weak, base, level) = (weak.clone(), base.clone(), level.clone());
                     slint::Timer::single_shot(Duration::ZERO, move || {
                         if let Some(window) = weak.upgrade() {
-                            zoom::apply(window.window(), base.get(), level.get());
+                            zoom_keys::apply(window.window(), base.get(), level.get());
                         }
                     });
                 }
@@ -712,11 +769,12 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                     return EventResult::PreventDefault;
                 }
                 let step = match outcome {
-                    zoom::Outcome::Pass => return EventResult::Propagate,
-                    zoom::Outcome::Taken => return EventResult::PreventDefault,
-                    zoom::Outcome::Step(step) => step,
+                    zoom_keys::Outcome::Pass => return EventResult::Propagate,
+                    zoom_keys::Outcome::Taken => return EventResult::PreventDefault,
+                    zoom_keys::Outcome::Step(step) => step,
                 };
-                let most = zoom::most(slint_window.size(), base.get());
+                let size = slint_window.size();
+                let most = zoom::most(size.width, size.height, base.get());
                 let next = zoom::stepped(level.get(), step, most);
                 if let Some(window) = weak.upgrade() {
                     window.set_zoom_note(format!("{}%", (next * 100.).round()).into());
@@ -729,7 +787,7 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                 }
                 if next != level.get() {
                     level.set(next);
-                    zoom::apply(slint_window, base.get(), next);
+                    zoom_keys::apply(slint_window, base.get(), next);
                     if let Some(adapter) = adapter.upgrade() {
                         let mut adapter = adapter.borrow_mut();
                         adapter.layout.zoom = Some(next);
@@ -2426,7 +2484,12 @@ impl Adapter {
         app.dispatch(Action::StripTracking(layout.strip_tracking.unwrap_or(true)));
         app.dispatch(Action::HideNameplates(!layout.nameplates.unwrap_or(true)));
         app.dispatch(Action::SetPinned(layout.pinned.clone()));
-        let notifier = crate::notify::Notifier::start(open_from_notification, &root);
+        let notifier = crate::notify::Notifier::start(
+            Arc::new(|room| {
+                let _ = slint::invoke_from_event_loop(move || open_from_notification(room));
+            }),
+            &root,
+        );
         Ok(Rc::new_cyclic(|weak| {
             RefCell::new(Self {
                 events: None,

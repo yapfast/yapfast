@@ -3,7 +3,9 @@
 # `commit` and `date` name what it's built from, which its build script can't
 # ask Git for in the sandbox, and `release` makes it call itself a stable
 # release or a nightly instead of a development build (src/build_info.rs).
-{ pkgs, commit ? "", date ? "", release ? false }:
+# `features` are Cargo's: `[ "iced" ]` builds the iced client instead of
+# Slint's (docs/iced-client.md).
+{ pkgs, commit ? "", date ? "", release ? false, features ? [ "desktop" "discord" ] }:
 let
   inherit (pkgs) lib;
   native = import ./native.nix { inherit pkgs; };
@@ -46,7 +48,7 @@ rustPlatform.buildRustPackage {
     };
   };
   buildNoDefaultFeatures = true;
-  buildFeatures = [ "desktop" "discord" ];
+  buildFeatures = features;
   nativeBuildInputs = with pkgs; [
     pkg-config cmake llvmPackages_21.clang llvmPackages_21.llvm protobuf
     # Assembles x264's x86-64 code (vendor/x264-src).

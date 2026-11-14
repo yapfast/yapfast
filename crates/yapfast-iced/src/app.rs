@@ -14,7 +14,7 @@ use iced::{
     Element, Length, Point, Size, Subscription, Task,
     advanced::image::Handle,
     keyboard::{self, key},
-    widget::{column, container, operation, row, scrollable::Viewport, stack},
+    widget::{Space, Stack, column, container, operation, row, scrollable::Viewport, stack},
 };
 use yapfast_core::{
     application::Action,
@@ -59,6 +59,9 @@ const EVENT_BATCH: usize = 64;
 /// menu or the modal does while it's open.
 pub const NOBODY: &str = "nobody";
 
+/// The zoom level's note, this far below the window's top or its bar.
+const ZOOM_NOTE_TOP: f32 = 12.0;
+
 #[derive(Clone)]
 pub enum Message {
     Events(Batch),
@@ -78,6 +81,8 @@ pub enum Message {
     /// The history's Earlier messages button; the jump bars; a jump's
     /// tint fading.
     Earlier,
+    /// Newer messages after a window of older ones.
+    Later,
     JumpUnread,
     JumpPresent,
     JumpFaded(String),
@@ -209,11 +214,27 @@ pub enum Message {
     Search(crate::search::Event),
     /// The keys go to the field with this id.
     Focus(&'static str),
+    /// The window's frame, the tray, notifications and later starts
+    /// (`shell.rs`).
+    Shell(crate::shell::Event),
+    /// A key pressed with Ctrl, which may zoom.
+    Zoom(keyboard::Key, keyboard::key::Physical),
+    /// The window's own title bar (`window_bar.rs`).
+    Bar(crate::window_bar::Event),
 }
 
 pub struct App {
     pub client: Client,
     pub window: Size,
+    /// The window itself, the tray and what goes on without the window.
+    pub shell: crate::shell::Shell,
+    /// The title bar's inbox, while open, and a press on it that may move
+    /// the window (`window_bar.rs`).
+    pub inbox: Option<crate::window_bar::Inbox>,
+    pub bar_drag: crate::window_bar::Drag,
+    /// A look at the releases nobody asked for is under way, whose newer
+    /// release a notification tells of (`settings/updates.rs`).
+    pub announce_updates: bool,
     /// Previews, and avatars that come at the size they're drawn at,
     /// sharing the core's pixels.
     pub previews: RefCell<Converted<Handle>>,
@@ -440,9 +461,19 @@ impl App {
         layout.prefs.apply_clock();
         yapfast_core::discord::set_custom_games(&layout.prefs.game_executables);
         client.share_typing = layout.prefs.share_typing.unwrap_or(true);
+        let shell = crate::shell::Shell {
+            zoom: crate::zoom::saved(layout.zoom),
+            own_title_bar: crate::window_bar::own(layout.system_title_bar),
+            frame: Size::new(width, height),
+            ..Default::default()
+        };
         let mut app = Self {
             client,
             window: Size::new(width, height),
+            shell,
+            inbox: None,
+            bar_drag: Default::default(),
+            announce_updates: false,
             previews: Default::default(),
             scaled: Default::default(),
             marks: Default::default(),
@@ -561,6 +592,7 @@ impl App {
             mfa_shown: None,
             wait: mfa::Wait::default(),
         };
+        app.fit_window();
         app.watch_talk_key();
         if app.layout.voice.noise_suppression != yapfast_core::noise::Suppressor::Off {
             app.call.noise_last = app.layout.voice.noise_suppression;
@@ -584,6 +616,14 @@ impl App {
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
+        let task = self.handle_message(message);
+        // The bar comes and goes with full screen, and the room under it
+        // with it.
+        self.fit_window();
+        task
+    }
+
+    fn handle_message(&mut self, message: Message) -> Task<Message> {
         self.take_found();
         self.take_aside_found();
         match message {
@@ -610,6 +650,10 @@ impl App {
             Message::Measured(heights) => self.measured(heights),
             Message::Earlier => {
                 self.client.dispatch(Action::Earlier);
+                self.sync()
+            }
+            Message::Later => {
+                self.client.dispatch(Action::Later);
                 self.sync()
             }
             Message::JumpUnread => {
@@ -781,13 +825,19 @@ impl App {
             Message::Settings(event) => self.settings_event(event),
             Message::ServerSettings(event) => self.server_settings_event(event),
             Message::Resized(size) => {
-                self.window = size;
-                Task::none()
+                self.shell.frame = size;
+                self.fit_window();
+                self.read_window_state()
             }
             Message::ServerDialog(event) => self.server_dialog_event(event),
             Message::ChannelSettings(event) => self.channel_settings_event(event),
             Message::Status(event) => self.status_event(event),
             Message::Switcher(event) => self.switcher_event(event),
+            Message::Shell(event) => self.shell_event(event),
+            Message::Zoom(key, physical) => {
+                self.zoom_key(&key, physical).unwrap_or_else(Task::none)
+            }
+            Message::Bar(event) => self.bar_event(event),
         }
     }
 
@@ -797,14 +847,23 @@ impl App {
         match control::parse(command) {
             Command::Stats => control::allocator_stats(),
             Command::Trim => control::trim(),
-            Command::Quit => return iced::exit(),
+            Command::Quit => return self.quit(),
+            Command::Close => return self.close_requested(),
+            Command::Destroy => {
+                // The window goes without its memory given back: a `trim`
+                // after shows what closing frees.
+                return self.drop_window();
+            }
+            Command::Open => return self.open_window(),
             Command::Hide => {
-                return iced::window::latest()
-                    .and_then(|id| iced::window::set_mode(id, iced::window::Mode::Hidden));
+                if let Some(id) = self.shell.window {
+                    return iced::window::set_mode(id, iced::window::Mode::Hidden);
+                }
             }
             Command::Show => {
-                return iced::window::latest()
-                    .and_then(|id| iced::window::set_mode(id, iced::window::Mode::Windowed));
+                if let Some(id) = self.shell.window {
+                    return iced::window::set_mode(id, iced::window::Mode::Windowed);
+                }
             }
             Command::Act(action) => {
                 self.client.dispatch(action);
@@ -814,9 +873,6 @@ impl App {
                 if !self.choose_theme(&id) {
                     tracing::warn!(id, "no such theme");
                 }
-            }
-            Command::Later => {
-                tracing::info!(command, "the iced client has no tray yet");
             }
             Command::Unknown => tracing::warn!(command, "unknown window control"),
         }
@@ -964,6 +1020,10 @@ impl App {
 
     /// Escape where nothing else took it: the topmost thing open closes.
     pub fn escape(&mut self) -> Task<Message> {
+        if self.inbox.is_some() {
+            self.inbox = None;
+            return Task::none();
+        }
         if self.client.state().select_menu.is_some() {
             return self.select_event(crate::bot_select::Event::Close);
         }
@@ -1058,7 +1118,38 @@ impl App {
             ) => Some(Message::Resized(size)),
             _ => None,
         });
-        let mut subscriptions = vec![keys, fonts, drops, sizes];
+        // Ctrl with + or - zooms wherever the keys are.
+        let zooms = iced::event::listen_with(|event, _, _| match event {
+            iced::Event::Keyboard(keyboard::Event::KeyPressed {
+                key,
+                physical_key,
+                modifiers,
+                ..
+            }) if modifiers.control() && !modifiers.alt() => Some(Message::Zoom(key, physical_key)),
+            _ => None,
+        });
+        let mut subscriptions = vec![
+            keys,
+            fonts,
+            drops,
+            sizes,
+            zooms,
+            crate::window_bar::history_keys(),
+            Self::shell_subscription(),
+        ];
+        // A look at the releases every six hours while the check is on.
+        if self.layout.prefs.check_for_updates {
+            subscriptions.push(iced::time::every(crate::settings::updates::EVERY).map(|_| {
+                Message::Settings(crate::settings::Event::Updates(
+                    crate::settings::updates::Event::Due,
+                ))
+            }));
+        }
+        if self.updates_installing() {
+            subscriptions.push(iced::time::every(Duration::from_millis(200)).map(|_| {
+                Message::Shell(crate::shell::Event::Heard(crate::desktop::Heard::Updates))
+            }));
+        }
         // Ctrl+K opens the quick switcher wherever the keys are, as the
         // Slint client's does.
         if self.workspace() {
@@ -1177,7 +1268,7 @@ impl App {
         self.moving.borrow_mut().clear();
         self.fitter.borrow_mut().begin();
         if !self.workspace() {
-            return self.sign_in_view();
+            return self.frame_layers(self.sign_in_view()).into();
         }
         // The window's own background is the theme's chat (`window_style`).
         // The rail and the sidebar on the rail's ground, the account's card
@@ -1334,11 +1425,59 @@ impl App {
         self.playing
             .borrow_mut()
             .retain(|key, _| moving.contains(key));
-        crate::widgets::RightPress::spot(
+        let content = crate::widgets::RightPress::spot(
             layers.width(Length::Fill).height(Length::Fill),
             &self.pressed,
+        );
+        self.frame_layers(content).into()
+    }
+
+    /// The window's content under the title bar, when Yapfast draws one,
+    /// where it takes the window's place (`self.window` is its size), and
+    /// over it the zoom level's note, the inbox, the bar and the edges that
+    /// resize the window.
+    fn frame_layers<'a>(&'a self, content: impl Into<Element<'a, Message>>) -> Stack<'a, Message> {
+        let mut layers = stack![crate::widgets::Below::new(content, self.bar_height())];
+        if let Some(note) = self.zoom_note_view() {
+            layers = layers.push(note);
+        }
+        if let Some(inbox) = self.inbox_view() {
+            layers = layers.push(inbox);
+        }
+        if let Some(bar) = self.window_bar() {
+            layers = layers.push(column![bar, Space::new().height(Length::Fill)]);
+        }
+        if let Some(edges) = self.resize_edges() {
+            layers = layers.push(edges);
+        }
+        layers
+    }
+
+    /// The zoom level, a moment after it changes, as the Slint client's.
+    fn zoom_note_view(&self) -> Option<Element<'_, Message>> {
+        self.shell.zoom_note?;
+        let theme = &self.theme;
+        let tip = theme.tooltip;
+        let note = container(
+            iced::widget::text(format!("{:.0}%", self.shell.zoom * 100.0))
+                .size(15)
+                .font(fonts::BOLD)
+                .color(theme.text),
         )
-        .into()
+        .padding([0, 14])
+        .height(36)
+        .align_y(iced::Alignment::Center)
+        .style(move |_| iced::widget::container::Style {
+            shadow: crate::style::raised_shadow(),
+            ..crate::style::rounded(tip, 18.0)
+        });
+        Some(
+            column![
+                Space::new().height(self.bar_height() + ZOOM_NOTE_TOP),
+                container(note).center_x(Length::Fill)
+            ]
+            .into(),
+        )
     }
 
     pub fn window_style(&self, _: &iced::Theme) -> iced::theme::Style {

@@ -444,47 +444,41 @@ fn clear_link_queue(root: &Path) {
     let _ = std::fs::remove_dir_all(root.join(LINK_QUEUE));
 }
 
-/// The token a later start brought, for the window made next.
-#[cfg(target_os = "linux")]
+/// The token a later start brought, for the window Slint makes next; the
+/// iced window takes it once it's made, through [`activate`].
+#[cfg(all(target_os = "linux", feature = "desktop"))]
 static TOKEN: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
 /// The window made next takes the focus with `token`.
+#[cfg(feature = "desktop")]
 pub fn give_next_window(token: Option<String>) {
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", feature = "desktop"))]
     {
         *TOKEN
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = token;
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(all(target_os = "linux", feature = "desktop")))]
     let _ = token;
 }
 
-/// Gives the window Slint makes the token a later start brought, if one waits.
-pub fn attributes(
-    attributes: slint::winit_030::winit::window::WindowAttributes,
-) -> slint::winit_030::winit::window::WindowAttributes {
-    #[cfg(target_os = "linux")]
-    if let Some(token) = TOKEN
+/// The token a later start brought, for the window made now, once.
+#[cfg(all(target_os = "linux", feature = "desktop"))]
+pub fn take_next_token() -> Option<String> {
+    TOKEN
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .take()
-    {
-        use slint::winit_030::winit::{
-            platform::startup_notify::WindowAttributesExtStartupNotify, window::ActivationToken,
-        };
-        return attributes.with_activation_token(ActivationToken::from_raw(token));
-    }
-    attributes
 }
 
 /// Brings a shown window forward with the token a later start brought, on
 /// Wayland, where winit can't give one to a window it already made.
 #[cfg(target_os = "linux")]
-pub fn activate(window: &slint::winit_030::winit::window::Window, token: &str) {
-    use slint::winit_030::winit::raw_window_handle::{
-        HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle,
-    };
+pub fn activate(
+    window: &(impl raw_window_handle::HasDisplayHandle + raw_window_handle::HasWindowHandle + ?Sized),
+    token: &str,
+) {
+    use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
     use wayland_client::{
         Connection, Dispatch, Proxy, QueueHandle,
         backend::{Backend, ObjectId},

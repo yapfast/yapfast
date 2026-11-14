@@ -20,7 +20,8 @@ const BAR: &str = "Careful — you have unsaved changes!";
 /// The main profile's editor, open on what Discord has.
 fn open() -> App {
     let (mut app, _folder) = preview();
-    app.window.height = 1000.0;
+    app.shell.frame.height = 1000.0;
+    app.fit_window();
     change(&mut app, |state| {
         state.discord_user = Some("42".into());
         let fallback = Profile {

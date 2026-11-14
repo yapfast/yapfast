@@ -2,11 +2,7 @@
 //! does, and moving, sizing, minimizing, maximizing and closing the window
 //! from it through winit. Yapfast also uses these actions for its Windows bar.
 //!
-//! A desktop that gives its windows title bars, as KDE and GNOME do, draws
-//! one on Yapfast's too unless Yapfast draws its own. A tiling compositor such
-//! as Hyprland or sway draws none, and there Yapfast's would be in the way.
-//! The desktop doesn't say which it does: KWin and Hyprland both answer
-//! xdg-decoration with server-side. So `XDG_CURRENT_DESKTOP` decides, until
+//! Whether the desktop gives windows a title bar is `crate::frame`'s, until
 //! the person chooses in Appearance.
 //!
 //! Each window is made with the frame or without, rather than given it or
@@ -23,24 +19,6 @@ thread_local! {
 }
 
 use super::*;
-
-/// Desktops whose windows have title bars, as `XDG_CURRENT_DESKTOP` names them.
-const FRAMED: [&str; 14] = [
-    "KDE",
-    "GNOME",
-    "Unity",
-    "Cinnamon",
-    "X-Cinnamon",
-    "XFCE",
-    "MATE",
-    "LXQt",
-    "LXDE",
-    "Budgie",
-    "Pantheon",
-    "Deepin",
-    "COSMIC",
-    "Enlightenment",
-];
 
 /// The edges and corners ResizeEdges numbers, in its order.
 const DIRECTIONS: [ResizeDirection; 8] = [
@@ -67,18 +45,8 @@ pub(super) fn system_by_default() -> bool {
     if cfg!(windows) && yapfast::enabled() && !cfg!(test) {
         false
     } else {
-        cfg!(test) || !std::env::var("XDG_CURRENT_DESKTOP").is_ok_and(|desktops| framed(&desktops))
+        cfg!(test) || !crate::frame::desktop_frames()
     }
-}
-
-/// Whether any of the desktops in a colon-separated `XDG_CURRENT_DESKTOP`,
-/// such as "ubuntu:GNOME", gives its windows title bars.
-fn framed(desktops: &str) -> bool {
-    desktops.split(':').any(|desktop| {
-        FRAMED
-            .iter()
-            .any(|framed| desktop.eq_ignore_ascii_case(framed))
-    })
 }
 
 /// Makes the windows from now on with Yapfast's title bar or the desktop's,
@@ -177,21 +145,5 @@ fn winit(
 ) {
     if let Some(window) = weak.upgrade() {
         window.window().with_winit_window(act);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn framed_desktops_by_name() {
-        assert!(framed("KDE"));
-        assert!(framed("ubuntu:GNOME"));
-        assert!(framed("X-Cinnamon"));
-        assert!(!framed("Hyprland"));
-        assert!(!framed("sway"));
-        assert!(!framed("niri"));
-        assert!(!framed(""));
     }
 }

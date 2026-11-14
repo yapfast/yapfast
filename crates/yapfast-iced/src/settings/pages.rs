@@ -89,6 +89,9 @@ pub enum Pref {
     HideBlocked(bool),
     CheckUpdates(bool),
     Nightlies(bool),
+    StartOnSignIn(bool),
+    DiscordLinks(bool),
+    SystemTitleBar(bool),
 }
 
 /// My account's and the Discord page's buttons.
@@ -281,10 +284,33 @@ impl App {
             Pref::CheckUpdates(on) => {
                 prefs.check_for_updates = on;
                 self.keep("check_for_updates", on);
+                if on {
+                    self.look_for_updates(true);
+                }
             }
             Pref::Nightlies(on) => {
                 prefs.update_nightlies = on;
                 self.keep("update_nightlies", on);
+            }
+            Pref::StartOnSignIn(on) => {
+                match crate::desktop::desktop().set_autostart(on) {
+                    Ok(()) => tracing::info!(start = on, "starting at sign-in changed"),
+                    Err(error) => tracing::warn!(%error, "could not change starting at sign-in"),
+                }
+                self.read_platform_choices();
+            }
+            Pref::DiscordLinks(on) => {
+                let root = self.client.root();
+                match crate::desktop::desktop().set_discord_links(root, on) {
+                    Ok(()) => tracing::info!(discord_links = on, "Discord link handling changed"),
+                    Err(error) => tracing::warn!(%error, "could not change Discord link handling"),
+                }
+                self.read_platform_choices();
+            }
+            Pref::SystemTitleBar(on) => {
+                self.layout.system_title_bar = Some(on);
+                self.keep("system_title_bar", on);
+                return self.choose_title_bar(on);
             }
         }
         self.sync()
@@ -758,12 +784,41 @@ impl App {
     pub(super) fn advanced_page(&self) -> Element<'_, Message> {
         let theme = &self.theme;
         let prefs = &self.layout.prefs;
-        form::page([
-            form::title(theme, "Advanced"),
-            // The iced client has no tray yet.
+        let mut parts = vec![form::title(theme, "Advanced")];
+        let platform = self
+            .settings
+            .as_ref()
+            .map(|settings| settings.platform)
+            .unwrap_or_default();
+        if let Some(start) = platform.autostart {
+            parts.push(self.flip(
+                "Start when you sign in",
+                "Yapfast starts in the system tray when you sign in to your computer, so messages and calls reach you.",
+                start,
+                Pref::StartOnSignIn,
+            ));
+        }
+        if let Some(links) = platform.discord_links {
+            parts.push(self.flip(
+                "Open Discord links in Yapfast",
+                "discord:// links from other apps and shortcuts open here instead of Discord. Turning it off gives them back to the app that had them.",
+                links,
+                Pref::DiscordLinks,
+            ));
+        }
+        let tray = self
+            .shell
+            .tray
+            .as_ref()
+            .is_some_and(|tray| tray.available());
+        parts.extend([
             self.flip(
                 "Close to tray",
-                "No system tray is running, so closing the window quits Yapfast.",
+                if tray {
+                    "Closing the window keeps Yapfast running in the system tray, with any call. Quit from the tray icon's menu."
+                } else {
+                    "No system tray is running, so closing the window quits Yapfast."
+                },
                 prefs.close_to_tray.unwrap_or(true),
                 Pref::CloseToTray,
             ),
@@ -779,6 +834,7 @@ impl App {
                 prefs.gpu_rendering,
                 Pref::GpuRendering,
             ),
+            self.renderer_note(),
             self.flip(
                 "Encode streams with the GPU",
                 "Screen sharing uses the graphics card's video encoder, which takes almost no processor time and looks better at low bitrates. Off, or without one, Yapfast encodes on the processor.",
@@ -795,7 +851,28 @@ impl App {
                 .size(12)
                 .color(theme.faint)
                 .into(),
-        ])
+        ]);
+        form::page(parts)
+    }
+
+    /// What the renderer setting means for this build, which draws with the
+    /// one renderer it was built with: the setting is kept for builds that
+    /// can follow it.
+    fn renderer_note(&self) -> Element<'_, Message> {
+        let theme = &self.theme;
+        let gpu = cfg!(feature = "gpu");
+        let words = if self.layout.prefs.gpu_rendering == gpu {
+            if gpu {
+                "This build draws with the GPU (wgpu)."
+            } else {
+                "This build draws on the processor (tiny-skia)."
+            }
+        } else if gpu {
+            "This build draws with the GPU (wgpu) whatever the setting says: it was built with --features iced-gpu."
+        } else {
+            "This build draws on the processor (tiny-skia) whatever the setting says: it was built with --features iced."
+        };
+        form::note(theme, words)
     }
 
     pub(super) fn about_page<'a>(&'a self, settings: &'a Settings) -> Element<'a, Message> {
@@ -840,23 +917,8 @@ impl App {
                 ),
             ),
         );
-        let mut parts = vec![
-            form::title(theme, "About"),
-            card,
-            form::heading(theme, "UPDATES"),
-        ];
-        if !prefs.check_for_updates {
-            parts.push(form::note(theme, "Update checks are turned off."));
-        }
-        let ink = crate::theme::rgb(theme.faint);
-        parts.push(form::buttons([action(
-            theme,
-            "Check now",
-            Kind::Plain,
-            None,
-        )
-        .icon(self.icon(Icon::Refresh, 18, ink))
-        .into()]));
+        let mut parts = vec![form::title(theme, "About"), card];
+        parts.extend(self.updates_part());
         parts.push(
             switch(
                 "Check for updates",

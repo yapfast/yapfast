@@ -47,6 +47,11 @@ pub struct Layout {
     pub activity_cards_hidden: bool,
     /// How wide the thread beside the channel was dragged.
     pub aside_width: Option<f32>,
+    /// How far the window is zoomed (`zoom::LEVELS`), and whether the
+    /// desktop draws its title bar, as Appearance chose; unset, the
+    /// desktop's way decides.
+    pub zoom: Option<f32>,
+    pub system_title_bar: Option<bool>,
     /// What calls send and play, as Voice's settings in the Slint client
     /// keep them; see [`Voice`].
     #[serde(flatten)]
@@ -102,9 +107,12 @@ pub struct Prefs {
     pub show_idle: Option<bool>,
     /// Game Activity's own games: an executable and what to show for it.
     pub game_executables: Vec<(String, String)>,
-    /// About: looking for releases, nightlies among them.
+    /// About: looking for releases, nightlies among them, the release
+    /// skipped, and the last told of in a notification.
     pub check_for_updates: bool,
     pub update_nightlies: bool,
+    pub skipped_update: Option<String>,
+    pub announced_update: Option<String>,
 }
 
 /// When GIFs, animated emoji and stickers play, as Messages' choice.

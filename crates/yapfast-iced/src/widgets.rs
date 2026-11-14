@@ -1333,6 +1333,228 @@ impl<'a> From<Above<'a>> for Element<'a, Message> {
 }
 
 // ---------------------------------------------------------------------------
+// Under the title bar
+
+/// Its child in the room `top` pixels below the window's top, laid out and
+/// pointed at as if that room were the whole window: the window's own title
+/// bar takes the top, and what's below it (overlays placed by the layout's
+/// sums or at the pointer, sizes taken from the window's) needn't know.
+pub struct Below<'a> {
+    child: Element<'a, Message>,
+    top: f32,
+}
+
+impl<'a> Below<'a> {
+    pub fn new(child: impl Into<Element<'a, Message>>, top: f32) -> Self {
+        Self {
+            child: child.into(),
+            top,
+        }
+    }
+
+    fn shift(&self) -> Vector {
+        Vector::new(0.0, self.top)
+    }
+
+    /// The pointer as the child sees it.
+    fn cursor(&self, cursor: mouse::Cursor) -> mouse::Cursor {
+        cursor - self.shift()
+    }
+
+    fn viewport(&self, viewport: &Rectangle) -> Rectangle {
+        Rectangle {
+            y: viewport.y - self.top,
+            ..*viewport
+        }
+    }
+}
+
+impl Widget<Message, Theme, Renderer> for Below<'_> {
+    fn size(&self) -> Size<Length> {
+        Size::new(Length::Fill, Length::Fill)
+    }
+
+    fn children(&self) -> Vec<Tree> {
+        vec![Tree::new(&self.child)]
+    }
+
+    fn diff(&self, tree: &mut Tree) {
+        tree.diff_children(std::slice::from_ref(&self.child));
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut Tree,
+        renderer: &Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        let room = limits.max();
+        let inside = Size::new(room.width, (room.height - self.top).max(0.0));
+        let child = self.child.as_widget_mut().layout(
+            &mut tree.children[0],
+            renderer,
+            &layout::Limits::new(Size::ZERO, inside),
+        );
+        layout::Node::with_children(room, vec![child])
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        renderer: &Renderer,
+        operation: &mut dyn Operation,
+    ) {
+        let child = layout.children().next().expect("child");
+        if self.top == 0.0 {
+            self.child
+                .as_widget_mut()
+                .operate(&mut tree.children[0], child, renderer, operation);
+            return;
+        }
+        // Told as a scrollable that can't scroll, moved down by the bar, so
+        // what an operation finds (the tests' clicks, for one) is where it
+        // shows.
+        operation.scrollable(
+            None,
+            layout.bounds(),
+            child.bounds(),
+            -self.shift(),
+            &mut Still,
+        );
+        operation.traverse(&mut |operation| {
+            self.child
+                .as_widget_mut()
+                .operate(&mut tree.children[0], child, renderer, operation);
+        });
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut Tree,
+        event: &iced::Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        let child = layout.children().next().expect("child");
+        let had_input_method = shell.input_method().is_enabled();
+        let (cursor, viewport) = (self.cursor(cursor), self.viewport(viewport));
+        self.child.as_widget_mut().update(
+            &mut tree.children[0],
+            event,
+            child,
+            cursor,
+            renderer,
+            clipboard,
+            shell,
+            &viewport,
+        );
+        // The caret the input method follows, back in the window's place.
+        if !had_input_method
+            && let iced::advanced::InputMethod::Enabled { cursor, .. } = shell.input_method_mut()
+        {
+            *cursor = *cursor + self.shift();
+        }
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &Tree,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &Renderer,
+    ) -> mouse::Interaction {
+        self.child.as_widget().mouse_interaction(
+            &tree.children[0],
+            layout.children().next().expect("child"),
+            self.cursor(cursor),
+            &self.viewport(viewport),
+            renderer,
+        )
+    }
+
+    fn draw(
+        &self,
+        tree: &Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &renderer::Style,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        use iced::advanced::Renderer as _;
+        let child = layout.children().next().expect("child");
+        renderer.with_translation(self.shift(), |renderer| {
+            self.child.as_widget().draw(
+                &tree.children[0],
+                renderer,
+                theme,
+                style,
+                child,
+                self.cursor(cursor),
+                &self.viewport(viewport),
+            );
+        });
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut Tree,
+        layout: Layout<'b>,
+        renderer: &Renderer,
+        viewport: &Rectangle,
+        translation: Vector,
+    ) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
+        let shift = self.shift();
+        let viewport = self.viewport(viewport);
+        self.child.as_widget_mut().overlay(
+            &mut tree.children[0],
+            layout.children().next().expect("child"),
+            renderer,
+            &viewport,
+            translation + shift,
+        )
+    }
+}
+
+/// A [`Below`] to operations: nothing scrolls it.
+struct Still;
+
+impl iced::advanced::widget::operation::Scrollable for Still {
+    fn snap_to(
+        &mut self,
+        _: iced::advanced::widget::operation::scrollable::RelativeOffset<Option<f32>>,
+    ) {
+    }
+
+    fn scroll_to(
+        &mut self,
+        _: iced::advanced::widget::operation::scrollable::AbsoluteOffset<Option<f32>>,
+    ) {
+    }
+
+    fn scroll_by(
+        &mut self,
+        _: iced::advanced::widget::operation::scrollable::AbsoluteOffset,
+        _: Rectangle,
+        _: Rectangle,
+    ) {
+    }
+}
+
+impl<'a> From<Below<'a>> for Element<'a, Message> {
+    fn from(below: Below<'a>) -> Self {
+        Element::new(below)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // The timeline's presses and releases
 
 /// Its child, and what a left press nothing in it took and the left

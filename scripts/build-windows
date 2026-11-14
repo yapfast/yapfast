@@ -1,20 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
-# The Discord flavour is the release; full adds Matrix, as a separate preview.
+# The Discord flavour is the release; full adds Matrix, and iced is the iced
+# client in place of Slint's, each as a separate preview.
 # Arguments after the flavour go to scripts/package-windows.py, such as
 # --no-installer.
 flavour=${1:-discord}
 case $flavour in
   discord) features=(--no-default-features --features desktop,discord) ;;
   full) features=(--features matrix) ;;
-  *) echo "usage: scripts/build-windows [discord|full] [package-windows.py options]" >&2; exit 2 ;;
+  iced) features=(--no-default-features --features iced) ;;
+  *) echo "usage: scripts/build-windows [discord|full|iced] [package-windows.py options]" >&2; exit 2 ;;
 esac
 shift $(($# > 0 ? 1 : 0))
 rustup target add x86_64-pc-windows-msvc
 mkdir -p "$PWD/.local/windows"
-yapfast_skia_archive=$(python3 nix/prepare-windows-skia.py)
-export SKIA_BINARIES_URL="file://$yapfast_skia_archive"
+# Slint draws with Skia; the iced client with tiny-skia, which needs none.
+if [ "$flavour" != iced ]; then
+  yapfast_skia_archive=$(python3 nix/prepare-windows-skia.py)
+  export SKIA_BINARIES_URL="file://$yapfast_skia_archive"
+fi
 # cargo-xwin's environment, with source paths that name no folder here.
 source scripts/release-env x86_64-pc-windows-msvc
 # The release's own build: Settings and --version call it a stable release or
