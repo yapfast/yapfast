@@ -12,22 +12,36 @@ use anyhow::Context;
 pub use yapfast_discord;
 
 pub mod application;
-mod audio_io;
-pub use audio_io::set_windows_effects;
+// The sound devices a share plays into and records from, from the media crate.
+use yapfast_media::audio_io;
+/// Where a watched stream's sound and picture sit on the streamer's own clock,
+/// and the bound on when a decoded picture is shown; see src/av_timing.rs.
+#[cfg(feature = "discord")]
+pub use yapfast_media::audio_io::set_windows_effects;
 pub mod backend;
 pub mod blocks;
 #[cfg(feature = "matrix")]
 pub mod calls;
-pub mod camera;
+/// Which way a screen is captured, and the setting that decides it; see
+/// yapfast-media's capture.
+pub use yapfast_media::capture;
+// The base a stream and a call both sit on, from the media crate.
+pub use yapfast_media::camera;
+pub use yapfast_media::{av_timing, frames, gpu, logging, picture, pressure, volume};
+// The screens, windows and cameras a share picks between, and the sizes a
+// stream is sent and shown at.
+pub use yapfast_media::{geometry, source};
 pub mod chat;
 pub mod cli;
 #[cfg(feature = "discord")]
 pub mod clip;
 pub mod clock;
+#[cfg(all(feature = "discord", nvcuda))]
+pub mod cuda;
+#[cfg(all(feature = "discord", d3d11enc))]
+pub use yapfast_media::d3d11;
 #[cfg(feature = "discord")]
-mod declick;
-#[cfg(feature = "discord")]
-pub mod decode;
+pub use yapfast_media::decode;
 #[cfg(feature = "discord")]
 mod dereverb;
 pub mod discord;
@@ -41,14 +55,24 @@ pub mod discord_text;
 mod discord_video;
 #[cfg(feature = "discord")]
 mod discord_voice;
+/// The socket a stream's picture descriptors travel on, which a DMA-BUF needs
+/// and a shared texture's handle doesn't; see yapfast-media's dmabuf.
+#[cfg(target_os = "linux")]
+pub use yapfast_media::dmabuf;
+/// Desktop Duplication: the compositor's own surface, turned upright and
+/// converted on the GPU, with the pointer drawn in; see yapfast-media's dup.
+#[cfg(dup)]
+pub use yapfast_media::dup;
 #[cfg(feature = "discord")]
-pub mod encode;
+pub use yapfast_media::encode;
 #[cfg(feature = "matrix")]
 pub mod experiment;
-pub mod frames;
+/// A handle borrowed from the owner that gave it out, which is what keeps a
+/// texture the card drew from outliving the capture, scaler or share it came
+/// from; see yapfast-media's lease.
+pub use yapfast_media::lease;
 pub mod leveling;
 pub mod links;
-pub mod logging;
 #[cfg(feature = "discord")]
 mod lottie;
 #[cfg(feature = "matrix")]
@@ -62,10 +86,11 @@ mod matrix_voice;
 pub mod mention;
 pub mod meter;
 pub mod network;
-pub mod noise;
-pub mod picture;
+// The microphone's noise suppressor, and what a share of a still screen is.
+pub use yapfast_media::noise;
 #[cfg(feature = "discord")]
 pub mod playback;
+#[cfg(feature = "discord")]
 pub mod push_to_talk;
 #[cfg(feature = "discord")]
 pub mod ring;
@@ -77,7 +102,7 @@ pub mod soundboard;
 pub mod sounds;
 pub mod spoiler;
 #[cfg(feature = "discord")]
-pub mod stream_audio;
+pub use yapfast_media::stream_audio;
 #[cfg(feature = "discord")]
 pub mod stream_worker;
 #[cfg(feature = "discord")]
@@ -90,7 +115,8 @@ pub mod voice_demo;
 #[cfg(feature = "discord")]
 mod voice_message;
 pub mod voice_roster;
-pub mod volume;
+#[cfg(all(feature = "discord", wgc))]
+pub use yapfast_media::wgc;
 
 /// Install the TLS provider before starting Matrix or calling services.
 pub fn init_tls() -> anyhow::Result<()> {

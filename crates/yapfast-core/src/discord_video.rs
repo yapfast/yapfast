@@ -24,7 +24,7 @@ use yapfast_discord::{
 use crate::{
     camera::{self, Camera},
     decode::Decoder,
-    encode::{CLOCK, Effort, Encoder},
+    encode::{Effort, Encoder, timestamp},
     picture::{Feed, I420, Turn},
 };
 
@@ -78,7 +78,30 @@ impl Filming {
     /// as soon as it opens, and resolves with its first picture, for
     /// [`Self::opened`].
     pub fn open(&mut self, id: Option<&str>) -> impl Future<Output = Result<Camera>> + use<> {
-        Camera::start(self.camera.take(), id.map(str::to_owned), self.sink())
+        // A device that exports what it films hands each picture over as the
+        // card's copy of it as well, for the encoder to read where it lies.
+        // Whether this build can read one is a fact about the build, so the choice
+        // needs no encoder and no device: the camera's own thread opens both, at
+        // the first picture.
+        #[cfg(target_os = "linux")]
+        let delivery = match Self::films_on_the_card() {
+            true => camera::Delivery::Card(self.card_sink()),
+            false => camera::Delivery::Planes(self.sink()),
+        };
+        // Said once, where the way is chosen: a camera filmed on the processor is
+        // not left to a silence the log cannot explain. The card's own module says
+        // which way it went when it was asked.
+        #[cfg(target_os = "linux")]
+        if !cfg!(dmabufenc) {
+            tracing::info!(
+                "filming the camera on the processor: this build cannot import a picture into an encoder"
+            );
+        } else if !crate::encode::hardware() {
+            tracing::info!("filming the camera on the processor: the GPU's encoder is off");
+        }
+        #[cfg(not(target_os = "linux"))]
+        let delivery = camera::Delivery::Planes(self.sink());
+        Camera::start_filming(self.camera.take(), id.map(str::to_owned), delivery)
     }
 
     /// Keeps the camera [`Self::open`] opened.
@@ -96,45 +119,176 @@ impl Filming {
     /// Where a camera's pictures go: mirrored into the feed, and encoded
     /// into the call.
     fn sink(&self) -> camera::Sink {
-        let mut view = self.feed.mirrored_sink();
-        let (sender, started) = (self.sender.clone(), self.started);
-        let mut encoder: Option<Encoder> = None;
-        Box::new(move |picture: &I420<'_>| {
-            view(picture);
-            // The encoder takes even sizes, and starts again at a new one.
-            let size = (picture.width & !1, picture.height & !1);
-            let fresh = encoder
+        let mut sending = self.sending(false);
+        Box::new(move |planes: &I420<'_>| sending.picture(&camera::Picture::of(planes)))
+    }
+
+    /// Where the pictures of a camera the card filmed go: the same, and each
+    /// picture's descriptor, which the encoder reads where it lies.
+    #[cfg(target_os = "linux")]
+    fn card_sink(&self) -> camera::CardSink {
+        let mut sending = self.sending(true);
+        Box::new(move |picture: &camera::Picture<'_>| sending.picture(picture))
+    }
+
+    /// Whether a call's camera films into the card's own buffers, for an encoder
+    /// to read each picture where it lies: this build imports a descriptor into
+    /// an encoder, and the person asked for the GPU's encoder. Every other camera
+    /// films into memory, where x264 encodes it at 720p better than the GPU's own
+    /// encoder does once each picture is uploaded to it.
+    #[cfg(target_os = "linux")]
+    fn films_on_the_card() -> bool {
+        cfg!(dmabufenc) && crate::encode::hardware()
+    }
+
+    /// What this camera's pictures go through, kept across them. The encoder
+    /// opens at the first picture, on the camera's own thread.
+    fn sending(&self, on_the_card: bool) -> Sending {
+        Sending {
+            view: Box::new(self.feed.mirrored_sink()),
+            sender: self.sender.clone(),
+            started: self.started,
+            on_the_card,
+            encoder: None,
+            #[cfg(target_os = "linux")]
+            in_place: on_the_card,
+        }
+    }
+}
+
+/// What one camera's pictures go through as they arrive, kept across them: the
+/// mirror into the self-view, and the encoder the call's frames come from.
+struct Sending {
+    /// The self-view's feed, mirrored.
+    view: camera::Sink,
+    sender: Arc<CameraSender>,
+    /// The capture clock's start, the same across cameras.
+    started: Instant,
+    /// Whether the camera films into the card's own buffers, which is what picks
+    /// the encoder that reads a picture where it lies: a camera filmed in memory
+    /// opens x264, which at 720p measures better than the GPU's encoder once each
+    /// picture is uploaded to it.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    on_the_card: bool,
+    /// Opened at the first picture's size, and again at a new one.
+    encoder: Option<Encoder>,
+    /// Whether the encoder reads a picture where the card holds it. Cleared for
+    /// good once an encoder refuses a descriptor, so the pictures after it go by
+    /// the planes that encoder reads.
+    #[cfg(target_os = "linux")]
+    in_place: bool,
+}
+
+impl Sending {
+    /// The encoder for a camera's pictures, at `size` and a call's rate and
+    /// bitrate, on the card where `hardware` asks for it.
+    fn open(size: (u32, u32), hardware: bool) -> Option<Encoder> {
+        Encoder::new(
+            SEND_CODEC,
+            size.0,
+            size.1,
+            camera::FPS,
+            BITRATE,
+            Effort::Light,
+            hardware,
+        )
+        .inspect_err(|error| tracing::warn!(%error, "could not encode the camera"))
+        .ok()
+    }
+
+    /// Mirrors a picture into the self-view, and encodes it into the call.
+    fn picture(&mut self, picture: &camera::Picture<'_>) {
+        let planes = picture.planes;
+        (self.view)(planes);
+        // The encoder takes even sizes, and starts again at a new one.
+        let size = (planes.width & !1, planes.height & !1);
+        let fresh = self
+            .encoder
+            .as_ref()
+            .is_none_or(|encoder| encoder.size() != size);
+        if fresh {
+            // A camera the card films hands its picture over where it lies, and the
+            // card's encoder reads it there; one that films into memory gets the
+            // processor's, since the upload eats the card encoder's advantage at a
+            // camera's size and rate (docs/measurements). A card delivery whose
+            // device turned out not to export is one of these too.
+            #[cfg(target_os = "linux")]
+            let hardware = self.on_the_card && picture.card.is_some();
+            #[cfg(not(target_os = "linux"))]
+            let hardware = false;
+            self.encoder = Self::open(size, hardware);
+            // An encoder that uploads gives up what filming on the card is for, and
+            // at a camera's size and rate the processor's encoder measures better
+            // than that, so a picture on the card is encoded by one that reads it
+            // there or by x264.
+            #[cfg(target_os = "linux")]
+            let uploading = self
+                .encoder
                 .as_ref()
-                .is_none_or(|encoder| encoder.size() != size);
-            if fresh {
-                encoder = Encoder::new(
-                    SEND_CODEC,
-                    size.0,
-                    size.1,
-                    camera::FPS,
-                    BITRATE,
-                    Effort::Light,
-                    false,
-                )
-                .inspect_err(|error| tracing::warn!(%error, "could not encode the camera"))
-                .ok();
+                .filter(|encoder| picture.card.is_some() && !encoder.reads_descriptors())
+                .map(|encoder| encoder.engine().to_owned());
+            #[cfg(target_os = "linux")]
+            if let Some(engine) = uploading {
+                tracing::info!(
+                    encoder = engine.as_str(),
+                    "the card's encoder uploads a camera's picture, so the camera encodes on the processor"
+                );
+                self.encoder = Self::open(size, false);
             }
-            let Some(encoder) = encoder.as_mut() else {
-                return;
-            };
-            let keyframe = sender.take_keyframe_request() || fresh;
-            let pts = started.elapsed().as_micros() as u64 * CLOCK / 1_000_000;
-            match encoder.encode_picture(picture, pts, keyframe) {
-                Ok(Some(frame)) => sender.send(Frame {
-                    data: frame.data.to_vec(),
-                    codec: SEND_CODEC,
-                    timestamp: pts as u32,
-                    keyframe: frame.keyframe,
-                }),
-                Ok(None) => {}
-                Err(error) => tracing::warn!(%error, "could not encode the camera"),
+            #[cfg(target_os = "linux")]
+            {
+                self.in_place = self
+                    .encoder
+                    .as_ref()
+                    .is_some_and(|encoder| encoder.reads_descriptors());
             }
-        })
+        }
+        let Some(encoder) = self.encoder.as_mut() else {
+            return;
+        };
+        let keyframe = self.sender.take_keyframe_request() || fresh;
+        let elapsed = self.started.elapsed();
+        let pts = timestamp(elapsed);
+        #[cfg(target_os = "linux")]
+        let made = match picture.card {
+            // A VA-API session imports the descriptor and reads the picture where
+            // the card holds it, so no pixel of it comes back to the processor.
+            Some(card) if self.in_place => {
+                // The encoder is timed in milliseconds, and the packet with this
+                // picture's time, where the two can differ by less than one.
+                let time_ms = u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX);
+                match encoder.encode_dmabuf(&card, keyframe, time_ms) {
+                    Ok(made) => made,
+                    // Every other encoder reads memory, which is what the planes
+                    // are: this picture costs no upload, and the ones after it are
+                    // handed straight to their planes.
+                    Err(why) => {
+                        // The card wouldn't take this picture where it lies, and this
+                        // encoder reads the planes instead: the processor's copy of it,
+                        // and of the pictures after it.
+                        tracing::info!(
+                            why = %why,
+                            "the card wouldn't take the camera's picture where it lies"
+                        );
+                        self.in_place = false;
+                        encoder.encode_picture(planes, pts, keyframe)
+                    }
+                }
+            }
+            _ => encoder.encode_picture(planes, pts, keyframe),
+        };
+        #[cfg(not(target_os = "linux"))]
+        let made = encoder.encode_picture(planes, pts, keyframe);
+        match made {
+            Ok(Some(frame)) => self.sender.send(Frame {
+                data: frame.data,
+                codec: SEND_CODEC,
+                timestamp: pts as u32,
+                keyframe: frame.keyframe,
+            }),
+            Ok(None) => {}
+            Err(error) => tracing::warn!(%error, "could not encode the camera"),
+        }
     }
 }
 
@@ -336,6 +490,29 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Which way this build films a call's camera, and which encoder it opens for
+    /// it: a report of the build and of this machine, rather than a rule.
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "opens this build's encoder, which is a report rather than a rule"]
+    fn the_camera_films_where_this_build_reads_it() {
+        let on_the_card = Filming::films_on_the_card();
+        let opened = Encoder::new(
+            SEND_CODEC,
+            camera::WIDTH & !1,
+            camera::HEIGHT & !1,
+            camera::FPS,
+            BITRATE,
+            Effort::Light,
+            on_the_card,
+        );
+        println!(
+            "this build imports a descriptor into an encoder: {}; the camera films on the card: {on_the_card}; an encoder opened: {}",
+            cfg!(dmabufenc),
+            opened.is_ok(),
+        );
+    }
 
     #[test]
     fn cameras_are_asked_for_as_discords_desktop_app_asks() {

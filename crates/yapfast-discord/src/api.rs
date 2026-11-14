@@ -266,6 +266,10 @@ pub struct Api {
     pub(crate) base: String,
     limits: Limits,
     refusals: Refusals,
+    /// When each stream key's preview last went out, so a stream started again
+    /// doesn't spend the budget Discord keeps for that key on a still it
+    /// already has; see [`PREVIEW_SPACING`].
+    previews: std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>,
     /// Downloads going at once, so opening the emoji picker or a busy channel
     /// spreads its pictures out rather than asking for hundreds together.
     downloads: tokio::sync::Semaphore,
@@ -301,6 +305,7 @@ impl Api {
             base,
             limits: Limits::default(),
             refusals: Refusals::default(),
+            previews: std::sync::Mutex::default(),
             downloads: tokio::sync::Semaphore::new(DOWNLOADS),
             stall: STALL,
         })
@@ -2100,12 +2105,43 @@ impl Api {
 
     /// Shows `thumbnail`, a JPEG as a data URI, as the preview of this
     /// account's live stream, as Discord's client does every few minutes.
-    pub async fn stream_preview(&self, stream_key: &str, thumbnail: &str) -> Result<()> {
+    /// Answers whether it went: `false` when this stream's preview went less
+    /// than [`Self::PREVIEW_SPACING`] ago, which leaves the still Discord has
+    /// rather than spending its budget for the stream on the same picture twice.
+    pub async fn stream_preview(&self, stream_key: &str, thumbnail: &str) -> Result<bool> {
+        let now = std::time::Instant::now();
+        {
+            let mut previews = self
+                .previews
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            // A stream that stopped keeps its key for the next one started in
+            // the channel, and each key is forgotten once its spacing is up,
+            // so this holds the streams speaking now and no others.
+            previews.retain(|_, went| now.duration_since(*went) < Self::PREVIEW_SPACING);
+            if previews.contains_key(stream_key) {
+                return Ok(false);
+            }
+            // Counted when it goes, refused or not: a refusal says how long to
+            // wait, and asking again before then is what a refusal is for.
+            previews.insert(stream_key.to_owned(), now);
+        }
         let path = format!("/streams/{stream_key}/preview");
         let body = json!({"thumbnail": thumbnail});
         self.empty(with_json(self.request(Method::POST, &path), &body))
-            .await
+            .await?;
+        Ok(true)
     }
+
+    /// How long a stream's own preview is left alone for: a stream that stops
+    /// and starts again has the same key as the one before it, and its budget
+    /// for a preview is Discord's to give back, at a pace nothing in its
+    /// answers states. A second still moments later is refused with a 429, and
+    /// the wait that follows is a request the stream doesn't need: the still
+    /// Discord has is this stream's own picture already, so it stays until the
+    /// next one is due five minutes on. Discord's client uploads one when its
+    /// stream starts and every few minutes after.
+    const PREVIEW_SPACING: std::time::Duration = std::time::Duration::from_secs(60);
 
     /// Discord's own soundboard sounds, which every account may play.
     pub async fn default_soundboard_sounds(&self) -> Result<Vec<crate::soundboard::Sound>> {

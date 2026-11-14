@@ -40,7 +40,9 @@ rows, and shutdown cancels event reception before releasing the backend actor.
 ## Renderers and native builds
 
 Skia Software is the default. Settings → Advanced → Render with the GPU switches
-to Skia GPU, saved as `gpu_rendering` in `layout.json`. Slint selects its
+to Skia GPU — Vulkan where a device opens and OpenGL otherwise on Linux,
+Direct3D 12 on Windows — saved as `gpu_rendering` in `layout.json`. Slint
+selects its
 platform and renderer once per process, and glutin keeps the EGL library loaded
 until the process ends, so the setting applies on the next start; the section
 offers a restart, which replaces the process as the GPU recovery below does.
@@ -69,9 +71,12 @@ rendering at the same CPU, and scrolling a long history cost less CPU
 ### GPU recovery
 
 The GPU setting and `--renderer gpu` request Skia GPU through an explicit
-`skia-opengl` renderer on Linux, and on Windows through the `skia` renderer
-with Direct3D required, which Slint draws through wgpu's Direct3D 12. With
-OpenGL on Windows, NVIDIA's driver kept a core busy while Yapfast drew.
+renderer, so Slint cannot quietly draw with something else: `skia` with a
+Vulkan device Yapfast makes where one opens and the build carries Skia's Vulkan
+(`src/ui/vulkan.rs`), `skia-opengl` everywhere else on Linux — the archive the
+release links has both halves — and on Windows
+`skia` with Direct3D required, which Slint draws through wgpu's Direct3D 12.
+With OpenGL on Windows, NVIDIA's driver kept a core busy while Yapfast drew.
 The generic `skia` renderer without a required API would silently substitute a
 software surface when the GPU fails, so Yapfast owns the fallback instead:
 
@@ -89,6 +94,12 @@ software surface when the GPU fails, so Yapfast owns the fallback instead:
 - A GPU start that came from the setting turns the setting off, so later starts
   don't fail and restart again; the person can turn it back on. Without the
   setting or the flag, Yapfast does not try the GPU at all.
+- A Linux start that finds no Vulkan loader on the library path asks for the
+  device once more after loading the machine's own from
+  `/run/opengl-driver/lib`, where NixOS keeps it. Loading it registers it under
+  the soname wgpu asks for, so a binary run outside the package's wrapper still
+  opens a device. The machine's drivers have to be loadable in this process for
+  one to open at all ([media libraries](building.md#media-libraries)).
 
 `testing/probe_renderer_fallback.py` checks this policy on the private compositor.
 It hides every EGL vendor from libglvnd to simulate a missing OpenGL driver:
@@ -97,8 +108,9 @@ It hides every EGL vendor from libglvnd to simulate a missing OpenGL driver:
 nix-shell --impure testing/display/shell.nix --run 'scripts/run-framework-isolated --no-services --compositor-log .local/fallback.weston.log -- python3 testing/probe_renderer_fallback.py --output .impeccable/review/renderer-fallback'
 ```
 
-The Nix shells supply checksum-pinned native inputs. Linux uses the upstream
-Skia 0.157.0 archive. Windows builds the same pinned Skia source and
+The Nix shells supply checksum-pinned native inputs. Linux uses Skia 0.157.0
+built from the pinned source with Vulkan for the window's device and OpenGL for
+the fallback ([Skia with Vulkan](building.md#skia-with-vulkan)). Windows builds the same pinned Skia source and
 dependencies with `/MT`, matching WebRTC's static release runtime; the [Windows
 guide](windows-beta.md) covers that build. Both libraries define
 `jpeg_natural_order`, so the Skia archive preparation privately renames that

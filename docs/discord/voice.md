@@ -54,8 +54,6 @@ a phone. Yapfast tells that client's voice state from its own by the
 state with another is the other client's. The voice channel lists the
 account there as Discord does: dimmed until hovered, without its icons, with
 the tooltip "Connected on another client". Joining here takes the call over,
-from the channel's row, from Move to in the account's menu there, or by
-[dragging it onto another channel](servers.md#dragging-someone-to-another-voice-channel),
 and the join waits for a voice state of this session. When the other client
 joins voice, Yapfast's call ends without sending op 4 with no channel, which
 would end the other client's call too; Yapfast sends that only for a join under
@@ -179,15 +177,83 @@ the loss are measured.
 While this account's screen is live, a Stream tab says how it goes out:
 the encoder and where it runs ("NVENC on the GPU", "x264 on the CPU"), the
 codec Discord chose, the size and frame rate sent, the bitrate sent over
-the last second beside the one aimed for, which follows what the uplink
-carries ([Go Live](go-live.md)), and the keyframes viewers asked for and the packets resent to
-them. Discord's client shows its stream's numbers only in developer mode.
-The stream worker reports them once a second while live
+the last second beside the one aimed for, which follows Discord's bandwidth
+estimate, and the keyframes viewers asked for and the packets resent to
+them. It also says how the picture is captured and how large what is captured
+is — "Windows Graphics Capture · 3440×1440 screen", "X11's DRI3 capture ·
+1920×1080" on Linux, or "the processor's capturer" — which is the half of a
+share no packet shows: the same screen looks
+the same whether the card or the processor took it. Discord's client shows its
+stream's numbers only in developer mode.
+
+Beside those it says how the pictures reach the window — "the worker's own
+texture", which on Linux is a DMA-BUF the window imports and draws where the
+compositor drew it, or "a copy of the picture" frame by
+frame — the adapter the window draws on ("adapter
+0x1488a"), how long a frame waited between the capture having it and the encoder
+being given it, what the encoder's output buffers hold now and the most they
+have held, and, when there is one, why the share isn't on the card's own path:
+the window drawing on another adapter, the card refusing a shared picture, a
+source the card can't capture. A row that nothing answered reads "unknown"
+rather than zero, since a number nobody measured is not a measurement. The
+wait is only known where the card's capture handed the frame over inside the
+worker's own loop: the processor's capturer hands frames over on its own
+thread, so that row reads "unknown" there, as it does for a watched stream.
+The buffer figures are the encoder's output pool, and the receive side keeps no
+byte count of its own — the stream connection's reorder queues and its resend
+history — so a watched stream has no buffer row at all. While a share is giving
+memory back because the machine is short, the tab names the signal that said
+so; the policy is in [Go
+Live](go-live.md#the-stream-tab-and-what-a-share-gives-back-when-the-machine-is-short).
+
+*Copy diagnostics* copies the share's latest report as JSON, or a watched
+stream's when that is the tab, made when it is asked for and not before: no
+token, no server, no window title, and nothing of the picture or the sound —
+only what its numbers were. It is there for a bug report, so it says what a
+stream looked like and why, and nothing about the account or the conversation.
+It deliberately carries no count of the receive side's memory: nothing measures
+the reorder queues or the resend history, so the encoder's pool is the only one
+in it.
+
+The stream worker reports all of this once a second while live
 (`Report::Sending`), counting what `StreamSender` sends; the call keeps
 the last report beside its own numbers, without refreshing the UI's state,
 and the popout reads it as it reads the pings. A report more than 3 s old
-means the stream stopped, and the tab goes. `talks_to_the_fake_server`
+means the stream stopped, and the tab goes. It also shows what a bound gave up:
+the frames a full send queue skipped rather than encoded and dropped, and the
+shared sound's queue — the longest wait before it was mixed, and the sound a
+full backlog dropped. Stopping the stream clears the call's copy of the last
+report at once, so a stream that ended never shows as live. It also names any setting the encoder's driver
+refused, when one did, so a stream never silently runs without the tuning it
+asked for. `talks_to_the_fake_server`
 checks the bytes counted and a resend.
+
+While this account watches someone's stream, the tab is about that stream:
+what decodes it — "the card's decoder" where a decoder leaves the picture on
+the card, "the processor's decoder" otherwise — the codec, the size and frame
+rate shown, and how the picture reaches the window: the card's own memory, as a
+DMA-BUF the window imports, where the card decodes, and a copy of every picture
+into the shared frames otherwise. Nothing is sent, so the rows that would give
+a bitrate, a keyframe count or a send queue's losses stay away rather than
+showing a share's numbers.
+
+The card's decoder is FFmpeg's own Direct3D 11 decoder where this build has
+it — H264, HEVC and AV1 on any vendor's card, with AV1 hardware decode needing
+no Microsoft AV1 Video Extension — and, on Linux, FFmpeg's VA-API decoder, or
+NVIDIA's NVDEC through the driver's own API where VA-API opens nothing. Both
+Linux paths leave each picture in a surface on the card and export it as a
+DMA-BUF the window imports where it lies, so the picture is never copied
+between devices, and each stream's surfaces are allocated once rather than per
+frame. `decode.rs` falls back to the software decoders when none opens, when
+the card fails mid-stream, and for pictures the tile pass has no layout or
+curve for: 4:2:2, 4:4:4, 12-bit, and 10-bit ones in HLG or BT.2020's
+constant-luminance matrix. On Windows the picture is then scaled into the tile
+by the card's video processor in the pass that also does its colour matrix and
+range; on Linux the window's own tile pass reads the picture's planes — NV12 at
+8 bits, P010 from VA-API or P016 from NVDEC at 10 — with the range, matrix and
+transfer curve the shim read out of the stream's VUI, which is BT.2020 and
+the PQ curve with a tone map into SDR for HDR10. Only the tile crosses to the
+processor either way.
 
 Matrix calls don't have these yet. LiveKit's SDK measures its signal
 connection's round trip but doesn't expose it, and `Room::get_stats`
@@ -314,11 +380,39 @@ stream at rid "100", at most 1280×720 and 30 frames a second. Discord's
 clients offer a second layer at quality 50; Yapfast sends one, as its Go Live
 does. Turning it off sends op 12 again with a video SSRC of 0 and no
 streams. Yapfast offers H264 to encode, as for Go Live, and both H264 and VP8 to
-decode. The camera's pictures go to x264 on the camera's own thread, at Go
-Live's lighter effort and 1.5 Mbit/s, and each frame to the call's thread, which encrypts it with DAVE
-and sends it as Go Live's packetizer does: sender reports, a resend from RTX
-for each NACK, and a keyframe when someone asks with a PLI. A frame the
-call's thread can't take in time is dropped, and the next one is a keyframe.
+decode. The camera's pictures are encoded on the camera's own thread, in H264
+at Go Live's lighter effort and 1.5 Mbit/s, by the encoder that reads them where
+they are: x264 where the camera films in memory, and the card's encoder where it
+films on the card, opened as a stream opens one
+([Go Live](go-live.md#encoding-on-the-gpu)). Each frame goes to the call's
+thread, which encrypts it with DAVE and sends it as Go Live's packetizer does:
+sender reports, a resend from RTX for each NACK, and a keyframe when someone
+asks with a PLI. A frame the call's thread can't take in time is dropped, and
+the next one is a keyframe.
+
+Which way a camera is filmed is what picks that encoder. A camera is filmed in
+memory by libwebrtc's capture module (`native/camera.cc`: V4L2 on Linux and
+DirectShow on Windows), which asks the device for 1280×720 at 30 frames a second
+and converts each frame into I420 planes in buffers it reuses, a larger frame
+scaled down to fit; every camera on Windows is filmed there, and the card's
+encoder measures no better at that size and rate once each picture is uploaded
+to it. Where the build can import a DMA-BUF into an encoder and "Encode streams
+with the GPU" in Settings is on, a Linux camera that films 1280×720 as NV12 in
+buffers it exports is filmed by V4L2's own capture (`capture/v4l2.rs`) instead:
+each picture arrives in the driver's own buffer, and the encoder reads it there
+where that encoder imports a DMA-BUF at all. VA-API does; a machine whose
+camera encoder turns out to be NVENC, Quick Sync or AMF encodes the camera on
+the processor instead, because those upload every picture and x264 measures
+better at that size and rate. Where the picture is read where it lies, no pixel
+of it crosses to the processor, and the tile showing your own camera reads the
+same picture converted once a frame into I420 planes (`native/camera.cc`'s
+`yapfast_camera_nv12_to_i420`). A camera
+that can't be filmed that way stays on the module — a device with no NV12
+format, one whose driver won't export what it films, one that answers with
+another size than the call asks, and every camera on a platform other than
+Linux — and the log says once which way it went, with the reason when it is the
+module's. A descriptor the encoder refuses leaves that call's pictures on their
+planes from then on, and the log says so once.
 
 The others' cameras arrive the same way round. Op 12 says who films on which
 SSRC, and Discord forwards a camera only to those who ask for it with op 15
@@ -533,8 +627,9 @@ button beside Leave in the call panel turns suppression off, shown red while
 it's off, and on again to the kind last used, wherever it was chosen:
 DeepFilterNet unless RNNoise was. A Yapfast call has no such button, as WebRTC
 suppresses its noise. A
-call going on switches at its next block, after DeepFilterNet's 0.2 s load if
-switching to it.
+call going on switches at its next block rather than in one, after
+DeepFilterNet's 0.2 s load if switching to it, and the network it replaces goes
+before the new one loads, so a switch never holds two of them.
 
 The microphone's thread keeps an estimate of how much audio waits in the
 microphone's buffer (`Pace` in `discord_audio.rs`): a read that waits found

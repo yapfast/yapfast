@@ -17,7 +17,7 @@ import urllib.parse
 from release_package import ROOT, dependency_notices, digest, names_home, source_snapshot
 
 TARGET = "x86_64-unknown-linux-gnu"
-FEATURES = ["--no-default-features", "--features", "desktop,discord"]
+FEATURES = ["--no-default-features", "--features", "desktop,discord,skia-vulkan"]
 
 
 def nix_build(installable):

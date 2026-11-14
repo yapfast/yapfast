@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# The native release build, with Skia's Vulkan: the archive rust-skia doesn't
+# publish is the one Nix builds (nix/skia-linux-vulkan.nix), kept under
+# .local/skia-vulkan for a build that doesn't go through Nix at all. Host tools
+# only: FFmpeg's and x264's assembly want nasm on PATH.
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+archive=$(ls .local/skia-vulkan/skia-binaries-*-vulkan.tar.gz 2>/dev/null | head -1)
+if [[ -z "$archive" ]]; then
+  cat >&2 <<'TXT'
+No Skia built with Vulkan under .local/skia-vulkan, which `skia-vulkan` needs.
+Make one with `nix build path:./nix#skia-vulkan`, then copy its tarball there:
+  mkdir -p .local/skia-vulkan
+  cp $(nix build --no-link --print-out-paths path:./nix#skia-vulkan)/*.tar.gz .local/skia-vulkan/
+TXT
+  exit 1
+fi
+export SKIA_BINARIES_URL="file://$PWD/$archive"
+exec cargo build --release "$@"

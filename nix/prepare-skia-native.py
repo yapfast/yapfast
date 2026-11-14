@@ -23,15 +23,26 @@ Payloads = dict[str, object]
 ArchiveMembers = dict[str, Payloads]
 
 native_target: str = os.environ.get('YAPFAST_SKIA_TARGET', 'linux')
+# The flavour's name, as rust-skia keys a Skia archive by its target and
+# features, and the archive's digest. `linux` is rust-skia's prebuilt Skia,
+# OpenGL with its own FreeType; `linux-vulkan` is the source build in
+# nix/skia-linux-builder, the same features plus Vulkan; `windows` is its own
+# source build (nix/prepare-windows-skia.py).
 pins: dict[str, tuple[str, str | None]] = {
     'linux': ('x86_64-unknown-linux-gnu-ftembed-ganesh-gl-jpegd-jpege-pdf-textlayout',
               'd5ea4666b67f4ff74a2c9dccf9cbb069fc991552caa9ed26fd4379572ddfe3b1'),
+    'linux-vulkan': ('x86_64-unknown-linux-gnu-ftembed-ganesh-gl-jpegd-jpege-pdf-textlayout-vulkan',
+                     # The pinned nix build's bytes; a source build elsewhere
+                     # passes its own digest in YAPFAST_SKIA_SOURCE_SHA256, since
+                     # compiling records the header path it saw.
+                     os.environ.get('YAPFAST_SKIA_SOURCE_SHA256')
+                     or 'e5442727cdb634b76de8e91d7126bf958e745cd8718d9e148c21bc34dae07e3f'),
     'windows': ('x86_64-pc-windows-msvc-d3d-ganesh-gl-jpegd-jpege-pdf-static',
                 os.environ.get('YAPFAST_SKIA_STATIC_SHA256')),
 }
 suffix, source_sha256 = pins[native_target]
 if not source_sha256:
-    raise SystemExit('Windows preparation requires the verified source-build archive')
+    raise SystemExit('A source-build flavour needs the verified archive digest in its pin')
 key: str = '30669978c3f39a73e8a7-' + suffix
 package: str = 'skia-binaries-' + key + '.tar.gz'
 old_symbol: str = 'jpeg_natural_order'
@@ -153,7 +164,7 @@ def archive_members(path: Path) -> ArchiveMembers:
                 name = name.rstrip('/')
             if name in members:
                 raise SystemExit('Duplicate archive member: ' + name)
-            members[name] = elf_payloads(payload) if native_target == 'linux' else coff_payloads(payload)
+            members[name] = elf_payloads(payload) if native_target.startswith('linux') else coff_payloads(payload)
         position += 60 + size + size % 2
     return members
 
@@ -172,7 +183,7 @@ with tempfile.TemporaryDirectory(prefix='skia-native-prepare-', dir=target.paren
     original_symbols: dict[str, list[str]] = {}
     original_payloads: dict[str, ArchiveMembers] = {}
     hashes: dict[str, dict[str, str]] = {}
-    libraries = sorted(native_root.glob('*.a' if native_target == 'linux' else '*.lib'))
+    libraries = sorted(native_root.glob('*.a' if native_target.startswith('linux') else '*.lib'))
     if native_target == 'windows':
         for library in libraries:
             directives = subprocess.check_output(['llvm-readobj', '--coff-directives', str(library)], text=True)

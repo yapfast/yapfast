@@ -10,6 +10,8 @@
 #include <va/va.h>
 #include <va/va_drm.h>
 #include <va/va_str.h>
+/* VAProcPipelineCaps, which the filters' video processing asks about. */
+#include <va/va_vpp.h>
 
 static void *libva, *libva_drm;
 static pthread_once_t loaded = PTHREAD_ONCE_INIT;
@@ -73,6 +75,21 @@ FORWARD(VAStatus, vaGetConfigAttributes,
         (VADisplay dpy, VAProfile profile, VAEntrypoint entrypoint, VAConfigAttrib *attribs,
          int count),
         (dpy, profile, entrypoint, attribs, count), FAILED)
+/* A decoded picture is handed over as a DMA-BUF on Linux: the surface is
+ * exported, or a buffer's handle taken and released, rather than copied. */
+FORWARD(VAStatus, vaAcquireBufferHandle,
+        (VADisplay dpy, VABufferID buf_id, VABufferInfo *buf_info),
+        (dpy, buf_id, buf_info), FAILED)
+FORWARD(VAStatus, vaExportSurfaceHandle,
+        (VADisplay dpy, VASurfaceID surface_id, uint32_t mem_type, uint32_t flags,
+         void *descriptor, int *fd),
+        (dpy, surface_id, mem_type, flags, descriptor, fd), FAILED)
+FORWARD(VAStatus, vaReleaseBufferHandle, (VADisplay dpy, VABufferID buf_id),
+        (dpy, buf_id), FAILED)
+/* QSV asks the display which Intel device it is, to pick the driver. */
+FORWARD(VAStatus, vaGetDisplayAttributes,
+        (VADisplay dpy, VADisplayAttribute *attr_list, int num_attributes),
+        (dpy, attr_list, num_attributes), FAILED)
 FORWARD(VADisplay, vaGetDisplayDRM, (int fd), (fd), NULL)
 FORWARD(VAStatus, vaGetImage,
         (VADisplay dpy, VASurfaceID surface, int x, int y, unsigned int width,
@@ -106,6 +123,10 @@ FORWARD(VAStatus, vaQueryImageFormats, (VADisplay dpy, VAImageFormat *formats, i
 FORWARD(VAStatus, vaQuerySurfaceAttributes,
         (VADisplay dpy, VAConfigID config, VASurfaceAttrib *attribs, unsigned int *count),
         (dpy, config, attribs, count), FAILED)
+FORWARD(VAStatus, vaQueryVideoProcPipelineCaps,
+        (VADisplay dpy, VAContextID context, VABufferID *filters, unsigned int num_filters,
+         VAProcPipelineCaps *pipeline_caps),
+        (dpy, context, filters, num_filters, pipeline_caps), FAILED)
 FORWARD(const char *, vaQueryVendorString, (VADisplay dpy), (dpy), "")
 FORWARD(VAStatus, vaRenderPicture,
         (VADisplay dpy, VAContextID context, VABufferID *buffers, int count),

@@ -46,8 +46,52 @@ the conversation view, which `video_player.rs` plays in the stream worker.
 `stream_worker.rs` runs Go Live and video playback in a child process,
 `yapfast --stream-worker`, so their memory goes when they stop. `video.rs`
 reads video files, `encode.rs` encodes Go Live and the camera, and
-`decode.rs` decodes a watched stream, each through C in `native/*.c`.
-`audio_io.rs` and `audio_io/` are Yapfast's own sound devices.
+`decode.rs` decodes a watched stream, each through C in `native/*.c`. A screen
+or a window is captured by `wgc.rs` (Windows Graphics Capture) or `dup.rs`
+(Desktop Duplication) where the card can take it, and by libwebrtc's capturer in
+memory otherwise. A camera is captured by libwebrtc's capture module
+(`native/camera.cc`, V4L2 on Linux and DirectShow on Windows) in memory, or, for
+a call, on Linux by `capture/v4l2.rs`, which opens the device itself where it
+films 1280×720 NV12 in buffers it exports, for an encoder that imports a
+DMA-BUF — VA-API — to read each picture where the card holds it; where the
+encoder that opens uploads instead, the camera encodes on the processor.
+`native/camera_mf.cc` is a
+Media Foundation camera for Windows, built instead of `camera.cc` when
+`YAPFAST_CAMERA_MF` is set, and handing each frame over both as the D3D11 texture
+it lies in and as I420 planes; it is compiled but has never been run.
+`frames.rs` is the file the worker and the window both map: a
+stream's pictures, and the slots a card-drawn preview is handed over in, which
+`src/ui/gpu.rs` opens on the window's own device. On Linux a card's picture is
+not a handle the file can carry but a DMA-BUF, a file descriptor that means
+different things in two processes, so its layout and numbers go in the file and
+the descriptors themselves go over a socket pair the window makes before it
+starts the worker (`dmabuf.rs`, `frames::Frames::open_pictures`,
+`dmabuf::inheriting`), one `sendmsg` a picture with the descriptors attached
+through `SCM_RIGHTS`, and the window closes them as it retires the slot. A
+DMA-BUF the window takes is imported on the device it draws the window with
+(`src/ui/gpu.rs`'s Linux side): the image is made with
+`VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT` and the picture's fourcc, DRM
+modifier, plane offsets and strides (`src/ui/gpu.rs`'s `plane` module, which is
+the part a test can check without a card), one `VkDeviceMemory` is imported for
+each buffer its planes are in, and wgpu wraps the image as a texture. A 32-bit
+picture, which is what a compositor's screen is, is shown from that texture
+directly and Skia scales it into the tile. A card's decoded picture is NV12 at
+8 bits and P010 or P016 at 10 — the same two planes in 16-bit samples, 10 bits
+at the top for P010 and at the bottom for P016 — which the vendored Skia import
+can't sample (it wraps single-plane 8-bit RGBA), so the window's `present`
+module runs one pass over the two plane views and writes the tile in BGRA
+instead, with the matrix, range and transfer curve the worker's decoder read out
+of the stream carried in a uniform. No pixel of either path crosses the
+processor.
+`stream_audio.rs` is a
+stream's sound both ways: what other applications play for a share, and the
+player that puts the sound coming the other way in order.
+`pressure.rs` reads how much memory the machine and the card have left, once a
+second from the stream's own loop, and says what a share gives up while they are
+short. An encoded frame is a buffer from the sender's pool, which the encoder
+copies its own access unit into once, so a pool that has to grow costs a copy
+rather than a second encode. `audio_io.rs` and `audio_io/` are Yapfast's own
+sound devices.
 
 `vendor/` holds patched Slint, webrtc-sys, matrix-rtc-livekit, davey and
 tungstenite, plus x264's and FFmpeg's C source; see
@@ -83,7 +127,12 @@ composer, `aside` shows a Discord thread beside the open channel, and
 The Slint adapter in [`src/ui.rs`](../src/ui.rs) and [`src/ui/`](../src/ui), with
 the interface in [`ui/*.slint`](../ui), owns input widgets, password masking,
 focus, filtering, scroll position, list virtualization, device selectors, window
-state, theme and icons. `Adapter::refresh`, in
+state, theme and icons. Its renderer is chosen there too: the GPU setting draws
+with Skia on Vulkan through a wgpu 30 device
+[`src/ui/vulkan.rs`](../src/ui/vulkan.rs) makes, on Windows the Direct3D 12
+device [`src/ui/gpu.rs`](../src/ui/gpu.rs) makes, and with Skia on OpenGL
+wherever neither is there; [`src/graphics.rs`](../src/graphics.rs) holds the
+setting, the restart after a failed GPU start, and the choice between the two. `Adapter::refresh`, in
 [`src/ui/refresh.rs`](../src/ui/refresh.rs), shows the application's state one
 area at a time. `ui/yapfast.slint` holds the window and imports its parts
 from the files beside it. The adapter updates widgets after model changes. A
@@ -164,7 +213,7 @@ A visible change usually touches each of these steps:
    events. Backend events come back through `Application::apply`.
 
 Yapfast's own sound outside LiveKit's calls goes through
-[`audio_io.rs`](../crates/yapfast-core/src/audio_io.rs): Discord voice, the input
+[`audio_io.rs`](../crates/yapfast-media/src/audio_io.rs): Discord voice, the input
 meter, ringing, Yapfast's sounds, a watched stream's or a video's sound, and what
 other applications play for Go Live. It opens a microphone or speakers by the
 device id LiveKit lists, `None` being the system's default, and reads or writes

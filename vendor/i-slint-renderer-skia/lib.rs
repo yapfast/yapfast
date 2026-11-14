@@ -314,9 +314,10 @@ fn direct3d_wgpu_surface_factory(
     )
 }
 
-/// Yapfast: the surface of a wgpu renderer when Skia is built without wgpu. The
-/// winit backend still names those renderers, and their surfaces fail to start.
-#[cfg(not(feature = "wgpu-30"))]
+/// Yapfast: the surface of a wgpu renderer when Skia is built without wgpu, or
+/// without the Vulkan its wgpu surface wraps. The winit backend still names those
+/// renderers, and their surfaces fail to start.
+#[cfg(any(not(feature = "wgpu-30"), skia_wgpu_without_vulkan))]
 fn no_wgpu_surface_factory(
     _context: &SkiaSharedContext,
     _window_handle: Arc<dyn raw_window_handle::HasWindowHandle + Sync + Send>,
@@ -608,7 +609,6 @@ impl SkiaRenderer {
     pub fn default_vulkan(context: &SkiaSharedContext) -> Self {
         Self::new_with_surface_factory(context, no_wgpu_surface_factory, None)
     }
-
     #[cfg(all(target_family = "windows", not(skia_backend_wgpu)))]
     pub fn default_direct3d(context: &SkiaSharedContext) -> Self {
         Self::new_with_surface_factory(context, no_wgpu_surface_factory, None)

@@ -30,6 +30,10 @@ export component SettingsSwitch inherits Rectangle {
     in property <bool> enabled: true;
     /// Why it can't change, shown while the pointer is on the switch.
     in property <string> locked-tip;
+    /// Something the person should read before turning it on: the title is drawn
+    /// in the theme's danger colour, and a warning sign carries the description
+    /// on hover.
+    in property <bool> warning: false;
     /// The key under which new_tags.rs lists this setting, if it is a new one:
     /// a NEW tag follows its name until the page has been seen.
     in property <string> new-key;
@@ -58,8 +62,30 @@ export component SettingsSwitch inherits Rectangle {
             HorizontalLayout {
                 spacing: 6px; alignment: start; horizontal-stretch: 1;
                 Text {
-                    text: root.text; color: root.enabled ? Theme.text : Theme.muted; font-size: 15px;
+                    text: root.text;
+                    color: root.warning ? Theme.danger : (root.enabled ? Theme.text : Theme.muted);
+                    font-size: 15px;
                     vertical-alignment: center; wrap: word-wrap;
+                }
+                // The weight of an experiment, said before it is turned on.
+                if root.warning: Middle {
+                    Image {
+                        width: 14px; height: 14px; source: @image-url("icons/triangle-alert.svg");
+                        colorize: Theme.danger;
+                        accessible-role: image; accessible-label: root.description;
+                        TouchArea {
+                            changed has-hover => {
+                                if self.has-hover {
+                                    Tip.text = root.description;
+                                    Tip.side = 0;
+                                    Tip.x = self.absolute-position.x + self.width / 2;
+                                    Tip.y = self.absolute-position.y;
+                                } else if Tip.text == root.description {
+                                    Tip.text = "";
+                                }
+                            }
+                        }
+                    }
                 }
                 if root.new-key != "" && NewTags.is-new(root.new-key, NewTags.revision): Middle { NewTag { } }
                 // Discord's lock after the title, with why on hover.
@@ -1322,7 +1348,14 @@ export component SoundSettings inherits VerticalLayout {
 export component AdvancedSettings inherits VerticalLayout {
     in-out property <bool> gpu-rendering;
     in-out property <bool> gpu-encoding;
+    /// Which codec a share asks Discord for first, as an index into
+    /// `yapfast_core::stream_worker::StreamCodec::ALL`: 0 Automatic, 1 AV1,
+    /// 2 H.265, 3 H.264.
+    in-out property <int> stream-codec;
     in property <bool> gpu-running;
+    /// Whether this machine's graphics card can share without the processor
+    /// copying each picture: the note below is shown only where it can.
+    in property <bool> share-on-the-card;
     in-out property <bool> close-to-tray;
     in property <bool> tray-available;
     in-out property <bool> multiple-windows;
@@ -1379,11 +1412,26 @@ export component AdvancedSettings inherits VerticalLayout {
             clicked => { root.restart(); }
         }
     }
+    if root.share-on-the-card && !root.gpu-rendering: Label {
+        text: "Turn this on for the smoothest sharing: what you share goes straight to the graphics card and stays there. With it off, sharing still works — your processor just does a little more of the work.";
+    }
     SettingsSwitch {
         text: "Encode streams with the GPU";
-        description: "Screen sharing uses the graphics card's video encoder, which takes almost no processor time and looks better at low bitrates. Off, or without one, Yapfast encodes on the processor.";
+        description: "Screen sharing uses the graphics card's video encoder, which takes almost no processor time and looks better at low bitrates. Off, or without one, Yapfast encodes on the processor. A camera follows this too wherever the card can film it.";
         checked <=> root.gpu-encoding;
         toggled => { root.preferences-changed(); }
+    }
+    VerticalLayout {
+        spacing: 8px;
+        SettingsHeading { text: "STREAM CODEC (EXPERIMENTAL)"; }
+        Choices {
+            label: "Stream codec"; options: ["Automatic", "AV1", "H.265", "H.264"];
+            current <=> root.stream-codec;
+            chosen => { root.preferences-changed(); }
+        }
+        Label {
+            text: "What Yapfast asks Discord to send when you share your screen. Automatic offers the best codec this computer's graphics card encodes — AV1, then H.265, then H.264 — and Discord sends the one every person watching can decode. Choose one to ask for it first: H.264 is the one every client decodes, and AV1 or H.265 look better at the same bitrate wherever everyone watching can take them. A codec this machine can't encode is left to the automatic order.";
+        }
     }
     SettingsSwitch {
         text: "Developer Mode";

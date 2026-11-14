@@ -4516,7 +4516,39 @@ impl Adapter {
             voice::Resolution::Source => 2,
         });
         window.set_share_fps(voice.quality.fps as i32);
+        // How often the pictures on screen are taken: the rate the stream there
+        // runs at, which its worker reports, so a 60 fps share or watched stream
+        // is shown at 60 rather than every other picture. Before one has said —
+        // and for a camera or a clip, which are at most 30 — it is the rate a
+        // share here is set to.
+        let stats = voice
+            .link
+            .as_ref()
+            .map(yapfast_core::voice::Link::read)
+            .unwrap_or_default();
+        let fps = stats
+            .stream
+            .as_ref()
+            .or(stats.watching.as_ref())
+            .map_or_else(
+                || {
+                    if voice.sharing.is_some() {
+                        voice.quality.fps
+                    } else {
+                        yapfast_core::camera::FPS
+                    }
+                },
+                |stream| stream.fps,
+            )
+            .clamp(1, 60);
+        window.set_stream_tick_ms((1000 / fps) as i32);
         window.set_share_high_quality(voice.quality.high_quality);
+        window.set_share_quality(
+            voice::Ceiling::ALL
+                .iter()
+                .position(|ceiling| *ceiling == voice.quality.ceiling)
+                .unwrap_or(1) as i32,
+        );
         window.set_share_live(
             voice
                 .sharing

@@ -60,11 +60,33 @@ GPU. To use the GPU:
 nix develop path:./nix --command cargo run --locked -- --preview --renderer gpu
 ```
 
-Omit `--preview` to sign in or restore your real account. If the GPU cannot
-start, Yapfast restarts itself with Skia Software and explains why
-([renderers](slint-client.md#renderers-and-native-builds)). Renderer
-selection does not change session storage, encryption or the native audio
-backend.
+Omit `--preview` to sign in or restore your real account. On Linux the GPU is
+Skia on Vulkan, the device a stream's picture is shown from without a copy,
+where the machine's driver opens one; where it doesn't, the same build draws
+with Skia on OpenGL, and a GPU that can't start at all leaves Yapfast
+restarting itself with Skia Software, saying why
+([Skia with Vulkan](building.md#skia-with-vulkan),
+[renderers](slint-client.md#renderers-and-native-builds)). Renderer selection
+does not change session storage, encryption or the native audio backend.
+
+A Nix build on a host that isn't NixOS finds no GPU driver by itself: its loader
+never looks in `/usr/lib`, where the EGL vendor libraries and the Vulkan ICDs
+open their libraries by name from, and where the CUDA driver NVENC asks for and
+Intel's libigdgmm sit. Put those libraries on `LD_LIBRARY_PATH` after the
+build's own — `/run/opengl-driver/lib` is where NixOS keeps them, and elsewhere
+a directory of symlinks to the host's `libEGL_nvidia.so.*`, `libGLX_nvidia.so.*`,
+`libnvidia-*`, `libcuda.so*`, `libnvcuvid.so*`, `libigdgmm.so*`,
+`libEGL_mesa.so.*` and `libvulkan_intel*.so` does it — and the GPU setting draws
+there, and a share encodes on the card. The Vulkan loader itself comes from the
+shell (`vulkan-loader`, on its `LD_LIBRARY_PATH`), and finds the card's driver
+through the ICD files in a share dir: `/run/opengl-driver/share` on NixOS, and
+`/usr/share` elsewhere, which the shell's `XDG_DATA_DIRS` already names. On
+NixOS the loader itself is loaded from `/run/opengl-driver/lib` by Yapfast when
+the library path has none, so `--renderer gpu` works without the wrapper; the
+driver that loader opens has to be loadable in this process, and one built from a
+newer channel than the build's glibc is not (libva and Vulkan both say
+`GLIBC_`). Build against the system's nixpkgs on such a machine
+([media libraries](building.md#media-libraries)).
 
 ## Matrix
 

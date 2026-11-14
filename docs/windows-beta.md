@@ -47,9 +47,11 @@ device verification and recovery are being tested.
 
 Yapfast renders with Skia Software unless "Render with the GPU" in Settings →
 Advanced is on. On Windows that setting asks Slint for Skia with Direct3D
-required, which draws through wgpu's Direct3D 12; Linux uses OpenGL. NVIDIA's
+required, which draws through wgpu's Direct3D 12; on Linux for Skia on Vulkan
+where a Vulkan device opens, and for Skia on OpenGL otherwise, which every
+Linux build carries beside it (`src/ui/vulkan.rs`, `src/ui.rs`). NVIDIA's
 OpenGL driver on Windows kept about one core busy while it waited for the
-screen, which is why Windows doesn't. If the GPU can't start, Yapfast restarts
+screen, which is why Windows doesn't use it. If the GPU can't start, Yapfast restarts
 itself with Skia Software, says so in the window and turns the setting off
 (`src/graphics.rs`, `src/ui.rs`).
 
@@ -79,8 +81,22 @@ thread that already did the reading or writing on Linux, copying straight
 between Yapfast's buffers and the engine's. WebRTC's Windows device module names
 each device by its endpoint id (`{0.0.0.00000000}.{…}` for speakers,
 `{0.0.1.00000000}.{…}` for microphones), so the chosen device opens directly
-by that id; none is the console default. Go Live's sound is in
-[Go Live on Windows](#go-live-on-windows).
+by that id; none is the console default. A stream plays as soon as any sound
+is queued, rather than waiting to fill its queue, and a call's stream stays
+where it is when the system can't name its endpoint for a moment. A stop ends a
+wait for the device as well: writes, drains and reads wait in 100 ms slices and
+give up as soon as the stream is stopping, rather than holding their thread for
+up to two seconds. That is not a lost device, so stopping a call or dropping a
+stream reopens nothing, and a drain a stop ends drops what was queued instead of
+playing it late when the device returns. A recorded packet says what the device did
+besides its samples: WASAPI flags silence from the device itself, and the samples
+the engine lost between two packets. Each is said once when a run of packets
+starts rather than once a packet, so a microphone muted at the device, or a
+stream that keeps losing samples, costs one line of log instead of thousands.
+Neither is a device that stopped, which is still a call that fails or a wait that
+stays quiet for two seconds. Linux still waits inside PulseAudio's
+own call, which the simple API has no way to cut short. Go Live's
+sound is in [Go Live on Windows](#go-live-on-windows).
 
 Microphones open in raw mode (`AUDCLNT_STREAMOPTIONS_RAW`, through
 `IAudioClient2::SetClientProperties`), which skips the effects Windows and the
@@ -114,8 +130,12 @@ Windows too.
 Sharing, watching and playing a video run in the stream worker, as on Linux:
 Yapfast starts its own executable with `--stream-worker`, which writes its logs
 where Yapfast does: Yapfast's console, or Yapfast's log file. The video frames reach
-the window through a temporary file both processes map. Windows won't delete
-a mapped file, so there Yapfast creates it with `FILE_FLAG_DELETE_ON_CLOSE` and
+the window through a temporary file both processes map. A share the card
+captured hands its preview over as a shared texture instead: the window opens it
+on the adapter it draws with, where that is the capture's own, and the file
+carries the slots, so a picture is only written over once the window's queue has
+finished with it. Windows won't delete a mapped file, so there Yapfast creates it
+with `FILE_FLAG_DELETE_ON_CLOSE` and
 `FILE_ATTRIBUTE_TEMPORARY`, which keeps it in memory while it fits, and
 Windows removes it once both processes close it. On Linux it's still unlinked once the worker has it open.
 
@@ -124,7 +144,11 @@ lists what there is to share above the resolution: the screens as pictures, two
 to a row, named "Entire screen" (or "Screen 1", "Screen 2", … with several),
 then each window with a title. Yapfast's own windows aren't listed. libwebrtc's
 capturers make the list, on a short-lived thread as the menu opens, and the
-worker finds the picked one by its id. The menu opens with the screens' names;
+worker finds the picked one by its id. What shares a window afterwards is
+Windows Graphics Capture for that window, where the card can take it, and the
+processor's capturer for the same window where it can't: Desktop Duplication
+shares displays only, so a window is never answered with the desktop it happens
+to sit on. The menu opens with the screens' names;
 their pictures come from a worker job (`Job::Glance`) that takes one frame of
 each screen, scaled down to its card, and exits, so capturing them takes memory
 only until they're in. A window closed after it was listed ends sharing with
@@ -142,8 +166,11 @@ logs why, as it does on Linux without a PulseAudio server.
 The stream's H264 goes to NVIDIA's NVENC, then AMD's AMF, through FFmpeg in
 `crates/yapfast-core/native/hwenc.c`, while "Encode streams with the GPU" is
 on, and to x264 when neither opens or the setting is off. Intel graphics
-encode with x264 on Windows. Where the card encodes AV1 or H265, the stream
-offers those first, in the same way. The camera always uses x264. AMF has
+encode through Quick Sync, FFmpeg's `h264_qsv`, where this build carries it
+(through oneVPL), and with x264 where it doesn't: either way every frame is
+uploaded from the processor, and the encoder has not been measured on Intel
+hardware here. Where the card encodes AV1 or H265, the stream offers those
+first, in the same way. The camera always uses x264. AMF has
 run on AMD hardware only in a test of `native/hwenc.c` on its own, on an
 RX 7900 XTX. [Encoding on the GPU](discord/go-live.md#encoding-on-the-gpu) has
 the rest.
@@ -153,7 +180,7 @@ sharing a window that's minimized, moved to another screen or closed while
 shared, screens on mixed-DPI setups, Windows Graphics Capture's yellow
 border, process loopback hearing other applications and leaving out Yapfast's
 own voices, AMF on an AMD card in a whole Yapfast (AV1 on an RX 7000 or
-newer), and the worker's start-up time from a
+newer), Quick Sync on an Intel one, and the worker's start-up time from a
 packaged build.
 
 ## Cameras on Windows

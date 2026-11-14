@@ -114,16 +114,62 @@ export global CallLink {
     in property <[string]> code;
     /// While this account's screen is live, how it goes out: the encoder
     /// ("NVENC on the GPU"), the codec, the size and frame rate, the
-    /// bitrate sent and aimed for ("3.8 Mbit/s"), and what viewers asked
-    /// of it.
+    /// bitrate sent and aimed for ("3.8 Mbit/s"), what viewers asked of it,
+    /// and what a bound gave up: frames the send queue skipped, and the
+    /// shared sound waiting or dropped. The optional settings the encoder's
+    /// driver dropped, such as a preset, are said here too while it dropped
+    /// any.
     in property <bool> streaming;
     in property <string> encoder;
+    /// What decodes a stream this account watches ("the card's decoder"), and
+    /// nothing while it shares one.
+    in property <string> decoder;
     in property <string> codec;
+    /// The way the picture is captured and the size of what is captured, such
+    /// as "Windows Graphics Capture · 3440×1440 screen": the half of a share
+    /// no packet shows, so a share that looks wrong says how it was made.
+    in property <string> capture;
+    /// The settings the encoder's driver didn't keep, as it named them
+    /// ("preset,tune"); empty when it kept them all, and then no row shows.
+    in property <string> settings-dropped;
     in property <string> picture;
     in property <string> sent;
     in property <string> target;
     in property <string> keyframes;
     in property <string> resent;
+    in property <string> skipped;
+    in property <string> sound-waiting;
+    in property <string> sound-dropped;
+    /// Where a watched stream's sound is, once its device has said: the
+    /// milliseconds played and the milliseconds still queued.
+    in property <string> heard;
+    in property <string> sound-queued;
+    /// How far a watched stream's picture runs from its sound on the
+    /// streamer's own timeline, as what arrived and as what reached the
+    /// window, and the pictures the sound had passed by before they could be
+    /// shown: the bound that keeps latency from growing. Empty while nothing
+    /// times them.
+    in property <string> arrival-skew;
+    in property <string> presentation-skew;
+    in property <string> late-pictures;
+    /// How the pictures reach the window ("the worker's own texture" or "a
+    /// copy of the picture"), and the adapter the window draws on: a share
+    /// whose tile is a copy says here whether the two adapters are why. It is
+    /// about the window, never the encoder, which the encoder's own row names.
+    in property <string> presentation;
+    in property <string> presented-on;
+    /// How long a frame waited between the capture having it and the encoder
+    /// being given it, and what the encoder's output buffers hold now and at
+    /// their most.
+    in property <string> queue-delay;
+    in property <string> buffers;
+    /// How a share gave memory back because the machine was short, and why it
+    /// isn't on the path it asked for; empty while neither says anything.
+    in property <string> memory;
+    in property <string> fallback;
+    /// The stream's latest report as text for a bug report: what a picture is
+    /// made and shown by, and nothing about anything else.
+    callback diagnostics() -> string;
     callback read();
 }
 
@@ -184,7 +230,13 @@ component LinkRow inherits HorizontalLayout {
     in property <string> value;
     spacing: 4px; alignment: start;
     Text { text: root.label; color: Theme.secondary; font-size: 14px; }
-    Text { text: root.value; color: Theme.text; font-size: 14px; font-weight: 700; }
+    // A value longer than the card wraps under itself rather than being cut
+    // off mid-word, which is what "Windows Graphics Capture · 3440×1440
+    // screen" did.
+    Text {
+        text: root.value; color: Theme.text; font-size: 14px; font-weight: 700;
+        horizontal-stretch: 1; wrap: word-wrap;
+    }
 }
 
 // The call's connection in detail, as Discord's popout from its voice panel:
@@ -243,16 +295,43 @@ export component CallLinkCard inherits Rectangle {
         }
         if root.shown == 2: VerticalLayout {
             spacing: 8px;
-            LinkRow { label: "Encoder:"; value: CallLink.encoder; }
+            if CallLink.encoder != "": LinkRow { label: "Encoder:"; value: CallLink.encoder; }
+            if CallLink.decoder != "": LinkRow { label: "Decoded by:"; value: CallLink.decoder; }
             LinkRow { label: "Codec:"; value: CallLink.codec; }
+            if CallLink.settings-dropped != "": LinkRow {
+                label: "Settings the encoder dropped:"; value: CallLink.settings-dropped;
+            }
             LinkRow { label: "Resolution:"; value: CallLink.picture; }
-            LinkRow { label: "Sending:"; value: CallLink.sent; }
-            LinkRow { label: "Aiming for:"; value: CallLink.target; }
-            LinkRow { label: "Keyframes viewers asked for:"; value: CallLink.keyframes; }
-            LinkRow { label: "Packets resent:"; value: CallLink.resent; }
+            if CallLink.capture != "": LinkRow { label: "Capture:"; value: CallLink.capture; }
+            if CallLink.sent != "": LinkRow { label: "Sending:"; value: CallLink.sent; }
+            if CallLink.target != "": LinkRow { label: "Aiming for:"; value: CallLink.target; }
+            if CallLink.keyframes != "": LinkRow { label: "Keyframes viewers asked for:"; value: CallLink.keyframes; }
+            if CallLink.resent != "": LinkRow { label: "Packets resent:"; value: CallLink.resent; }
+            if CallLink.skipped != "": LinkRow { label: "Frames a full queue skipped:"; value: CallLink.skipped; }
+            if CallLink.sound-waiting != "": LinkRow { label: "Shared sound waiting:"; value: CallLink.sound-waiting; }
+            if CallLink.sound-dropped != "": LinkRow { label: "Shared sound dropped:"; value: CallLink.sound-dropped; }
+            if CallLink.heard != "": LinkRow { label: "Sound played:"; value: CallLink.heard; }
+            if CallLink.sound-queued != "": LinkRow { label: "Sound queued in the device:"; value: CallLink.sound-queued; }
+            if CallLink.arrival-skew != "": LinkRow { label: "Picture against the sound, as it arrived:"; value: CallLink.arrival-skew; }
+            if CallLink.presentation-skew != "": LinkRow { label: "Picture against the sound, shown:"; value: CallLink.presentation-skew; }
+            if CallLink.late-pictures != "": LinkRow { label: "Pictures the sound had passed:"; value: CallLink.late-pictures; }
+            LinkRow { label: "Shown by:"; value: CallLink.presentation; }
+            if CallLink.presented-on != "": LinkRow { label: "The window draws on:"; value: CallLink.presented-on; }
+            LinkRow { label: "Frame wait before encoding:"; value: CallLink.queue-delay; }
+            if CallLink.buffers != "": LinkRow { label: "Encoder buffers:"; value: CallLink.buffers; }
+            if CallLink.memory != "": LinkRow { label: "Memory:"; value: CallLink.memory; }
+            if CallLink.fallback != "": LinkRow { label: "Not on the card's own path:"; value: CallLink.fallback; }
             Text {
                 text: "The bitrate follows what Discord estimates your connection carries. Fast motion at a low bitrate looks blocky to viewers.";
                 color: Theme.muted; font-size: 13px; wrap: word-wrap;
+            }
+            HorizontalLayout {
+                alignment: center;
+                ActionButton {
+                    text: root.copied ? "Copied" : "Copy diagnostics"; small: true;
+                    icon: @image-url("icons/copy.svg");
+                    clicked => { root.copy(CallLink.diagnostics()); root.copied = true; }
+                }
             }
         }
         if root.shown == 1: VerticalLayout {
@@ -788,11 +867,14 @@ export component ParticipantGrid inherits Flickable {
     /// Where the tiles are, so cameras are decoded only for tiles in sight,
     /// at their size: the columns, a tile's width and height, the gap, the
     /// first row's top, how far the grid is scrolled and its height; then
-    /// the large tile's place, width and height.
-    callback tiles(int, length, length, length, length, length, length, int, length, length);
+    /// the large tile's place, width and height; and whether the shared
+    /// screen's tile is in sight, so this account's preview of it is made
+    /// only while it is; see share-preview-shown.
+    callback tiles(int, length, length, length, length, length, length, int, length, length, bool);
     function report() {
         root.tiles(root.columns, root.tile-width, root.tile-height, root.gap, root.first-row, -root.content-y, root.height,
-            root.focusing ? root.focused : -1, root.focusing ? root.focus-width : 0px, root.focusing ? root.focus-height : 0px);
+            root.focusing ? root.focused : -1, root.focusing ? root.focus-width : 0px, root.focusing ? root.focus-height : 0px,
+            root.share-in-sight);
     }
     init => { self.report(); }
     changed columns => { self.report(); }
@@ -803,6 +885,9 @@ export component ParticipantGrid inherits Flickable {
     changed focused => { self.report(); }
     changed focusing => { self.report(); }
     changed focus-width => { self.report(); }
+    // A share starting or stopping puts a tile at the front of the grid, which
+    // moves what's in sight even when the tiles keep their size.
+    changed sharing => { self.report(); }
     vertical-stretch: 1;
     property <length> gap: root.full ? 0px : 12px;
     property <length> inset: root.full ? 0px : 24px;
@@ -854,6 +939,15 @@ export component ParticipantGrid inherits Flickable {
         : max(self.inset, (self.height - self.grid-height) / 2);
     content-height: self.focusing ? max(self.height, self.focus-top + self.focus-height + self.under-focus + self.inset)
         : max(self.height, self.grid-height + 2 * self.inset);
+    // The shared screen's tile, wherever it stands in the grid's content, and
+    // the part of that content in sight: the preview of the screen is worth
+    // making only while they meet. A grid the layout hasn't reached yet says
+    // nothing about what's in sight, so it stands as in sight, as does one
+    // without a screen shared. The window asks; see share-preview-shown.
+    property <bool> share-in-sight: root.sharing && (root.height <= 0px || (
+        root.full ? root.large(0)
+        : root.tile-y(0) + (root.large(0) ? root.focus-height : root.tile-height) > -root.content-y
+            && root.tile-y(0) < root.height - root.content-y));
     pure function large(slot: int) -> bool { root.focusing && slot == root.focused }
     // The place in the rows of the tile at `slot`, which skip the large one.
     pure function place(slot: int) -> int { root.focusing && slot > root.focused ? slot - 1 : slot }
@@ -1289,9 +1383,20 @@ export component ShareMenu inherits Rectangle {
     in-out property <int> pick-source;
     in-out property <int> pick-resolution;
     in-out property <int> pick-fps;
-    /// The encoder's slower preset: a sharper picture for more CPU.
+    /// What the share may take from the uplink, as an index into
+    /// `yapfast_core::voice::Ceiling::ALL`: Lean, Balanced or Sharp. It is what
+    /// its ceiling is declared as, and the only choice that measurably changes
+    /// the picture: 0.03, 0.07 and 0.12 bits a pixel a frame.
+    in-out property <int> pick-quality;
+    /// The processor's encoder's slower preset: a sharper picture for about
+    /// twice the CPU. Presets are the processor's encoder's to choose between,
+    /// and a GPU's has one tuning that measures the same for half again the
+    /// encode time, so this row is the processor's alone; see `card-encoding`.
     in-out property <bool> pick-high-quality;
-    callback go-live(int, int, int, bool);
+    /// Whether the graphics card's encoder takes this share. The menu then
+    /// offers the share's ceiling where the preset row would be.
+    in property <bool> card-encoding;
+    callback go-live(int, int, int, int, bool);
     /// The menu's height with every choice showing. In a window too short for
     /// it, the menu is as tall as it gets and the choices scroll, above the
     /// button that starts the stream, which stays.
@@ -1378,20 +1483,48 @@ export component ShareMenu inherits Rectangle {
                 }
                 if !root.switching: HorizontalLayout {
                     padding-left: 8px; padding-top: 8px; padding-bottom: 4px;
+                    Text { text: "QUALITY"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                }
+                // What the share may take from the uplink. Measured at
+                // 3440x1440 and 60 fps: the same desktop is transparent at 0.03
+                // (57 dB), and motion gains 4.7 dB from 0.07 to 0.12.
+                if !root.switching: VerticalLayout {
+                    spacing: 2px;
+                    MenuItem {
+                        text: "Lean"; subtitle: "0.03 bits a pixel: for a slow uplink";
+                        checked: root.pick-quality == 0;
+                        clicked => { root.pick-quality = 0; }
+                    }
+                    MenuItem {
+                        text: "Balanced"; subtitle: "0.07: what the picture is worth";
+                        checked: root.pick-quality == 1;
+                        clicked => { root.pick-quality = 1; }
+                    }
+                    MenuItem {
+                        text: "Sharp"; subtitle: "0.12: for motion, at the uplink's expense";
+                        checked: root.pick-quality == 2;
+                        clicked => { root.pick-quality = 2; }
+                    }
+                }
+                if !root.switching && !root.card-encoding: HorizontalLayout {
+                    padding-left: 8px; padding-top: 8px; padding-bottom: 4px;
                     Text { text: "ENCODING"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
                 }
-                if !root.switching: MenuItem {
+                // A GPU's encoder has one tuning, so the ceiling above is its
+                // choice and this row is the processor's alone.
+                if !root.switching && !root.card-encoding: MenuItem {
                     text: "Higher quality"; subtitle: "Sharper, at twice the CPU";
                     checkbox: true; checked: root.pick-high-quality;
                     clicked => { root.pick-high-quality = !root.pick-high-quality; }
                 }
             }
         }
+
         start := HorizontalLayout {
             padding: 4px; padding-top: 10px;
             ActionButton {
                 text: root.switching ? "Switch" : "Go Live"; icon: @image-url("icons/screen-share.svg"); primary: true; horizontal-stretch: 1;
-                clicked => { root.go-live(root.pick-source, root.pick-resolution, root.pick-fps, root.pick-high-quality); }
+                clicked => { root.go-live(root.pick-source, root.pick-resolution, root.pick-fps, root.pick-quality, root.pick-high-quality); }
             }
         }
     }

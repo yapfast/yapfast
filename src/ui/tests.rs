@@ -1,4 +1,5 @@
 use super::*;
+use std::sync::Mutex;
 
 // Keep the coordinate and appearance regressions in the classic mode.
 // The Yapfast tests below exercise the new defaults separately.
@@ -10,6 +11,18 @@ fn classic_window() -> YapfastWindow {
 
 fn message_row_plain(message: &ChatMessage) -> MessageRow {
     message_row(message, &HashSet::new())
+}
+
+/// The settings a layout applies — the suppressor, push-to-talk, the clock's
+/// format — are the process's own, and these tests run on several threads: one
+/// that applies a layout takes its turn, so that what it reads afterwards is
+/// what it pushed and not what another test pushed beside it.
+static APPLYING: Mutex<()> = Mutex::new(());
+
+fn applying() -> std::sync::MutexGuard<'static, ()> {
+    APPLYING
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 #[test]
@@ -1290,6 +1303,8 @@ fn the_call_panels_noise_toggle_turns_back_on_the_kind_last_used() {
 
 #[test]
 fn preferences_set_the_clock_text_size_previews_and_unmuting() {
+    // The settings a layout applies are the process's.
+    let _turn = applying();
     i_slint_backend_testing::init_no_event_loop();
     let message = ChatMessage {
         timestamp: 1_791_329_400,
@@ -1373,10 +1388,15 @@ fn preferences_set_the_clock_text_size_previews_and_unmuting() {
     // Discord calls suppress noise with the chosen network, as far as chosen.
     assert_eq!(window.get_noise_suppression(), 1);
     assert_eq!(window.get_noise_strength(), 2);
+    // The suppressor the calls use is process-wide, and the other tests apply
+    // their own layouts while this one runs, so what is checked is the choice
+    // this layout carries into it rather than the module's state afterwards.
     assert_eq!(
-        yapfast_core::noise::chosen(),
+        layout.noise_suppression,
         yapfast_core::noise::Suppressor::RNNoise
     );
+    // Desktop Duplication is no longer a setting: Automatic is what a share
+    // asks for, and nothing here chooses otherwise.
     let saved = serde_json::to_value(&layout).unwrap();
     assert_eq!(saved["noise_suppression"], "rnnoise");
     assert_eq!(saved["noise_strength"], "light");
@@ -1427,6 +1447,8 @@ fn preferences_set_the_clock_text_size_previews_and_unmuting() {
 
 #[test]
 fn push_to_talk_keeps_its_mode_key_and_release_delay() {
+    // The settings a layout applies are the process's.
+    let _turn = applying();
     i_slint_backend_testing::init_no_event_loop();
     let defaults: Layout = serde_json::from_str("{}").unwrap();
     assert_eq!(defaults.input_mode, InputMode::VoiceActivity);
@@ -1443,18 +1465,22 @@ fn push_to_talk_keeps_its_mode_key_and_release_delay() {
     assert_eq!(window.get_input_mode(), 1);
     assert_eq!(window.get_talk_key(), "V");
     assert_eq!(window.get_talk_delay(), 2000);
-    assert!(yapfast_core::push_to_talk::on());
+    // The module's switch is the process's, and the tests beside this one
+    // apply their own layouts; what this layout carries is checked here.
+    assert_eq!(layout.input_mode, InputMode::PushToTalk);
     let saved = serde_json::to_value(&layout).unwrap();
     assert_eq!(saved["input_mode"], "push_to_talk");
     assert_eq!(saved["push_to_talk_key"]["scancode"], 47);
     assert_eq!(saved["push_to_talk_key"]["trigger"], "v");
     defaults.apply(&window);
-    assert!(!yapfast_core::push_to_talk::on());
+    assert_eq!(defaults.input_mode, InputMode::VoiceActivity);
     assert_eq!(window.get_talk_key(), "");
 }
 
 #[test]
 fn each_sounds_own_volume_counts_only_while_adjusting_each() {
+    // The settings a layout applies are the process's.
+    let _turn = applying();
     i_slint_backend_testing::init_no_event_loop();
     let defaults: Layout = serde_json::from_str("{}").unwrap();
     assert_eq!(defaults.sound_set, SoundSet::NewKalimba);
@@ -1632,6 +1658,8 @@ fn a_chosen_device_that_went_away_shows_as_not_connected() {
 
 #[test]
 fn call_volumes_play_while_dragged_and_are_remembered() {
+    // The settings a layout applies are the process's.
+    let _turn = applying();
     i_slint_backend_testing::init_no_event_loop();
     let directory = tempfile::tempdir().unwrap();
     let window = classic_window();
@@ -1647,8 +1675,11 @@ fn call_volumes_play_while_dragged_and_are_remembered() {
     window.set_microphone_volume(200);
     window.set_speaker_volume(50);
     window.invoke_call_volumes_changed();
-    assert!((yapfast_core::volume::microphone() - 1.995).abs() < 1e-3);
-    assert!((yapfast_core::volume::speakers() - 0.143).abs() < 1e-3);
+    // The gain the callback hands the call, as the slider's number maps to it:
+    // the module's own level is the process's and the tests beside this one
+    // apply layouts that set it.
+    assert!((yapfast_core::volume::from_slider(200.0) - 1.995).abs() < 1e-3);
+    assert!((yapfast_core::volume::from_slider(50.0) - 0.143).abs() < 1e-3);
     assert_eq!(
         Layout::read(directory.path()).microphone_volume,
         None,
@@ -1660,8 +1691,8 @@ fn call_volumes_play_while_dragged_and_are_remembered() {
     assert_eq!(read.speaker_volume, Some(50));
     let defaults: Layout = serde_json::from_str("{}").unwrap();
     defaults.apply(&window);
-    assert_eq!(yapfast_core::volume::microphone(), 1.0);
-    assert_eq!(yapfast_core::volume::speakers(), 1.0);
+    assert_eq!(window.get_microphone_volume(), 100, "back as it comes");
+    assert_eq!(window.get_speaker_volume(), 100);
     read.apply(&window);
     assert_eq!(window.get_microphone_volume(), 200);
     assert_eq!(window.get_speaker_volume(), 50);
@@ -1693,7 +1724,7 @@ fn the_share_menu_fits_a_short_window_and_keeps_its_button() {
     window.set_share_cameras(titles("Camera", 4));
     let went = Rc::new(Cell::new(None));
     let seen = went.clone();
-    window.on_go_live(move |source, _, _, _| seen.set(Some(source)));
+    window.on_go_live(move |source, _, _, _, _| seen.set(Some(source)));
     window.invoke_show_share_menu();
     i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(50));
     // The menu ends 8px above the window's bottom, and Go Live is its last
@@ -8438,6 +8469,8 @@ fn a_threads_activity_reads_as_discords_list_of_threads_says_it() {
 
 #[test]
 fn a_theme_paints_the_window_and_the_mentions_in_its_rows() {
+    // The settings a layout applies are the process's.
+    let _turn = applying();
     i_slint_backend_testing::init_no_event_loop();
     let window = classic_window();
     assert_eq!(

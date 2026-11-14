@@ -43,8 +43,9 @@ rustdoc-args = ["--generate-link-to-definition"]
 
 [features]
 # Yapfast: without wgpu, which Yapfast never selects: it asks for Skia OpenGL or
-# Skia Software by name. On Linux its Vulkan surface would need Skia's Vulkan,
-# which the prebuilt Skia with its own FreeType lacks.
+# Skia Software by name, or for Vulkan with its `skia-vulkan` feature: that one
+# links the Skia archive nix/skia-linux-vulkan.nix builds, the prebuilt Skia
+# with its own FreeType having no Vulkan in it.
 default = [
     "softbuffer",
 ]
@@ -197,7 +198,9 @@ version = "0.157.0"
 # Yapfast: Skia's own FreeType, which draws COLRv1 colour fonts, such as the only
 # Noto Color Emoji Fedora installs; the prebuilt Skia built for the system's
 # FreeType draws none of their glyphs. Rust-skia prebuilds that Skia only with
-# textlayout and without Vulkan, which Yapfast draws without.
+# textlayout and without Vulkan, so Yapfast's `skia-vulkan` feature gets its
+# Vulkan from the source build in nix/skia-linux-vulkan.nix; see build.rs, since
+# rust-skia gates `gpu::vk` behind that feature as of 0.157.
 features = [
     "gl",
     "embed-freetype",

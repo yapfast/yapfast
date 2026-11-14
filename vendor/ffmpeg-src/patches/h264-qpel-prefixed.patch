@@ -1,0 +1,21 @@
+gen/rename.h gives every global a `yf_` prefix, and FFmpeg's x86 qpel code
+defines macros with the names of two of them, which shadow the prefix and
+then fail to compile: the wrapper has to call the prefixed function itself.
+--- a/libavcodec/x86/h264_qpel.c
++++ b/libavcodec/x86/h264_qpel.c
+@@ -35,10 +35,13 @@
+                                 ptrdiff_t stride);
+ void ff_avg_pixels4x4_l2_mmxext(uint8_t *dst, const uint8_t *src1, const uint8_t *src2,
+                                 ptrdiff_t stride);
++/* Yapfast: gen/rename.h had already given these two the `yf_` prefix that nasm
++ * gave the assembly's copies, so the wrappers call the prefixed names; the
++ * wrappers themselves keep the names this file pastes together. */
+ #define ff_put_pixels4x4_l2_mmxext(dst, src1, src2, dststride, src1stride) \
+-    ff_put_pixels4x4_l2_mmxext((dst), (src1), (src2), (dststride))
++    yf_ff_put_pixels4x4_l2_mmxext((dst), (src1), (src2), (dststride))
+ #define ff_avg_pixels4x4_l2_mmxext(dst, src1, src2, dststride, src1stride) \
+-    ff_avg_pixels4x4_l2_mmxext((dst), (src1), (src2), (dststride))
++    yf_ff_avg_pixels4x4_l2_mmxext((dst), (src1), (src2), (dststride))
+ #define ff_put_pixels8x8_l2_sse2  ff_put_pixels8x8_l2_mmxext
+ #define ff_avg_pixels8x8_l2_sse2  ff_avg_pixels8x8_l2_mmxext
+ 

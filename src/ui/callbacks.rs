@@ -547,6 +547,19 @@ fn show_emoji(adapter: &Rc<RefCell<Adapter>>, window: &YapfastWindow, query: &st
     adapter.action(window, Action::CacheEmojiPictures);
 }
 
+/// Whether a window shows what it's drawn: one hidden to the tray, or
+/// minimised, shows nothing, so a picture made for it is work nobody sees.
+/// Wayland can't say whether a window is minimised, and one that can't say
+/// is taken to show its pictures.
+fn on_screen(window: &YapfastWindow) -> bool {
+    window.window().is_visible()
+        && window
+            .window()
+            .with_winit_window(|winit| winit.is_minimized())
+            .flatten()
+            .is_none_or(|minimised| !minimised)
+}
+
 pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
     super::app_commands::bind(window, adapter);
     super::games::bind(window, adapter);
@@ -2279,6 +2292,8 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.adjust_each_sound = window.get_adjust_each_sound();
         layout.gpu_rendering = window.get_gpu_rendering();
         layout.gpu_encoding = Some(window.get_gpu_encoding());
+        layout.stream_codec = chosen(&StreamCodec::ALL, window.get_stream_codec());
+        yapfast_core::stream_worker::set_stream_codec(layout.stream_codec);
         #[cfg(feature = "discord")]
         yapfast_core::stream_worker::set_hardware_encoding(window.get_gpu_encoding());
         layout.close_to_tray = Some(window.get_close_to_tray());
@@ -3149,7 +3164,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     });
     let state = adapter.clone();
     let weak = window.as_weak();
-    window.on_go_live(move |source, resolution, fps, high_quality| {
+    window.on_go_live(move |source, resolution, fps, ceiling, high_quality| {
         if let Some(window) = weak.upgrade() {
             #[cfg(feature = "discord")]
             {
@@ -3170,6 +3185,9 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 resolution,
                 fps: fps.clamp(1, 60) as u32,
                 high_quality,
+                ceiling: *voice::Ceiling::ALL
+                    .get(ceiling.max(0) as usize)
+                    .unwrap_or(&voice::Ceiling::Balanced),
             };
             state
                 .borrow_mut()
@@ -3227,21 +3245,124 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     // Frames skip the application state, which would redraw far more than the pictures.
     let state = adapter.clone();
     let weak = window.as_weak();
+    // What the worker was last told about the UI showing the preview of
+    // what's shared: it's told when that changes, not with every frame.
+    let told = std::cell::Cell::new(false);
+    // And what it was last told about a window showing the watched stream's
+    // pictures, which it's told once when that changes too.
+    let seen = std::cell::Cell::new(false);
+    // And the size, in pixels, of the tile showing the watched stream, which
+    // it's told once when that changes: a stream is scaled to what shows it,
+    // so a small tile costs a small frame. Zero until a tile shows one.
+    let sized = std::cell::Cell::new((0u32, 0u32));
+    // And the size, in pixels, of the tile showing this account's own share,
+    // which the worker writes the preview at, told on the same terms. Zero
+    // until a tile shows one.
+    let share_sized = std::cell::Cell::new((0u32, 0u32));
+    // And which share and which viewed stream those hints were about, by the
+    // frames each reads: a stream replaced by another, or stopped and started
+    // again, is one the cached hints say nothing about, even when nothing the
+    // window can see has changed between two ticks.
+    let keys = std::cell::Cell::new((0u64, 0u64));
     window.on_stream_tick(move || {
         let Some(window) = weak.upgrade() else {
             return;
         };
+        let (share_key, watch_key) = {
+            let adapter = state.borrow();
+            let voice = &adapter.app.state.voice;
+            identity(&voice.sharing, &voice.watching)
+        };
+        let (was_share, was_watch) = keys.replace((share_key, watch_key));
+        // What the window opened for a stream that has ended is let go of now,
+        // rather than when another stream happens to draw a picture: a stopped
+        // share is the last one as often as not.
+        if was_share != 0 && was_share != share_key {
+            gpu::forget(was_share);
+            window.set_share_frame(Default::default());
+        }
+        if was_watch != 0 && was_watch != watch_key {
+            gpu::forget(was_watch);
+            window.set_watch_frame(Default::default());
+        }
+        if watch_key != was_watch {
+            // A stream this window wasn't showing before: the hints cached for
+            // the one it replaces are sent again, since a new worker starts at
+            // a default size and assumes a window that shows it.
+            seen.set(!window.get_watching() || !on_screen(&window));
+            sized.set((0, 0));
+        }
+        if share_key != was_share {
+            // The same for a share that has just started: its worker begins
+            // without knowing which tile shows it.
+            share_sized.set((0, 0));
+        }
+        // Scaling and converting a frame for the preview is only needed while
+        // the UI displays one, so the worker is told once when that changes.
+        // A window that is hidden or minimised shows none of it, whichever tile
+        // is selected.
+        let shown = window.get_share_preview_shown() && on_screen(&window);
+        if shown != told.replace(shown) {
+            let mut adapter = state.borrow_mut();
+            let effects = adapter
+                .app
+                .dispatch(Action::Voice(voice::Command::Preview(shown)));
+            adapter.execute(effects);
+        }
+        // A watched stream's pictures are converted and written only while a
+        // window shows them. A hidden or minimised one shows none, so the
+        // worker is told that too, once, rather than with every frame; it
+        // goes on decoding and its sound plays either way.
+        let seeing = window.get_watching() && on_screen(&window);
+        if seeing != seen.replace(seeing) {
+            let mut adapter = state.borrow_mut();
+            let effects = adapter
+                .app
+                .dispatch(Action::Voice(voice::Command::WatchShown(seeing)));
+            adapter.execute(effects);
+        }
+        // The tile showing what's shared says how large it is, in pixels, on the
+        // same terms: the preview is written at the size it shows at, so a small
+        // tile costs a small frame rather than a fixed box's worth.
+        let share = {
+            let adapter = state.borrow();
+            share_size(&adapter, &window).unwrap_or_default()
+        };
+        if share.0 > 0 && share != share_sized.replace(share) {
+            let mut adapter = state.borrow_mut();
+            let effects = adapter
+                .app
+                .dispatch(Action::Voice(voice::Command::ShareSize {
+                    width: share.0,
+                    height: share.1,
+                }));
+            adapter.execute(effects);
+        }
+        // The tile showing the watched stream says how large it is, in pixels,
+        // once when the window or the tile changes size rather than with every
+        // frame: the worker scales the stream to it, and a larger picture grows
+        // the frames file once. While no tile shows it, the worker keeps the
+        // size it has.
+        let size = {
+            let adapter = state.borrow();
+            watch_size(&adapter, &window).unwrap_or_default()
+        };
+        if size.0 > 0 && size != sized.replace(size) {
+            let mut adapter = state.borrow_mut();
+            let effects = adapter
+                .app
+                .dispatch(Action::Voice(voice::Command::WatchSize {
+                    width: size.0,
+                    height: size.1,
+                }));
+            adapter.execute(effects);
+        }
         let adapter = state.borrow();
         let voice = &adapter.app.state.voice;
-        let image = |width, height, pixels: &[u8]| {
-            slint::Image::from_rgba8(slint::SharedPixelBuffer::clone_from_slice(
-                pixels, width, height,
-            ))
-        };
         if let Some(frame) = voice
             .sharing
             .as_ref()
-            .and_then(|sharing| sharing.frames.take(image))
+            .and_then(|sharing| gpu::taken(&sharing.frames))
         {
             window.set_share_frame(frame);
         }
@@ -3268,13 +3389,13 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             .watching
             .as_ref()
             .and_then(|watching| watching.frames.as_ref())
-            .and_then(|frames| frames.take(image))
+            .and_then(gpu::taken)
         {
             window.set_watch_frame(frame);
         }
         let video = adapter.app.state.video.as_ref();
         let taken =
-            video.and_then(|video| Some((video, video.frames.as_ref()?.take_timed(image)?)));
+            video.and_then(|video| Some((video, video.frames.as_ref()?.take_timed(gpu::copied)?)));
         if taken.is_none() && video.is_some_and(|video| !video.playing && !video.loading) {
             // Half a second without a picture: a paused video's ticks stop.
             adapter.video_quiet.set(adapter.video_quiet.get() + 1);
@@ -4008,6 +4129,73 @@ fn place_videos(adapter: &Adapter, window: &YapfastWindow) {
 /// The corner's size, as StreamPip draws it.
 const PIP_WIDTH: f32 = 320.0;
 const PIP_HEIGHT: f32 = 180.0;
+
+/// The size in pixels of the tile showing the watched stream, if a tile shows
+/// it: the grid's tile, small or large, or the corner it shows in while the
+/// call is off screen. None while no tile does, as while the call is hidden,
+/// which says nothing about the size.
+/// Which share and which viewed stream a window is showing, by what each
+/// stream's frames are known by: zero for neither. A number no set of frames
+/// had before says the window is showing something else even when nothing else
+/// has changed — and, unlike an address, it can't be handed out again to the
+/// stream that replaces this one between two ticks.
+fn identity(
+    sharing: &Option<voice::Sharing>,
+    watching: &Option<Box<voice::Watching>>,
+) -> (u64, u64) {
+    (
+        sharing.as_ref().map_or(0, |sharing| sharing.frames.id()),
+        watching
+            .as_ref()
+            .and_then(|watching| watching.frames.as_ref())
+            .map_or(0, |frames| frames.id()),
+    )
+}
+
+fn share_size(adapter: &Adapter, window: &YapfastWindow) -> Option<(u32, u32)> {
+    let voice = &adapter.app.state.voice;
+    voice.sharing.as_ref()?;
+    let scale = window.window().scale_factor();
+    let pixels = |side: f32| ((side * scale).round() as u32).max(2);
+    // The corner shows it while the call is off screen, at the size the corner
+    // draws.
+    if window.get_pip_shown() && window.get_pip_kind() == 2 {
+        return Some((pixels(PIP_WIDTH), pixels(PIP_HEIGHT)));
+    }
+    if !(window.get_grid_shown() && voice.active()) {
+        return None;
+    }
+    // This account's shared screen leads the grid's tiles.
+    let stage = Stage {
+        participants: &voice.participants,
+        sharing: true,
+    };
+    let slot = stage.slot(&Focus::OwnScreen)?;
+    adapter.tiles?.shown_at(slot, scale)
+}
+
+fn watch_size(adapter: &Adapter, window: &YapfastWindow) -> Option<(u32, u32)> {
+    let voice = &adapter.app.state.voice;
+    let watching = voice.watching.as_ref()?.user.as_str();
+    let scale = window.window().scale_factor();
+    let pixels = |side: f32| ((side * scale).round() as u32).max(2);
+    // The corner shows it while the call is off screen, at the size the
+    // corner draws.
+    if window.get_pip_shown() && window.get_pip_kind() == 1 {
+        return Some((pixels(PIP_WIDTH), pixels(PIP_HEIGHT)));
+    }
+    if !(window.get_grid_shown() && voice.active()) {
+        return None;
+    }
+    // Its place in the grid, as the call's tiles are ordered: this account's
+    // shared screen first, then the streams' tiles, then the participants'.
+    let stage = Stage {
+        participants: &voice.participants,
+        sharing: voice.sharing.is_some(),
+    };
+    let slot = stage.slot(&Focus::Stream(watching.to_owned()))?;
+    adapter.tiles?.shown_at(slot, scale)
+}
 
 /// Opens a web page in the browser. Only web pages open: a message can't
 /// start other programs.

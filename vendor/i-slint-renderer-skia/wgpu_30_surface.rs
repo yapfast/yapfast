@@ -1,6 +1,10 @@
 // Copyright © SixtyFPS GmbH <info@slint.dev>
 // SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0
 
+// Yapfast: without Skia's Vulkan there is no backend here for this surface to
+// draw with, and what only a backend uses is then unused.
+#![cfg_attr(skia_wgpu_without_vulkan, allow(dead_code, unreachable_code))]
+
 #[cfg(feature = "unstable-wgpu-30")]
 use i_slint_core::api::GraphicsAPI;
 use i_slint_core::api::{PhysicalSize as PhysicalWindowSize, Window};
@@ -169,11 +173,12 @@ impl WGPUSurface {
     /// Moves `texture` to a color target through wgpu, before Skia draws into it as one.
     /// The application may have left it in another layout, such as by sampling it.
     /// Going through wgpu keeps wgpu's record of the layout true, see `release_vulkan_surface`.
+    #[cfg_attr(skia_wgpu_without_vulkan, allow(unused_variables))]
     pub(crate) fn transition_to_color_target(
         &self,
         texture: &wgpu::Texture,
     ) -> Result<(), PlatformError> {
-        let needed = match self.backend {
+        let needed: wgpu::TextureUsages = match self.backend {
             #[cfg(target_vendor = "apple")]
             Backend::Metal => wgpu::TextureUsages::RENDER_ATTACHMENT,
             #[cfg(target_family = "windows")]
@@ -184,6 +189,10 @@ impl WGPUSurface {
                 wgpu::TextureUsages::RENDER_ATTACHMENT
                     | wgpu::TextureUsages::COPY_SRC
                     | wgpu::TextureUsages::COPY_DST
+            }
+            #[cfg(skia_wgpu_without_vulkan)]
+            Backend::NoSkiaVulkan => {
+                return Err("this build's Skia has no Vulkan to draw into".to_string().into());
             }
         };
         let missing = needed - texture.usage();
@@ -659,6 +668,11 @@ pub(crate) enum Backend {
         /// [`Backend::release_swapchain_surface`].
         queue_family_index: u32,
     },
+    /// Yapfast: wgpu's surface where the build's Skia has no Vulkan for it to
+    /// wrap, which is Yapfast's Linux: it draws through Skia's OpenGL there, so
+    /// this draws nowhere, and nothing makes one.
+    #[cfg(skia_wgpu_without_vulkan)]
+    NoSkiaVulkan,
 }
 
 impl Backend {
@@ -692,6 +706,7 @@ impl Backend {
         }
     }
 
+    #[cfg_attr(skia_wgpu_without_vulkan, allow(unused_variables))]
     pub(crate) fn make_context(
         &self,
         _adapter: &wgpu::Adapter,
@@ -705,12 +720,15 @@ impl Backend {
             Self::Dx12 => unsafe { dx12::make_dx12_context(&_adapter, &device, &queue) },
             #[cfg(skia_wgpu_vulkan)]
             Self::Vulkan { .. } => unsafe { vulkan::make_vulkan_context(device, queue) },
+            #[cfg(skia_wgpu_without_vulkan)]
+            Self::NoSkiaVulkan => None,
         }
     }
 
     /// Wraps `texture` for Skia to draw into, as the color target
     /// [`WGPUSurface::transition_to_color_target`] made it.
     /// Pair every call with [`Self::release_surface`].
+    #[cfg_attr(skia_wgpu_without_vulkan, allow(unused_variables))]
     pub(crate) fn make_surface(
         &self,
         gr_context: &mut skia_safe::gpu::DirectContext,
@@ -729,6 +747,8 @@ impl Backend {
                     skia_safe::gpu::vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
                 )
             },
+            #[cfg(skia_wgpu_without_vulkan)]
+            Self::NoSkiaVulkan => None,
         }
     }
 
@@ -738,6 +758,7 @@ impl Backend {
     /// wgpu returns surface textures to their `PRESENT` state at the end of every submission,
     /// so that is the layout Skia finds the image in, not the color-attachment one a plain
     /// render target is left in. Pair every call with [`Self::release_swapchain_surface`].
+    #[cfg_attr(skia_wgpu_without_vulkan, allow(unused_variables))]
     pub(crate) fn make_swapchain_surface(
         &self,
         gr_context: &mut skia_safe::gpu::DirectContext,
@@ -756,6 +777,8 @@ impl Backend {
                     skia_safe::gpu::vk::ImageLayout::PRESENT_SRC_KHR,
                 )
             },
+            #[cfg(skia_wgpu_without_vulkan)]
+            Self::NoSkiaVulkan => None,
         }
     }
 
@@ -779,6 +802,8 @@ impl Backend {
                 skia_safe::gpu::vk::ImageLayout::PRESENT_SRC_KHR,
                 *queue_family_index,
             ),
+            #[cfg(skia_wgpu_without_vulkan)]
+            Self::NoSkiaVulkan => Ok(()),
         }
     }
 
@@ -805,10 +830,13 @@ impl Backend {
                 skia_safe::gpu::vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
                 *queue_family_index,
             ),
+            #[cfg(skia_wgpu_without_vulkan)]
+            Self::NoSkiaVulkan => Ok(()),
         }
     }
 
     #[cfg_attr(not(feature = "unstable-wgpu-30"), allow(dead_code))]
+    #[cfg_attr(skia_wgpu_without_vulkan, allow(unused_variables))]
     pub(crate) fn import_texture(
         &self,
         canvas: &skia_safe::Canvas,
@@ -821,6 +849,8 @@ impl Backend {
             Self::Dx12 => unsafe { dx12::import_dx12_texture(canvas, texture) },
             #[cfg(skia_wgpu_vulkan)]
             Self::Vulkan { .. } => unsafe { vulkan::import_vulkan_texture(canvas, texture) },
+            #[cfg(skia_wgpu_without_vulkan)]
+            Self::NoSkiaVulkan => None,
         }
     }
 }

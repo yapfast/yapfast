@@ -17,7 +17,14 @@ The repository's own `flake.nix` builds no shell, only the package that
 `nix profile add github:yapfast/yapfast#yapfast` installs: the Discord-only
 release build, from `nix/package.nix`. It shares libwebrtc, Skia and the
 system libraries with the development shell through `nix/native.nix`, and pins
-the same nixpkgs in its own `flake.lock`. `nix build` puts it in `result`.
+the same nixpkgs in its own `flake.lock`. `nix build` puts it in `result`. It
+links Skia built with Vulkan from the pinned source, so the window draws on a
+Vulkan device where the machine opens one and on OpenGL otherwise; building
+that archive is a few minutes of Skia the first time ([Skia with
+Vulkan](#skia-with-vulkan)). On a host that isn't NixOS the build's loader
+can't see the host's GPU drivers, so the GPU setting falls back to Skia
+Software unless they're put where it can find them; see
+`docs/development.md#renderer`.
 It also builds the AppDir that the [AppImage](packaging.md#linux-appimage) is packed from.
 `nix/package.nix` holds one hash per Git dependency's repository and commit,
 in `outputHashes`. Moving a Git dependency to another commit needs a new
@@ -36,16 +43,34 @@ up to 512×512 pixels sample mipmaps, because plain bilinear sampling made
 pictures drawn smaller than their pixels, such as avatars, look jagged. Larger
 ones, such as video frames, go without: each frame would build its mipmaps
 anew. So do pictures drawn no smaller than their pixels, such as a call's
-camera, made at its tile's size. On Linux it takes rust-skia's
-prebuilt Skia with Skia's own FreeType: the one built for the system's FreeType
-lacks FreeType's COLRv1 calls, so it drew nothing for the COLRv1 build of Noto
-Color Emoji, the only one Fedora installs. Rust-skia builds that Skia only with
-its text layout, which the linker leaves out, and without Vulkan, so the
-renderer goes without wgpu, whose Vulkan surface needs it. On Linux Yapfast
-asks for Skia OpenGL or Skia Software by name; the wgpu renderers the winit
-backend still names make surfaces that fail to start. Windows turns wgpu back
-on through a dependency in Yapfast's own `Cargo.toml`, for Skia GPU on Direct3D
-12 (see `src/graphics.rs`). Each change is marked `Yapfast:` in
+camera, made at its tile's size. On Linux it takes Skia built from the pinned
+source with Skia's own FreeType: the prebuilt archive built for the system's
+FreeType lacks FreeType's COLRv1 calls, so it drew nothing for the COLRv1 build
+of Noto Color Emoji, the only one Fedora installs. `nix/skia-linux-vulkan.nix`
+builds it with the same features, its own FreeType kept, OpenGL kept for the
+fallback, and Vulkan added; see [Skia with Vulkan](#skia-with-vulkan). The
+prebuilt archive is what a build that leaves the `skia-vulkan` feature out
+links: it has no wgpu, and there Yapfast asks for Skia OpenGL or Skia Software
+by name. The Windows builds are what do, since the archive with Vulkan is
+Linux's; Windows turns wgpu back on through a dependency in Yapfast's own
+`Cargo.toml`, for Skia GPU on Direct3D 12 (see `src/graphics.rs`). Vulkan itself
+is asked for by `crates/skia-vulkan`, on Linux alone: the `skia-vulkan` feature
+turns that crate on, so a Windows build of the same tree — defaults and all —
+never names `skia-safe/vulkan` and links the OpenGL archive as it always did.
+
+The GPU setting asks for Skia on Vulkan on Linux: `skia-vulkan` is one of
+`Cargo.toml`'s default features, and it is `i-slint-renderer-skia/vulkan` beside
+`skia-safe/vulkan` and a `wgpu` that carries `ShaderSource::Wgsl`. It links a
+Skia built with Vulkan, which rust-skia does not publish, so a build needs
+`SKIA_BINARIES_URL` to name one — the dev shell's archive, or a copy from
+[Skia with Vulkan](#skia-with-vulkan). `src/ui/vulkan.rs`
+then makes the device with wgpu 30 for Slint to take through
+`WGPUConfiguration::Manual`, as `src/ui/gpu.rs` does with Direct3D 12 on
+Windows. That device is what a stream's picture is wrapped from as a Skia
+image, without the copy through the CPU that OpenGL needs. A machine whose
+driver opens no Vulkan device keeps the window on Skia on OpenGL, which the
+same archive carries, and one `warn` line in the log says why rather than a
+failed start. Each change is marked `Yapfast:` in
 `itemrenderer.rs`, `cached_image.rs`, `lib.rs`, `font_cache.rs` or
 `Cargo.toml`. Copy the matching release over it, and reapply them, when
 upgrading Slint.
@@ -202,9 +227,10 @@ The Linux environment includes ALSA, PulseAudio, fontconfig, FreeType, GLib,
 Wayland, X11, Vulkan, OpenGL, OpenSSL, Clang 21, CMake, pkg-config, Protobuf
 and NASM. It uses the host's graphics driver under `/run/opengl-driver/lib`. A
 real display session is required to open the window. Skia Software is the
-default; `--renderer gpu` uses Skia GPU and falls back to Skia Software if the
-GPU fails. The Nix shell provides a checksum-pinned, prepared Skia archive
-whose JPEG table is privately named to avoid a WebRTC symbol collision. See
+default; `--renderer gpu` uses Skia GPU — Vulkan where the build carries it and
+a device opens, OpenGL otherwise — and falls back to Skia Software if the GPU
+fails. The Nix shell provides a checksum-pinned, prepared Skia archive whose
+JPEG table is privately named to avoid a WebRTC symbol collision. See
 [the Slint client](slint-client.md).
 
 The first build downloads dependencies and compiles native C++. Cargo uses every
@@ -256,17 +282,25 @@ its configure and Makefile. Go Live and the camera encode H264 with it; NASM
 assembles its x86-64 code, so every shell, package and native build needs
 `nasm`.
 
-`vendor/ffmpeg-src` is FFmpeg's source trimmed to its hardware encoders
-(NVENC, AMF on Windows, VA-API on Linux) and its HEVC decoder, with
-nv-codec-headers', AMF's and libva's headers and configure's output for
-Linux and Windows, all made by its `update.sh`, which configures Windows
-with clang-cl against the MSVC runtime and SDK cargo-xwin downloads; three
-patches let NVENC, AMF and VA-API change their bitrate without a keyframe.
-Its build script compiles it, and NASM assembles its x86-64 assembly, with
-every symbol prefixed, apart from the FFmpeg in libwebrtc, and it loads
-libva, NVIDIA's driver and AMD's AMF runtime only when an encoder opens.
-Its `README.yapfast.md` explains the rest. Targets without a `gen/` folder build without hardware
-encoding or H265 decoding.
+`vendor/ffmpeg-src` is FFmpeg's source trimmed to what a stream needs: its
+hardware encoders (NVENC, AMF on Windows, VA-API on Linux); its H264, HEVC,
+AV1 and VP9 decoders and parsers, on both targets; and on Windows Direct3D
+11's hwaccel for all four (`--enable-d3d11va`, `--enable-hwaccel=…`), which
+leaves a picture in a texture on the device the window and the encoder already
+hold. It carries nv-codec-headers', AMF's and libva's headers and configure's
+output for Linux and Windows, all made by its `update.sh`, which configures
+Windows with clang-cl against the MSVC runtime and SDK cargo-xwin downloads,
+and retries a download a server resets. Three patches let NVENC, AMF and
+VA-API change their bitrate without a keyframe, and `h264-qpel-prefixed.patch`
+makes the qpel macros call the `yf_` names `rename.h` gave the assembly
+functions they wrap. Its build script compiles the C with clang, and NASM
+assembles its x86-64 assembly, with every symbol prefixed apart from the
+FFmpeg in libwebrtc. The Windows SDK's GUIDs keep their names, since
+Direct3D 11's decode names them, and configure's `config_components.asm` is
+kept for the H264 assembly that includes it. It loads libva, NVIDIA's driver
+and AMD's AMF runtime only when an encoder opens. Its `README.yapfast.md`
+explains the rest, clang included. Targets without a `gen/` folder build without
+hardware encoding or H265 decoding.
 
 Each has a `README.yapfast.md` with its changes, except the two Slint crates, which
 this section describes. The Slint crates keep their `.rs` files at the crate
@@ -278,6 +312,54 @@ dependency; its checkout is `~/.cargo/git/checkouts/matrix-rust-sdk-*/c6ad52e/`,
 the short form of the revision pinned in Cargo.toml. libDF's is
 `~/.cargo/git/checkouts/deepfilternet-*/d375b2d/libDF/`. libwebrtc's headers are in
 `$LK_CUSTOM_WEBRTC/include` inside the development shell.
+
+### Skia with Vulkan
+
+Linux's Skia for the OpenGL and Software renderers is rust-skia's prebuilt
+archive, which `nix/native.nix` fetches and `nix/prepare-skia-native.py`
+renames one JPEG table in, so it can link beside libwebrtc's libjpeg-turbo.
+Vulkan is not in that archive, so `nix/skia-linux-vulkan.nix` builds the same
+Skia from the pinned source with `skia_use_vulkan=true` beside
+`skia_use_gl` and `skia_use_ganesh`, and pins the archive it exports by
+SHA-256: a build that stops producing those bytes fails instead of linking
+them. The builds that carry Vulkan link it — the Nix package, the dev shell and
+the scripts that name the feature — so the dev shell points `SKIA_BINARIES_URL`
+at it, and putting the archive together is a few minutes of Skia the first time
+it is asked for:
+
+```sh
+nix build path:./nix#skia-vulkan
+nix develop path:./nix --command cargo check --profile fast --features skia-vulkan
+```
+
+`skia-vulkan` is a default feature, and it turns on `yapfast-ui/skia-vulkan`,
+`i-slint-renderer-skia/vulkan`, `skia-safe/vulkan` and the `wgpu` dependency
+that carries `ShaderSource::Wgsl`: Slint re-exports wgpu 30 for the window's
+device with that feature off, and the pass that turns a card's NV12 picture into
+what Skia samples is written in WGSL. Because rust-skia publishes no archive
+with Vulkan in it, a build outside Nix must point `SKIA_BINARIES_URL` at one —
+`nix build path:./nix#skia-vulkan` produces it, and copying the tarball anywhere
+`file://` can name works just as well. A build that leaves the feature out
+wants the archive without Vulkan, which the shell keeps as
+`SKIA_GL_BINARIES_URL` — `skia-safe` keys its archive by the features it is
+asked for, so linking the Vulkan one while asking for OpenGL fails at the key in
+the archive:
+
+```sh
+SKIA_BINARIES_URL=$SKIA_GL_BINARIES_URL nix develop path:./nix --command \
+  cargo check --profile fast --no-default-features --features desktop,discord
+```
+
+Nothing in it needs a Vulkan SDK: Skia carries its own headers, and takes the
+device from wgpu at run time. `nix/skia-linux-builder` names the features the
+archive is keyed by, `nix/prepare-linux-skia.py` builds it outside Nix for
+debugging.
+
+The other half is `src/ui/gpu.rs`'s `present` module, which imports a stream's
+DMA-BUF as a Skia image and is compiled for Linux by that feature. It is
+written against the wgpu 30 that Slint 1.19 re-exports, and the archive and it
+are what turn Vulkan on; the window draws on Vulkan where a device opens and
+falls back to OpenGL, which the same archive carries, where one doesn't.
 
 ### Media libraries
 
@@ -294,10 +376,25 @@ files named here are in `crates/yapfast-core/native/`.
   and Ogg sounds, which have no pictures. `vp8.c` and `clip.c` encode VP8 and VP9
   with libvpx, `picture.c` scales with libyuv, and `camera.cc` captures
   through libwebrtc's capture module.
-- `vendor/ffmpeg-src` holds only the GPU encoders, which `hwenc.c` drives,
-  and the HEVC decoder for watched H265 streams, in `hevc.c`.
+- `vendor/ffmpeg-src` holds the GPU encoders, which `hwenc.c` drives; the
+  H264, HEVC, AV1 and VP9 decoders and parsers; and on Windows Direct3D 11's
+  hwaccel, which `hwdec.c` drives for the three codecs a watched stream uses —
+  H264, HEVC and AV1 — beside the HEVC decoder for software H265 in `hevc.c`.
+  On Linux it decodes on the card too: `hwdec_vaapi.c` drives FFmpeg's VA-API
+  decoder and exports each picture as a DMA-BUF, and `hwdec_cuda.c` decodes
+  with NVDEC through the ffnvcodec declarations in `include/ffnvcodec`, which
+  need no CUDA toolkit.
 - `vendor/x264-src` encodes H264 on the CPU, in `h264.c`, for Go Live and
   the camera.
+- PipeWire, the system library, is where a Wayland share's pictures come from:
+  `native/pipewire_capture.c` takes one DMA-BUF at a time off the node the
+  desktop's screen sharing portal named, and `capture/portal.rs` in
+  `yapfast-core` does the D-Bus handshake that names it. It is built under the
+  `screencast` feature, a default of `yapfast-core` that the root `Cargo.toml`
+  asks for on Linux, and wants libpipewire-0.3's headers: a build that doesn't find them prints a
+  warning and shares a screen through libwebrtc's capturer instead, which on
+  Wayland asks the portal for the pointer as metadata it never paints into a
+  frame.
 
 Playing a file never touches `vendor/ffmpeg-src`, so what plays is what
 libwebrtc's FFmpeg was built with. Check a symbol in the archive:
@@ -308,10 +405,26 @@ nm $LK_CUSTOM_WEBRTC/lib/libwebrtc.a | grep ' T avformat_open_input'
 
 On NixOS, a binary run outside `nix develop` opens NVENC only with
 `LD_LIBRARY_PATH=/run/opengl-driver/lib`, which the dev shell and the Nix
-package's wrapper add. Yapfast names the libva driver for each render node
-itself, but `vainfo` or FFmpeg's command line on a host that sets
-`LIBVA_DRIVER_NAME=nvidia` needs `env -u LIBVA_DRIVER_NAME` to reach AMD's
-or Intel's driver.
+package's wrapper add; the window's Vulkan device needs nothing set, since it
+loads the machine's loader from that path itself (`src/ui/vulkan.rs`). Yapfast
+names the libva driver for each render node itself, but `vainfo` or FFmpeg's
+command line on a host that sets `LIBVA_DRIVER_NAME=nvidia` needs `env -u
+LIBVA_DRIVER_NAME` to reach AMD's or Intel's driver.
+
+The drivers in `/run/opengl-driver` are built from the channel the machine runs,
+and a driver can be loaded only into a process whose glibc is at least the one it
+was built against: libva's `dlopen` of the driver then fails on a `GLIBC_` symbol
+version, and Yapfast says beside it that the driver wants a newer glibc than the
+build has. A machine whose channel is newer than the flake's pin is that machine,
+so build against the system's nixpkgs — the pin is what a release is made from,
+not what a newer machine needs:
+
+```sh
+nix develop path:./nix --override-input nixpkgs github:NixOS/nixpkgs/nixos-26.05
+```
+
+The AppImage runs on the host's glibc, so it loads the machine's drivers as it
+is.
 
 ## Checks
 
@@ -324,7 +437,11 @@ missing file or heading; Clippy with warnings denied and the tests for the whole
 dependency, with plain rustc, and doesn't lint its generated code); a
 build; and the desktop smoke test, which runs `target/<profile>/yapfast`,
 the desktop build, from that build. These build the default features, the
-release's: Discord on the desktop (see [Networks](#networks)).
+release's: Discord on the desktop (see [Networks](#networks)). The desktop
+build turns on `yapfast-core`'s `screencast` feature on Linux, and it is one of
+that crate's defaults, so the portal's and PipeWire's tests run in the workspace
+steps; while working on those, `cargo test --profile fast -p yapfast-core
+capture` runs them alone.
 
 `scripts/check --matrix` adds the builds with Matrix, after those and one at
 a time, as each compile of the UI crate takes several GiB of memory: Clippy

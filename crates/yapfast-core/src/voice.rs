@@ -7,6 +7,10 @@ use std::{
     thread,
 };
 
+pub use yapfast_media::device::{Device, NAMED, device_id};
+/// How large a shared screen is sent; see the media crate's geometry.
+pub use yapfast_media::geometry::Resolution;
+
 use anyhow::{Context, Result};
 use livekit::PlatformAudio;
 use tokio::sync::{mpsc, watch};
@@ -24,12 +28,6 @@ pub enum Phase {
     Connected,
     Reconnecting,
     Leaving,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Device {
-    pub id: String,
-    pub name: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -88,17 +86,6 @@ pub struct Watching {
     pub viewers: Vec<String>,
 }
 
-/// How large a shared screen is sent, as Discord's client offers.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Resolution {
-    P720,
-    #[default]
-    P1080,
-    /// The screen's own size, up to 4K.
-    Source,
-}
-
 /// How a screen is shared: chosen before going live, and remembered.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct StreamQuality {
@@ -106,9 +93,14 @@ pub struct StreamQuality {
     /// Frames a second: 15, 30 or 60.
     pub fps: u32,
     /// A sharper picture from more of the encoder's work, at about twice
-    /// the CPU.
+    /// the CPU, for the encoder on the processor: a GPU's has one tuning, which
+    /// the measurements leave it.
     #[serde(default)]
     pub high_quality: bool,
+    /// What the share may take from the uplink, which is what its ceiling is
+    /// declared as.
+    #[serde(default)]
+    pub ceiling: Ceiling,
 }
 
 impl Default for StreamQuality {
@@ -117,6 +109,48 @@ impl Default for StreamQuality {
             resolution: Resolution::P1080,
             fps: 30,
             high_quality: false,
+            ceiling: Ceiling::default(),
+        }
+    }
+}
+
+/// What a share may take from the uplink: bits per pixel a frame, which is what
+/// its ceiling is declared as. Measured at 3440x1440 and 60 fps
+/// (`docs/measurements/README.md`): 0.03 is transparent on a desktop at 57.2 dB
+/// of PSNR-Y and 40.4 dB on motion, 0.07 is what the picture is worth (59.0 and
+/// 43.5), and 0.12 is 48.2 dB on motion for the uplink to carry.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Ceiling {
+    /// 0.03 bits a pixel a frame: for a slow or busy uplink.
+    Lean,
+    /// 0.07, what the picture is worth, and the share's unless it asks
+    /// otherwise.
+    #[default]
+    Balanced,
+    /// 0.12: for motion, at the dearest to the uplink.
+    Sharp,
+}
+
+impl Ceiling {
+    /// The menu's choices, in the order it lists them.
+    pub const ALL: [Self; 3] = [Self::Lean, Self::Balanced, Self::Sharp];
+
+    /// Bits per pixel a frame a share of this ceiling declares.
+    pub const fn bits_per_pixel(self) -> f64 {
+        match self {
+            Self::Lean => 0.03,
+            Self::Balanced => 0.07,
+            Self::Sharp => 0.12,
+        }
+    }
+
+    /// How the choice is written, in the log and the menu.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Lean => "lean",
+            Self::Balanced => "balanced",
+            Self::Sharp => "sharp",
         }
     }
 }
@@ -142,17 +176,36 @@ pub struct LinkStats {
     pub privacy_code: Option<String>,
     /// The screen this account shares, while it's live.
     pub stream: Option<StreamStats>,
+    /// The stream this account watches, whose worker says how it is decoded
+    /// and shown: the half of a watch no packet shows, and what to look at
+    /// when a stream arrives wrong.
+    pub watching: Option<StreamStats>,
 }
 
 /// How this account's shared screen goes out, as its stream worker reports
 /// it each second: the encoder ("h264_nvenc", "x264"), the codec Discord
 /// chose ("H264"), the size and frame rate sent, the kbit/s aimed for and
 /// sent in the last second, and the keyframes viewers asked for and the
-/// packets resent to them since the stream started.
+/// packets resent to them since the stream started. What a bound had to
+/// give up is here too, so a stream that stutters says why: the frames a
+/// full send queue skipped, and the shared sound a backlog dropped. And so
+/// are the optional settings the encoder's driver dropped when it opened:
+/// they say why the picture may differ from the tuning the stream asked for.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct StreamStats {
     pub engine: String,
     pub codec: String,
+    /// What is captured, as the way that captured it and the size of it:
+    /// "Windows Graphics Capture · 3440×1440 screen", or "the processor's
+    /// capturer" for a screen, window or camera taken in memory. It is the
+    /// half of a share no packet shows — the picture looks the same whichever
+    /// way made it — so a share that looks wrong says which way it came.
+    pub capture: String,
+    /// The optional settings the encoder's driver didn't keep when it
+    /// opened, as it named them ("preset,tune"); empty when it kept them
+    /// all, and then the Stream tab has no row to show for them. A handful
+    /// of names, read once at the open rather than grown per frame.
+    pub settings_dropped: String,
     pub width: u32,
     pub height: u32,
     pub fps: u32,
@@ -160,6 +213,92 @@ pub struct StreamStats {
     pub sent_kbps: u32,
     pub keyframe_requests: u64,
     pub resent: u64,
+    /// Frames the send queue was too full to take, since the stream started:
+    /// the encode that would have been thrown away was skipped instead.
+    pub skipped: u64,
+    /// The most any application's shared sound waited to be mixed, in
+    /// milliseconds: delay before viewers hear it. Unknown while no sound is
+    /// shared with the screen, or while the sound couldn't be captured.
+    pub sound_held_ms: Option<u32>,
+    /// Shared sound a full backlog dropped since the stream started, in
+    /// milliseconds. Unknown where `sound_held_ms` is.
+    pub sound_dropped_ms: Option<u64>,
+    /// What decodes the stream, as it names itself, when this account is
+    /// watching one: "h265 (d3d11va)" is the card's decoder, "libvpx" the
+    /// processor's. Unknown while nothing decodes.
+    pub decoder: Option<String>,
+    /// How the pictures reach the window, which is the difference between a
+    /// copy of every frame through the processor and none.
+    pub presentation: Option<Presentation>,
+    /// The adapter the capture ran on, the one the encoder ran on and the one
+    /// the window draws on, as their DXGI LUIDs: a picture is shared only
+    /// between the last two when they are the same, so a share that copies
+    /// every frame says here whether that is why. The capture's and the
+    /// encoder's are one device on the card's paths, and are known once a
+    /// picture has been shared with the window — the share's own register names
+    /// it. Unknown where nothing has, and on the processor's path, which asks
+    /// the card nothing.
+    pub capture_luid: Option<u64>,
+    pub encode_luid: Option<u64>,
+    pub present_luid: Option<u64>,
+    /// Why the stream isn't on the path it asked for, in one line from the
+    /// code that fell back: "sharing from the processor" is the card's
+    /// capture refusing, and an empty line is a stream with nothing to
+    /// explain.
+    pub fallback: Option<String>,
+    /// Whether a preview is being made for the UI's tile now, which is the
+    /// work a hidden window's share doesn't do.
+    pub preview: bool,
+    /// How long a frame waited between the capture having it and the encoder
+    /// being given it, in milliseconds: the delay this side adds before the
+    /// network's own. Unknown while nothing is sent.
+    pub queue_delay_ms: Option<u32>,
+    /// The bytes the encoder's output buffers hold now, and the most they
+    /// have held: what a pool that grew for one large frame kept.
+    pub pool_live: Option<u64>,
+    pub pool_peak: Option<u64>,
+    /// Whether a stream is giving memory back because the machine is short,
+    /// and which signal said so. `None` is a stream with the room to work.
+    pub memory: Option<String>,
+    /// Where a watched stream's sound is, once the device has said: the
+    /// milliseconds it has played since the player started, and the ones it
+    /// still holds queued. Unknown while nothing plays or no device can say.
+    pub sound_heard_ms: Option<u32>,
+    pub sound_queued_ms: Option<u32>,
+    /// How far a watched stream's picture runs from its sound on the
+    /// streamer's own timeline, in milliseconds, positive for the picture
+    /// ahead: `arrival` compares what arrived of each, before any device
+    /// buffer, and `presentation` compares the sound the device says it has
+    /// played against the picture last handed to the window — a submission, so
+    /// that one is an estimate. Unknown while a mapping is missing or older
+    /// than five seconds, and for a share, which nothing times against anything.
+    pub arrival_skew_ms: Option<i64>,
+    pub presentation_skew_ms: Option<i64>,
+    /// Pictures the audible sound had already passed by more than the 80 ms
+    /// bound, dropped rather than shown late since the watch started. Unknown
+    /// for a share.
+    pub late_pictures: Option<u64>,
+}
+
+/// How a stream's pictures reach the window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+pub enum Presentation {
+    /// Copied out of the frames file as pixels, which costs a copy of every
+    /// frame through the processor.
+    Copy,
+    /// Shown from the worker's own texture, shared with the window's process:
+    /// no pixel of it is copied anywhere.
+    Shared,
+}
+
+impl Presentation {
+    /// What the Stream tab calls it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Copy => "a copy of the picture",
+            Self::Shared => "the worker's own texture",
+        }
+    }
 }
 
 /// Reads the call's [`LinkStats`], which the call measures all along and
@@ -361,6 +500,9 @@ pub enum Command {
     /// Share the screen or window picked last in place of the one shared,
     /// keeping the stream; in a Wayland session, what the system's dialog picks.
     SwitchLive,
+    /// Show the preview of the shared screen in the UI, or stop: the worker
+    /// makes one only while the UI displays it.
+    Preview(bool),
     StopLive,
     /// Play the soundboard sound with this id for everyone in the call.
     Soundboard(String),
@@ -372,6 +514,28 @@ pub enum Command {
     /// Watch the participant with this id's stream.
     Watch(String),
     StopWatching,
+    /// Show the watched stream's pictures, or stop: a hidden or minimised
+    /// window shows none, so the worker decodes on without converting or
+    /// writing frames nobody can see.
+    WatchShown(bool),
+    /// The size, in pixels, of the tile showing the watched stream, as the
+    /// UI says it when that changes and when the stream starts showing: the
+    /// worker scales the stream to it, so a small tile costs a small frame
+    /// and a large one grows the frames file once. A zero or the size the
+    /// worker already has says nothing.
+    WatchSize {
+        width: u32,
+        height: u32,
+    },
+    /// The size, in pixels, of the tile showing this account's own share, as
+    /// the UI says it when that changes and when the share starts showing: the
+    /// preview is written at that size, so a small tile costs a small frame and
+    /// a large one grows the frames file once. The stream that goes out is the
+    /// same whatever it says. A zero says nothing.
+    ShareSize {
+        width: u32,
+        height: u32,
+    },
     /// Remove memberships this device left in voice channels, for example
     /// after Yapfast was killed. Ignored during a call.
     LeaveStale,
@@ -694,20 +858,6 @@ pub(crate) fn collect_devices(audio: &PlatformAudio, state: &mut State) {
         .collect();
 }
 
-/// WebRTC's PulseAudio devices have no GUID, and LiveKit selects only by GUID,
-/// which would always pick the first device. Those devices go by name instead,
-/// as `name:` and the name WebRTC reports.
-pub(crate) fn device_id(guid: &str, name: &str) -> String {
-    if guid.is_empty() {
-        format!("{NAMED}{name}")
-    } else {
-        guid.into()
-    }
-}
-
-/// Marks a device id made from the device's name.
-pub const NAMED: &str = "name:";
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -727,6 +877,7 @@ mod tests {
                 resolution: Resolution::Source,
                 fps: 60,
                 high_quality: true,
+                ceiling: Ceiling::Balanced,
             },
             ..Default::default()
         };

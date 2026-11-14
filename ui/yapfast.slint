@@ -990,6 +990,19 @@ export component YapfastWindow inherits Window {
     in property <int> pip-person: -1;
     in property <int> pip-slot: -1;
     out property <bool> pip-shown: root.workspace && root.voice-active && root.pip-kind != 0 && !root.call-on-screen && !root.stage-full;
+    /// Whether the call's grid has the shared screen's tile in sight, as that
+    /// grid reported when it last laid itself out or scrolled. Until it says,
+    /// it holds, as a preview made for nothing costs less than a share gone
+    /// blank.
+    property <bool> grid-share-in-sight: true;
+    /// A preview of what's shared is on screen: its tile in the call's grid
+    /// while that tile is scrolled into sight, large over the whole window, or
+    /// in the corner. stream-tick tells the worker to make previews only while
+    /// that's so.
+    out property <bool> share-preview-shown: root.sharing && (
+        (root.grid-shown && !root.stage-full && root.grid-share-in-sight)
+        || (root.stage-full && root.voice-active && root.call-focus == 0)
+        || (root.pip-shown && root.pip-kind == 2));
     /// Sharing a screen is offered in Discord calls.
     in property <bool> can-share;
     in property <bool> sharing;
@@ -1356,8 +1369,19 @@ export component YapfastWindow inherits Window {
     /// applies when Yapfast restarts, which restart does.
     in-out property <bool> gpu-rendering;
     in property <bool> gpu-running;
-    /// Screen sharing encodes on the GPU where it has an encoder.
+    /// Screen sharing encodes on the GPU where it has an encoder, and a camera
+    /// filmed on the card with it.
     in-out property <bool> gpu-encoding: true;
+    /// Whether the machine's card can share without a copy of each picture; the
+    /// settings' note is shown only where it can.
+    in property <bool> share-on-the-card: false;
+    /// Which ceiling a share declares, as an index into
+    /// `yapfast_core::voice::Ceiling::ALL`: Lean, Balanced or Sharp.
+    in-out property <int> share-quality: 1;
+    /// Which codec a share asks Discord for first, as an index into
+    /// `yapfast_core::stream_worker::StreamCodec::ALL`: Automatic unless
+    /// chosen.
+    in-out property <int> stream-codec: 0;
     /// Closing the window leaves Yapfast in the system tray, when there's one.
     in-out property <bool> close-to-tray: true;
     in property <bool> tray-available;
@@ -1475,10 +1499,11 @@ export component YapfastWindow inherits Window {
     callback toggle-share;
     /// Share what share-screens, share-windows, then share-cameras, list at
     /// this index, or the screen when they list none, at this resolution, as
-    /// in share-resolution, frame rate, and quality, as in share-high-quality.
+    /// in share-resolution, frame rate, the ceiling as in share-quality, and
+    /// the processor's preset, as in share-high-quality.
     /// Where the system's dialog picks a screen or window (!share-lists), a
     /// choice of it comes before the cameras.
-    callback go-live(int, int, int, bool);
+    callback go-live(int, int, int, int, bool);
     /// While sharing, share what the share menu lists at this index in place
     /// of what's shared, as go-live counts them.
     callback switch-live(int);
@@ -1912,7 +1937,13 @@ export component YapfastWindow inherits Window {
     changed camera-filming => { root.camera-preview = @image-url(""); root.test-camera(self.camera-filming); }
     changed gate-metered => { root.gate-level = -100; root.gate-sending = false; root.gate-meter-note = ""; root.gate-metering(self.gate-metered); }
     Timer { interval: 50ms; running: root.gate-metered; triggered => { root.gate-meter-tick(); } }
-    Timer { interval: 33ms; running: root.sharing || root.watching || root.video-active || root.camera-filming || (root.call-video && (root.grid-shown || root.pip-shown)); triggered => { root.stream-tick(); } }
+    // How often the pictures a stream brings are taken: at the rate that stream
+    // runs at, which its worker says in its report, so a 60 fps share shows all
+    // 60 rather than every other one. The share setting's rate until one has
+    // said, and 30 where nothing on screen says — a camera and a clip are both
+    // at most that.
+    in property <int> stream-tick-ms: 33;
+    Timer { interval: root.stream-tick-ms * 1ms; running: root.sharing || root.watching || root.video-active || root.camera-filming || (root.call-video && (root.grid-shown || root.pip-shown)); triggered => { root.stream-tick(); } }
     input-menu := PopupWindow {
         x: max(8px, min(root.width - self.width - 8px, root.menu-x - 6px));
         y: max(8px, root.menu-y - self.height - 6px);
@@ -1960,6 +1991,7 @@ export component YapfastWindow inherits Window {
     property <int> pick-source;
     property <int> pick-resolution;
     property <int> pick-fps;
+    property <int> pick-quality;
     property <bool> pick-high-quality;
     // The menu switches what's shared, as it was when it opened.
     property <bool> pick-switch;
@@ -1968,6 +2000,7 @@ export component YapfastWindow inherits Window {
         root.pick-source = 0;
         root.pick-resolution = root.share-resolution;
         root.pick-fps = root.share-fps;
+        root.pick-quality = root.share-quality;
         root.pick-high-quality = root.share-high-quality;
         root.pick-switch = root.sharing;
         // Shown once the list is in, so it opens at its full height.
@@ -2004,12 +2037,16 @@ export component YapfastWindow inherits Window {
             screens: root.share-screens; windows: root.share-windows; cameras: root.share-cameras;
             dialog: !root.share-lists; switching: root.pick-switch;
             pick-source <=> root.pick-source; pick-resolution <=> root.pick-resolution; pick-fps <=> root.pick-fps;
+            pick-quality <=> root.pick-quality;
             pick-high-quality <=> root.pick-high-quality;
-            go-live(source, resolution, fps, high-quality) => {
+            // The card's encoder has one tuning, so the menu offers the share's
+            // ceiling instead where that's what will encode it.
+            card-encoding: root.gpu-encoding;
+            go-live(source, resolution, fps, quality, high-quality) => {
                 if root.pick-switch {
                     root.switch-live(source);
                 } else {
-                    root.go-live(source, resolution, fps, high-quality);
+                    root.go-live(source, resolution, fps, quality, high-quality);
                 }
                 share-menu.close();
             }
@@ -3230,7 +3267,8 @@ export component YapfastWindow inherits Window {
                                     watch-stream(id) => { root.watch-stream(id); }
                                     stop-watching => { root.stop-watching(); }
                                     open-volume(person, x, y) => { root.open-voice-menu(root.voice-channel, person, x, y); }
-                                    tiles(columns, width, height, gap, top, scrolled, shown, focused, focus-width, focus-height) => {
+                                    tiles(columns, width, height, gap, top, scrolled, shown, focused, focus-width, focus-height, share-in-sight) => {
+                                        root.grid-share-in-sight = share-in-sight;
                                         root.call-tiles(columns, width, height, gap, top, scrolled, shown, focused, focus-width, focus-height);
                                     }
                                 }
@@ -4286,7 +4324,8 @@ export component YapfastWindow inherits Window {
                 full-screen(on) => { root.stage-full = on; }
                 stop-watching => { root.stop-watching(); }
                 open-volume(person, x, y) => { root.open-voice-menu(root.voice-channel, person, x, y); }
-                tiles(columns, width, height, gap, top, scrolled, shown, focused, focus-width, focus-height) => {
+                tiles(columns, width, height, gap, top, scrolled, shown, focused, focus-width, focus-height, share-in-sight) => {
+                    root.grid-share-in-sight = share-in-sight;
                     root.call-tiles(columns, width, height, gap, top, scrolled, shown, focused, focus-width, focus-height);
                 }
             }
@@ -4452,6 +4491,8 @@ export component YapfastWindow inherits Window {
         if root.settings-section == 6: AdvancedSettings {
             gpu-rendering <=> root.gpu-rendering; gpu-running: root.gpu-running;
             gpu-encoding <=> root.gpu-encoding;
+            share-on-the-card: root.share-on-the-card;
+            stream-codec <=> root.stream-codec;
             close-to-tray <=> root.close-to-tray; tray-available: root.tray-available;
             multiple-windows <=> root.multiple-windows;
             developer-mode <=> root.developer-mode;

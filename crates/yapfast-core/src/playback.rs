@@ -6,7 +6,7 @@
 use std::{future::Future, path::Path, sync::Arc};
 
 use anyhow::{Context, Result};
-use tokio::sync::{mpsc::UnboundedReceiver, oneshot};
+use tokio::sync::{mpsc::Receiver, oneshot};
 
 use crate::{
     chat::{Video, VideoCommand},
@@ -15,15 +15,20 @@ use crate::{
 
 pub struct Playback {
     pub video: Video,
-    worker: Worker,
-    reports: Option<UnboundedReceiver<Report>>,
+    /// The worker playing it, until it ends. A video that played to its end
+    /// keeps its worker, which waits there for a seek or a replay; one whose
+    /// worker ended has none, and gave back what it held then.
+    worker: Option<Worker>,
+    reports: Option<Receiver<Report>>,
     /// The download's size once it's done, none if it failed.
     downloaded: Option<oneshot::Receiver<Option<u64>>>,
     download: tokio::task::JoinHandle<()>,
     _file: tempfile::TempPath,
 }
 
-/// What woke a playing video.
+/// What woke a playing video. A wake is read once, so the report it may carry
+/// being much bigger than a count of bytes costs nothing.
+#[allow(clippy::large_enum_variant)]
 pub enum Wake {
     Report(Option<Report>),
     Downloaded(Option<u64>),
@@ -73,7 +78,7 @@ impl Playback {
                 frames: Some(Arc::new(frames)),
                 ..video
             },
-            worker,
+            worker: Some(worker),
             reports: Some(reports),
             downloaded: Some(downloaded),
             download,
@@ -96,7 +101,9 @@ impl Playback {
     pub fn handle(&mut self, wake: Wake) -> bool {
         match wake {
             Wake::Downloaded(size) => {
-                let _ = self.worker.tell(&Control::Downloaded { size });
+                if let Some(worker) = self.worker.as_mut() {
+                    let _ = worker.tell(&Control::Downloaded { size });
+                }
             }
             Wake::Report(Some(Report::Ready)) => {
                 if let Some(frames) = &self.video.frames {
@@ -137,9 +144,15 @@ impl Playback {
         true
     }
 
-    /// The worker's gone; what it showed stays, with why.
+    /// The worker's gone; what it showed stays, with why. What it held goes
+    /// back here rather than when another video plays: its place among those
+    /// decoding, its child, and the download of a file nothing is left to
+    /// play.
     fn stopped(&mut self, error: Option<String>) {
         self.reports = None;
+        self.download.abort();
+        self.downloaded = None;
+        self.worker = None;
         self.video.playing = false;
         self.video.loading = false;
         self.video.frames = None;
@@ -178,7 +191,12 @@ impl Playback {
             // Dropping the playback stops it.
             VideoCommand::Stop => return,
         };
-        if let Err(error) = self.worker.tell(&control) {
+        // A worker that ended takes none of this, but what the person chose
+        // — how loud it plays — is theirs to keep for the next video.
+        let Some(worker) = self.worker.as_mut() else {
+            return;
+        };
+        if let Err(error) = worker.tell(&control) {
             tracing::debug!(error = format!("{error:#}"), "the video's worker is gone");
         }
     }
@@ -211,7 +229,7 @@ fn gain(video: &Video) -> f32 {
 }
 
 /// The worker's next report, or never once they ended.
-async fn next(reports: &mut Option<UnboundedReceiver<Report>>) -> Option<Report> {
+async fn next(reports: &mut Option<Receiver<Report>>) -> Option<Report> {
     let Some(receiver) = reports else {
         return std::future::pending().await;
     };
@@ -250,5 +268,50 @@ mod tests {
         turn(&mut video, 2.0);
         assert!(!video.muted);
         assert_eq!(gain(&video), 1.0, "it doesn't go past full");
+    }
+
+    /// A video whose worker ended lets go of it at once, and of what it held:
+    /// its place among those decoding, its child, and the download of a file
+    /// nothing is left to play. Here the worker is this test's own binary,
+    /// which isn't a stream worker and ends at once, as a broken file's does.
+    #[tokio::test]
+    async fn a_video_whose_worker_ends_lets_go_of_it() {
+        let folder = tempfile::tempdir().unwrap();
+        let video = Video {
+            room: "r".into(),
+            item: "i".into(),
+            index: 0,
+            frames: None,
+            duration_ms: None,
+            size: None,
+            loading: true,
+            playing: true,
+            ended: false,
+            sound: false,
+            muted: false,
+            volume: 1.0,
+            error: None,
+        };
+        let mut playback = Playback::start(
+            video,
+            folder.path(),
+            None,
+            (160, 90),
+            None,
+            // The download never finishes, so the video's end is the only
+            // thing that wakes it.
+            |_file| std::future::pending::<Result<u64>>(),
+        )
+        .unwrap();
+        assert!(playback.worker.is_some());
+        let wake = playback.wait().await;
+        assert!(!playback.handle(wake), "the video ended");
+        assert!(playback.worker.is_none(), "its worker was let go");
+        assert!(playback.reports.is_none(), "nothing more is read from it");
+        assert!(
+            playback.video.error.is_some(),
+            "and what it showed stays, with why"
+        );
+        assert!(!playback.video.loading && !playback.video.playing);
     }
 }

@@ -5,7 +5,7 @@
 //! H264.
 
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -16,6 +16,10 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
+pub use yapfast_media::clock::StreamClock;
+pub use yapfast_media::pool::{BUFFERS, Encoded, Pool};
+pub use yapfast_media::rtcp::SenderReport;
+
 use tokio::{
     sync::{mpsc, oneshot},
     time::Instant,
@@ -28,7 +32,9 @@ use crate::{
     voice_connection::{Connection, Identity, lock, receive, send_json},
 };
 
-/// How often a viewer may ask for a keyframe while frames are lost.
+/// How often a stream asks for a keyframe while frames are lost, and how
+/// often it makes one when asked: at most one a half second, whichever side
+/// of the stream it is.
 const KEYFRAME_REQUESTS: Duration = Duration::from_millis(500);
 /// How often a streamer sends an RTCP sender report.
 const SENDER_REPORTS: Duration = Duration::from_secs(1);
@@ -36,48 +42,155 @@ const SENDER_REPORTS: Duration = Duration::from_secs(1);
 const LOG_EVERY: Duration = Duration::from_secs(5);
 /// The most packets resent for one NACK, which can name hundreds.
 const RESENDS: usize = 128;
+/// The most buffers the stream's sound is queued in, as many as the queue
+/// holds.
 /// The most video SSRCs a watched stream puts frames together for.
 const MAX_SSRCS: usize = 4;
-/// A frame's packets past the first `BURST` go out paced, at
-/// [`pacing_rate`]: a 1080p keyframe sent at once can overflow buffers on
-/// the way, and fills the uplink's queue.
-const BURST: usize = 8;
 /// The sender reports the last round trips are measured against, by the
-/// time in them a receiver report echoes.
+/// middle of their NTP time, which a viewer's receiver report echoes: more
+/// than one report can wait unanswered, and fewer than a report a second over
+/// a few seconds.
 const ECHOED: usize = 4;
+/// A frame starts with `BURST` packets, then a batch the target pays for every
+/// `STEP`: large keyframes must not overflow the path's buffers, but a fixed
+/// four-packet batch also throttles high-bitrate streams on coarse timers.
+const BURST: usize = 8;
+/// How long a batch past the first waits after the one before it. A batch is
+/// a turn of the send loop, so sound, the gateway and viewers' feedback are
+/// polled between them rather than after the whole frame.
+const STEP: Duration = Duration::from_millis(1);
+/// The bytes a packet's datagram takes, its payload and headers, which a
+/// batch's size is paid for in.
+const PACE_PACKET: usize = 1_250;
+/// The most packets a turn writes however long it waited, so the loop still
+/// polls sound, the gateway and feedback: 64 a turn of Windows' 15.6 ms is
+/// 41 Mbit/s.
+const MAX_BATCH: usize = 64;
 
-/// The bit/s to pace a frame of `bytes` at, sending `fps` frames a second
-/// at `target` bit/s: 2.5 times the target, as libwebrtc's pacer, but fast
-/// enough to send the frame within two frames' time, so a keyframe doesn't
-/// hold the frames after it until the queue before the encoder drops them.
-fn pacing_rate(target: u64, bytes: usize, fps: u32) -> u64 {
-    let within = bytes as u64 * 8 * u64::from(fps.max(1)) / 2;
-    (target * 5 / 2).max(within).max(1)
+/// The most bit/s a stream of `width` by `height` at `fps` may take: what the
+/// picture needs, which is bits per pixel per frame, measured here.
+///
+/// A share's quality is bits per pixel per frame and nothing else, so the
+/// declaration follows the picture rather than a step at 720 lines: the share's
+/// ceiling choice — [`LEAN`], [`WORTH`] or [`SHARP`] — times the pixels times the
+/// frames a second, floored at what a small picture is worth and capped at
+/// [`MOST`]. 1080p60 declares 8.7 Mbit/s at [`WORTH`], which the measurements
+/// below put at the same quality; a 3440x1440 share at 60 asks for 20.8.
+///
+/// Measured here, four-second clips at the p4 low-latency setting the stream
+/// uses, VMAF against the source: busy 3840x2160@60 through AV1 scores 92.9 at
+/// 15 Mbit/s, 94.2 at 25, 95.2 at 35 and 96.5 at 50; HEVC 91.8/93.8/95.0/96.5
+/// and H.264 91.8/94.1/94.9/96.2 at the same rates. Busy 3440x1440@60 through
+/// AV1 scores 93.7 at 9 Mbit/s, 95.3 at 20 and 96.9 at 35. So 0.07 is where
+/// busy content reaches VMAF 95 at every size, and it declares 20.8 Mbit/s for
+/// the 3440x1440 case the measurement agrees with — a rate only the switch
+/// below lets a stream ask for.
+///
+/// A screen share is far cheaper than that: a desktop at 3840x2160@60 scores
+/// VMAF 98 on 2.4 Mbit/s and one at 3440x1440@60 scores 98 on 5.9, so a share
+/// of a screen spends what it needs and leaves the rest of its cap unspent.
+///
+/// Discord's server takes the declaration on trust: a probe through a real
+/// stream accepted 3840x2160 at 60, 120 and even 200 Mbit/s declared, and
+/// 7680x4320@60, without refusing any of it. The declaration is therefore ours
+/// to choose. It's the ceiling the controller in [`congestion`] works under:
+/// the rate a stream actually sends at is that controller's to say.
+///
+/// Neither number is a limit Discord states. The reference documents
+/// `max_bitrate` only as an optional integer, "the maximum bitrate to send in
+/// bps", footnoted "not sent by the voice server", and gives no maximum,
+/// default or tiers; its one value is the example Video (Send) payload's
+/// `9000000` at 60 fps (docs.discord.food, Voice Connections, Stream
+/// Structure). So op 12 announces a cap and the voice server takes it on trust:
+/// a path that can't carry it is held back by the sender's own congestion
+/// control instead, which reads the round trip and the loss back out of the
+/// server's receiver reports (see [`congestion`]).
+///
+/// Discord's own web client is far more modest than this: its screen-share
+/// ladder is `desktopBitrate {min: 500_000, max: 3_500_000, target: 600_000}`,
+/// a Go Live stream opens at 1280x720 with those bounds, and the overrides it
+/// computes per resolution are 3.5 or 5 Mbit/s at 1080p30 (the
+/// `2026-05-frontier-tuning` guild trial) and 9 Mbit/s for 720p60 in a tier-1
+/// guild under `2026-06-server-ladder`. So even [`MOST`] is above what the
+/// client it copies would use, and that is the direction to err in: a 1080p
+/// share at 3.5 Mbit/s is soft, and the congestion control holds the rate below
+/// whatever is declared anyway.
+pub fn max_bitrate(width: u32, height: u32, fps: u32) -> u32 {
+    if let Some(bits) = declared() {
+        return bits;
+    }
+    let pixels = f64::from(width) * f64::from(height) * f64::from(fps);
+    let bits = f64::from_bits(BITS_PER_PIXEL.load(Ordering::Relaxed));
+    ((pixels * bits) as u64).clamp(u64::from(LEAST), u64::from(MOST)) as u32
 }
 
-/// When each of a frame's packets is due, from `started`: the first
-/// [`BURST`] at once, then the rest at `rate` bit/s.
-fn schedule(
-    started: Instant,
-    packets: Vec<Vec<u8>>,
-    rate: u64,
-) -> impl Iterator<Item = (Instant, Vec<u8>)> {
-    let mut paced = 0u64;
-    packets.into_iter().enumerate().map(move |(index, packet)| {
-        let due = if index < BURST {
-            started
-        } else {
-            started + Duration::from_micros(paced * 8 * 1_000_000 / rate)
-        };
-        paced += packet.len() as u64;
-        (due, packet)
+/// What a share may take from the uplink, in bits per pixel a frame, as the
+/// share menu's quality choice asked for: [`LEAN`], [`WORTH`] or [`SHARP`]. It is
+/// read on every declaration rather than kept, so a share started after the
+/// choice is made declares the new ceiling.
+static BITS_PER_PIXEL: AtomicU64 = AtomicU64::new(f64::to_bits(WORTH));
+
+/// Sets what a share may take from the uplink, in bits per pixel a frame; see
+/// [`BITS_PER_PIXEL`].
+///
+/// The worker is a process of its own and op 12 carries the ceiling once, when a
+/// share starts, so this has to be set in the process that declares the stream: a
+/// choice made in Yapfast's own means nothing where the stream is actually sent
+/// from. A stream already running declared its own ceiling when it started and
+/// keeps it; the next one declares this.
+pub fn set_ceiling(bits_per_pixel: f64) {
+    BITS_PER_PIXEL.store(bits_per_pixel.to_bits(), Ordering::Relaxed);
+}
+
+/// What a share takes when it asks for the least: measured at 3440x1440, 60 fps,
+/// 0.03 bits a pixel a frame is transparent on a desktop (57.2 dB of PSNR-Y) and
+/// 40.4 dB on motion, for an uplink with little to spare.
+pub const LEAN: f64 = 0.03;
+/// Bits per pixel per frame a share is worth: measured, see [`max_bitrate`].
+pub const WORTH: f64 = 0.07;
+/// What a share takes when it asks for the most: 0.12 bits a pixel a frame is
+/// 48.2 dB on motion at 3440x1440, 60 fps — 4.7 dB over [`WORTH`] — and costs the
+/// uplink that much.
+pub const SHARP: f64 = 0.12;
+/// The least a share is declared, so a small or still picture isn't starved by
+/// a formula: a screen's own floor is 500 kbit/s, and this is above it.
+const LEAST: u32 = 3_500_000;
+/// The most a stream may declare: 35 Mbit/s, which is 0.12 bits a pixel a frame
+/// at 3840x2160 and 60 — the largest share the interface offers, a little past
+/// what 4K60 at [`WORTH`] asks for. A probe accepted more than this from
+/// Discord's server, so it is the path's to carry or not; past it nothing has
+/// been measured, and the rate the stream really sends is the controller's to
+/// hold.
+const MOST: u32 = 35_000_000;
+
+/// The bit/s a stream declares when a measurement overrides the cap, from
+/// `YAPFAST_STREAM_MAX_BITRATE` in kbit/s: the only way to try a declaration
+/// this client doesn't ship, since op 12 is otherwise a fixed ceiling. Read
+/// once, because a stream declares it once.
+fn declared() -> Option<u32> {
+    static ONCE: std::sync::OnceLock<Option<u32>> = std::sync::OnceLock::new();
+    *ONCE.get_or_init(|| {
+        let asked = std::env::var("YAPFAST_STREAM_MAX_BITRATE").ok()?;
+        let bits = parse_bitrate_override(&asked);
+        if bits.is_none() {
+            tracing::warn!(
+                asked,
+                "YAPFAST_STREAM_MAX_BITRATE must be 500..=4294967 kbit/s"
+            );
+        }
+        bits
     })
 }
 
-/// The most bit/s a stream of `height` lines may take, as Discord's client
-/// decides it: 3.5 Mbit/s up to 720p, 9 Mbit/s above. Op 12 announces it.
-pub fn max_bitrate(height: u32) -> u32 {
-    if height > 720 { 9_000_000 } else { 3_500_000 }
+/// Reject a cap below the controller's floor or one that overflows the wire
+/// declaration, rather than declaring zero while encoding at 500 kbit/s.
+fn parse_bitrate_override(asked: &str) -> Option<u32> {
+    asked
+        .trim()
+        .parse::<u32>()
+        .ok()?
+        .checked_mul(1000)
+        .filter(|&bits| u64::from(bits) >= congestion::FLOOR)
 }
 
 /// Op 5's speaking flags for a stream's sound: shared sound, not a
@@ -89,38 +202,27 @@ const SOUNDSHARE: u8 = 2;
 /// first.
 pub const SEND_CODEC: Codec = Codec::H264;
 
+/// How often Discord may switch the stream away from a codec before the stream
+/// stops offering it: a viewer that can't decode one is switched away from when
+/// it arrives and back to it when it leaves, so one switch is a viewer coming or
+/// going, and two is a codec the viewers being sent it can't decode.
+const SWITCHES_AWAY: u32 = 2;
+
 /// One encoded frame to send, in `codec`, with its time in the 90 kHz clock.
+/// Its bytes are its own until it's dropped, and go back to the encoder's
+/// [`Pool`] then, so nothing copies them between the encoder and the
+/// packetizer.
 pub struct Frame {
-    pub data: Vec<u8>,
+    pub data: Encoded,
     pub codec: Codec,
     pub timestamp: u32,
     pub keyframe: bool,
 }
 
-/// One Opus frame of the stream's sound: 20 ms of stereo at 48 kHz, with
-/// `timestamp` in samples.
-pub struct Sound {
-    pub opus: Vec<u8>,
-    pub timestamp: u32,
-}
-
-/// Queues the stream's sound, from a thread of the sender's own.
-#[derive(Clone)]
-pub struct SoundSender(mpsc::Sender<Sound>);
-
-impl SoundSender {
-    /// Queues a frame of sound, dropping it if the network can't keep up.
-    pub fn send(&self, sound: Sound) {
-        let _ = self.0.try_send(sound);
-    }
-}
-
-/// One whole frame received, decrypted and ready to decode.
-pub struct ReceivedFrame {
-    pub codec: Codec,
-    pub data: Vec<u8>,
-    pub keyframe: bool,
-}
+// What a stream's sound is, and the frames it comes in, are the media crate's.
+pub use yapfast_media::sound::{
+    ReceivedFrame, ReceivedSound, Sound, SoundBuffers, SoundReceiver, SoundSender,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Link {
@@ -135,7 +237,11 @@ struct Shared {
     /// streamer for one.
     keyframe: AtomicBool,
     size: Mutex<(u32, u32)>,
-    /// Sending: the bit/s to encode at, as [`Controller`] decides.
+    /// Receiving: where the streamer's sender reports put its sound and
+    /// picture clocks, written by the receive thread and read by the player.
+    clock: Arc<StreamClock>,
+    /// Sending: the bit/s to encode at, as the send thread's [`Controller`]
+    /// decides. Receiving: nothing reads one.
     target: AtomicU64,
     /// Sending: the codecs offered, most wanted first, and whether that
     /// changed since Discord was told. Receiving: the codecs decoded.
@@ -152,12 +258,18 @@ struct Shared {
 }
 
 impl Shared {
-    fn new(size: (u32, u32)) -> Arc<Self> {
+    /// The state a stream of `size` at `fps` shares between threads. A
+    /// sender's target starts at the ceiling [`max_bitrate`] declares for that
+    /// size, which is what the picture is worth: it's the encoder's rate before
+    /// the first frame goes, and again after an encoder is opened mid-stream.
+    /// The controller lowers it when the path says it can't carry that.
+    fn new(size: (u32, u32), fps: u32) -> Arc<Self> {
         Arc::new(Self {
             link: Mutex::new(Link::Connecting),
             keyframe: AtomicBool::new(true),
             size: Mutex::new(size),
-            target: AtomicU64::new(congestion::start(max_bitrate(size.1).into())),
+            clock: Arc::new(StreamClock::default()),
+            target: AtomicU64::new(congestion::start(max_bitrate(size.0, size.1, fps).into())),
             offers: Mutex::new(vec![SEND_CODEC]),
             offers_changed: AtomicBool::new(false),
             chosen: Mutex::new(None),
@@ -211,6 +323,7 @@ fn ids(server: &StreamServer) -> Result<(u64, u64, u64)> {
 pub struct StreamSender {
     frames: mpsc::Sender<Frame>,
     sounds: mpsc::Sender<Sound>,
+    buffers: Arc<SoundBuffers>,
     shared: Arc<Shared>,
 }
 
@@ -226,35 +339,63 @@ impl StreamSender {
         offers: Vec<Codec>,
     ) -> Result<Self> {
         let (user, channel, _) = ids(&server)?;
-        let shared = Shared::new((width, height));
+        let shared = Shared::new((width, height), fps);
         *lock(&shared.offers) = offers;
         // A few frames of slack; beyond that the network can't keep up.
         let (frames, receiver) = mpsc::channel(4);
         // 160 ms of sound.
         let (sounds, heard) = mpsc::channel(8);
+        let buffers = Arc::new(SoundBuffers::default());
+        let sending = buffers.clone();
         spawn("yapfast-stream-send", shared.clone(), move |shared| {
-            Box::pin(
-                async move { send(&server, user, channel, fps, &shared, receiver, heard).await },
-            )
+            Box::pin(async move {
+                send(
+                    &server,
+                    user,
+                    channel,
+                    fps,
+                    &shared,
+                    receiver,
+                    (heard, sending),
+                )
+                .await
+            })
         })?;
         Ok(Self {
             frames,
             sounds,
+            buffers,
             shared,
         })
     }
 
     /// Where the stream's sound goes.
     pub fn sound(&self) -> SoundSender {
-        SoundSender(self.sounds.clone())
+        SoundSender {
+            sounds: self.sounds.clone(),
+            buffers: self.buffers.clone(),
+        }
     }
 
     /// Queues a frame. A full queue drops it and asks for a keyframe, so
-    /// viewers recover once the network catches up.
+    /// viewers recover once the network catches up. Every frame dropped asks,
+    /// however lately a keyframe went: the frame after a drop has to be whole,
+    /// or the ones the encoder makes from it reference a picture nobody got.
+    /// A queue whose connection has ended takes nothing and asks for nothing:
+    /// the task that would read a keyframe request has stopped.
     pub fn send(&self, frame: Frame) {
-        if self.frames.try_send(frame).is_err() {
+        if let Err(mpsc::error::TrySendError::Full(_)) = self.frames.try_send(frame) {
             self.shared.keyframe.store(true, Ordering::Relaxed);
         }
+    }
+
+    /// Whether a frame queued now would be dropped: what an encoder asks
+    /// before it spends a frame's work on one the network can't take. The
+    /// queue is a few frames' slack against a stall, not a backlog to fill, so
+    /// a full one means waiting for it to drain and dropping the frame at its
+    /// source meanwhile.
+    pub fn backlogged(&self) -> bool {
+        self.frames.capacity() == 0
     }
 
     /// Announces a new frame size with the next frame.
@@ -268,8 +409,23 @@ impl StreamSender {
         self.shared.keyframe.swap(false, Ordering::Relaxed)
     }
 
-    /// The bit/s to encode at: what keeps the uplink's queue short, within
-    /// Discord's cap and its server's estimate. See [`congestion`].
+    /// Whether a keyframe is waiting to be made, without taking the request:
+    /// what a desktop that isn't changing asks to know whether it is worth
+    /// producing a picture at all, before it produces one.
+    pub fn keyframe_wanted(&self) -> bool {
+        self.shared.keyframe.load(Ordering::Relaxed)
+    }
+
+    /// Makes the next frame a whole one, without waiting for a decoder to ask:
+    /// what a stream says when the pictures themselves change kind, as from the
+    /// card's textures to the processor's, so a viewer's decoder starts on the
+    /// new ones rather than depending on the last of the old.
+    pub fn force_keyframe(&self) {
+        self.shared.keyframe.store(true, Ordering::Relaxed);
+    }
+
+    /// The bit/s to encode at: what keeps the uplink's queue short under the
+    /// stream's declared ceiling. See [`congestion`].
     pub fn target(&self) -> u64 {
         self.shared.target.load(Ordering::Relaxed)
     }
@@ -325,7 +481,7 @@ pub struct SentSoFar {
 /// connection.
 pub struct StreamReceiver {
     frames: channel::Receiver<ReceivedFrame>,
-    sounds: Option<channel::Receiver<Vec<u8>>>,
+    sounds: Option<channel::Receiver<ReceivedSound>>,
     shared: Arc<Shared>,
     _stop: oneshot::Sender<()>,
 }
@@ -335,11 +491,13 @@ impl StreamReceiver {
     /// most wanted first.
     pub fn start(server: StreamServer, decodes: Vec<Codec>) -> Result<Self> {
         let (user, channel, streamer) = ids(&server)?;
-        let shared = Shared::new((0, 0));
+        let shared = Shared::new((0, 0), 0);
         *lock(&shared.offers) = decodes;
         // Frames waiting to be decoded; more means decoding can't keep up.
         let (frames, receiver) = channel::sync_channel(4);
-        // Opus frames waiting to be played: 320 ms.
+        // Opus frames waiting to be played. A bound on memory, not on
+        // latency: the player takes what came on every turn, and drops what
+        // waited too long, so a full queue delays nothing by itself.
         let (sounds, heard) = channel::sync_channel(16);
         let (stop, stopped) = oneshot::channel();
         spawn("yapfast-stream-receive", shared.clone(), move |shared| {
@@ -369,10 +527,15 @@ impl StreamReceiver {
         self.frames.recv_timeout(wait).ok()
     }
 
-    /// The stream's sound, decrypted Opus frames, for a player of its own.
-    /// It ends with the connection.
-    pub fn take_sounds(&mut self) -> Option<channel::Receiver<Vec<u8>>> {
-        self.sounds.take()
+    /// The stream's sound, decrypted Opus frames and the sender's numbering
+    /// with each, for a player of its own, and the clock the streamer's
+    /// sender reports put its sound and picture on. It ends with the
+    /// connection.
+    pub fn take_sounds(&mut self) -> Option<SoundReceiver> {
+        Some(SoundReceiver {
+            sounds: self.sounds.take()?,
+            clock: Arc::clone(&self.shared.clock),
+        })
     }
 
     /// Asks the streamer for a keyframe, as after a frame that wouldn't decode.
@@ -403,7 +566,7 @@ pub(crate) fn video_attributes(
             "active": true,
             "quality": 100,
             "rtx_ssrc": rtx,
-            "max_bitrate": max_bitrate(height),
+            "max_bitrate": max_bitrate(width, height, fps),
             "max_framerate": fps,
             "max_resolution": {"type": "fixed", "width": width, "height": height},
         }],
@@ -490,6 +653,16 @@ async fn open(
     Ok(connection)
 }
 
+/// Whether a keyframe is made for a request that came at `now`: the first
+/// is, and then one a `KEYFRAME_REQUESTS` after the keyframe last made for
+/// one, `answered`. A viewer asks at most that often while frames are lost,
+/// and a streamer makes at most that often too, because every viewer who lost
+/// the same packet asks at once and a keyframe is many times a frame: a run of
+/// them at a rate that just dropped is lost in its turn, which asks again.
+fn keyframe_due(answered: Option<std::time::Instant>, now: std::time::Instant) -> bool {
+    answered.is_none_or(|answered| now.duration_since(answered) >= KEYFRAME_REQUESTS)
+}
+
 async fn send(
     server: &StreamServer,
     user: u64,
@@ -497,16 +670,16 @@ async fn send(
     fps: u32,
     shared: &Shared,
     mut frames: mpsc::Receiver<Frame>,
-    mut sounds: mpsc::Receiver<Sound>,
+    (mut sounds, buffers): (mpsc::Receiver<Sound>, Arc<SoundBuffers>),
 ) -> Result<()> {
     let mut connection = open(server, user, channel, Role::Send, shared).await?;
     let (ssrc, video, rtx) = (connection.ssrc, connection.video, connection.rtx);
     let mut size = *lock(&shared.size);
-    let mut pacing = Controller::new(max_bitrate(size.1).into());
+    // What says how fast the stream sends: its ceiling is the rate op 12
+    // declares for the picture, and it starts there, at what the picture is
+    // worth, coming down only when a report says the path can't carry it.
+    let mut pacing = Controller::new(max_bitrate(size.0, size.1, fps).into());
     shared.target.store(pacing.target(), Ordering::Relaxed);
-    // When the last video sender reports went out, by the time in them.
-    let mut echoed = [(0u32, std::time::Instant::now()); ECHOED];
-    let mut reports_sent = 0usize;
     send_json(
         &mut connection.ws,
         12,
@@ -530,14 +703,35 @@ async fn send(
     *lock(&shared.chosen) = Some(chosen);
     tracing::info!(codec = ?chosen, ?offered, "Discord chose the stream's codec");
     let mut withdrawn: Vec<Codec> = vec![];
+    // How often Discord switched the stream away from each codec: two of those
+    // is a viewer that can't decode it, which the stream stops offering rather
+    // than flapping back and forth.
+    let mut switched_away: HashMap<Codec, u32> = HashMap::new();
     let mut packetizer = Packetizer::new(video, chosen);
     let mut history = rtp::History::default();
     let interval = connection.interval;
     let mut heartbeat = tokio::time::interval_at(Instant::now() + interval, interval);
     let mut datagram = vec![0u8; 1500];
+    // The frame in flight's packets, planned once, and the datagram each is
+    // written into and sealed in: the buffers keep their room from one frame
+    // to the next.
+    let mut plan = rtp::Plan::default();
+    let mut out = Vec::new();
+    // The frame partway out, if there is one: a batch of its packets a turn
+    // of the loop, between which the plan above keeps them planned and this
+    // keeps the bytes they are written from.
+    let mut flying: Option<Sending> = None;
     // For RTCP sender reports: packets and payload bytes sent so far.
     let (mut packets, mut octets) = (0u32, 0u32);
     let mut reported = Instant::now() - SENDER_REPORTS;
+    // The sender reports a viewer's receiver report can echo, by the middle of
+    // their NTP time and when each went: the round trip is measured from the
+    // one a report names. Video only, so sound's reports aren't kept.
+    let mut echoed = [(0u32, std::time::Instant::now()); ECHOED];
+    let mut reports_sent = 0usize;
+    // When a keyframe was last made for a viewer, which is how often one may
+    // be made; see `keyframe_due`.
+    let mut answered: Option<std::time::Instant> = None;
     // For the log: whether frames went out encrypted, and what came back.
     let mut encrypted = None;
     let mut sent = Sent::default();
@@ -546,14 +740,248 @@ async fn send(
     let mut sound_sequence: u16 = rand::random();
     let (mut sound_packets, mut sound_octets) = (0u32, 0u32);
     let mut sound_reported = Instant::now() - SENDER_REPORTS;
-    // The packets of the frame going out, each with when it's due, and its
-    // RTP timestamp. They go out from their own branch, so receiver reports
-    // are timed as they come, and the next frame waits until they're out.
-    let mut pending: VecDeque<(Instant, Vec<u8>)> = VecDeque::new();
-    let mut pending_timestamp = 0u32;
     loop {
         tokio::select! {
-            frame = frames.recv(), if pending.is_empty() => {
+            // Sound, the gateway and viewers' feedback come before more video:
+            // sound is queued on a bounded channel whose sender drops it when
+            // the reader is busy, so every turn the loop spends writing a
+            // frame's packets is sound nobody hears.
+            Some(sound) = sounds.recv() => {
+                let Some(payload) = connection.dave.encrypt_opus(&sound.opus) else {
+                    buffers.give(sound.opus);
+                    continue;
+                };
+                // The frame is written into the buffer the video packets go
+                // out in too: sound and picture take turns here, and the
+                // buffer keeps its room for both.
+                rtp::write_audio_into(
+                    &mut out,
+                    ssrc,
+                    sound_sequence,
+                    sound.timestamp,
+                    sound_packets == 0,
+                    &payload,
+                );
+                sound_sequence = sound_sequence.wrapping_add(1);
+                sound_packets = sound_packets.wrapping_add(1);
+                sound_octets = sound_octets.wrapping_add(payload.len() as u32);
+                let clear = rtp::rtp_clear_len(&out).unwrap_or(out.len());
+                connection.transport.seal(&mut out, clear)?;
+                connection.udp.send(&out).await?;
+                // The frame's own bytes are spent: the buffer goes back to the
+                // mixer for the frame after it.
+                buffers.give(sound.opus);
+                sent.sounds += 1;
+                if sound_reported.elapsed() >= SENDER_REPORTS {
+                    sound_reported = Instant::now();
+                    let mut report = rtp::sender_report(
+                        ssrc,
+                        std::time::SystemTime::now(),
+                        sound.timestamp,
+                        sound_packets,
+                        sound_octets,
+                    );
+                    connection.transport.seal(&mut report, rtp::RTCP_CLEAR)?;
+                    connection.udp.send(&report).await?;
+                }
+            }
+            message = receive(&mut connection.ws, &mut connection.seq) => {
+                // Not heartbeat acks, nor the keys in the ready message and
+                // session description.
+                if let Some((op, data)) = connection.handle(message?).await?
+                    && !matches!(op, 2 | 4 | 6)
+                {
+                    let mut text = data.to_string();
+                    text.truncate(400);
+                    tracing::debug!(op, data = %text, "the stream server said");
+                    // Session update: a viewer can't decode the codec, or the
+                    // one who couldn't left.
+                    if op == 14
+                        && let Some(codec) = data["video_codec"].as_str().and_then(Codec::from_name)
+                    {
+                        if offered.contains(&codec) && !withdrawn.contains(&codec) {
+                            tracing::info!(?codec, "Discord switched the stream's codec");
+                            // A codec is switched away from when a viewer can't
+                            // decode it, and back to when that viewer leaves, so
+                            // one switch says nothing. Two in a row says someone
+                            // watching can't decode it, and going on offering it
+                            // makes the stream flap between two encoders: every
+                            // switch opens another session and needs a whole
+                            // frame, and a viewer whose codec changes under it
+                            // asks for one after another and never settles on a
+                            // picture. H264 is the last codec offered and stays.
+                            let previous = *lock(&shared.chosen);
+                            if let Some(previous) = previous
+                                && previous != codec
+                                && previous != SEND_CODEC
+                            {
+                                let count = switched_away.entry(previous).or_insert(0);
+                                *count += 1;
+                                if *count >= SWITCHES_AWAY {
+                                    let mut offers = lock(&shared.offers);
+                                    if offers.len() > 1 && offers.contains(&previous) {
+                                        offers.retain(|&offered| offered != previous);
+                                        shared.offers_changed.store(true, Ordering::Relaxed);
+                                        tracing::info!(
+                                            ?previous,
+                                            "a viewer couldn't decode it: the stream stops offering it"
+                                        );
+                                    }
+                                }
+                            }
+                            *lock(&shared.chosen) = Some(codec);
+                            shared.keyframe.store(true, Ordering::Relaxed);
+                        } else {
+                            tracing::warn!(?codec, "Discord asked for a codec Yapfast didn't offer");
+                        }
+                    }
+                    // Tell whoever connected about the video again, in case
+                    // the server doesn't pass it on to late viewers.
+                    if op == 11 {
+                        send_json(&mut connection.ws, 12, video_attributes(ssrc, video, rtx, size, fps)).await?;
+                        send_json(&mut connection.ws, 5, json!({"speaking": SOUNDSHARE, "delay": 0, "ssrc": ssrc})).await?;
+                    }
+                }
+            }
+            _ = heartbeat.tick() => connection.heartbeat().await?,
+            // The next batch of the frame in flight, a turn's worth of its
+            // packets: the arms above are polled between batches, so a
+            // keyframe of two hundred packets is fifty turns of this loop,
+            // each as short as a batch, rather than one turn lasting as long
+            // as the keyframe takes to put on the wire.
+            _ = tokio::time::sleep_until(flying.as_ref().map_or_else(Instant::now, |frame| frame.due)),
+                if flying.is_some() =>
+            {
+                // Taken so that the arm only holds the frame again if it has
+                // packets left: a frame goes out whole, never part of one.
+                let Some(mut frame) = flying.take() else {
+                    continue;
+                };
+                let mut done = false;
+                // One turn of the loop writes a batch, so one clock read says
+                // when its packets went out; a packet's age is a coarse thing
+                // beside the window it is kept for.
+                let now = std::time::Instant::now();
+                for _ in 0..frame.batch(pacing.target(), now) {
+                    let Some(last) = packetizer.write(&mut plan, &frame.payload, &mut out) else {
+                        done = true;
+                        break;
+                    };
+                    frame.sent_one();
+                    // The history keeps the packet as it went, before the
+                    // encryption writes over the rest of the buffer.
+                    history.remember(&out, now);
+                    let clear = rtp::rtp_clear_len(&out).unwrap_or(out.len());
+                    packets = packets.wrapping_add(1);
+                    octets = octets.wrapping_add((out.len() - clear) as u32);
+                    connection.transport.seal(&mut out, clear)?;
+                    connection.udp.send(&out).await?;
+                    shared.video_bytes.fetch_add(out.len() as u64, Ordering::Relaxed);
+                    // What the controller reads to know what the stream is
+                    // sending, and doesn't rise far past it.
+                    pacing.sent(now, out.len());
+                    if last {
+                        done = true;
+                        break;
+                    }
+                }
+                if done {
+                    // The frame is out, so report on it if a second has gone
+                    // by, and let the loop take the next one.
+                    if reported.elapsed() >= SENDER_REPORTS {
+                        reported = Instant::now();
+                        let mut report = rtp::sender_report(
+                            video,
+                            std::time::SystemTime::now(),
+                            frame.timestamp,
+                            packets,
+                            octets,
+                        );
+                        // A viewer's receiver report echoes this report's
+                        // middle NTP word, which is what times the round
+                        // trip: the newest `ECHOED` are kept, since a report
+                        // about an older one measures the wrong path.
+                        if let Some(&(_, middle, _)) = rtp::sender_reports(&report).first() {
+                            echoed[reports_sent % ECHOED] = (middle, std::time::Instant::now());
+                            reports_sent += 1;
+                        }
+                        connection.transport.seal(&mut report, rtp::RTCP_CLEAR)?;
+                        connection.udp.send(&report).await?;
+                    }
+                } else {
+                    frame.wait();
+                    flying = Some(frame);
+                }
+            }
+            received = connection.udp.recv(&mut datagram) => {
+                let packet = &mut datagram[..received?];
+                if !rtp::is_rtcp(packet) {
+                    sent.rtp_back += 1;
+                    continue;
+                }
+                let Some(rtcp) = connection.transport.open(packet, rtp::RTCP_CLEAR) else {
+                    sent.unopened += 1;
+                    continue;
+                };
+                // Naming a report's parts is for the five-second debug line and
+                // nothing else: two strings a report, and reports arrive in
+                // bursts when the path is losing packets.
+                if tracing::enabled!(tracing::Level::DEBUG) {
+                    for (kind, said) in rtp::rtcp_kinds(rtcp) {
+                        *sent.rtcp.entry(kind.clone()).or_default() += 1;
+                        if !said.is_empty() {
+                            sent.said.insert(kind, said);
+                        }
+                    }
+                }
+                // One clock read for what this report says, and what it means
+                // is always how long ago it said it.
+                let now = std::time::Instant::now();
+                if rtp::wants_keyframe(rtcp) {
+                    sent.requests += 1;
+                    shared.keyframe_requests.fetch_add(1, Ordering::Relaxed);
+                    if keyframe_due(answered, now) {
+                        answered = Some(now);
+                        shared.keyframe.store(true, Ordering::Relaxed);
+                    }
+                }
+                if let Some(estimate) = rtp::bandwidth_estimate(rtcp, video)
+                    && let Some(reason) = pacing.set_estimate(estimate, now)
+                {
+                    retarget(shared, &pacing, reason, None);
+                }
+                if let Some(reception) = rtp::reception(rtcp, video) {
+                    // The round trip the report measured, from the sender
+                    // report it echoes: one this end sent, if the report is
+                    // about this stream rather than one before it.
+                    let trip = echoed
+                        .iter()
+                        .find(|&&(middle, _)| reception.last_report != 0 && middle == reception.last_report)
+                        .and_then(|&(_, sent)| rtp::round_trip(sent, now, reception.delay));
+                    if let Some(reason) = pacing.report(now, trip, &reception) {
+                        retarget(shared, &pacing, reason, Some((trip, reception.fraction_lost)));
+                    }
+                }
+                for lost in rtp::nacked(rtcp, video).into_iter().take(RESENDS) {
+                    let Some(mut again) = history.get(lost, now).and_then(|original| packetizer.retransmit(original, rtx)) else {
+                        sent.too_late += 1;
+                        continue;
+                    };
+                    let clear = rtp::rtp_clear_len(&again).unwrap_or(again.len());
+                    connection.transport.seal(&mut again, clear)?;
+                    connection.udp.send(&again).await?;
+                    shared.video_bytes.fetch_add(again.len() as u64, Ordering::Relaxed);
+                    // A resend is the stream's traffic as much as a first
+                    // send, so the rate the controller reads includes it.
+                    pacing.sent(now, again.len());
+                    shared.resent.fetch_add(1, Ordering::Relaxed);
+                    sent.resent += 1;
+                }
+            }
+            // A frame is taken only between the ones in flight: the channel is
+            // bounded, and what doesn't fit is dropped with a keyframe asked
+            // for, so a slow network pushes back rather than queueing video.
+            frame = frames.recv(), if flying.is_none() => {
                 let Some(frame) = frame else {
                     let _ = connection.ws.close(None).await;
                     return Ok(());
@@ -562,7 +990,10 @@ async fn send(
                 if wanted != size {
                     size = wanted;
                     send_json(&mut connection.ws, 12, video_attributes(ssrc, video, rtx, size, fps)).await?;
-                    if let Some(reason) = pacing.set_cap(max_bitrate(size.1).into()) {
+                    // The picture changed size, so what it's worth changed: a
+                    // bigger one declares more, and the controller takes that
+                    // as its ceiling from here on.
+                    if let Some(reason) = pacing.set_cap(max_bitrate(size.0, size.1, fps).into(), std::time::Instant::now()) {
                         retarget(shared, &pacing, reason, None);
                     }
                 }
@@ -591,152 +1022,11 @@ async fn send(
                 };
                 sent.frames += 1;
                 sent.keyframes += u32::from(frame.keyframe);
-                let packets_of_frame = packetizer.packets(&payload, frame.timestamp, frame.keyframe);
-                let bytes: usize = packets_of_frame.iter().map(Vec::len).sum();
-                let rate = pacing_rate(pacing.target(), bytes, fps);
-                pending.extend(schedule(Instant::now(), packets_of_frame, rate));
-                pending_timestamp = frame.timestamp;
-            }
-            _ = tokio::time::sleep_until(pending.front().map_or_else(Instant::now, |&(due, _)| due)), if !pending.is_empty() => {
-                let now = Instant::now();
-                while pending.front().is_some_and(|&(due, _)| due <= now)
-                    && let Some((_, mut packet)) = pending.pop_front()
-                {
-                    history.remember(&packet);
-                    let clear = rtp::rtp_clear_len(&packet).unwrap_or(packet.len());
-                    packets = packets.wrapping_add(1);
-                    octets = octets.wrapping_add((packet.len() - clear) as u32);
-                    connection.transport.seal(&mut packet, clear)?;
-                    connection.udp.send(&packet).await?;
-                    shared.video_bytes.fetch_add(packet.len() as u64, Ordering::Relaxed);
-                    pacing.sent(std::time::Instant::now(), packet.len());
-                }
-                if pending.is_empty() && reported.elapsed() >= SENDER_REPORTS {
-                    reported = Instant::now();
-                    let mut report = rtp::sender_report(
-                        video,
-                        std::time::SystemTime::now(),
-                        pending_timestamp,
-                        packets,
-                        octets,
-                    );
-                    if let Some(&(_, middle)) = rtp::sender_reports(&report).first() {
-                        echoed[reports_sent % ECHOED] = (middle, std::time::Instant::now());
-                        reports_sent += 1;
-                    }
-                    connection.transport.seal(&mut report, rtp::RTCP_CLEAR)?;
-                    connection.udp.send(&report).await?;
-                }
-            }
-            _ = heartbeat.tick() => connection.heartbeat().await?,
-            message = receive(&mut connection.ws, &mut connection.seq) => {
-                // Not heartbeat acks, nor the keys in the ready message and
-                // session description.
-                if let Some((op, data)) = connection.handle(message?).await?
-                    && !matches!(op, 2 | 4 | 6)
-                {
-                    let mut text = data.to_string();
-                    text.truncate(400);
-                    tracing::debug!(op, data = %text, "the stream server said");
-                    // Session update: a viewer can't decode the codec, or the
-                    // one who couldn't left.
-                    if op == 14
-                        && let Some(codec) = data["video_codec"].as_str().and_then(Codec::from_name)
-                    {
-                        if offered.contains(&codec) && !withdrawn.contains(&codec) {
-                            tracing::info!(?codec, "Discord switched the stream's codec");
-                            *lock(&shared.chosen) = Some(codec);
-                            shared.keyframe.store(true, Ordering::Relaxed);
-                        } else {
-                            tracing::warn!(?codec, "Discord asked for a codec Yapfast didn't offer");
-                        }
-                    }
-                    // Tell whoever connected about the video again, in case
-                    // the server doesn't pass it on to late viewers.
-                    if op == 11 {
-                        send_json(&mut connection.ws, 12, video_attributes(ssrc, video, rtx, size, fps)).await?;
-                        send_json(&mut connection.ws, 5, json!({"speaking": SOUNDSHARE, "delay": 0, "ssrc": ssrc})).await?;
-                    }
-                }
-            }
-            Some(sound) = sounds.recv() => {
-                let Some(payload) = connection.dave.encrypt_opus(&sound.opus) else {
-                    continue;
-                };
-                let mut packet =
-                    rtp::opus_packet(ssrc, sound_sequence, sound.timestamp, sound_packets == 0, &payload);
-                sound_sequence = sound_sequence.wrapping_add(1);
-                sound_packets = sound_packets.wrapping_add(1);
-                sound_octets = sound_octets.wrapping_add(payload.len() as u32);
-                let clear = rtp::rtp_clear_len(&packet).unwrap_or(packet.len());
-                connection.transport.seal(&mut packet, clear)?;
-                connection.udp.send(&packet).await?;
-                sent.sounds += 1;
-                if sound_reported.elapsed() >= SENDER_REPORTS {
-                    sound_reported = Instant::now();
-                    let mut report = rtp::sender_report(
-                        ssrc,
-                        std::time::SystemTime::now(),
-                        sound.timestamp,
-                        sound_packets,
-                        sound_octets,
-                    );
-                    connection.transport.seal(&mut report, rtp::RTCP_CLEAR)?;
-                    connection.udp.send(&report).await?;
-                }
-            }
-            received = connection.udp.recv(&mut datagram) => {
-                let packet = &datagram[..received?];
-                if !rtp::is_rtcp(packet) {
-                    sent.rtp_back += 1;
-                    continue;
-                }
-                let Some(rtcp) = connection.transport.open(packet, rtp::RTCP_CLEAR) else {
-                    sent.unopened += 1;
-                    continue;
-                };
-                for (kind, said) in rtp::rtcp_kinds(&rtcp) {
-                    *sent.rtcp.entry(kind.clone()).or_default() += 1;
-                    if !said.is_empty() {
-                        sent.said.insert(kind, said);
-                    }
-                }
-                if rtp::wants_keyframe(&rtcp) {
-                    sent.requests += 1;
-                    shared.keyframe_requests.fetch_add(1, Ordering::Relaxed);
-                    shared.keyframe.store(true, Ordering::Relaxed);
-                }
-                if let Some(estimate) = rtp::bandwidth_estimate(&rtcp, video)
-                    && let Some(reason) = pacing.set_estimate(estimate)
-                {
-                    retarget(shared, &pacing, reason, None);
-                }
-                if let Some(reception) = rtp::reception(&rtcp, video) {
-                    let now = std::time::Instant::now();
-                    let trip = echoed
-                        .iter()
-                        .find(|&&(middle, _)| reception.last_report != 0 && middle == reception.last_report)
-                        .and_then(|&(_, sent)| rtp::round_trip(sent, now, reception.delay));
-                    if let Some(trip) = trip {
-                        sent.round_trip_ms = Some(trip.as_millis() as u32);
-                    }
-                    if let Some(reason) = pacing.report(now, trip, &reception) {
-                        retarget(shared, &pacing, reason, Some((trip, reception.fraction_lost)));
-                    }
-                }
-                for lost in rtp::nacked(&rtcp, video).into_iter().take(RESENDS) {
-                    let Some(mut again) = history.get(lost).and_then(|original| packetizer.retransmit(original, rtx)) else {
-                        sent.too_late += 1;
-                        continue;
-                    };
-                    let clear = rtp::rtp_clear_len(&again).unwrap_or(again.len());
-                    connection.transport.seal(&mut again, clear)?;
-                    connection.udp.send(&again).await?;
-                    shared.video_bytes.fetch_add(again.len() as u64, Ordering::Relaxed);
-                    pacing.sent(std::time::Instant::now(), again.len());
-                    shared.resent.fetch_add(1, Ordering::Relaxed);
-                    sent.resent += 1;
-                }
+                packetizer.plan_into(&mut plan, &payload, frame.timestamp, frame.keyframe);
+                // The frame's buffer goes back to the encoder's pool now: the
+                // packets are written from the encrypted copy, which the plan
+                // points into until the frame is out.
+                flying = Some(Sending::new(payload, frame.timestamp));
             }
             _ = log.tick() => {
                 let target_kbps = pacing.target() / 1000;
@@ -751,7 +1041,8 @@ async fn send(
 
 /// Hands the encoder the controller's new target, and logs why it changed,
 /// with what the receiver report that changed it said: the round trip it
-/// measured, and the packets lost out of 256.
+/// measured, and the packets lost out of 256. The encoder is told on the next
+/// frame, if the target moved a tenth of its rate.
 fn retarget(
     shared: &Shared,
     pacing: &Controller,
@@ -767,6 +1058,82 @@ fn retarget(
         lost = report.map(|(_, lost)| lost),
         "changing the stream's bitrate"
     );
+}
+
+/// A frame partway out, a batch of its packets a turn of the send loop.
+///
+/// A keyframe is hundreds of packets. Written in one turn it holds the loop for
+/// tens of milliseconds, and the sound queued meanwhile is dropped when its
+/// bounded channel fills. So a frame goes out a batch a turn: `BURST` in the
+/// turn it starts, then a batch the target pays for in the time the turn took,
+/// with `STEP` between batches. The batch stays bounded so the sender polls
+/// sound, the gateway and feedback between turns.
+///
+/// Nothing is kept between turns that the frame didn't already have: the plan
+/// it was planned into, which the next frame reuses, and the encrypted bytes
+/// its packets are written from. Sending it in batches copies nothing more.
+struct Sending {
+    /// The frame as its packets carry it, end-to-end encrypted once before
+    /// the first packet went and kept until the last has.
+    payload: Vec<u8>,
+    /// How many of its packets have gone out, which decides the next batch's
+    /// size. The plan counts them too, but keeps the count to itself.
+    sent: usize,
+    /// When the next batch may go: at once for the first, `STEP` after the
+    /// batch before for the rest.
+    due: Instant,
+    /// When the batch before the next one went, which the next one's size is
+    /// paid for over.
+    last: std::time::Instant,
+    /// The frame's time in the 90 kHz clock, which the sender report that
+    /// follows its last packet names.
+    timestamp: u32,
+}
+
+impl Sending {
+    /// Takes the bytes a frame's packets are written from, and the frame's
+    /// time in the 90 kHz clock. Its first batch is due at once.
+    fn new(payload: Vec<u8>, timestamp: u32) -> Self {
+        Self {
+            payload,
+            sent: 0,
+            due: Instant::now(),
+            last: std::time::Instant::now(),
+            timestamp,
+        }
+    }
+
+    /// How many of the frame's packets this turn writes: what's left of its
+    /// first `BURST`, then the packets the target pays for in the `waited` time
+    /// since the batch before.
+    ///
+    /// Sized by the constant alone the pace would be a trickle wherever a timer
+    /// is coarse: Windows serves a 1 ms sleep in 15.6 ms, so
+    /// [`congestion::packet_batch`]'s six packets a turn would put a 20 Mbit
+    /// stream out at under four, and the frame queue behind it would drop
+    /// pictures there was time to send.
+    fn batch(&self, target: u64, now: std::time::Instant) -> usize {
+        if self.sent < BURST {
+            return BURST - self.sent;
+        }
+        let waited = now.duration_since(self.last).max(STEP);
+        let paid =
+            target.saturating_mul(waited.as_micros() as u64) / (8 * PACE_PACKET as u64 * 1_000_000);
+        paid.clamp(congestion::packet_batch(target) as u64, MAX_BATCH as u64) as usize
+    }
+
+    /// Notes that one of the frame's packets went out.
+    fn sent_one(&mut self) {
+        self.sent += 1;
+    }
+
+    /// Holds the rest of the frame for `STEP`, so the loop polls everything
+    /// else before the batch after this one.
+    fn wait(&mut self) {
+        let now = Instant::now();
+        self.last = std::time::Instant::now();
+        self.due = now + STEP;
+    }
 }
 
 /// What a streamer sent and heard back since it last logged.
@@ -790,13 +1157,14 @@ struct Sent {
     unopened: u32,
     /// RTP, which a streamer isn't sent.
     rtp_back: u32,
-    /// The last round trip a receiver report measured.
-    round_trip_ms: Option<u32>,
 }
 
-/// What the server said about the streamer's video.
+/// What the server said about the streamer's stream: its SSRCs and codec.
 #[derive(Default)]
 struct Streamer {
+    /// The SSRC its sound comes on: from op 12, or else the one the first
+    /// Opus packet came on.
+    audio: Option<u32>,
     video: Option<u32>,
     rtx: Option<u32>,
     codec: Option<Codec>,
@@ -805,7 +1173,7 @@ struct Streamer {
 impl Streamer {
     fn learn(&mut self, op: u64, data: &Value) {
         match op {
-            // Video: the streamer's SSRCs.
+            // The streamer's SSRCs.
             12 => {
                 let ssrc = |value: &Value| {
                     value
@@ -813,6 +1181,7 @@ impl Streamer {
                         .filter(|&ssrc| ssrc != 0)
                         .map(|ssrc| ssrc as u32)
                 };
+                self.audio = ssrc(&data["audio_ssrc"]).or(self.audio);
                 self.video = ssrc(&data["video_ssrc"]).or(self.video);
                 self.rtx = ssrc(&data["rtx_ssrc"]).or(self.rtx);
             }
@@ -893,11 +1262,14 @@ async fn receive_stream(
     // Where whole video frames and the sound's Opus frames go.
     (frames, sounds): (
         channel::SyncSender<ReceivedFrame>,
-        channel::SyncSender<Vec<u8>>,
+        channel::SyncSender<ReceivedSound>,
     ),
     mut stopped: oneshot::Receiver<()>,
 ) -> Result<()> {
     let mut connection = open(server, user, channel, Role::Receive, shared).await?;
+    // The streamer's clocks, for the player to compare its sound with the
+    // picture; this thread is the only writer.
+    let clock = &shared.clock;
     let mut streamer = Streamer {
         codec: connection.codec,
         ..Streamer::default()
@@ -911,7 +1283,7 @@ async fn receive_stream(
     *lock(&shared.link) = Link::Connected;
 
     let mut incoming: HashMap<u32, Video> = HashMap::new();
-    let mut asked = Instant::now() - KEYFRAME_REQUESTS;
+    let mut asked: Option<std::time::Instant> = None;
     let interval = connection.interval;
     let mut heartbeat = tokio::time::interval_at(Instant::now() + interval, interval);
     let mut keyframes = tokio::time::interval(KEYFRAME_REQUESTS);
@@ -922,6 +1294,9 @@ async fn receive_stream(
     // The streamer's last sender report, as its NTP time's middle and when
     // it came, which receiver reports echo for the round trip.
     let mut last_report: Option<(u32, std::time::Instant)> = None;
+    // A report for an SSRC this stream doesn't use says nothing about its
+    // clocks; said once rather than once a report.
+    let mut told_other = false;
     let mut datagram = vec![0u8; 2048];
     let mut received = Received::default();
     let mut log = tokio::time::interval_at(Instant::now() + LOG_EVERY, LOG_EVERY);
@@ -981,14 +1356,27 @@ async fn receive_stream(
                 flowing = received.decoded;
             }
             length = connection.udp.recv(&mut datagram) => {
-                let packet = &datagram[..length?];
+                let packet = &mut datagram[..length?];
                 received.packets += 1;
                 if rtp::is_rtcp(packet) {
                     received.rtcp += 1;
                     let rtcp = connection.transport.open(packet, rtp::RTCP_CLEAR).unwrap_or_default();
-                    for (sender, middle) in rtp::sender_reports(&rtcp) {
-                        if Some(sender) == streamer.video {
-                            last_report = Some((middle, std::time::Instant::now()));
+                    for (sender, ntp, rtp) in rtp::sender_reports(rtcp) {
+                        let heard = std::time::Instant::now();
+                        let report = SenderReport { ntp, rtp, heard };
+                        if Some(sender) == streamer.audio {
+                            clock.heard_audio(report);
+                        } else if Some(sender) == streamer.video {
+                            last_report = Some((ntp, heard));
+                            clock.heard_video(report);
+                        } else if !told_other {
+                            told_other = true;
+                            tracing::debug!(
+                                sender,
+                                audio = ?streamer.audio,
+                                video = ?streamer.video,
+                                "a sender report names an SSRC this stream doesn't use"
+                            );
                         }
                     }
                     continue;
@@ -1001,7 +1389,7 @@ async fn receive_stream(
                     received.unopened += 1;
                     continue;
                 };
-                let Some(packet) = rtp::parse(&plain) else {
+                let Some(packet) = rtp::parse(plain) else {
                     received.unparsed += 1;
                     continue;
                 };
@@ -1011,9 +1399,19 @@ async fn receive_stream(
                 }
                 if packet.payload_type == rtp::OPUS {
                     received.sounds += 1;
-                    match connection.dave.decrypt_opus(streamer_id, packet.payload.to_vec()) {
-                        // A full queue drops sound the player can't keep up with.
-                        Some(sound) => drop(sounds.try_send(sound)),
+                    // The streamer's sound SSRC, when op 12 didn't name one:
+                    // a sender report on it is what places its timestamps on
+                    // wall-clock time.
+                    streamer.audio.get_or_insert(packet.ssrc);
+                    let arrived = std::time::Instant::now();
+                    match connection.dave.decrypt_opus(streamer_id, packet.payload) {
+                        // A full queue drops sound the player can't keep up
+                        // with; the player drops what waited too long anyway.
+                        Some(opus) => drop(sounds.try_send(ReceivedSound::new(
+                            &packet,
+                            opus.into_owned(),
+                            arrived,
+                        ))),
                         None => received.unheard += 1,
                     }
                     continue;
@@ -1036,6 +1434,10 @@ async fn receive_stream(
                 };
                 received.video += 1;
                 streamer.video.get_or_insert(held.ssrc);
+                // Every packet of a frame carries its timestamp, so the
+                // newest packet that comes is the newest picture to compare
+                // the sound against.
+                let picture = held.packet().timestamp;
                 // Packets can name any SSRC: past a few, a new one isn't
                 // given buffers of its own.
                 if incoming.len() >= MAX_SSRCS && !incoming.contains_key(&held.ssrc) {
@@ -1047,12 +1449,9 @@ async fn receive_stream(
                     assembler: Assembler::new(codec),
                     reported: (0, 0),
                 });
-                if video.assembler.codec() != codec {
-                    video.assembler = Assembler::new(codec);
-                }
                 let resent = Some(packet.ssrc) == streamer.rtx;
                 match video.reorder.insert(held, std::time::Instant::now()) {
-                    rtp::Arrival::New if !resent => {}
+                    rtp::Arrival::New if !resent => clock.heard_picture(picture),
                     rtp::Arrival::New | rtp::Arrival::Recovered if resent => received.recovered += 1,
                     rtp::Arrival::New | rtp::Arrival::Recovered => received.reordered += 1,
                     rtp::Arrival::Late => received.late += 1,
@@ -1061,16 +1460,21 @@ async fn receive_stream(
         }
         let now = std::time::Instant::now();
         for (&ssrc, video) in &mut incoming {
-            let codec = video.assembler.codec();
             let (ready, skipped) = video.reorder.ready(now);
             received.given_up += skipped;
             for held in ready {
-                let pushed = video.assembler.push(&held.packet());
+                let codec = streamer
+                    .codec(&held.packet())
+                    .unwrap_or(video.assembler.codec());
+                let pushed = video.assembler.push_with_codec(&held.packet(), codec);
+                let codec = video.assembler.codec();
                 lost |= pushed.lost;
                 let Some(frame) = pushed.frame else { continue };
                 received.frames += 1;
                 let Some(data) = connection.dave.decrypt(streamer_id, frame.data) else {
                     received.unreadable += 1;
+                    video.assembler.wait_for_keyframe();
+                    lost = true;
                     continue;
                 };
                 received.decoded += 1;
@@ -1078,6 +1482,7 @@ async fn receive_stream(
                     codec,
                     data,
                     keyframe: frame.keyframe,
+                    timestamp: frame.timestamp,
                 };
                 if let Err(channel::TrySendError::Full(_)) = frames.try_send(frame) {
                     // The decoder is behind; the frames after this one
@@ -1097,11 +1502,11 @@ async fn receive_stream(
         }
         // Ask for a keyframe after a loss, or when the decoder asked.
         if (lost || shared.keyframe.load(Ordering::Relaxed))
-            && asked.elapsed() >= KEYFRAME_REQUESTS
+            && keyframe_due(asked, now)
             && let Some(media) = streamer.video
         {
             shared.keyframe.store(false, Ordering::Relaxed);
-            asked = Instant::now();
+            asked = Some(now);
             received.keyframe_requests += 1;
             let mut request = rtp::picture_loss(connection.ssrc, media);
             connection.transport.seal(&mut request, rtp::RTCP_CLEAR)?;
@@ -1113,31 +1518,6 @@ async fn receive_stream(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn paces_frames_by_the_target() {
-        // A 40 kB frame at 4 Mbit/s goes out at 10 Mbit/s, in 32 ms.
-        assert_eq!(pacing_rate(4_000_000, 40_000, 30), 10_000_000);
-        // A 200 kB keyframe goes out within two frames, 67 ms at 30 fps,
-        // not 160 ms at 2.5 times the target.
-        assert_eq!(pacing_rate(4_000_000, 200_000, 30), 24_000_000);
-        assert_eq!(pacing_rate(4_000_000, 200_000, 60), 48_000_000);
-    }
-
-    #[test]
-    fn schedules_a_frame_past_its_burst() {
-        let started = Instant::now();
-        // Ten packets of 1000 bytes at 8 Mbit/s: a millisecond each past
-        // the first eight, which go at once.
-        let due: Vec<_> = schedule(started, vec![vec![0; 1000]; 10], 8_000_000)
-            .map(|(due, _)| due - started)
-            .collect();
-        assert_eq!(due[..BURST], [Duration::ZERO; BURST]);
-        assert_eq!(
-            due[BURST..],
-            [Duration::from_millis(8), Duration::from_millis(9)]
-        );
-    }
 
     #[test]
     fn learns_the_streamers_video() {
@@ -1172,5 +1552,218 @@ mod tests {
             "retransmissions aren't frames"
         );
         assert_eq!(streamer.codec(&packet(30, 96)), None);
+    }
+
+    #[test]
+    fn a_frame_goes_out_a_batch_a_turn() {
+        // Each turn of the send loop writes one batch and polls the rest of
+        // its arms before the next, so a frame of 250 packets is 62 turns for
+        // sound, feedback and the gateway to be heard in, rather than one
+        // turn that lasts as long as the frame takes to put on the wire.
+        let mut frame = Sending::new(Vec::new(), 0);
+        let mut left = 250;
+        let mut sizes = vec![];
+        let mut heard = 0;
+        // Each turn of the loop is `STEP` on a timer that keeps it.
+        let mut at = frame.last;
+        while left > 0 {
+            // Sound is polled before video, so every turn starts by hearing
+            // whatever sound is waiting, then writes a batch.
+            heard += 1;
+            at += STEP;
+            let batch = frame.batch(9_000_000, at).min(left);
+            assert!(batch > 0, "a turn always writes a packet, or spins");
+            for _ in 0..batch {
+                frame.sent_one();
+            }
+            left -= batch;
+            sizes.push(batch);
+            // What the real loop's `wait` does: the batch just written is what
+            // the next one is paid for after.
+            frame.last = at;
+        }
+        assert_eq!(sizes[0], BURST, "a frame starts at once");
+        let (last, paced) = sizes.split_last().expect("250 packets, in batches");
+        assert!(
+            paced[1..].iter().all(|&batch| batch == 4),
+            "and goes on a paced batch a turn: {sizes:?}"
+        );
+        assert!(
+            *last > 0 && *last <= 4,
+            "until what's left of it ends the frame: {sizes:?}"
+        );
+        assert_eq!(
+            sizes.len(),
+            62,
+            "250 packets, none of them in a burst of more than {BURST}"
+        );
+        assert_eq!(heard, sizes.len(), "sound is heard between every batch");
+    }
+
+    #[test]
+    fn answers_one_request_for_a_keyframe_a_half_second() {
+        // Viewers who lost the same packet ask together, and a rate cut loses
+        // what it sends, so requests come in runs. One keyframe a half second
+        // answers them, the first at once: a run of keyframes at a cut's rate
+        // would be lost in its turn, which asks for another.
+        let start = std::time::Instant::now();
+        let mut answered = None;
+        let mut made = vec![];
+        for at in [0u64, 1, 499, 500, 900, 1000, 1499, 1500] {
+            let now = start + Duration::from_millis(at);
+            if keyframe_due(answered, now) {
+                answered = Some(now);
+                made.push(at);
+            }
+        }
+        assert_eq!(
+            made,
+            [0, 500, 1000, 1500],
+            "one a half second, the first at once"
+        );
+        // A request a half second after the one before it is answered, so a
+        // stream keeps up with a viewer asking as often as it may.
+        let asked = start + Duration::from_millis(2000);
+        assert!(keyframe_due(Some(asked), asked + KEYFRAME_REQUESTS));
+        assert!(!keyframe_due(
+            Some(asked),
+            asked + KEYFRAME_REQUESTS - Duration::from_millis(1)
+        ));
+    }
+
+    #[test]
+    fn a_full_queue_drops_the_newest_frame_and_asks_for_a_whole_one() {
+        // The frame that doesn't fit is the one dropped, not one of those
+        // ahead of it: they are the pictures the next frames are encoded from,
+        // and nothing is encoded from a frame that never got queued. So the
+        // frame after it has to be whole, or the encoder's next frames would
+        // reference a picture no viewer received.
+        let (frames, mut queued) = mpsc::channel(4);
+        let (sounds, _heard) = mpsc::channel(8);
+        let shared = Shared::new((320, 180), 30);
+        shared.keyframe.store(false, Ordering::Relaxed);
+        let sender = StreamSender {
+            frames,
+            sounds,
+            buffers: Arc::default(),
+            shared: shared.clone(),
+        };
+        let frame = |timestamp, keyframe| Frame {
+            data: Vec::new().into(),
+            codec: SEND_CODEC,
+            timestamp,
+            keyframe,
+        };
+        for at in 0..4 {
+            assert!(!sender.backlogged(), "{at} frames fit");
+            sender.send(frame(at, false));
+        }
+        assert!(
+            sender.backlogged(),
+            "four frames is as far ahead of the network as it can get"
+        );
+        assert!(
+            !shared.keyframe.load(Ordering::Relaxed),
+            "nothing dropped yet"
+        );
+        sender.send(frame(4, false));
+        assert!(
+            shared.keyframe.load(Ordering::Relaxed),
+            "the dropped frame's chain ends here"
+        );
+        let kept: Vec<u32> = std::iter::from_fn(|| queued.try_recv().ok())
+            .map(|frame| frame.timestamp)
+            .collect();
+        assert_eq!(
+            kept,
+            [0, 1, 2, 3],
+            "the newest went, not the ones before it"
+        );
+        assert!(!sender.backlogged(), "and room came back");
+    }
+
+    #[test]
+    fn a_slow_turn_sends_what_the_target_pays_for() {
+        // Windows serves a 1 ms sleep in 15.6 ms, measured, so a batch sized by
+        // the constant alone would put a 20 Mbit stream out at under four
+        // Mbit. The batch is paid for over the time the turn took.
+        let mut frame = Sending::new(Vec::new(), 0);
+        frame.sent = BURST;
+        let windows = frame.last + Duration::from_micros(15_600);
+        assert!(
+            frame.batch(20_805_000, windows) >= 32,
+            "a 20.8 Mbit turn carries the packets that rate pays for"
+        );
+        assert!(frame.batch(9_000_000, windows) >= 14);
+        assert_eq!(
+            frame.batch(2_500_000, windows),
+            4,
+            "the floor a screen is given"
+        );
+        assert_eq!(
+            frame.batch(120_000_000, windows),
+            MAX_BATCH,
+            "still bounded"
+        );
+        // A timer that keeps its 1 ms promise gets what it always did.
+        let prompt = frame.last + STEP;
+        assert_eq!(
+            frame.batch(9_000_000, prompt),
+            congestion::packet_batch(9_000_000)
+        );
+    }
+
+    #[test]
+    fn a_stream_starts_at_its_declared_ceiling() {
+        // The declaration is the ceiling the share chose: 0.07 bit/pixel/frame
+        // unless it asked for another, floored at 3.5 Mbit/s and capped at 35,
+        // and the controller opens the stream there — what an encoder is opened
+        // at mid-stream, and what the first frame is encoded at before a report
+        // has said anything about the path. A path that can't carry it makes the
+        // controller come down.
+        let (frames, _queued) = mpsc::channel(4);
+        let (sounds, _heard) = mpsc::channel(8);
+        let sender = |(width, height), fps| StreamSender {
+            frames: frames.clone(),
+            sounds: sounds.clone(),
+            buffers: Arc::default(),
+            shared: Shared::new((width, height), fps),
+        };
+        assert_eq!(
+            max_bitrate(1920, 1080, 60),
+            8_709_120,
+            "the worth, uncapped"
+        );
+        assert_eq!(max_bitrate(3440, 1440, 60), 20_805_120, "and at 1440p60");
+        assert_eq!(max_bitrate(3840, 2160, 60), 34_836_480, "and at 4K60");
+        assert_eq!(max_bitrate(640, 360, 30), 3_500_000, "the floor");
+        // The share's own ceiling is what changes it, and 4K60 at the dearest
+        // choice asks for more than the most a stream may declare.
+        assert_eq!(
+            (3840.0 * 2160.0 * 60.0 * SHARP) as u32,
+            59_719_680,
+            "what 4K60 at SHARP would ask for"
+        );
+        assert!(MOST < (3840.0 * 2160.0 * 60.0 * SHARP) as u32);
+        for (size, fps) in [((1920, 1080), 60), ((1280, 720), 30), ((3840, 2160), 30)] {
+            let ceiling = u64::from(max_bitrate(size.0, size.1, fps));
+            let sender = sender(size, fps);
+            assert_eq!(sender.target(), congestion::start(ceiling));
+            assert_eq!(sender.target(), ceiling, "a stream opens at its cap");
+            assert!(
+                sender.target() >= congestion::FLOOR,
+                "and not under the floor a screen is given"
+            );
+        }
+    }
+
+    #[test]
+    fn bitrate_overrides_cannot_disagree_with_the_controller_floor() {
+        for invalid in ["0", "499", "4294968", "4294967295", "-1", "bad"] {
+            assert_eq!(parse_bitrate_override(invalid), None);
+        }
+        assert_eq!(parse_bitrate_override("500"), Some(500_000));
+        assert_eq!(parse_bitrate_override(" 35000 "), Some(35_000_000));
+        assert_eq!(parse_bitrate_override("120000"), Some(120_000_000));
     }
 }

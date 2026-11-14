@@ -30,6 +30,7 @@ use yapfast_core::{
     runtime::BackgroundRuntime,
     sounds::{self, Sound, SoundSet},
     spoiler,
+    stream_worker::StreamCodec,
     voice::{self, Phase},
 };
 
@@ -49,6 +50,7 @@ mod emoji_animation;
 mod emoji_grid;
 mod games;
 mod gifs;
+mod gpu;
 mod menus;
 mod messages;
 #[cfg(windows)]
@@ -67,6 +69,7 @@ mod theme;
 mod tiles;
 mod title_bar;
 mod updates;
+mod vulkan;
 mod yapfast;
 
 use callbacks::bind_callbacks;
@@ -131,14 +134,62 @@ pub fn run(
     pictures::make_frames_in_slint_buffers();
     // Request the graphics API explicitly so Slint cannot silently replace a
     // failed GPU surface; Yapfast owns the fallback and tells the user about it.
-    // Windows draws the GPU setting with Direct3D 12; see [`graphics`].
+    // Windows draws the GPU setting with Direct3D 12, and Linux with Vulkan
+    // where the build and the machine have it; see [`graphics`].
     let selector = slint::BackendSelector::new().backend_name("winit".into());
     let (selector, renderer) = match plan.renderer {
-        graphics::Renderer::Gpu if cfg!(windows) => (
-            selector.renderer_name("skia".into()).require_d3d(),
-            "skia-direct3d",
-        ),
-        graphics::Renderer::Gpu => (selector.renderer_name("skia-opengl".into()), "skia-opengl"),
+        graphics::Renderer::Gpu if cfg!(windows) => {
+            // The window draws on a Direct3D 12 device Yapfast makes, which is
+            // the only device a stream's shared texture can be opened on, and
+            // so the only way to hand Slint a texture rather than pixels; see
+            // [`gpu`]. A device that can't be made costs the shared pictures
+            // and nothing else: Slint makes its own as it did before.
+            match gpu::install() {
+                Ok(configuration) => (
+                    selector
+                        .renderer_name("skia".into())
+                        .require_wgpu_30(configuration),
+                    "skia-wgpu-device",
+                ),
+                Err(error) => {
+                    tracing::warn!(
+                        error = format!("{error:#}"),
+                        "the window has no Direct3D 12 device of its own"
+                    );
+                    (
+                        selector.renderer_name("skia".into()).require_d3d(),
+                        "skia-direct3d",
+                    )
+                }
+            }
+        }
+        graphics::Renderer::Gpu => {
+            // Skia draws the window on a Vulkan device Yapfast makes where this
+            // build carries Skia's Vulkan and one opens here, which is the only
+            // device a stream's own texture can later be shown from; see
+            // [`vulkan`]. Everywhere else the window draws through OpenGL, as
+            // Linux always did, and a device that won't open costs the picture
+            // path rather than the window.
+            let carried = vulkan::carried();
+            let device = vulkan::install();
+            match (graphics::presentation(carried, device.is_ok()), device) {
+                (graphics::Presentation::Vulkan, Ok(configuration)) => (
+                    selector
+                        .renderer_name("skia".into())
+                        .require_wgpu_30(configuration),
+                    "skia-vulkan",
+                ),
+                (_, device) => {
+                    if carried && let Err(error) = device {
+                        tracing::warn!(
+                            error = format!("{error:#}"),
+                            "no Vulkan device to draw Yapfast's window with; drawing with Skia on OpenGL"
+                        );
+                    }
+                    (selector.renderer_name("skia-opengl".into()), "skia-opengl")
+                }
+            }
+        }
         graphics::Renderer::Software => (
             selector.renderer_name("skia-software".into()),
             "skia-software",
@@ -1354,6 +1405,12 @@ struct Layout {
     /// Screen sharing encodes on the GPU where it has an encoder; on unless
     /// turned off.
     gpu_encoding: Option<bool>,
+    /// The codec a share asks Discord for first; see [`StreamCodec`] and
+    /// `AdvancedSettings::stream-codec`.
+    #[serde(default)]
+    stream_codec: StreamCodec,
+    /// tried; whichever can be borderless here unless changed. See
+    /// [`yapfast_core::capture`].
     /// The theme chosen, by its id; Yap unless chosen.
     theme: Option<String>,
     /// The person's own themes, in the order Appearance shows them.
@@ -1691,9 +1748,14 @@ impl Layout {
         window.set_sound_volume(self.sound_volume.unwrap_or(DEFAULT_SOUND_VOLUME).into());
         window.set_adjust_each_sound(self.adjust_each_sound);
         window.set_gpu_rendering(self.gpu_rendering);
+        window.set_share_on_the_card(yapfast_core::gpu::shares_on_the_card());
         window.set_gpu_encoding(self.gpu_encoding.unwrap_or(true));
+        window.set_stream_codec(choice(&StreamCodec::ALL, self.stream_codec));
         #[cfg(feature = "discord")]
         yapfast_core::stream_worker::set_hardware_encoding(self.gpu_encoding.unwrap_or(true));
+        yapfast_core::stream_worker::set_stream_codec(self.stream_codec);
+        // Before any share opens, which is what asks: a capture already
+        // running keeps the way it started with.
         window.set_close_to_tray(self.close_to_tray.unwrap_or(true));
         window.set_multiple_windows(self.multiple_windows);
         window.set_developer_mode(self.developer_mode);

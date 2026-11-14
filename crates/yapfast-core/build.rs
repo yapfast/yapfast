@@ -1,189 +1,217 @@
-//! Builds the Go Live codec shims, the GIF thumbnail encoder, the video file
-//! reader and the cameras against the libvpx, FFmpeg, dav1d, libyuv and
-//! WebRTC headers in the same libwebrtc archive webrtc-sys links, so they
-//! match its code, and the H264 encoder against x264 (vendor/x264-src).
+//! Which of the card's own paths this build carries.
+//!
+//! The shims those paths call are C, and they stay in `yapfast-core`'s
+//! `native/` for now, so this build script builds nothing: it only asks the
+//! same questions `yapfast-core`'s build script asks when it decides whether to
+//! build them, and sets the same cfgs, so that this crate's Rust and that
+//! crate's C are gated the same way. When `native/` moves below this crate the
+//! two scripts become one; until then the duplication is what keeps a build
+//! from compiling a path whose shim isn't there, or leaving one out whose is.
 
 use std::{env, path::PathBuf, process::Command};
 
 fn main() {
-    for file in [
-        "vp8.c",
-        "h264.c",
-        "clip.c",
-        "decode.c",
-        "av1.c",
-        "video.c",
-        "picture.c",
-        "camera.cc",
-        "hwenc.c",
-        "hevc.c",
+    for cfg in [
+        "hwenc",
+        "dmabufenc",
+        "hevcdec",
+        "vaapidec",
+        "vaapivpp",
+        "nvcuda",
+        "nvdec",
+        "mfxdec",
+        "d3d11enc",
+        "d3d11conv",
+        "d3d11dec",
+        "wgc",
+        "dup",
+        "screencast",
     ] {
-        println!("cargo:rerun-if-changed=native/{file}");
+        println!("cargo::rustc-check-cfg=cfg({cfg})");
     }
-    let include = webrtc_sys_build::webrtc_dir().join("include");
-    let third_party = include.join("third_party");
-    let mut picture = cc::Build::new();
-    picture
-        .file("native/picture.c")
-        .include(third_party.join("libyuv/include"))
-        .warnings(true);
-    use_clang_cl(&mut picture);
-    picture.compile("yapfast_picture");
-    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
-    // Linux captures through V4L2, and Windows through DirectShow, both in
-    // the same module of the libwebrtc archive.
-    if matches!(target_os.as_str(), "linux" | "windows") {
-        let mut camera = cc::Build::new();
-        camera
-            .cpp(true)
-            .file("native/camera.cc")
-            .include(&include)
-            .include(third_party.join("abseil-cpp"))
-            .include(third_party.join("libyuv/include"))
-            .std("c++20")
-            .flag("-Wno-deprecated-declarations")
-            // libwebrtc's headers mark some pointers and not others.
-            .flag("-Wno-nullability-completeness")
-            .warnings(true);
-        use_clang_cl(&mut camera);
-        // The toolchain sets its own hardening mode.
-        for (key, value) in webrtc_sys_build::webrtc_defines() {
-            if key != "_LIBCPP_HARDENING_MODE" {
-                camera.define(&key, value.as_deref());
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let discord = env::var_os("CARGO_FEATURE_DISCORD").is_some();
+    // Which FFmpeg this build links, as ffmpeg-src's own build script answered:
+    // a target it configured nothing for has no sources to build, and the
+    // shims that read its headers — hwenc.c, hevc.c and the VA-API pair — are
+    // built exactly where it did.
+    let ffmpeg_built = env::var("DEP_FFMPEG_ENCODERS").as_deref() == Ok("1");
+    println!("cargo::warning=yapfast-media: ffmpeg encoders {ffmpeg_built}");
+    println!("cargo::rerun-if-changed=build.rs");
+    if target_os == "windows" {
+        // Desktop Duplication is DXGI, D3D11 and D3DCompiler alone, which every
+        // Windows SDK that can build Yapfast has.
+        println!("cargo::rustc-cfg=dup");
+        // The bridge a capture hands a hardware encoder through, built here for
+        // every Windows build; and NVENC's own D3D11 path beside it.
+        println!("cargo::rustc-cfg=d3d11conv");
+        println!("cargo::rustc-cfg=d3d11enc");
+        if discord {
+            // FFmpeg's D3D11 decoder, where a stream is watched at all.
+            println!("cargo::rustc-cfg=d3d11dec");
+            // Graphics Capture needs a Windows SDK whose WinRT headers carry
+            // the API, which is the one thing not every SDK has.
+            if graphics_capture_headers() {
+                println!("cargo::rustc-cfg=wgc");
             }
         }
-        camera.compile("yapfast_camera");
-        // DirectShow's device list reads each camera's name and path as a
-        // VARIANT; webrtc-sys links the rest.
-        if target_os == "windows" {
-            println!("cargo:rustc-link-lib=dylib=oleaut32");
+    }
+    if target_os == "linux" && env::var_os("CARGO_FEATURE_SCREENCAST").is_some() && pipewire() {
+        // The portal answers and the buffers it names are DMA-BUFs, read
+        // without a copy; only a machine with PipeWire's headers has the shim.
+        println!("cargo::rustc-cfg=screencast");
+    }
+    // The encoder plan this crate holds is Rust alone: it asks the adapters
+    // which FFmpeg encoder each one can open, and reads the answer back from a
+    // report. Its C side — native/hwenc.c — is `yapfast-core`'s to build, and
+    // core sets its own `hwenc` where FFmpeg was configured with encoders. So
+    // Windows takes the plan whenever a stream does, and Linux asks FFmpeg's
+    // build script first, where the VA-API paths borrow its headers.
+    if discord && (ffmpeg_built || target_os == "windows") {
+        println!("cargo::rustc-cfg=hwenc");
+    }
+    if discord && ffmpeg_built {
+        println!("cargo::rustc-cfg=hevcdec");
+    }
+    if target_os == "linux" && ffmpeg_built {
+        let Some(folders) = env::var_os("DEP_FFMPEG_INCLUDE") else {
+            return;
+        };
+        println!(
+            "cargo::warning=yapfast-media: vaapi decode {}, import {}, vpp {}",
+            vaapi_decode(&folders),
+            vaapi_import(&folders),
+            vaapi_vpp(&folders)
+        );
+        if vaapi_decode(&folders) {
+            println!("cargo::rustc-cfg=vaapidec");
+        }
+        if vaapi_import(&folders) {
+            println!("cargo::rustc-cfg=dmabufenc");
+        }
+        if vaapi_vpp(&folders) {
+            println!("cargo::rustc-cfg=vaapivpp");
         }
     }
-    println!("cargo::rustc-check-cfg=cfg(hwenc)");
-    println!("cargo::rustc-check-cfg=cfg(hevcdec)");
-    if std::env::var_os("CARGO_FEATURE_DISCORD").is_none() {
-        return;
-    }
-    // FFmpeg's hardware encoders and HEVC decoder, where ffmpeg-src builds
-    // them: hwenc.c and hevc.c see only their headers, with FFmpeg's names
-    // prefixed as in the library.
-    if std::env::var("DEP_FFMPEG_ENCODERS").as_deref() == Ok("1") {
-        let mut ffmpeg = cc::Build::new();
-        use_clang_cl(&mut ffmpeg);
-        ffmpeg
-            .file("native/hwenc.c")
-            .file("native/hevc.c")
-            .warnings(true);
-        let folders = std::env::var_os("DEP_FFMPEG_INCLUDE").expect("ffmpeg-src's headers");
-        ffmpeg.includes(std::env::split_paths(&folders));
-        let rename = std::env::var("DEP_FFMPEG_RENAME").expect("ffmpeg-src's renames");
-        // clang-cl, for Windows, spells the flags as MSVC does.
-        if ffmpeg.get_compiler().is_like_msvc() {
-            ffmpeg.flag("/std:c17").flag(format!("/FI{rename}"));
-        } else {
-            ffmpeg.flag("-std=c17").flag("-include").flag(&rename);
+    if target_os == "linux" && discord {
+        // NVIDIA's card converting a captured screen on the way to its
+        // encoder: no toolkit is needed, only a clang that emits the PTX the
+        // driver loads, which is the same compiler `yapfast-core` builds it
+        // with.
+        if clang() {
+            println!("cargo::rustc-cfg=nvcuda");
         }
-        ffmpeg.compile("yapfast_hwenc");
-        println!("cargo:rustc-cfg=hwenc");
-        println!("cargo:rustc-cfg=hevcdec");
+        // The driver's own NVDEC and oneVPL's decoder, both dlopened, so a
+        // machine with neither still starts.
+        println!("cargo::rustc-cfg=nvdec");
+        if env::var_os("DEP_FFMPEG_INCLUDE").is_some() {
+            println!("cargo::rustc-cfg=mfxdec");
+        }
     }
-    let os = match target_os.as_str() {
-        "windows" => "win",
-        "macos" => "mac",
-        _ => "linux",
-    };
-    let arch = match std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() {
-        Ok("aarch64") => "arm64",
-        _ => "x64",
-    };
-    let mut codecs = cc::Build::new();
-    codecs
-        .file("native/vp8.c")
-        .file("native/h264.c")
-        .file("native/clip.c")
-        .file("native/decode.c")
-        .file("native/av1.c")
-        .file("native/video.c")
-        .include(third_party.join("libvpx/source/libvpx"))
-        // x264-src's build script hands over its headers' folder.
-        .include(std::env::var_os("DEP_X264_INCLUDE").expect("x264-src's headers"))
-        .include(third_party.join("ffmpeg"))
-        .include(third_party.join("dav1d/libdav1d/include"))
-        .include(third_party.join("libyuv/include"))
-        // FFmpeg's configuration for the Chrome build libwebrtc uses.
-        .include(third_party.join(format!("ffmpeg/chromium/config/Chrome/{os}/{arch}")))
-        .warnings(true);
-    use_clang_cl(&mut codecs);
-    codecs.compile("yapfast_codecs");
 }
 
-// camera.cc uses Clang-only warning flags, which cl.exe rejects. Switch only
-// cc's own MSVC default to clang-cl; a person's compiler choice wins.
-fn use_clang_cl(build: &mut cc::Build) {
-    if env::var("CARGO_CFG_TARGET_ENV").as_deref() != Ok("msvc") || has_explicit_compiler() {
-        return;
+/// Whether a clang is here, which is the only compiler that emits PTX and so
+/// the only thing standing between this build and the card's own converter.
+fn clang() -> bool {
+    let mut candidates = vec!["clang".to_owned()];
+    for key in ["YAPFAST_CUDA_CLANG", "CC", "CXX"] {
+        println!("cargo::rerun-if-env-changed={key}");
+        if let Ok(value) = env::var(key)
+            && !candidates.contains(&value)
+        {
+            candidates.push(value);
+        }
     }
-    if build.get_compiler().is_like_clang() {
-        return;
-    }
-    let clang_cl = find_clang_cl().unwrap_or_else(|| {
-        panic!(
-            "this MSVC build needs clang-cl; install LLVM for Windows and add its bin directory to PATH, or install Visual Studio's C++ Clang tools for Windows component"
-        )
-    });
-    build.compiler(clang_cl);
+    candidates
+        .iter()
+        .any(|clang| Command::new(clang).arg("--version").output().is_ok())
 }
 
-fn has_explicit_compiler() -> bool {
-    if env::var_os("CC").is_some() || env::var_os("CXX").is_some() {
-        return true;
+/// Whether the Windows SDK in this environment has the WinRT headers the
+/// Graphics Capture shim is compiled against.
+fn graphics_capture_headers() -> bool {
+    let mut folders: Vec<PathBuf> = Vec::new();
+    for path in env::split_paths(&env::var_os("INCLUDE").unwrap_or_default()) {
+        folders.push(path.join("winrt"));
+        folders.push(path);
     }
-    let Ok(target) = env::var("TARGET") else {
+    for variable in ["WindowsSdkDir", "ProgramFiles(x86)", "ProgramFiles"] {
+        println!("cargo::rerun-if-env-changed={variable}");
+        let Some(root) = env::var_os(variable).map(PathBuf::from) else {
+            continue;
+        };
+        let include = match variable {
+            "WindowsSdkDir" => root.join("Include"),
+            _ => root.join("Windows Kits").join("10").join("Include"),
+        };
+        // One directory per installed kit, each with its own winrt folder.
+        let Ok(kits) = std::fs::read_dir(&include) else {
+            continue;
+        };
+        for kit in kits.flatten() {
+            folders.push(kit.path().join("winrt"));
+        }
+    }
+    folders
+        .iter()
+        .any(|folder| folder.join("windows.graphics.capture.h").is_file())
+}
+
+/// Whether PipeWire's development files are here, which is what the portal's
+/// shim is compiled against: `libpipewire`'s `pkg-config` file naming an
+/// include directory.
+fn pipewire() -> bool {
+    let Ok(output) = Command::new("pkg-config")
+        .args(["--cflags", "libpipewire-0.3"])
+        .output()
+    else {
         return false;
     };
-    let underscored_target = target.replace('-', "_");
-    ["CC", "CXX"].iter().any(|variable| {
-        env::var_os(format!("{variable}_{target}")).is_some()
-            || env::var_os(format!("{variable}_{underscored_target}")).is_some()
-    })
+    output.status.success()
+        && String::from_utf8_lossy(&output.stdout)
+            .split_whitespace()
+            .any(|word| word.starts_with("-I"))
 }
 
-fn find_clang_cl() -> Option<PathBuf> {
-    env::var_os("PATH")
-        .and_then(|path| {
-            env::split_paths(&path)
-                .map(|folder| folder.join("clang-cl.exe"))
-                .find(|path| path.is_file())
-        })
-        .or_else(|| {
-            env::var_os("VCINSTALLDIR")
-                .map(|vc| PathBuf::from(vc).join("Tools/Llvm/x64/bin/clang-cl.exe"))
-                .filter(|path| path.is_file())
-        })
-        .or_else(|| {
-            let vswhere = PathBuf::from(env::var_os("ProgramFiles(x86)")?)
-                .join("Microsoft Visual Studio/Installer/vswhere.exe");
-            let output = Command::new(vswhere)
-                .args([
-                    "-latest",
-                    "-products",
-                    "*",
-                    "-find",
-                    r"**\Llvm\**\clang-cl.exe",
-                ])
-                .output()
-                .ok()?;
-            if !output.status.success() {
-                return None;
-            }
-            String::from_utf8_lossy(&output.stdout)
-                .lines()
-                .map(|line| PathBuf::from(line.trim()))
-                .find(|path| path.is_file())
-        })
-        .or_else(|| {
-            env::var_os("ProgramFiles")
-                .map(|folder| PathBuf::from(folder).join("LLVM/bin/clang-cl.exe"))
-                .filter(|path| path.is_file())
-        })
+/// The `config.h` and `config_components.h` FFmpeg was configured from, which
+/// is what says which of its decoders and filters the library has.
+fn ffmpeg_configured(folders: &std::ffi::OsStr) -> (Option<String>, String) {
+    for folder in env::split_paths(folders) {
+        let config = std::fs::read_to_string(folder.join("config.h")).ok();
+        let components = std::fs::read_to_string(folder.join("config_components.h")).ok();
+        if config.is_some() {
+            return (config, components.unwrap_or_default());
+        }
+    }
+    (None, String::new())
+}
+
+/// Whether a decoded picture can be exported as a DMA-BUF: VA-API, the DRM
+/// PRIME export, and an H264 decoder to try it on.
+fn vaapi_decode(folders: &std::ffi::OsStr) -> bool {
+    let (Some(config), components) = ffmpeg_configured(folders) else {
+        return false;
+    };
+    config.contains("#define CONFIG_VAAPI 1")
+        && config.contains("#define CONFIG_LIBDRM 1")
+        && components.contains("#define CONFIG_H264_VAAPI_HWACCEL 1")
+}
+
+/// Whether a DMA-BUF can be imported as a surface an encoder reads: the same
+/// two, minus the decoder.
+fn vaapi_import(folders: &std::ffi::OsStr) -> bool {
+    let (Some(config), _) = ffmpeg_configured(folders) else {
+        return false;
+    };
+    config.contains("#define CONFIG_VAAPI 1") && config.contains("#define CONFIG_LIBDRM 1")
+}
+
+/// Whether the card's video processor is available to convert a picture the
+/// encoder can't read where it lies.
+fn vaapi_vpp(folders: &std::ffi::OsStr) -> bool {
+    let (Some(config), components) = ffmpeg_configured(folders) else {
+        return false;
+    };
+    config.contains("#define CONFIG_AVFILTER 1")
+        && components.contains("#define CONFIG_SCALE_VAAPI_FILTER 1")
 }

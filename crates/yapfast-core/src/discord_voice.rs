@@ -28,11 +28,18 @@ use crate::{
 /// worker sends one each second while the stream is live.
 const SENDING_STALE: Duration = Duration::from_secs(3);
 
+/// How the shared stream last said it goes out, and when: the worker reports
+/// it each second, and the call's details read it while they show.
+type Sending = Arc<std::sync::Mutex<Option<(std::time::Instant, StreamStats)>>>;
+
 /// Going live: the worker capturing the screen, then the stream Discord
 /// started for it.
 struct Share {
     worker: Worker,
-    reports: mpsc::UnboundedReceiver<Report>,
+    reports: mpsc::Receiver<Report>,
+    /// Where the stream's statistics go, so ending it leaves none for the
+    /// call's details to show as live.
+    sending: Sending,
     /// The stream's key once Discord was asked to start it, so stopping ends
     /// it even before Discord answers.
     key: Option<String>,
@@ -43,7 +50,7 @@ struct Share {
 impl Share {
     /// Starts the worker; Discord hears of the stream once there's something
     /// to show, so a cancelled dialog shares nothing.
-    fn start(state: &mut State, quality: StreamQuality) -> Result<Self> {
+    fn start(state: &mut State, quality: StreamQuality, sending: &Sending) -> Result<Self> {
         // Tests and screenshots share colour bars instead of a screen.
         let source = if std::env::var_os("YAPFAST_STREAM_TEST_PATTERN").is_some() {
             stream_worker::Source::TestPattern
@@ -59,37 +66,76 @@ impl Share {
         Ok(Self {
             worker,
             reports,
+            sending: sending.clone(),
             key: None,
             preview: None,
         })
     }
 
-    /// Uploads a preview of the stream, in place of one still uploading.
+    /// Shows the preview of what's shared in the UI, or stops: the worker
+    /// makes one only while the UI displays it.
+    fn preview_shown(&mut self, shown: bool) {
+        if let Err(error) = self.worker.preview(shown) {
+            tracing::warn!(
+                error = format!("{error:#}"),
+                "could not tell the stream worker"
+            );
+        }
+    }
+
+    /// Tells the worker the size in pixels of the tile showing the preview, so
+    /// the preview is written at the size it shows at rather than at a fixed
+    /// box.
+    fn size(&mut self, width: u32, height: u32) {
+        if let Err(error) = self.worker.size(width, height) {
+            tracing::warn!(
+                error = format!("{error:#}"),
+                "could not tell the stream worker"
+            );
+        }
+    }
+
+    /// Uploads a preview of the stream, unless one is still uploading or
+    /// Discord had one for this stream moments ago.
     /// A failed upload is tried again a minute later, as Discord's client
     /// does, up to three times.
     fn show_preview(&mut self, discord: &Discord, thumbnail: String) {
         let Some(key) = self.key.clone() else { return };
-        if let Some(older) = self.preview.take() {
-            older.abort();
+        // The still already on its way is a second older at most, and what
+        // Discord answers it is what says how much of the stream's budget for
+        // a preview is left: cancelling it would throw that answer away and
+        // have the next still refused instead.
+        if self
+            .preview
+            .as_ref()
+            .is_some_and(|uploading| !uploading.is_finished())
+        {
+            return;
         }
         let discord = discord.clone();
         self.preview = Some(tokio::spawn(async move {
             for attempt in 1..=3 {
                 if attempt > 1 {
-                    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                    // Past the minute the API spaces one stream's previews by,
+                    // so a second attempt isn't the spacing's own boundary.
+                    tokio::time::sleep(std::time::Duration::from_secs(65)).await;
                 }
                 match discord.stream_preview(&key, &thumbnail).await {
-                    Ok(()) => {
+                    Ok(true) => {
                         tracing::debug!("uploaded the stream's preview");
                         return;
                     }
-                    Err(error) => {
-                        tracing::warn!(
-                            error = format!("{error:#}"),
-                            attempt,
-                            "could not upload the stream's preview"
-                        )
+                    // Discord had this stream's still moments ago, so the one
+                    // it shows is already this stream's own picture.
+                    Ok(false) => {
+                        tracing::debug!("the stream's preview is the one Discord has");
+                        return;
                     }
+                    Err(error) => tracing::warn!(
+                        error = format!("{error:#}"),
+                        attempt,
+                        "could not upload the stream's preview"
+                    ),
                 }
             }
         }));
@@ -103,6 +149,12 @@ impl Share {
         if let Some(key) = &self.key {
             discord.end_stream(key);
         }
+        // The details showed a stream that no longer goes out; from here
+        // they say nothing of it, rather than its last second for a while.
+        *self
+            .sending
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
         drop(self.worker);
         state.sharing = None;
     }
@@ -209,7 +261,15 @@ struct Watch {
     /// Whose stream it is, by Discord user id.
     user: String,
     opening: Starting,
-    worker: Option<(Worker, mpsc::UnboundedReceiver<Report>)>,
+    worker: Option<(Worker, mpsc::Receiver<Report>)>,
+    /// Whether a window showed the pictures when the UI last said: a worker
+    /// opened in place of another is told again, so one that starts while the
+    /// window is hidden converts and writes nothing.
+    shown: bool,
+    /// The size in pixels of the tile showing the pictures, as the UI last
+    /// said it, which a worker opened in place of another is told again too;
+    /// zero until the UI says.
+    size: (u32, u32),
 }
 
 impl Watch {
@@ -217,6 +277,57 @@ impl Watch {
     fn hear(watch: &mut Option<Self>, hearing: bool) {
         if let Some((worker, _)) = watch.as_mut().and_then(|watch| watch.worker.as_mut())
             && let Err(error) = worker.hear(hearing)
+        {
+            tracing::warn!(
+                error = format!("{error:#}"),
+                "could not tell the stream worker"
+            );
+        }
+    }
+
+    /// Shows the stream's pictures, or not, as a hidden or minimised window
+    /// can't: the worker then decodes on without converting or writing frames
+    /// nobody can see. Its sound plays either way.
+    fn shown(watch: &mut Option<Self>, shown: bool) {
+        if let Some(watching) = watch.as_mut() {
+            watching.shown = shown;
+            watching.tell_shown();
+        }
+    }
+
+    /// Tells the worker whether a window shows its pictures, if there is one
+    /// yet: Discord's answer starts it.
+    fn tell_shown(&mut self) {
+        if let Some((worker, _)) = self.worker.as_mut()
+            && let Err(error) = worker.shown(self.shown)
+        {
+            tracing::warn!(
+                error = format!("{error:#}"),
+                "could not tell the stream worker"
+            );
+        }
+    }
+
+    /// Scales the stream's pictures to the tile showing them, which says how
+    /// large it is when that changes and not with every frame: a stream shown
+    /// in a small tile costs a small frame, and one shown larger grows the
+    /// frames. A zero says nothing about the size.
+    fn size(watch: &mut Option<Self>, width: u32, height: u32) {
+        if let Some(watching) = watch.as_mut() {
+            if width == 0 || height == 0 {
+                return;
+            }
+            watching.size = (width, height);
+            watching.tell_size();
+        }
+    }
+
+    /// Tells the worker the tile's size, if there is one yet: a worker opened
+    /// in place of another starts at a tile's size, so it's told too.
+    fn tell_size(&mut self) {
+        let (width, height) = self.size;
+        if let Some((worker, _)) = self.worker.as_mut()
+            && let Err(error) = worker.size(width, height)
         {
             tracing::warn!(
                 error = format!("{error:#}"),
@@ -262,6 +373,10 @@ impl Watch {
             user: user.to_owned(),
             opening: Some(Box::pin(async move { discord.watch(&asked).await })),
             worker: None,
+            // A watch starts from a window that shows it.
+            shown: true,
+            // At a tile's size until the UI says how large its tile is.
+            size: (0, 0),
         }
     }
 
@@ -269,10 +384,19 @@ impl Watch {
     /// the server it was on before.
     fn open(&mut self, server: &StreamServer, state: &mut State) -> Result<()> {
         self.opening = None;
+        // The worker showing the server before this one gives up its place
+        // among those decoding first, so this one isn't counted beside a
+        // worker that's stopping and handed half its threads for good.
+        self.worker = None;
         let volume = crate::volume::heard(crate::volume::Kind::Stream, &self.user);
         let (worker, frames, reports) =
             Worker::watch(server, state.speaker.clone(), state.deafened, volume)?;
         self.worker = Some((worker, reports));
+        // What the window last said outlives the worker it was said to: a
+        // window hidden since then is hidden from this one too, and so is a
+        // tile's size.
+        self.tell_shown();
+        self.tell_size();
         if let Some(shown) = state.watching.as_mut() {
             shown.frames = Some(Arc::new(frames));
         }
@@ -287,6 +411,10 @@ impl Watch {
     }
 }
 
+// One of these crosses a channel per event a watched stream has, a few a
+// second, so the largest variant — a report, which carries the stream's
+// statistics — being much bigger than the other costs nothing.
+#[allow(clippy::large_enum_variant)]
 enum WatchEvent {
     Opened(Result<StreamServer>),
     Report(Option<Report>),
@@ -418,8 +546,10 @@ pub(crate) async fn call(
     let mut ringback: Option<Ringer> = None;
     // Discord wouldn't ring them, which the call says until someone comes.
     let mut unrung = false;
-    // How the shared screen last said it goes out, and when.
-    let sending: Arc<std::sync::Mutex<Option<(std::time::Instant, StreamStats)>>> = Arc::default();
+    // How the shared screen last said it goes out, and when, and how the
+    // stream being watched last said it is decoded and shown.
+    let sending: Sending = Arc::default();
+    let watched: Sending = Arc::default();
     let mut soundboard = Soundboard::start(discord, guild);
     let (sound_events, mut sounds) = mpsc::unbounded_channel();
     {
@@ -451,16 +581,24 @@ pub(crate) async fn call(
         state.phase = Phase::Connected;
         let link = call.stats();
         state.link = Some(Link::new({
-            let (link, sending) = (link.clone(), sending.clone());
+            let (link, sending, watched) = (link.clone(), sending.clone(), watched.clone());
             move || {
                 let read = link.read();
                 let sending = sending.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                let watched = watched.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
                 LinkStats {
                     pings: read.pings.into(),
                     loss: read.loss,
                     privacy_code: read.privacy_code,
                     // The worker says each second while the stream is live.
                     stream: sending
+                        .as_ref()
+                        .filter(|(said, _)| said.elapsed() < SENDING_STALE)
+                        .map(|(_, stats)| stats.clone()),
+                    // A watched stream's worker says the same each second
+                    // while it plays: how it is decoded, and how its pictures
+                    // reach the window.
+                    watching: watched
                         .as_ref()
                         .filter(|(said, _)| said.elapsed() < SENDING_STALE)
                         .map(|(_, stats)| stats.clone()),
@@ -651,7 +789,7 @@ pub(crate) async fn call(
                             if share.is_none() {
                                 state.quality = quality;
                                 Chosen::write(remembered, state);
-                                match Share::start(state, quality) {
+                                match Share::start(state, quality, &sending) {
                                     Ok(started) => {
                                         share = Some(started);
                                         state.error = None;
@@ -668,6 +806,16 @@ pub(crate) async fn call(
                                 && let Err(error) = going.worker.switch(stream_worker::Source::Screen)
                             {
                                 tracing::warn!(error = format!("{error:#}"), "could not switch what's shared");
+                            }
+                        }
+                        Some(Command::Preview(shown)) => {
+                            if let Some(going) = share.as_mut() {
+                                going.preview_shown(shown);
+                            }
+                        }
+                        Some(Command::ShareSize { width, height }) => {
+                            if let Some(going) = share.as_mut() {
+                                going.size(width, height);
                             }
                         }
                         Some(Command::StopLive) => {
@@ -690,6 +838,10 @@ pub(crate) async fn call(
                             if let Some(stopped) = watch.take() {
                                 stopped.stop(discord, state);
                             }
+                        }
+                        Some(Command::WatchShown(shown)) => Watch::shown(&mut watch, shown),
+                        Some(Command::WatchSize { width, height }) => {
+                            Watch::size(&mut watch, width, height);
                         }
                         // Played here at once, as Discord's client does,
                         // which leaves out the effect Discord sends back.
@@ -892,10 +1044,17 @@ pub(crate) async fn call(
                                 watching.opening = false;
                             }
                         }
+                        // How the watched stream is decoded and shown, which
+                        // the call's Stream tab reads while it plays.
+                        WatchEvent::Report(Some(Report::Sending(stats))) => {
+                            *watched
+                                .lock()
+                                .unwrap_or_else(|poisoned| poisoned.into_inner()) =
+                                Some((std::time::Instant::now(), stats));
+                        }
                         WatchEvent::Report(Some(Report::Ended { error })) => stop = Some(error),
                         WatchEvent::Report(Some(
                             Report::Sharing { .. }
-                            | Report::Sending(_)
                             | Report::Preview { .. }
                             | Report::Opened { .. }
                             | Report::Finished

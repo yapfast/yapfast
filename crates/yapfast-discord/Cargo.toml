@@ -12,6 +12,9 @@ license = "GPL-3.0-or-later"
 doctest = false
 
 [dependencies]
+# Codecs, frame buffers, receiver reports and a streamer's clocks:
+# the media vocabulary, which knows no protocol.
+yapfast-media.workspace = true
 chrono.workspace = true
 # Voice's transport encryption, and DAVE. ChaCha's stream also encrypts the
 # files kept on disk: see src/cache/sealed.rs.

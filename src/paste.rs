@@ -583,14 +583,68 @@ pub fn files(list: &str) -> Vec<PathBuf> {
     list.lines()
         .map(str::trim)
         .filter(|line| !line.starts_with('#'))
-        .filter_map(|line| line.strip_prefix("file://"))
-        // A host may come before the path; only this machine's files can be read.
-        .filter_map(|rest| rest.strip_prefix("localhost").or(Some(rest)))
-        .filter(|path| path.starts_with('/'))
-        .filter_map(percent_decode)
-        .map(PathBuf::from)
+        .filter_map(path_in_uri)
+        .filter_map(local_path)
         .filter(|path| path.is_file())
         .collect()
+}
+
+/// The path a `file:` URI names, before percent-decoding. Writers differ
+/// about the authority: `file:///C:/…` has an empty one, some leave it out
+/// before a drive (`file://C:\…`), and some write `localhost` there without
+/// the slash that would otherwise end it (`file://localhostC:\…`).
+fn path_in_uri(line: &str) -> Option<&str> {
+    let rest = line.strip_prefix("file://")?;
+    #[cfg(windows)]
+    if is_windows_drive(rest) {
+        return Some(rest);
+    }
+    if let Some(path) = after_localhost(rest) {
+        return Some(path);
+    }
+    // The empty authority leaves the path's own slash at the front.
+    rest.starts_with('/').then_some(rest)
+}
+
+/// The path after `localhost`, when that is the URI's whole host. Without
+/// a slash it ends at the path itself, which is how a drive follows it.
+fn after_localhost(rest: &str) -> Option<&str> {
+    let host = rest.get(..9)?;
+    if !host.eq_ignore_ascii_case("localhost") {
+        return None;
+    }
+    let path = &rest[9..];
+    if path.is_empty() || path.starts_with(['/', '\\']) {
+        return Some(path);
+    }
+    #[cfg(windows)]
+    if is_windows_drive(path) {
+        return Some(path);
+    }
+    None
+}
+
+/// Whether `text` begins with a drive and its colon, as a Windows path
+/// does, so `C:\…` after `file://` is a path and not the URI's host.
+#[cfg(windows)]
+fn is_windows_drive(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    bytes.first().is_some_and(u8::is_ascii_alphabetic)
+        && bytes.get(1) == Some(&b':')
+        && bytes
+            .get(2)
+            .is_none_or(|&byte| matches!(byte, b'\\' | b'/'))
+}
+
+/// The path as this machine writes it, percent-decoded. A file URI names
+/// `C:\Users` as `/C:/Users`, so the slash before a drive goes away here.
+fn local_path(path: &str) -> Option<PathBuf> {
+    #[cfg(windows)]
+    let path = path
+        .strip_prefix('/')
+        .filter(|path| is_windows_drive(path))
+        .unwrap_or(path);
+    percent_decode(path).map(PathBuf::from)
 }
 
 fn percent_decode(text: &str) -> Option<String> {
@@ -637,6 +691,26 @@ mod tests {
     fn reads_no_percent_escape_it_cannot_decode() {
         assert_eq!(percent_decode("%zz"), None);
         assert_eq!(percent_decode("%20"), Some(" ".into()));
+    }
+
+    /// Explorer and browsers write a drive's URI with an empty authority
+    /// and forward slashes; the same file can also arrive with backslashes
+    /// and with `localhost` pressed against the drive.
+    #[cfg(windows)]
+    #[test]
+    fn reads_windows_file_uris_with_a_drive() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("a map #1.txt");
+        std::fs::write(&file, "map").unwrap();
+        let encoded = file
+            .to_str()
+            .unwrap()
+            .replace(' ', "%20")
+            .replace('#', "%23");
+        let slashes = encoded.replace('\\', "/");
+        let list =
+            format!("file:///{slashes}\r\nfile://{encoded}\r\nfile://localhost/{slashes}\r\n");
+        assert_eq!(files(&list), vec![file.clone(), file.clone(), file]);
     }
 
     /// A `BITMAPV5HEADER` for a 2×2 bitmap, with these masks.

@@ -118,7 +118,7 @@ def tail(path, lines=20):
 
 
 def build(discord, profile, live=False, yapfast=True, tray=False, record=False):
-    features = ['--no-default-features', '--features', 'desktop,discord'] if discord else []
+    features = ['--no-default-features', '--features', 'desktop,discord,skia-vulkan'] if discord else []
     features += ['--features', 'live-preview'] if live else []
     targets = [*(['--bin', 'yapfast'] if yapfast else []), *(['--example', 'tray_host'] if tray else []),
                *(['--example', 'record_host'] if record else [])]
