@@ -9,7 +9,7 @@ use std::sync::{
 };
 
 use serde::{Deserialize, Serialize};
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 use slint::winit_030::winit::event::MouseButton;
 use slint::winit_030::winit::{
     event::{ElementState, KeyEvent, WindowEvent},
@@ -18,11 +18,11 @@ use slint::winit_030::winit::{
 };
 use yapfast_core::runtime::BackgroundRuntime;
 
-/// Mouse buttons share the saved scan-code field, tagged above Windows' 16-bit
+/// Mouse buttons share the saved scan-code field, tagged above 16-bit
 /// scan codes so existing keyboard bindings keep their meaning.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 const MOUSE_4: u32 = 0xFFFF_0004;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 const MOUSE_5: u32 = 0xFFFF_0005;
 
 /// A key recorded in settings.
@@ -50,8 +50,8 @@ impl Keybind {
         })
     }
 
-    /// Mouse 4 or 5 pressed in the window on Windows.
-    #[cfg(windows)]
+    /// Mouse 4 or 5 pressed in the window.
+    #[cfg(any(windows, target_os = "macos"))]
     pub fn recorded_mouse(event: &WindowEvent) -> Option<Self> {
         let WindowEvent::MouseInput {
             state: ElementState::Pressed,
@@ -76,12 +76,12 @@ impl Keybind {
 
 /// The key without Shift or Caps Lock, so a letter reads as itself.
 fn unmodified(event: &KeyEvent) -> Key {
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(target_os = "linux", windows, target_os = "macos"))]
     {
         use slint::winit_030::winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
         event.key_without_modifiers()
     }
-    #[cfg(not(any(target_os = "linux", windows)))]
+    #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
     {
         event.logical_key.clone()
     }
@@ -241,7 +241,7 @@ pub fn window_event(event: &WindowEvent) {
         {
             yapfast_core::push_to_talk::hold(event.state == ElementState::Pressed);
         }
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "macos"))]
         WindowEvent::MouseInput { state, button, .. }
             if (key == MOUSE_4 && *button == MouseButton::Back)
                 || (key == MOUSE_5 && *button == MouseButton::Forward) =>
@@ -261,6 +261,8 @@ pub struct Watcher {
     _global: Option<linux::Global>,
     #[cfg(windows)]
     _global: Option<windows::Hook>,
+    #[cfg(target_os = "macos")]
+    _global: Option<macos::Hook>,
 }
 
 impl Watcher {
@@ -290,7 +292,12 @@ impl Watcher {
             let _ = runtime;
             windows::Hook::start(scancode, report)
         };
-        #[cfg(not(any(target_os = "linux", windows)))]
+        #[cfg(target_os = "macos")]
+        let global = {
+            let _ = runtime;
+            macos::Hook::start(scancode, report)
+        };
+        #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
         {
             let _ = runtime;
             report(Reach::Focused(
@@ -300,7 +307,7 @@ impl Watcher {
         Self {
             key,
             reach,
-            #[cfg(any(target_os = "linux", windows))]
+            #[cfg(any(target_os = "linux", windows, target_os = "macos"))]
             _global: global,
         }
     }
@@ -1182,6 +1189,106 @@ mod windows {
             std::thread::sleep(Duration::from_millis(100));
             assert!(!yapfast_core::push_to_talk::held());
             drop(hook);
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod macos {
+    use std::{
+        ffi::{c_int, c_void},
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        },
+        thread::JoinHandle,
+    };
+
+    use super::{Reach, Report};
+
+    unsafe extern "C" {
+        fn yapfast_macos_ptt_run(
+            cb: extern "C" fn(*mut c_void, u32, c_int),
+            ready: extern "C" fn(*mut c_void, *mut c_void),
+            user: *mut c_void,
+        ) -> c_int;
+        fn yapfast_macos_ptt_stop(handle: *mut c_void);
+    }
+
+    struct Context {
+        target: u32,
+        held: bool,
+        handle: Arc<AtomicUsize>,
+    }
+
+    extern "C" fn on_ready(user: *mut c_void, handle: *mut c_void) {
+        // SAFETY: `user` points to `Context` alive for the duration of `yapfast_macos_ptt_run`.
+        let ctx = unsafe { &*user.cast::<Context>() };
+        ctx.handle.store(handle as usize, Ordering::Release);
+    }
+
+    extern "C" fn on_key(user: *mut c_void, scancode: u32, down: c_int) {
+        // SAFETY: `user` points to `Context` owned by the hook thread for the duration of `yapfast_macos_ptt_run`.
+        let ctx = unsafe { &mut *user.cast::<Context>() };
+        if scancode != ctx.target {
+            return;
+        }
+        let now = down != 0;
+        if now != ctx.held {
+            ctx.held = now;
+            yapfast_core::push_to_talk::hold(now);
+        }
+    }
+
+    pub struct Hook {
+        handle: Arc<AtomicUsize>,
+        thread: Option<JoinHandle<()>>,
+    }
+
+    impl Hook {
+        pub fn start(scancode: u32, report: Report) -> Option<Self> {
+            let handle = Arc::new(AtomicUsize::new(0));
+            let shared_handle = handle.clone();
+            let thread = std::thread::Builder::new()
+                .name("yapfast-ptt-macos".into())
+                .spawn(move || {
+                    let mut ctx = Context {
+                        target: scancode,
+                        held: false,
+                        handle: shared_handle.clone(),
+                    };
+                    report(Reach::Global);
+                    let status = unsafe {
+                        yapfast_macos_ptt_run(
+                            on_key,
+                            on_ready,
+                            std::ptr::from_mut(&mut ctx).cast::<c_void>(),
+                        )
+                    };
+                    shared_handle.store(0, Ordering::Release);
+                    if status != 0 {
+                        report(Reach::Focused(
+                            "Enable Accessibility for Yapfast in System Settings to use push-to-talk in other apps",
+                        ));
+                    }
+                })
+                .ok()?;
+            Some(Self {
+                handle,
+                thread: Some(thread),
+            })
+        }
+    }
+
+    impl Drop for Hook {
+        fn drop(&mut self) {
+            let raw = self.handle.load(Ordering::Acquire) as *mut c_void;
+            if !raw.is_null() {
+                unsafe { yapfast_macos_ptt_stop(raw) };
+            }
+            if let Some(thread) = self.thread.take() {
+                let _ = thread.join();
+            }
         }
     }
 }

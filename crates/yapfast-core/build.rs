@@ -17,6 +17,8 @@ fn main() {
         "camera.cc",
         "hwenc.c",
         "hevc.c",
+        "macos_audio.c",
+        "macos_camera.m",
     ] {
         println!("cargo:rerun-if-changed=native/{file}");
     }
@@ -58,6 +60,25 @@ fn main() {
         if target_os == "windows" {
             println!("cargo:rustc-link-lib=dylib=oleaut32");
         }
+    } else if target_os == "macos" {
+        cc::Build::new()
+            .file("native/macos_audio.c")
+            .warnings(true)
+            .compile("yapfast_macos_audio");
+        println!("cargo:rustc-link-lib=framework=AudioToolbox");
+        println!("cargo:rustc-link-lib=framework=CoreAudio");
+        println!("cargo:rustc-link-lib=framework=CoreFoundation");
+
+        cc::Build::new()
+            .file("native/macos_camera.m")
+            .include(third_party.join("libyuv/include"))
+            .flag("-fobjc-arc")
+            .warnings(true)
+            .compile("yapfast_macos_camera");
+        println!("cargo:rustc-link-lib=framework=AVFoundation");
+        println!("cargo:rustc-link-lib=framework=CoreMedia");
+        println!("cargo:rustc-link-lib=framework=CoreVideo");
+        println!("cargo:rustc-link-lib=framework=Foundation");
     }
     println!("cargo::rustc-check-cfg=cfg(hwenc)");
     println!("cargo::rustc-check-cfg=cfg(hevcdec)");

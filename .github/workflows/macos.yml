@@ -1,0 +1,61 @@
+name: macOS Build (Intel & ARM)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      universal:
+        description: "Also build a Universal (Intel + ARM) binary"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: macOS (${{ matrix.label }})
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Intel (x86_64) — works on Intel Macs, Hackintosh, and Ryzentosh
+          - arch: x86_64
+            target: x86_64-apple-darwin
+            label: macos-x64
+          # Apple Silicon (ARM64)
+          - arch: arm64
+            target: aarch64-apple-darwin
+            label: macos-arm64
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install build tools (nasm, librsvg)
+        run: brew install nasm librsvg
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build Yapfast.app, .zip, and .dmg
+        run: bash scripts/build-macos ${{ matrix.arch }}
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.label }}
+          path: |
+            target/dist/macos/Yapfast-*-${{ matrix.label }}.zip
+            target/dist/macos/Yapfast-*-${{ matrix.label }}.dmg
+          if-no-files-found: error

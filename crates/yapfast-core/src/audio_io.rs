@@ -28,9 +28,14 @@ mod wasapi;
 #[cfg(target_os = "windows")]
 use wasapi as platform;
 
-#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+#[cfg(target_os = "macos")]
+mod coreaudio;
+#[cfg(target_os = "macos")]
+use coreaudio as platform;
+
+#[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
 mod unsupported;
-#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+#[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
 use unsupported as platform;
 
 #[cfg(feature = "discord")]
@@ -155,7 +160,11 @@ fn windows_effects() -> bool {
 }
 
 /// Whether this system has sound here.
-pub const AVAILABLE: bool = cfg!(any(target_os = "linux", target_os = "windows"));
+pub const AVAILABLE: bool = cfg!(any(
+    target_os = "linux",
+    target_os = "windows",
+    target_os = "macos"
+));
 
 /// The rate every stream runs at, unless it asks for another.
 pub const RATE: u32 = 48_000;

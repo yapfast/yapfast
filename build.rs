@@ -15,6 +15,7 @@ mod emoji_font_tables;
 
 fn main() {
     println!("cargo:rerun-if-changed=packaging/windows");
+    println!("cargo:rerun-if-changed=src/macos_native.m");
     println!("cargo:rerun-if-env-changed=SKIA_BINARIES_URL");
     println!("cargo:rerun-if-changed=vendor/twemoji/72x72");
     println!("cargo:rerun-if-changed=src/emoji_font_tables.rs");
@@ -25,6 +26,7 @@ fn main() {
     match env::var("CARGO_CFG_TARGET_OS").as_deref() {
         Ok("windows") => windows_icon(),
         Ok("linux") => linux_skia(),
+        Ok("macos") => macos_native(),
         _ => {}
     }
 }
@@ -399,4 +401,57 @@ fn linux_skia() {
     }
     // For the tests' executables too, which link Skia as well.
     println!("cargo:rustc-link-arg=-Wl,--allow-multiple-definition");
+}
+
+fn macos_native() {
+    if env::var_os("CARGO_FEATURE_DESKTOP").is_none() {
+        return;
+    }
+    let out = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR"));
+    let obj = out.join("macos_native.o");
+    let lib = out.join("libyapfast_macos_native.a");
+    let arch = match env::var("CARGO_CFG_TARGET_ARCH").as_deref() {
+        Ok("aarch64") => "arm64",
+        _ => "x86_64",
+    };
+    let mut clang = Command::new("clang");
+    clang.args([
+        "-c",
+        "-fobjc-arc",
+        "-O2",
+        "-arch",
+        arch,
+        "-mmacosx-version-min=11.0",
+        "src/macos_native.m",
+        "-o",
+    ]);
+    clang.arg(&obj);
+    if let Ok(sdk) = env::var("SDKROOT") {
+        clang.args(["-isysroot", &sdk]);
+    }
+    let status = clang
+        .status()
+        .expect("clang is required to compile src/macos_native.m on macOS");
+    assert!(status.success(), "clang failed on src/macos_native.m: {status}");
+
+    let status = Command::new("ar")
+        .arg("rcs")
+        .arg(&lib)
+        .arg(&obj)
+        .status()
+        .expect("ar is required to archive libyapfast_macos_native.a");
+    assert!(status.success(), "ar failed on macos_native.o: {status}");
+
+    println!("cargo:rustc-link-search=native={}", out.display());
+    println!("cargo:rustc-link-lib=static=yapfast_macos_native");
+    for framework in [
+        "AppKit",
+        "ApplicationServices",
+        "CoreGraphics",
+        "CoreFoundation",
+        "Foundation",
+        "UserNotifications",
+    ] {
+        println!("cargo:rustc-link-lib=framework={framework}");
+    }
 }

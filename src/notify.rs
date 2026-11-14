@@ -10,14 +10,14 @@ use yapfast_core::chat::Alert;
 #[derive(Clone, Copy)]
 pub struct Style {
     /// Say what the message says, rather than only who wrote.
-    #[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
+    #[cfg_attr(not(any(target_os = "linux", windows, target_os = "macos")), allow(dead_code))]
     pub text: bool,
 }
 
 /// Shows notifications from a thread of its own, so a slow notification service never
 /// holds up the window.
 pub struct Notifier {
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(target_os = "linux", windows, target_os = "macos"))]
     requests: std::sync::mpsc::Sender<(Alert, Style)>,
 }
 
@@ -26,10 +26,10 @@ impl Notifier {
     /// conversation of a notification someone clicked. Windows keeps the pictures a
     /// notification shows under `root`.
     pub fn start(opened: fn(String), root: &Path) -> Self {
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(target_os = "linux", windows, target_os = "macos"))]
         {
             let (requests, alerts) = std::sync::mpsc::channel();
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             let _ = root;
             #[cfg(windows)]
             let root = root.to_owned();
@@ -40,13 +40,15 @@ impl Notifier {
                     linux::run(alerts, opened);
                     #[cfg(windows)]
                     windows::run(alerts, opened, &root);
+                    #[cfg(target_os = "macos")]
+                    macos::run(alerts, opened);
                 });
             if let Err(error) = started {
                 tracing::warn!(%error, "could not start desktop notifications");
             }
             Self { requests }
         }
-        #[cfg(not(any(target_os = "linux", windows)))]
+        #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
         {
             let _ = (opened, root);
             Self {}
@@ -54,16 +56,16 @@ impl Notifier {
     }
 
     pub fn show(&self, alert: Alert, style: Style) {
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(target_os = "linux", windows, target_os = "macos"))]
         let _ = self.requests.send((alert, style));
-        #[cfg(not(any(target_os = "linux", windows)))]
+        #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
         let _ = (alert, style);
     }
 }
 
 /// The body of a notification: the message, or for privacy only that there is one.
 /// A call's says only that it's ringing.
-#[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "linux", windows, target_os = "macos")), allow(dead_code))]
 fn body(alert: &Alert, style: Style) -> String {
     if style.text || alert.call {
         alert.body.clone()
@@ -431,5 +433,64 @@ mod tests {
             super::xml_text("<b>\"Tom & Jerry\"\u{1}\n"),
             "&lt;b&gt;&quot;Tom &amp; Jerry&quot;\n"
         );
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod macos {
+    use std::{
+        ffi::{CStr, CString, c_char},
+        sync::{OnceLock, mpsc::Receiver},
+    };
+
+    use yapfast_core::chat::Alert;
+
+    use super::Style;
+
+    unsafe extern "C" {
+        fn yapfast_macos_notify_init(cb: extern "C" fn(*const c_char));
+        fn yapfast_macos_notify_show(
+            title: *const c_char,
+            subtitle: *const c_char,
+            body: *const c_char,
+            conversation: *const c_char,
+        );
+    }
+
+    static OPENED: OnceLock<fn(String)> = OnceLock::new();
+
+    extern "C" fn on_opened(conversation: *const c_char) {
+        let Some(&opened) = OPENED.get() else {
+            return;
+        };
+        if conversation.is_null() {
+            return;
+        }
+        let conv = unsafe { CStr::from_ptr(conversation) }
+            .to_string_lossy()
+            .into_owned();
+        if !conv.is_empty() {
+            let _ = slint::invoke_from_event_loop(move || opened(conv));
+        }
+    }
+
+    pub fn run(alerts: Receiver<(Alert, Style)>, opened: fn(String)) {
+        let _ = OPENED.set(opened);
+        unsafe { yapfast_macos_notify_init(on_opened) };
+        for (alert, style) in alerts {
+            let body = super::body(&alert, style);
+            let title = CString::new(alert.title).unwrap_or_default();
+            let subtitle = CString::new("").unwrap();
+            let body = CString::new(body).unwrap_or_default();
+            let conv = CString::new(alert.conversation).unwrap_or_default();
+            unsafe {
+                yapfast_macos_notify_show(
+                    title.as_ptr(),
+                    subtitle.as_ptr(),
+                    body.as_ptr(),
+                    conv.as_ptr(),
+                );
+            }
+        }
     }
 }

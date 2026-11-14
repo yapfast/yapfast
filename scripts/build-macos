@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Build Yapfast.app (+ .zip and .dmg) for macOS.
+# Usage: scripts/build-macos [x86_64|arm64|universal]
+# Defaults to the host architecture.
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+ARCH="${1:-$(uname -m)}"
+VERSION="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)"
+export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-11.0}"
+
+build_target() {
+  local target="$1"
+  echo "==> Building Yapfast for $target (MACOSX_DEPLOYMENT_TARGET=$MACOSX_DEPLOYMENT_TARGET)"
+  cargo build --release --locked --target "$target"
+}
+
+case "$ARCH" in
+  x86_64|x64|intel)
+    TARGET="x86_64-apple-darwin"
+    LABEL="macos-x64"
+    build_target "$TARGET"
+    BIN="target/$TARGET/release/yapfast"
+    ;;
+  arm64|aarch64|arm)
+    TARGET="aarch64-apple-darwin"
+    LABEL="macos-arm64"
+    build_target "$TARGET"
+    BIN="target/$TARGET/release/yapfast"
+    ;;
+  universal)
+    LABEL="macos-universal"
+    build_target "x86_64-apple-darwin"
+    build_target "aarch64-apple-darwin"
+    mkdir -p target/universal-apple-darwin/release
+    lipo -create \
+      target/x86_64-apple-darwin/release/yapfast \
+      target/aarch64-apple-darwin/release/yapfast \
+      -output target/universal-apple-darwin/release/yapfast
+    BIN="target/universal-apple-darwin/release/yapfast"
+    ;;
+  *)
+    echo "Unknown arch: $ARCH (expected x86_64, arm64, or universal)" >&2
+    exit 1
+    ;;
+esac
+
+DIST="$ROOT/target/dist/macos/$LABEL"
+APP="$DIST/Yapfast.app"
+rm -rf "$DIST"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+
+cp "$BIN" "$APP/Contents/MacOS/yapfast"
+chmod +x "$APP/Contents/MacOS/yapfast"
+sed "s/@VERSION@/$VERSION/g" packaging/macos/Info.plist > "$APP/Contents/Info.plist"
+
+# Generate Yapfast.icns from packaging/icon.svg when rsvg-convert + iconutil are available.
+if command -v rsvg-convert >/dev/null 2>&1 && command -v iconutil >/dev/null 2>&1; then
+  ICONSET="$DIST/Yapfast.iconset"
+  mkdir -p "$ICONSET"
+  for size in 16 32 128 256 512; do
+    rsvg-convert -w "$size" -h "$size" packaging/icon.svg -o "$ICONSET/icon_${size}x${size}.png"
+    dbl=$((size * 2))
+    rsvg-convert -w "$dbl" -h "$dbl" packaging/icon.svg -o "$ICONSET/icon_${size}x${size}@2x.png"
+  done
+  iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/Yapfast.icns"
+  rm -rf "$ICONSET"
+fi
+
+# Ad-hoc code sign so Apple Silicon and macOS Gatekeeper/permissions work cleanly.
+codesign --force --deep --sign - "$APP"
+
+ZIP="$ROOT/target/dist/macos/Yapfast-$VERSION-$LABEL.zip"
+DMG="$ROOT/target/dist/macos/Yapfast-$VERSION-$LABEL.dmg"
+rm -f "$ZIP" "$DMG"
+
+ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
+hdiutil create -volname "Yapfast" -srcfolder "$APP" -ov -format UDZO "$DMG"
+
+echo "Built:"
+echo "  $APP"
+echo "  $ZIP"
+echo "  $DMG"

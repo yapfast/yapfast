@@ -100,7 +100,9 @@ fn logo(size: u32, unread: bool) -> Option<slint::SharedPixelBuffer<slint::Rgba8
 
 #[cfg(target_os = "linux")]
 use linux as platform;
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(target_os = "macos")]
+use macos as platform;
+#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
 use none as platform;
 #[cfg(windows)]
 use windows as platform;
@@ -550,7 +552,81 @@ mod windows {
     }
 }
 
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(target_os = "macos")]
+mod macos {
+    use std::{ffi::c_int, sync::OnceLock};
+
+    use super::{Choice, Shown};
+
+    unsafe extern "C" {
+        fn yapfast_macos_tray_start(
+            rgba: *const u8,
+            width: c_int,
+            height: c_int,
+            cb: extern "C" fn(c_int),
+        ) -> c_int;
+        fn yapfast_macos_tray_update(rgba: *const u8, width: c_int, height: c_int, in_call: c_int);
+        fn yapfast_macos_tray_stop();
+    }
+
+    static CHOSEN: OnceLock<fn(Choice)> = OnceLock::new();
+
+    extern "C" fn on_choice(choice: c_int) {
+        let Some(&chosen) = CHOSEN.get() else {
+            return;
+        };
+        let choice = match choice {
+            0 => Choice::Open,
+            1 => Choice::Disconnect,
+            2 => Choice::Quit,
+            _ => return,
+        };
+        let _ = slint::invoke_from_event_loop(move || chosen(choice));
+    }
+
+    pub struct Tray;
+
+    impl Tray {
+        pub fn start(chosen: fn(Choice)) -> Option<Self> {
+            let _ = CHOSEN.set(chosen);
+            let icon = super::logo(36, false)?;
+            let status = unsafe {
+                yapfast_macos_tray_start(
+                    icon.as_bytes().as_ptr(),
+                    icon.width() as c_int,
+                    icon.height() as c_int,
+                    on_choice,
+                )
+            };
+            if status == 0 { Some(Self) } else { None }
+        }
+
+        pub fn available(&self) -> bool {
+            true
+        }
+
+        pub fn show(&self, shown: Shown) {
+            let icon = super::logo(36, shown.unread);
+            let (ptr, w, h) = match icon.as_ref() {
+                Some(img) => (
+                    img.as_bytes().as_ptr(),
+                    img.width() as c_int,
+                    img.height() as c_int,
+                ),
+                None => (std::ptr::null(), 0, 0),
+            };
+            unsafe { yapfast_macos_tray_update(ptr, w, h, c_int::from(shown.call)) };
+        }
+    }
+
+    impl Drop for Tray {
+        fn drop(&mut self) {
+            unsafe { yapfast_macos_tray_stop() };
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
 mod none {
     use super::{Choice, Shown};
 
