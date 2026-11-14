@@ -136,6 +136,7 @@ pub(super) fn found(
                         .clone()
                         .unwrap_or_else(|| attachment.url.clone()),
                 ),
+                description: attachment.description.clone(),
             })
             .collect(),
         mentions,
@@ -144,8 +145,53 @@ pub(super) fn found(
         poll: message.poll.as_ref().map(|poll| chat_poll(poll, false)),
         voice: chat_voice(message),
         notice: chat_notice(message),
+        used: used_command(discord, guild, server, message),
         ..Default::default()
     }
+}
+
+/// The line above an app's answer: who used which command, in `guild`'s
+/// names and `server`'s colours, unless it quotes a message instead, as
+/// one to a message's command or a button does.
+pub(super) fn used_command(
+    discord: &Discord,
+    guild: Option<&str>,
+    server: Option<&yapfast_discord::ready::Server>,
+    message: &Message,
+) -> Option<crate::chat::UsedCommand> {
+    if message.reply.is_some() {
+        return None;
+    }
+    let interaction = message.interaction.as_ref()?;
+    let name = interaction.name.as_deref()?;
+    let user = interaction.user_id.as_str();
+    let named = |user: &str, fallback: &str| {
+        discord
+            .name(guild.unwrap_or(yapfast_discord::ready::PRIVATE), user)
+            .unwrap_or_else(|| fallback.to_owned())
+    };
+    // The deprecated object, without a type, answers a slash command.
+    let slash = interaction
+        .command_type
+        .is_none_or(|kind| kind == yapfast_discord::message::CHAT_INPUT);
+    Some(crate::chat::UsedCommand {
+        user: named(user, &interaction.user),
+        sender: discord::sender_id(user),
+        avatar: (!user.is_empty()).then(|| discord.avatar(guild, user)),
+        color: server.and_then(|server| discord.color(server, user)),
+        name: if slash {
+            format!("/{name}")
+        } else {
+            name.to_owned()
+        },
+        // The picker finds a command by its own name, without its
+        // subcommands'.
+        slash: slash.then(|| name.split(' ').next().unwrap_or(name).to_owned()),
+        target: interaction
+            .target_user
+            .as_ref()
+            .map(|(target, fallback)| named(target, fallback)),
+    })
 }
 
 /// A Discord voice message's recording, as its card shows it.
@@ -466,12 +512,11 @@ pub(super) fn rendered(
     let mentions = mentions
         .into_iter()
         .map(|mention| {
-            // @everyone and @here take the colour of mentions.
+            // Only a role's mention has a colour of its own, as in Discord's
+            // client. A member's, like @everyone's and @here's, takes the
+            // colour of mentions, not that of the member's highest role.
             let (target, color) = match mention.target {
-                MentionTarget::User(id) => {
-                    let color = server.and_then(|server| discord.color(server, &id));
-                    (Target::User(id), color)
-                }
+                MentionTarget::User(id) => (Target::User(id), None),
                 MentionTarget::Role(id) => {
                     let color = server
                         .and_then(|server| server.role_colors.get(&id))
@@ -590,6 +635,9 @@ pub(super) fn chat_profile(
             .style(Some(guild), &profile.user_id)
             .map(|style| Arc::new(style.into())),
         effect: profile.effect,
+        // `chat_profile`'s caller adds the frame's layers, which the shop
+        // describes.
+        frame: Default::default(),
         theme: profile.theme,
         banner: profile.banner,
         accent: profile.accent,
@@ -604,8 +652,18 @@ pub(super) fn chat_profile(
             .into_iter()
             .map(|(name, color)| ProfileRole { name, color })
             .collect(),
-        created: Some(crate::clock::day(profile.created / 1000)),
-        joined: profile.joined.map(|ms| crate::clock::day(ms / 1000)),
+        created: Some(crate::clock::profile_day(profile.created / 1000)),
+        joined: profile
+            .joined
+            .map(|ms| crate::clock::profile_day(ms / 1000)),
+        // The server whose date `joined` is, drawn beside it.
+        server_name: server
+            .filter(|_| profile.joined.is_some())
+            .map(|server| server.name.clone())
+            .unwrap_or_default(),
+        server_icon: server
+            .filter(|_| profile.joined.is_some())
+            .and_then(|server| server.icon.clone()),
         servers: profile
             .mutual_servers
             .into_iter()
@@ -679,6 +737,7 @@ pub(super) fn chat_profile(
         board_named: false,
         recent: Vec::new(),
         recent_asked: false,
+        recent_came: false,
         handle: profile.username,
         id: profile.user_id,
         // What the member list knows; the profile doesn't say.
@@ -688,9 +747,15 @@ pub(super) fn chat_profile(
     }
 }
 
-/// The emoji of a row's buttons, in Discord's markup.
+/// The emoji of a row's buttons and menu options, in Discord's markup.
 fn button_emoji(row: &yapfast_discord::components::Row) -> Vec<&str> {
     use yapfast_discord::components::{Beside, Row};
+    if let Row::Select { options, .. } = row {
+        return options
+            .iter()
+            .filter_map(|option| option.emoji.as_deref())
+            .collect();
+    }
     let buttons = match row {
         Row::Buttons(buttons) => buttons.iter().collect(),
         Row::Text {
@@ -764,7 +829,7 @@ pub(super) fn chat_card(
                     min_values,
                     max_values,
                 } => CardRow::Select {
-                    text: text.clone(),
+                    text: discord.render(server, text),
                     disabled: *disabled,
                     kind: *kind,
                     custom_id: custom_id.clone(),
@@ -775,6 +840,10 @@ pub(super) fn chat_card(
                             value: option.value.clone(),
                             description: option.description.clone(),
                             default: option.default,
+                            emoji: option
+                                .emoji
+                                .as_ref()
+                                .map(|emoji| discord.render(server, emoji)),
                         })
                         .collect(),
                     defaults: defaults.clone(),

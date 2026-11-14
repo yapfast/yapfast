@@ -123,6 +123,22 @@ pub fn day(seconds: u64) -> String {
     day_in(&Local, seconds, format_for(false))
 }
 
+/// A profile's date as Discord's client writes it, such as `Nov 5, 2026`,
+/// whatever the date format chosen; empty when unknown.
+pub fn profile_day(seconds: u64) -> String {
+    if seconds == 0 {
+        return String::new();
+    }
+    profile_day_in(&Local, seconds)
+}
+
+fn profile_day_in<Tz: TimeZone>(zone: &Tz, seconds: u64) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
+    at(zone, seconds).format("%b %-d, %Y").to_string()
+}
+
 fn time_in<Tz: TimeZone>(zone: &Tz, seconds: u64, twelve_hour: bool, with_seconds: bool) -> String
 where
     Tz::Offset: std::fmt::Display,
@@ -255,6 +271,21 @@ where
     }
 }
 
+/// How long something that started at `started` has gone on at `now`, both
+/// in Unix seconds, to the minute, as a busy voice channel's row shows it:
+/// `<1m`, `42m`, `1h 05m`, `2d 3h`. A start after `now`, from a clock that's
+/// a little behind Discord's, has only begun.
+pub fn lasted(started: u64, now: u64) -> String {
+    let minutes = now.saturating_sub(started) / 60;
+    let (days, hours, minutes) = (minutes / (24 * 60), minutes / 60 % 24, minutes % 60);
+    match (days, hours, minutes) {
+        (0, 0, 0) => "<1m".to_owned(),
+        (0, 0, minutes) => format!("{minutes}m"),
+        (0, hours, minutes) => format!("{hours}h {minutes:02}m"),
+        (days, hours, _) => format!("{days}d {hours}h"),
+    }
+}
+
 /// The local calendar date of a Unix time, which [`day`] names; none when unknown.
 pub fn date(seconds: u64) -> Option<chrono::NaiveDate> {
     (seconds != 0).then(|| at(&Local, seconds).date_naive())
@@ -278,6 +309,30 @@ mod tests {
     use chrono::FixedOffset;
 
     use super::*;
+
+    #[test]
+    fn says_how_long_a_voice_session_has_gone_on() {
+        let start = 1_767_225_600;
+        assert_eq!(lasted(start, start), "<1m");
+        assert_eq!(lasted(start, start + 59), "<1m");
+        assert_eq!(lasted(start, start + 60), "1m");
+        assert_eq!(lasted(start, start + 42 * 60 + 30), "42m");
+        assert_eq!(lasted(start, start + 3600 + 5 * 60), "1h 05m");
+        assert_eq!(lasted(start, start + 23 * 3600 + 59 * 60 + 59), "23h 59m");
+        assert_eq!(
+            lasted(start, start + 2 * 86_400 + 3 * 3600 + 7 * 60),
+            "2d 3h"
+        );
+        assert_eq!(lasted(start, start - 5), "<1m", "a clock behind Discord's");
+    }
+
+    #[test]
+    fn a_profiles_dates_read_as_discords() {
+        // 2026-11-05 12:00 UTC.
+        let utc = FixedOffset::east_opt(0).unwrap();
+        assert_eq!(profile_day_in(&utc, 1_793_880_000), "Nov 5, 2026");
+        assert_eq!(profile_day(0), "");
+    }
 
     #[test]
     fn times_and_days_follow_the_time_zone() {

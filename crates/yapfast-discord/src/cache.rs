@@ -1177,6 +1177,8 @@ mod tests {
                 premium_type: 0,
                 mfa_enabled: false,
                 has_email: true,
+                nsfw_allowed: false,
+                nsfw_commands_in_dms: false,
             }),
             servers: vec![MarkedServer::marked(
                 Server {

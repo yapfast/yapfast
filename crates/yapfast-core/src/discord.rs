@@ -59,6 +59,9 @@ pub fn set_custom_games(games: &[(String, String)]) {
     let _ = games;
 }
 
+#[cfg(feature = "discord")]
+use crate::chat::is_frame_layer;
+
 /// The categories message requests are listed under in the DM list.
 pub const REQUESTS: &str = "Message requests";
 pub const SPAM: &str = "Spam";
@@ -76,6 +79,11 @@ const PICTURE_SIZE: u32 = 128;
 /// 448x84 or 672x126, is shrunk to the smaller, twice a row's height.
 #[cfg(feature = "discord")]
 const COLLECTIBLE_SIZE: (u32, u32) = (448, 160);
+/// A layer of a profile frame, about as wide as a card draws it past its
+/// sides; a rail runs the card's height. Shrinking one twice as wide when
+/// it's drawn leaves its edges jagged.
+#[cfg(feature = "discord")]
+const FRAME_SIZE: (u32, u32) = (460, 1600);
 /// The most a profile badge's icon is decoded at: twice the 20px it shows at.
 #[cfg(feature = "discord")]
 const BADGE_SIZE: u32 = 40;
@@ -200,6 +208,18 @@ pub fn emoji_picture(id: &str) -> Option<String> {
     }
 }
 
+/// When the session of a voice channel with people in it started; none
+/// once it's empty, though Discord's word that it ended may lag.
+#[cfg(feature = "discord")]
+fn voice_started(snapshot: &Snapshot, channel: &str) -> Option<u64> {
+    snapshot
+        .voice
+        .get(channel)
+        .is_some_and(|members| !members.is_empty())
+        .then(|| snapshot.voice_started.get(channel).copied())
+        .flatten()
+}
+
 /// Who is in a voice channel or DM call.
 #[cfg(feature = "discord")]
 fn in_voice(snapshot: &Snapshot, channel: &str) -> Vec<VoicePerson> {
@@ -306,8 +326,13 @@ struct Indexed {
     source: MarkedServer,
     show_hidden: bool,
     premium: u8,
-    /// Who was in each of its voice channels with anyone in it, by channel id.
-    voice: Vec<(String, Vec<yapfast_discord::service::VoiceMember>)>,
+    /// Who was in each of its voice channels with anyone in it, by channel
+    /// id, and when its session started.
+    voice: Vec<(
+        String,
+        Vec<yapfast_discord::service::VoiceMember>,
+        Option<u64>,
+    )>,
     /// The member count of its channel whose list was on screen.
     listed: Option<(String, u64)>,
     /// Its threads on screen, which list while they show.
@@ -321,12 +346,19 @@ impl Indexed {
     fn voice<'a>(
         snapshot: &'a Snapshot,
         server: &'a yapfast_discord::ready::Server,
-    ) -> impl Iterator<Item = (&'a String, &'a Vec<yapfast_discord::service::VoiceMember>)> {
+    ) -> impl Iterator<
+        Item = (
+            &'a String,
+            &'a Vec<yapfast_discord::service::VoiceMember>,
+            Option<u64>,
+        ),
+    > {
         server.voice_channels.iter().filter_map(|channel| {
             snapshot
                 .voice
                 .get_key_value(&channel.id)
                 .filter(|(_, members)| !members.is_empty())
+                .map(|(id, members)| (id, members, voice_started(snapshot, id)))
         })
     }
 
@@ -368,7 +400,9 @@ impl Indexed {
                 .chain(std::iter::once(None))
                 .zip(self.voice.iter().map(Some).chain(std::iter::once(None)))
                 .all(|(now, then)| match (now, then) {
-                    (Some((id, members)), Some((was_id, was))) => id == was_id && members == was,
+                    (Some((id, members, started)), Some((was_id, was, was_started))) => {
+                        id == was_id && members == was && started == *was_started
+                    }
                     (None, None) => true,
                     _ => false,
                 })
@@ -431,7 +465,7 @@ impl Index {
                         show_hidden,
                         premium,
                         voice: Indexed::voice(snapshot, server)
-                            .map(|(id, members)| (id.clone(), members.clone()))
+                            .map(|(id, members, started)| (id.clone(), members.clone(), started))
                             .collect(),
                         listed: Indexed::listed(snapshot, server).cloned(),
                         viewing: Indexed::viewing(snapshot, server),
@@ -725,6 +759,7 @@ fn dm_room(snapshot: &Snapshot, dm: &Conversation, premium: u8, me: &str) -> Cha
                 at: yapfast_discord::message::snowflake_ms(&preview.id),
             })
         }),
+        voice_started: None,
     }
 }
 
@@ -846,6 +881,7 @@ fn server_rooms(
                 request: false,
                 person: None,
                 people: in_voice(snapshot, &channel.id),
+                voice_started: voice_started(snapshot, &channel.id),
                 ringing: vec![],
                 incoming: false,
                 avatar: None,
@@ -921,6 +957,7 @@ fn server_rooms(
                 official: false,
                 empty: false,
                 preview: None,
+                voice_started: None,
             }
         });
         channels.push(id);
@@ -1071,6 +1108,7 @@ fn thread_room(
         official: false,
         empty: false,
         preview: None,
+        voice_started: None,
     }
 }
 
@@ -1502,6 +1540,8 @@ impl PictureLoads {
             BANNER_SIZE
         } else if pending.url.ends_with(chat::EFFECT_PICTURE) {
             EFFECT_SIZE
+        } else if is_frame_layer(&pending.url) {
+            FRAME_SIZE
         } else if pending.url.contains("/collectibles-shop/") {
             COLLECTIBLE_SIZE
         } else if pending.url.contains("/badge-icons/") {
@@ -1720,6 +1760,16 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn a_frames_layers_decode_larger_than_a_decorations_still() {
+        let cdn = "https://cdn.discordapp.com/media/v1/collectibles-shop";
+        assert!(is_frame_layer(&format!("{cdn}/9/a/static")));
+        assert!(!is_frame_layer(&format!("{cdn}/9/static")));
+        assert!(!is_frame_layer(
+            "https://cdn.discordapp.com/banners/1/a.png"
+        ));
+    }
 
     #[tokio::test]
     async fn cancelled_turn_waits_are_removed_independently_in_the_same_batch() {
@@ -2713,6 +2763,66 @@ mod tests {
             Reacts::None,
             "a timeout takes reacting away"
         );
+    }
+
+    #[test]
+    fn a_busy_voice_channel_counts_from_when_its_call_started() {
+        let channel = |id: &str| Channel {
+            id: id.into(),
+            name: id.into(),
+            ..Default::default()
+        };
+        let ann = yapfast_discord::service::VoiceMember {
+            user_id: "2".into(),
+            name: "Ann".into(),
+            avatar: String::new(),
+            muted: false,
+            deafened: false,
+            server_muted: false,
+            server_deafened: false,
+            streaming: false,
+            video: false,
+            elsewhere: false,
+        };
+        let snapshot = Snapshot {
+            servers: vec![MarkedServer::marked(
+                Server {
+                    id: "10".into(),
+                    name: "Test".into(),
+                    voice_channels: vec![channel("11"), channel("12")],
+                    ..Default::default()
+                },
+                ServerMarks::default(),
+                |_| ChannelMarks {
+                    access: Access::Join,
+                    ..Default::default()
+                },
+            )],
+            voice: [("11".to_owned(), vec![ann])].into(),
+            // Discord's word that 12's call ended hasn't come yet.
+            voice_started: Arc::new([("11".to_owned(), 100), ("12".to_owned(), 50)].into()),
+            ..Default::default()
+        };
+        let mut kept = Index::default();
+        kept.update(&snapshot, false);
+        let started = |kept: &Index| {
+            kept.rooms()
+                .map(|room| room.voice_started)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            started(&kept),
+            [Some(100), None],
+            "an empty channel has none"
+        );
+
+        // A new start time alone makes the server's rooms again.
+        let restarted = Snapshot {
+            voice_started: Arc::new([("11".to_owned(), 200)].into()),
+            ..snapshot.clone()
+        };
+        kept.update(&restarted, false);
+        assert_eq!(started(&kept), [Some(200), None]);
     }
 
     #[test]

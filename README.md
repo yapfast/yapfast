@@ -102,7 +102,9 @@ Voice channels and DM calls, with mute, deafen, a volume for each person,
 noise suppression, echo removal, and a voice gate you can tune, or
 push-to-talk on any key you like, held in any app. Go Live, watch other
 people's streams, turn on your camera and play the soundboard. The call
-stays up while you read other channels.
+stays up while you read other channels, busy voice channels say how long
+their call has gone on, and pointing at a Discord voice channel shows who is
+in it, who is live and whose camera is on.
 
 The noise suppression could be better, though. Know an open source one that
 does a better job? PLEASE tell me.
@@ -140,6 +142,10 @@ does, and names games Yapfast doesn't know. See
 [game detection](docs/discord/people.md#game-detection) and
 [Rich Presence](docs/discord/people.md#linux-rich-presence).
 
+What your linked Spotify account plays shows as "Listening to Spotify" with only
+Yapfast open, from any player, as Discord's own "Display Spotify as your status"
+setting says. See [Spotify](docs/discord/people.md#listening-to-spotify).
+
 <p align="center">
   <img src="docs/images/features/playing.webp" width="260" alt="A profile card saying Playing Deadlock, with the game's icon.">
 </p>
@@ -164,8 +170,13 @@ interested. Folders show up as they do in Discord.
 - **Servers, channels, DMs and group DMs**, all live, with member lists. Pin,
   mute or close a DM from its menu, leave a group DM, and accept or ignore
   message requests.
-- **Messages** you can send, reply to, edit, react to, pin, forward and attach
-  files to, with Markdown, embeds, custom emoji, stickers and spoilers.
+- **Messages** you can send, reply to, edit, react to, pin, forward, mark
+  unread, copy a link to and attach files to, with Markdown, embeds, custom emoji, stickers and spoilers. Bots'
+  buttons, dropdown menus and forms work too, radio buttons, checkboxes and
+  file uploads included, and so do apps' slash commands: type `/`, pick one
+  and fill in its options, files and autocomplete included; an app's answer
+  says who used which command. Apps' message and user commands are under Apps
+  in a message's or a person's menu.
   Discord's own links to servers, channels, messages and profiles open in
   Yapfast, including one handed to it by the desktop.
 - **Threads**: start one from a message, browse a channel's threads, join or

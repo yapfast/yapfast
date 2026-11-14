@@ -44,6 +44,9 @@ pub enum MenuChoice {
     /// Mute a Discord DM for one of [`MUTE_TIMES`], or unmute it.
     Mute,
     Unmute,
+    /// Run an app's user command on them, from a submenu of those the open
+    /// room's command index offers; see `commands.rs`.
+    Apps,
     /// Copy a link to it that its network's apps open.
     CopyLink,
     /// Copy its id as its network knows it.
@@ -927,6 +930,7 @@ impl Application {
             .flatten();
         // Messages after the last one read are new.
         let seen = room.last_read.clone();
+        self.held_unread.take_if(|held| *held != id);
         // Where the history goes back to, before the room replaces a screen.
         if !self.state.nav_walking {
             let previous = self.state.place();
@@ -984,6 +988,8 @@ impl Application {
             self.state.messages = shown.messages;
             self.state.members = shown.members;
             self.state.room_ready = true;
+            // Its commands' rows as they are now, not as they were.
+            self.show_sent_commands();
         }
         self.state.selection_version = self.state.selection_version.wrapping_add(1);
         // Typing is followed only in the open conversation, so what's known of others is stale.
@@ -1067,7 +1073,16 @@ impl Application {
         effects
     }
 
+    /// Leaving a channel or thread marked unread lets it be read again.
+    pub(super) fn let_go_unread(&mut self) {
+        let aside = self.state.aside.as_ref().map(|aside| &aside.room);
+        let selected = self.state.selected.as_ref();
+        self.held_unread
+            .take_if(|held| Some(&*held) != selected && Some(&*held) != aside);
+    }
+
     fn close_room(&mut self) -> Vec<Effect> {
+        self.held_unread = None;
         let mut effects = self.close_threads();
         effects.extend(self.close_forum());
         self.remember_view();

@@ -1,0 +1,26 @@
+import { Theme, Middle } from "../theme.slint";
+
+// Which settings are new to this person, answered by src/ui/new_tags.rs: a
+// setting is new until they have looked at the page it is on. To tag a new
+// setting, list its key in NEW in that file and give its row `new-key`.
+export global NewTags {
+    /// Counts up when what is new changes, so every row asks again.
+    in property <int> revision;
+    /// Whether the setting with this key is new; pass `revision` so a row
+    /// follows the answer.
+    pure callback is-new(string, int) -> bool;
+    /// Whether anything in this Settings section is new.
+    pure callback section-new(int, int) -> bool;
+    /// Settings left a section, so what was new in it has been seen.
+    callback left(int);
+}
+
+// The small marigold NEW that follows a new setting's name.
+export component NewTag inherits Rectangle {
+    width: tag-text.preferred-width + 10px; height: 16px; border-radius: 4px; background: Theme.accent;
+    accessible-role: text; accessible-label: "New";
+    tag-text := Text {
+        text: "NEW"; color: Theme.on-accent; font-size: 10px; font-weight: 800; letter-spacing: 0.4px;
+        horizontal-alignment: center; vertical-alignment: center;
+    }
+}

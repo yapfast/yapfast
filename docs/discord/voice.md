@@ -89,6 +89,48 @@ Opus comes from the libopus inside Yapfast's libwebrtc archive, called directly
 libopus of its own: two copies of the same symbols risk a clash when
 linking, particularly with MSVC on Windows.
 
+## How long a channel's call has gone on
+
+As in Discord's client, a voice channel with people in it says in the
+channel list how long its call has gone on, counted from when its first
+person joined: `<1m`, `42m`, `1h 05m`, `2d 3h`. Discord keeps that time,
+not Yapfast. Opening a server asks for its voice channels' start times with
+op 43 (Request Channel Info, `fields: ["status", "voice_start_time"]`, the
+web client's own request, whose statuses Yapfast doesn't use), once a
+session, and again when the server comes back from an outage or is joined
+again; a new session asks again only for the server on screen, and the
+others as they're opened. Discord answers with CHANNEL_INFO, which lists the
+server's channels with a time on each busy one; a voice channel without one
+is quiet. Then it sends VOICE_CHANNEL_START_TIME_UPDATE when a channel's
+call starts or ends.
+CHANNEL_INFO is documented with an ISO 8601 time and the update with Unix
+seconds, so the tracker reads either. A channel that empties stops showing
+its time at once, though Discord's word that its call ended may come after.
+
+The time is to the minute, and may run a little over a minute behind, so
+the list redraws once a minute rather than each second. It reads
+`ActivityClock`, the window's one clock, which ticks every 15 seconds while
+a busy channel's row shows one and nothing else needs it, once a second
+while a profile times an activity, and not at all otherwise; the rows read
+its minute, which changes only as the minute turns.
+
+## Who is in a voice channel
+
+Discord reports who is in every voice channel, and the channel list shows
+them under each one without joining it. As in Discord's client, pointing at
+a busy voice channel's row also opens a card beside it: a line summing the
+channel up, "3 people · 1 live · 1 camera", then each person with their
+camera and LIVE marks, the first eight and how many more. It comes from the
+voice states the gateway already sent (`self_stream`, `self_video`), so it
+asks Discord nothing; `voice_roster` in yapfast-core counts them. This
+account on another client is dimmed there without its marks, as under the
+row. The card follows the channel while it shows, moving with its row as
+people above join or leave. It goes as the pointer leaves the row, and stays
+away after a click, a drag or the row's menu until the pointer comes back; it goes too as
+the list scrolls or shows another server, as a dialog, the quick switcher
+or a ringing call covers the window, and as its channel empties, is deleted
+or is filtered out by the channel search.
+
 ## The call's channel line
 
 As in Discord's voice panel, the dock's line under the status ("gen ·
@@ -166,7 +208,11 @@ connection carrying video with DAVE. It also leaves one libopus, libwebrtc's.
 
 A call's connection sends Opus stereo at 128 kbit/s in its music mode, 20 ms
 a packet, with five silent frames when the microphone pauses, as Discord's
-clients do. It marks speaking with op 5 when it starts. The RTP timestamp
+clients do. It marks speaking with op 5 when it starts. A tick with less than
+20 ms of the microphone waiting, as when the microphone's thread is held up,
+sends nothing, and what waited goes in the next packet: others' clients
+conceal the missing one, which sounds smoother than a frame cut short with
+silence. The RTP timestamp
 goes on 20 ms every tick, sending or not, as a microphone's clock does.
 WebRTC's jitter buffer (NetEq), which Discord's clients play others through,
 compares packets' arrival times with their timestamps, so with a timestamp
@@ -194,7 +240,13 @@ outside a transition, plays as nothing rather than as a lost frame to
 conceal. NetEq plays by timestamp, so Discord's clients never conceal those
 frames. Some senders' streams carry such packets between their sealed frames,
 one for every frame or bursts of 50 at once, and counting each one as lost
-played those speakers at half speed or cut them out. The log line "dropping a
+played those speakers at half speed or cut them out. A dropped packet that
+held 20 ms of its own, though, its RTP timestamp the one that follows what
+played and the next packet to play's later, is concealed in its place, as
+NetEq conceals it: played from the next packet instead, everything after
+came 20 ms early and the cushion against late packets ran out. Dropped
+packets alone never start a speaker who has stopped, however many pile up,
+as from someone whose frames stopped decrypting. The log line "dropping a
 speaker's audio" gives the first such packet's size and Opus TOC byte. After
 an upgrade from transport-only encryption, unencrypted frames pass for 10 s,
 libdave's transition expiry, and all along a pending downgrade.
@@ -207,9 +259,11 @@ any frame once four more wait. The skipped frame fades into the next over
 frames under -40 dBFS as quiet, cut the end of words: the first quiet frame
 after a second of speech is usually a word dying away.
 
-Before a tick plays, it reads every packet waiting in the socket. After a
-stall, the ticks missed run at once, and would otherwise run before those
-packets were read, concealing audio that had come.
+Before a tick plays, it reads the packets waiting in the socket, up to 64 of
+them and for at most 2 ms; what's left is read between ticks. After a stall,
+the ticks missed run at once, and would otherwise run before those packets
+were read, concealing audio that had come. The 2 ms keeps the reading from
+holding up the next tick's microphone, whatever a packet costs to read.
 
 The mix goes through a queue of up to four frames to the speakers' thread,
 which keeps 60 ms queued at the device, and skips a frame quieter than
@@ -221,8 +275,25 @@ threads do, so a game using every core doesn't hold them up past the 40 ms
 the speakers have queued. On Linux they ask for `SCHED_FIFO` at priority 10,
 below PipeWire's, which works where the user's limits allow real-time
 priority, as PipeWire's set them for its group; otherwise they stay as they
-were. The microphone's thread, which runs the noise suppressor, stays at
-normal priority.
+were. The microphone's thread, which runs the noise suppressor, raises its
+priority a step below theirs (`audio_io::raise_capture_priority`): MMCSS's
+"Audio" task on Windows, `SCHED_FIFO` at 9 on Linux. Above every ordinary
+thread, a stream's x264 encoder or a game on a weak processor doesn't hold it
+up past the microphone's buffer, which others hear as a robotic voice; see
+[Microphone](#microphone) for how it catches up when it's held up all the
+same. Each thread logs at info level, once as it starts, whether it was
+raised ("an audio thread raised its priority", with `thread` `call`,
+`speakers` or `microphone`) or why not. `YAPFAST_VOICE_NO_PRIORITY` leaves
+them at normal priority (see [Troubleshooting](#troubleshooting)).
+
+While a call goes on, Yapfast holds `audio_io::FullSpeed`: on Windows the
+process opts out of power throttling (`SetProcessInformation` with
+`ProcessPowerThrottling`, clearing `PROCESS_POWER_THROTTLING_EXECUTION_SPEED`
+and `PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION`), as Windows 11 may
+otherwise run a minimized or hidden window's process at EcoQoS, on efficient
+cores at a low clock, and asks for a 1 ms timer (`timeBeginPeriod`), so the
+call's 20 ms ticks come on time rather than on Windows' 15.6 ms clock. The call
+ending gives both back. Linux has neither.
 
 Before it selects the protocol, a connection, a call's or a stream's, learns
 its public address and port with UDP address discovery: a 74-byte ask, which
@@ -464,6 +535,22 @@ DeepFilterNet unless RNNoise was. A Yapfast call has no such button, as WebRTC
 suppresses its noise. A
 call going on switches at its next block, after DeepFilterNet's 0.2 s load if
 switching to it.
+
+The microphone's thread keeps an estimate of how much audio waits in the
+microphone's buffer (`Pace` in `discord_audio.rs`): a read that waits found
+it empty, and one that doesn't took a block of what waited while the last
+block was processed. Once 40 ms waits, past what a device's larger packets
+leave, DeepFilterNet runs only its encoder, as in a pause, but passes the
+block as it came, at its usual delay, until less than a block waits. That
+takes about a quarter of the time, so a thread held up 60 ms catches up in
+about six blocks, rather than losing audio. Those blocks go out with no
+noise suppressed, and the gate still decides whether they're sent: 60 ms of
+background noise between suppressed audio, where a machine always too slow
+for DeepFilterNet would flicker between the two.
+Falling behind and catching up log at debug level with counts, as does
+Windows saying the microphone lost audio before it was read
+(`AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY`).
+
 Muting closes the microphone, but the call's microphone thread,
 `yapfast-discord-in`, waits with the suppressor until the call ends, 39 MiB
 for DeepFilterNet, so unmuting or switching microphones doesn't load it
@@ -619,3 +706,36 @@ the network runtime. The ignored tests above, and
 `push_to_talk_sends_only_while_the_key_is_held` against the fake Discord, which
 checks that beeps with the key up send nothing and with it held do, run by
 hand; see their comments for what each needs.
+
+## Troubleshooting
+
+`YAPFAST_VOICE_NO_PRIORITY` leaves audio threads at the priority they start
+with, to tell without another build whether raising them is what makes a
+machine's calls worse: `1` or `all` for every one, or a comma-separated list
+of `call` (the call's thread, which sends the microphone and decodes and
+mixes everyone), `speakers` (the thread that plays the mix) and
+`microphone` (the thread that reads the microphone and suppresses its
+noise). It's read as
+each thread starts, so it applies from the next call. On Windows, for a run
+from a command prompt:
+
+```
+set YAPFAST_VOICE_NO_PRIORITY=call
+yapfast.exe
+```
+
+The log says for each thread whether it was raised: "an audio thread raised
+its priority" or "an audio thread stays at normal priority", with the
+reason.
+
+With `YAPFAST_LOG=yapfast_discord::call_connection=debug`, the call's thread
+sums up its audio every 5 s in one line, "the call's audio over the last
+5 s", counted as it goes without logging anything else: `ticks`;
+`mic_frames`, ticks that played the microphone, of which `mic_underfilled`
+had less than 20 ms of it waiting and `mic_empty` none, and sent nothing; `mic_fewest`, the fewest samples
+waiting as a frame was taken, and `mic_dropped`, samples the microphone's
+buffer dropped as too old (more than 250 ms waiting); `late_p99_us` and
+`late_most_us`, how late ticks came; `batch_most` and `batch_longest_us`, the
+most datagrams a tick read before playing and the longest that took;
+`speakers`, and the frames they `skipped` (to cut delay) and `concealed`;
+and `dave_dropped`, audio packets DAVE dropped.
