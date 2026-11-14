@@ -454,4 +454,8 @@ fn macos_native() {
     ] {
         println!("cargo:rustc-link-lib=framework={framework}");
     }
+    // Load all Objective-C classes and categories from static archives (e.g.
+    // libwebrtc.a's NSString+StdString / RTC_* categories) so selectors like
+    // +[NSString stringForStdString:] are not stripped by ld64.
+    println!("cargo:rustc-link-arg=-Wl,-ObjC");
 }
