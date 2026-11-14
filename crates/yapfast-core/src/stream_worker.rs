@@ -356,6 +356,15 @@ pub enum Report {
 
 /// Runs this process as a stream worker until its job ends.
 pub fn run() -> Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        unsafe extern "C" {
+            fn yapfast_macos_hide_worker_from_dock();
+        }
+        // SAFETY: called once on the worker's main thread before any Cocoa or
+        // ScreenCaptureKit call so macOS does not show a bouncing Dock icon.
+        unsafe { yapfast_macos_hide_worker_from_dock() };
+    }
     // The stream connection uses TLS; nothing else here has started it.
     let _ = crate::init_tls();
     let mut output = std::io::stdout();

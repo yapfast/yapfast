@@ -79,11 +79,26 @@ fn main() {
         println!("cargo:rustc-link-lib=framework=CoreMedia");
         println!("cargo:rustc-link-lib=framework=CoreVideo");
         println!("cargo:rustc-link-lib=framework=Foundation");
+
+        cc::Build::new()
+            .file("native/macos_worker.m")
+            .flag("-fobjc-arc")
+            .warnings(true)
+            .compile("yapfast_macos_worker");
+        println!("cargo:rustc-link-lib=framework=AppKit");
     }
     println!("cargo::rustc-check-cfg=cfg(hwenc)");
     println!("cargo::rustc-check-cfg=cfg(hevcdec)");
     if std::env::var_os("CARGO_FEATURE_DISCORD").is_none() {
         return;
+    }
+    if target_os == "macos" && std::env::var("DEP_FFMPEG_ENCODERS").as_deref() != Ok("1") {
+        cc::Build::new()
+            .file("native/macos_hevc.c")
+            .warnings(true)
+            .compile("yapfast_macos_hevc");
+        println!("cargo:rustc-link-lib=framework=VideoToolbox");
+        println!("cargo:rustc-cfg=hevcdec");
     }
     // FFmpeg's hardware encoders and HEVC decoder, where ffmpeg-src builds
     // them: hwenc.c and hevc.c see only their headers, with FFmpeg's names
