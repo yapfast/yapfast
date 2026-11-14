@@ -178,6 +178,8 @@ impl App {
                         danger: false,
                         slot: true,
                         disabled: false,
+                        subtitle: None,
+                        check: crate::controls::Check::None,
                     },
                     Light::Pointer,
                     Message::Mfa(Event::Choose(Some(*method))),

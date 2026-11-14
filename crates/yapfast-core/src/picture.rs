@@ -224,9 +224,23 @@ static FRAME_WAKE: OnceLock<fn()> = OnceLock::new();
 
 /// Calls `wake` each time any feed has a new frame for the UI to take, from
 /// the thread that made it: a UI that draws only when told can wait for
-/// frames rather than look for them.
+/// frames rather than look for them. A stream worker's frames wake it too,
+/// from the thread that reads the worker's reports (see
+/// [`crate::frames`]).
 pub fn set_frame_wake(wake: fn()) {
     let _ = FRAME_WAKE.set(wake);
+}
+
+/// Whether the UI asked to be woken for each frame.
+pub(crate) fn wakes_for_frames() -> bool {
+    FRAME_WAKE.get().is_some()
+}
+
+/// Tells the UI a frame is there to take, if it asked.
+pub(crate) fn frame_made() {
+    if let Some(wake) = FRAME_WAKE.get() {
+        wake();
+    }
 }
 
 fn make_frame(width: u32, height: u32) -> Box<dyn FrameBuffer> {
@@ -385,9 +399,7 @@ impl Feed {
                 buffers.give_back(older);
             }
         }
-        if let Some(wake) = FRAME_WAKE.get() {
-            wake();
-        }
+        frame_made();
     }
 
     /// Writes each picture it's given into this feed, at the size it shows.

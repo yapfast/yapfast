@@ -22,7 +22,6 @@ use yapfast_core::application::Navigation;
 use crate::{
     after,
     app::{App, Message, Messages},
-    call::Focus,
     client::REPORT_EVERY,
     looks::{self, MemberLine},
     members::{PITCH, TOP},
@@ -256,25 +255,7 @@ impl App {
         for converted in self.scaled.borrow_mut().values_mut() {
             converted.prune(0);
         }
-        // A stream starts large, and leaves when watching it stops, as the
-        // Slint client's `show_stage`.
-        let watching = self
-            .client
-            .state()
-            .voice
-            .watching
-            .as_ref()
-            .map(|watching| watching.user.clone());
-        if watching != self.watched {
-            if let Some(user) = &watching {
-                self.focus = Some(Focus::Stream(user.clone()));
-            } else if matches!(&self.focus, Some(Focus::Stream(user)) if self.watched.as_ref() == Some(user))
-            {
-                self.focus = None;
-            }
-            self.watched = watching;
-        }
-        self.place_videos();
+        self.call_sync();
         self.picker_sync();
         self.person_sync();
         tasks.push(self.ask());

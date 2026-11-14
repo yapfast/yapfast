@@ -5,8 +5,7 @@
 
 use slint::winit_030::winit::window::WindowAttributes;
 
-/// The window's app ID on Linux, and the name of its desktop entry and icon.
-pub const APP_ID: &str = "io.github.yapfast.Yapfast";
+pub use crate::APP_ID;
 
 /// Gives each window Slint makes the icon.
 pub fn attributes(attributes: WindowAttributes) -> WindowAttributes {

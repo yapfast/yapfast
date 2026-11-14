@@ -94,6 +94,8 @@ impl App {
                     danger: danger(choice),
                     separated,
                     disabled: !acts(choice),
+                    subtitle: None,
+                    check: crate::controls::Check::None,
                 }
             })
             .collect();
@@ -337,6 +339,8 @@ impl App {
                     danger: false,
                     slot: true,
                     disabled: false,
+                    subtitle: None,
+                    check: crate::controls::Check::None,
                 },
                 Light::Pointer,
                 Message::Person(Event::Tick),
@@ -371,6 +375,8 @@ impl App {
                 danger: false,
                 slot: true,
                 disabled: false,
+                subtitle: None,
+                check: crate::controls::Check::None,
             },
             Light::Pointer,
             Message::Person(Event::Choose(index)),
@@ -542,7 +548,7 @@ fn span(seconds: u32) -> String {
 }
 
 /// A destructive choice, in the danger colours.
-fn danger(choice: MenuChoice) -> bool {
+pub(crate) fn danger(choice: MenuChoice) -> bool {
     matches!(
         choice,
         MenuChoice::Unfriend
@@ -560,7 +566,7 @@ fn danger(choice: MenuChoice) -> bool {
 
 /// Whether this client acts on a choice of someone's menu yet; what opens
 /// a submenu, a call's controls and ownership's transfer show greyed.
-fn acts(choice: MenuChoice) -> bool {
+pub(crate) fn acts(choice: MenuChoice) -> bool {
     matches!(
         choice,
         MenuChoice::Profile
@@ -597,7 +603,7 @@ fn acts(choice: MenuChoice) -> bool {
 /// stands with them; then the server's nickname and roles; then what the
 /// call and moderation offer; Copy ID last. What a DM adds as a
 /// conversation comes before them all.
-fn discord_rank(choice: MenuChoice) -> u8 {
+pub(crate) fn discord_rank(choice: MenuChoice) -> u8 {
     match choice {
         MenuChoice::MarkRead | MenuChoice::JoinVoice | MenuChoice::OpenChat => 0,
         MenuChoice::Profile => 1,

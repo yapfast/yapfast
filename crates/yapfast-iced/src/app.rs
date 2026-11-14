@@ -23,7 +23,6 @@ use yapfast_core::{
 
 use crate::{
     after,
-    call::Focus,
     client::Client,
     control::{self, Command},
     controls::outside,
@@ -177,15 +176,10 @@ pub enum Message {
     Reactions(crate::reactions::Event),
     /// A second passed while a profile times an activity.
     Second,
-    /// New video frames; the call's Join button; watch someone's stream,
-    /// or stop; a tile clicked (shown large), or beside the tiles (none);
-    /// leave the call.
+    /// New video frames.
     Frames(Vec<Fresh>),
-    JoinVoice(String),
-    Watch(String),
-    StopWatching,
-    FocusTile(Option<usize>),
-    LeaveCall,
+    /// Something done to the call or in it (`call/`).
+    Call(crate::call::Event),
 }
 
 pub struct App {
@@ -341,13 +335,18 @@ pub struct App {
     /// The person dialog's field and tick.
     pub person: crate::person::Dialog,
     /// Video: what [`video::frames`] looks at; the newest frame of each
-    /// camera (by participant id) and of the watched stream ("stream:" and
-    /// the streamer's id), with its size; the tile shown large, and whose
-    /// stream is watched, as the Slint client keeps them.
+    /// camera (by participant id), of the watched stream ("stream:" and
+    /// the streamer's id), of this account's screen and of a message's
+    /// video, with its size.
     pub video: Arc<video::Shared>,
     pub frames: HashMap<String, (Handle, (u32, u32))>,
-    pub focus: Option<Focus>,
-    pub watched: Option<String>,
+    /// The call's own state: what's large, what's open, the corner.
+    pub call: crate::call::Call,
+    /// A message's video full screen; the size its cell asked for its
+    /// frames at; the pointer on its volume's button or slider.
+    pub clip_full: bool,
+    pub clip_cell: (u32, u32),
+    pub clip_volume: u8,
     /// The colours every part of the window paints with, and the themes
     /// the data folder offers.
     pub theme: Theme,
@@ -374,6 +373,8 @@ impl App {
         for action in layout.actions() {
             client.dispatch(action);
         }
+        // How calls send and play, as Voice's settings keep it.
+        layout.voice.apply();
         let mut app = Self {
             client,
             window: Size::new(width, height),
@@ -464,8 +465,10 @@ impl App {
             person: Default::default(),
             video: Default::default(),
             frames: HashMap::new(),
-            focus: None,
-            watched: None,
+            call: Default::default(),
+            clip_full: false,
+            clip_cell: (0, 0),
+            clip_volume: 0,
             theme,
             themes,
             sign_in: SignIn::default(),
@@ -474,6 +477,9 @@ impl App {
             mfa_shown: None,
             wait: mfa::Wait::default(),
         };
+        if app.layout.voice.noise_suppression != yapfast_core::noise::Suppressor::Off {
+            app.call.noise_last = app.layout.voice.noise_suppression;
+        }
         // Started on a saved account: see `SignIn::starting`.
         app.sign_in.starting = !app.workspace() && app.client.state().busy;
         let frames = Task::batch([
@@ -674,29 +680,7 @@ impl App {
                 self.frames_found(found);
                 Task::none()
             }
-            Message::JoinVoice(id) => {
-                self.client.dispatch(Action::RequestJoinVoice(id));
-                self.sync()
-            }
-            Message::Watch(user) => {
-                self.client
-                    .dispatch(Action::Voice(yapfast_core::voice::Command::Watch(user)));
-                self.sync()
-            }
-            Message::StopWatching => {
-                self.client
-                    .dispatch(Action::Voice(yapfast_core::voice::Command::StopWatching));
-                self.sync()
-            }
-            Message::FocusTile(slot) => {
-                self.focus_tile(slot);
-                Task::none()
-            }
-            Message::LeaveCall => {
-                self.client
-                    .dispatch(Action::Voice(yapfast_core::voice::Command::Leave));
-                self.sync()
-            }
+            Message::Call(event) => self.call_event(event),
         }
     }
 
@@ -747,6 +731,13 @@ impl App {
         }
         if self.client.state().confirm_delete.is_some() {
             return self.confirm_key(named);
+        }
+        if self.client.state().switch_voice.is_some() {
+            return match named {
+                Some(key::Named::Escape) => self.call_event(crate::call::Event::Switch(false)),
+                Some(key::Named::Enter) => self.call_event(crate::call::Event::Switch(true)),
+                _ => Task::none(),
+            };
         }
         if self.client.state().person_dialog.is_some() {
             return self.person_key(named);
@@ -801,6 +792,19 @@ impl App {
         if self.menu.is_some() {
             self.menu = None;
             return self.refocus();
+        }
+        if self.client.state().switch_voice.is_some() {
+            return self.call_event(crate::call::Event::Switch(false));
+        }
+        if self.call.popup.is_some() {
+            self.close_popup();
+            return self.refocus();
+        }
+        if self.clip_full {
+            return self.clip_event(crate::playback::Clip::Full(false));
+        }
+        if self.full_shown() {
+            return self.call_event(crate::call::Event::Full(false));
         }
         if self.picker.is_some() {
             return self.picker_event(picker::Event::Field(field::Event::Escape));
@@ -891,6 +895,31 @@ impl App {
         if self.profile_ticks() || self.active_now_ticks() {
             subscriptions.push(iced::time::every(Duration::from_secs(1)).map(|_| Message::Second));
         }
+        // The microphone's level while the input menu shows it, the call's
+        // clock, and the corner picture's drag.
+        if self.metering() {
+            subscriptions.push(
+                iced::time::every(Duration::from_millis(50))
+                    .map(|_| Message::Call(crate::call::Event::Meter)),
+            );
+        }
+        if self.call.since.is_some() {
+            subscriptions.push(
+                iced::time::every(Duration::from_secs(1))
+                    .map(|_| Message::Call(crate::call::Event::Second)),
+            );
+        }
+        if self.call.grab.is_some() {
+            subscriptions.push(iced::event::listen_with(|event, _, _| match event {
+                iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
+                    Some(Message::Call(crate::call::Event::DragTo(position)))
+                }
+                iced::Event::Mouse(iced::mouse::Event::ButtonReleased(
+                    iced::mouse::Button::Left,
+                )) => Some(Message::Call(crate::call::Event::Drop)),
+                _ => None,
+            }));
+        }
         if let Some(path) = control::path() {
             subscriptions.push(
                 Subscription::run_with(path, |path| control::commands(path.clone()))
@@ -910,9 +939,13 @@ impl App {
         // The rail and the sidebar on the rail's ground, the account's card
         // across the foot of both.
         let rail = self.theme.rail;
+        let mut foot = column![];
+        if let Some(dock) = self.dock_view() {
+            foot = foot.push(dock);
+        }
         let navigation = container(column![
             row![self.rail_view(), self.sidebar_view()].height(Length::Fill),
-            self.account_view(),
+            foot.push(self.account_view()),
         ])
         .width(crate::rail::WIDTH + crate::sidebar::WIDTH)
         .height(Length::Fill)
@@ -957,6 +990,17 @@ impl App {
             layers = layers
                 .push(outside(Message::Picker(picker::Event::Close), false))
                 .push(place);
+        }
+        for layer in self.call_layers() {
+            layers = layers.push(layer);
+        }
+        if let Some(viewer) = self.clip_viewer() {
+            layers = layers.push(viewer);
+        }
+        if let Some(popup) = self.call_popup_view() {
+            layers = layers
+                .push(outside(Message::Call(crate::call::Event::Close), false))
+                .push(popup);
         }
         if let Some(menu) = self.menu_view() {
             layers = layers.push(outside(Message::CloseMenu, false)).push(menu);

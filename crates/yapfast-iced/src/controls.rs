@@ -8,7 +8,7 @@
 
 use iced::{
     Alignment, Border, Color, Element, Length, Shadow, Vector,
-    widget::{Id, Space, button, container, mouse_area, opaque, row, text, text_input},
+    widget::{Id, Space, button, column, container, mouse_area, opaque, row, text, text_input},
 };
 
 use crate::{
@@ -377,6 +377,21 @@ pub struct Item<'a> {
     pub slot: bool,
     /// Shown greyed, not to be chosen.
     pub disabled: bool,
+    /// A second line under it, in the muted ink: what a device row has
+    /// chosen, what a choice does.
+    pub subtitle: Option<std::borrow::Cow<'a, str>>,
+    pub check: Check,
+}
+
+/// What marks a row as chosen, as the Slint client's `MenuItem`: nothing,
+/// a tick in the accent in its icon's place with its label bold (the
+/// device in use), or a checkbox at its end.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Check {
+    #[default]
+    None,
+    Current,
+    Box(bool),
 }
 
 /// Which light a menu row shows: under the pointer, or only while the menu
@@ -430,13 +445,35 @@ impl App {
             _ => ink(lit),
         };
         let slot = ITEM_ICON as f32;
+        let current = item.check == Check::Current;
+        let tall = item.subtitle.is_some();
         let mut face = row![].spacing(8).align_y(Alignment::Center);
         match item.icon {
+            _ if current => face = face.push(self.glyph(Icon::Check, ITEM_ICON, theme.accent)),
             Some(icon) => face = face.push(self.glyph(icon, ITEM_ICON, icon_ink)),
             None if item.slot => face = face.push(Space::new().width(slot).height(slot)),
             None => {}
         }
-        let face = face.push(text(item.label).size(14).font(MEDIUM));
+        let label = text(item.label)
+            .size(14)
+            .font(if current { BOLD } else { MEDIUM })
+            .wrapping(text::Wrapping::None);
+        let words: Element<'a, Message> = match item.subtitle {
+            Some(subtitle) => column![
+                label,
+                text(subtitle)
+                    .size(12)
+                    .color(theme.muted)
+                    .wrapping(text::Wrapping::None)
+            ]
+            .into(),
+            None => label.into(),
+        };
+        let mut face = face.push(container(words).width(Length::Fill).clip(true));
+        if let Check::Box(ticked) = item.check {
+            face = face.push(self.checkbox(ticked, lit));
+        }
+        let height = if tall { 44.0 } else { ITEM };
         let face = container(face)
             .height(Length::Fill)
             .align_y(Alignment::Center);
@@ -455,7 +492,7 @@ impl App {
         button(face)
             .padding([0, 8])
             .width(Length::Fill)
-            .height(ITEM)
+            .height(height)
             .on_press_maybe((!item.disabled).then_some(press))
             .style(move |_, status| {
                 let on = match light {
@@ -468,6 +505,33 @@ impl App {
                     border: Border::default().rounded(4),
                     ..Default::default()
                 }
+            })
+            .into()
+    }
+}
+
+impl App {
+    /// A menu row's checkbox, as the Slint client's: 18 px, the accent's
+    /// with a tick in it while ticked, else an outline in the muted ink, or
+    /// the text's while its row is lit.
+    pub fn checkbox<'a>(&self, ticked: bool, lit: bool) -> Element<'a, Message> {
+        let theme = &self.theme;
+        let (accent, edge) = (theme.accent, if lit { theme.text } else { theme.muted });
+        let tick: Element<'a, Message> = if ticked {
+            self.glyph(Icon::Check, 12, theme.on_accent).into()
+        } else {
+            Space::new().into()
+        };
+        container(tick)
+            .center(18)
+            .style(move |_| container::Style {
+                background: ticked.then(|| accent.into()),
+                border: Border {
+                    color: if ticked { Color::TRANSPARENT } else { edge },
+                    width: if ticked { 0.0 } else { 1.5 },
+                    radius: 4.0.into(),
+                },
+                ..Default::default()
             })
             .into()
     }
@@ -525,4 +589,313 @@ pub fn count_pill<'a>(
             .into(),
         None => pill.into(),
     }
+}
+
+/// Discord's red LIVE tag, 16 px tall, as the Slint client's `LivePill`:
+/// beside someone in a voice channel, on a tile's name, in the dock. With
+/// `press` it's a button that watches the stream, lit under the pointer.
+pub fn live_pill<'a>(theme: &Theme, press: Option<Message>) -> Element<'a, Message> {
+    let (rest, lit) = (theme.danger, theme.danger_hover);
+    let face = container(text("LIVE").size(10).font(BOLD).color(theme.on_danger))
+        .padding([0, 5])
+        .height(16)
+        .align_y(Alignment::Center);
+    match press {
+        Some(press) => button(face)
+            .padding(0)
+            .on_press(press)
+            .style(move |_, status| button::Style {
+                background: Some(if lights(status) { lit } else { rest }.into()),
+                border: Border::default().rounded(8),
+                ..Default::default()
+            })
+            .into(),
+        None => face.style(move |_| rounded(rest, 8)).into(),
+    }
+}
+
+/// A heading over a group of a menu's choices, as the share menu's
+/// "SCREENS": 12 px bold in the muted ink.
+pub fn heading<'a>(theme: &Theme, label: &'a str, top: f32) -> Element<'a, Message> {
+    container(text(label).size(12).font(BOLD).color(theme.muted))
+        .padding(iced::Padding {
+            top,
+            right: 0.0,
+            bottom: 4.0,
+            left: 8.0,
+        })
+        .into()
+}
+
+/// A volume slider as the Slint client's `VolumeSlider`: its label and the
+/// value as a percentage over a 4 px track, the accent filling it up to a
+/// round handle in the text's colour. Past 100% (a `maximum` over it) it
+/// marks 100% and snaps to it within four points, as Discord's does.
+pub struct Slider<'a> {
+    label: std::borrow::Cow<'a, str>,
+    value: u32,
+    maximum: u32,
+    on_change: Box<dyn Fn(u32) -> Message + 'a>,
+    on_release: Option<Message>,
+}
+
+/// A [`Slider`] for `value` out of `maximum`.
+pub fn slider<'a>(
+    label: impl Into<std::borrow::Cow<'a, str>>,
+    value: u32,
+    maximum: u32,
+    on_change: impl Fn(u32) -> Message + 'a,
+) -> Slider<'a> {
+    Slider {
+        label: label.into(),
+        value: value.min(maximum),
+        maximum,
+        on_change: Box::new(on_change),
+        on_release: None,
+    }
+}
+
+impl<'a> Slider<'a> {
+    /// What's sent when the drag or the keys let go of it, when it's kept.
+    pub fn on_release(mut self, message: Message) -> Self {
+        self.on_release = Some(message);
+        self
+    }
+
+    pub fn view(self, theme: &Theme) -> Element<'a, Message> {
+        let Slider {
+            label,
+            value,
+            maximum,
+            on_change,
+            on_release,
+        } = self;
+        let mark = maximum > 100;
+        let head = row![
+            text(label)
+                .size(13)
+                .font(MEDIUM)
+                .color(theme.secondary)
+                .width(Length::Fill),
+            text(format!("{value}%"))
+                .size(13)
+                .font(MEDIUM)
+                .color(theme.text),
+        ];
+        let (field, accent, knob) = (theme.field, theme.accent, theme.text);
+        let track = iced::widget::slider(0..=maximum, value, move |value| {
+            let value = if mark && value.abs_diff(100) <= 4 {
+                100
+            } else {
+                value
+            };
+            on_change(value)
+        })
+        .step(5u32)
+        .height(18)
+        .style(move |_, _| iced::widget::slider::Style {
+            rail: iced::widget::slider::Rail {
+                backgrounds: (accent.into(), field.into()),
+                width: 4.0,
+                border: Border::default().rounded(2),
+            },
+            handle: iced::widget::slider::Handle {
+                shape: iced::widget::slider::HandleShape::Circle { radius: 7.0 },
+                background: knob.into(),
+                border_width: 0.0,
+                border_color: Color::TRANSPARENT,
+            },
+        });
+        let track = match on_release {
+            Some(message) => track.on_release(message),
+            None => track,
+        };
+        let track: Element<'a, Message> = if mark {
+            // The handle travels the track less its own width; 100% sits
+            // where the handle's middle does there.
+            let secondary = theme.secondary;
+            iced::widget::stack![
+                iced::widget::responsive(move |size| {
+                    let x = 7.0 + (size.width - 14.0) * 100.0 / maximum as f32 - 1.0;
+                    container(bar(secondary, 2, 10))
+                        .padding(iced::Padding {
+                            left: x.max(0.0),
+                            top: 4.0,
+                            ..iced::Padding::ZERO
+                        })
+                        .into()
+                })
+                .height(18),
+                track,
+            ]
+            .into()
+        } else {
+            track.into()
+        };
+        column![head, track].spacing(6).into()
+    }
+}
+
+/// A round control of the call's, as the Slint client's `CallControls`
+/// draw their `IconButton`s: 52 px across on `fill`, its glyph 22 px in
+/// `ink`, lifted under the pointer; its label in a tooltip over it.
+pub fn round_button<'a>(
+    face: crate::widgets::Pic,
+    label: impl text::IntoFragment<'a>,
+    fill: Color,
+    theme: &Theme,
+    message: Option<Message>,
+) -> Element<'a, Message> {
+    let lit = crate::theme::mix(fill, theme.overlay, 0.9);
+    let enabled = message.is_some();
+    let face = button(face.boxed(ROUND))
+        .padding(0)
+        .width(ROUND)
+        .height(ROUND)
+        .on_press_maybe(message)
+        .style(move |_, status| button::Style {
+            background: Some(if enabled && lights(status) { lit } else { fill }.into()),
+            border: Border::default().rounded(ROUND / 2.0),
+            ..Default::default()
+        });
+    iced::widget::tooltip(
+        face,
+        tip(theme, label),
+        iced::widget::tooltip::Position::Top,
+    )
+    .gap(6)
+    .into()
+}
+
+/// A call control's side and its glyph's.
+pub const ROUND: f32 = 52.0;
+pub const ROUND_GLYPH: u32 = 22;
+
+/// A button with its label under it, as the Slint client's `CallButton`
+/// answers a call: a 64 by 48 pill of `fill`, darker under the pointer,
+/// its icon in white.
+pub fn call_button<'a>(
+    face: crate::widgets::Pic,
+    label: &'a str,
+    fill: Color,
+    theme: &Theme,
+    message: Option<Message>,
+) -> Element<'a, Message> {
+    let lit = crate::theme::mix(fill, Color::BLACK, 0.85);
+    let opacity = if message.is_some() { 1.0 } else { 0.5 };
+    let pill = button(face.boxed(Length::Fill))
+        .padding(0)
+        .width(64)
+        .height(48)
+        .on_press_maybe(message)
+        .style(move |_, status| button::Style {
+            background: Some(
+                crate::style::faded(if lights(status) { lit } else { fill }, opacity).into(),
+            ),
+            border: Border::default().rounded(24),
+            ..Default::default()
+        });
+    column![
+        pill,
+        text(label)
+            .size(13)
+            .color(crate::style::faded(theme.secondary, opacity))
+    ]
+    .spacing(6)
+    .align_x(Alignment::Center)
+    .into()
+}
+
+/// One of the dock's wide buttons, as the Slint client's `DockButton`: 32
+/// px tall, its icon in the middle, on the raised ground, the live colour's
+/// wash while what it starts is on; its label in a tooltip.
+pub fn dock_button<'a>(
+    face: crate::widgets::Pic,
+    label: impl text::IntoFragment<'a>,
+    on: bool,
+    theme: &Theme,
+    message: Option<Message>,
+) -> Element<'a, Message> {
+    let (rest, lit) = if on {
+        (
+            crate::style::faded(theme.live, 0.22),
+            crate::style::faded(theme.live, 0.32),
+        )
+    } else {
+        (theme.raised, theme.hover)
+    };
+    let enabled = message.is_some();
+    let face = button(face.boxed(Length::Fill))
+        .padding(0)
+        .width(Length::Fill)
+        .height(32)
+        .on_press_maybe(message)
+        .style(move |_, status| button::Style {
+            background: Some(if enabled && lights(status) { lit } else { rest }.into()),
+            border: Border::default().rounded(8),
+            ..Default::default()
+        });
+    iced::widget::tooltip(
+        face,
+        tip(theme, label),
+        iced::widget::tooltip::Position::Top,
+    )
+    .gap(6)
+    .into()
+}
+
+/// A row of choices, one chosen, as the Slint client's `Choices`: on the
+/// sunken ground, the chosen one raised in the active colour and bold.
+pub fn choices<'a>(
+    theme: &Theme,
+    options: &[&'a str],
+    current: usize,
+    on_choose: impl Fn(usize) -> Message,
+) -> Element<'a, Message> {
+    let mut row = row![].spacing(3).padding(3);
+    for (index, option) in options.iter().enumerate() {
+        let chosen = index == current;
+        let (active, hover) = (theme.active, theme.hover);
+        let (ink, lit_ink) = if chosen {
+            (theme.text, theme.text)
+        } else {
+            (theme.secondary, theme.text)
+        };
+        row = row.push(
+            button(
+                container(
+                    text(*option)
+                        .size(14)
+                        .font(if chosen { BOLD } else { MEDIUM })
+                        .wrapping(text::Wrapping::None),
+                )
+                .center_x(Length::Fill)
+                .height(Length::Fill)
+                .align_y(Alignment::Center),
+            )
+            .padding([0, 4])
+            .width(Length::FillPortion(option.len() as u16 + 6))
+            .height(Length::Fill)
+            .on_press(on_choose(index))
+            .style(move |_, status| {
+                let lit = lights(status);
+                button::Style {
+                    background: if chosen {
+                        Some(active.into())
+                    } else {
+                        lit.then(|| hover.into())
+                    },
+                    text_color: if lit { lit_ink } else { ink },
+                    border: Border::default().rounded(6),
+                    ..Default::default()
+                }
+            }),
+        );
+    }
+    let sunken = theme.sunken;
+    container(row)
+        .height(36)
+        .max_width(360)
+        .style(move |_| rounded(sunken, 8))
+        .into()
 }

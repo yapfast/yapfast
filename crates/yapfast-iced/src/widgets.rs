@@ -2209,3 +2209,428 @@ impl<'a> From<Scrub<'a>> for Element<'a, Message> {
         Element::new(scrub)
     }
 }
+
+// ---------------------------------------------------------------------------
+// What shows under the pointer
+
+/// Its child, with `over` laid on it, in a layer of its own, only while
+/// the pointer is on it (or while `kept`): a tile's buttons, a picture in
+/// picture's title, a video's controls. The pointer coming and going costs
+/// a redraw, not a message.
+pub struct Hover<'a> {
+    base: Element<'a, Message>,
+    over: Element<'a, Message>,
+    kept: bool,
+}
+
+impl<'a> Hover<'a> {
+    pub fn new(
+        base: impl Into<Element<'a, Message>>,
+        over: impl Into<Element<'a, Message>>,
+    ) -> Self {
+        Self {
+            base: base.into(),
+            over: over.into(),
+            kept: false,
+        }
+    }
+
+    /// Shows `over` whether the pointer is on it or not.
+    pub fn kept(mut self, kept: bool) -> Self {
+        self.kept = kept;
+        self
+    }
+}
+
+/// Whether the pointer is on a [`Hover`].
+#[derive(Default)]
+struct Hovered(bool);
+
+impl Hover<'_> {
+    fn shown(&self, tree: &Tree) -> bool {
+        self.kept || tree.state.downcast_ref::<Hovered>().0
+    }
+}
+
+impl Widget<Message, Theme, Renderer> for Hover<'_> {
+    fn size(&self) -> Size<Length> {
+        self.base.as_widget().size()
+    }
+
+    fn tag(&self) -> tree::Tag {
+        tree::Tag::of::<Hovered>()
+    }
+
+    fn state(&self) -> tree::State {
+        tree::State::new(Hovered::default())
+    }
+
+    fn children(&self) -> Vec<Tree> {
+        vec![Tree::new(&self.base), Tree::new(&self.over)]
+    }
+
+    fn diff(&self, tree: &mut Tree) {
+        tree.diff_children(&[&self.base, &self.over]);
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut Tree,
+        renderer: &Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        let base = self
+            .base
+            .as_widget_mut()
+            .layout(&mut tree.children[0], renderer, limits);
+        let size = base.size();
+        let over = self.over.as_widget_mut().layout(
+            &mut tree.children[1],
+            renderer,
+            &layout::Limits::new(Size::ZERO, size),
+        );
+        layout::Node::with_children(size, vec![base, over])
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        renderer: &Renderer,
+        operation: &mut dyn Operation,
+    ) {
+        let mut children = layout.children();
+        let (base, over) = (
+            children.next().expect("base"),
+            children.next().expect("over"),
+        );
+        self.base
+            .as_widget_mut()
+            .operate(&mut tree.children[0], base, renderer, operation);
+        self.over
+            .as_widget_mut()
+            .operate(&mut tree.children[1], over, renderer, operation);
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut Tree,
+        event: &iced::Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        let on = match event {
+            iced::Event::Mouse(mouse::Event::CursorLeft)
+            | iced::Event::Window(window::Event::Unfocused) => Some(false),
+            iced::Event::Mouse(_) => Some(cursor.is_over(layout.bounds())),
+            _ => None,
+        };
+        if let Some(on) = on {
+            let hovered = tree.state.downcast_mut::<Hovered>();
+            if hovered.0 != on {
+                hovered.0 = on;
+                shell.request_redraw();
+            }
+        }
+        let mut children = layout.children();
+        let (base, over) = (
+            children.next().expect("base"),
+            children.next().expect("over"),
+        );
+        if self.shown(tree) {
+            self.over.as_widget_mut().update(
+                &mut tree.children[1],
+                event,
+                over,
+                cursor,
+                renderer,
+                clipboard,
+                shell,
+                viewport,
+            );
+            if shell.is_event_captured() {
+                return;
+            }
+        }
+        self.base.as_widget_mut().update(
+            &mut tree.children[0],
+            event,
+            base,
+            cursor,
+            renderer,
+            clipboard,
+            shell,
+            viewport,
+        );
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &Tree,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &Renderer,
+    ) -> mouse::Interaction {
+        let mut children = layout.children();
+        let (base, over) = (
+            children.next().expect("base"),
+            children.next().expect("over"),
+        );
+        if self.shown(tree) {
+            let interaction = self.over.as_widget().mouse_interaction(
+                &tree.children[1],
+                over,
+                cursor,
+                viewport,
+                renderer,
+            );
+            if interaction != mouse::Interaction::None {
+                return interaction;
+            }
+        }
+        self.base
+            .as_widget()
+            .mouse_interaction(&tree.children[0], base, cursor, viewport, renderer)
+    }
+
+    fn draw(
+        &self,
+        tree: &Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &renderer::Style,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        use iced::advanced::Renderer as _;
+        let mut children = layout.children();
+        let (base, over) = (
+            children.next().expect("base"),
+            children.next().expect("over"),
+        );
+        self.base.as_widget().draw(
+            &tree.children[0],
+            renderer,
+            theme,
+            style,
+            base,
+            cursor,
+            viewport,
+        );
+        if self.shown(tree) {
+            renderer.with_layer(layout.bounds(), |renderer| {
+                self.over.as_widget().draw(
+                    &tree.children[1],
+                    renderer,
+                    theme,
+                    style,
+                    over,
+                    cursor,
+                    viewport,
+                );
+            });
+        }
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut Tree,
+        layout: Layout<'b>,
+        renderer: &Renderer,
+        viewport: &Rectangle,
+        translation: Vector,
+    ) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
+        let shown = self.shown(tree);
+        let mut children = layout.children();
+        let (base, over) = (
+            children.next().expect("base"),
+            children.next().expect("over"),
+        );
+        let (base_tree, over_tree) = tree.children.split_at_mut(1);
+        let mut overlays = Vec::new();
+        if let Some(overlay) = self.base.as_widget_mut().overlay(
+            &mut base_tree[0],
+            base,
+            renderer,
+            viewport,
+            translation,
+        ) {
+            overlays.push(overlay);
+        }
+        if shown
+            && let Some(overlay) = self.over.as_widget_mut().overlay(
+                &mut over_tree[0],
+                over,
+                renderer,
+                viewport,
+                translation,
+            )
+        {
+            overlays.push(overlay);
+        }
+        (!overlays.is_empty())
+            .then(|| iced::advanced::overlay::Group::with_children(overlays).overlay())
+    }
+}
+
+impl<'a> From<Hover<'a>> for Element<'a, Message> {
+    fn from(hover: Hover<'a>) -> Self {
+        Element::new(hover)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Where a button is
+
+/// Its child, noting its bounds in the window into `spot` as a press lands
+/// on it, before the child hears of it: a button that opens a menu above
+/// itself (a device toggle's caret, the call's share button) opens it
+/// there, as the Slint client places its popups by the button's corner.
+pub struct Spot<'a> {
+    child: Element<'a, Message>,
+    spot: &'a std::cell::Cell<Rectangle>,
+}
+
+impl<'a> Spot<'a> {
+    pub fn new(
+        child: impl Into<Element<'a, Message>>,
+        spot: &'a std::cell::Cell<Rectangle>,
+    ) -> Self {
+        Self {
+            child: child.into(),
+            spot,
+        }
+    }
+}
+
+impl Widget<Message, Theme, Renderer> for Spot<'_> {
+    fn size(&self) -> Size<Length> {
+        self.child.as_widget().size()
+    }
+
+    fn children(&self) -> Vec<Tree> {
+        vec![Tree::new(&self.child)]
+    }
+
+    fn diff(&self, tree: &mut Tree) {
+        tree.diff_children(std::slice::from_ref(&self.child));
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut Tree,
+        renderer: &Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        self.child
+            .as_widget_mut()
+            .layout(&mut tree.children[0], renderer, limits)
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        renderer: &Renderer,
+        operation: &mut dyn Operation,
+    ) {
+        self.child
+            .as_widget_mut()
+            .operate(&mut tree.children[0], layout, renderer, operation);
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut Tree,
+        event: &iced::Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        if let iced::Event::Mouse(mouse::Event::ButtonPressed(_)) = event
+            && cursor.is_over(layout.bounds())
+        {
+            self.spot.set(layout.bounds());
+        }
+        self.child.as_widget_mut().update(
+            &mut tree.children[0],
+            event,
+            layout,
+            cursor,
+            renderer,
+            clipboard,
+            shell,
+            viewport,
+        );
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &Tree,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &Renderer,
+    ) -> mouse::Interaction {
+        self.child.as_widget().mouse_interaction(
+            &tree.children[0],
+            layout,
+            cursor,
+            viewport,
+            renderer,
+        )
+    }
+
+    fn draw(
+        &self,
+        tree: &Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &renderer::Style,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        self.child.as_widget().draw(
+            &tree.children[0],
+            renderer,
+            theme,
+            style,
+            layout,
+            cursor,
+            viewport,
+        );
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut Tree,
+        layout: Layout<'b>,
+        renderer: &Renderer,
+        viewport: &Rectangle,
+        translation: Vector,
+    ) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
+        self.child.as_widget_mut().overlay(
+            &mut tree.children[0],
+            layout,
+            renderer,
+            viewport,
+            translation,
+        )
+    }
+}
+
+impl<'a> From<Spot<'a>> for Element<'a, Message> {
+    fn from(spot: Spot<'a>) -> Self {
+        Element::new(spot)
+    }
+}

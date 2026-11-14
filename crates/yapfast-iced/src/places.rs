@@ -64,6 +64,8 @@ impl App {
                     ),
                     separated,
                     disabled: !acts(choice),
+                    subtitle: None,
+                    check: crate::controls::Check::None,
                 }
             })
             .collect();

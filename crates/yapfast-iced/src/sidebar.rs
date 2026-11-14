@@ -983,8 +983,19 @@ impl App {
             bottom: 4.0,
             ..Padding::ZERO
         });
+        // The call this account is in shows who speaks.
+        let voice = &self.client.state().voice;
+        let call = voice.active() && voice.room.as_deref() == Some(room.id.as_str());
         for person in &room.people {
-            people = people.push(self.voice_person(&room.id, person));
+            let live = call
+                .then(|| {
+                    voice
+                        .participants
+                        .iter()
+                        .find(|live| live.person == person.id || live.id == person.id)
+                })
+                .flatten();
+            people = people.push(self.voice_person(&room.id, person, live));
         }
         column![line, people].spacing(GAP).into()
     }
@@ -1249,8 +1260,16 @@ impl App {
     }
 
     /// Someone in a voice channel, under its row: their avatar and name, and
-    /// their camera, LIVE, and mic and headphone marks.
-    fn voice_person<'a>(&'a self, room: &str, person: &'a VoicePerson) -> Element<'a, Message> {
+    /// their camera, LIVE (which watches their stream), and mic and
+    /// headphone marks. In the call this account is in, `live` says who
+    /// speaks, ringed and bold, and who lost their connection, faint. A
+    /// right click opens their voice menu.
+    fn voice_person<'a>(
+        &'a self,
+        room: &str,
+        person: &'a VoicePerson,
+        live: Option<&yapfast_core::voice::Participant>,
+    ) -> Element<'a, Message> {
         let theme = &self.theme;
         let id = format!("person:{room}:{}", person.id);
         let pointed = self.pointed_side.as_deref() == Some(id.as_str());
@@ -1259,12 +1278,44 @@ impl App {
         } else {
             1.0
         };
+        let speaking = live.is_some_and(crate::call::speaking);
+        let ink = if speaking {
+            theme.text
+        } else if live.is_some_and(|live| !live.connected) {
+            theme.muted
+        } else {
+            theme.secondary
+        };
+        let avatar = self.avatar(person.avatar.as_deref(), &person.name, 22.0, 11.0, opacity);
+        // The ring of someone speaking, round the avatar, outside it.
+        let avatar: Element<'a, Message> =
+            if speaking {
+                let ring = theme.live;
+                iced::widget::stack![
+                    avatar,
+                    iced::widget::pin(container(Space::new()).width(28).height(28).style(
+                        move |_| iced::widget::container::Style {
+                            border: iced::Border {
+                                color: ring,
+                                width: 2.0,
+                                radius: 14.0.into(),
+                            },
+                            ..Default::default()
+                        }
+                    ))
+                    .x(-3.0)
+                    .y(-3.0),
+                ]
+                .into()
+            } else {
+                avatar
+            };
         let mut face = row![
-            self.avatar(person.avatar.as_deref(), &person.name, 22.0, 11.0, opacity),
+            avatar,
             text(person.name.as_str())
                 .size(15)
-                .font(MEDIUM)
-                .color(faded(theme.secondary, opacity))
+                .font(if speaking { BOLD } else { MEDIUM })
+                .color(faded(ink, opacity))
                 .wrapping(text::Wrapping::None)
                 .width(Length::Fill),
         ]
@@ -1275,7 +1326,14 @@ impl App {
                 face = face.push(self.glyph(Icon::Video, 16, theme.muted));
             }
             if person.streaming {
-                face = face.push(live_pill(theme));
+                let local = live.is_some_and(|live| live.local);
+                let watch = (!local).then(|| {
+                    Message::Call(crate::call::Event::ShowPerson(
+                        room.to_owned(),
+                        person.id.clone(),
+                    ))
+                });
+                face = face.push(controls::live_pill(theme, watch));
             }
             if person.muted || person.deafened {
                 let ink = if person.server_muted {
@@ -1299,7 +1357,7 @@ impl App {
         } else {
             Color::TRANSPARENT
         };
-        mouse_area(
+        let area = mouse_area(
             container(face)
                 .padding(Padding {
                     left: 4.0,
@@ -1311,19 +1369,20 @@ impl App {
                 .align_y(Alignment::Center)
                 .style(move |_| rounded(ground, 4)),
         )
+        .on_press(Message::Call(crate::call::Event::Profile(
+            person.id.clone(),
+        )))
         .on_enter(Message::Side(Event::Point(id.clone(), true)))
-        .on_exit(Message::Side(Event::Point(id, false)))
+        .on_exit(Message::Side(Event::Point(id, false)));
+        let (room, user) = (room.to_owned(), person.id.clone());
+        let origin = iced::Vector::new(crate::rail::WIDTH, 0.0);
+        RightPress::new(area, move |at| {
+            Message::Call(crate::call::Event::Person(
+                room.clone(),
+                user.clone(),
+                at + origin,
+            ))
+        })
         .into()
     }
-}
-
-/// Discord's red LIVE tag, 16 px tall.
-pub fn live_pill<'a>(theme: &crate::theme::Theme) -> Element<'a, Message> {
-    let danger = theme.danger;
-    container(text("LIVE").size(10).font(BOLD).color(theme.on_danger))
-        .padding([0, 5])
-        .height(16)
-        .align_y(Alignment::Center)
-        .style(move |_| rounded(danger, 8))
-        .into()
 }

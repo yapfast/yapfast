@@ -5,7 +5,7 @@
 use iced::{
     Element, Padding, Point, Task,
     keyboard::key,
-    widget::{column, container, mouse_area, opaque, operation, row},
+    widget::{Space, column, container, mouse_area, opaque, operation, row},
 };
 use yapfast_core::application::Action;
 
@@ -47,6 +47,10 @@ pub struct Menu {
     /// How its point is read, and its width.
     pub anchor: Anchor,
     pub width: f32,
+    /// Someone in a call, by its room and their id: their voice menu, with
+    /// their volumes over its rows while they're someone else.
+    pub voice: Option<(String, String)>,
+    pub volumes: Option<crate::call::Volumes>,
 }
 
 impl Menu {
@@ -63,6 +67,8 @@ impl Menu {
             location: crate::person::CONTEXT_MENU,
             anchor: Anchor::Pointer,
             width: WIDTH,
+            voice: None,
+            volumes: None,
         }
     }
 
@@ -117,6 +123,9 @@ pub struct MenuRow {
     pub separated: bool,
     /// Shown greyed, not to be chosen.
     pub disabled: bool,
+    /// A second line under it, and its tick or checkbox.
+    pub subtitle: Option<std::borrow::Cow<'static, str>>,
+    pub check: crate::controls::Check,
 }
 
 impl MenuRow {
@@ -129,6 +138,8 @@ impl MenuRow {
             danger: false,
             separated: false,
             disabled: false,
+            subtitle: None,
+            check: crate::controls::Check::None,
         }
     }
 }
@@ -233,6 +244,19 @@ impl App {
         let Some(row) = menu.rows.get(index) else {
             return Task::none();
         };
+        if let MenuAct::Person(choice) = row.act
+            && let Some((room, user)) = &menu.voice
+        {
+            let (room, user, check) = (room.clone(), user.clone(), row.check);
+            // A checkbox keeps the menu open, ticked the other way.
+            if let crate::controls::Check::Box(ticked) = check {
+                if let Some(row) = self.menu.insert(menu).rows.get_mut(index) {
+                    row.check = crate::controls::Check::Box(!ticked);
+                }
+                return self.choose_voice(room, user, choice, Some(!ticked));
+            }
+            return Task::batch([self.refocus(), self.choose_voice(room, user, choice, None)]);
+        }
         if let MenuAct::Person(choice) = row.act {
             let user = menu.place.clone().unwrap_or_default();
             return Task::batch([
@@ -370,6 +394,10 @@ impl App {
         let menu = self.menu.as_ref()?;
         let theme = &self.theme;
         let mut rows = column![].spacing(2).padding(6);
+        let volumes = menu
+            .volumes
+            .as_ref()
+            .map(|volumes| self.volumes_view(volumes));
         if menu.reactions
             && let Some(item) = &menu.item
         {
@@ -403,6 +431,8 @@ impl App {
                 danger: entry.danger,
                 slot: menu.place.is_none(),
                 disabled: entry.disabled,
+                subtitle: entry.subtitle.as_deref().map(Into::into),
+                check: entry.check,
             };
             let light = Light::Lit(menu.lit == Some(index) && !entry.disabled);
             rows = rows.push(
@@ -410,7 +440,26 @@ impl App {
                     .on_enter(Message::MenuLight(index)),
             );
         }
-        let panel = container(rows).width(menu.width).style(menu_panel(theme));
+        let panel: Element<'_, Message> = if menu.rows.is_empty() {
+            Space::new().into()
+        } else {
+            container(rows)
+                .width(menu.width)
+                .style(menu_panel(theme))
+                .into()
+        };
+        // Someone's volumes, in a panel of their own over their rows.
+        let panel: Element<'_, Message> = match volumes {
+            Some(volumes) => column![
+                container(volumes)
+                    .width(menu.width)
+                    .style(menu_panel(theme)),
+                panel
+            ]
+            .spacing(8)
+            .into(),
+            None => panel,
+        };
         Some(
             Place::new(opaque(panel), menu.at, 8.0)
                 .anchor(menu.anchor)

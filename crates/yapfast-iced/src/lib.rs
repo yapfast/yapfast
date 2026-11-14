@@ -74,10 +74,12 @@ mod style;
 mod suggest;
 mod sync;
 mod theme;
+mod tile;
 mod timeline;
 mod typing;
 mod uploads;
 mod video;
+mod viewer;
 mod widgets;
 
 #[cfg(test)]
@@ -108,7 +110,13 @@ pub struct Options {
     /// saved to a file; none for text. Blocks, so it runs off the window's
     /// thread.
     pub paste: Option<fn() -> Option<Vec<PathBuf>>>,
+    /// Watches the push-to-talk key the layout keeps (as the Slint client
+    /// wrote it) in every app it can, until what it returns is dropped.
+    pub push_to_talk: Option<TalkKey>,
 }
+
+/// See [`Options::push_to_talk`].
+pub type TalkKey = fn(&serde_json::Value, &BackgroundRuntime) -> Option<Box<dyn std::any::Any>>;
 
 /// The root crate's [`Options::paste`], set once as the window opens.
 static PASTE: OnceLock<fn() -> Option<Vec<PathBuf>>> = OnceLock::new();
@@ -132,6 +140,13 @@ pub fn run(runtime: BackgroundRuntime, root: PathBuf, options: Options) -> anyho
     if let Some(paste) = options.paste {
         let _ = PASTE.set(paste);
     }
+    // Push to talk's key, watched until the window closes; Settings, which
+    // changes it, is to come.
+    let _talk = layout::Layout::read(&root)
+        .voice
+        .talk_key()
+        .zip(options.push_to_talk)
+        .and_then(|(key, watch)| watch(key, &runtime));
     pictures::install();
     video::install();
     fonts::install(options.twemoji);

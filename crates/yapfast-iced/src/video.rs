@@ -12,11 +12,12 @@
 //! RGBA and the window is BGRA.
 //!
 //! Nothing polls the window. [`frames`] waits on the core's wake for each
-//! camera frame made (`set_frame_wake`); a watched stream, whose worker is
-//! another process that tells nothing when a frame lands, is looked at
-//! every 8 ms while it shows. Only a new frame sends a message, which
-//! redraws the window once for all the frames found together. With no video
-//! on screen it waits.
+//! frame made (`set_frame_wake`): a camera's, from the thread that decodes
+//! it, and a worker's (a watched stream, the screen shared, a message's
+//! video), from the thread that reads the worker's reports, which says
+//! each frame. Only a new frame sends a message, which redraws the window
+//! once for all the frames found together. With no video on screen it
+//! waits.
 
 use std::{
     any::Any,
@@ -27,7 +28,6 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
-    time::Duration,
 };
 
 use iced::futures::{Stream, future, stream};
@@ -332,35 +332,29 @@ fn draw(draw: &mut iced_tiny_skia::video::Draw<'_>) -> bool {
 // Finding new frames
 
 /// Where frames come from while they're on screen: each camera's feed, by
-/// participant id, the watched stream, by its streamer's id, and the
-/// video playing in a message, by `{item}/{index}`. The stream and the
-/// message's video come through a worker's shared mapping.
+/// its key (a participant's id, or `camera:` and the corner's), and the
+/// frames a worker writes to a shared mapping, by theirs (`stream:` and the
+/// streamer's id, `share:own` for this account's screen, `clip:` and a
+/// message's `{item}/{index}`).
 #[derive(Default)]
 pub struct Sources {
     pub feeds: Vec<(String, Feed)>,
-    pub stream: Option<(String, Arc<Frames>)>,
-    pub clip: Option<(String, Arc<Frames>)>,
+    pub mapped: Vec<(String, Arc<Frames>)>,
 }
 
 impl Sources {
     pub fn is_empty(&self) -> bool {
-        self.feeds.is_empty() && self.stream.is_none() && self.clip.is_none()
-    }
-
-    fn mapped(&self) -> bool {
-        self.stream.is_some() || self.clip.is_some()
+        self.feeds.is_empty() && self.mapped.is_empty()
     }
 
     fn same(&self, other: &Sources) -> bool {
-        let same =
-            |a: &Option<(String, Arc<Frames>)>, b: &Option<(String, Arc<Frames>)>| match (a, b) {
-                (None, None) => true,
-                (Some((a, x)), Some((b, y))) => a == b && Arc::ptr_eq(x, y),
-                _ => false,
-            };
         self.feeds == other.feeds
-            && same(&self.stream, &other.stream)
-            && same(&self.clip, &other.clip)
+            && self.mapped.len() == other.mapped.len()
+            && self
+                .mapped
+                .iter()
+                .zip(&other.mapped)
+                .all(|((a, x), (b, y))| a == b && Arc::ptr_eq(x, y))
     }
 }
 
@@ -368,11 +362,13 @@ impl Sources {
 #[derive(Default)]
 pub struct Shared {
     sources: Mutex<Sources>,
-    /// The stream's last frame went out and the window hasn't taken it in:
-    /// its slot isn't taken back from the window until it has.
-    stream_waiting: AtomicBool,
-    /// The same for the message's video.
-    clip_waiting: AtomicBool,
+    /// The mapped sources whose last frame went out and the window hasn't
+    /// taken in, by key: a slot isn't taken back from the window until it
+    /// has.
+    waiting: Mutex<Vec<String>>,
+    /// A frame was told of while the last one waited for the window, so
+    /// the window taking that one in looks again.
+    skipped: AtomicBool,
     changed: Notify,
 }
 
@@ -382,7 +378,8 @@ pub struct Fresh {
     pub key: String,
     pub handle: Handle,
     pub size: (u32, u32),
-    /// How far into a message's video the frame is, in milliseconds.
+    /// For a worker's frame, how far into a message's video it is, in
+    /// milliseconds (0 for a stream's).
     pub time: Option<u64>,
 }
 
@@ -394,19 +391,19 @@ impl Shared {
             return;
         }
         *current = sources;
-        self.stream_waiting.store(false, Ordering::Relaxed);
-        self.clip_waiting.store(false, Ordering::Relaxed);
+        self.waiting.lock().expect("video waiting").clear();
         self.changed.notify_one();
     }
 
-    /// The window took the stream's frame in.
-    pub fn stream_taken(&self) {
-        self.stream_waiting.store(false, Ordering::Relaxed);
-    }
-
-    /// The window took the message video's frame in.
-    pub fn clip_taken(&self) {
-        self.clip_waiting.store(false, Ordering::Relaxed);
+    /// The window took a worker's frame in, by its key.
+    pub fn taken(&self, key: &str) {
+        self.waiting
+            .lock()
+            .expect("video waiting")
+            .retain(|waiting| waiting != key);
+        if self.skipped.swap(false, Ordering::Relaxed) {
+            FRAME_MADE.notify_one();
+        }
     }
 
     fn take(&self) -> Vec<Fresh> {
@@ -426,15 +423,10 @@ impl Shared {
                 });
             }
         }
-        let mapped = [
-            (&sources.stream, &self.stream_waiting, "stream"),
-            (&sources.clip, &self.clip_waiting, "clip"),
-        ];
-        for (source, waiting, kind) in mapped {
-            let Some((key, frames)) = source else {
-                continue;
-            };
-            if waiting.load(Ordering::Relaxed) {
+        let mut waiting = self.waiting.lock().expect("video waiting");
+        for (key, frames) in &sources.mapped {
+            if waiting.contains(key) {
+                self.skipped.store(true, Ordering::Relaxed);
                 continue;
             }
             let taken = frames.take_timed(|width, height, pixels| {
@@ -452,9 +444,9 @@ impl Shared {
                     raster::Handle::Rgba { width, height, .. } => (*width, *height),
                     _ => (0, 0),
                 };
-                waiting.store(true, Ordering::Relaxed);
+                waiting.push(key.clone());
                 found.push(Fresh {
-                    key: format!("{kind}:{key}"),
+                    key: key.clone(),
                     handle,
                     size,
                     time: Some(time),
@@ -465,30 +457,16 @@ impl Shared {
     }
 }
 
-/// How often a watched stream is looked at while it shows: at 8 ms a frame
-/// waits 4 ms on average, and the window redraws at most 125 times a second.
-const STREAM_LOOK: Duration = Duration::from_millis(8);
-
 /// New frames as they come, all those found together in one item.
 pub fn frames(shared: Arc<Shared>) -> impl Stream<Item = Vec<Fresh>> + Send + 'static {
     stream::unfold(shared, |shared| async move {
         loop {
-            let (idle, stream) = {
-                let sources = shared.sources.lock().expect("video sources");
-                (sources.is_empty(), sources.mapped())
-            };
+            let idle = shared.sources.lock().expect("video sources").is_empty();
             if idle {
                 shared.changed.notified().await;
                 continue;
             }
-            {
-                let changed = pin!(shared.changed.notified());
-                if stream {
-                    future::select(changed, pin!(tokio::time::sleep(STREAM_LOOK))).await;
-                } else {
-                    future::select(changed, pin!(FRAME_MADE.notified())).await;
-                }
-            }
+            future::select(pin!(shared.changed.notified()), pin!(FRAME_MADE.notified())).await;
             let found = shared.take();
             if !found.is_empty() {
                 return Some((found, shared));

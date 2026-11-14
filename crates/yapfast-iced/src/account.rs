@@ -149,8 +149,8 @@ impl App {
                 self.account_pointed = pointed;
                 return iced::Task::none();
             }
-            // Joining muted or deafened is Voice's setting, still to come
-            // here; in a call they toggle.
+            // In a call they toggle; out of one they say how the next
+            // starts.
             Event::Mute if self.account.in_call => {
                 self.client
                     .dispatch(yapfast_core::application::Action::Voice(
@@ -163,7 +163,10 @@ impl App {
                         voice::Command::Deafen(!self.account.deafened),
                     ))
             }
-            Event::Mute | Event::Deafen => return iced::Task::none(),
+            Event::Mute | Event::Deafen => {
+                self.toggle_on_join(matches!(event, Event::Deafen));
+                return iced::Task::none();
+            }
         }
         self.sync()
     }
@@ -263,10 +266,18 @@ impl App {
                 },
             )
         };
-        // Each device's toggle with the caret of its menu (Voice's, still
-        // to come here), as the Slint client's `DeviceToggle`.
-        let caret =
-            |label| self.icon_button(Icon::ChevronDown, label, 20.0, 16, Message::Nothing, false);
+        // Each device's toggle with the caret of its menu, as the Slint
+        // client's `DeviceToggle`; the menu opens above it.
+        let caret = |label, popup| {
+            self.spot(self.icon_button(
+                Icon::ChevronDown,
+                label,
+                20.0,
+                16,
+                Message::Call(crate::call::Event::Open(popup)),
+                false,
+            ))
+        };
         let alert = |on: bool| if on { theme.danger } else { theme.text };
         let controls = row![
             row![
@@ -277,7 +288,7 @@ impl App {
                     20,
                     Message::Account(Event::Mute)
                 ),
-                caret("Input options"),
+                caret("Input options", crate::call::Popup::Input),
             ],
             row![
                 self.tinted_button(
@@ -287,7 +298,7 @@ impl App {
                     21,
                     Message::Account(Event::Deafen)
                 ),
-                caret("Output options"),
+                caret("Output options", crate::call::Popup::Output),
             ],
             self.tinted_button(Icon::Settings, "Settings", theme.text, 24, Message::Nothing),
         ]

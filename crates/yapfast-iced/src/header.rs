@@ -289,9 +289,10 @@ impl App {
             } else {
                 "Start Voice Call"
             };
-            push(Icon::Phone, label, Message::Nothing, false);
+            let call = |video| Message::Call(crate::call::Event::Start(video));
+            push(Icon::Phone, label, call(false), false);
             if !header.call_going {
-                push(Icon::Video, "Start Video Call", Message::Nothing, false);
+                push(Icon::Video, "Start Video Call", call(true), false);
             }
         }
         if header.can_threads {

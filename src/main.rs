@@ -41,8 +41,13 @@ mod notify;
 mod paste;
 #[cfg(feature = "desktop")]
 mod protocol;
-#[cfg(feature = "desktop")]
+#[cfg(any(feature = "desktop", feature = "talking"))]
 mod push_to_talk;
+
+/// The window's app ID on Linux, and the name of its desktop entry and
+/// icon; push to talk's portal session goes by it too.
+#[cfg(any(feature = "desktop", feature = "talking"))]
+pub const APP_ID: &str = "io.github.yapfast.Yapfast";
 #[cfg(feature = "desktop")]
 mod tray;
 #[cfg(feature = "desktop")]
@@ -402,11 +407,26 @@ fn launch(
             gpu: start.renderer == Some("gpu"),
             twemoji: include_bytes!(concat!(env!("OUT_DIR"), "/twemoji.ttf")),
             paste: Some(pasted_files),
+            push_to_talk: Some(watch_talk_key),
         },
     );
     // Pasted pictures go as Yapfast closes.
     drop(PASTED.lock().map(|mut folder| folder.take()));
     ran
+}
+
+/// Watches the push-to-talk key the layout keeps, as the Slint client
+/// does, for the iced client: the watcher runs until dropped.
+#[cfg(all(not(feature = "desktop"), any(feature = "iced", feature = "iced-gpu")))]
+fn watch_talk_key(
+    key: &serde_json::Value,
+    runtime: &BackgroundRuntime,
+) -> Option<Box<dyn std::any::Any>> {
+    let key: push_to_talk::Keybind = serde_json::from_value(key.clone()).ok()?;
+    let watcher = push_to_talk::Watcher::start(key, runtime, |reach| {
+        tracing::info!(note = reach.note(), "push to talk");
+    });
+    Some(Box::new(watcher))
 }
 
 /// Where pictures pasted in the iced client are saved, removed as it

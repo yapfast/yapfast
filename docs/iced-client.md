@@ -17,8 +17,8 @@ place, the expression picker (GIFs, emoji, stickers), a message's and the compos
 menus, Delete's confirmation, the member list with each member's looks
 and its Activity panel, people's menus and their questions, the profile
 card, the full profile and the panel beside a DM, the friends list with
-Active Now, requests and Add Friend, and a voice channel's call with cameras and a watched
-stream, and Discord's two-factor prompt.
+Active Now, requests and Add Friend, calls (below) in voice channels and
+DMs, and Discord's two-factor prompt.
 
 ## Building and running
 
@@ -103,7 +103,15 @@ can't act on yet show greyed.
 
 The account's card (`account.rs`) spans the foot of both: the avatar with
 its presence, the name and status (the username under the pointer), and
-the mic, headphones and Settings, which mute and deafen in a call.
+the mic, headphones and Settings, which mute and deafen in a call; out of
+one they set whether the next call starts unmuted or deafened. The carets
+beside the mic and headphones open the input and output menus. The call's
+dock sits above the card while this account is in a call (below).
+
+In a voice channel someone is in, each person's row shows them speaking
+(a green ring), muted or deafened, and LIVE while they stream, which
+watches the stream on a click, joining the call first. A click on the
+row opens their card at the pointer, and a right click their voice menu.
 
 Open folders, folded categories and Developer Mode (which shows Copy ID)
 are kept in the data folder's `layout.json`, which the Slint client keeps
@@ -149,7 +157,11 @@ and its words in Discord's wording.
   plays in its cell, its frames coming through the stream worker's shared
   mapping as a watched stream's do (`video::Sources::clip`). While the
   pointer is on it, or it's paused, a bar along its foot plays or pauses
-  it, shows its time, moves through it and mutes it.
+  it, shows its time, moves through it and mutes it; a volume slider rises
+  over the mute button under the pointer, and the last button shows it
+  full screen in the viewer (`viewer::Viewer`), its name and Exit full
+  screen above it and the same bar below, its frames made at the
+  viewer's size.
 - Stickers show at 160 px, playing if they move (Lottie ones as the core
   renders them).
 - Custom emoji are pictures in the text's line, larger when the message is
@@ -395,6 +407,72 @@ glyph cache. The card shows if the restore fails.
 Pages the core asks to open (the captcha) open in the browser
 (`browser.rs`), never from tests or the private test display.
 
+## Calls
+
+The call (`call/`) is the Slint client's: `ui/voice.slint` and the call
+parts of `ui/yapfast.slint`, with the adapter's logic beside them.
+
+- A voice channel this account isn't in shows its name, who is there and
+  Join voice (Switch voice channel while in another call), or why it can't
+  be joined. A click on the channel in the sidebar joins it without
+  showing it, as Discord's client does; a second click, or the dock's
+  channel line, shows the call.
+- The stage (`call/stage.rs`, ported from the Slint client's tile layout)
+  lays the tiles out in a grid, or one large with the rest in a row under
+  it; a click on a tile makes it large, and a click beside it the grid
+  again. The tiles scroll when there are more than fit. Each tile is a
+  `tile::Tile`: a camera, a stream or the avatar, a green ring while the
+  person speaks, their name and marks, LIVE and how many watch. A stream
+  not watched offers Watch stream; a watched one shows large with Stop
+  watching and the full-screen button under the pointer, and a double click
+  goes full screen too, the stage over the whole window until Escape. A
+  right click opens the person's voice menu.
+- The controls under the stage, in the Slint client's order: mute and
+  deafen (each with its device menu), the camera, Go Live, the soundboard,
+  and leave.
+- The device menus (`call/popups.rs`): the device to use (one chosen that
+  went away shows as not connected), its volume, which plays while it's
+  dragged and is kept in `layout.json` when let go, and on the input side
+  the microphone's level, measured only while the menu shows, and the
+  noise suppression kind.
+- Go Live's menu lists the screens with a picture of each (from a stream
+  worker started for them and gone once they're in), the windows, the
+  system's own dialog where the portal picks, and the cameras, then the
+  resolution, frame rate and encoding; it fits a short window by
+  scrolling, keeping its button in view. While live, the same menu
+  switches what's shared.
+- The soundboard lists the server's sounds and the defaults in rows of
+  three, each played on a click, previewed from its speaker under the
+  pointer and starred as a favourite.
+- Someone's voice menu (`menus.rs` with the person's choices) has their
+  user and stream volumes above its rows and checkboxes for muting them
+  for this account, muting their soundboard, and on Discord the server's
+  mute and deafen; one's own has mute and deafen. Volumes play while
+  dragged and are kept when let go, as are those muted.
+- The dock (`call/dock.rs`) at the sidebar's foot: the connection's state
+  and the call's time, the channel line (underlined under the pointer)
+  that shows the call, noise suppression's toggle, which turns back on the
+  kind last used, leave, and while sharing its state with a stop; the
+  soundboard, camera and Go Live buttons; an error with Dismiss.
+- A DM's call (`call/dm.rs`) shows above its messages, taking more room
+  while a tile is large: the stage and controls while in it, else who is
+  in it with Join the call, or Accept and Decline while it rings. A call
+  ringing in a DM that isn't open shows a card at the window's top, and
+  switching calls asks first (Escape cancels, Enter confirms). The DM's
+  header starts a call or a video call.
+- While the call isn't on screen, the stream watched, this account's
+  screen or a camera stays in a corner of the window (`call/corner.rs`),
+  its title and stop under the pointer; a click returns to the call, a
+  drag moves it to the nearest corner.
+- Sounds play as the core says (joining, leaving, muting, someone
+  streaming), and a DM's call rings while it's incoming.
+- Push to talk (the root `src/push_to_talk.rs`) runs in this build too: the
+  key kept in `layout.json` is watched through the desktop portal's global
+  shortcuts or X11, beside the window.
+
+Only what shows takes frames: a tile's video is mapped while its tile is
+in view or in the corner, at the size it shows.
+
 ## How it's built
 
 iced builds the whole view again after every message and lays it out, so
@@ -418,17 +496,19 @@ what costs is kept out of the view:
 - Fonts: DM Sans and its italic, the packed Twemoji (the root `build.rs` makes it for this
   build too), the display-name fonts on first use, and for other scripts a
   system font loaded the first time a script is shaped (`fonts.rs`).
-- Video (`video.rs`, `call.rs`): cameras' frames are made in the client's
+- Video (`video.rs`, `call/`): cameras' frames are made in the client's
   own memory (`picture::set_frame_buffers`) at their tile's size, and a
   watched stream's frames come from the stream worker's shared mapping.
   The renderer's hook (patch 13 below) copies or scales them into the
-  window with libyuv. The core wakes the client for each camera frame made
-  (`picture::set_frame_wake`); a watched stream is made in another process,
-  which has no wake, so while one shows it's looked at every 8 ms.
+  window with libyuv. The core wakes the client for each frame made
+  (`picture::set_frame_wake`): a camera's as it's decoded, and a stream
+  worker's as the worker says so on its reports' pipe, a line per frame it
+  writes only for a client that asked to be woken. Nothing looks for
+  frames on a timer.
 
 Each part of the window has its module: `signin`, `mfa`, `rail`,
 `sidebar`, `account`, `header`, `timeline`, `message`, `cards`, `bot_select`, `browse`, `composer`, `edit`, `suggest`, `commands`, `typing`, `uploads`, `forward`, `members`,
-`people`, `person`, `profile`, `friends`, `active_now`, `reactions`, `picker` (with its tabs `emoji`, `gifs`, `stickers`), `menus`, `places`, `dialogs`, `call`; `theme` holds
+`people`, `person`, `profile`, `friends`, `active_now`, `reactions`, `picker` (with its tabs `emoji`, `gifs`, `stickers`), `menus`, `places`, `dialogs`, `call` (with `stage`, `dock`, `popups`, `dm`, `corner`); `theme` holds
 the colours and `layout` what's kept in `layout.json`.
 `sync.rs` takes in what changed in the core's state after each message.
 `widgets.rs`, `field.rs` (the composer's text field), `select.rs`
@@ -504,6 +584,19 @@ When a second screen needs what a first one built, it moves here:
   jumps to), a section's heading, `App::star` (a favourite's star),
   `pinned` (a small thing at a tile's corner), the foot and the frame,
   and `Masonry`, the GIFs' columns.
+- `tile::Tile`: a video tile, the one piece of the stage, the corner
+  picture and a DM's call: its face (a frame, an avatar or a note), a ring,
+  chips at its corners, `glass_button`s over the video and `pill`s.
+- `viewer::Viewer`: something shown large over the whole window on a
+  ground (a title bar with its buttons, the content fitted between, a foot
+  under it), for the stage full screen and a message's video full screen.
+- `controls::round_button`, `call_button` and `dock_button`: the call's
+  round controls, the DM call's answer buttons and the dock's buttons;
+  `controls::live_pill` LIVE; `controls::Slider` a volume slider;
+  `controls::heading` a popup's heading; `controls::choices` a row of
+  choices, one picked; `controls::Check` and `App::checkbox` a menu row's
+  tick or checkbox, and `Item::subtitle` a second line under its label.
+- `widgets::Hover`: a layer shown over its child only under the pointer.
 - `App::emoji_button`: an emoji on a lit square, for quick reactions in
   menus and the hover bar. `controls::action(..).small()` and `.icon()`
   make an app's button; `Kind::Success` is the green one.
@@ -548,7 +641,13 @@ message's menu, and the keyboard's steps through messages; and in
 before a block, the profile beside a DM and the header's button, the
 friends list's tabs and search, requests listing someone once, a blocked
 person's message folded until asked, View Reactions, and the full
-profile's tabs, labels and theme inks. The emoji
+profile's tabs, labels and theme inks; and in `tests/calls.rs` the dock's
+noise toggle, a device gone away, the device volumes played and kept,
+the share menu in a short window, the input level only while its menu
+shows, the dock's channel line, a voice channel's Join, and someone's
+volume from their menu. `call/stage.rs` tests the tiles' layout, the
+stage's slots and the corner, `call/dock.rs` the call's time and
+`viewer.rs` the fit. The emoji
 ones need the Twemoji font the root crate's `build.rs` packs: they take
 the newest any build left under `target/`, and say so and pass without
 it. `markdown.rs` has its own for Discord's Markdown. `scripts/check` lints both renderers' builds, runs the tests, and
@@ -559,18 +658,22 @@ builds and smoke-tests the CPU build; see [building](building.md#checks).
 Settings (Appearance among them, so themes are chosen by `theme ID` and
 custom ones are made in the Slint client), other accounts, threads,
 Edit Profile, profile effects and frames, a mutual server's card, an
-activity's menu, the Invite to server submenu, voice's controls beyond Leave, the tray,
+activity's menu, the Invite to server submenu, the tray,
 notifications, links, accessibility and Windows' own checks. On the rail
 and in the sidebar: dragging servers, channels and people, the voice
-card beside a busy channel, a server's
+card beside a busy channel and a voice channel's chat, a server's
 banner, boost bar and events row, and the dialogs and settings its menus
 lead to (joining a server, invites, notification settings). In the header:
-calls from a DM, threads, pins, notification settings, adding people, the
+threads, pins, notification settings, adding people, the
 search. In the timeline: saving a file, a
-picture's full view, a video's full screen and volume, apps' forms
+picture's full view, apps' forms
 (modals), and the actions that
 lead to what the client doesn't have yet: Create Thread
 and View Thread, Apps' message commands, a picture's Copy Image, Save and
 Open Link; keys typed in the timeline going to the composer. In the composer: dragging the expression
 picker's left edge to widen it, and Nitro's offer on a locked emoji or
-sticker.
+sticker. In calls: voice settings (and the cameras' choice, which lives
+there), the voice menu's Move To, push to talk's fallback while the
+window has focus where no global shortcut is had, the ringing card's
+pulse, and the video over the switch dialog's dim (the renderer draws
+video after the layers above it).

@@ -37,6 +37,8 @@ pub struct Client {
     linking: Option<BackgroundTask<()>>,
     link_progress: Option<UnboundedReceiver<Progress>>,
     link_stopped: bool,
+    /// Sounds the core asked for, for the window to play.
+    sounds: Vec<yapfast_core::sounds::Sound>,
 }
 
 impl Client {
@@ -51,6 +53,7 @@ impl Client {
             linking: None,
             link_progress: None,
             link_stopped: false,
+            sounds: Vec::new(),
         }
     }
 
@@ -93,6 +96,11 @@ impl Client {
     /// step to [`Client::linking`].
     pub fn take_linking(&mut self) -> Option<UnboundedReceiver<Progress>> {
         self.link_progress.take()
+    }
+
+    /// The sounds the core asked for since this was last asked.
+    pub fn take_sounds(&mut self) -> Vec<yapfast_core::sounds::Sound> {
+        std::mem::take(&mut self.sounds)
     }
 
     /// Whether linking stopped since this was last asked.
@@ -139,8 +147,11 @@ impl Client {
                 }
                 // Discord's captcha, while linking.
                 Effect::OpenPage(page) => crate::browser::open(&page),
-                // Sounds, notifications, the clipboard's pictures and device
-                // lists come with the parts of the window that use them.
+                // The window plays them, as loud as Voice's settings say.
+                Effect::Sound(sound) => self.sounds.push(sound),
+                // Notifications, the clipboard's pictures and the preview's
+                // device lists come with the parts of the window that use
+                // them.
                 _ => {}
             }
         }

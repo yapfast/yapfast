@@ -291,6 +291,18 @@ pub enum Icon {
     Gem,
     Hand,
     Discord,
+    PhoneOff,
+    ScreenShare,
+    ScreenShareOff,
+    Soundboard,
+    VideoOff,
+    Maximize,
+    Minimize,
+    SignalHigh,
+    SignalMedium,
+    SignalLow,
+    NoiseBars,
+    NoiseBarsOff,
 }
 
 impl Icon {
@@ -402,6 +414,18 @@ impl Icon {
             Icon::Settings => icon!("settings.svg"),
             Icon::Community => icon!("community.svg"),
             Icon::Id => icon!("id-filled.svg"),
+            Icon::PhoneOff => icon!("phone-off.svg"),
+            Icon::ScreenShare => icon!("screen-share.svg"),
+            Icon::ScreenShareOff => icon!("screen-share-off.svg"),
+            Icon::Soundboard => icon!("soundboard.svg"),
+            Icon::VideoOff => icon!("video-off.svg"),
+            Icon::Maximize => icon!("maximize.svg"),
+            Icon::Minimize => icon!("minimize.svg"),
+            Icon::SignalHigh => icon!("signal-high.svg"),
+            Icon::SignalMedium => icon!("signal-medium.svg"),
+            Icon::SignalLow => icon!("signal-low.svg"),
+            Icon::NoiseBars => icon!("noise-bars.svg"),
+            Icon::NoiseBarsOff => icon!("noise-bars-off.svg"),
         }
     }
 

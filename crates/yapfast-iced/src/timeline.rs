@@ -471,6 +471,10 @@ impl App {
         if let Some(banner) = self.verify_banner() {
             chat = chat.push(banner);
         }
+        // A DM's call shows above its messages.
+        if let Some(call) = self.dm_call_view() {
+            chat = chat.push(call);
+        }
         let chat = chat.push(self.timeline()).push(self.composer_view());
         let mut body = row![chat];
         if self.members_shown() {

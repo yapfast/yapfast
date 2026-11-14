@@ -60,6 +60,12 @@ pub enum Clip {
     /// Move it this far through, from 0 to 1.
     Seek(f32),
     Mute(bool),
+    /// Play it this loud, from 0 to 1; the pointer came onto the volume's
+    /// button or its slider, or left.
+    Volume(f32),
+    VolumeHover(bool),
+    /// Full screen, or back in its cell.
+    Full(bool),
     /// The pointer came onto a cell, by `{item}/{index}`, or left it.
     Point(String, bool),
 }
@@ -72,6 +78,8 @@ const TRACK: f32 = 4.0;
 const CLIP_DIM: Color = Color::from_rgba8(0, 0, 0, 0xb3 as f32 / 255.0);
 const CLIP_SHADE: Color = Color::from_rgba8(0, 0, 0, 0.8);
 const TRACK_REST: Color = Color::from_rgba8(255, 255, 255, 0.3);
+/// How far the volume's slider rises over its button.
+const VOLUME_RISE: f32 = 112.0;
 
 /// A video's time, as the Slint client's: where it is and how long it
 /// plays, such as "0:12 / 1:30".
@@ -369,9 +377,9 @@ impl App {
                     )
                     .center(Length::Fill),
                 );
-            } else if pointed || !video.playing {
+            } else if (pointed || !video.playing) && !self.clip_full {
                 layers = layers.push(
-                    container(self.clip_controls(video, size.width))
+                    container(self.clip_controls(video, size.width, false))
                         .height(Length::Fill)
                         .align_y(Alignment::End),
                 );
@@ -393,11 +401,14 @@ impl App {
 
     /// The bar along a playing video's foot, as the Slint client's
     /// `VideoControls`: play or pause, its time, the track to move through
-    /// it, and mute. A narrow video leaves out the time, then mute.
-    fn clip_controls<'a>(
+    /// it, mute with a slider over it for how loud, and full screen. A
+    /// narrow video leaves out the time, then mute. Full screen, it's
+    /// under the video, on no shade.
+    pub fn clip_controls<'a>(
         &'a self,
         video: &'a yapfast_core::chat::Video,
         width: f32,
+        full: bool,
     ) -> Element<'a, Message> {
         let at = self.clip_time.unwrap_or(0);
         let at = match video.duration_ms {
@@ -409,8 +420,9 @@ impl App {
             _ => 0.0,
         };
         let time = video_time(at, video.duration_ms);
-        // Play, the padding and the spacing; the track keeps 32 px.
-        let fixed = 4.0 + CLIP_BUTTON + 6.0 + 32.0 + 6.0;
+        // Play, full screen, the padding and the spacing; the track keeps
+        // 32 px.
+        let fixed = 4.0 + CLIP_BUTTON + 6.0 + 32.0 + 6.0 + CLIP_BUTTON + 6.0;
         let show_mute = video.sound && width >= fixed + 34.0;
         let show_time =
             width >= fixed + if show_mute { 34.0 } else { 0.0 } + time.len() as f32 * 7.0 + 6.0;
@@ -462,14 +474,37 @@ impl App {
             |at| Message::Clip(Clip::Seek(at)),
         ));
         if show_mute {
-            bar = bar.push(if video.muted {
+            let mute = if video.muted {
                 button(Icon::VolumeOff, "Unmute", Message::Clip(Clip::Mute(false)))
             } else {
                 button(Icon::Volume, "Mute", Message::Clip(Clip::Mute(true)))
-            });
+            };
+            let mute: Element<'a, Message> = if self.clip_volume > 0 {
+                iced::widget::stack![
+                    mute,
+                    crate::widgets::Corner::new(self.volume_slider(video), 0.0, -VOLUME_RISE),
+                ]
+                .into()
+            } else {
+                mute
+            };
+            bar = bar.push(
+                mouse_area(container(mute).width(CLIP_BUTTON))
+                    .on_enter(Message::Clip(Clip::VolumeHover(true)))
+                    .on_exit(Message::Clip(Clip::VolumeHover(false))),
+            );
         }
+        let (icon, label) = if full {
+            (Icon::Minimize, "Exit full screen")
+        } else {
+            (Icon::Maximize, "Full screen")
+        };
+        bar = bar.push(button(icon, label, Message::Clip(Clip::Full(!full))));
         // Between the controls, a click leaves the video be.
-        mouse_area(container(bar).width(Length::Fill).style(|_| {
+        mouse_area(container(bar).width(Length::Fill).style(move |_| {
+            if full {
+                return iced::widget::container::Style::default();
+            }
             iced::widget::container::Style {
                 background: Some(Background::Gradient(
                     gradient::Linear::new(0.0)
@@ -485,6 +520,40 @@ impl App {
         .into()
     }
 
+    /// How loud the video plays, as the Slint client's slider over its
+    /// mute: a 4 px track filled in white to a 12 px knob, on dark glass.
+    fn volume_slider<'a>(&'a self, video: &'a yapfast_core::chat::Video) -> Element<'a, Message> {
+        let shown = if video.muted { 0.0 } else { video.volume };
+        let slider = iced::widget::vertical_slider(0.0..=1.0, shown, |volume| {
+            Message::Clip(Clip::Volume(volume))
+        })
+        .step(0.01)
+        .width(CLIP_BUTTON)
+        .style(|_, _| iced::widget::slider::Style {
+            rail: iced::widget::slider::Rail {
+                backgrounds: (Color::WHITE.into(), TRACK_REST.into()),
+                width: TRACK,
+                border: iced::Border::default().rounded(TRACK / 2.0),
+            },
+            handle: iced::widget::slider::Handle {
+                shape: iced::widget::slider::HandleShape::Circle { radius: 6.0 },
+                background: Color::WHITE.into(),
+                border_width: 0.0,
+                border_color: Color::TRANSPARENT,
+            },
+        });
+        mouse_area(
+            container(slider)
+                .padding([14, 0])
+                .width(CLIP_BUTTON)
+                .height(VOLUME_RISE - 4.0)
+                .style(|_| rounded(Color::from_rgba8(0, 0, 0, 0.8), 6)),
+        )
+        .on_enter(Message::Clip(Clip::VolumeHover(true)))
+        .on_exit(Message::Clip(Clip::VolumeHover(false)))
+        .into()
+    }
+
     /// What a video's cell asked for.
     pub fn clip_event(&mut self, clip: Clip) -> Task<Message> {
         let video = self.client.state().video.as_ref();
@@ -492,6 +561,7 @@ impl App {
             Clip::Play(item, index, size) => {
                 let pixels = |side: f32| (side.round() as u32).max(1);
                 self.clip_time = None;
+                self.clip_cell = (pixels(size.width), pixels(size.height));
                 self.client.dispatch(Action::PlayVideo {
                     item,
                     index,
@@ -517,6 +587,33 @@ impl App {
             Clip::Mute(muted) => self
                 .client
                 .dispatch(Action::Video(VideoCommand::Mute(muted))),
+            Clip::Volume(volume) => self
+                .client
+                .dispatch(Action::Video(VideoCommand::Volume(volume.clamp(0.0, 1.0)))),
+            Clip::VolumeHover(entered) => {
+                self.clip_volume = if entered {
+                    self.clip_volume.saturating_add(1)
+                } else {
+                    self.clip_volume.saturating_sub(1)
+                };
+                return Task::none();
+            }
+            // Full screen, its pictures come at the viewer's size; back in
+            // its cell, at the cell's.
+            Clip::Full(full) => {
+                self.clip_full = full && video.is_some();
+                self.clip_volume = 0;
+                let (width, height) = if self.clip_full {
+                    let size =
+                        crate::viewer::fitted(self.window, video.and_then(|video| video.size));
+                    (size.width as u32, size.height as u32)
+                } else {
+                    self.clip_cell
+                };
+                self.client
+                    .dispatch(Action::Video(VideoCommand::Size { width, height }));
+                return Task::batch([self.sync(), self.refocus()]);
+            }
             Clip::Point(key, entered) => {
                 crate::app::point(&mut self.pointed_clip, key, entered);
                 return Task::none();

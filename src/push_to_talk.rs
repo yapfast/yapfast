@@ -5,12 +5,13 @@
 //! [`yapfast_core::push_to_talk::hold`] when the key goes down or comes up.
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicBool, AtomicU32, Ordering},
+    atomic::{AtomicU32, Ordering},
 };
 
 use serde::{Deserialize, Serialize};
-#[cfg(windows)]
+#[cfg(all(windows, feature = "desktop"))]
 use slint::winit_030::winit::event::MouseButton;
+#[cfg(feature = "desktop")]
 use slint::winit_030::winit::{
     event::{ElementState, KeyEvent, WindowEvent},
     keyboard::{Key, KeyLocation, NamedKey, PhysicalKey},
@@ -39,6 +40,7 @@ pub struct Keybind {
     pub trigger: Option<String>,
 }
 
+#[cfg(feature = "desktop")]
 impl Keybind {
     /// The key a key press names, unless it has no scan code.
     pub fn recorded(event: &KeyEvent) -> Option<Self> {
@@ -75,6 +77,7 @@ impl Keybind {
 }
 
 /// The key without Shift or Caps Lock, so a letter reads as itself.
+#[cfg(feature = "desktop")]
 fn unmodified(event: &KeyEvent) -> Key {
     #[cfg(any(target_os = "linux", windows))]
     {
@@ -87,6 +90,7 @@ fn unmodified(event: &KeyEvent) -> Key {
     }
 }
 
+#[cfg(feature = "desktop")]
 fn name(event: &KeyEvent) -> String {
     let side = match event.location {
         KeyLocation::Left => "Left ",
@@ -118,7 +122,7 @@ fn name(event: &KeyEvent) -> String {
 
 /// The key's keysym name, as the XDG shortcuts specification writes a
 /// trigger; on Linux, where only the portal needs it.
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "desktop"))]
 fn trigger(event: &KeyEvent) -> Option<String> {
     let right = event.location == KeyLocation::Right;
     let side =
@@ -167,7 +171,7 @@ fn trigger(event: &KeyEvent) -> Option<String> {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(not(target_os = "linux"), feature = "desktop"))]
 fn trigger(_event: &KeyEvent) -> Option<String> {
     None
 }
@@ -211,16 +215,19 @@ const NONE: u32 = u32::MAX;
 /// The key's scan code while push to talk watches it, and whether the window's
 /// latest key press was it.
 static TALK_KEY: AtomicU32 = AtomicU32::new(NONE);
-static PRESSED_TALK_KEY: AtomicBool = AtomicBool::new(false);
+#[cfg(feature = "desktop")]
+static PRESSED_TALK_KEY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Whether the key press Slint is handling is the push-to-talk key, which
 /// shouldn't also type into the composer.
+#[cfg(feature = "desktop")]
 pub fn pressed_talk_key() -> bool {
     PRESSED_TALK_KEY.load(Ordering::Relaxed)
 }
 
 /// Holds the key from the window's own events while no global key works.
 /// Losing the focus lets it go, as the key's release won't come.
+#[cfg(feature = "desktop")]
 pub fn window_event(event: &WindowEvent) {
     if let WindowEvent::KeyboardInput { event, .. } = event
         && event.state == ElementState::Pressed
@@ -253,7 +260,9 @@ pub fn window_event(event: &WindowEvent) {
     }
 }
 
-/// Watches the key in every app it can, until dropped.
+/// Watches the key in every app it can, until dropped. The iced client
+/// keeps it without asking it anything.
+#[cfg_attr(not(feature = "desktop"), allow(dead_code))]
 pub struct Watcher {
     key: Keybind,
     reach: Arc<Mutex<Reach>>,
@@ -305,10 +314,12 @@ impl Watcher {
         }
     }
 
+    #[cfg(feature = "desktop")]
     pub fn key(&self) -> &Keybind {
         &self.key
     }
 
+    #[cfg(feature = "desktop")]
     pub fn reach(&self) -> Reach {
         self.reach
             .lock()
@@ -421,7 +432,7 @@ mod linux {
                 PATH,
                 Some("org.freedesktop.host.portal.Registry"),
                 "Register",
-                &(crate::icon::APP_ID, HashMap::<&str, Value>::new()),
+                &(crate::APP_ID, HashMap::<&str, Value>::new()),
             )
             .await;
         let rule = zbus::MatchRule::builder()
@@ -970,7 +981,7 @@ mod windows {
         unsafe { CallNextHookEx(ptr::null_mut(), code, wparam, lparam) }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "desktop"))]
     mod tests {
         use std::{
             sync::Arc,

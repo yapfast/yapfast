@@ -737,6 +737,8 @@ impl App {
         }
         let mut rows = vec![MenuRow {
             disabled: !look.attach,
+            subtitle: None,
+            check: crate::controls::Check::None,
             ..MenuRow::new(MenuAct::Upload, "Upload a File", Icon::File)
         }];
         // The thread's and the poll's forms come with the settings and
@@ -744,12 +746,16 @@ impl App {
         if self.client.app.can_start_threads() {
             rows.push(MenuRow {
                 disabled: true,
+                subtitle: None,
+                check: crate::controls::Check::None,
                 ..MenuRow::new(MenuAct::NewThread, "Create Thread", Icon::Thread)
             });
         }
         if self.client.app.can_create_polls() {
             rows.push(MenuRow {
                 disabled: true,
+                subtitle: None,
+                check: crate::controls::Check::None,
                 ..MenuRow::new(MenuAct::NewPoll, "Create Poll", Icon::ChartBar)
             });
         }
