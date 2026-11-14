@@ -47,7 +47,10 @@ colours and a card.
 | Theme | Id | Dark | Accent | From |
 | --- | --- | --- | --- | --- |
 | Yap | `yap` | yes | marigold | Yapfast's own, the default |
-| Bonfire | `bonfire` | yes | blurple | Discord's Dark theme |
+| Bonfire Ash | `bonfire-ash` | yes | blurple | Discord's Ash theme |
+| Bonfire Dark | `bonfire-dark` | yes | blurple | Discord's Dark theme |
+| Bonfire Onyx | `bonfire-onyx` | yes | blurple | Discord's Onyx theme |
+| Bonfire Light | `bonfire-light` | no | blurple | Discord's Light theme |
 | Catppuccin Mocha | `catppuccin-mocha` | yes | mauve | [Catppuccin](https://github.com/catppuccin/catppuccin) |
 | Dracula | `dracula` | yes | purple | [Dracula](https://draculatheme.com/contribute) |
 | Nord | `nord` | yes | frost nord8 | [Nord](https://www.nordtheme.com/docs/colors-and-palettes) |
@@ -78,20 +81,45 @@ colours, not their names for UI parts, so each mapping is Yapfast's:
   colour) instead of white, sweep skeletons with a white band, and draw the
   tooltip light, since its text is the theme's text colour.
 
-Bonfire maps Discord's Dark theme from the CSS variables of its web client
-(`.theme-dark` with `.theme-darker`, which is what its settings call Dark;
-`.theme-dark` alone is Ash, `.theme-midnight` Onyx), read from the public
-bundle: the rail and sidebar are `--background-base-lowest` (#121214), the chat
-`--background-base-lower` (#1a1a1e), the account panel and composer
-`--background-base-low` (#202024), raised surfaces and the tooltip
-`--background-surface-high` (#242429), text `--text-default`, muted
-`--text-muted`, links `--text-link`, the accent
-`--control-primary-background-default` (blurple, #5865f2, hover #4452bb, white
-on it), red `--control-critical-primary-background-default` (#d22d39), live
-`--status-positive`, and hovers, selections, lines and secondary buttons the
-`--interactive-background-*`, `--border-subtle` and
-`--control-secondary-background-*` washes laid over their grounds. It carries
-no Discord name or logo.
+The four Bonfire themes map Discord's base themes from the [public web
+client](https://discord.com/app). Its CSS calls Ash
+`.theme-dark`, Dark `.theme-darker`, Light `.theme-light`, and Onyx
+`.theme-midnight`. Yap is Yapfast's default theme in both layouts.
+The old `bonfire` id is an alias for
+`bonfire-dark`, including as a custom theme's base.
+
+The rail and sidebar take `--background-base-lowest`, chat and stage
+`--background-base-lower`, the account panel `--background-base-low`, and
+raised surfaces and tooltips `--background-surface-high`. The composer uses
+`--chat-background-default`, with `--channel-text-area-placeholder` for its
+placeholder. Both are editable theme colours, rather than shades derived
+from the field and muted text. Plain fields composite
+`--input-background-default` over the raised surface. Older custom themes
+inherit missing colours from their base.
+
+Text, secondary text, muted text and disabled controls take `--text-default`,
+`--text-subtle`, `--text-muted` and `--interactive-muted`. Links use
+`--text-link`, and mentions use each base theme's `--mention-foreground`.
+Primary and destructive buttons use `--control-primary-background-*` and
+`--control-critical-primary-background-*`. Hovers, selections, borders and
+secondary buttons composite Discord's translucent neutral washes over their
+surfaces. Onyx uses stronger border washes, 20% for subtle outlines and
+24% for normal separators, with a softer 12% wash around the composer.
+The Onyx composer border is `#202024` normally and `#2b2b2f` when focused;
+`outline-field-focus` controls the focused colour. Only Onyx adds an outline around the account card and a permanent divider
+between the sidebar and chat in the Discord layout. The divider sits inside
+the sidebar edge so it does not cover the 2px mention marker in chat. These use the editable
+`outline-panel` and `outline-sidebar` colours, which are transparent in the
+other built-in themes. Settings cards have an outer border in every theme;
+their sidebar divider uses the same Onyx-only `outline-sidebar` colour.
+The account outline uses Onyx's 16% `--border-muted`
+wash. The `mentioned` background uses a shared 8% yellow wash in every
+theme, rendering `#130d00` over Onyx's black chat, and fades to 4% on
+hover. Mentioned messages have a solid 2px bar in the theme's `loud` colour,
+in both chat and threads. Their hover background uses only the mention
+wash, without the normal message-hover highlight underneath. Light uses dark overlays,
+and Onyx has black base surfaces. The Bonfire themes carry no Discord name
+or logo.
 
 Discord role colours stay as servers set them, and some read faintly on a
 light theme; Yapfast doesn't adjust them yet.

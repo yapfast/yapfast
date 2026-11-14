@@ -8528,6 +8528,50 @@ fn built_in_themes_have_their_own_ids_and_say_whether_they_are_dark() {
 }
 
 #[test]
+fn bonfire_variants_apply_and_legacy_selections_keep_dark() {
+    i_slint_backend_testing::init_no_event_loop();
+    let window = YapfastWindow::new().unwrap();
+    for (id, dark, mention) in [
+        ("bonfire-light", false, 0x2e3c88),
+        ("bonfire-ash", true, 0xcdd7ff),
+        ("bonfire-dark", true, 0xa9bbff),
+        ("bonfire-onyx", true, 0x8ca0fd),
+    ] {
+        let layout = Layout {
+            theme: Some(id.into()),
+            ..Default::default()
+        };
+        layout.apply_appearance(&window);
+        assert_eq!(window.get_theme_id(), id);
+        assert_eq!(theme::Theme::shown(&window), theme::find(id).unwrap().theme);
+        assert_eq!(theme::Theme::shown(&window).dark, dark);
+        assert_eq!(theme::mention_color(), mention);
+    }
+    let legacy: Layout = serde_json::from_value(serde_json::json!({
+        "theme": "bonfire",
+        "custom_themes": [{
+            "id": "custom:1", "name": "Old Bonfire", "base": "bonfire",
+            "colours": {"chat": "#102030"}
+        }]
+    }))
+    .unwrap();
+    legacy.apply_appearance(&window);
+    assert_eq!(window.get_theme_id(), "bonfire-dark");
+    assert_eq!(legacy.custom_themes[0].base, "bonfire-dark");
+    let base = theme::find("bonfire-dark").unwrap().theme;
+    assert_eq!(legacy.custom_themes[0].theme.composer, base.composer);
+    assert_eq!(legacy.custom_themes[0].theme.placeholder, base.placeholder);
+    assert_eq!(theme::hex(legacy.custom_themes[0].theme.chat), "#102030");
+    assert_eq!(
+        theme::cards(&[])
+            .iter()
+            .filter(|card| card.id.starts_with("bonfire-"))
+            .count(),
+        4
+    );
+}
+
+#[test]
 fn a_colour_is_written_as_slint_writes_one() {
     let parse = |text| theme::parse(text).map(theme::hex);
     assert_eq!(parse("#abc").as_deref(), Some("#aabbcc"));
@@ -8634,7 +8678,13 @@ fn a_custom_theme_is_made_edited_and_deleted_in_appearance() {
     window.invoke_new_theme();
     assert!(window.get_theme_editor());
     assert_eq!(window.get_theme_name(), "Nord copy");
-    assert_eq!(window.get_theme_start(), 4);
+    let theme_index = |id| {
+        theme::BUILT_IN
+            .iter()
+            .position(|theme| theme.id == id)
+            .unwrap() as i32
+    };
+    assert_eq!(window.get_theme_start(), theme_index("nord"));
     assert_eq!(window.get_theme_starts().row_count(), theme::BUILT_IN.len());
     let colours = window.get_theme_colours();
     assert_eq!(colours.row_count(), theme::Theme::NAMES.len());
@@ -8718,7 +8768,7 @@ fn a_custom_theme_is_made_edited_and_deleted_in_appearance() {
     // A new theme from another start takes its colours and name.
     window.invoke_new_theme();
     assert_eq!(window.get_theme_name(), "Midnight copy");
-    window.invoke_theme_start_chosen(9);
+    window.invoke_theme_start_chosen(theme_index("sakura"));
     assert_eq!(window.get_theme_name(), "Sakura copy");
     assert_eq!(
         theme::Theme::shown(&window),
@@ -10170,11 +10220,11 @@ fn yapfast_navigation_matches_the_reference_column_width() {
 }
 
 #[test]
-fn yapfast_defaults_to_bonfire_and_keeps_saved_appearance_choices() {
+fn yapfast_defaults_to_yap_and_keeps_saved_appearance_choices() {
     i_slint_backend_testing::init_no_event_loop();
     let window = YapfastWindow::new().unwrap();
     Layout::default().apply_appearance(&window);
-    assert_eq!(window.get_theme_id(), "bonfire");
+    assert_eq!(window.get_theme_id(), "yap");
     assert_eq!(window.get_sidebar_width(), 304.0);
 
     let saved = Layout {

@@ -125,9 +125,9 @@ in polls, watch the votes come in, make your own and end them early.
 
 ### Themes
 
-Ten of them, Catppuccin and Tokyo Night among them, and Bonfire, which is
-Discord's own colors. Or make your own in the editor, and watch the window
-change as you type each color.
+Thirteen of them, Catppuccin and Tokyo Night among them, and Bonfire
+Light, Ash, Dark, and Onyx, which use Discord's own colors. Or make your own
+in the editor, and watch the window change as you type each color.
 
 <img src="docs/images/features/themes.webp" alt="The same channel in each of the ten built-in themes, one after another.">
 

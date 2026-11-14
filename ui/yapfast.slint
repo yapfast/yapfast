@@ -2910,11 +2910,13 @@ export component YapfastWindow inherits Window {
                         // Discord's thin outline around the card.
                         if ClientStyle.enabled: Rectangle {
                             width: parent.width; height: parent.height; border-radius: 8px;
-                            border-width: 1px; border-color: Theme.overlay.with-alpha(0.02); background: transparent;
+                            border-width: 1px; border-color: Theme.outline-panel; background: transparent;
                         }
                     }
                 }
             }
+            // Keep the divider on the sidebar side so it cannot cover message markers.
+            if ClientStyle.enabled: Rectangle { x: parent.width - 1px; width: 1px; background: Theme.outline-sidebar; }
         }
         // Conversation.
         Rectangle {
@@ -3488,7 +3490,7 @@ export component YapfastWindow inherits Window {
                                             property <length> body: self.top + (self.head > 0px ? col.padding-top + self.head : 0px);
                                             Rectangle {
                                                 y: parent.body; height: parent.height - parent.body - parent.tail;
-                                                background: parent.jumped && root.jump-lit ? Theme.accent.transparentize(0.86) : parent.lit ? Theme.row-hover : transparent;
+                                                background: parent.jumped && root.jump-lit ? Theme.accent.transparentize(0.86) : parent.lit && !message.highlighted ? Theme.row-hover : transparent;
                                                 animate background { duration: 400ms; }
                                             }
                                             // The message being edited has Discord's edit tint (measured #29292d
@@ -3504,7 +3506,7 @@ export component YapfastWindow inherits Window {
                                                 y: parent.body;
                                                 height: parent.height - self.y - parent.tail;
                                                 background: row-pointer.has-hover ? Theme.mentioned-hover : Theme.mentioned;
-                                                Rectangle { x: 0px; width: 2px; background: Theme.accent; }
+                                                Rectangle { x: 0px; width: 2px; background: Theme.loud; }
                                             }
                                             // The keyboard's message has a marigold edge.
                                             if self.lit && root.browsing: Rectangle { x: 0px; y: parent.body; width: 3px; height: parent.height - parent.body; background: Theme.accent; }
@@ -3850,7 +3852,7 @@ export component YapfastWindow inherits Window {
                                 background: ClientStyle.enabled ? Theme.composer : Theme.field;
                                 // Discord's outline: faint, and a notch lighter with the keys.
                                 border-width: 1px;
-                                border-color: composer.focused ? Theme.muted.with-alpha(0.55) : ClientStyle.enabled ? Theme.outline-field : Theme.line;
+                                border-color: composer.focused ? Theme.outline-field-focus : ClientStyle.enabled ? Theme.outline-field : Theme.line;
                                 animate border-color { duration: Theme.quick; }
                                 border-radius: 10px;
                                 border-top-left-radius: root.compose-label != "" ? 0px : 10px;

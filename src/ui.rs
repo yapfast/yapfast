@@ -1596,12 +1596,7 @@ impl Layout {
     fn apply_appearance(&self, window: &YapfastWindow) {
         // Before the first frame, which the event loop draws. A window made
         // again, after closing to the tray, keeps the theme this way too.
-        let default_theme = window
-            .global::<ClientStyle>()
-            .get_enabled()
-            .then_some("bonfire");
-        let (id, chosen) =
-            theme::chosen(self.theme.as_deref().or(default_theme), &self.custom_themes);
+        let (id, chosen) = theme::chosen(self.theme.as_deref(), &self.custom_themes);
         chosen.apply(window);
         window.set_theme_id(id.into());
         window.set_themes(theme::cards(&self.custom_themes));
