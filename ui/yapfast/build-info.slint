@@ -106,7 +106,7 @@ export component BuildStamp inherits Rectangle {
     height: BuildInfo.headline == "" ? 0px : 62px;
     clip: true;
     accessible-role: button;
-    accessible-label: "Copy the version: " + BuildInfo.summary;
+    accessible-label: @tr("Copy the version: {}", BuildInfo.summary);
     accessible-action-default => { root.copy-version(); }
     forward-focus: stamp-focus;
     function copy-version() {
@@ -128,7 +128,7 @@ export component BuildStamp inherits Rectangle {
             HorizontalLayout {
                 alignment: start;
                 Text {
-                    text: root.copied ? "Copied" : BuildInfo.channel;
+                    text: root.copied ? @tr("Copied") : BuildInfo.channel;
                     color: root.copied ? Theme.text : root.tint; font-size: 12px; font-weight: 700;
                 }
                 if !root.copied && BuildInfo.details != "": Text {
@@ -148,11 +148,11 @@ export component BuildStamp inherits Rectangle {
             clicked => { root.copy-version(); }
             changed has-hover => {
                 if self.has-hover {
-                    Tip.text = "Click to copy";
+                    Tip.text = @tr("Click to copy");
                     Tip.side = 0;
                     Tip.x = self.absolute-position.x + self.width / 2;
                     Tip.y = self.absolute-position.y;
-                } else if Tip.text == "Click to copy" {
+                } else if Tip.text == @tr("Click to copy") {
                     Tip.text = "";
                 }
             }

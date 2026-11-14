@@ -162,7 +162,7 @@ pub(super) fn family(font: u8) -> &'static str {
         8 => "8Bit",
         10 => "Sinistre",
         12 => "Tempo",
-        13 => "Monkey Bars",
+        13 => tr("Monkey Bars"),
         14 => "Mainframe",
         15 => "Headbang",
         16 => "Journal",

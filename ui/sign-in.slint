@@ -28,7 +28,7 @@ export component SignInScreen inherits Rectangle {
     callback link-discord-token(string);
     callback open-discord-captcha;
     background: Theme.rail;
-    Text { x: 32px; y: 24px; text: "Yapfast"; color: Theme.accent; font-size: 24px; font-weight: 900; letter-spacing: -0.4px; }
+    Text { x: 32px; y: 24px; text: @tr("Yapfast"); color: Theme.accent; font-size: 24px; font-weight: 900; letter-spacing: -0.4px; }
     ScrollView {
         y: 64px; height: parent.height - 64px;
         VerticalLayout {
@@ -50,8 +50,8 @@ export component SignInScreen inherits Rectangle {
                         // A build without Matrix signs in by linking Discord.
                         if !root.matrix-build: VerticalLayout {
                             spacing: 8px; horizontal-stretch: 1; min-width: 300px;
-                            Text { text: "Sign in to Yapfast"; color: Theme.text; font-size: 26px; font-weight: 700; horizontal-alignment: center; }
-                            Text { text: "Link your Discord account with your phone."; color: Theme.secondary; horizontal-alignment: center; wrap: word-wrap; }
+                            Text { text: @tr("Sign in to Yapfast"); color: Theme.text; font-size: 26px; font-weight: 700; horizontal-alignment: center; }
+                            Text { text: @tr("Link your Discord account with your phone."); color: Theme.secondary; horizontal-alignment: center; wrap: word-wrap; }
                             Rectangle { height: 12px; }
                             if !root.busy: DiscordLinkPanel {
                                 phase: root.link-phase; code: root.link-code; name: root.link-name; note: root.link-note;
@@ -67,22 +67,22 @@ export component SignInScreen inherits Rectangle {
                             property <int> focus-asked: root.sign-in-focus;
                             changed focus-asked => { username-field.focus-input(); }
                             spacing: 8px; horizontal-stretch: 1; min-width: 300px;
-                            Text { text: "Sign in to Yapfast"; color: Theme.text; font-size: 26px; font-weight: 700; horizontal-alignment: center; }
-                            Text { text: "Use your existing Matrix account."; color: Theme.secondary; horizontal-alignment: center; wrap: word-wrap; }
+                            Text { text: @tr("Sign in to Yapfast"); color: Theme.text; font-size: 26px; font-weight: 700; horizontal-alignment: center; }
+                            Text { text: @tr("Use your existing Matrix account."); color: Theme.secondary; horizontal-alignment: center; wrap: word-wrap; }
                             Rectangle { height: 12px; }
-                            Text { text: "HOMESERVER"; color: Theme.secondary; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
-                            TextField { text <=> root.homeserver; enabled: !root.busy; label: "Homeserver"; }
+                            Text { text: @tr("HOMESERVER"); color: Theme.secondary; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                            TextField { text <=> root.homeserver; enabled: !root.busy; label: @tr("Homeserver"); }
                             Rectangle { height: 4px; }
-                            Text { text: "MATRIX ID"; color: Theme.secondary; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
-                            username-field := TextField { text <=> root.username; placeholder: "@you:matrix.org"; enabled: !root.busy; label: "Matrix ID"; }
+                            Text { text: @tr("MATRIX ID"); color: Theme.secondary; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                            username-field := TextField { text <=> root.username; placeholder: @tr("@you:matrix.org"); enabled: !root.busy; label: @tr("Matrix ID"); }
                             Rectangle { height: 4px; }
-                            Text { text: "PASSWORD"; color: Theme.secondary; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
-                            TextField { text <=> root.password; password: true; enabled: !root.busy; label: "Password"; accepted => { root.login(); } }
+                            Text { text: @tr("PASSWORD"); color: Theme.secondary; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                            TextField { text <=> root.password; password: true; enabled: !root.busy; label: @tr("Password"); accepted => { root.login(); } }
                             Rectangle { height: 12px; }
-                            ActionButton { min-height: 44px; text: root.busy ? "Connecting..." : "Sign in"; primary: true; enabled: !root.busy; clicked => { root.login(); } }
+                            ActionButton { min-height: 44px; text: root.busy ? @tr("Connecting...") : @tr("Sign in"); primary: true; enabled: !root.busy; clicked => { root.login(); } }
                             if root.notice != "": Text { text: root.notice; color: Theme.danger; font-size: 15px; wrap: word-wrap; }
-                            if root.restore-available && !root.busy: ActionButton { text: "Retry saved session"; clicked => { root.restore(); } }
-                            Label { text: "Sign in with your Matrix password. Single sign-on isn't available yet."; }
+                            if root.restore-available && !root.busy: ActionButton { text: @tr("Retry saved session"); clicked => { root.restore(); } }
+                            Label { text: @tr("Sign in with your Matrix password. Single sign-on isn't available yet."); }
                         }
                         Rectangle { width: 1px; background: Theme.line; }
                         VerticalLayout {
@@ -94,9 +94,9 @@ export component SignInScreen inherits Rectangle {
                                     Image { source: @image-url("icons/logo.svg"); width: 44px; height: 44px; colorize: Theme.accent; }
                                 }
                             }
-                            Text { text: "Just looking?"; color: Theme.text; font-size: 20px; font-weight: 700; horizontal-alignment: center; }
-                            Text { text: "Try the layout with sample conversations. Nothing leaves this computer."; color: Theme.secondary; font-size: 15px; horizontal-alignment: center; wrap: word-wrap; }
-                            ActionButton { text: "Explore local preview"; enabled: !root.busy; clicked => { root.explore-preview(); } }
+                            Text { text: @tr("Just looking?"); color: Theme.text; font-size: 20px; font-weight: 700; horizontal-alignment: center; }
+                            Text { text: @tr("Try the layout with sample conversations. Nothing leaves this computer."); color: Theme.secondary; font-size: 15px; horizontal-alignment: center; wrap: word-wrap; }
+                            ActionButton { text: @tr("Explore local preview"); enabled: !root.busy; clicked => { root.explore-preview(); } }
                         }
                     }
                 }
@@ -121,13 +121,13 @@ export component VerifyBanner inherits Rectangle {
         }
         VerticalLayout {
             spacing: 8px;
-            Text { text: "Verify this device to send messages"; color: Theme.text; font-weight: 700; }
-            Label { text: "Use your Matrix recovery key, or verify Yapfast in another client and check again."; color: Theme.secondary; font-size: 14px; }
+            Text { text: @tr("Verify this device to send messages"); color: Theme.text; font-weight: 700; }
+            Label { text: @tr("Use your Matrix recovery key, or verify Yapfast in another client and check again."); color: Theme.secondary; font-size: 14px; }
             HorizontalLayout {
                 spacing: 8px;
-                TextField { text <=> root.recovery; password: true; placeholder: "Recovery key"; label: "Matrix recovery key"; enabled: !root.busy; min-height: 36px; accepted => { root.recover(); } }
-                ActionButton { text: "Recover"; primary: true; enabled: !root.busy; clicked => { root.recover(); } }
-                ActionButton { text: "Check again"; enabled: !root.busy; clicked => { root.refresh-trust(); } }
+                TextField { text <=> root.recovery; password: true; placeholder: @tr("Recovery key"); label: @tr("Matrix recovery key"); enabled: !root.busy; min-height: 36px; accepted => { root.recover(); } }
+                ActionButton { text: @tr("Recover"); primary: true; enabled: !root.busy; clicked => { root.recover(); } }
+                ActionButton { text: @tr("Check again"); enabled: !root.busy; clicked => { root.refresh-trust(); } }
             }
         }
     }

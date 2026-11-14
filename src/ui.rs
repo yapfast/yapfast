@@ -24,7 +24,9 @@ use yapfast_core::{
         ChannelKind, ChannelSettings, ChatMessage, Command, Delivery, EmbedField, Event, Picture,
         Placement, Presence, ProfilePicture, ProfileRole, Reacts, Role, VideoCommand,
     },
-    clock, discord, links, mention,
+    clock, discord,
+    i18n::{self, Language, fill, tr, trn},
+    links, mention,
     meter::{self, InputMeter},
     network::Network,
     runtime::BackgroundRuntime,
@@ -1269,6 +1271,9 @@ struct Layout {
     /// The order of day, month and year, as an index into
     /// [`yapfast_core::clock::DateFormat::ALL`]; follows the clock unless chosen.
     date_format: Option<i32>,
+    /// Discord's code for the interface language, such as `de`; the system's
+    /// language where the interface has it, English otherwise, until chosen.
+    interface_language: Option<String>,
     /// Message text: 0 small, 1 default, 2 large.
     text_size: Option<i32>,
     /// Link previews under messages; on unless turned off.
@@ -1480,7 +1485,48 @@ fn chosen<T: Copy>(choices: &[T], index: i32) -> T {
         .unwrap_or(choices[0])
 }
 
+/// Has Slint's `@tr` texts read in `language`: English is the texts as written
+/// and the others come from the translations the program carries, named by
+/// Discord's code.
+fn select_translation(language: Language) {
+    let folder = if language.is_english() {
+        ""
+    } else {
+        language.code()
+    };
+    if let Err(error) = slint::select_bundled_translation(folder) {
+        tracing::warn!(%error, language = language.code(), "could not switch the interface's language");
+    }
+}
+
 impl Layout {
+    /// The interface language: the chosen one if the interface has it, else the
+    /// system's, else English.
+    fn chosen_language(&self) -> Language {
+        self.interface_language
+            .as_deref()
+            .and_then(Language::from_code)
+            .filter(|language| language.is_offered())
+            .unwrap_or_else(Language::system)
+    }
+
+    /// The language's place in the list the settings page shows.
+    fn language_place(&self) -> i32 {
+        let language = self.chosen_language();
+        Language::offered()
+            .iter()
+            .position(|&offered| offered == language)
+            .map_or(0, |place| place as i32)
+    }
+
+    /// Has the interface and what words dates and times read in the chosen
+    /// language.
+    fn apply_language(&self) {
+        let language = self.chosen_language();
+        i18n::set_language(language);
+        select_translation(language);
+    }
+
     /// Hands the date format and the 12-hour clock to what formats times.
     fn apply_date_format(&self) {
         clock::set_date_format(self.date_format.and_then(|index| {
@@ -1630,6 +1676,14 @@ impl Layout {
         window.set_twelve_hour_clock(self.twelve_hour_clock);
         window.set_clock_seconds(self.clock_seconds);
         window.set_date_format(self.date_format.unwrap_or(-1));
+        window.set_languages(ModelRc::new(VecModel::from(
+            Language::offered()
+                .into_iter()
+                .map(|language| SharedString::from(language.name()))
+                .collect::<Vec<_>>(),
+        )));
+        window.set_language(self.language_place());
+        self.apply_language();
         self.apply_date_format();
         window.set_text_size(self.text_size.unwrap_or(1).clamp(0, 2));
         window.set_link_previews(self.link_previews.unwrap_or(true));
@@ -1746,11 +1800,11 @@ impl Layout {
                 && let Some(embed) = message.embeds.first()
             {
                 row.hidden_card = if embed.title.is_empty() {
-                    "A card, hidden while link previews are off.".into()
+                    tr("A card, hidden while link previews are off.").into()
                 } else {
-                    format!(
-                        "A card, \"{}\", hidden while link previews are off.",
-                        embed.title
+                    fill(
+                        tr("A card, \"{}\", hidden while link previews are off."),
+                        &[&embed.title],
                     )
                     .into()
                 };
@@ -2640,7 +2694,7 @@ impl Adapter {
                         .tempdir_in(folder?)
                         .ok()?
                         .keep();
-                    let path = folder.join(format!("image.{extension}"));
+                    let path = folder.join(format!("image.{}", extension));
                     std::fs::write(&path, bytes).ok()?;
                     Some(vec![path])
                 }
@@ -2844,7 +2898,7 @@ impl Adapter {
                     let task = slint::spawn_local(async move {
                         let devices = listing
                             .await
-                            .unwrap_or_else(|_| Err("Could not list audio devices.".into()));
+                            .unwrap_or_else(|_| Err(tr("Could not list audio devices.").into()));
                         if let Some(adapter) = weak.upgrade() {
                             let window = adapter.borrow().window.upgrade();
                             let mut adapter = adapter.borrow_mut();
@@ -3165,9 +3219,9 @@ fn show_incoming(
         window.set_incoming_name(room.name.as_str().into());
         window.set_incoming_detail(
             if room.person.is_some() || room.people.is_empty() {
-                "Incoming call".into()
+                tr("Incoming call").into()
             } else {
-                format!("{} calling", who_is_here(&room.people))
+                fill(tr("{} calling"), &[&who_is_here(&room.people)])
             }
             .into(),
         );
@@ -3181,9 +3235,12 @@ fn who_is_here(people: &[yapfast_core::chat::VoicePerson]) -> String {
     let names: Vec<&str> = people.iter().map(|person| person.name.as_str()).collect();
     match names.as_slice() {
         [one] => format!("{one} is"),
-        [first, second] => format!("{first} and {second} are"),
-        [first, second, third] => format!("{first}, {second} and {third} are"),
-        [first, second, rest @ ..] => format!("{first}, {second} and {} others are", rest.len()),
+        [first, second] => fill(tr("{0} and {1} are"), &[&first, &second]),
+        [first, second, third] => fill(tr("{0}, {1} and {2} are"), &[&first, &second, &third]),
+        [first, second, rest @ ..] => fill(
+            tr("{0}, {1} and {2} others are"),
+            &[&first, &second, &rest.len()],
+        ),
         [] => String::new(),
     }
 }
@@ -3268,7 +3325,7 @@ fn dm_detail(room: &yapfast_core::chat::ChatRoom) -> (SharedString, SharedString
     }
     if room.person.is_none() {
         return (
-            format!("{} members", room.members).into(),
+            fill(tr("{} members"), &[&room.members]).into(),
             SharedString::default(),
         );
     }
@@ -3335,7 +3392,7 @@ const DEFAULT_DEVICE: &str = "name:default: ";
 
 fn device_label(name: &str) -> SharedString {
     match name.strip_prefix("default: ") {
-        Some(device) => format!("Default ({device})").into(),
+        Some(device) => fill(tr("Default ({})"), &[&device]).into(),
         None => name.into(),
     }
 }
@@ -3378,8 +3435,8 @@ fn device_rows(
                         .get(chosen)
                         .cloned()
                         .or_else(|| chosen.strip_prefix(voice::NAMED).map(device_label))
-                        .unwrap_or_else(|| "Chosen device".into());
-                    rows.push(format!("{name} (not connected)").into());
+                        .unwrap_or_else(|| tr("Chosen device").into());
+                    rows.push(fill(tr("{} (not connected)"), &[&name]).into());
                     rows.len() - 1
                 }),
         ),

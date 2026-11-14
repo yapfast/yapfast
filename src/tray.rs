@@ -114,6 +114,7 @@ mod linux {
     };
 
     use ksni::{MenuItem, menu::StandardItem};
+    use yapfast_core::i18n::tr;
 
     use super::{Choice, Shown};
 
@@ -239,7 +240,7 @@ mod linux {
             ksni::ToolTip {
                 title: "Yapfast".into(),
                 description: if self.shown.unread {
-                    "Unread messages".into()
+                    tr("Unread messages").into()
                 } else {
                     String::new()
                 },
@@ -260,12 +261,12 @@ mod linux {
                 }
                 .into()
             };
-            let mut menu = vec![item("Open Yapfast", Choice::Open)];
+            let mut menu = vec![item(tr("Open Yapfast"), Choice::Open)];
             if self.shown.call {
-                menu.push(item("Disconnect", Choice::Disconnect));
+                menu.push(item(tr("Disconnect"), Choice::Disconnect));
             }
             menu.push(MenuItem::Separator);
-            menu.push(item("Quit", Choice::Quit));
+            menu.push(item(tr("Quit"), Choice::Quit));
             menu
         }
 

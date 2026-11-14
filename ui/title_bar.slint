@@ -64,16 +64,16 @@ export component TitleBar inherits Rectangle {
     HorizontalLayout {
         alignment: end;
         WindowButton {
-            icon: @image-url("icons/minus.svg"); label: "Minimize"; dim: !root.focused;
+            icon: @image-url("icons/minus.svg"); label: @tr("Minimize"); dim: !root.focused;
             clicked => { root.minimize-window(); }
         }
         WindowButton {
             icon: root.maximized ? @image-url("icons/restore.svg") : @image-url("icons/square.svg");
-            label: root.maximized ? "Restore" : "Maximize"; dim: !root.focused;
+            label: root.maximized ? @tr("Restore") : @tr("Maximize"); dim: !root.focused;
             clicked => { root.maximize-window(); }
         }
         WindowButton {
-            icon: @image-url("icons/x.svg"); label: "Close"; dim: !root.focused;
+            icon: @image-url("icons/x.svg"); label: @tr("Close"); dim: !root.focused;
             clicked => { root.close-window(); }
         }
     }

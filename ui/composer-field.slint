@@ -73,12 +73,12 @@ export component Composer inherits Rectangle {
     property <length> menu-x;
     property <length> menu-y;
     property <bool> has-selection: input.anchor-position-byte-offset != input.cursor-position-byte-offset;
-    property <MenuRow> paste-row: { id: "paste", text: "Paste", icon: @image-url("icons/clipboard-paste.svg") };
-    property <MenuRow> select-all-row: { id: "select-all", text: "Select All", icon: @image-url("icons/text-select.svg") };
+    property <MenuRow> paste-row: { id: "paste", text: @tr("Paste"), icon: @image-url("icons/clipboard-paste.svg") };
+    property <MenuRow> select-all-row: { id: "select-all", text: @tr("Select All"), icon: @image-url("icons/text-select.svg") };
     property <[MenuRow]> menu-rows: root.has-selection
         ? [
-            { id: "cut", text: "Cut", icon: @image-url("icons/scissors.svg") },
-            { id: "copy", text: "Copy", icon: @image-url("icons/copy.svg") },
+            { id: "cut", text: @tr("Cut"), icon: @image-url("icons/scissors.svg") },
+            { id: "copy", text: @tr("Copy"), icon: @image-url("icons/copy.svg") },
             root.paste-row, root.select-all-row,
         ]
         : [root.paste-row, root.select-all-row];
@@ -97,8 +97,8 @@ export component Composer inherits Rectangle {
         x: 6px; y: root.pills + root.pad; width: root.width - 12px; height: root.line;
         visible: root.text == "";
         text: !root.commanding ? root.placeholder
-            : root.command-options.length == 0 ? "Press Enter to run /" + root.command-name
-            : root.focused-pill.file ? "Press Enter to choose a file for " + root.focused-pill.name
+            : root.command-options.length == 0 ? @tr("Press Enter to run /{}", root.command-name)
+            : root.focused-pill.file ? @tr("Press Enter to choose a file for {}", root.focused-pill.name)
             : root.focused-pill.description; color: root.enabled ? Theme.placeholder : Theme.faint; font-size: root.text-size;
         vertical-alignment: center; overflow: elide;
     }

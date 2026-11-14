@@ -50,7 +50,7 @@ export component StatusDialog inherits Rectangle {
         background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
         drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
         accessible-role: groupbox;
-        accessible-label: "Set a custom status";
+        accessible-label: @tr("Set a custom status");
         TouchArea { }
         FocusScope {
             key-pressed(event) => {
@@ -60,8 +60,8 @@ export component StatusDialog inherits Rectangle {
             status-content := VerticalLayout {
                 padding: 20px; spacing: 12px;
                 HorizontalLayout {
-                    Text { text: "Set a custom status"; color: Theme.text; font-size: 18px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
-                    IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close-status(); } }
+                    Text { text: @tr("Set a custom status"); color: Theme.text; font-size: 18px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
+                    IconButton { icon: @image-url("icons/x.svg"); label: @tr("Close"); size: 28px; glyph: 18px; clicked => { root.close-status(); } }
                 }
                 HorizontalLayout {
                     spacing: 8px;
@@ -69,7 +69,7 @@ export component StatusDialog inherits Rectangle {
                         width: 40px; height: 40px; border-radius: 6px;
                         background: status-emoji-touch.has-hover ? Theme.hover : Theme.sunken;
                         accessible-role: button;
-                        accessible-label: root.status-emoji.glyph != "" ? "Emoji, " + root.status-emoji.name + ". Change it" : "Pick an emoji";
+                        accessible-label: root.status-emoji.glyph != "" ? @tr("Emoji, {}. Change it", root.status-emoji.name) : @tr("Pick an emoji");
                         accessible-action-default => { root.pick-emoji(); }
                         if root.status-emoji.glyph != "": EmojiFace { emoji: root.status-emoji; font: root.emoji-font; side: 22px; }
                         if root.status-emoji.glyph == "": Image {
@@ -85,7 +85,7 @@ export component StatusDialog inherits Rectangle {
                             background: remove-touch.has-hover ? Theme.danger : Theme.faint;
                             border-width: 2px; border-color: Theme.raised;
                             accessible-role: button;
-                            accessible-label: "Remove the emoji";
+                            accessible-label: @tr("Remove the emoji");
                             accessible-action-default => { root.status-emoji = { glyph: "", name: "", key: "" }; }
                             Image { source: @image-url("icons/x.svg"); width: 10px; colorize: Theme.text; }
                             remove-touch := TouchArea {
@@ -97,26 +97,26 @@ export component StatusDialog inherits Rectangle {
                     TextField {
                         init => { self.focus-input(); }
                         min-height: 40px; text-size: 15px; pad: 10px; fill: Theme.sunken;
-                        placeholder: "What's happening?"; label: "Status"; text <=> root.status-text;
+                        placeholder: @tr("What's happening?"); label: @tr("Status"); text <=> root.status-text;
                         accepted => { root.save-status(); }
                     }
                 }
-                Text { text: "CLEAR AFTER"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                Text { text: @tr("CLEAR AFTER"); color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
                 Choices {
-                    label: "Clear after"; options: ["Never", "30 min", "1 hour", "4 hours", "Today"];
+                    label: @tr("Clear after"); options: [@tr("Never"), @tr("30 min"), @tr("1 hour"), @tr("4 hours"), @tr("Today")];
                     current <=> root.status-clear-after;
                 }
                 if root.status-error != "": Text { text: root.status-error; color: Theme.danger; font-size: 14px; wrap: word-wrap; }
                 HorizontalLayout {
                     spacing: 8px; padding-top: 4px;
                     if root.has-custom-status: ActionButton {
-                        text: "Clear status"; ghost: true; enabled: !root.status-saving;
+                        text: @tr("Clear status"); ghost: true; enabled: !root.status-saving;
                         clicked => { root.clear-status(); }
                     }
                     Rectangle { horizontal-stretch: 1; }
-                    ActionButton { text: "Cancel"; ghost: true; clicked => { root.close-status(); } }
+                    ActionButton { text: @tr("Cancel"); ghost: true; clicked => { root.close-status(); } }
                     ActionButton {
-                        text: root.status-saving ? "Saving..." : "Save"; primary: true; enabled: !root.status-saving;
+                        text: root.status-saving ? @tr("Saving...") : @tr("Save"); primary: true; enabled: !root.status-saving;
                         clicked => { root.save-status(); }
                     }
                 }
@@ -148,7 +148,7 @@ export component NewDmDialog inherits Rectangle {
         background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
         drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
         accessible-role: groupbox;
-        accessible-label: "New message";
+        accessible-label: @tr("New message");
         TouchArea { }
         FocusScope {
             key-pressed(event) => {
@@ -158,13 +158,13 @@ export component NewDmDialog inherits Rectangle {
             VerticalLayout {
                 padding: 20px; spacing: 12px;
                 HorizontalLayout {
-                    Text { text: "New message"; color: Theme.text; font-size: 18px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
-                    IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close-new-dm(); } }
+                    Text { text: @tr("New message"); color: Theme.text; font-size: 18px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
+                    IconButton { icon: @image-url("icons/x.svg"); label: @tr("Close"); size: 28px; glyph: 18px; clicked => { root.close-new-dm(); } }
                 }
                 TextField {
                     init => { self.focus-input(); }
                     min-height: 36px; text-size: 15px; pad: 10px; fill: Theme.sunken;
-                    placeholder: root.matrix ? "Find a friend, or type a Matrix id" : "Find a friend"; label: "Find people"; text <=> root.new-dm-query;
+                    placeholder: root.matrix ? @tr("Find a friend, or type a Matrix id") : @tr("Find a friend"); label: @tr("Find people"); text <=> root.new-dm-query;
                     edited => { root.new-dm-search(); }
                 }
                 ScrollView {
@@ -175,7 +175,7 @@ export component NewDmDialog inherits Rectangle {
                             height: 48px; border-radius: 6px;
                             background: person-touch.has-hover && !root.new-dm-starting ? Theme.hover : transparent;
                             accessible-role: button;
-                            accessible-label: "Message " + person.name + ", " + person.detail;
+                            accessible-label: @tr("Message {0}, {1}", person.name, person.detail);
                             accessible-action-default => { root.start-dm(index); }
                             HorizontalLayout {
                                 padding-left: 8px; padding-right: 8px; spacing: 12px;
@@ -192,7 +192,7 @@ export component NewDmDialog inherits Rectangle {
                                     Text { text: person.detail; color: Theme.muted; font-size: 13px; overflow: elide; }
                                 }
                                 Middle {
-                                    ActionButton { text: "Message"; small: true; primary: person-touch.has-hover; enabled: !root.new-dm-starting; clicked => { root.start-dm(index); } }
+                                    ActionButton { text: @tr("Message"); small: true; primary: person-touch.has-hover; enabled: !root.new-dm-starting; clicked => { root.start-dm(index); } }
                                 }
                             }
                             person-touch := TouchArea {
@@ -243,7 +243,7 @@ export component ForwardDialog inherits Rectangle {
         background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
         drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
         accessible-role: groupbox;
-        accessible-label: "Forward To";
+        accessible-label: @tr("Forward To");
         TouchArea { }
         FocusScope {
             key-pressed(event) => {
@@ -255,18 +255,18 @@ export component ForwardDialog inherits Rectangle {
                 HorizontalLayout {
                     VerticalLayout {
                         spacing: 2px; horizontal-stretch: 1;
-                        Text { text: "Forward To"; color: Theme.text; font-size: 18px; font-weight: 700; }
+                        Text { text: @tr("Forward To"); color: Theme.text; font-size: 18px; font-weight: 700; }
                         Text {
-                            text: root.forward-chosen < root.forward-limit ? "Select where you want to share this message." : "Maximum " + root.forward-limit + " places at once.";
+                            text: root.forward-chosen < root.forward-limit ? @tr("Select where you want to share this message.") : @tr("Maximum {} places at once.", root.forward-limit);
                             color: Theme.secondary; font-size: 14px; overflow: elide;
                         }
                     }
-                    Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close-forward(); } } }
+                    Middle { IconButton { icon: @image-url("icons/x.svg"); label: @tr("Close"); size: 28px; glyph: 18px; clicked => { root.close-forward(); } } }
                 }
                 TextField {
                     init => { self.focus-input(); }
                     min-height: 36px; text-size: 15px; pad: 10px; fill: Theme.sunken;
-                    placeholder: "Search"; label: "Search"; text <=> root.forward-query;
+                    placeholder: @tr("Search"); label: @tr("Search"); text <=> root.forward-query;
                     edited => { root.forward-search(); }
                 }
                 ScrollView {
@@ -324,7 +324,7 @@ export component ForwardDialog inherits Rectangle {
                 }
                 TextField {
                     min-height: 40px; text-size: 15px; pad: 10px; fill: Theme.sunken;
-                    placeholder: "Add an optional message..."; label: "Add an optional message"; text <=> root.forward-note;
+                    placeholder: @tr("Add an optional message..."); label: @tr("Add an optional message"); text <=> root.forward-note;
                     accepted => { if root.forward-chosen > 0 { root.forward-send(root.forward-note); } }
                 }
                 if root.forward-note != "" && root.forward-slowmode != "": Label { text: root.forward-slowmode; }
@@ -332,7 +332,7 @@ export component ForwardDialog inherits Rectangle {
                 HorizontalLayout {
                     alignment: end;
                     ActionButton {
-                        text: root.forward-chosen > 1 ? "Send (" + root.forward-chosen + ")" : "Send";
+                        text: root.forward-chosen > 1 ? @tr("Send ({})", root.forward-chosen) : @tr("Send");
                         primary: true; enabled: root.forward-chosen > 0;
                         clicked => { root.forward-send(root.forward-note); }
                     }
@@ -373,7 +373,7 @@ export component QuickSwitcher inherits Rectangle {
         background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
         drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
         accessible-role: groupbox;
-        accessible-label: "Quick switcher";
+        accessible-label: @tr("Quick switcher");
         TouchArea { }
         FocusScope {
             capture-key-pressed(event) => {
@@ -403,7 +403,7 @@ export component QuickSwitcher inherits Rectangle {
                 TextField {
                     init => { self.focus-input(); }
                     min-height: 52px; text-size: 20px; pad: 14px; fill: Theme.sunken;
-                    placeholder: "Where would you like to go?"; label: "Where would you like to go?";
+                    placeholder: @tr("Where would you like to go?"); label: @tr("Where would you like to go?");
                     text <=> root.switcher-query;
                     edited(text) => {
                         root.chosen = 0;
@@ -412,7 +412,7 @@ export component QuickSwitcher inherits Rectangle {
                     }
                 }
                 if root.switcher-query == "" && root.switcher-places.length > 0: Text {
-                    text: "PREVIOUS CHANNELS"; color: Theme.muted; font-size: 12px; font-weight: 700;
+                    text: @tr("PREVIOUS CHANNELS"); color: Theme.muted; font-size: 12px; font-weight: 700;
                 }
                 list := ScrollView {
                     vertical-stretch: 1;
@@ -423,7 +423,7 @@ export component QuickSwitcher inherits Rectangle {
                             background: index == root.current ? Theme.active : place-touch.has-hover ? Theme.hover : transparent;
                             accessible-role: button;
                             accessible-label: place.name + ", " + place.place
-                                + (place.badge != "" ? ", " + place.badge + " mentions" : place.unread ? ", unread" : "");
+                                + (place.badge != "" ? @tr(", {} mentions", place.badge) : place.unread ? @tr(", unread") : "");
                             accessible-action-default => { root.switch-to(place.id); }
                             place-touch := TouchArea {
                                 mouse-cursor: MouseCursor.pointer;
@@ -454,12 +454,12 @@ export component QuickSwitcher inherits Rectangle {
                         }
                         if root.switcher-places.length == 0 && root.switcher-query != "": HorizontalLayout {
                             padding: 8px;
-                            Label { text: "Nothing goes by that name."; }
+                            Label { text: @tr("Nothing goes by that name."); }
                         }
                     }
                 }
                 Text {
-                    text: "Start a search with @ for people, # for text channels, ! for voice channels or * for servers.";
+                    text: @tr("Start a search with @ for people, # for text channels, ! for voice channels or * for servers.");
                     color: Theme.muted; font-size: 12px; wrap: word-wrap;
                 }
             }
@@ -484,7 +484,7 @@ export component LeavingDialog inherits Rectangle {
         background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
         drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
         accessible-role: groupbox;
-        accessible-label: "Leaving Yapfast";
+        accessible-label: @tr("Leaving Yapfast");
         TouchArea { }
         FocusScope {
             init => { self.focus(); }
@@ -495,8 +495,8 @@ export component LeavingDialog inherits Rectangle {
             }
             content := VerticalLayout {
                 padding: 20px; spacing: 12px;
-                Text { text: "Leaving Yapfast"; color: Theme.text; font-size: 18px; font-weight: 700; }
-                Text { text: "This link goes to"; color: Theme.secondary; font-size: 15px; }
+                Text { text: @tr("Leaving Yapfast"); color: Theme.text; font-size: 18px; font-weight: 700; }
+                Text { text: @tr("This link goes to"); color: Theme.secondary; font-size: 15px; }
                 Text { text: root.site; color: Theme.text; font-size: 17px; font-weight: 700; wrap: word-wrap; }
                 Rectangle {
                     background: Theme.sunken; border-radius: 6px;
@@ -508,8 +508,8 @@ export component LeavingDialog inherits Rectangle {
                 }
                 HorizontalLayout {
                     alignment: end; spacing: 8px;
-                    ActionButton { text: "Go back"; ghost: true; clicked => { root.close(); } }
-                    ActionButton { text: "Visit site"; primary: true; clicked => { root.visit(); } }
+                    ActionButton { text: @tr("Go back"); ghost: true; clicked => { root.close(); } }
+                    ActionButton { text: @tr("Visit site"); primary: true; clicked => { root.visit(); } }
                 }
             }
         }
@@ -582,21 +582,21 @@ export component StatusMenu inherits Rectangle {
     background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
     drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
     accessible-role: groupbox;
-    accessible-label: "Status";
+    accessible-label: @tr("Status");
     VerticalLayout {
         padding: 6px; spacing: 2px;
         if root.game-name != "": VerticalLayout {
             padding-left: 8px; padding-right: 8px; padding-top: 4px; padding-bottom: 6px; spacing: 2px;
             Text { text: root.game-name; color: Theme.text; font-size: 14px; font-weight: 700; overflow: elide; }
-            Text { text: root.game-duration == "" ? "Playing now" : "Playing for " + root.game-duration; color: Theme.secondary; font-size: 12px; }
+            Text { text: root.game-duration == "" ? @tr("Playing now") : @tr("Playing for {}", root.game-duration); color: Theme.secondary; font-size: 12px; }
             Rectangle { height: 1px; background: Theme.line; }
             Timer { interval: 20s; running: root.game-duration != ""; triggered => { root.game-duration-due(); } }
         }
         for option in [
-            { key: "online", name: "Online", note: "" },
-            { key: "idle", name: "Idle", note: "" },
-            { key: "dnd", name: "Do Not Disturb", note: "You won't get message notifications." },
-            { key: "invisible", name: "Invisible", note: "You'll show as offline, but can use Yapfast as usual." },
+            { key: "online", name: @tr("Online"), note: "" },
+            { key: "idle", name: @tr("Idle"), note: "" },
+            { key: "dnd", name: @tr("Do Not Disturb"), note: @tr("You won't get message notifications.") },
+            { key: "invisible", name: @tr("Invisible"), note: @tr("You'll show as offline, but can use Yapfast as usual.") },
         ]: StatusOption {
             key: option.key; name: option.name; note: option.note; checked: root.status == option.key;
             clicked => { root.choose(option.key); }
@@ -606,12 +606,12 @@ export component StatusMenu inherits Rectangle {
             Rectangle { height: 1px; background: Theme.line; }
         }
         MenuItem {
-            text: root.has-custom-status ? "Change custom status" : "Set a custom status";
+            text: root.has-custom-status ? @tr("Change custom status") : @tr("Set a custom status");
             icon: @image-url("icons/smile-plus.svg");
             clicked => { root.custom-status(); }
         }
         MenuItem {
-            text: "Edit Profile";
+            text: @tr("Edit Profile");
             icon: @image-url("icons/user-pen.svg");
             clicked => { root.edit-profile(); }
         }
@@ -675,7 +675,7 @@ export component PersonDialog inherits Rectangle {
                 padding: 20px; spacing: 12px;
                 HorizontalLayout {
                     Text { text: root.prompt.title; color: Theme.text; font-size: 18px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
-                    IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
+                    IconButton { icon: @image-url("icons/x.svg"); label: @tr("Close"); size: 28px; glyph: 18px; clicked => { root.close(); } }
                 }
                 if root.prompt.text != "": Label { text: root.prompt.text; }
                 if root.prompt.options.length > 0: VerticalLayout {
@@ -695,7 +695,7 @@ export component PersonDialog inherits Rectangle {
                     changed enabled => { if self.enabled { self.focus-input(); } }
                     enabled: !root.prompt.loading;
                     min-height: 36px; text-size: 15px; pad: 10px; fill: Theme.sunken;
-                    placeholder: root.prompt.loading ? "Loading..." : root.prompt.field; label: root.prompt.field;
+                    placeholder: root.prompt.loading ? @tr("Loading...") : root.prompt.field; label: root.prompt.field;
                     text <=> root.text;
                     accepted => { root.answer(root.text); }
                 }
@@ -708,7 +708,7 @@ export component PersonDialog inherits Rectangle {
                 }
                 HorizontalLayout {
                     alignment: end; spacing: 8px;
-                    ActionButton { text: "Cancel"; ghost: true; clicked => { root.close(); } }
+                    ActionButton { text: @tr("Cancel"); ghost: true; clicked => { root.close(); } }
                     ActionButton {
                         text: root.prompt.confirm; primary: !root.prompt.danger; danger: root.prompt.danger;
                         enabled: !root.prompt.loading && !root.prompt.saving;
@@ -759,7 +759,7 @@ export component ReactionsDialog inherits Rectangle {
         background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
         drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
         accessible-role: groupbox;
-        accessible-label: root.voters ? "Votes" : "Reactions";
+        accessible-label: root.voters ? @tr("Votes") : @tr("Reactions");
         TouchArea { }
         FocusScope {
             init => { self.focus(); }
@@ -771,8 +771,8 @@ export component ReactionsDialog inherits Rectangle {
                 padding-top: 16px; spacing: 0px;
                 HorizontalLayout {
                     padding-left: 24px; padding-right: 16px; padding-bottom: 12px;
-                    Text { text: root.voters ? "Votes" : "Reactions"; color: Theme.text; font-size: 20px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
-                    IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close-reactions(); } }
+                    Text { text: root.voters ? @tr("Votes") : @tr("Reactions"); color: Theme.text; font-size: 20px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
+                    IconButton { icon: @image-url("icons/x.svg"); label: @tr("Close"); size: 28px; glyph: 18px; clicked => { root.close-reactions(); } }
                 }
                 Rectangle { height: 1px; background: Theme.line; }
                 HorizontalLayout {
@@ -791,7 +791,7 @@ export component ReactionsDialog inherits Rectangle {
                                         y: 0px; height: 32px; border-radius: 8px;
                                         background: parent.chosen ? Theme.active : pill-touch.has-hover ? Theme.hover : transparent;
                                         accessible-role: button;
-                                        accessible-label: pill.name + " " + pill.count + (root.voters ? (pill.count == 1 ? " vote" : " votes") : (pill.count == 1 ? " reaction" : " reactions"));
+                                        accessible-label: pill.name + " " + pill.count + (root.voters ? (pill.count == 1 ? @tr(" vote") : @tr(" votes")) : (pill.count == 1 ? @tr(" reaction") : @tr(" reactions")));
                                         accessible-checked: parent.chosen;
                                         accessible-action-default => { root.select-reaction(pill.key); }
                                         HorizontalLayout {
@@ -831,7 +831,7 @@ export component ReactionsDialog inherits Rectangle {
                                         }
                                         if person.removable && person-touch.has-hover: Middle {
                                             IconButton {
-                                                icon: @image-url("icons/x.svg"); label: "Remove Reaction"; size: 28px; glyph: 16px;
+                                                icon: @image-url("icons/x.svg"); label: @tr("Remove Reaction"); size: 28px; glyph: 16px;
                                                 clicked => { root.remove-reactor(person.id); }
                                             }
                                         }
@@ -840,7 +840,7 @@ export component ReactionsDialog inherits Rectangle {
                             }
                             if root.reactors-loading || root.reactors-more: Rectangle {
                                 height: 52px;
-                                Label { text: "Loading..."; horizontal-alignment: center; vertical-alignment: center; }
+                                Label { text: @tr("Loading..."); horizontal-alignment: center; vertical-alignment: center; }
                             }
                             if root.reactors-error != "": HorizontalLayout {
                                 padding: 16px;
@@ -906,7 +906,7 @@ export component PollDialog inherits Rectangle {
         background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
         drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
         accessible-role: groupbox;
-        accessible-label: "Create a Poll";
+        accessible-label: @tr("Create a Poll");
         TouchArea { }
         FocusScope {
             key-pressed(event) => {
@@ -917,31 +917,31 @@ export component PollDialog inherits Rectangle {
                 padding: 20px; spacing: 0px;
                 head := HorizontalLayout {
                     padding-bottom: 12px;
-                    Text { text: "Create a Poll"; color: Theme.text; font-size: 18px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
-                    IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
+                    Text { text: @tr("Create a Poll"); color: Theme.text; font-size: 18px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
+                    IconButton { icon: @image-url("icons/x.svg"); label: @tr("Close"); size: 28px; glyph: 18px; clicked => { root.close(); } }
                 }
                 ScrollView {
                     vertical-stretch: 1;
                     form := VerticalLayout {
                         spacing: 8px; alignment: start;
                         HorizontalLayout {
-                            Text { text: "QUESTION"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; horizontal-stretch: 1; }
+                            Text { text: @tr("QUESTION"); color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; horizontal-stretch: 1; }
                             Text { text: root.question-count; color: Theme.muted; font-size: 12px; }
                         }
                         TextField {
                             init => { self.focus-input(); }
                             min-height: 40px; text-size: 15px; pad: 10px; fill: Theme.sunken;
-                            placeholder: "What question do you want to ask?"; label: "Question"; text <=> root.question;
+                            placeholder: @tr("What question do you want to ask?"); label: @tr("Question"); text <=> root.question;
                             edited(text) => { root.question-edited(text); }
                         }
-                        Text { text: "ANSWERS"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                        Text { text: @tr("ANSWERS"); color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
                         for answer[index] in root.answers: HorizontalLayout {
                             spacing: 8px;
                             Rectangle {
                                 width: 40px; height: 40px; border-radius: 6px;
                                 background: emoji-touch.has-hover ? Theme.hover : Theme.sunken;
                                 accessible-role: button;
-                                accessible-label: answer.emoji.glyph != "" ? "Emoji, " + answer.emoji.name + ". Change it" : "Add emoji, answer " + (index + 1);
+                                accessible-label: answer.emoji.glyph != "" ? @tr("Emoji, {}. Change it", answer.emoji.name) : @tr("Add emoji, answer {}", (index + 1));
                                 accessible-action-default => { root.pick-emoji(index, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
                                 if answer.emoji.glyph != "": EmojiFace { emoji: answer.emoji; font: root.emoji-font; side: 22px; }
                                 if answer.emoji.glyph == "": Image {
@@ -957,7 +957,7 @@ export component PollDialog inherits Rectangle {
                                     background: remove-emoji-touch.has-hover ? Theme.danger : Theme.faint;
                                     border-width: 2px; border-color: Theme.raised;
                                     accessible-role: button;
-                                    accessible-label: "Remove the emoji";
+                                    accessible-label: @tr("Remove the emoji");
                                     accessible-action-default => { root.remove-emoji(index); }
                                     Image { source: @image-url("icons/x.svg"); width: 10px; colorize: Theme.text; }
                                     remove-emoji-touch := TouchArea {
@@ -968,13 +968,13 @@ export component PollDialog inherits Rectangle {
                             }
                             TextField {
                                 min-height: 40px; text-size: 15px; pad: 10px; fill: Theme.sunken;
-                                placeholder: "Type your answer"; label: "Answer " + (index + 1);
+                                placeholder: @tr("Type your answer"); label: @tr("Answer {}", (index + 1));
                                 text: answer.text;
                                 edited(text) => { root.answer-edited(index, text); }
                             }
                             if root.answers.length > 1: Middle {
                                 IconButton {
-                                    icon: @image-url("icons/trash-2.svg"); label: "Remove answer " + (index + 1); size: 32px; glyph: 18px;
+                                    icon: @image-url("icons/trash-2.svg"); label: @tr("Remove answer {}", (index + 1)); size: 32px; glyph: 18px;
                                     clicked => { root.remove-answer(index); }
                                 }
                             }
@@ -982,13 +982,13 @@ export component PollDialog inherits Rectangle {
                         if root.can-add: HorizontalLayout {
                             alignment: start;
                             ActionButton {
-                                text: "Add another answer"; ghost: true; small: true; icon: @image-url("icons/circle-plus.svg");
+                                text: @tr("Add another answer"); ghost: true; small: true; icon: @image-url("icons/circle-plus.svg");
                                 clicked => { root.add-answer(); }
                             }
                         }
-                        Text { text: "DURATION"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                        Text { text: @tr("DURATION"); color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
                         Choices {
-                            label: "Duration"; options: ["1 hour", "4 hours", "8 hours", "1 day", "3 days", "1 week", "2 weeks"];
+                            label: @tr("Duration"); options: [@tr("1 hour"), @tr("4 hours"), @tr("8 hours"), @tr("1 day"), @tr("3 days"), @tr("1 week"), @tr("2 weeks")];
                             max-width: 460px; current: root.duration;
                             chosen(index) => { root.choose-duration(index); }
                         }
@@ -996,7 +996,7 @@ export component PollDialog inherits Rectangle {
                         Rectangle {
                             accessible-role: checkbox;
                             accessible-checked: root.multiselect;
-                            accessible-label: "Allow Multiple Answers";
+                            accessible-label: @tr("Allow Multiple Answers");
                             accessible-action-default => { root.set-multiselect(!root.multiselect); }
                             HorizontalLayout {
                                 spacing: 10px; padding-top: 4px;
@@ -1008,7 +1008,7 @@ export component PollDialog inherits Rectangle {
                                         if root.multiselect: Image { source: @image-url("icons/check.svg"); width: 14px; height: 14px; colorize: Theme.on-accent; }
                                     }
                                 }
-                                Text { text: "Allow Multiple Answers"; color: Theme.text; font-size: 15px; vertical-alignment: center; horizontal-stretch: 1; }
+                                Text { text: @tr("Allow Multiple Answers"); color: Theme.text; font-size: 15px; vertical-alignment: center; horizontal-stretch: 1; }
                             }
                             TouchArea {
                                 mouse-cursor: MouseCursor.pointer;
@@ -1022,9 +1022,9 @@ export component PollDialog inherits Rectangle {
                     if root.problem != "": Text { text: root.problem; color: Theme.danger; font-size: 14px; wrap: word-wrap; }
                     HorizontalLayout {
                         alignment: end; spacing: 8px;
-                        ActionButton { text: "Cancel"; ghost: true; clicked => { root.close(); } }
+                        ActionButton { text: @tr("Cancel"); ghost: true; clicked => { root.close(); } }
                         ActionButton {
-                            text: root.posting ? "Posting..." : "Post"; primary: true; enabled: root.can-post;
+                            text: root.posting ? @tr("Posting...") : @tr("Post"); primary: true; enabled: root.can-post;
                             clicked => { root.post(); }
                         }
                     }

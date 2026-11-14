@@ -105,8 +105,7 @@ component PostCard inherits Rectangle {
         background: pointer.has-hover ? Theme.raised : Theme.hover;
         border-color: pointer.has-hover ? Theme.active : Theme.line;
         accessible-role: button;
-        accessible-label: root.entry.name + (root.entry.new ? ", new" : "") + (root.entry.pinned ? ", pinned" : "")
-            + ", " + root.entry.replies + " replies, " + root.entry.time;
+        accessible-label: @tr("{0}{1}{2}, {3} replies, {4}", root.entry.name, (root.entry.new ? @tr(", new") : ""), (root.entry.pinned ? @tr(", pinned") : ""), root.entry.replies, root.entry.time);
         accessible-action-default => { root.open(false); }
         pointer := TouchArea {
             mouse-cursor: MouseCursor.pointer;
@@ -122,7 +121,7 @@ component PostCard inherits Rectangle {
                 if root.has-tags: HorizontalLayout {
                     spacing: 6px; height: 20px;
                     if root.entry.pinned: Middle {
-                        Image { source: @image-url("icons/pin.svg"); width: 14px; height: 14px; colorize: Theme.muted; accessible-label: "Pinned"; }
+                        Image { source: @image-url("icons/pin.svg"); width: 14px; height: 14px; colorize: Theme.muted; accessible-label: @tr("Pinned"); }
                     }
                     for tag in root.entry.tags: Middle { TagPill { tag: tag; } }
                     if root.entry.more-tags != "": Middle {
@@ -140,7 +139,7 @@ component PostCard inherits Rectangle {
                     if root.entry.new: Middle {
                         Rectangle {
                             width: badge.preferred-width + 10px; height: 16px; border-radius: 8px; background: Theme.accent;
-                            badge := Text { text: "NEW"; color: #ffffff; font-size: 10px; font-weight: 800; letter-spacing: 0.3px; }
+                            badge := Text { text: @tr("NEW"); color: #ffffff; font-size: 10px; font-weight: 800; letter-spacing: 0.3px; }
                         }
                     }
                     Rectangle { horizontal-stretch: 1; }
@@ -186,7 +185,7 @@ component PostCard inherits Rectangle {
                     StoredImage { url: root.entry.picture-url; width: 72px; height: 72px; image-fit: cover; }
                     if root.entry.spoiler: Rectangle {
                         background: Theme.raised;
-                        Text { text: "SPOILER"; color: Theme.muted; font-size: 10px; font-weight: 800; }
+                        Text { text: @tr("SPOILER"); color: Theme.muted; font-size: 10px; font-weight: 800; }
                     }
                 }
             }
@@ -236,15 +235,15 @@ component NewPostForm inherits Rectangle {
     property <length> menu-x;
     property <length> menu-y;
     accessible-role: groupbox;
-    accessible-label: "New Post";
+    accessible-label: @tr("New Post");
     VerticalLayout {
         Rectangle {
             height: 48px;
             HorizontalLayout {
                 padding-left: 16px; padding-right: 10px; spacing: 10px;
                 Middle { Image { source: @image-url("icons/thread.svg"); width: 18px; height: 18px; colorize: Theme.muted; } }
-                Text { text: "New Post"; color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
-                Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; tip-side: 2; clicked => { root.close(); } } }
+                Text { text: @tr("New Post"); color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                Middle { IconButton { icon: @image-url("icons/x.svg"); label: @tr("Close"); size: 28px; glyph: 18px; tip-side: 2; clicked => { root.close(); } } }
             }
             Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
         }
@@ -256,9 +255,9 @@ component NewPostForm inherits Rectangle {
                 padding: 16px; spacing: 16px; alignment: start;
                 VerticalLayout {
                     spacing: 8px;
-                    Text { text: "POST TITLE"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                    Text { text: @tr("POST TITLE"); color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
                     title-field := TextField {
-                        text <=> root.title; placeholder: "Title"; label: "Post title";
+                        text <=> root.title; placeholder: @tr("Title"); label: @tr("Post title");
                         enabled: !root.posting;
                         edited(text) => { root.title-edited(text); }
                         accepted => { message.focus-input(); }
@@ -267,7 +266,7 @@ component NewPostForm inherits Rectangle {
                 if root.tag-choices.length > 0: VerticalLayout {
                     spacing: 8px;
                     Text {
-                        text: root.tag-required ? "TAGS (REQUIRED)" : "TAGS";
+                        text: root.tag-required ? @tr("TAGS (REQUIRED)") : @tr("TAGS");
                         color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px;
                     }
                     HorizontalLayout {
@@ -276,7 +275,7 @@ component NewPostForm inherits Rectangle {
                             height: 28px; border-radius: 14px; background: Theme.raised;
                             width: chip.preferred-width;
                             accessible-role: button;
-                            accessible-label: "Remove tag " + choice.tag.name;
+                            accessible-label: @tr("Remove tag {}", choice.tag.name);
                             accessible-action-default => { root.toggle-tag(choice.id); }
                             chip := HorizontalLayout {
                                 padding-left: 10px; padding-right: 6px; spacing: 4px;
@@ -291,7 +290,7 @@ component NewPostForm inherits Rectangle {
                             }
                         }
                         add-tags := ActionButton {
-                            text: "Add tags"; icon: @image-url("icons/circle-plus.svg"); ghost: true; small: true;
+                            text: @tr("Add tags"); icon: @image-url("icons/circle-plus.svg"); ghost: true; small: true;
                             enabled: !root.posting && root.more-tags;
                             clicked => {
                                 root.menu-x = self.absolute-position.x - root.absolute-position.x;
@@ -307,11 +306,11 @@ component NewPostForm inherits Rectangle {
                         padding: 12px; spacing: 8px;
                         HorizontalLayout {
                             spacing: 6px;
-                            Text { text: "Post Guidelines"; color: Theme.text; font-size: 14px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
+                            Text { text: @tr("Post Guidelines"); color: Theme.text; font-size: 14px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
                             Middle {
                                 IconButton {
                                     icon: root.show-guidelines ? @image-url("icons/chevron-down.svg") : @image-url("icons/chevron-right.svg");
-                                    label: root.show-guidelines ? "Hide post guidelines" : "Show post guidelines";
+                                    label: root.show-guidelines ? @tr("Hide post guidelines") : @tr("Show post guidelines");
                                     size: 24px; glyph: 16px;
                                     clicked => { root.show-guidelines = !root.show-guidelines; }
                                 }
@@ -349,14 +348,14 @@ component NewPostForm inherits Rectangle {
                             VerticalLayout {
                                 alignment: end; padding-bottom: 8px;
                                 IconButton {
-                                    icon: @image-url("icons/circle-plus.svg"); label: "Attach files"; glyph: 22px;
+                                    icon: @image-url("icons/circle-plus.svg"); label: @tr("Attach files"); glyph: 22px;
                                     enabled: root.can-attach && !root.posting;
                                     clicked => { root.attach(); }
                                 }
                             }
                             message := Composer {
-                                text <=> root.body; enabled: !root.posting; label: "Message";
-                                placeholder: "Enter a message...";
+                                text <=> root.body; enabled: !root.posting; label: @tr("Message");
+                                placeholder: @tr("Enter a message...");
                                 edited(text) => { root.body-edited(text); }
                                 accepted => { root.create(); }
                                 paste => { self.paste-text(); }
@@ -368,7 +367,7 @@ component NewPostForm inherits Rectangle {
                 HorizontalLayout {
                     alignment: end;
                     ActionButton {
-                        text: root.posting ? "Posting..." : "Post"; primary: true;
+                        text: root.posting ? @tr("Posting...") : @tr("Post"); primary: true;
                         enabled: !root.posting;
                         clicked => { root.create(); }
                     }
@@ -388,7 +387,7 @@ component NewPostForm inherits Rectangle {
                 padding: 6px;
                 HorizontalLayout {
                     padding-left: 8px;
-                    Text { text: "Select up to 5 tags"; color: Theme.muted; font-size: 12px; font-weight: 700; height: 28px; vertical-alignment: center; }
+                    Text { text: @tr("Select up to 5 tags"); color: Theme.muted; font-size: 12px; font-weight: 700; height: 28px; vertical-alignment: center; }
                 }
                 for choice in root.tag-choices: tag-row := Rectangle {
                     property <bool> enabled: choice.chosen || root.more-tags;
@@ -434,12 +433,12 @@ component NewPostForm inherits Rectangle {
             background: Theme.sidebar; border-radius: 10px; border-width: 1px; border-color: Theme.edge;
             ask := VerticalLayout {
                 padding: 16px; spacing: 10px;
-                Text { text: "Are you sure you want to go?"; color: Theme.text; font-size: 17px; font-weight: 700; wrap: word-wrap; }
-                Text { text: "Any changes you made will be lost if you exit now."; color: Theme.secondary; font-size: 14px; wrap: word-wrap; }
+                Text { text: @tr("Are you sure you want to go?"); color: Theme.text; font-size: 17px; font-weight: 700; wrap: word-wrap; }
+                Text { text: @tr("Any changes you made will be lost if you exit now."); color: Theme.secondary; font-size: 14px; wrap: word-wrap; }
                 HorizontalLayout {
                     alignment: end; spacing: 8px; padding-top: 6px;
-                    ActionButton { text: "Back to editing"; ghost: true; clicked => { root.stay(); } }
-                    ActionButton { text: "Exit"; danger: true; clicked => { root.leave(); } }
+                    ActionButton { text: @tr("Back to editing"); ghost: true; clicked => { root.stay(); } }
+                    ActionButton { text: @tr("Exit"); danger: true; clicked => { root.leave(); } }
                 }
             }
         }
@@ -492,7 +491,7 @@ export component ForumPanel inherits Rectangle {
     callback stay-post;
     callback open-link(string);
     accessible-role: groupbox;
-    accessible-label: "Posts";
+    accessible-label: @tr("Posts");
     /// The list was scrolled by hand since it opened.
     property <bool> scrolled-by-hand;
     if root.composing: NewPostForm {
@@ -522,7 +521,7 @@ export component ForumPanel inherits Rectangle {
                 x: 16px; y: 16px; height: 36px;
                 width: parent.width - 32px - (root.can-post ? new-post.width + 8px : 0px);
                 text <=> root.query;
-                placeholder: "Search posts";
+                placeholder: @tr("Search posts");
                 search(text) => { root.search(text); }
                 clear => { root.query = ""; root.search(""); }
             }
@@ -530,7 +529,7 @@ export component ForumPanel inherits Rectangle {
                 visible: root.can-post;
                 x: parent.width - 16px - self.width; y: 16px;
                 width: self.min-width; height: 36px;
-                text: "New Post"; icon: @image-url("icons/thread.svg"); primary: true;
+                text: @tr("New Post"); icon: @image-url("icons/thread.svg"); primary: true;
                 clicked => { root.new-post(); }
             }
         }
@@ -542,7 +541,7 @@ export component ForumPanel inherits Rectangle {
             padding: 32px; spacing: 8px; vertical-stretch: 1; alignment: center;
             Image { source: @image-url("icons/thread.svg"); height: 48px; image-fit: contain; colorize: Theme.faint; }
             Text {
-                text: root.searching ? "No results found" : "There are no posts yet.";
+                text: root.searching ? @tr("No results found") : @tr("There are no posts yet.");
                 color: Theme.text; font-size: 17px; font-weight: 700; horizontal-alignment: center;
             }
         }
@@ -569,7 +568,7 @@ export component ForumPanel inherits Rectangle {
         }
         if root.note == "" && !root.empty && root.loading: HorizontalLayout {
             padding: 8px; alignment: center;
-            Text { text: "Loading..."; color: Theme.muted; font-size: 13px; }
+            Text { text: @tr("Loading..."); color: Theme.muted; font-size: 13px; }
         }
     }
 }

@@ -92,18 +92,18 @@ export component EmojiSection inherits VerticalLayout {
     callback act(int, string, string);
     callback upload;
     spacing: 16px;
-    SettingsTitle { text: "Emoji"; }
+    SettingsTitle { text: @tr("Emoji"); }
     Label {
-        text: "Add up to " + root.page.slots + " custom emojis that anyone can use in this server. Animated GIF emojis may be used by members with Discord Nitro. Emoji names must be at least 2 characters long and can only contain alphanumeric characters and underscores. Emoji must be under 256 KB in size.";
+        text: @tr("Add up to {} custom emojis that anyone can use in this server. Animated GIF emojis may be used by members with Discord Nitro. Emoji names must be at least 2 characters long and can only contain alphanumeric characters and underscores. Emoji must be under 256 KB in size.", root.page.slots);
     }
     if root.page.may-upload: HorizontalLayout {
         alignment: start;
-        ActionButton { text: "Upload Emoji"; primary: true; clicked => { root.upload(); } }
+        ActionButton { text: @tr("Upload Emoji"); primary: true; clicked => { root.upload(); } }
     }
     if root.page.rows.length == 0: VerticalLayout {
         alignment: center; vertical-stretch: 1; spacing: 8px;
-        Text { text: "No Emoji"; color: Theme.text; font-size: 17px; font-weight: 700; horizontal-alignment: center; }
-        Text { text: "Get the party started by uploading an emoji"; color: Theme.secondary; font-size: 15px; horizontal-alignment: center; }
+        Text { text: @tr("No Emoji"); color: Theme.text; font-size: 17px; font-weight: 700; horizontal-alignment: center; }
+        Text { text: @tr("Get the party started by uploading an emoji"); color: Theme.secondary; font-size: 15px; horizontal-alignment: center; }
     }
     if root.page.rows.length > 0: ListView {
         vertical-stretch: 1; min-height: 120px;
@@ -121,12 +121,12 @@ export component EmojiSection inherits VerticalLayout {
                 }
                 HorizontalLayout {
                     spacing: 16px;
-                    Text { width: 48px; text: "IMAGE"; color: Theme.secondary; font-size: 12px; font-weight: 700; }
+                    Text { width: 48px; text: @tr("IMAGE"); color: Theme.secondary; font-size: 12px; font-weight: 700; }
                     HorizontalLayout {
                         preferred-width: 0px; min-width: 0px; horizontal-stretch: 1; padding-left: 8px;
-                        Text { text: "NAME"; color: Theme.secondary; font-size: 12px; font-weight: 700; }
+                        Text { text: @tr("NAME"); color: Theme.secondary; font-size: 12px; font-weight: 700; }
                     }
-                    Text { preferred-width: 0px; min-width: 0px; horizontal-stretch: 1; text: "UPLOADED BY"; color: Theme.secondary; font-size: 12px; font-weight: 700; }
+                    Text { preferred-width: 0px; min-width: 0px; horizontal-stretch: 1; text: @tr("UPLOADED BY"); color: Theme.secondary; font-size: 12px; font-weight: 700; }
                     Rectangle { width: 32px; }
                 }
             }
@@ -136,7 +136,7 @@ export component EmojiSection inherits VerticalLayout {
                 if row.may-change: Middle {
                     preferred-width: 0px; min-width: 0px; horizontal-stretch: 1;
                     name := TextField {
-                        text: row.name; text-size: 14px; label: "Emoji name"; min-height: 34px; pad: 8px;
+                        text: row.name; text-size: 14px; label: @tr("Emoji name"); min-height: 34px; pad: 8px;
                         fill: self.focused || hover.has-hover ? Theme.sunken : transparent;
                         accepted => { root.act(0, row.id, self.text); self.text = row.name; }
                         changed focused => {
@@ -158,7 +158,7 @@ export component EmojiSection inherits VerticalLayout {
                 }
                 Middle {
                     IconButton {
-                        icon: @image-url("icons/x.svg"); label: "Delete"; size: 32px; glyph: 18px; danger: true;
+                        icon: @image-url("icons/x.svg"); label: @tr("Delete"); size: 32px; glyph: 18px; danger: true;
                         enabled: row.may-change;
                         opacity: row.may-change && (hover.has-hover || self.hovered) ? 1 : 0;
                         clicked => { root.act(1, row.id, ""); }
@@ -189,11 +189,11 @@ export component EmojiUploadDialog inherits Rectangle {
             width: 440px; height: box.preferred-height;
             x: (root.width - self.width) / 2; y: (root.height - self.height) / 2;
             background: Theme.chat; border-radius: 8px;
-            accessible-role: groupbox; accessible-label: "Upload Emoji";
+            accessible-role: groupbox; accessible-label: @tr("Upload Emoji");
             TouchArea { }
             box := VerticalLayout {
                 padding: 16px; spacing: 14px;
-                Text { text: "Upload Emoji"; color: Theme.text; font-size: 20px; font-weight: 700; }
+                Text { text: @tr("Upload Emoji"); color: Theme.text; font-size: 20px; font-weight: 700; }
                 Rectangle {
                     height: 144px; border-radius: 8px; background: Theme.sunken;
                     HorizontalLayout {
@@ -205,9 +205,9 @@ export component EmojiUploadDialog inherits Rectangle {
                 }
                 VerticalLayout {
                     spacing: 6px;
-                    SettingsHeading { text: "NAME"; }
+                    SettingsHeading { text: @tr("NAME"); }
                     name := TextField {
-                        text: root.page.name; label: "Emoji name"; enabled: !root.page.saving;
+                        text: root.page.name; label: @tr("Emoji name"); enabled: !root.page.saving;
                         init => { self.focus-input(); }
                         edited(text) => { root.act(2, text); }
                         accepted => { root.act(3, ""); }
@@ -216,9 +216,9 @@ export component EmojiUploadDialog inherits Rectangle {
                 if root.page.error != "": Text { text: root.page.error; color: Theme.danger; font-size: 14px; wrap: word-wrap; }
                 HorizontalLayout {
                     spacing: 8px; alignment: end;
-                    ActionButton { text: "Cancel"; ghost: true; enabled: !root.page.saving; clicked => { root.act(4, ""); } }
+                    ActionButton { text: @tr("Cancel"); ghost: true; enabled: !root.page.saving; clicked => { root.act(4, ""); } }
                     ActionButton {
-                        text: root.page.saving ? "Uploading..." : "Upload"; primary: true;
+                        text: root.page.saving ? @tr("Uploading...") : @tr("Upload"); primary: true;
                         enabled: root.page.may-finish && !root.page.saving;
                         clicked => { root.act(3, ""); }
                     }
@@ -248,8 +248,8 @@ component StickerTileView inherits Rectangle {
         x: parent.width - self.preferred-width - 4px; y: 4px; width: self.preferred-width; height: 28px;
         spacing: 2px;
         opacity: hover.has-hover || edit.hovered || delete.hovered ? 1 : 0;
-        edit := IconButton { icon: @image-url("icons/pencil.svg"); label: "Edit"; size: 28px; glyph: 16px; fill: Theme.raised; clicked => { root.edit(); } }
-        delete := IconButton { icon: @image-url("icons/x.svg"); label: "Delete"; size: 28px; glyph: 16px; danger: true; fill: Theme.raised; clicked => { root.delete(); } }
+        edit := IconButton { icon: @image-url("icons/pencil.svg"); label: @tr("Edit"); size: 28px; glyph: 16px; fill: Theme.raised; clicked => { root.edit(); } }
+        delete := IconButton { icon: @image-url("icons/x.svg"); label: @tr("Delete"); size: 28px; glyph: 16px; danger: true; fill: Theme.raised; clicked => { root.delete(); } }
     }
 }
 
@@ -261,8 +261,8 @@ export component StickersSection inherits VerticalLayout {
     /// 0 open the form for a new sticker, 1 edit one by id, 7 delete one.
     callback act(int, string);
     spacing: 16px;
-    SettingsTitle { text: "Stickers"; }
-    Label { text: "Stickers can be static (JPG, PNG) or animated (APNG, GIF). Stickers must be exactly 320 x 320 pixels and no larger than 512 KB. We will automatically resize static JPG, PNG and animated GIF stickers for you."; }
+    SettingsTitle { text: @tr("Stickers"); }
+    Label { text: @tr("Stickers can be static (JPG, PNG) or animated (APNG, GIF). Stickers must be exactly 320 x 320 pixels and no larger than 512 KB. We will automatically resize static JPG, PNG and animated GIF stickers for you."); }
     for card in root.page.cards: Rectangle {
         border-radius: 8px; background: Theme.overlay.with-alpha(0.03);
         border-width: 1px; border-color: Theme.line;
@@ -292,13 +292,13 @@ export component StickersSection inherits VerticalLayout {
                     x: mod(card.tiles.length, inner.columns) * 152px; y: floor(card.tiles.length / inner.columns) * 172px;
                     width: 140px; height: 160px; border-radius: 8px;
                     border-width: 2px; border-color: add.has-hover ? Theme.secondary : Theme.line;
-                    accessible-role: button; accessible-label: "Upload Sticker";
+                    accessible-role: button; accessible-label: @tr("Upload Sticker");
                     accessible-action-default => { root.act(0, ""); }
                     add := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.act(0, ""); } }
                     VerticalLayout {
                         alignment: center; spacing: 8px;
                         HorizontalLayout { alignment: center; Image { source: @image-url("icons/circle-plus.svg"); width: 32px; height: 32px; colorize: Theme.secondary; } }
-                        Text { text: "Upload Sticker"; color: Theme.secondary; font-size: 14px; font-weight: 600; horizontal-alignment: center; }
+                        Text { text: @tr("Upload Sticker"); color: Theme.secondary; font-size: 14px; font-weight: 600; horizontal-alignment: center; }
                     }
                 }
             }
@@ -334,67 +334,67 @@ export component StickerDialog inherits Rectangle {
             width: 520px; height: box.preferred-height;
             x: (root.width - self.width) / 2; y: (root.height - self.height) / 2;
             background: Theme.chat; border-radius: 8px;
-            accessible-role: groupbox; accessible-label: "Upload Sticker";
+            accessible-role: groupbox; accessible-label: @tr("Upload Sticker");
             TouchArea { }
             box := VerticalLayout {
                 padding: 16px; spacing: 14px;
-                Text { text: root.page.editing ? "Edit Sticker" : "Upload Sticker"; color: Theme.text; font-size: 20px; font-weight: 700; }
+                Text { text: root.page.editing ? @tr("Edit Sticker") : @tr("Upload Sticker"); color: Theme.text; font-size: 20px; font-weight: 700; }
                 Rectangle {
                     height: 180px; border-radius: 8px; background: Theme.sunken;
-                    if root.page.preview-url != "": UrlPicture { width: 160px; height: 160px; url: root.page.preview-url; accessible-role: image; accessible-label: "Preview"; }
-                    if root.page.preview-url == "" && root.page.has-file: Image { width: 160px; height: 160px; source: root.page.preview; image-fit: contain; accessible-role: image; accessible-label: "Preview"; }
-                    if root.page.preview-url == "" && !root.page.has-file: Text { text: "Preview"; color: Theme.muted; font-size: 14px; }
+                    if root.page.preview-url != "": UrlPicture { width: 160px; height: 160px; url: root.page.preview-url; accessible-role: image; accessible-label: @tr("Preview"); }
+                    if root.page.preview-url == "" && root.page.has-file: Image { width: 160px; height: 160px; source: root.page.preview; image-fit: contain; accessible-role: image; accessible-label: @tr("Preview"); }
+                    if root.page.preview-url == "" && !root.page.has-file: Text { text: @tr("Preview"); color: Theme.muted; font-size: 14px; }
                 }
                 // An edit can't change the file.
                 if !root.page.editing: VerticalLayout {
                     spacing: 6px;
-                    SettingsHeading { text: "FILE"; }
+                    SettingsHeading { text: @tr("FILE"); }
                     HorizontalLayout {
                         spacing: 8px;
                         Middle {
                             horizontal-stretch: 1;
                             Text {
-                                text: root.page.has-file ? root.page.file-name : "File should be APNG, JPG, PNG or GIF (512 KB max)";
+                                text: root.page.has-file ? root.page.file-name : @tr("File should be APNG, JPG, PNG or GIF (512 KB max)");
                                 color: root.page.has-file ? Theme.text : Theme.secondary; font-size: 13px; overflow: elide;
                             }
                         }
-                        ActionButton { text: "Browse"; enabled: !root.page.saving; clicked => { root.browse(); } }
+                        ActionButton { text: @tr("Browse"); enabled: !root.page.saving; clicked => { root.browse(); } }
                     }
                 }
                 VerticalLayout {
                     spacing: 6px;
-                    SettingsHeading { text: "RELATED EMOJI"; }
+                    SettingsHeading { text: @tr("RELATED EMOJI"); }
                     tags := TextField {
-                        text: root.page.tags; label: "Related Emoji"; placeholder: "Type or paste an emoji"; enabled: !root.page.saving;
+                        text: root.page.tags; label: @tr("Related Emoji"); placeholder: @tr("Type or paste an emoji"); enabled: !root.page.saving;
                         edited(text) => { root.act(3, text); }
                         accepted => { root.act(5, ""); }
                     }
                 }
                 VerticalLayout {
                     spacing: 6px;
-                    SettingsHeading { text: "STICKER NAME"; }
+                    SettingsHeading { text: @tr("STICKER NAME"); }
                     name := TextField {
-                        text: root.page.name; label: "Sticker Name"; placeholder: "e.g.: cat hug"; enabled: !root.page.saving;
+                        text: root.page.name; label: @tr("Sticker Name"); placeholder: @tr("e.g.: cat hug"); enabled: !root.page.saving;
                         edited(text) => { root.act(2, text); }
                         accepted => { root.act(5, ""); }
                     }
                 }
                 VerticalLayout {
                     spacing: 6px;
-                    SettingsHeading { text: "DESCRIPTION"; }
+                    SettingsHeading { text: @tr("DESCRIPTION"); }
                     description := TextField {
-                        text: root.page.description; label: "Description"; enabled: !root.page.saving;
+                        text: root.page.description; label: @tr("Description"); enabled: !root.page.saving;
                         edited(text) => { root.act(4, text); }
                         accepted => { root.act(5, ""); }
                     }
-                    Text { text: "Descriptions are optional but must be more than 1 character."; color: Theme.secondary; font-size: 12px; wrap: word-wrap; }
+                    Text { text: @tr("Descriptions are optional but must be more than 1 character."); color: Theme.secondary; font-size: 12px; wrap: word-wrap; }
                 }
                 if root.page.error != "": Text { text: root.page.error; color: Theme.danger; font-size: 14px; wrap: word-wrap; }
                 HorizontalLayout {
                     spacing: 8px; alignment: end;
-                    ActionButton { text: "Cancel"; ghost: true; enabled: !root.page.saving; clicked => { root.act(6, ""); } }
+                    ActionButton { text: @tr("Cancel"); ghost: true; enabled: !root.page.saving; clicked => { root.act(6, ""); } }
                     ActionButton {
-                        text: root.page.saving ? "Saving..." : root.page.editing ? "Update" : "Upload"; primary: true;
+                        text: root.page.saving ? @tr("Saving...") : root.page.editing ? @tr("Update") : @tr("Upload"); primary: true;
                         enabled: root.page.may-save && !root.page.saving;
                         clicked => { root.act(5, ""); }
                     }

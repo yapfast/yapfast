@@ -63,10 +63,10 @@ pub(super) fn poll_card(
             total: if closed {
                 votes_text(total)
             } else {
-                "View original message to interact".to_owned()
+                tr("View original message to interact").to_owned()
             }
             .into(),
-            left: if closed { "Poll closed" } else { "" }.into(),
+            left: if closed { tr("Poll closed") } else { "" }.into(),
             ..Default::default()
         };
     }
@@ -74,8 +74,8 @@ pub(super) fn poll_card(
         question: poll.question.as_str().into(),
         prompt: match (closed, poll.multiselect) {
             (true, _) => "",
-            (false, true) => "Select one or more answers",
-            (false, false) => "Select one answer",
+            (false, true) => tr("Select one or more answers"),
+            (false, false) => tr("Select one answer"),
         }
         .into(),
         multiselect: poll.multiselect,
@@ -84,7 +84,7 @@ pub(super) fn poll_card(
         can_pick: !results,
         total: votes_text(total).into(),
         left: if closed {
-            "Poll closed".into()
+            tr("Poll closed").into()
         } else {
             poll.expiry
                 .map(|expiry| time_left(expiry.saturating_sub(now)))
@@ -123,26 +123,26 @@ fn votes_text(votes: usize) -> String {
     if votes == 1 {
         "1 vote".to_owned()
     } else {
-        format!("{votes} votes")
+        fill(tr("{} votes"), &[&votes])
     }
 }
 
 /// How long a poll has left, as Discord's client says it.
 fn time_left(seconds: u64) -> String {
     match seconds {
-        86_400.. => format!("{}d left", seconds / 86_400),
-        3_600.. => format!("{}h left", seconds / 3_600),
-        60.. => format!("{}m left", seconds / 60),
+        86_400.. => fill(tr("{}d left"), &[&(seconds / 86_400)]),
+        3_600.. => fill(tr("{}h left"), &[&(seconds / 3_600)]),
+        60.. => fill(tr("{}m left"), &[&(seconds / 60)]),
         _ => "< 1m left".to_owned(),
     }
 }
 
 fn results_key(item: &str) -> String {
-    format!("{item}/results")
+    format!("{}/results", item)
 }
 
 fn pick_key(item: &str, answer: u64) -> String {
-    format!("{item}/pick{answer}")
+    format!("{0}/pick{1}", item, answer)
 }
 
 impl Adapter {
@@ -251,7 +251,7 @@ pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
         let key = pick_key(item, answer);
         if !adapter.revealed.remove(&key) {
             if !multiselect {
-                let picks = format!("{item}/pick");
+                let picks = format!("{}/pick", item);
                 adapter.revealed.retain(|kept| !kept.starts_with(&picks));
             }
             adapter.revealed.insert(key);
@@ -267,7 +267,7 @@ pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
         let Some(window) = weak.upgrade() else { return };
         let mut adapter = state.borrow_mut();
         let item = item.to_string();
-        let picks = format!("{item}/pick");
+        let picks = format!("{}/pick", item);
         match action {
             PollAction::Vote => {
                 let answers = adapter

@@ -1525,10 +1525,10 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             state.borrow_mut().dialog(async move {
                 let file = rfd::AsyncFileDialog::new()
                     .set_title(match kind {
-                        ProfilePicture::Avatar => "Change Avatar",
-                        ProfilePicture::Banner => "Change Banner",
+                        ProfilePicture::Avatar => tr("Change Avatar"),
+                        ProfilePicture::Banner => tr("Change Banner"),
                     })
-                    .add_filter("Pictures", &["png", "jpg", "jpeg", "gif", "webp"])
+                    .add_filter(tr("Pictures"), &["png", "jpg", "jpeg", "gif", "webp"])
                     .pick_file()
                     .await;
                 if let (Some(file), Some(adapter)) = (file, weak.upgrade()) {
@@ -2029,7 +2029,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         if let Some(item) = link.strip_prefix(BLOCKED_LINK) {
             let Some(window) = weak.upgrade() else { return };
             let mut adapter = state.borrow_mut();
-            adapter.revealed.insert(format!("{item}/blocked"));
+            adapter.revealed.insert(format!("{}/blocked", item));
             adapter.restyle = true;
             adapter.refresh(&window);
             return;
@@ -2236,6 +2236,11 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.twelve_hour_clock = window.get_twelve_hour_clock();
         layout.clock_seconds = window.get_clock_seconds();
         layout.date_format = Some(window.get_date_format()).filter(|&index| index >= 0);
+        layout.interface_language = usize::try_from(window.get_language())
+            .ok()
+            .and_then(|place| Language::offered().get(place).copied())
+            .map(|language| language.code().to_owned());
+        layout.apply_language();
         layout.apply_date_format();
         layout.text_size = Some(window.get_text_size());
         layout.link_previews = Some(window.get_link_previews());
@@ -2444,7 +2449,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             let weak = Rc::downgrade(&state);
             state.borrow_mut().dialog(async move {
                 let files = rfd::AsyncFileDialog::new()
-                    .set_title("Attach files")
+                    .set_title(tr("Attach files"))
                     .pick_files()
                     .await;
                 if let (Some(files), Some(adapter)) = (files, weak.upgrade()) {
@@ -2584,7 +2589,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 .filter(|name| !name.is_empty())
                 .unwrap_or_else(|| "attachment".into());
             let file = rfd::AsyncFileDialog::new()
-                .set_title("Save attachment")
+                .set_title(tr("Save attachment"))
                 .set_file_name(name)
                 .save_file()
                 .await;
@@ -3717,9 +3722,9 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         if let (Some(window), Some(meter)) = (weak.upgrade(), &state.borrow().meter) {
             window.set_input_level(meter.level());
             window.set_meter_note(SharedString::from(if !meter::AVAILABLE {
-                "The level meter isn't available on this system yet."
+                tr("The level meter isn't available on this system yet.")
             } else if meter.failed() {
-                "Yapfast can't read this microphone. Check that it's connected, or choose another."
+                tr("Yapfast can't read this microphone. Check that it's connected, or choose another.")
             } else {
                 ""
             }));
@@ -3742,9 +3747,9 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 window.set_gate_sending(meter.sending());
                 window.set_gate_meter_note(SharedString::from(
                     if !yapfast_core::discord_audio::AVAILABLE {
-                        "Discord voice and its level aren't available on this system yet."
+                        tr("Discord voice and its level aren't available on this system yet.")
                     } else if meter.failed() {
-                        "Yapfast can't read this microphone. Check that it's connected, or choose another."
+                        tr("Yapfast can't read this microphone. Check that it's connected, or choose another.")
                     } else {
                         ""
                     },

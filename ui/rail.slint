@@ -364,7 +364,7 @@ export component StatusDot inherits Rectangle {
     width: 16px; height: 16px; border-radius: root.width / 2;
     background: root.mobile ? transparent : root.ring;
     accessible-role: image;
-    accessible-label: root.presence == "dnd" ? "Do not disturb" : root.presence == "idle" ? "Idle" : root.presence == "online" ? "Online" : root.mobile ? "Online on mobile" : "Offline";
+    accessible-label: root.presence == "dnd" ? @tr("Do not disturb") : root.presence == "idle" ? @tr("Idle") : root.presence == "online" ? @tr("Online") : root.mobile ? @tr("Online on mobile") : @tr("Offline");
     // Idle is Discord's yellow whatever the accent is, and its moon a size larger.
     if !root.mobile: Rectangle {
         width: (root.presence == "idle" ? 12 : 10) * root.unit; height: self.width; border-radius: self.width / 2;
@@ -619,17 +619,17 @@ export component ChannelRow inherits Rectangle {
                             Rectangle {
                                 // Discord's verified-style badge: blurple, 16px, a check and OFFICIAL.
                                 height: 16px; width: official-text.preferred-width + 24px; border-radius: 4px; background: Theme.accent;
-                                accessible-role: AccessibleRole.text; accessible-label: "OFFICIAL";
+                                accessible-role: AccessibleRole.text; accessible-label: @tr("OFFICIAL");
                                 HorizontalLayout {
                                     padding-left: 4px; padding-right: 4px; spacing: 2px; alignment: center;
                                     Middle { Image { source: @image-url("icons/check.svg"); width: 12px; height: 12px; colorize: Theme.on-accent; accessible-role: none; } }
-                                    official-text := Text { text: "OFFICIAL"; color: Theme.on-accent; font-size: 10px; font-weight: 700; vertical-alignment: center; }
+                                    official-text := Text { text: @tr("OFFICIAL"); color: Theme.on-accent; font-size: 10px; font-weight: 700; vertical-alignment: center; }
                                 }
                             }
                         }
                     }
                     if root.official && !root.has-detail && !root.in-voice: Text {
-                        text: "Official Discord Message"; color: Theme.muted; font-size: 12px; overflow: elide;
+                        text: @tr("Official Discord Message"); color: Theme.muted; font-size: 12px; overflow: elide;
                     }
                     // Their voice channel in full when nothing else is said here,
                     // else a speaker before what is, as the friends list has it.
@@ -654,12 +654,12 @@ export component ChannelRow inherits Rectangle {
                     Rectangle {
                         height: 24px; width: wave-label.preferred-width + 40px; border-radius: 4px;
                         background: wave-touch.has-hover ? Theme.accent-hover : Theme.accent;
-                        accessible-role: button; accessible-label: "Wave";
+                        accessible-role: button; accessible-label: @tr("Wave");
                         accessible-action-default => { root.waved(); }
                         HorizontalLayout {
                             padding-left: 8px; padding-right: 8px; spacing: 4px; alignment: center;
                             Middle { Image { source: @image-url("icons/hand.svg"); width: 14px; height: 14px; colorize: Theme.on-accent; accessible-role: none; } }
-                            wave-label := Text { text: "Wave"; color: Theme.on-accent; font-size: 12px; font-weight: 500; vertical-alignment: center; }
+                            wave-label := Text { text: @tr("Wave"); color: Theme.on-accent; font-size: 12px; font-weight: 500; vertical-alignment: center; }
                         }
                         wave-touch := TouchArea {
                             mouse-cursor: MouseCursor.pointer;
@@ -669,7 +669,7 @@ export component ChannelRow inherits Rectangle {
                 }
                 if root.call: Image {
                     source: @image-url("icons/phone.svg"); width: 16px; image-fit: contain; colorize: Theme.live;
-                    accessible-role: image; accessible-label: "In a call";
+                    accessible-role: image; accessible-label: @tr("In a call");
                 }
                 if root.pinned: Image {
                     source: @image-url("icons/pin.svg"); width: 14px; image-fit: contain; colorize: Theme.faint;
@@ -697,7 +697,7 @@ export component ChannelRow inherits Rectangle {
                         width: 24px; height: 24px; border-radius: 6px;
                         background: chat-pointer.has-hover ? Theme.overlay.with-alpha(0.08) : transparent;
                         accessible-role: button;
-                        accessible-label: "Open chat";
+                        accessible-label: @tr("Open chat");
                         accessible-action-default => { root.open-chat(); }
                         chat-icon := Image {
                             source: @image-url("icons/message-square-text.svg"); width: 16px; height: 16px;
@@ -708,11 +708,11 @@ export component ChannelRow inherits Rectangle {
                             clicked => { Tip.text = ""; root.open-chat(); }
                             changed has-hover => {
                                 if self.has-hover {
-                                    Tip.text = "Open chat";
+                                    Tip.text = @tr("Open chat");
                                     Tip.side = 0;
                                     Tip.x = chat-icon.absolute-position.x + chat-icon.width / 2;
                                     Tip.y = chat-icon.absolute-position.y;
-                                } else if Tip.text == "Open chat" {
+                                } else if Tip.text == @tr("Open chat") {
                                     Tip.text = "";
                                 }
                             }
@@ -839,7 +839,7 @@ component CategoryHeading inherits Rectangle {
     // Discord keeps 17px above a category's name, then 21px for its line.
     height: 38px;
     accessible-role: button;
-    accessible-label: root.text + (root.collapsed ? ", collapsed" : ", expanded");
+    accessible-label: root.text + (root.collapsed ? @tr(", collapsed") : @tr(", expanded"));
     accessible-action-default => { root.toggled(); }
     forward-focus: focus;
     /// This account may create a channel in it, which a "+" offers while the
@@ -940,7 +940,7 @@ export component ServerHeader inherits Rectangle {
     border-radius: 6px;
     background: touch.has-hover || root.open ? Theme.hover : transparent;
     accessible-role: button;
-    accessible-label: root.name + ", server menu";
+    accessible-label: @tr("{}, server menu", root.name);
     accessible-action-default => { root.clicked(); }
     keys := FocusScope {
         key-pressed(event) => {
@@ -1015,8 +1015,8 @@ export component ServerRail inherits Rectangle {
         RailItem {
             // The app's logo, as Discord puts its own here.
             icon: @image-url("icons/logo.svg"); icon-color: Theme.accent; icon-size: ClientStyle.enabled ? 24px : 32px;
-            label: "Direct messages" + (root.dms-badge != "" ? ", " + root.dms-badge + " waiting" : root.dms-unread ? ", unread" : "");
-            tip: "Direct messages";
+            label: @tr("Direct messages{}", (root.dms-badge != "" ? @tr(", {} waiting", root.dms-badge) : root.dms-unread ? @tr(", unread") : ""));
+            tip: @tr("Direct messages");
             selected: root.dms-selected; unread: root.dms-unread; badge: root.dms-badge;
             clicked => { root.navigate-dms(); }
         }
@@ -1047,8 +1047,7 @@ export component ServerRail inherits Rectangle {
                 }
                 if server.folder: FolderItem {
                     y: 0px;
-                    label: server.name + " folder, " + (server.open ? "open" : "closed") + (server.call && !server.open ? ", in a call" : "")
-                        + (server.badge != "" ? ", " + server.badge + " mentions" : server.unread ? ", unread" : "");
+                    label: @tr("{0} folder, {1}{2}{3}", server.name, (server.open ? "open" : "closed"), (server.call && !server.open ? @tr(", in a call") : ""), (server.badge != "" ? @tr(", {} mentions", server.badge) : server.unread ? @tr(", unread") : ""));
                     tip: server.name;
                     open: server.open; tint: server.tint; servers: server.preview;
                     selected: server.selected; unread: server.unread; badge: server.badge; call: server.call;
@@ -1058,9 +1057,9 @@ export component ServerRail inherits Rectangle {
                 if server.dm: RailItem {
                     y: 0px;
                     initial: server.initial; picture-url: server.picture-url;
-                    label: server.name + (server.discord && root.matrix-build ? ", Discord" : "")
-                        + (server.badge != "" ? ", " + server.badge + " unread" : ", unread");
-                    tip: server.discord && root.matrix-build ? server.name + " (Discord)" : server.name;
+                    label: server.name + (server.discord && root.matrix-build ? @tr(", Discord") : "")
+                        + (server.badge != "" ? @tr(", {} unread", server.badge) : @tr(", unread"));
+                    tip: server.discord && root.matrix-build ? @tr("{} (Discord)", server.name) : server.name;
                     unread: true; badge: server.badge; discord: server.discord;
                     clicked => { root.open-dm(server.id); }
                     context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
@@ -1068,10 +1067,10 @@ export component ServerRail inherits Rectangle {
                 if !server.folder && !server.dm && !server.divider: RailItem {
                     y: 0px;
                     initial: server.initial; picture: server.picture; picture-url: server.picture-url;
-                    label: server.name + (server.discord && root.matrix-build ? ", Discord" : "") + (server.unavailable ? ", unavailable" : "")
-                        + (server.call ? ", in a call" : "")
-                        + (server.badge != "" ? ", " + server.badge + " mentions" : server.unread ? ", unread" : "");
-                    tip: server.unavailable ? server.name + " (unavailable in a Discord outage)" : server.discord && root.matrix-build ? server.name + " (Discord)" : server.name;
+                    label: server.name + (server.discord && root.matrix-build ? @tr(", Discord") : "") + (server.unavailable ? @tr(", unavailable") : "")
+                        + (server.call ? @tr(", in a call") : "")
+                        + (server.badge != "" ? @tr(", {} mentions", server.badge) : server.unread ? @tr(", unread") : "");
+                    tip: server.unavailable ? @tr("{} (unavailable in a Discord outage)", server.name) : server.discord && root.matrix-build ? @tr("{} (Discord)", server.name) : server.name;
                     selected: server.selected; unread: server.unread; badge: server.badge; discord: server.discord;
                     call: server.call;
                     opacity: server.unavailable ? 0.5 : 1;
@@ -1082,7 +1081,7 @@ export component ServerRail inherits Rectangle {
         }
         if root.can-join: RailItem {
             icon: @image-url("icons/circle-plus.svg"); icon-color: Theme.accent; icon-size: 24px;
-            label: "Join a server"; tip: "Join a server";
+            label: @tr("Join a server"); tip: @tr("Join a server");
             clicked => { root.join-server(); }
         }
     }
@@ -1100,14 +1099,14 @@ component DmScreenLinks inherits VerticalLayout {
     callback open-requests;
     padding-top: 6px; padding-bottom: 6px; spacing: 2px;
     ChannelRow {
-        text: "Friends";
+        text: @tr("Friends");
         icon: @image-url("icons/users.svg");
         selected: root.friends-open;
         clicked => { root.open-friends(); }
     }
     ChannelRow {
-        text: "Requests";
-        label: "Requests" + (root.requests-badge != "" ? ", " + root.requests-badge + " waiting" : "");
+        text: @tr("Requests");
+        label: @tr("Requests{}", (root.requests-badge != "" ? @tr(", {} waiting", root.requests-badge) : ""));
         icon: @image-url("icons/inbox.svg");
         selected: root.requests-current; badge: root.requests-badge;
         clicked => { root.open-requests(); }
@@ -1121,7 +1120,7 @@ component BrowseLink inherits VerticalLayout {
     callback open-browse;
     padding-top: 6px; padding-bottom: 6px;
     ChannelRow {
-        text: "Browse channels";
+        text: @tr("Browse channels");
         icon: @image-url("icons/hash.svg");
         selected: root.browsing;
         clicked => { root.open-browse(); }
@@ -1394,8 +1393,8 @@ export component RoomList inherits Rectangle {
                         tracking: root.dragging;
                         dragged(y) => { root.follow(list.absolute-position.x, y); }
                         dropped => { root.finish(); }
-                        label: room.name + ", thread" + (room.muted ? ", muted" : "")
-                            + (room.badge != "" ? ", " + room.badge + " mentions" : room.unread ? ", unread" : "");
+                        label: @tr("{}, thread", room.name) + (room.muted ? @tr(", muted") : "")
+                            + (room.badge != "" ? @tr(", {} mentions", room.badge) : room.unread ? @tr(", unread") : "");
                         selected: room.selected; unread: room.unread; badge: room.badge; muted: room.muted;
                         clicked => { root.select-room(room.id); }
                         context-menu(x, y) => { root.open-room-menu(room.id, x, y); }
@@ -1403,14 +1402,14 @@ export component RoomList inherits Rectangle {
                 }
                 if !room.hidden && !room.thread: ChannelRow {
                     text: room.name;
-                    label: room.name + (room.discord ? ", Discord" : "")
-                        + (room.presence == "dnd" ? ", do not disturb" : room.presence == "mobile" ? ", online on mobile" : room.presence != "" ? ", " + room.presence : "")
-                        + (room.voice-room != "" ? ", in " + room.voice-channel + " in " + room.voice-server : "")
+                    label: room.name + (room.discord ? @tr(", Discord") : "")
+                        + (room.presence == "dnd" ? @tr(", do not disturb") : room.presence == "mobile" ? @tr(", online on mobile") : room.presence != "" ? ", " + room.presence : "")
+                        + (room.voice-room != "" ? @tr(", in {0} in {1}", room.voice-channel, room.voice-server) : "")
                         + (room.detail != "" ? ", " + room.detail : "")
-                        + (room.pinned ? ", pinned" : "") + (room.muted ? ", muted" : "")
-                        + (room.locked ? ", locked" : "") + (room.call ? ", in a call" : "")
+                        + (room.pinned ? @tr(", pinned") : "") + (room.muted ? @tr(", muted") : "")
+                        + (room.locked ? @tr(", locked") : "") + (room.call ? @tr(", in a call") : "")
                         + (room.voice-started > 0 ? ", call going for " + ActivityClock.lasted(room.voice-started, ActivityClock.minute * 60) : "")
-                        + (room.badge != "" ? ", " + room.badge + " mentions" : room.unread ? ", unread" : "");
+                        + (room.badge != "" ? ", " + room.badge + " mentions" : room.unread ? @tr(", unread") : "");
                     icon: room.icon; person: room.direct; initial: room.initial; tint: room.tint;
                     chat: room.chat; voice-started: room.voice-started;
                     voice-id: room.id;
@@ -1471,14 +1470,14 @@ export component RoomList inherits Rectangle {
                         // their stream. This account in the call on another
                         // client is dimmed until hovered, without its icons.
                         // They may be dragged onto another voice channel.
-                        property <string> tip: person.elsewhere ? "Connected on another client" : "";
+                        property <string> tip: person.elsewhere ? @tr("Connected on another client") : "";
                         height: 30px; border-radius: 4px;
                         background: person-touch.has-hover ? Theme.hover : transparent;
                         animate background { duration: 90ms; }
                         opacity: person.elsewhere && !person-touch.has-hover ? 0.5 : 1;
                         accessible-role: button;
-                        accessible-label: person.elsewhere ? person.name + ", connected on another client" : person.name;
-                        accessible-description: "Show their profile";
+                        accessible-label: person.elsewhere ? @tr("{}, connected on another client", person.name) : person.name;
+                        accessible-description: @tr("Show their profile");
                         accessible-action-default => {
                             root.open-voice-profile(person, self.absolute-position.x, self.absolute-position.y, self.width, self.height);
                         }
@@ -1509,23 +1508,23 @@ export component RoomList inherits Rectangle {
                             }
                             if person.video && !person.elsewhere: Image {
                                 source: @image-url("icons/video.svg"); width: 16px; image-fit: contain;
-                                colorize: Theme.muted; accessible-role: image; accessible-label: person.name + "'s camera is on";
+                                colorize: Theme.muted; accessible-role: image; accessible-label: @tr("{}'s camera is on", person.name);
                             }
                             if person.live && !person.elsewhere: Middle {
                                 LivePill {
-                                    clickable: !person.local; label: "Watch " + person.name + "'s stream";
+                                    clickable: !person.local; label: @tr("Watch {}'s stream", person.name);
                                     clicked => { root.show-voice-person(room.id, person.id); }
                                 }
                             }
                             if (person.muted || person.deafened) && !person.elsewhere: Image {
                                 source: @image-url("icons/mic-off.svg"); width: 16px; image-fit: contain;
                                 colorize: person.server-muted ? Theme.danger : Theme.muted; accessible-role: image;
-                                accessible-label: person.name + (person.server-muted ? " is server muted" : " is muted");
+                                accessible-label: person.name + (person.server-muted ? @tr(" is server muted") : @tr(" is muted"));
                             }
                             if person.deafened && !person.elsewhere: Image {
                                 source: @image-url("icons/headphone-off.svg"); width: 16px; image-fit: contain;
                                 colorize: person.server-deafened ? Theme.danger : Theme.muted; accessible-role: image;
-                                accessible-label: person.name + (person.server-deafened ? " is server deafened" : " is deafened");
+                                accessible-label: person.name + (person.server-deafened ? @tr(" is server deafened") : @tr(" is deafened"));
                             }
                         }
                     }
@@ -1539,7 +1538,7 @@ export component RoomList inherits Rectangle {
                         background: participant-touch.has-hover ? Theme.hover : transparent;
                         animate background { duration: 90ms; }
                         accessible-role: button; accessible-label: person.name;
-                        accessible-description: "Show their profile";
+                        accessible-description: @tr("Show their profile");
                         accessible-action-default => {
                             root.open-voice-profile(person, self.absolute-position.x, self.absolute-position.y, self.width, self.height);
                         }
@@ -1563,23 +1562,23 @@ export component RoomList inherits Rectangle {
                             }
                             if person.video: Image {
                                 source: @image-url("icons/video.svg"); width: 16px; image-fit: contain;
-                                colorize: Theme.muted; accessible-role: image; accessible-label: person.name + "'s camera is on";
+                                colorize: Theme.muted; accessible-role: image; accessible-label: @tr("{}'s camera is on", person.name);
                             }
                             if person.live: Middle {
                                 LivePill {
-                                    clickable: !person.local; label: "Watch " + person.name + "'s stream";
+                                    clickable: !person.local; label: @tr("Watch {}'s stream", person.name);
                                     clicked => { root.show-voice-person(room.id, person.id); }
                                 }
                             }
                             if person.muted || person.deafened: Image {
                                 source: @image-url("icons/mic-off.svg"); width: 16px; image-fit: contain;
                                 colorize: person.server-muted ? Theme.danger : Theme.muted; accessible-role: image;
-                                accessible-label: person.name + (person.server-muted ? " is server muted" : " is muted");
+                                accessible-label: person.name + (person.server-muted ? @tr(" is server muted") : @tr(" is muted"));
                             }
                             if person.deafened: Image {
                                 source: @image-url("icons/headphone-off.svg"); width: 16px; image-fit: contain;
                                 colorize: person.server-deafened ? Theme.danger : Theme.muted; accessible-role: image;
-                                accessible-label: person.name + (person.server-deafened ? " is server deafened" : " is deafened");
+                                accessible-label: person.name + (person.server-deafened ? @tr(" is server deafened") : @tr(" is deafened"));
                             }
                         }
                     }

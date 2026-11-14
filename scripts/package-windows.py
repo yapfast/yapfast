@@ -101,6 +101,7 @@ def main():
     newest_input = max(path.stat().st_mtime for path in
                        [ROOT / "Cargo.toml", ROOT / "Cargo.lock", ROOT / "build.rs",
                         *list((ROOT / "src").rglob("*.rs")), *list((ROOT / "ui").rglob("*")),
+                        *list((ROOT / "translations").rglob("*")),
                         *list((ROOT / "packaging").rglob("*"))]
                        # The installer's script doesn't go into the executable.
                        if path.is_file() and path.suffix != ".iss")

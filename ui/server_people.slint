@@ -130,24 +130,24 @@ export component MembersSection inherits VerticalLayout {
         triggered => { root.sent = root.typed; root.act(0, root.typed, 0); }
     }
     spacing: 16px;
-    SettingsTitle { text: "Server Members"; }
+    SettingsTitle { text: @tr("Server Members"); }
     HorizontalLayout {
         spacing: 12px;
         Middle {
             horizontal-stretch: 1;
-            Text { text: root.page.searched ? "Search Results" : "Recent Members"; color: Theme.text; font-size: 16px; font-weight: 700; }
+            Text { text: root.page.searched ? @tr("Search Results") : @tr("Recent Members"); color: Theme.text; font-size: 16px; font-weight: 700; }
         }
         TextField {
             width: 190px; horizontal-stretch: 0; text-size: 14px;
-            text <=> root.typed; placeholder: "Search by username or id"; label: "Search members";
+            text <=> root.typed; placeholder: @tr("Search by username or id"); label: @tr("Search members");
             edited => { root.flip = !root.flip; }
             accepted => { root.sent = root.typed; root.act(0, root.typed, 0); }
         }
         ComboBox {
             width: 200px;
-            model: ["Member Since (Newest first)", "Member Since (Oldest first)", "Joined Discord (Newest first)", "Joined Discord (Oldest first)"];
+            model: [@tr("Member Since (Newest first)"), @tr("Member Since (Oldest first)"), @tr("Joined Discord (Newest first)"), @tr("Joined Discord (Oldest first)")];
             current-index: max(root.page.sort, 0);
-            accessible-label: "Sort";
+            accessible-label: @tr("Sort");
             selected => { root.act(1, "", self.current-index); }
         }
     }
@@ -155,12 +155,12 @@ export component MembersSection inherits VerticalLayout {
     HorizontalLayout {
         padding-left: 8px; padding-right: 8px; spacing: 8px;
         for column in [
-            { text: "NAME", grow: 4 },
-            { text: "MEMBER SINCE", grow: 2 },
-            { text: "JOINED DISCORD", grow: 2 },
-            { text: "JOIN METHOD", grow: root.page.join-method ? 2 : 0 },
-            { text: "ROLES", grow: 2 },
-            { text: "SIGNALS", grow: 1.5 },
+            { text: @tr("NAME"), grow: 4 },
+            { text: @tr("MEMBER SINCE"), grow: 2 },
+            { text: @tr("JOINED DISCORD"), grow: 2 },
+            { text: @tr("JOIN METHOD"), grow: root.page.join-method ? 2 : 0 },
+            { text: @tr("ROLES"), grow: 2 },
+            { text: @tr("SIGNALS"), grow: 1.5 },
         ]: Text {
             visible: column.grow > 0;
             text: column.text; color: Theme.secondary; font-size: 11px; font-weight: 700; overflow: elide;
@@ -168,11 +168,11 @@ export component MembersSection inherits VerticalLayout {
         }
         Rectangle { width: 32px; }
     }
-    if root.page.indexing: Label { text: "Before searching, we need to index this server. Give us a bit."; }
-    if root.page.rows.length == 0 && root.page.fetching && !root.page.indexing: Label { text: "Loading..."; vertical-stretch: 1; }
+    if root.page.indexing: Label { text: @tr("Before searching, we need to index this server. Give us a bit."); }
+    if root.page.rows.length == 0 && root.page.fetching && !root.page.indexing: Label { text: @tr("Loading..."); vertical-stretch: 1; }
     if root.page.rows.length == 0 && !root.page.fetching: VerticalLayout {
         alignment: center; vertical-stretch: 1;
-        Text { text: "No members match these search results."; color: Theme.secondary; font-size: 15px; horizontal-alignment: center; }
+        Text { text: @tr("No members match these search results."); color: Theme.secondary; font-size: 15px; horizontal-alignment: center; }
     }
     if root.page.rows.length > 0: ListView {
         vertical-stretch: 1; min-height: 120px;
@@ -217,14 +217,14 @@ export component MembersSection inherits VerticalLayout {
                 Middle { preferred-width: 0px; min-width: 0px; horizontal-stretch: 2; RoleChip { name: member.role; color: member.role-color; more: member.more-roles; } }
                 HorizontalLayout {
                     preferred-width: 0px; min-width: 0px; horizontal-stretch: 1.5; spacing: 2px; alignment: start;
-                    if member.unusual-dms: Middle { TipIcon { source: @image-url("icons/message-circle.svg"); colorize: Theme.muted; tip: "Sent excessive DMs to non-friend server members in last 24 hrs"; } }
+                    if member.unusual-dms: Middle { TipIcon { source: @image-url("icons/message-circle.svg"); colorize: Theme.muted; tip: @tr("Sent excessive DMs to non-friend server members in last 24 hrs"); } }
                     if member.timed-out != "": Middle { TipIcon { source: @image-url("icons/clock.svg"); colorize: Theme.danger; tip: member.timed-out; } }
-                    if member.spammer: Middle { TipIcon { source: @image-url("icons/triangle-alert.svg"); colorize: Theme.danger; tip: "Engaged in suspected spam activity"; } }
-                    if member.quarantined: Middle { TipIcon { source: @image-url("icons/shield.svg"); colorize: Theme.muted; tip: "User can't talk in server until they change their member name"; } }
+                    if member.spammer: Middle { TipIcon { source: @image-url("icons/triangle-alert.svg"); colorize: Theme.danger; tip: @tr("Engaged in suspected spam activity"); } }
+                    if member.quarantined: Middle { TipIcon { source: @image-url("icons/shield.svg"); colorize: Theme.muted; tip: @tr("User can't talk in server until they change their member name"); } }
                 }
                 Middle {
                     more := IconButton {
-                        icon: @image-url("icons/ellipsis.svg"); label: "More Options"; size: 32px; glyph: 18px;
+                        icon: @image-url("icons/ellipsis.svg"); label: @tr("More Options"); size: 32px; glyph: 18px;
                         clicked => { root.menu(member.id, self.absolute-position.x, self.absolute-position.y + self.height); }
                     }
                 }
@@ -236,28 +236,28 @@ export component MembersSection inherits VerticalLayout {
     property <int> page-length: [12, 25, 50, 100][root.page.page-size];
     HorizontalLayout {
         spacing: 8px;
-        if root.page.total > 12: Middle { Text { text: "Showing"; color: Theme.secondary; font-size: 14px; } }
+        if root.page.total > 12: Middle { Text { text: @tr("Showing"); color: Theme.secondary; font-size: 14px; } }
         if root.page.total > 12: ComboBox {
             width: 80px; model: ["12", "25", "50", "100"]; current-index: root.page.page-size;
-            accessible-label: "Members per page";
+            accessible-label: @tr("Members per page");
             selected => { root.act(3, "", self.current-index); }
         }
         Middle {
             horizontal-stretch: 1;
             Text {
-                text: root.page.total > 12 ? "members of " + root.page.count : "Showing " + root.page.count + (root.page.total == 1 ? " member" : " members");
+                text: root.page.total > 12 ? @tr("members of {}", root.page.count) : @tr("Showing {0}{1}", root.page.count, (root.page.total == 1 ? @tr(" member") : @tr(" members")));
                 color: Theme.secondary; font-size: 14px;
             }
         }
         if root.page.total > root.page-length || root.page.fetching: HorizontalLayout {
             spacing: 8px;
             ActionButton {
-                text: "Previous"; ghost: true; enabled: root.page.page > 0;
+                text: @tr("Previous"); ghost: true; enabled: root.page.page > 0;
                 clicked => { root.act(2, "", root.page.page - 1); }
             }
-            Middle { Text { text: (root.page.page + 1) + " of " + root.page.pages; color: Theme.secondary; font-size: 14px; } }
+            Middle { Text { text: @tr("{0} of {1}", (root.page.page + 1), root.page.pages); color: Theme.secondary; font-size: 14px; } }
             ActionButton {
-                text: "Next"; ghost: true; enabled: root.page.page + 1 < root.page.pages && !root.page.fetching;
+                text: @tr("Next"); ghost: true; enabled: root.page.page + 1 < root.page.pages && !root.page.fetching;
                 clicked => { root.act(2, "", root.page.page + 1); }
             }
         }
@@ -286,21 +286,21 @@ export component InvitesSection inherits VerticalLayout {
     changed page => { root.ticks = 0; }
     Timer { interval: 1s; running: root.page.rows.length > 0; triggered => { root.ticks += 1; } }
     spacing: 16px;
-    SettingsTitle { text: "Invites"; }
-    Label { text: "Create an invite link anyone can use to join, or invite friends directly."; }
+    SettingsTitle { text: @tr("Invites"); }
+    Label { text: @tr("Create an invite link anyone can use to join, or invite friends directly."); }
     HorizontalLayout {
         spacing: 8px;
         Middle {
             horizontal-stretch: 1;
-            SettingsHeading { text: root.page.rows.length > 0 ? "ACTIVE INVITE LINKS" : "NO ACTIVE INVITE LINKS"; }
+            SettingsHeading { text: root.page.rows.length > 0 ? @tr("ACTIVE INVITE LINKS") : @tr("NO ACTIVE INVITE LINKS"); }
         }
         ActionButton {
-            text: root.page.paused ? "Enable Invites" : "Pause Invites";
+            text: root.page.paused ? @tr("Enable Invites") : @tr("Pause Invites");
             primary: root.page.paused; danger: !root.page.paused;
             clicked => { root.act(2, "", 0); }
         }
         if root.page.may-create: ActionButton {
-            text: "Create Invite Link"; primary: true;
+            text: @tr("Create Invite Link"); primary: true;
             clicked => { root.act(1, "", 0); }
         }
     }
@@ -308,11 +308,11 @@ export component InvitesSection inherits VerticalLayout {
     if root.page.rows.length > 0: HorizontalLayout {
         padding-left: 8px; padding-right: 8px; spacing: 8px;
         for column in [
-            { text: "INVITER", grow: 4 },
-            { text: "INVITE CODE", grow: 3 },
-            { text: "USES", grow: 1 },
-            { text: "EXPIRES", grow: 2 },
-            { text: "ROLES", grow: 2 },
+            { text: @tr("INVITER"), grow: 4 },
+            { text: @tr("INVITE CODE"), grow: 3 },
+            { text: @tr("USES"), grow: 1 },
+            { text: @tr("EXPIRES"), grow: 2 },
+            { text: @tr("ROLES"), grow: 2 },
         ]: Text {
             text: column.text; color: Theme.secondary; font-size: 12px; font-weight: 700;
             preferred-width: 0px; min-width: 0px; horizontal-stretch: column.grow;
@@ -345,12 +345,12 @@ export component InvitesSection inherits VerticalLayout {
                 Countdown {
                     preferred-width: 0px; min-width: 0px; horizontal-stretch: 2; color: Theme.text; font-size: 14px; vertical-alignment: center;
                     seconds: invite.expires-in < 0 ? -1 : max(0, invite.expires-in - root.ticks);
-                    accessible-label: invite.expires-in < 0 ? "Never" : self.text;
+                    accessible-label: invite.expires-in < 0 ? @tr("Never") : self.text;
                 }
                 Middle { preferred-width: 0px; min-width: 0px; horizontal-stretch: 2; RoleChip { name: invite.role; color: invite.role-color; more: invite.more-roles; } }
                 Middle {
                     IconButton {
-                        icon: @image-url("icons/x.svg"); label: "Remove"; size: 32px; glyph: 18px; danger: true;
+                        icon: @image-url("icons/x.svg"); label: @tr("Remove"); size: 32px; glyph: 18px; danger: true;
                         opacity: hover.has-hover || self.hovered ? 1 : 0;
                         clicked => { root.act(0, invite.code, 0); }
                     }
@@ -379,35 +379,35 @@ export component SecurityActionsDialog inherits Rectangle {
             width: 480px; height: box.preferred-height;
             x: (root.width - self.width) / 2; y: (root.height - self.height) / 2;
             background: Theme.chat; border-radius: 8px;
-            accessible-role: groupbox; accessible-label: "Security Actions";
+            accessible-role: groupbox; accessible-label: @tr("Security Actions");
             TouchArea { }
             box := VerticalLayout {
                 padding: 16px; spacing: 14px;
-                Text { text: "Security Actions"; color: Theme.text; font-size: 20px; font-weight: 700; }
+                Text { text: @tr("Security Actions"); color: Theme.text; font-size: 20px; font-weight: 700; }
                 VerticalLayout {
                     ComboBox {
-                        model: ["1 hour", "2 hours", "4 hours", "6 hours", "12 hours", "24 hours"];
+                        model: [@tr("1 hour"), @tr("2 hours"), @tr("4 hours"), @tr("6 hours"), @tr("12 hours"), @tr("24 hours")];
                         current-index: root.page.hours; enabled: !root.page.saving;
-                        accessible-label: "Duration";
+                        accessible-label: @tr("Duration");
                         selected => { root.act(3, self.current-index); }
                     }
                 }
                 SettingsSwitch {
-                    text: "Pause Invites"; description: "Temporarily stop new members from joining this server via invite or vanity links.";
+                    text: @tr("Pause Invites"); description: @tr("Temporarily stop new members from joining this server via invite or vanity links.");
                     checked: root.page.pause-invites; controlled: true; enabled: !root.page.saving;
                     toggled => { root.act(4, 0); }
                 }
                 SettingsSwitch {
-                    text: "Pause DMs"; description: "Temporarily stop new direct messages from being sent between members in your server. Friends can still DM each other, moderators can still DM members, and your Apps can still DM members.";
+                    text: @tr("Pause DMs"); description: @tr("Temporarily stop new direct messages from being sent between members in your server. Friends can still DM each other, moderators can still DM members, and your Apps can still DM members.");
                     checked: root.page.pause-dms; controlled: true; enabled: !root.page.saving;
                     toggled => { root.act(5, 0); }
                 }
                 if root.page.security-error != "": Text { text: root.page.security-error; color: Theme.danger; font-size: 14px; wrap: word-wrap; }
                 HorizontalLayout {
                     spacing: 8px; alignment: end;
-                    ActionButton { text: "Cancel"; ghost: true; enabled: !root.page.saving; clicked => { root.act(7, 0); } }
+                    ActionButton { text: @tr("Cancel"); ghost: true; enabled: !root.page.saving; clicked => { root.act(7, 0); } }
                     ActionButton {
-                        text: root.page.saving ? "Saving..." : "Save"; primary: true; enabled: root.page.may-save && !root.page.saving;
+                        text: root.page.saving ? @tr("Saving...") : @tr("Save"); primary: true; enabled: root.page.may-save && !root.page.saving;
                         clicked => { root.act(6, 0); }
                     }
                 }

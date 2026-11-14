@@ -16,7 +16,7 @@ use slint::{
     Model, ModelRc, SharedString, VecModel,
     fontique_012::{fontique, shared_collection},
 };
-use yapfast_core::chat::EmojiSet;
+use yapfast_core::{chat::EmojiSet, i18n::tr};
 use yapfast_ui::{EmojiCell, EmojiRow, EmojiSection, SectionGlyph};
 
 use crate::custom_emoji;
@@ -572,15 +572,15 @@ pub fn rows(
     }
     for group in emojis::Group::iter() {
         let (glyph, name) = match group {
-            emojis::Group::SmileysAndEmotion => ("😀", "Smileys & emotion"),
-            emojis::Group::PeopleAndBody => ("👋", "People & body"),
-            emojis::Group::AnimalsAndNature => ("🐻", "Animals & nature"),
-            emojis::Group::FoodAndDrink => ("🍔", "Food & drink"),
-            emojis::Group::TravelAndPlaces => ("✈️", "Travel & places"),
-            emojis::Group::Activities => ("⚽", "Activities"),
-            emojis::Group::Objects => ("💡", "Objects"),
-            emojis::Group::Symbols => ("🔣", "Symbols"),
-            emojis::Group::Flags => ("🏁", "Flags"),
+            emojis::Group::SmileysAndEmotion => ("😀", tr("Smileys & emotion")),
+            emojis::Group::PeopleAndBody => ("👋", tr("People & body")),
+            emojis::Group::AnimalsAndNature => ("🐻", tr("Animals & nature")),
+            emojis::Group::FoodAndDrink => ("🍔", tr("Food & drink")),
+            emojis::Group::TravelAndPlaces => ("✈️", tr("Travel & places")),
+            emojis::Group::Activities => ("⚽", tr("Activities")),
+            emojis::Group::Objects => ("💡", tr("Objects")),
+            emojis::Group::Symbols => ("🔣", tr("Symbols")),
+            emojis::Group::Flags => ("🏁", tr("Flags")),
         };
         section(
             Some((titled(glyph, name), String::new())),

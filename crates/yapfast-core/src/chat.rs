@@ -25,6 +25,10 @@ pub const FOUND_PICTURES: usize = 4;
 pub const VIEW_WIDTH: u32 = 1920;
 pub const VIEW_HEIGHT: u32 = 1200;
 
+/// What Settings says about where a Discord login is kept. The interface
+/// translates it where it shows it (`tr` there), since it is sent once.
+pub const DISCORD_STORAGE: &str = "The Discord token is stored in the OS credential store.";
+
 /// What someone is doing on Discord: a game, music, a stream or a Hang
 /// status, shared as the gateway parsed it.
 #[cfg(feature = "discord")]
@@ -5262,7 +5266,7 @@ pub async fn run(
     let _ = events.send(Event::Connected {
         user: "Discord".into(),
         trusted: true,
-        storage: "The Discord token is stored in the OS credential store.",
+        storage: DISCORD_STORAGE,
     });
 
     // The actor waits on network events rather than polling the account or the UI.

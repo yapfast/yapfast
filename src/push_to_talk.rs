@@ -16,7 +16,10 @@ use slint::winit_030::winit::{
     keyboard::{Key, KeyLocation, NamedKey, PhysicalKey},
     platform::scancode::PhysicalKeyExtScancode,
 };
-use yapfast_core::runtime::BackgroundRuntime;
+use yapfast_core::{
+    i18n::{fill, tr},
+    runtime::BackgroundRuntime,
+};
 
 /// Mouse buttons share the saved scan-code field, tagged above Windows' 16-bit
 /// scan codes so existing keyboard bindings keep their meaning.
@@ -111,7 +114,7 @@ fn name(event: &KeyEvent) -> String {
         }
         _ => match event.physical_key {
             PhysicalKey::Code(code) => format!("{code:?}"),
-            PhysicalKey::Unidentified(_) => "Unknown key".to_owned(),
+            PhysicalKey::Unidentified(_) => tr("Unknown key").to_owned(),
         },
     }
 }
@@ -189,16 +192,18 @@ impl Reach {
     /// What settings say under the key.
     pub fn note(&self) -> String {
         match self {
-            Reach::Asking => "Asking your desktop to let Yapfast use the key in every app...".into(),
-            Reach::Everywhere(None) => "Hold the key in any app to talk.".into(),
+            Reach::Asking => tr("Asking your desktop to let Yapfast use the key in every app...").into(),
+            Reach::Everywhere(None) => tr("Hold the key in any app to talk.").into(),
             Reach::Everywhere(Some(shortcut)) if shortcut.is_empty() => {
-                "Your desktop hasn't allowed this shortcut yet. Approve it in your system's global shortcuts settings.".into()
+                tr("Your desktop hasn't allowed this shortcut yet. Approve it in your system's global shortcuts settings.").into()
             }
-            Reach::Everywhere(Some(shortcut)) => format!(
-                "Your desktop gave push to talk the shortcut {shortcut}. Hold it in any app to talk; change it in your system's global shortcuts settings."
+            Reach::Everywhere(Some(shortcut)) => fill(
+                tr("Your desktop gave push to talk the shortcut {}. Hold it in any app to talk; change it in your system's global shortcuts settings."),
+                &[shortcut],
             ),
-            Reach::Focused(why) => format!(
-                "{why}, so push to talk works only while Yapfast's window is in front."
+            Reach::Focused(why) => fill(
+                tr("{}, so push to talk works only while Yapfast's window is in front."),
+                &[why],
             ),
         }
     }
@@ -293,9 +298,9 @@ impl Watcher {
         #[cfg(not(any(target_os = "linux", windows)))]
         {
             let _ = runtime;
-            report(Reach::Focused(
+            report(Reach::Focused(tr(
                 "Yapfast can't watch keys in other apps on this system yet",
-            ));
+            )));
         }
         Self {
             key,
@@ -348,7 +353,10 @@ mod linux {
         },
         rust_connection::RustConnection,
     };
-    use yapfast_core::runtime::{BackgroundRuntime, BackgroundTask};
+    use yapfast_core::{
+        i18n::tr,
+        runtime::{BackgroundRuntime, BackgroundTask},
+    };
     use zbus::{
         Connection, MessageStream,
         zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Value},
@@ -378,9 +386,9 @@ mod linux {
                                 error = format!("{error:#}"),
                                 "no global push-to-talk key through the portal"
                             );
-                            report(Reach::Focused(
+                            report(Reach::Focused(tr(
                                 "Your desktop doesn't offer Yapfast a global shortcut",
-                            ));
+                            )));
                         }
                     }),
                 });
@@ -395,7 +403,9 @@ mod linux {
                         error = format!("{error:#}"),
                         "no global push-to-talk key on X11"
                     );
-                    report(Reach::Focused("Yapfast couldn't watch keys in other apps"));
+                    report(Reach::Focused(tr(
+                        "Yapfast couldn't watch keys in other apps",
+                    )));
                     None
                 }
             }
@@ -621,7 +631,7 @@ mod linux {
                             Err(error) => {
                                 tracing::warn!(%error, "lost the X server's keys");
                                 yapfast_core::push_to_talk::hold(false);
-                                report(Reach::Focused("Yapfast lost the X server's keys"));
+                                report(Reach::Focused(tr("Yapfast lost the X server's keys")));
                                 break;
                             }
                         }
@@ -849,6 +859,7 @@ mod windows {
             WM_XBUTTONDOWN, WM_XBUTTONUP, XBUTTON1, XBUTTON2,
         },
     };
+    use yapfast_core::i18n::tr;
 
     use super::{Reach, Report};
 
@@ -906,9 +917,9 @@ mod windows {
                     Some(Self { thread })
                 }
                 None => {
-                    report(Reach::Focused(
+                    report(Reach::Focused(tr(
                         "Windows didn't let Yapfast watch keys in other apps",
-                    ));
+                    )));
                     None
                 }
             }

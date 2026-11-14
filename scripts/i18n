@@ -1,0 +1,468 @@
+#!/usr/bin/env python3
+"""Yapfast's translations: finds the interface's texts, keeps each language's
+`.po` file in step with them, and checks the files.
+
+  scripts/i18n extract        write translations/yapfast-ui.pot from the code
+  scripts/i18n update [LANG]  add new texts to each language's file (or LANG's),
+                              drop the ones the code no longer has
+  scripts/i18n check          what is translated, and what is wrong in it
+  scripts/i18n todo LANG      the untranslated texts of LANG, one per paragraph
+
+The texts are the English wording itself: Slint's `@tr("...")` in ui/, and
+`tr`, `trn` and `tr_ctx` (and their `_in` forms) in Rust. See docs/i18n.md.
+No gettext tools are needed.
+"""
+import argparse
+import re
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+TRANSLATIONS = ROOT / "translations"
+POT = TRANSLATIONS / "yapfast-ui.pot"
+DOMAIN = "yapfast-ui"
+CONTEXT_SEPARATOR = "\x04"
+
+# The forms of each language's counted texts: Plural-Forms of its file, and how
+# many forms it has. Must match `Plural::header` in crates/yapfast-core/src/i18n.rs.
+PLURALS = {
+    "one": ("nplurals=1; plural=0;", 1),
+    "one-other": ("nplurals=2; plural=(n != 1);", 2),
+    "zero-one-other": ("nplurals=2; plural=(n > 1);", 2),
+}
+LANGUAGES = {
+    "de": ("German", "one-other"),
+    "fr": ("French", "zero-one-other"),
+}
+
+
+# ---------------------------------------------------------------------------
+# Finding the texts
+
+def unescape_slint(body):
+    """A Slint string literal's text: its escapes undone."""
+    out = []
+    i = 0
+    while i < len(body):
+        c = body[i]
+        if c != "\\":
+            out.append(c)
+            i += 1
+            continue
+        nxt = body[i + 1]
+        if nxt == "u" and body[i + 2] == "{":
+            end = body.index("}", i)
+            out.append(chr(int(body[i + 3:end], 16)))
+            i = end + 1
+            continue
+        out.append({"n": "\n", "t": "\t", "r": "\r", '"': '"', "\\": "\\"}.get(nxt, "\\" + nxt))
+        i += 2
+    return "".join(out)
+
+
+def unescape_rust(body):
+    return unescape_slint(body)
+
+
+def skip_string(source, i):
+    """The index of the quote that ends the string literal starting at `i`,
+    keeping to Slint's `\\{ ... }` interpolations, which may hold strings."""
+    j = i + 1
+    while True:
+        c = source[j]
+        if c == "\\":
+            if source[j + 1] == "{":
+                depth = 1
+                j += 2
+                while depth:
+                    if source[j] == '"':
+                        j = skip_string(source, j)
+                    elif source[j] == "{":
+                        depth += 1
+                    elif source[j] == "}":
+                        depth -= 1
+                    j += 1
+                continue
+            j += 2
+            continue
+        if c == '"':
+            return j
+        j += 1
+
+
+def slint_texts(path):
+    """The `@tr` texts of a Slint file as (context, text, plural) tuples."""
+    source = path.read_text()
+    found = []
+    i = 0
+    n = len(source)
+    while i < n:
+        c = source[i]
+        if source.startswith("//", i):
+            i = source.find("\n", i)
+            if i < 0:
+                break
+            continue
+        if source.startswith("/*", i):
+            i = source.index("*/", i) + 2
+            continue
+        if c == '"':
+            i = skip_string(source, i) + 1
+            continue
+        if source.startswith("@tr(", i):
+            j = i + 4
+            while source[j].isspace():
+                j += 1
+            if source[j] != '"':
+                raise SystemExit(f"{path}: an @tr that does not start with a string, at {source.count(chr(10), 0, i) + 1}")
+            end = skip_string(source, j)
+            first = unescape_slint(source[j + 1:end])
+            k = end + 1
+            while source[k].isspace():
+                k += 1
+            context, text, plural = None, first, None
+            if source.startswith("=>", k):
+                k += 2
+                while source[k].isspace():
+                    k += 1
+                end = skip_string(source, k)
+                context, text = first, unescape_slint(source[k + 1:end])
+                k = end + 1
+                while source[k].isspace():
+                    k += 1
+            if source[k] == "|":
+                k += 1
+                while source[k].isspace():
+                    k += 1
+                end = skip_string(source, k)
+                plural = unescape_slint(source[k + 1:end])
+            found.append((context, text, plural))
+            i = j  # texts inside the arguments are found by going on
+            continue
+        i += 1
+    return found
+
+
+LITERAL = r'"((?:[^"\\]|\\.)*)"'
+RUST_CALLS = [
+    # (regex, groups -> (context, text, plural))
+    (re.compile(r"\btr\(\s*" + LITERAL + r"\s*\)"), lambda m: (None, m[1], None)),
+    (re.compile(r"\btr_in\(\s*[^,()]+(?:\([^()]*\))?\s*,\s*" + LITERAL + r"\s*\)"), lambda m: (None, m[1], None)),
+    (re.compile(r"\btrn\(\s*" + LITERAL + r"\s*,\s*" + LITERAL), lambda m: (None, m[1], m[2])),
+    (re.compile(r"\btrn_in\(\s*[^,()]+(?:\([^()]*\))?\s*,\s*" + LITERAL + r"\s*,\s*" + LITERAL), lambda m: (None, m[1], m[2])),
+    (re.compile(r"\btr_ctx\(\s*" + LITERAL + r"\s*,\s*" + LITERAL + r"\s*\)"), lambda m: (m[1], m[2], None)),
+]
+# A text said through a helper of crates/yapfast-core/src/clock.rs.
+CLOCK_SAYS = re.compile(r"\b(?:say|phrase\([^,()]+(?:\([^()]*\))?,\s*)\(?\s*" + LITERAL)
+CTX_IN = re.compile(r"\btr_ctx_in\(")
+
+
+def balanced(source, open_at):
+    """The index of the parenthesis that closes the one at `open_at`."""
+    depth = 0
+    i = open_at
+    while True:
+        c = source[i]
+        if c == '"':
+            i += 1
+            while source[i] != '"':
+                i += 2 if source[i] == "\\" else 1
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+
+
+def rust_texts(path):
+    source = path.read_text()
+    # What the tests say is not the interface's.
+    cut = re.search(r"#\[cfg\(test\)\]\s*mod tests", source)
+    if cut:
+        source = source[:cut.start()]
+    source = re.sub(r"(?m)^\s*//.*$", "", source)
+    found = []
+    for regex, take in RUST_CALLS:
+        for match in regex.finditer(source):
+            context, text, plural = take(match)
+            found.append((context and unescape_rust(context), unescape_rust(text), plural and unescape_rust(plural)))
+    for match in CTX_IN.finditer(source):
+        start = match.end() - 1
+        args = source[start + 1:balanced(source, start)]
+        literals = re.findall(LITERAL, args)
+        # The context comes second ("tr_ctx_in(language, "month", ...)"); the
+        # texts are the literals after it.
+        ctx_match = re.match(r"\s*[^,()]+(?:\([^()]*\))?\s*,\s*" + LITERAL, args)
+        if not ctx_match:
+            continue
+        context = unescape_rust(ctx_match[1])
+        rest = args[ctx_match.end():]
+        for text in re.findall(LITERAL, rest):
+            found.append((context, unescape_rust(text), None))
+    if path.name == "clock.rs":
+        for match in CLOCK_SAYS.finditer(source):
+            found.append((None, unescape_rust(match[1]), None))
+    return found
+
+
+def collect():
+    """Every text, as {(context, text): (plural, [files])}, in a steady order."""
+    texts = {}
+
+    def add(found, path):
+        for context, text, plural in found:
+            key = (context, text)
+            entry = texts.setdefault(key, [plural, []])
+            if plural and not entry[0]:
+                entry[0] = plural
+            name = path.relative_to(ROOT).as_posix()
+            if name not in entry[1]:
+                entry[1].append(name)
+
+    for path in sorted((ROOT / "ui").rglob("*.slint")):
+        add(slint_texts(path), path)
+    rust_roots = [ROOT / "src", ROOT / "crates"]
+    for base in rust_roots:
+        for path in sorted(base.rglob("*.rs")):
+            if path.name == "tests.rs" or "target" in path.parts:
+                continue
+            add(rust_texts(path), path)
+    return texts
+
+
+# ---------------------------------------------------------------------------
+# The .po format
+
+def quote(text):
+    out = text.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\t", "\\t")
+    return f'"{out}"'
+
+
+def unquote(literal):
+    literal = literal.strip()
+    body = literal[1:-1] if literal.startswith('"') and literal.endswith('"') else literal
+    return unescape_slint(body)
+
+
+def parse_po(path):
+    """{(context, text): {"plural", "forms", "fuzzy"}} and the header text."""
+    entries = {}
+    header = ""
+    if not path.exists():
+        return entries, header
+    block = []
+
+    def finish():
+        if not block:
+            return
+        context = text = plural = None
+        forms = {}
+        fuzzy = False
+        field = None
+        for line in block:
+            if line.startswith("#,"):
+                fuzzy |= "fuzzy" in line
+            elif line.startswith("#"):
+                continue
+            elif line.startswith("msgctxt "):
+                context, field = unquote(line[8:]), ("ctx",)
+            elif line.startswith("msgid_plural "):
+                plural, field = unquote(line[13:]), ("plural",)
+            elif line.startswith("msgid "):
+                text, field = unquote(line[6:]), ("id",)
+            elif line.startswith("msgstr["):
+                index, rest = line[7:].split("] ", 1)
+                forms[int(index)] = unquote(rest)
+                field = ("str", int(index))
+            elif line.startswith("msgstr "):
+                forms[0] = unquote(line[7:])
+                field = ("str", 0)
+            elif line.startswith('"'):
+                more = unquote(line)
+                if field[0] == "ctx":
+                    context += more
+                elif field[0] == "id":
+                    text += more
+                elif field[0] == "plural":
+                    plural += more
+                else:
+                    forms[field[1]] += more
+        nonlocal header
+        if text == "":
+            header = forms.get(0, "")
+        elif text is not None:
+            entries[(context, text)] = {"plural": plural, "forms": forms, "fuzzy": fuzzy}
+
+    for line in path.read_text().splitlines():
+        if line.strip() == "":
+            finish()
+            block = []
+        else:
+            block.append(line.strip())
+    finish()
+    return entries, header
+
+
+def header_for(code, name, plural_key):
+    plural, _ = PLURALS[plural_key]
+    return (
+        'msgid ""\nmsgstr ""\n'
+        f'"Project-Id-Version: yapfast\\n"\n'
+        f'"Language: {code}\\n"\n'
+        '"MIME-Version: 1.0\\n"\n'
+        '"Content-Type: text/plain; charset=UTF-8\\n"\n'
+        '"Content-Transfer-Encoding: 8bit\\n"\n'
+        f'"Plural-Forms: {plural}\\n"\n'
+    )
+
+
+def write_entry(out, key, plural, files, forms, nforms):
+    context, text = key
+    if files:
+        out.append("#: " + " ".join(files))
+    if context is not None:
+        out.append(f"msgctxt {quote(context)}")
+    out.append(f"msgid {quote(text)}")
+    if plural is not None:
+        out.append(f"msgid_plural {quote(plural)}")
+        for index in range(nforms):
+            out.append(f"msgstr[{index}] {quote(forms.get(index, ''))}")
+    else:
+        out.append(f"msgstr {quote(forms.get(0, ''))}")
+    out.append("")
+
+
+def sort_key(item):
+    (context, text), _ = item
+    return (context or "", text.lower(), text)
+
+
+def write_pot(texts):
+    out = [header_for("", "", "one-other").replace('"Language: \\n"\n', '"Language: \\n"\n'), ""]
+    for key, (plural, files) in sorted(texts.items(), key=sort_key):
+        write_entry(out, key, plural, files, {}, 2)
+    POT.parent.mkdir(parents=True, exist_ok=True)
+    POT.write_text("\n".join(out))
+    print(f"{POT.relative_to(ROOT)}: {len(texts)} texts")
+
+
+def update(texts, only):
+    for code, (name, plural_key) in sorted(LANGUAGES.items()):
+        if only and code != only:
+            continue
+        path = TRANSLATIONS / code / "LC_MESSAGES" / f"{DOMAIN}.po"
+        old, _ = parse_po(path)
+        nforms = PLURALS[plural_key][1]
+        out = [header_for(code, name, plural_key)]
+        kept = added = 0
+        for key, (plural, files) in sorted(texts.items(), key=sort_key):
+            known = old.get(key)
+            forms = known["forms"] if known and not known["fuzzy"] else {}
+            if known:
+                kept += 1
+            else:
+                added += 1
+            write_entry(out, key, plural, files, forms, nforms)
+        dropped = len(set(old) - set(texts))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("\n".join(out))
+        print(f"{code}: {kept} kept, {added} new, {dropped} dropped")
+
+
+# ---------------------------------------------------------------------------
+# Checking
+
+PLACEHOLDER = re.compile(r"\{([A-Za-z_0-9]*)\}")
+
+
+def placeholders(text):
+    return sorted(PLACEHOLDER.findall(text.replace("{{", "").replace("}}", "")))
+
+
+def check(texts):
+    problems = 0
+    for code, (name, plural_key) in sorted(LANGUAGES.items()):
+        path = TRANSLATIONS / code / "LC_MESSAGES" / f"{DOMAIN}.po"
+        entries, header = parse_po(path)
+        nforms = PLURALS[plural_key][1]
+        if PLURALS[plural_key][0] not in header:
+            print(f"{code}: Plural-Forms differs from {PLURALS[plural_key][0]!r}")
+            problems += 1
+        done = missing = 0
+        for key, (plural, files) in texts.items():
+            entry = entries.get(key)
+            context, text = key
+            forms = entry["forms"] if entry else {}
+            if not entry or entry["fuzzy"] or not any(forms.values()):
+                missing += 1
+                continue
+            done += 1
+            if plural is not None and len(forms) != nforms:
+                print(f"{code}: {text!r} has {len(forms)} forms, wants {nforms}")
+                problems += 1
+            for index, form in forms.items():
+                if not form:
+                    print(f"{code}: {text!r} lacks its form {index}")
+                    problems += 1
+                    continue
+                want = placeholders(text)
+                got = placeholders(form)
+                counted = plural is not None and nforms != 2 or (plural is not None and index == 0)
+                if counted and set(got) <= set(want) or got == want:
+                    pass
+                else:
+                    print(f"{code}: placeholders of {text!r} differ in {form!r}")
+                    problems += 1
+                if "\u2014" in form and "\u2014" not in text:
+                    print(f"{code}: an em-dash in {form!r}")
+                    problems += 1
+                if text.startswith(" ") != form.startswith(" ") or text.endswith(" ") != form.endswith(" "):
+                    print(f"{code}: spaces at the ends of {text!r} differ in {form!r}")
+                    problems += 1
+        extra = set(entries) - set(texts)
+        total = len(texts)
+        print(f"{code} ({name}): {done}/{total} translated ({100 * done // max(total, 1)}%), {missing} missing, {len(extra)} no longer in the code")
+        if extra:
+            problems += len(extra)
+            for key in sorted(extra, key=lambda k: (k[0] or "", k[1]))[:5]:
+                print(f"    gone: {key[1]!r}")
+    return problems
+
+
+def todo(texts, code):
+    path = TRANSLATIONS / code / "LC_MESSAGES" / f"{DOMAIN}.po"
+    entries, _ = parse_po(path)
+    for key, (plural, files) in sorted(texts.items(), key=sort_key):
+        entry = entries.get(key)
+        if entry and not entry["fuzzy"] and any(entry["forms"].values()):
+            continue
+        context, text = key
+        print(f"[{context}] {text}" if context else text)
+        if plural:
+            print(f"  (plural) {plural}")
+        print()
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("command", choices=["extract", "update", "check", "todo"])
+    parser.add_argument("language", nargs="?")
+    args = parser.parse_args()
+    texts = collect()
+    if args.command == "extract":
+        write_pot(texts)
+    elif args.command == "update":
+        write_pot(texts)
+        update(texts, args.language)
+    elif args.command == "check":
+        sys.exit(1 if check(texts) else 0)
+    else:
+        if not args.language:
+            parser.error("todo needs a language")
+        todo(texts, args.language)
+
+
+if __name__ == "__main__":
+    main()

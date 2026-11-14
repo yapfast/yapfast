@@ -250,7 +250,7 @@ impl Adapter {
                     let trending = picker.trending_preview.as_ref().map(|gif| gif.src.as_str());
                     tile(
                         2,
-                        "Trending GIFs",
+                        tr("Trending GIFs"),
                         "",
                         trending.unwrap_or_default(),
                         Shape::Fixed(HOME_TILE),
@@ -277,7 +277,7 @@ impl Adapter {
                 } else if let Some(error) = &picker.error {
                     note = error.clone();
                 } else if picker.results.is_empty() {
-                    note = "No GIFs match your search.".into();
+                    note = tr("No GIFs match your search.").into();
                 }
                 for gif in picker.results.iter().filter(|_| !picker.loading) {
                     let favorite = state.is_favorite_gif(&gif.url);
@@ -290,9 +290,9 @@ impl Adapter {
                 Some(all) => {
                     let shown = state.shown_favorite_gifs();
                     if all.is_empty() {
-                        note = "Click the star in the corner of a GIF to favorite it. Favorites will show up here!".into();
+                        note = tr("Click the star in the corner of a GIF to favorite it. Favorites will show up here!").into();
                     } else if shown.is_empty() {
-                        note = "No favorite GIFs match your search.".into();
+                        note = tr("No favorite GIFs match your search.").into();
                     }
                     for favorite in shown {
                         let shape = Shape::of(favorite.width, favorite.height);

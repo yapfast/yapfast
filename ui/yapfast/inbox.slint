@@ -92,17 +92,17 @@ export component InboxPopout inherits Rectangle {
                 height: 48px;
                 HorizontalLayout {
                     padding-left: 16px; padding-right: 16px; spacing: 8px;
-                    Middle { Text { text: "Inbox"; font-size: 16px; font-weight: 700; color: Theme.text; } }
+                    Middle { Text { text: @tr("Inbox"); font-size: 16px; font-weight: 700; color: Theme.text; } }
                     Rectangle { horizontal-stretch: 1; }
-                    Middle { InboxTab { width: 80px; text: "Unreads"; selected: root.tab == 0; clicked => { root.tab = 0; root.changed-tab(); } } }
-                    Middle { InboxTab { width: 92px; text: "Mentions"; selected: root.tab == 1; clicked => { root.tab = 1; root.changed-tab(); } } }
+                    Middle { InboxTab { width: 80px; text: @tr("Unreads"); selected: root.tab == 0; clicked => { root.tab = 0; root.changed-tab(); } } }
+                    Middle { InboxTab { width: 92px; text: @tr("Mentions"); selected: root.tab == 1; clicked => { root.tab = 1; root.changed-tab(); } } }
                 }
             }
             Rectangle { height: 1px; background: Theme.line; }
             Rectangle {
                 vertical-stretch: 1;
                 if root.rows.length == 0: Text {
-                    text: root.tab == 0 ? "Unread messages from your unmuted channels show up here." : "Nothing mentions you right now.";
+                    text: root.tab == 0 ? @tr("Unread messages from your unmuted channels show up here.") : @tr("Nothing mentions you right now.");
                     color: Theme.muted; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap;
                     x: 16px; width: parent.width - 32px; height: 120px; y: 16px;
                 }

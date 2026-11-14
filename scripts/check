@@ -53,10 +53,11 @@ clippy=(cargo clippy --locked "${profile[@]}" --all-targets)
 # feature-union is for the Matrix steps below; with it, the default build would
 # resolve as the full one and compile Slint apart from `cargo build`.
 workspace=(--workspace --exclude feature-union)
-steps=(fmt doc-links clippy test build smoke)
+steps=(fmt doc-links i18n clippy test build smoke)
 
 run fmt cargo fmt --all -- --check
 run doc-links scripts/check-doc-links
+run i18n scripts/i18n check
 # yapfast-ui is outside the workspace (see Cargo.toml), so Clippy checks it
 # only as a dependency, with plain rustc: it neither lints the generated
 # interface nor checks it a second time in test mode, as --all-targets would

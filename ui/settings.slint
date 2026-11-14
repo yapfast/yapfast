@@ -143,7 +143,7 @@ export component Choices inherits Rectangle {
             background: index == root.current ? Theme.active : choice.has-hover ? Theme.hover : transparent;
             animate background { duration: Theme.quick; }
             accessible-role: button;
-            accessible-label: index == root.current ? option + ", chosen" : option;
+            accessible-label: index == root.current ? @tr("{}, chosen", option) : option;
             accessible-action-default => { if !root.controlled { root.current = index; } root.chosen(index); }
             Text {
                 text: option; font-size: 14px;
@@ -197,17 +197,17 @@ export component UnsavedBar inherits Rectangle {
         // profile editor's middle column.
         Middle {
             Text {
-                text: "Careful — you have unsaved changes!"; font-size: 14px; font-weight: 600; wrap: word-wrap;
+                text: @tr("Careful — you have unsaved changes!"); font-size: 14px; font-weight: 600; wrap: word-wrap;
                 color: root.red ? Theme.on-danger : Theme.text;
             }
         }
         Rectangle { horizontal-stretch: 1; }
         ActionButton {
-            text: "Reset"; ghost: true; enabled: root.may-reset && !root.saving;
+            text: @tr("Reset"); ghost: true; enabled: root.may-reset && !root.saving;
             clicked => { root.undo(); }
         }
         ActionButton {
-            text: root.saving ? "Saving..." : "Save Changes"; primary: true;
+            text: root.saving ? @tr("Saving...") : @tr("Save Changes"); primary: true;
             enabled: root.may-save && !root.saving;
             clicked => { root.save(); }
         }
@@ -224,7 +224,7 @@ export struct SettingsRow { heading: bool, text: string, icon: image, id: int, d
 export component SettingsFrame inherits Rectangle {
     in property <[SettingsRow]> rows;
     in property <int> selected;
-    in property <string> label: "Settings";
+    in property <string> label: @tr("Settings");
     /// Only the user-settings shell opts in. Server and channel editors keep
     /// their inherited layout and content-bar coordinates.
     in property <bool> discord-layout;
@@ -301,7 +301,7 @@ export component SettingsFrame inherits Rectangle {
                     HorizontalLayout {
                         padding-left: 16px; padding-right: 8px;
                         Text { text: root.page-title; color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
-                        Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Close " + root.label; size: 32px; glyph: 18px; clicked => { root.close(); } } }
+                        Middle { IconButton { icon: @image-url("icons/x.svg"); label: @tr("Close {}", root.label); size: 32px; glyph: 18px; clicked => { root.close(); } } }
                     }
                     Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
                 }
@@ -326,7 +326,7 @@ export component SettingsFrame inherits Rectangle {
                     HorizontalLayout {
                         alignment: center;
                         IconButton {
-                            icon: @image-url("icons/x.svg"); label: "Close " + root.label; size: 36px; glyph: 18px; radius: 18px;
+                            icon: @image-url("icons/x.svg"); label: @tr("Close {}", root.label); size: 36px; glyph: 18px; radius: 18px;
                             fill: Theme.raised; clicked => { root.close(); }
                         }
                     }
@@ -381,28 +381,28 @@ export component SettingsScreen inherits Rectangle {
     callback refresh-devices;
     callback copy-text(string);
     property <[SettingsRow]> with-discord: [
-        { heading: true, text: "SETTINGS" },
-        { text: "My account", icon: @image-url("icons/user.svg"), id: 0 },
-        { text: "Appearance", icon: @image-url("icons/palette.svg"), id: 7 },
-        { text: "Voice & video", icon: @image-url("icons/headphones.svg"), id: 1 },
-        { text: "Messages", icon: @image-url("icons/message-circle.svg"), id: 2 },
-        { text: "Notifications", icon: @image-url("icons/bell.svg"), id: 3 },
-        { text: "Sounds", icon: @image-url("icons/volume-2.svg"), id: 5 },
-        { text: "Discord", icon: @image-url("icons/discord.svg"), id: 4 },
-        { text: "Game activity", icon: @image-url("icons/play.svg"), id: 8 },
-        { text: "Advanced", icon: @image-url("icons/settings.svg"), id: 6 },
-        { text: "About", icon: @image-url("icons/help-circle.svg"), id: 9 },
+        { heading: true, text: @tr("SETTINGS") },
+        { text: @tr("My account"), icon: @image-url("icons/user.svg"), id: 0 },
+        { text: @tr("Appearance"), icon: @image-url("icons/palette.svg"), id: 7 },
+        { text: @tr("Voice & video"), icon: @image-url("icons/headphones.svg"), id: 1 },
+        { text: @tr("Messages"), icon: @image-url("icons/message-circle.svg"), id: 2 },
+        { text: @tr("Notifications"), icon: @image-url("icons/bell.svg"), id: 3 },
+        { text: @tr("Sounds"), icon: @image-url("icons/volume-2.svg"), id: 5 },
+        { text: @tr("Discord"), icon: @image-url("icons/discord.svg"), id: 4 },
+        { text: @tr("Game activity"), icon: @image-url("icons/play.svg"), id: 8 },
+        { text: @tr("Advanced"), icon: @image-url("icons/settings.svg"), id: 6 },
+        { text: @tr("About"), icon: @image-url("icons/help-circle.svg"), id: 9 },
     ];
     property <[SettingsRow]> without-discord: [
-        { heading: true, text: "SETTINGS" },
-        { text: "My account", icon: @image-url("icons/user.svg"), id: 0 },
-        { text: "Appearance", icon: @image-url("icons/palette.svg"), id: 7 },
-        { text: "Voice & video", icon: @image-url("icons/headphones.svg"), id: 1 },
-        { text: "Messages", icon: @image-url("icons/message-circle.svg"), id: 2 },
-        { text: "Notifications", icon: @image-url("icons/bell.svg"), id: 3 },
-        { text: "Sounds", icon: @image-url("icons/volume-2.svg"), id: 5 },
-        { text: "Advanced", icon: @image-url("icons/settings.svg"), id: 6 },
-        { text: "About", icon: @image-url("icons/help-circle.svg"), id: 9 },
+        { heading: true, text: @tr("SETTINGS") },
+        { text: @tr("My account"), icon: @image-url("icons/user.svg"), id: 0 },
+        { text: @tr("Appearance"), icon: @image-url("icons/palette.svg"), id: 7 },
+        { text: @tr("Voice & video"), icon: @image-url("icons/headphones.svg"), id: 1 },
+        { text: @tr("Messages"), icon: @image-url("icons/message-circle.svg"), id: 2 },
+        { text: @tr("Notifications"), icon: @image-url("icons/bell.svg"), id: 3 },
+        { text: @tr("Sounds"), icon: @image-url("icons/volume-2.svg"), id: 5 },
+        { text: @tr("Advanced"), icon: @image-url("icons/settings.svg"), id: 6 },
+        { text: @tr("About"), icon: @image-url("icons/help-circle.svg"), id: 9 },
     ];
     SettingsCard {
         motion: root.motion;
@@ -410,11 +410,11 @@ export component SettingsScreen inherits Rectangle {
         close => { root.close(); }
         SettingsFrame {
             discord-layout: ClientStyle.enabled;
-            page-title: root.settings-section == 0 ? "My Account" : root.settings-section == 1 ? "Voice & Video"
-                : root.settings-section == 2 ? "Messages" : root.settings-section == 3 ? "Notifications"
-                : root.settings-section == 4 ? "Discord" : root.settings-section == 5 ? "Sounds"
-                : root.settings-section == 6 ? "Advanced" : root.settings-section == 7 ? "Appearance"
-                : root.settings-section == 9 ? "About" : "Game Activity";
+            page-title: root.settings-section == 0 ? @tr("My Account") : root.settings-section == 1 ? @tr("Voice & Video")
+                : root.settings-section == 2 ? @tr("Messages") : root.settings-section == 3 ? @tr("Notifications")
+                : root.settings-section == 4 ? @tr("Discord") : root.settings-section == 5 ? @tr("Sounds")
+                : root.settings-section == 6 ? @tr("Advanced") : root.settings-section == 7 ? @tr("Appearance")
+                : root.settings-section == 9 ? @tr("About") : @tr("Game Activity");
             account-name: root.account-name; account-initial: root.account-initial;
             account-tint: root.account-tint; account-picture: root.account-picture;
             with-discord: root.discord-build && !root.preview;
@@ -452,7 +452,7 @@ export component AccountSettings inherits VerticalLayout {
     callback edit-profile;
     callback sign-out;
     spacing: 16px;
-    SettingsTitle { text: "My account"; }
+    SettingsTitle { text: @tr("My account"); }
     Rectangle {
         background: Theme.sidebar; border-radius: 8px;
         HorizontalLayout {
@@ -469,19 +469,19 @@ export component AccountSettings inherits VerticalLayout {
     HorizontalLayout {
         spacing: 8px;
         if !root.preview && !root.online: ActionButton {
-            text: "Reconnect"; icon: @image-url("icons/refresh-cw.svg"); enabled: !root.busy;
+            text: @tr("Reconnect"); icon: @image-url("icons/refresh-cw.svg"); enabled: !root.busy;
             clicked => { root.retry-sync(); }
         }
         if root.discord-linked: ActionButton {
-            text: "Edit profile"; icon: @image-url("icons/user-pen.svg");
+            text: @tr("Edit profile"); icon: @image-url("icons/user-pen.svg");
             clicked => { root.edit-profile(); }
         }
         if root.discord-linked: ActionButton {
-            text: root.has-custom-status ? "Change custom status" : "Set a custom status"; icon: @image-url("icons/smile-plus.svg");
+            text: root.has-custom-status ? @tr("Change custom status") : @tr("Set a custom status"); icon: @image-url("icons/smile-plus.svg");
             clicked => { root.set-custom-status(); }
         }
         ActionButton {
-            text: root.preview ? "Back to sign in" : "Sign out"; icon: @image-url("icons/log-out.svg");
+            text: root.preview ? @tr("Back to sign in") : @tr("Sign out"); icon: @image-url("icons/log-out.svg");
             danger: !root.preview; enabled: !root.busy && !root.sending;
             clicked => { root.sign-out(); }
         }
@@ -568,7 +568,7 @@ export component VoiceSettings inherits VerticalLayout {
     /// Starts or stops recording the push-to-talk key.
     callback record-talk-key(bool);
     spacing: 16px;
-    SettingsTitle { text: "Voice & video"; }
+    SettingsTitle { text: @tr("Voice & video"); }
     // Each row's two columns take half the width each, whatever is in them:
     // a column starts at its least width and stretches from there, so none
     // has one.
@@ -576,54 +576,54 @@ export component VoiceSettings inherits VerticalLayout {
         spacing: 16px;
         VerticalLayout {
             spacing: 8px; horizontal-stretch: 1; min-width: 0; preferred-width: 0;
-            SettingsHeading { text: "MICROPHONE"; }
-            ComboBox { model: root.microphones; current-index <=> root.microphone-index; enabled: root.microphones.length > 0; accessible-label: "Microphone device"; selected => { root.select-microphone(self.current-index); } }
+            SettingsHeading { text: @tr("MICROPHONE"); }
+            ComboBox { model: root.microphones; current-index <=> root.microphone-index; enabled: root.microphones.length > 0; accessible-label: @tr("Microphone device"); selected => { root.select-microphone(self.current-index); } }
             VolumeSlider {
-                label: "Microphone volume"; value <=> root.microphone-volume;
+                label: @tr("Microphone volume"); value <=> root.microphone-volume;
                 changed => { root.call-volumes-changed(); }
                 committed => { root.preferences-changed(); }
             }
         }
         VerticalLayout {
             spacing: 8px; horizontal-stretch: 1; min-width: 0; preferred-width: 0;
-            SettingsHeading { text: "SPEAKERS"; }
-            ComboBox { model: root.speakers; current-index <=> root.speaker-index; enabled: root.speakers.length > 0; accessible-label: "Speaker device"; selected => { root.select-speaker(self.current-index); } }
+            SettingsHeading { text: @tr("SPEAKERS"); }
+            ComboBox { model: root.speakers; current-index <=> root.speaker-index; enabled: root.speakers.length > 0; accessible-label: @tr("Speaker device"); selected => { root.select-speaker(self.current-index); } }
             VolumeSlider {
-                label: "Speaker volume"; value <=> root.speaker-volume;
+                label: @tr("Speaker volume"); value <=> root.speaker-volume;
                 changed => { root.call-volumes-changed(); }
                 committed => { root.preferences-changed(); }
             }
         }
     }
-    if root.microphones.length == 0 && root.speakers.length == 0: Label { text: "No audio devices found. Connect one, then refresh."; }
+    if root.microphones.length == 0 && root.speakers.length == 0: Label { text: @tr("No audio devices found. Connect one, then refresh."); }
     HorizontalLayout {
         spacing: 16px;
         VerticalLayout {
             spacing: 8px; horizontal-stretch: 1; min-width: 0; preferred-width: 0; alignment: start;
-            SettingsHeading { text: "CAMERA"; }
-            ComboBox { model: root.cameras; current-index <=> root.camera-index; enabled: root.cameras.length > 0; accessible-label: "Camera device"; selected => { root.select-camera(self.current-index); } }
-            if root.cameras.length == 0: Label { text: "No camera found. Connect one, then refresh."; }
+            SettingsHeading { text: @tr("CAMERA"); }
+            ComboBox { model: root.cameras; current-index <=> root.camera-index; enabled: root.cameras.length > 0; accessible-label: @tr("Camera device"); selected => { root.select-camera(self.current-index); } }
+            if root.cameras.length == 0: Label { text: @tr("No camera found. Connect one, then refresh."); }
         }
         VerticalLayout {
             spacing: 8px; horizontal-stretch: 1; min-width: 0; preferred-width: 0;
-            SettingsHeading { text: "PREVIEW"; }
+            SettingsHeading { text: @tr("PREVIEW"); }
             Rectangle {
                 height: self.width * 9 / 16; border-radius: 8px; background: #000000; clip: true;
-                accessible-role: image; accessible-label: root.camera-testing ? "Your camera" : "Camera preview, off";
+                accessible-role: image; accessible-label: root.camera-testing ? @tr("Your camera") : @tr("Camera preview, off");
                 if root.camera-testing: Image { width: parent.width; height: parent.height; source: root.camera-preview; image-fit: contain; }
                 // Black in every theme, as a camera's picture.
                 if !root.camera-testing || root.camera-preview.width == 0: VerticalLayout {
                     alignment: center; spacing: 10px; padding: 12px;
                     Image { height: 30px; source: @image-url("icons/video.svg"); image-fit: contain; colorize: #b5b8c1; }
                     Text {
-                        text: root.camera-note != "" ? root.camera-note : root.camera-testing ? "Starting your camera..." : "Your camera is off.";
+                        text: root.camera-note != "" ? root.camera-note : root.camera-testing ? @tr("Starting your camera...") : @tr("Your camera is off.");
                         color: #b5b8c1; font-size: 14px; horizontal-alignment: center; wrap: word-wrap;
                     }
                 }
             }
             HorizontalLayout {
                 ActionButton {
-                    text: root.camera-testing ? "Stop video" : "Test video"; small: true; enabled: root.cameras.length > 0;
+                    text: root.camera-testing ? @tr("Stop video") : @tr("Test video"); small: true; enabled: root.cameras.length > 0;
                     clicked => { root.camera-testing = !root.camera-testing; }
                 }
                 Rectangle { horizontal-stretch: 1; }
@@ -631,91 +631,91 @@ export component VoiceSettings inherits VerticalLayout {
         }
     }
     HorizontalLayout {
-        ActionButton { text: "Refresh devices"; icon: @image-url("icons/refresh-cw.svg"); ghost: true; small: true; clicked => { root.refresh-devices(); } }
+        ActionButton { text: @tr("Refresh devices"); icon: @image-url("icons/refresh-cw.svg"); ghost: true; small: true; clicked => { root.refresh-devices(); } }
         Rectangle { horizontal-stretch: 1; }
     }
     Rectangle { height: 1px; background: Theme.line; }
     SettingsSwitch {
-        text: "Turn on your microphone when you join a call";
-        description: "Otherwise you join muted, and unmute when you're ready.";
+        text: @tr("Turn on your microphone when you join a call");
+        description: @tr("Otherwise you join muted, and unmute when you're ready.");
         checked <=> root.unmute-on-join;
         toggled => { root.preferences-changed(); }
     }
     SettingsSwitch {
-        text: "Even out your voice";
-        description: "Keeps your voice steady as you lean towards the microphone or away from it. Whispers and shouts still come through as they are.";
+        text: @tr("Even out your voice");
+        description: @tr("Keeps your voice steady as you lean towards the microphone or away from it. Whispers and shouts still come through as they are.");
         checked <=> root.level-voice;
         toggled => { root.preferences-changed(); }
     }
     if root.discord: VerticalLayout {
         spacing: 8px;
-        SettingsHeading { text: "NOISE SUPPRESSION IN DISCORD CALLS"; }
+        SettingsHeading { text: @tr("NOISE SUPPRESSION IN DISCORD CALLS"); }
         Choices {
-            label: "Noise suppression in Discord calls"; options: ["DeepFilterNet", "RNNoise", "Off"];
+            label: @tr("Noise suppression in Discord calls"); options: [@tr("DeepFilterNet"), @tr("RNNoise"), @tr("Off")];
             current <=> root.noise-suppression;
             chosen => { root.preferences-changed(); }
         }
-        Label { text: "DeepFilterNet also takes out typing and other sudden noise. RNNoise uses less processing. Off sends your microphone as it is, for a quiet room. A call going on switches straight away."; }
+        Label { text: @tr("DeepFilterNet also takes out typing and other sudden noise. RNNoise uses less processing. Off sends your microphone as it is, for a quiet room. A call going on switches straight away."); }
     }
     if root.discord && root.noise-suppression != 2: VerticalLayout {
         spacing: 8px;
-        SettingsHeading { text: "NOISE SUPPRESSION STRENGTH"; }
+        SettingsHeading { text: @tr("NOISE SUPPRESSION STRENGTH"); }
         Choices {
-            label: "Noise suppression strength"; options: ["Full", "Medium", "Light"];
+            label: @tr("Noise suppression strength"); options: [@tr("Full"), @tr("Medium"), @tr("Light")];
             current <=> root.noise-strength;
             chosen => { root.preferences-changed(); }
         }
-        Label { text: "Full takes out the most noise, but can cut off giggles and breathy laughs. Medium and Light leave a little of the room's sound in, which can sound more natural, and let a little more noise through."; }
+        Label { text: @tr("Full takes out the most noise, but can cut off giggles and breathy laughs. Medium and Light leave a little of the room's sound in, which can sound more natural, and let a little more noise through."); }
     }
     if root.discord: VerticalLayout {
         spacing: 8px;
-        SettingsHeading { text: "SOUNDBOARD VOLUME"; }
+        SettingsHeading { text: @tr("SOUNDBOARD VOLUME"); }
         VolumeSlider {
-            label: "Soundboard volume"; value <=> root.soundboard-volume; maximum: 100;
+            label: @tr("Soundboard volume"); value <=> root.soundboard-volume; maximum: 100;
             committed(value) => { root.soundboard-volume-committed(value); }
         }
-        Label { text: "How loud soundboard sounds play in Discord calls, yours and everyone else's. Discord keeps it for all your devices."; }
+        Label { text: @tr("How loud soundboard sounds play in Discord calls, yours and everyone else's. Discord keeps it for all your devices."); }
     }
     if root.discord: VerticalLayout {
         spacing: 8px;
         init => { root.entrance-sounds-wanted(); }
-        SettingsHeading { text: "ENTRANCE SOUNDS"; }
+        SettingsHeading { text: @tr("ENTRANCE SOUNDS"); }
         HorizontalLayout {
             spacing: 8px;
             Picker {
                 width: 200px; model: root.entrance-servers; chosen: root.entrance-server;
-                accessible-label: "Entrance sound for";
+                accessible-label: @tr("Entrance sound for");
                 selected => { root.entrance-server = self.current-index; root.entrance-server-chosen(self.current-index); }
             }
             Rectangle {
                 horizontal-stretch: 1; min-width: 0; height: 36px; border-radius: 8px; background: Theme.sunken;
-                accessible-role: text; accessible-label: "Entrance sound";
-                accessible-value: root.entrance-sound != "" ? root.entrance-sound : "None";
+                accessible-role: text; accessible-label: @tr("Entrance sound");
+                accessible-value: root.entrance-sound != "" ? root.entrance-sound : @tr("None");
                 Text {
                     x: 12px; width: parent.width - 24px; overflow: elide; font-size: 14px;
-                    text: root.entrance-sound != "" ? root.entrance-sound : "None";
+                    text: root.entrance-sound != "" ? root.entrance-sound : @tr("None");
                     color: root.entrance-sound != "" ? Theme.text : Theme.muted;
                 }
             }
             choose := ActionButton {
-                text: "Choose"; enabled: root.nitro;
+                text: @tr("Choose"); enabled: root.nitro;
                 clicked => { chooser.show(); }
             }
             if root.entrance-sound != "": ActionButton {
-                text: "Remove"; ghost: true;
+                text: @tr("Remove"); ghost: true;
                 clicked => { root.choose-entrance-sound(""); }
             }
         }
         Label {
-            text: root.nitro ? "Plays to everyone in a voice channel or DM call as you join it, outside stage channels. A server's own comes before the one for all servers."
-                : "Entrance sounds play to everyone as you join a voice channel. They need Nitro.";
+            text: root.nitro ? @tr("Plays to everyone in a voice channel or DM call as you join it, outside stage channels. A server's own comes before the one for all servers.")
+                : @tr("Entrance sounds play to everyone as you join a voice channel. They need Nitro.");
         }
         chooser := PopupWindow {
             x: choose.x + choose.width - self.width; y: choose.y + choose.height + 6px;
             width: board.width; height: board.height;
             close-policy: PopupClosePolicy.close-on-click-outside;
             board := Soundboard {
-                title: "Choose an entrance sound"; extras: false; verb: "Choose";
+                title: @tr("Choose an entrance sound"); extras: false; verb: @tr("Choose");
                 rows: root.entrance-rows; emoji-font: root.emoji-font;
                 play(id) => { root.choose-entrance-sound(id); chooser.close(); }
                 close => { chooser.close(); }
@@ -723,81 +723,81 @@ export component VoiceSettings inherits VerticalLayout {
         }
     }
     if root.discord: SettingsSwitch {
-        text: "Take out your room's echo in Discord calls";
-        description: "For a bare or echoey room that makes your voice sound far away. Uses a little more processing, and your voice goes out 10 ms later.";
+        text: @tr("Take out your room's echo in Discord calls");
+        description: @tr("For a bare or echoey room that makes your voice sound far away. Uses a little more processing, and your voice goes out 10 ms later.");
         checked <=> root.dereverb;
         toggled => { root.preferences-changed(); }
     }
     if root.discord && root.windows-effects-choice: SettingsSwitch {
-        text: "Let Windows process your microphone in Discord calls";
-        description: "Runs the effects Windows and your sound driver add to the microphone, such as their own noise suppression. Off, Yapfast skips them, as they can muffle your voice on top of Yapfast's. Turn it on if your microphone sounds worse without them, as some laptop microphones can.";
+        text: @tr("Let Windows process your microphone in Discord calls");
+        description: @tr("Runs the effects Windows and your sound driver add to the microphone, such as their own noise suppression. Off, Yapfast skips them, as they can muffle your voice on top of Yapfast's. Turn it on if your microphone sounds worse without them, as some laptop microphones can.");
         checked <=> root.windows-effects;
         toggled => { root.preferences-changed(); }
     }
     VerticalLayout {
         spacing: 8px;
-        SettingsHeading { text: "INPUT MODE"; }
+        SettingsHeading { text: @tr("INPUT MODE"); }
         Choices {
-            label: "Input mode"; options: ["Voice activity", "Push to talk"];
+            label: @tr("Input mode"); options: [@tr("Voice activity"), @tr("Push to talk")];
             current <=> root.input-mode;
             chosen => { root.preferences-changed(); }
         }
         Label {
-            text: root.input-mode == 0 ? "Yapfast sends your voice when it hears you speak."
-                : "Yapfast sends your microphone only while you hold a key.";
+            text: root.input-mode == 0 ? @tr("Yapfast sends your voice when it hears you speak.")
+                : @tr("Yapfast sends your microphone only while you hold a key.");
         }
     }
     if root.input-mode == 1: VerticalLayout {
         spacing: 8px;
-        SettingsHeading { text: "PUSH TO TALK KEYBIND"; }
+        SettingsHeading { text: @tr("PUSH TO TALK KEYBIND"); }
         HorizontalLayout {
             spacing: 8px; alignment: start;
             Rectangle {
                 width: 200px; height: 36px; border-radius: 8px; background: Theme.sunken;
                 border-width: root.talk-recording ? 2px : 0px; border-color: Theme.accent;
                 accessible-role: text;
-                accessible-label: "Push to talk keybind";
-                accessible-value: root.talk-key != "" ? root.talk-key : "No keybind set";
+                accessible-label: @tr("Push to talk keybind");
+                accessible-value: root.talk-key != "" ? root.talk-key : @tr("No keybind set");
                 Text {
                     x: 12px; width: parent.width - 24px; overflow: elide; font-size: 14px;
-                    text: root.talk-recording ? "Press a key..." : root.talk-key != "" ? root.talk-key : "No keybind set";
+                    text: root.talk-recording ? @tr("Press a key...") : root.talk-key != "" ? root.talk-key : @tr("No keybind set");
                     color: root.talk-key != "" && !root.talk-recording ? Theme.text : Theme.muted;
                     font-weight: root.talk-key != "" && !root.talk-recording ? 600 : 400;
                 }
             }
             ActionButton {
-                text: root.talk-recording ? "Stop recording" : root.talk-key == "" ? "Record keybind" : "Edit keybind";
+                text: root.talk-recording ? @tr("Stop recording") : root.talk-key == "" ? @tr("Record keybind") : @tr("Edit keybind");
                 danger: root.talk-recording;
                 clicked => { root.record-talk-key(!root.talk-recording); }
             }
         }
         Label {
-            text: root.talk-recording ? "Press the key to hold while you talk. Escape stops without changing it."
-                : root.talk-key == "" ? "Push to talk is on, but no keybind is set, so your microphone sends nothing."
+            text: root.talk-recording ? @tr("Press the key to hold while you talk. Escape stops without changing it.")
+                : root.talk-key == "" ? @tr("Push to talk is on, but no keybind is set, so your microphone sends nothing.")
                 : root.talk-note;
         }
     }
     if root.input-mode == 1: VerticalLayout {
         spacing: 8px;
-        SettingsHeading { text: "PUSH TO TALK RELEASE DELAY"; }
+        SettingsHeading { text: @tr("PUSH TO TALK RELEASE DELAY"); }
         VolumeSlider {
-            label: "Push to talk release delay"; value <=> root.talk-delay; maximum: 2000; step: 10; full-mark: false;
+            label: @tr("Push to talk release delay"); value <=> root.talk-delay; maximum: 2000; step: 10; full-mark: false;
             shown: self.value >= 1000 ? (self.value / 1000).to-fixed(2) + " s" : self.value + " ms";
             committed => { root.preferences-changed(); }
         }
-        Label { text: "How long your microphone keeps sending after you let go of the key, so the end of a word isn't cut off."; }
+        Label { text: @tr("How long your microphone keeps sending after you let go of the key, so the end of a word isn't cut off."); }
     }
     if root.discord && root.input-mode == 0: VerticalLayout {
         spacing: 8px;
-        SettingsHeading { text: "INPUT SENSITIVITY IN DISCORD CALLS"; }
+        SettingsHeading { text: @tr("INPUT SENSITIVITY IN DISCORD CALLS"); }
         SensitivitySlider {
-            label: "Input sensitivity"; value <=> root.sensitivity;
+            label: @tr("Input sensitivity"); value <=> root.sensitivity;
             level: root.gate-level; sending: root.gate-sending;
             committed => { root.preferences-changed(); }
         }
         Label {
             text: root.gate-meter-note != "" ? root.gate-meter-note
-                : "Yapfast sends your voice when it's louder than the handle, and other sounds when they're 18 dB louder still. The bar is your microphone after noise suppression and at its volume, as Yapfast hears it to decide.";
+                : @tr("Yapfast sends your voice when it's louder than the handle, and other sounds when they're 18 dB louder still. The bar is your microphone after noise suppression and at its volume, as Yapfast hears it to decide.");
         }
     }
 }
@@ -884,7 +884,7 @@ component ThemeTile inherits Rectangle {
     }
     focus := FocusScope {
         accessible-role: button;
-        accessible-label: root.current ? root.card.name + ", chosen" : root.card.name;
+        accessible-label: root.current ? @tr("{}, chosen", root.card.name) : root.card.name;
         accessible-action-default => { root.choose(); }
         key-pressed(event) => {
             if event.text == " " || event.text == "\n" { root.choose(); return accept; }
@@ -897,7 +897,7 @@ component ThemeTile inherits Rectangle {
     }
     if root.card.custom: IconButton {
         x: parent.width - 8px - self.width; y: preview.y + preview.height + 6px; height: 24px;
-        icon: @image-url("icons/pencil.svg"); label: "Edit " + root.card.name; size: 24px; glyph: 14px;
+        icon: @image-url("icons/pencil.svg"); label: @tr("Edit {}", root.card.name); size: 24px; glyph: 14px;
         clicked => { root.edit(); }
     }
 }
@@ -917,7 +917,7 @@ component ThemeColourRow inherits HorizontalLayout {
     VerticalLayout {
         alignment: center; horizontal-stretch: 1;
         Text { text: root.colour.name; color: Theme.text; font-size: 14px; overflow: elide; }
-        if root.colour.wrong: Text { text: "Not a colour"; color: Theme.danger; font-size: 12px; overflow: elide; }
+        if root.colour.wrong: Text { text: @tr("Not a colour"); color: Theme.danger; font-size: 12px; overflow: elide; }
     }
     Middle {
         TextField {
@@ -963,14 +963,24 @@ export component AppearanceSettings inherits VerticalLayout {
     in-out property <bool> system-title-bar;
     in property <bool> title-bar-choice;
     callback title-bar-toggled();
+    /// The interface's languages, each in its own words, and the chosen one's place.
+    in property <[string]> languages;
+    in-out property <int> language;
     spacing: 16px;
-    SettingsTitle { text: "Appearance"; }
+    SettingsTitle { text: @tr("Appearance"); }
     if !root.editor: VerticalLayout {
         spacing: 8px;
+        SettingsHeading { text: @tr("LANGUAGE"); }
+        Picker {
+            width: 240px; model: root.languages; chosen: root.language;
+            accessible-label: @tr("Language");
+            selected => { root.language = self.current-index; root.preferences-changed(); }
+        }
+        Rectangle { height: 8px; }
         HorizontalLayout {
-            SettingsHeading { text: "THEME"; vertical-alignment: center; horizontal-stretch: 1; }
+            SettingsHeading { text: @tr("THEME"); vertical-alignment: center; horizontal-stretch: 1; }
             ActionButton {
-                text: "New theme"; small: true; icon: @image-url("icons/circle-plus.svg");
+                text: @tr("New theme"); small: true; icon: @image-url("icons/circle-plus.svg");
                 clicked => { root.new-theme(); }
             }
         }
@@ -981,7 +991,7 @@ export component AppearanceSettings inherits VerticalLayout {
             property <length> card-width: (self.width - (self.columns - 1) * self.gap) / self.columns;
             property <length> card-height: 124px;
             height: ceil(root.themes.length / self.columns) * (self.card-height + self.gap) - self.gap;
-            accessible-role: list; accessible-label: "Themes";
+            accessible-role: list; accessible-label: @tr("Themes");
             for card[index] in root.themes: ThemeTile {
                 x: mod(index, parent.columns) * (parent.card-width + parent.gap);
                 y: floor(index / parent.columns) * (parent.card-height + parent.gap);
@@ -993,47 +1003,47 @@ export component AppearanceSettings inherits VerticalLayout {
         }
     }
     if !root.editor && root.title-bar-choice: SettingsSwitch {
-        text: "Use the system title bar";
-        description: "Your desktop draws the window's title bar and buttons, as on its other windows. Off, Yapfast draws its own.";
+        text: @tr("Use the system title bar");
+        description: @tr("Your desktop draws the window's title bar and buttons, as on its other windows. Off, Yapfast draws its own.");
         checked <=> root.system-title-bar;
         toggled => { root.title-bar-toggled(); }
     }
     if !root.editor: VerticalLayout {
         spacing: 12px;
-        SettingsHeading { text: "PROFILES"; }
+        SettingsHeading { text: @tr("PROFILES"); }
         SettingsSwitch {
-            text: "Play profile effects";
-            description: "The animations some people put over their profile cards.";
+            text: @tr("Play profile effects");
+            description: @tr("The animations some people put over their profile cards.");
             checked <=> Looks.profile-effects;
             toggled => { root.preferences-changed(); }
         }
         SettingsSwitch {
-            text: "Show avatar decorations";
-            description: "The pictures around people's avatars.";
+            text: @tr("Show avatar decorations");
+            description: @tr("The pictures around people's avatars.");
             checked <=> Looks.decorations;
             toggled => { root.preferences-changed(); }
         }
         SettingsSwitch {
-            text: "Show nameplates";
-            description: "The pictures Discord members equip behind their rows in the member list and on your account card.";
+            text: @tr("Show nameplates");
+            description: @tr("The pictures Discord members equip behind their rows in the member list and on your account card.");
             checked <=> root.show-nameplates;
             toggled => { root.preferences-changed(); }
         }
         SettingsSwitch {
-            text: "Animate decorations and nameplates";
-            description: "They play when pointed at, as in Discord. Off, they hold still.";
+            text: @tr("Animate decorations and nameplates");
+            description: @tr("They play when pointed at, as in Discord. Off, they hold still.");
             checked <=> Looks.moving;
             toggled => { root.preferences-changed(); }
         }
         SettingsSwitch {
-            text: "Show name styles";
-            description: "The fonts and colours people give their display names.";
+            text: @tr("Show name styles");
+            description: @tr("The fonts and colours people give their display names.");
             checked <=> Looks.name-styles;
             toggled => { root.preferences-changed(); }
         }
         SettingsSwitch {
-            text: "Show server tags";
-            description: "The tag and its badge beside people's names.";
+            text: @tr("Show server tags");
+            description: @tr("The tag and its badge beside people's names.");
             checked <=> Looks.server-tags;
             toggled => { root.preferences-changed(); }
         }
@@ -1049,33 +1059,33 @@ export component AppearanceSettings inherits VerticalLayout {
         spacing: 16px;
         VerticalLayout {
             spacing: 8px;
-            SettingsHeading { text: root.editing-saved ? "EDIT THEME" : "NEW THEME"; }
+            SettingsHeading { text: root.editing-saved ? @tr("EDIT THEME") : @tr("NEW THEME"); }
             HorizontalLayout {
                 spacing: 8px;
                 TextField {
-                    text <=> root.theme-name; placeholder: "Name"; label: "Theme name"; min-height: 36px; text-size: 15px;
+                    text <=> root.theme-name; placeholder: @tr("Name"); label: @tr("Theme name"); min-height: 36px; text-size: 15px;
                     accepted => { root.save-theme(); }
                 }
-                ActionButton { text: "Save"; primary: true; enabled: root.can-save; clicked => { root.save-theme(); } }
-                ActionButton { text: "Cancel"; clicked => { root.cancel-theme(); } }
+                ActionButton { text: @tr("Save"); primary: true; enabled: root.can-save; clicked => { root.save-theme(); } }
+                ActionButton { text: @tr("Cancel"); clicked => { root.cancel-theme(); } }
             }
         }
         if !root.editing-saved: VerticalLayout {
             spacing: 8px;
-            SettingsHeading { text: "START FROM"; }
+            SettingsHeading { text: @tr("START FROM"); }
             ComboBox {
-                model: root.starts; current-index: root.start-index; accessible-label: "Start from";
+                model: root.starts; current-index: root.start-index; accessible-label: @tr("Start from");
                 selected => { root.start-chosen(self.current-index); }
             }
         }
         SettingsSwitch {
-            text: "Dark"; description: "Drop-down lists and scroll bars draw dark to match.";
+            text: @tr("Dark"); description: @tr("Drop-down lists and scroll bars draw dark to match.");
             checked <=> root.theme-dark; toggled(dark) => { root.dark-toggled(dark); }
         }
         VerticalLayout {
             spacing: 8px;
-            SettingsHeading { text: "COLOURS"; }
-            Label { text: "Each as #rgb, #rrggbb or #rrggbbaa. The window shows a change as you type it."; }
+            SettingsHeading { text: @tr("COLOURS"); }
+            Label { text: @tr("Each as #rgb, #rrggbb or #rrggbbaa. The window shows a change as you type it."); }
             // Two columns when they fit, read down.
             Rectangle {
                 property <int> columns: self.width >= 520px ? 2 : 1;
@@ -1084,7 +1094,7 @@ export component AppearanceSettings inherits VerticalLayout {
                 property <length> cell-width: (self.width - (self.columns - 1) * self.gap) / self.columns;
                 property <int> rows: ceil(root.colours.length / self.columns);
                 height: self.rows * self.row-height;
-                accessible-role: list; accessible-label: "Colours";
+                accessible-role: list; accessible-label: @tr("Colours");
                 for row[index] in root.colours: ThemeColourRow {
                     x: floor(index / parent.rows) * (parent.cell-width + parent.gap);
                     y: mod(index, parent.rows) * parent.row-height;
@@ -1097,7 +1107,7 @@ export component AppearanceSettings inherits VerticalLayout {
         if root.editing-saved: HorizontalLayout {
             alignment: start;
             ActionButton {
-                text: form.confirming ? "Delete it for good" : "Delete theme"; danger: true; small: true;
+                text: form.confirming ? @tr("Delete it for good") : @tr("Delete theme"); danger: true; small: true;
                 icon: @image-url("icons/trash-2.svg");
                 clicked => {
                     if form.confirming { root.delete-theme(); } else { form.confirming = true; }
@@ -1129,11 +1139,11 @@ export component MessageSettings inherits VerticalLayout {
     in property <bool> discord;
     callback preferences-changed;
     spacing: 16px;
-    SettingsTitle { text: "Messages"; }
+    SettingsTitle { text: @tr("Messages"); }
     // A message as the chosen text size and clock show it.
     Rectangle {
         border-radius: 8px; border-width: 1px; border-color: Theme.line;
-        accessible-role: groupbox; accessible-label: "Preview";
+        accessible-role: groupbox; accessible-label: @tr("Preview");
         HorizontalLayout {
             padding: 16px; spacing: 16px;
             VerticalLayout { alignment: start; Avatar { initial: "S"; tint: #c0679a; } }
@@ -1141,88 +1151,87 @@ export component MessageSettings inherits VerticalLayout {
                 spacing: 3px; horizontal-stretch: 1;
                 HorizontalLayout {
                     spacing: 8px;
-                    Text { text: "Sam"; color: Theme.text; font-size: root.message-font-size; font-weight: 700; }
-                    Text { text: (root.twelve-hour-clock ? "9:41" : "21:41") + (root.clock-seconds ? ":05" : "") + (root.twelve-hour-clock ? " PM" : ""); color: Theme.muted; font-size: root.message-font-size - 3px; vertical-alignment: center; }
+                    Text { text: @tr("Sam"); color: Theme.text; font-size: root.message-font-size; font-weight: 700; }
+                    Text { text: (root.twelve-hour-clock ? "9:41" : "21:41") + (root.clock-seconds ? ":05" : "") + (root.twelve-hour-clock ? @tr(" PM") : ""); color: Theme.muted; font-size: root.message-font-size - 3px; vertical-alignment: center; }
                     Rectangle { horizontal-stretch: 1; }
                 }
-                Text { text: "Thinking co-op after nine, if people are up for it."; color: Theme.text; font-size: root.message-font-size; wrap: word-wrap; }
+                Text { text: @tr("Thinking co-op after nine, if people are up for it."); color: Theme.text; font-size: root.message-font-size; wrap: word-wrap; }
             }
         }
     }
     VerticalLayout {
         spacing: 8px;
-        SettingsHeading { text: "TEXT SIZE"; }
+        SettingsHeading { text: @tr("TEXT SIZE"); }
         Choices {
-            label: "Text size"; options: ["Small", "Default", "Large"];
+            label: @tr("Text size"); options: [@tr("Small"), @tr("Default"), @tr("Large")];
             current <=> root.text-size;
             chosen => { root.preferences-changed(); }
         }
     }
     VerticalLayout {
         spacing: 8px;
-        SettingsHeading { text: "CLOCK"; }
+        SettingsHeading { text: @tr("CLOCK"); }
         Choices {
-            label: "Clock"; options: ["24-hour", "12-hour"];
+            label: @tr("Clock"); options: [@tr("24-hour"), @tr("12-hour")];
             current: root.twelve-hour-clock ? 1 : 0;
             chosen(index) => { root.twelve-hour-clock = index == 1; root.preferences-changed(); }
         }
         SettingsSwitch {
-            text: "Show seconds";
-            description: "Message times show them, as 21:41:05.";
+            text: @tr("Show seconds");
+            description: @tr("Message times show them, as 21:41:05.");
             checked <=> root.clock-seconds;
             toggled => { root.preferences-changed(); }
         }
-        SettingsHeading { text: "DATE FORMAT"; }
+        SettingsHeading { text: @tr("DATE FORMAT"); }
         Choices {
-            label: "DATE FORMAT"; options: ["Day/Month/Year", "Month/Day/Year", "Year-Month-Day"];
+            label: @tr("DATE FORMAT"); options: [@tr("Day/Month/Year"), @tr("Month/Day/Year"), @tr("Year-Month-Day")];
             current: root.date-format >= 0 ? root.date-format : root.twelve-hour-clock ? 1 : 0;
             chosen(index) => { root.date-format = index; root.preferences-changed(); }
         }
     }
     VerticalLayout {
         spacing: 8px;
-        SettingsHeading { text: "PLAY GIFS, EMOJI AND STICKERS"; }
+        SettingsHeading { text: @tr("PLAY GIFS, EMOJI AND STICKERS"); }
         Choices {
-            label: "Play GIFs, emoji and stickers"; options: ["While Yapfast is focused", "Always", "Never"];
+            label: @tr("Play GIFs, emoji and stickers"); options: [@tr("While Yapfast is focused"), @tr("Always"), @tr("Never")];
             current <=> root.animate;
             chosen => { root.preferences-changed(); }
         }
     }
     Rectangle { height: 1px; background: Theme.line; }
     SettingsSwitch {
-        text: "Show link previews";
-        description: "Cards for links, videos and bots under messages. Linked pictures still show.";
+        text: @tr("Show link previews");
+        description: @tr("Cards for links, videos and bots under messages. Linked pictures still show.");
         checked <=> root.link-previews;
         toggled => { root.preferences-changed(); }
     }
     SettingsSwitch {
-        text: "Collapse long messages";
-        description: "Long messages and code show their first lines, with Show more to see the rest.";
+        text: @tr("Collapse long messages");
+        description: @tr("Long messages and code show their first lines, with Show more to see the rest.");
         checked <=> root.collapse-long;
         toggled => { root.preferences-changed(); }
     }
     SettingsSwitch {
-        text: "Show boost gems";
-        description: "A gem by the name of each member boosting their Discord server, in the member list.";
+        text: @tr("Show boost gems");
+        description: @tr("A gem by the name of each member boosting their Discord server, in the member list.");
         checked <=> root.boost-gems;
         toggled => { root.preferences-changed(); }
     }
     SettingsSwitch {
-        text: "Let others see when you're typing";
-        description: (root.matrix && root.discord ? "Discord and Matrix show" : root.matrix ? "Matrix shows" : "Discord shows")
-            + " \"typing...\" while you write. Others still show here when they type.";
+        text: @tr("Let others see when you're typing");
+        description: @tr("{} \"typing...\" while you write. Others still show here when they type.", (root.matrix && root.discord ? @tr("Discord and Matrix show") : root.matrix ? @tr("Matrix shows") : @tr("Discord shows")));
         checked <=> root.share-typing;
         toggled => { root.preferences-changed(); }
     }
     SettingsSwitch {
-        text: "Mention people you reply to";
-        description: "They get notified of your reply. Switch it for one reply with @ On on the reply bar.";
+        text: @tr("Mention people you reply to");
+        description: @tr("They get notified of your reply. Switch it for one reply with @ On on the reply bar.");
         checked <=> root.reply-ping;
         toggled => { root.preferences-changed(); }
     }
     SettingsSwitch {
-        text: "Remove tracking from links you send";
-        description: "Takes out tags like utm_source and fbclid, and share ids from YouTube, Spotify and X. The links still go to the same page.";
+        text: @tr("Remove tracking from links you send");
+        description: @tr("Takes out tags like utm_source and fbclid, and share ids from YouTube, Spotify and X. The links still go to the same page.");
         checked <=> root.strip-tracking;
         toggled => { root.preferences-changed(); }
     }
@@ -1238,26 +1247,24 @@ export component NotificationSettings inherits VerticalLayout {
     in property <bool> discord;
     callback preferences-changed;
     spacing: 16px;
-    SettingsTitle { text: "Notifications"; }
+    SettingsTitle { text: @tr("Notifications"); }
     SettingsSwitch {
-        text: "Show desktop notifications";
-        description: "For new messages while Yapfast isn't in front. "
-            + (root.matrix && root.discord ? "Each Discord server's notification settings and your Matrix notification rules decide"
-                : root.matrix ? "Your Matrix notification rules decide" : "Each Discord server's notification settings decide")
-            + " which: usually DMs and mentions. Clicking one opens the conversation.";
+        text: @tr("Show desktop notifications");
+        description: @tr("For new messages while Yapfast isn't in front. {} which: usually DMs and mentions. Clicking one opens the conversation.", (root.matrix && root.discord ? @tr("Each Discord server's notification settings and your Matrix notification rules decide")
+                : root.matrix ? @tr("Your Matrix notification rules decide") : @tr("Each Discord server's notification settings decide")));
         checked <=> root.notifications;
         toggled => { root.preferences-changed(); }
     }
     SettingsSwitch {
-        text: "Show what messages say";
-        description: "Off shows only who wrote and where, for a screen others can see.";
+        text: @tr("Show what messages say");
+        description: @tr("Off shows only who wrote and where, for a screen others can see.");
         checked <=> root.notification-text;
         enabled: root.notifications;
         toggled => { root.preferences-changed(); }
     }
     SettingsSwitch {
-        text: "Flash the taskbar";
-        description: "For a message that notifies while Yapfast isn't in front. The window's title counts mentions and DMs waiting either way.";
+        text: @tr("Flash the taskbar");
+        description: @tr("For a message that notifies while Yapfast isn't in front. The window's title counts mentions and DMs waiting either way.");
         checked <=> root.flash-taskbar;
         toggled => { root.preferences-changed(); }
     }
@@ -1277,28 +1284,28 @@ export component SoundSettings inherits VerticalLayout {
     callback each-changed(int, int);
     /// Plays a sound by its index in `names`, as it's set.
     callback play(int);
-    property <[string]> names: ["Someone joins the call", "Someone leaves the call", "Muting", "Unmuting", "Deafening", "Undeafening", "A message", "A mention", "Someone starts watching a stream", "Someone stops watching a stream", "Someone starts streaming", "Someone stops streaming"];
+    property <[string]> names: [@tr("Someone joins the call"), @tr("Someone leaves the call"), @tr("Muting"), @tr("Unmuting"), @tr("Deafening"), @tr("Undeafening"), @tr("A message"), @tr("A mention"), @tr("Someone starts watching a stream"), @tr("Someone stops watching a stream"), @tr("Someone starts streaming"), @tr("Someone stops streaming")];
     spacing: 16px;
-    SettingsTitle { text: "Sounds"; }
-    Label { text: "Yapfast plays these as you and others join and leave a call, as you mute and deafen, as others start and stop streaming, as they start and stop watching your stream or the one you watch, and for messages that notify, except in the conversation in front of you. They play on the speakers chosen for calls."; }
+    SettingsTitle { text: @tr("Sounds"); }
+    Label { text: @tr("Yapfast plays these as you and others join and leave a call, as you mute and deafen, as others start and stop streaming, as they start and stop watching your stream or the one you watch, and for messages that notify, except in the conversation in front of you. They play on the speakers chosen for calls."); }
     VerticalLayout {
         spacing: 8px;
-        SettingsHeading { text: "SOUND SET"; }
+        SettingsHeading { text: @tr("SOUND SET"); }
         Choices {
-            label: "Sound set"; options: ["New Kalimba", "Felt piano", "Soft marimba", "Mellow Rhodes", "Glow", "Flute"];
+            label: @tr("Sound set"); options: [@tr("New Kalimba"), @tr("Felt piano"), @tr("Soft marimba"), @tr("Mellow Rhodes"), @tr("Glow"), @tr("Flute")];
             max-width: 520px;
             current <=> root.sound-set;
             chosen => { root.preferences-changed(); root.play(0); }
         }
     }
     VolumeSlider {
-        label: "Volume"; maximum: 200;
+        label: @tr("Volume"); maximum: 200;
         value <=> root.volume;
         committed => { root.preferences-changed(); root.play(6); }
     }
     SettingsSwitch {
-        text: "Adjust each sound";
-        description: "Set how loud each one is, as a share of the volume above. 0% turns a sound off.";
+        text: @tr("Adjust each sound");
+        description: @tr("Set how loud each one is, as a share of the volume above. 0% turns a sound off.");
         checked <=> root.adjust-each;
         toggled => { root.preferences-changed(); }
     }
@@ -1310,7 +1317,7 @@ export component SoundSettings inherits VerticalLayout {
                 label: name; maximum: 100; value: root.each[index]; horizontal-stretch: 1;
                 committed(value) => { root.each-changed(index, value); root.play(index); }
             }
-            Middle { IconButton { icon: @image-url("icons/play.svg"); label: "Play " + name; clicked => { root.play(index); } } }
+            Middle { IconButton { icon: @image-url("icons/play.svg"); label: @tr("Play {}", name); clicked => { root.play(index); } } }
         }
     }
 }
@@ -1334,65 +1341,65 @@ export component AdvancedSettings inherits VerticalLayout {
     callback preferences-changed;
     callback restart;
     spacing: 16px;
-    SettingsTitle { text: "Advanced"; }
+    SettingsTitle { text: @tr("Advanced"); }
 
     if root.autostart-available: SettingsSwitch {
-        text: "Start when you sign in";
-        description: "Yapfast starts in the system tray when you sign in to your computer, so messages and calls reach you.";
+        text: @tr("Start when you sign in");
+        description: @tr("Yapfast starts in the system tray when you sign in to your computer, so messages and calls reach you.");
         checked <=> root.start-on-sign-in;
         toggled => { root.preferences-changed(); }
     }
     if root.discord-links-available: SettingsSwitch {
-        text: "Open Discord links in Yapfast";
-        description: "discord:// links from other apps and shortcuts open here instead of Discord. Turning it off gives them back to the app that had them.";
+        text: @tr("Open Discord links in Yapfast");
+        description: @tr("discord:// links from other apps and shortcuts open here instead of Discord. Turning it off gives them back to the app that had them.");
         checked <=> root.discord-links;
         toggled => { root.preferences-changed(); }
     }
     SettingsSwitch {
-        text: "Close to tray";
+        text: @tr("Close to tray");
         description: root.tray-available
-            ? "Closing the window keeps Yapfast running in the system tray, with any call. Quit from the tray icon's menu."
-            : "No system tray is running, so closing the window quits Yapfast.";
+            ? @tr("Closing the window keeps Yapfast running in the system tray, with any call. Quit from the tray icon's menu.")
+            : @tr("No system tray is running, so closing the window quits Yapfast.");
         checked <=> root.close-to-tray;
         toggled => { root.preferences-changed(); }
     }
     SettingsSwitch {
-        text: "Allow multiple windows";
-        description: "Starting Yapfast while it runs opens another Yapfast, with its own window and tray icon. Off, it brings the open window forward.";
+        text: @tr("Allow multiple windows");
+        description: @tr("Starting Yapfast while it runs opens another Yapfast, with its own window and tray icon. Off, it brings the open window forward.");
         checked <=> root.multiple-windows;
         toggled => { root.preferences-changed(); }
     }
     SettingsSwitch {
-        text: "Render with the GPU";
-        description: "Hardware acceleration. Off, Yapfast draws on the processor, which uses about half the memory.";
+        text: @tr("Render with the GPU");
+        description: @tr("Hardware acceleration. Off, Yapfast draws on the processor, which uses about half the memory.");
         checked <=> root.gpu-rendering;
         toggled => { root.preferences-changed(); }
     }
     if root.gpu-rendering != root.gpu-running: HorizontalLayout {
         spacing: 12px;
         Label {
-            text: "Yapfast switches to " + (root.gpu-rendering ? "the GPU" : "the processor") + " when it restarts. Restarting leaves any call.";
+            text: @tr("Yapfast switches to {} when it restarts. Restarting leaves any call.", (root.gpu-rendering ? @tr("the GPU") : @tr("the processor")));
             vertical-alignment: center; horizontal-stretch: 1;
         }
         ActionButton {
-            text: "Restart Yapfast"; icon: @image-url("icons/refresh-cw.svg");
+            text: @tr("Restart Yapfast"); icon: @image-url("icons/refresh-cw.svg");
             clicked => { root.restart(); }
         }
     }
     SettingsSwitch {
-        text: "Encode streams with the GPU";
-        description: "Screen sharing uses the graphics card's video encoder, which takes almost no processor time and looks better at low bitrates. Off, or without one, Yapfast encodes on the processor.";
+        text: @tr("Encode streams with the GPU");
+        description: @tr("Screen sharing uses the graphics card's video encoder, which takes almost no processor time and looks better at low bitrates. Off, or without one, Yapfast encodes on the processor.");
         checked <=> root.gpu-encoding;
         toggled => { root.preferences-changed(); }
     }
     SettingsSwitch {
-        text: "Developer Mode";
-        description: "Menus offer Copy ID for servers, channels and people, which helps when you write apps that use the Discord API.";
+        text: @tr("Developer Mode");
+        description: @tr("Menus offer Copy ID for servers, channels and people, which helps when you write apps that use the Discord API.");
         checked <=> root.developer-mode;
         toggled => { root.preferences-changed(); }
     }
     Label {
-        text: "Icons from Solar by 480 Design (CC BY 4.0), many of them adapted, and from Lucide (ISC).";
+        text: @tr("Icons from Solar by 480 Design (CC BY 4.0), many of them adapted, and from Lucide (ISC).");
         font-size: 12px; color: Theme.faint;
     }
 }
@@ -1543,8 +1550,8 @@ export component DiscordLinkSettings inherits VerticalLayout {
     callback link-discord-token(string);
     callback open-discord-captcha;
     spacing: 16px;
-    SettingsTitle { text: "Discord"; }
-    Label { text: "Link your Discord account to see its servers and DMs in Yapfast, and join its calls. The login stays on this computer, in the system's credential store."; }
+    SettingsTitle { text: @tr("Discord"); }
+    Label { text: @tr("Link your Discord account to see its servers and DMs in Yapfast, and join its calls. The login stays on this computer, in the system's credential store."); }
     DiscordLinkPanel {
         phase: root.link-phase; code: root.link-code; name: root.link-name; note: root.link-note;
         begin => { root.link-discord(); }
@@ -1570,40 +1577,40 @@ export component GameActivitySettings inherits VerticalLayout {
     private property <bool> invalid-game;
     private property <int> editing-game: -1;
     spacing: 16px;
-    SettingsTitle { text: "Game activity"; }
+    SettingsTitle { text: @tr("Game activity"); }
     SettingsSwitch {
-        text: "Share the game you play";
-        description: "Yapfast looks for games among the programs running, and on Linux takes the Rich Presence games send. Your Discord account keeps this setting, so it's the same in Discord's apps.";
+        text: @tr("Share the game you play");
+        description: @tr("Yapfast looks for games among the programs running, and on Linux takes the Rich Presence games send. Your Discord account keeps this setting, so it's the same in Discord's apps.");
         checked: root.shown;
         controlled: true;
         enabled: root.linked;
-        locked-tip: "Link a Discord account first.";
+        locked-tip: @tr("Link a Discord account first.");
         toggled(shown) => { root.toggled(shown); }
     }
-    SettingsHeading { text: "CUSTOM GAMES"; }
-    Label { text: "Name a game by its executable, a file name or a full path, and what to show after Playing. These come before the games Yapfast knows, but a game's Rich Presence comes first."; }
+    SettingsHeading { text: @tr("CUSTOM GAMES"); }
+    Label { text: @tr("Name a game by its executable, a file name or a full path, and what to show after Playing. These come before the games Yapfast knows, but a game's Rich Presence comes first."); }
     for game[index] in root.executables: VerticalLayout {
         spacing: 4px;
         HorizontalLayout {
             spacing: 8px;
             Text { text: game.text; color: Theme.text; font-size: 15px; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; }
-            ActionButton { text: "Edit"; small: true; clicked => { root.editing-game = index; root.executable-draft = game.executable; root.text-draft = game.text; root.invalid-game = false; } }
-            ActionButton { text: "Remove"; small: true; clicked => { root.editing-game = -1; root.executable-draft = ""; root.text-draft = ""; root.remove(index); } }
+            ActionButton { text: @tr("Edit"); small: true; clicked => { root.editing-game = index; root.executable-draft = game.executable; root.text-draft = game.text; root.invalid-game = false; } }
+            ActionButton { text: @tr("Remove"); small: true; clicked => { root.editing-game = -1; root.executable-draft = ""; root.text-draft = ""; root.remove(index); } }
         }
         Text { text: game.executable; color: Theme.muted; font-size: 12px; wrap: word-wrap; }
     }
-    TextField { text <=> root.executable-draft; label: "Game executable"; placeholder: "Executable name or full path"; }
-    TextField { text <=> root.text-draft; label: "Game activity text"; placeholder: "Text after Playing (up to 128 characters)"; }
-    if root.invalid-game: Label { text: "Enter an executable and a name of up to 128 characters, without line breaks."; }
+    TextField { text <=> root.executable-draft; label: @tr("Game executable"); placeholder: @tr("Executable name or full path"); }
+    TextField { text <=> root.text-draft; label: @tr("Game activity text"); placeholder: @tr("Text after Playing (up to 128 characters)"); }
+    if root.invalid-game: Label { text: @tr("Enter an executable and a name of up to 128 characters, without line breaks."); }
     HorizontalLayout {
         ActionButton {
-            text: root.editing-game < 0 ? "Add game" : "Save game"; enabled: root.executable-draft != "" && root.text-draft != "";
+            text: root.editing-game < 0 ? @tr("Add game") : @tr("Save game"); enabled: root.executable-draft != "" && root.text-draft != "";
             clicked => {
                 root.invalid-game = !root.save(root.editing-game, root.executable-draft, root.text-draft);
                 if !root.invalid-game { root.editing-game = -1; root.executable-draft = ""; root.text-draft = ""; }
             }
         }
-        if root.editing-game >= 0: ActionButton { text: "Cancel"; clicked => { root.editing-game = -1; root.executable-draft = ""; root.text-draft = ""; root.invalid-game = false; } }
+        if root.editing-game >= 0: ActionButton { text: @tr("Cancel"); clicked => { root.editing-game = -1; root.executable-draft = ""; root.text-draft = ""; root.invalid-game = false; } }
         Rectangle { horizontal-stretch: 1; }
     }
 }
@@ -1630,36 +1637,36 @@ export component DiscordSettings inherits VerticalLayout {
     callback sync-discord-reads-toggled(bool);
     callback show-idle-toggled(bool);
     spacing: 16px;
-    SettingsTitle { text: "Discord"; }
+    SettingsTitle { text: @tr("Discord"); }
     if root.matrix-build: HorizontalLayout {
         spacing: 12px;
-        Label { text: "Unlinking signs Yapfast out of Discord on this computer."; vertical-alignment: center; horizontal-stretch: 1; }
+        Label { text: @tr("Unlinking signs Yapfast out of Discord on this computer."); vertical-alignment: center; horizontal-stretch: 1; }
         ActionButton {
-            text: "Unlink Discord"; icon: @image-url("icons/log-out.svg"); danger: true;
+            text: @tr("Unlink Discord"); icon: @image-url("icons/log-out.svg"); danger: true;
             clicked => { root.unlink-discord(); }
         }
     }
     SettingsSwitch {
-        text: "Show channels you can't access";
-        description: "They appear locked. Server admins hid them on purpose.";
+        text: @tr("Show channels you can't access");
+        description: @tr("They appear locked. Server admins hid them on purpose.");
         checked: root.show-hidden-channels;
         toggled(shown) => { root.show-hidden-channels-toggled(shown); }
     }
     SettingsSwitch {
-        text: "Mark messages read on Discord";
-        description: "Channels you read in Yapfast show as read in the Discord apps too.";
+        text: @tr("Mark messages read on Discord");
+        description: @tr("Channels you read in Yapfast show as read in the Discord apps too.");
         checked: root.sync-discord-reads;
         toggled(sync) => { root.sync-discord-reads-toggled(sync); }
     }
     SettingsSwitch {
-        text: "Show me as idle when I'm away";
-        description: "After 10 minutes without using Yapfast, as in Discord. Either way, your phone gets notifications while you're away.";
+        text: @tr("Show me as idle when I'm away");
+        description: @tr("After 10 minutes without using Yapfast, as in Discord. Either way, your phone gets notifications while you're away.");
         checked: root.show-idle;
         toggled(shown) => { root.show-idle-toggled(shown); }
     }
     SettingsSwitch {
-        text: "Hide messages from people you blocked";
-        description: "Leaves them out entirely, rather than showing a line you can open.";
+        text: @tr("Hide messages from people you blocked");
+        description: @tr("Leaves them out entirely, rather than showing a line you can open.");
         checked: root.hide-blocked;
         toggled(hide) => { root.hide-blocked-toggled(hide); }
     }
@@ -1676,8 +1683,8 @@ export component DiscordSettings inherits VerticalLayout {
             }
             VerticalLayout {
                 alignment: center; spacing: 2px;
-                Text { text: "Blocked accounts"; color: Theme.text; font-size: 16px; font-weight: 600; }
-                Text { text: root.blocked.length + (root.blocked.length == 1 ? " account" : " accounts"); color: Theme.secondary; font-size: 14px; }
+                Text { text: @tr("Blocked accounts"); color: Theme.text; font-size: 16px; font-weight: 600; }
+                Text { text: root.blocked.length + (root.blocked.length == 1 ? @tr(" account") : @tr(" accounts")); color: Theme.secondary; font-size: 14px; }
             }
         }
         VerticalLayout {
@@ -1695,7 +1702,7 @@ export component DiscordSettings inherits VerticalLayout {
                     }
                     Middle {
                         ActionButton {
-                            text: "Unblock"; small: true; label: "Unblock " + person.name;
+                            text: @tr("Unblock"); small: true; label: @tr("Unblock {}", person.name);
                             clicked => { root.unblock(person.id); }
                         }
                     }
@@ -1705,7 +1712,7 @@ export component DiscordSettings inherits VerticalLayout {
         if root.blocked.length > root.blocked-shown: HorizontalLayout {
             alignment: start;
             ActionButton {
-                text: "See " + (root.blocked.length - root.blocked-shown) + " more"; ghost: true; small: true;
+                text: @tr("See {} more", (root.blocked.length - root.blocked-shown)); ghost: true; small: true;
                 clicked => { root.blocked-shown += 5; }
             }
         }

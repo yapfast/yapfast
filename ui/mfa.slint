@@ -59,7 +59,7 @@ export component MfaDialog inherits Rectangle {
         background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
         drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
         accessible-role: groupbox;
-        accessible-label: "Multi-Factor Authentication";
+        accessible-label: @tr("Multi-Factor Authentication");
         TouchArea { }
         keys := FocusScope {
             init => { if root.prompt.listing || root.prompt.warning || root.prompt.field == "" { self.focus(); } }
@@ -70,29 +70,29 @@ export component MfaDialog inherits Rectangle {
             content := VerticalLayout {
                 padding: 20px; spacing: 12px;
                 HorizontalLayout {
-                    Text { text: "Multi-Factor Authentication"; color: Theme.text; font-size: 18px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
-                    IconButton { icon: @image-url("icons/x.svg"); label: "Cancel"; size: 28px; glyph: 18px; clicked => { root.cancel(); } }
+                    Text { text: @tr("Multi-Factor Authentication"); color: Theme.text; font-size: 18px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                    IconButton { icon: @image-url("icons/x.svg"); label: @tr("Cancel"); size: 28px; glyph: 18px; clicked => { root.cancel(); } }
                 }
                 if root.prompt.listing: VerticalLayout {
                     spacing: 2px;
-                    Label { text: "Choose how to confirm it's you."; }
+                    Label { text: @tr("Choose how to confirm it's you."); }
                     for choice in root.prompt.choices: MenuItem {
                         text: choice.text;
                         clicked => { root.choose(choice.id); }
                     }
                 }
                 // Discord's warning before a backup code.
-                if root.prompt.warning: Text { text: "Slow down! Are you sure?"; color: Theme.text; font-size: 16px; font-weight: 600; wrap: word-wrap; }
-                if root.prompt.warning: Label { text: "Backup codes can only be used one time each and are for emergency access to your account!"; }
-                if root.prompt.warning && root.prompt.choices.length > 1: Label { text: "If you have access to any of your other methods, select ‘Verify with something else’ to go back."; }
+                if root.prompt.warning: Text { text: @tr("Slow down! Are you sure?"); color: Theme.text; font-size: 16px; font-weight: 600; wrap: word-wrap; }
+                if root.prompt.warning: Label { text: @tr("Backup codes can only be used one time each and are for emergency access to your account!"); }
+                if root.prompt.warning && root.prompt.choices.length > 1: Label { text: @tr("If you have access to any of your other methods, select ‘Verify with something else’ to go back."); }
                 if root.prompt.warning: Label {
                     text: root.wait > 0
-                        ? "If you do not have access to any other methods, the button below will activate in \{root.wait} seconds."
-                        : "If you do not have access to any other methods, use the other button below to proceed.";
+                        ? @tr("If you do not have access to any other methods, the button below will activate in {} seconds.", root.wait)
+                        : @tr("If you do not have access to any other methods, use the other button below to proceed.");
                 }
                 // Its button on a row of its own, as Discord's fills the width.
                 if root.prompt.warning: ActionButton {
-                    text: "I’m sure, use a backup code"; primary: true; enabled: root.wait == 0;
+                    text: @tr("I’m sure, use a backup code"); primary: true; enabled: root.wait == 0;
                     clicked => { root.confirm(); }
                 }
                 if !root.prompt.listing && !root.prompt.warning: Label { text: root.prompt.text; }
@@ -111,17 +111,17 @@ export component MfaDialog inherits Rectangle {
                 HorizontalLayout {
                     spacing: 8px;
                     if !root.prompt.listing && root.prompt.choices.length > 1: ActionButton {
-                        text: "Verify with something else"; ghost: true; small: true; enabled: !root.prompt.busy;
+                        text: @tr("Verify with something else"); ghost: true; small: true; enabled: !root.prompt.busy;
                         clicked => { root.choose(-1); }
                     }
                     if !root.prompt.listing && root.prompt.resend: ActionButton {
-                        text: "Resend Code"; ghost: true; small: true; enabled: !root.prompt.busy;
+                        text: @tr("Resend Code"); ghost: true; small: true; enabled: !root.prompt.busy;
                         clicked => { root.resend(); }
                     }
                     Rectangle { horizontal-stretch: 1; }
-                    ActionButton { text: "Cancel"; ghost: true; clicked => { root.cancel(); } }
+                    ActionButton { text: @tr("Cancel"); ghost: true; clicked => { root.cancel(); } }
                     if !root.prompt.listing && !root.prompt.warning && root.prompt.field != "": ActionButton {
-                        text: root.prompt.busy ? "Confirming..." : "Confirm"; primary: true;
+                        text: root.prompt.busy ? @tr("Confirming...") : @tr("Confirm"); primary: true;
                         enabled: root.prompt.ready;
                         clicked => { root.confirm(); }
                     }

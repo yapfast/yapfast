@@ -54,12 +54,12 @@ export component BotSelectDropdown inherits Rectangle {
                 if root.searchable: HorizontalLayout {
                     padding: 4px;
                     TextField {
-                        text <=> root.query; placeholder: "Search"; label: "Search options";
+                        text <=> root.query; placeholder: @tr("Search"); label: @tr("Search options");
                         edited(value) => { root.search(value); }
                     }
                 }
                 if root.choices.length == 0: Text {
-                    text: "No matching options."; color: Theme.secondary; font-size: 14px;
+                    text: @tr("No matching options."); color: Theme.secondary; font-size: 14px;
                     horizontal-alignment: center; height: 40px; vertical-alignment: center;
                 }
                 ScrollView {
@@ -171,7 +171,7 @@ export component BotModalDialog inherits Rectangle {
                 padding: 20px; spacing: 20px;
                 HorizontalLayout {
                     Text { text: root.heading; color: Theme.text; font-size: 18px; font-weight: 700; horizontal-stretch: 1; wrap: word-wrap; vertical-alignment: center; }
-                    IconButton { icon: @image-url("icons/x.svg"); enabled: !root.saving; label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
+                    IconButton { icon: @image-url("icons/x.svg"); enabled: !root.saving; label: @tr("Close"); size: 28px; glyph: 18px; clicked => { root.close(); } }
                 }
                 ScrollView {
                     min-height: 0px; preferred-height: fields-layout.preferred-height;
@@ -270,7 +270,7 @@ export component BotModalDialog inherits Rectangle {
                             }
                         }
                         if !root.supported: Text {
-                            text: "This form has a part Yapfast can't fill yet. Use it in Discord.";
+                            text: @tr("This form has a part Yapfast can't fill yet. Use it in Discord.");
                             color: Theme.danger; wrap: word-wrap; font-size: 14px;
                         }
                     }
@@ -279,8 +279,8 @@ export component BotModalDialog inherits Rectangle {
                 HorizontalLayout {
                     spacing: 8px;
                     Rectangle { horizontal-stretch: 1; }
-                    ActionButton { text: "Cancel"; enabled: !root.saving; ghost: true; clicked => { root.close(); } }
-                    ActionButton { text: root.saving ? "Submitting…" : "Submit"; primary: true; enabled: root.supported && !root.saving; clicked => { root.submit(); } }
+                    ActionButton { text: @tr("Cancel"); enabled: !root.saving; ghost: true; clicked => { root.close(); } }
+                    ActionButton { text: root.saving ? @tr("Submitting…") : @tr("Submit"); primary: true; enabled: root.supported && !root.saving; clicked => { root.submit(); } }
                 }
             }
         }

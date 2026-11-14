@@ -33,13 +33,13 @@ export component SettingsNavigation inherits Rectangle {
                 alignment: center; spacing: 4px;
                 Text { text: root.account-name; color: Theme.text; font-size: 15px; font-weight: 700; overflow: elide; }
                 if root.may-edit-profile: Rectangle {
-                    height: 20px; accessible-role: button; accessible-label: "Edit Profile";
+                    height: 20px; accessible-role: button; accessible-label: @tr("Edit Profile");
                     accessible-action-default => { root.edit-profile(); }
                     forward-focus: edit-focus;
                     border-width: edit-focus.has-focus ? 2px : 0px; border-color: Theme.accent;
                     HorizontalLayout {
                         alignment: start; spacing: 4px;
-                        Text { text: "Edit Profile"; color: edit-touch.has-hover ? Theme.text : Theme.muted; font-size: 13px; vertical-alignment: center; }
+                        Text { text: @tr("Edit Profile"); color: edit-touch.has-hover ? Theme.text : Theme.muted; font-size: 13px; vertical-alignment: center; }
                         Image { source: @image-url("../icons/pencil.svg"); width: 12px; image-fit: contain; colorize: Theme.muted; }
                     }
                     edit-focus := FocusScope {
@@ -54,30 +54,30 @@ export component SettingsNavigation inherits Rectangle {
         }
         HorizontalLayout {
             padding-left: 16px; padding-right: 16px; height: 40px;
-            TextField { text <=> root.query; placeholder: "Search settings"; label: "Search settings"; text-size: 14px; fill: Theme.sidebar; }
+            TextField { text <=> root.query; placeholder: @tr("Search settings"); label: @tr("Search settings"); text-size: 14px; fill: Theme.sidebar; }
         }
         ScrollView {
             content-height: entries.preferred-height;
             entries := VerticalLayout {
                 padding-left: 16px; padding-right: 16px; padding-bottom: 16px; spacing: 0px; alignment: start;
                 for entry in [
-                    { heading: true, text: "Account", id: -1 },
-                    { text: "My Account", icon: @image-url("../icons/user.svg"), id: 0 },
-                    { heading: true, text: "Experience", id: -1 },
-                    { text: "Voice & Video", icon: @image-url("../icons/mic.svg"), id: 1 },
-                    { text: "Messages", icon: @image-url("../icons/message-circle.svg"), id: 2 },
-                    { text: "Notifications", icon: @image-url("../icons/bell.svg"), id: 3 },
-                    { text: "Sounds", icon: @image-url("../icons/volume-2.svg"), id: 5 },
-                    { text: "Appearance", icon: @image-url("../icons/palette.svg"), id: 7 },
-                    { heading: true, text: "App Settings", id: -1 },
-                    { text: "Discord", icon: @image-url("../icons/discord.svg"), id: 4 },
-                    { text: "Game Activity", icon: @image-url("../icons/play.svg"), id: 8 },
-                    { text: "Advanced", icon: @image-url("../icons/settings.svg"), id: 6 },
-                    { text: "About", icon: @image-url("../icons/help-circle.svg"), id: 9 },
+                    { heading: true, text: @tr("Account"), id: -1 },
+                    { text: @tr("My Account"), icon: @image-url("../icons/user.svg"), id: 0 },
+                    { heading: true, text: @tr("Experience"), id: -1 },
+                    { text: @tr("Voice & Video"), icon: @image-url("../icons/mic.svg"), id: 1 },
+                    { text: @tr("Messages"), icon: @image-url("../icons/message-circle.svg"), id: 2 },
+                    { text: @tr("Notifications"), icon: @image-url("../icons/bell.svg"), id: 3 },
+                    { text: @tr("Sounds"), icon: @image-url("../icons/volume-2.svg"), id: 5 },
+                    { text: @tr("Appearance"), icon: @image-url("../icons/palette.svg"), id: 7 },
+                    { heading: true, text: @tr("App Settings"), id: -1 },
+                    { text: @tr("Discord"), icon: @image-url("../icons/discord.svg"), id: 4 },
+                    { text: @tr("Game Activity"), icon: @image-url("../icons/play.svg"), id: 8 },
+                    { text: @tr("Advanced"), icon: @image-url("../icons/settings.svg"), id: 6 },
+                    { text: @tr("About"), icon: @image-url("../icons/help-circle.svg"), id: 9 },
                 ]: VerticalLayout {
                     if entry.heading && root.query == "": VerticalLayout {
-                        padding-top: entry.text == "Account" ? 0px : 16px;
-                        height: entry.text == "Account" ? 24px : 40px;
+                        padding-top: entry.text == @tr("Account") ? 0px : 16px;
+                        height: entry.text == @tr("Account") ? 24px : 40px;
                         Text { x: 8px; text: entry.text; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
                     }
                     if !entry.heading && root.matches(entry.text) && (root.with-discord || (entry.id != 4 && entry.id != 8)): ChannelRow {

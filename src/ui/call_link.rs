@@ -82,13 +82,13 @@ fn encoder(engine: &str) -> String {
         .next()
         .filter(|driver| !driver.is_empty());
     match name.rsplit_once('_') {
-        Some((_, "nvenc")) => "NVENC on the GPU".to_owned(),
-        Some((_, "amf")) => "AMF on the GPU".to_owned(),
+        Some((_, "nvenc")) => tr("NVENC on the GPU").to_owned(),
+        Some((_, "amf")) => tr("AMF on the GPU").to_owned(),
         Some((_, "vaapi")) => match driver {
-            Some(driver) => format!("VA-API on the GPU ({driver})"),
-            None => "VA-API on the GPU".to_owned(),
+            Some(driver) => fill(tr("VA-API on the GPU ({})"), &[&driver]),
+            None => tr("VA-API on the GPU").to_owned(),
         },
-        _ => format!("{name} on the CPU"),
+        _ => fill(tr("{} on the CPU"), &[&name]),
     }
 }
 
