@@ -48,6 +48,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
+          cache-on-failure: true
 
       - name: Build Yapfast.app, .zip, and .dmg
         run: bash scripts/build-macos ${{ matrix.arch }}
