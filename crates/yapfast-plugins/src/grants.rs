@@ -375,7 +375,7 @@ impl Grants {
         });
         let text = serde_json::to_vec_pretty(&state.stored)
             .context("could not write the plugins' grants as JSON")?;
-        write_atomically(&self.path, &text)
+        crate::json_file::write_atomically(&self.path, &text)
     }
 
     /// Applies one answer to both views of a plugin's hosts, then saves when
@@ -431,29 +431,6 @@ fn quarantine(path: &Path, why: &str) {
     if let Err(error) = std::fs::rename(path, &aside) {
         tracing::warn!(why = %error, "could not move the unreadable grants file aside");
     }
-}
-
-/// Writes `bytes` to `path` so that a crash leaves either file whole.
-///
-/// The temporary file is in the same directory, so the rename is one `rename`
-/// within one filesystem, and a reader never sees a half-written file.
-fn write_atomically(path: &Path, bytes: &[u8]) -> Result<()> {
-    let directory = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    std::fs::create_dir_all(directory)
-        .with_context(|| format!("could not make {}", directory.display()))?;
-    let mut file = tempfile::NamedTempFile::new_in(directory)
-        .with_context(|| format!("could not write beside {}", path.display()))?;
-    std::io::Write::write_all(&mut file, bytes)
-        .with_context(|| format!("could not write {}", path.display()))?;
-    file.as_file()
-        .sync_all()
-        .with_context(|| format!("could not flush {}", path.display()))?;
-    file.persist(path)
-        .map(|_| ())
-        .with_context(|| format!("could not replace {}", path.display()))
 }
 
 #[cfg(test)]
