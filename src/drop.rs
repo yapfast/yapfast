@@ -21,8 +21,10 @@ pub enum Drag {
 /// it: on X11 and Windows. One is made for each drag and asked while the
 /// files hover.
 pub struct Pointer {
+    #[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
     source: Source,
     /// The window's scale, from its physical pixels to its logical ones.
+    #[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
     scale: f64,
 }
 
@@ -47,10 +49,18 @@ impl Pointer {
             RawWindowHandle::Win32(handle) => Source::Win32(handle.hwnd.get()),
             _ => return None,
         };
-        Some(Self {
-            source,
-            scale: window.scale_factor(),
-        })
+        #[cfg(any(target_os = "linux", windows))]
+        {
+            Some(Self {
+                source,
+                scale: window.scale_factor(),
+            })
+        }
+        #[cfg(not(any(target_os = "linux", windows)))]
+        {
+            let _ = source;
+            None
+        }
     }
 
     #[cfg(target_os = "linux")]
@@ -66,7 +76,7 @@ impl Pointer {
 
     /// Where it is now, unless the platform won't say.
     pub fn at(&self) -> Option<Drag> {
-        let (x, y) = match &self.source {
+        let (x, y): (f64, f64) = match &self.source {
             #[cfg(target_os = "linux")]
             Source::X11(connection, window) => {
                 use x11rb::protocol::xproto::ConnectionExt;

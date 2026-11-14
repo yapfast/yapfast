@@ -482,7 +482,7 @@ mod macos {
             let title = CString::new(alert.title).unwrap_or_default();
             let subtitle = CString::new("").unwrap();
             let body = CString::new(body).unwrap_or_default();
-            let conv = CString::new(alert.conversation).unwrap_or_default();
+            let conv = CString::new(alert.room).unwrap_or_default();
             unsafe {
                 yapfast_macos_notify_show(
                     title.as_ptr(),

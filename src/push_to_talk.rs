@@ -1257,7 +1257,7 @@ mod macos {
                         held: false,
                         handle: shared_handle.clone(),
                     };
-                    report(Reach::Global);
+                    report(Reach::Everywhere(None));
                     let status = unsafe {
                         yapfast_macos_ptt_run(
                             on_key,
