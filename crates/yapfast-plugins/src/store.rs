@@ -838,9 +838,23 @@ fn write_file(path: &Path, bytes: &[u8]) -> Result<()> {
 
 /// Flushes a directory's names, so the files it lists survive a power cut.
 fn sync_dir(path: &Path) -> Result<()> {
-    fs::File::open(path)
-        .and_then(|directory| directory.sync_all())
-        .with_context(|| format!("could not flush {}", path.display()))
+    #[cfg(windows)]
+    let flushed = {
+        use std::os::windows::fs::OpenOptionsExt;
+        // Windows opens a directory only when `FILE_FLAG_BACKUP_SEMANTICS` says
+        // it is deliberate, and flushing it wants a writable handle: a read-only
+        // one is refused, flag or not. Both together are what `sync_all` on a
+        // directory needs here.
+        const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+        fs::OpenOptions::new()
+            .write(true)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+            .open(path)
+            .and_then(|directory| directory.sync_all())
+    };
+    #[cfg(not(windows))]
+    let flushed = fs::File::open(path).and_then(|directory| directory.sync_all());
+    flushed.with_context(|| format!("could not flush {}", path.display()))
 }
 
 /// Removes a directory and what is in it, taking one that is already gone as
