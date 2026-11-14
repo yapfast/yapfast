@@ -556,6 +556,7 @@ impl Adapter {
         self.show_reactions(window);
         self.show_gifs(window);
         self.show_emoji_card(window);
+        self.show_tag_card(window);
         self.show_sticker_card(window);
         self.show_emoji_animations(window);
         self.show_stickers(window);
@@ -745,6 +746,18 @@ impl Adapter {
         let Adapter { app, pictures, .. } = self;
         let card = messages::emoji_card_for(app, target, pictures);
         window.set_emoji_card(card);
+    }
+
+    /// The open server tag's card, built again while it is open, so it shows
+    /// what Discord said of the tag's server once that arrives.
+    fn show_tag_card(&mut self, window: &YapfastWindow) {
+        let Some(tag) = self.tag_card.as_ref() else {
+            return;
+        };
+        if !window.get_tag_card_open() {
+            return;
+        }
+        window.set_tag_card(profile::tag_card(tag, &self.app.state));
     }
 
     /// Bots' controls waiting for Discord, and the select menu and form
