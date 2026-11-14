@@ -929,6 +929,10 @@ component ThemeColourRow inherits HorizontalLayout {
     }
 }
 
+/// A font file the person chose, in Appearance: its name, the faces it gave
+/// or why it gave none.
+export struct FontFile { name: string, detail: string, problem: bool }
+
 // Settings: the window's colours, from the themes Yapfast comes with and the
 // person's own. A click shows one at once. New theme opens the editor, whose
 // changes show at once too; Save keeps them, Cancel restores the theme from
@@ -963,6 +967,12 @@ export component AppearanceSettings inherits VerticalLayout {
     in-out property <bool> system-title-bar;
     in property <bool> title-bar-choice;
     callback title-bar-toggled();
+    /// The font files chosen, and a note on them: what didn't load.
+    in property <[FontFile]> font-files;
+    in property <string> font-note;
+    callback choose-font-files();
+    callback remove-font-file(int);
+    callback reset-font();
     spacing: 16px;
     SettingsTitle { text: "Appearance"; }
     if !root.editor: VerticalLayout {
@@ -990,6 +1000,27 @@ export component AppearanceSettings inherits VerticalLayout {
                 choose => { root.choose-theme(card.id); }
                 edit => { root.edit-theme(card.id); }
             }
+        }
+    }
+    if !root.editor: VerticalLayout {
+        spacing: 8px;
+        SettingsHeading { text: "FONT"; }
+        Label { text: "Draw all of Yapfast in your own font. Choose its TTF, OTF, TTC or WOFF files, every weight and italic you have; WOFF2 isn't supported. Code and emoji keep their fonts."; }
+        for file[index] in root.font-files: VerticalLayout {
+            spacing: 2px;
+            HorizontalLayout {
+                spacing: 8px;
+                Text { text: file.name; color: Theme.text; font-size: 15px; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; }
+                ActionButton { text: "Remove"; small: true; clicked => { root.remove-font-file(index); } }
+            }
+            Text { text: file.detail; color: file.problem ? Theme.danger-text : Theme.muted; font-size: 12px; wrap: word-wrap; }
+        }
+        if root.font-note != "": Label { text: root.font-note; }
+        HorizontalLayout {
+            spacing: 8px;
+            ActionButton { text: "Choose font files"; icon: @image-url("icons/circle-plus.svg"); clicked => { root.choose-font-files(); } }
+            if root.font-files.length > 0: ActionButton { text: "Reset to default"; clicked => { root.reset-font(); } }
+            Rectangle { horizontal-stretch: 1; }
         }
     }
     if !root.editor && root.title-bar-choice: SettingsSwitch {

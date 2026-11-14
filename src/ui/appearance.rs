@@ -202,3 +202,93 @@ fn close_theme_editor(window: &YapfastWindow) {
     window.set_theme_colours(ModelRc::default());
     window.set_theme_starts(ModelRc::default());
 }
+
+/// What Appearance says under the font files: that some saved file didn't
+/// load, and that Yapfast then uses its own font when none did.
+pub(super) fn font_note(loaded: &crate::custom_font::Loaded) -> String {
+    let failed = loaded
+        .entries()
+        .iter()
+        .filter(|entry| entry.outcome.is_err())
+        .count();
+    match (failed, loaded.family().is_empty()) {
+        (0, _) => String::new(),
+        (1, true) => "The font file didn't load, so Yapfast uses its own font.".into(),
+        (_, true) => "None of the font files loaded, so Yapfast uses its own font.".into(),
+        (1, false) => "One font file didn't load. The others are in use.".into(),
+        (_, false) => format!("{failed} font files didn't load. The others are in use."),
+    }
+}
+
+/// Shows the font files in Appearance, and draws the window in their family,
+/// or in the bundled font while there are none.
+pub(super) fn show_font(window: &YapfastWindow, loaded: &crate::custom_font::Loaded, note: &str) {
+    let files: Vec<FontFile> = loaded
+        .entries()
+        .iter()
+        .map(|entry| FontFile {
+            name: entry.name().into(),
+            detail: entry.detail().into(),
+            problem: entry.outcome.is_err(),
+        })
+        .collect();
+    window.set_font_files(ModelRc::new(VecModel::from(files)));
+    window.set_font_note(note.into());
+    window
+        .global::<ClientStyle>()
+        .set_custom_font(loaded.family().into());
+}
+
+impl Adapter {
+    /// Loads these font files in place of the ones loaded, and keeps them
+    /// chosen. The text of the window is measured again, because the family
+    /// it is drawn in is a new one: see [`crate::custom_font`].
+    fn set_font_files(&mut self, window: &YapfastWindow, paths: &[String]) {
+        let previous = std::mem::take(&mut self.ui_font);
+        self.ui_font = crate::custom_font::Loaded::load(previous, paths);
+        self.layout.ui_font_files = self.ui_font.paths();
+        self.layout.write(&self.root);
+        self.font_note = font_note(&self.ui_font);
+        show_font(window, &self.ui_font, &self.font_note);
+    }
+
+    /// Adds the font files chosen to the ones loaded. A file that isn't a
+    /// usable font is left out, and the note says why.
+    pub(super) fn add_fonts(&mut self, window: &YapfastWindow, chosen: &[String]) {
+        let mut paths = self.ui_font.paths();
+        paths.extend(chosen.iter().cloned());
+        self.set_font_files(window, &paths);
+        let failed = self.ui_font.drop_failed(chosen);
+        if failed.is_empty() {
+            return;
+        }
+        self.layout.ui_font_files = self.ui_font.paths();
+        self.layout.write(&self.root);
+        let named = |entry: &crate::custom_font::Entry| match &entry.outcome {
+            Err(problem) => format!("{}: {problem}", entry.name()),
+            Ok(_) => entry.name().to_owned(),
+        };
+        self.font_note = match failed.as_slice() {
+            [one] => named(one),
+            [first, rest @ ..] => {
+                format!("{} And {} more weren't loaded.", named(first), rest.len())
+            }
+            [] => String::new(),
+        };
+        show_font(window, &self.ui_font, &self.font_note);
+    }
+
+    /// Takes the font file in this row out of the ones loaded.
+    pub(super) fn remove_font(&mut self, window: &YapfastWindow, index: usize) {
+        let mut paths = self.ui_font.paths();
+        if index < paths.len() {
+            paths.remove(index);
+            self.set_font_files(window, &paths);
+        }
+    }
+
+    /// Goes back to the bundled font.
+    pub(super) fn reset_font(&mut self, window: &YapfastWindow) {
+        self.set_font_files(window, &[]);
+    }
+}
