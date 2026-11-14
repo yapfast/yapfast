@@ -33,7 +33,10 @@
 // `--members N` adds N people, online, to Server's member list, as a busy
 // server's first hundred rows are. POST /_control/churn-start takes one of
 // them offline or back online ten times a second, each a member list update,
-// and /_control/churn-stop stops it.
+// and /_control/churn-stop stops it. `--member-looks` dresses them, and the
+// crowd's posters, as a busy server's people are: name styles, decorations,
+// nameplates, server tags, mixed statuses with custom statuses and games,
+// every eighth in Mods (with a role icon), and banners on their profiles.
 // POST /_control/crowd-start makes someone new post in the last of them, or
 // in #general, 50 times a second, and /_control/crowd-stop stops them.
 // POST /_control/burst?count=N posts N messages, 150 every 10 ms, for
@@ -396,6 +399,7 @@ const { values: args } = parseArgs({
     authors: { type: "string", default: "0" },
     members: { type: "string", default: "0" },
     "name-styles": { type: "boolean", default: false },
+    "member-looks": { type: "boolean", default: false },
     nitro: { type: "boolean", default: false },
     folders: { type: "boolean", default: false },
     "cdn-delay": { type: "string", default: "0" },
@@ -1036,7 +1040,7 @@ function wireProfile(user: User, guild: string | null, origin: string) {
   const inServer = (Object.values(users).includes(user) && user.id !== ALICE) || user.id === statusBot.id;
   const isMember = Object.values(users).includes(user);
   const dave = user.id === users.dave.id;
-  const profile = user.id === ALICE ? aliceProfile : {
+  const profile = user.id === ALICE ? aliceProfile : lookProfiles.get(user.id) ?? {
     bio: bob ? "Plays bass in a **ska** band. Ask me about https://example.com/gigs" : "",
     pronouns: bob ? "he/him" : "",
     banner: bob ? "bob-banner" : dave ? "a_davebanner" : null,
@@ -3025,17 +3029,64 @@ const presences: Record<string, { status: string; activities: unknown[]; client_
   [users.dave.id]: { status: "offline", activities: [] },
 };
 
+/** With `--member-looks`, what the nth person of `--members` or the crowd
+ *  wears: every second a name style, every third a decoration, every fourth
+ *  a nameplate, every fifth a server tag. */
+function memberLook(n: number): Pick<User, "style" | "decoration" | "nameplate"> & { clan?: unknown } {
+  if (!args["member-looks"]) return {};
+  const palettes = ["bubble_gum", "sky", "violet", "teal", "forest", "sunset"];
+  const decorations = ["1500000000000000001", "1500000000000000003", "1500000000000000005"];
+  const nameplate = n % 4 === 1 ? { sku: String(1_500_000_000_000_000_100n + BigInt(n % 6)), palette: palettes[n % 6]! } : undefined;
+  if (nameplate) nameplateSkus.add(nameplate.sku);
+  return {
+    ...(n % 2 === 0 ? { style: nameStyleSample(n / 2).style } : {}),
+    ...(n % 3 === 0 ? { decoration: decorations[(n / 3) % 3] } : {}),
+    ...(nameplate ? { nameplate } : {}),
+    ...(n % 5 === 2
+      ? { clan: { identity_guild_id: GUILD, identity_enabled: true, tag: ["GG", "ZAP", "MOON", "404"][n % 4], badge: "bobtag" } }
+      : {}),
+  };
+}
+
+/** With `--member-looks`, the nth listed person's presence: online, idle,
+ *  do not disturb or on a phone in turn, with a custom status or a game. */
+function lookPresence(n: number): any {
+  if (!args["member-looks"]) return { status: "online", activities: [] };
+  const status = ["online", "idle", "dnd", "online"][n % 4]!;
+  const activities =
+    n % 3 === 1
+      ? [{ type: 4, name: "Custom Status", state: `status line ${n}`, emoji: { name: "🌙", id: null } }]
+      : n % 3 === 2
+        ? [{ type: 0, name: ["Factorio", "Celeste", "Hades", "Balatro"][n % 4] }]
+        : [];
+  return { status, activities, ...(n % 4 === 3 ? { client_status: { mobile: status } } : {}) };
+}
+
+/** With `--member-looks`, the listed people's profiles: every tenth a moving
+ *  banner, the other even ones a banner picture, the odd ones a colour. */
+const lookProfiles = new Map<string, { bio: string; pronouns: string; banner: string | null; accent_color: number | null }>();
+
 // The people of `--members`, in Server's member list alone.
 const listed: User[] = Array.from({ length: Number(args.members) }, (_, n) => ({
   id: (1_750_000_000_000_000_000n + BigInt(n)).toString(),
   username: `member${n}`,
   global_name: `Member ${n}`,
   avatar: `m${n}`,
+  ...memberLook(n),
 }));
-for (const person of listed) {
+for (const [n, person] of listed.entries()) {
   userById.set(person.id, person);
-  presences[person.id] = { status: "online", activities: [] };
+  presences[person.id] = lookPresence(n);
+  if (!args["member-looks"]) continue;
+  if (n % 8 === 0) memberRoles.set(person.id, [MODS]);
+  lookProfiles.set(person.id, {
+    bio: `Member ${n} of a busy server. Likes **bold** things and \`code\`.`,
+    pronouns: ["they/them", "she/her", "he/him"][n % 3]!,
+    banner: n % 10 === 0 ? "a_memberbanner" : n % 2 === 0 ? `mbanner${n}` : null,
+    accent_color: n % 2 === 1 ? 0x5865f2 + n * 997 : null,
+  });
 }
+if (args["member-looks"]) serverRoles.find((role) => role.id === MODS)!.icon = "modsicon";
 
 // The member list's Activity feed, as /content-inventory/users/@me answers:
 // Bob and Carol now, Dave's game earlier, this week's top ones, then what no
@@ -8917,8 +8968,9 @@ const server = Bun.serve<SocketData>({
       churn = setInterval(() => {
         const person = listed[(turn++ * 7) % listed.length]!;
         changeMembers(() => {
-          const status = presences[person.id]!.status === "offline" ? "online" : "offline";
-          presences[person.id] = { status, activities: [] };
+          presences[person.id] = presences[person.id]!.status === "offline"
+            ? lookPresence(listed.indexOf(person))
+            : { status: "offline", activities: [] };
           dispatch("PRESENCE_UPDATE", { user: { id: person.id }, client_status: {}, ...presences[person.id] });
         });
       }, 100);
@@ -9671,6 +9723,7 @@ const server = Bun.serve<SocketData>({
           username: `crowd${n}`,
           global_name: `Crowd ${n}`,
           avatar: `c${n}`,
+          ...memberLook(n),
         };
         const message = post(rooms.at(-1) ?? GENERAL, person, `Hello from ${person.global_name}`, Date.now());
         dispatch("MESSAGE_CREATE", dispatched(message, origin));
