@@ -29,6 +29,8 @@ pub enum Report {
         height: u32,
         sound: bool,
     },
+    /// The video waits for this byte of its file, which hasn't arrived.
+    Needs { at: u64 },
     /// The video played to its end, and waits there.
     Finished,
     /// A picture of the screen [`shareable`] listed by `id`, for

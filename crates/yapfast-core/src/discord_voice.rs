@@ -942,7 +942,12 @@ pub(crate) async fn call(
                             continue;
                         }
                         // Only a video's worker reports these.
-                        Some(Report::Opened { .. } | Report::Finished | Report::Screen { .. }) => {}
+                        Some(
+                            Report::Opened { .. }
+                            | Report::Needs { .. }
+                            | Report::Finished
+                            | Report::Screen { .. },
+                        ) => {}
                         Some(Report::Ended { error }) => {
                             if let Some(stopped) = share.take() {
                                 stopped.stop(discord, state);
@@ -1057,6 +1062,7 @@ pub(crate) async fn call(
                             Report::Sharing { .. }
                             | Report::Preview { .. }
                             | Report::Opened { .. }
+                            | Report::Needs { .. }
                             | Report::Finished
                             | Report::Screen { .. },
                         )) => {}

@@ -145,6 +145,13 @@ pub enum Control {
         width: u32,
         height: u32,
     },
+    /// These bytes of the video's file arrived, `from` up to `to`; `size`
+    /// is the whole file's, once known.
+    Arrived {
+        from: u64,
+        to: u64,
+        size: Option<u64>,
+    },
     /// The video's file finished downloading, with this size; none when the
     /// download failed.
     Downloaded {
