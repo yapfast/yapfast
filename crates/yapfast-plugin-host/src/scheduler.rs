@@ -412,12 +412,18 @@ fn watch<B: Backend + 'static>(shared: Arc<Shared<B>>) {
                 next = earliest(next, deadline);
             }
         }
-        for (index, slot) in state.slots.iter().enumerate() {
+        for (index, slot) in state.slots.iter_mut().enumerate() {
             if !slot.live || slot.busy || slot.has_work() || !slot.unheld() {
                 continue;
             }
             let at = slot.last_call + idle_after;
             if at <= now {
+                // Commit the idle eviction while its eligibility is known. The
+                // busy reservation keeps new work off the slot until the
+                // backend drop has returned; it then takes the fresh-activation
+                // path instead of calling into an instance being dropped.
+                slot.live = false;
+                slot.busy = true;
                 idle.push(index);
             } else {
                 next = earliest(next, at);
@@ -434,7 +440,7 @@ fn watch<B: Backend + 'static>(shared: Arc<Shared<B>>) {
                 shared.fire(*serial);
             }
             for index in idle {
-                shared.evict(index);
+                shared.evict_reserved(index);
             }
             state = lock(&shared.state);
         }
@@ -1447,13 +1453,7 @@ impl<B: Backend + 'static> Shared<B> {
                 (state.budget_bytes, victim)
             };
             match victim {
-                Some(victim) => {
-                    self.evict(victim);
-                    lock(&self.state).slots[victim].busy = false;
-                    // Work that arrived while the drop was reserved may now
-                    // take the ordinary fresh-activation path.
-                    self.work.notify_all();
-                }
+                Some(victim) => self.evict_reserved(victim),
                 None => {
                     let fault = Fault {
                         kind: FaultKind::ActivateFailed,
@@ -1536,6 +1536,18 @@ impl<B: Backend + 'static> Shared<B> {
         lock(&self.state).slots[slot].pending = false;
         self.drop_instance(slot);
         self.status(slot, PluginStatus::Enabled);
+        self.check_empty();
+    }
+
+    /// Finishes an eviction whose dead-and-busy reservation was made under the
+    /// state lock. The backend call stays outside that lock; only after it has
+    /// returned may queued work claim the slot and activate a fresh instance.
+    fn evict_reserved(&self, slot: usize) {
+        self.evict(slot);
+        lock(&self.state).slots[slot].busy = false;
+        self.work.notify_all();
+        // `evict` saw the reservation as busy. Check again after releasing it
+        // so a watchdog eviction with no queued work can still finish the helper.
         self.check_empty();
     }
 

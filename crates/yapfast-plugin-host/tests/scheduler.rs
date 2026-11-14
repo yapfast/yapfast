@@ -1192,6 +1192,73 @@ fn admission_holds_a_victim_until_its_drop_finishes() {
     harness.finish();
 }
 
+/// The watchdog commits an idle eviction and holds its slot before dropping the
+/// backend instance. Work queued during that backend call waits, then activates
+/// a fresh instance instead of calling into the one being dropped.
+#[test]
+fn idle_eviction_holds_its_victim_until_the_drop_finishes() {
+    let harness = Harness::new(Config {
+        workers: 1,
+        idle_after: Duration::from_millis(40),
+        budget_bytes: yapfast_plugin_api::limits::MAX_HELPER_BYTES,
+    });
+    let victim = plugin("victim");
+    let marker = plugin("marker");
+    harness.load(&victim, 256);
+    harness.load(&marker, 256);
+    harness.hold_drop(&victim);
+    harness.live(&victim, 1);
+    harness.live(&marker, 2);
+    // The timer keeps the marker out of the idle set while leaving its worker
+    // free to answer the marker command below.
+    harness.report(&marker, Wait::Timer(true));
+    harness.wait_log("evict:com.example.victim");
+
+    harness.send(Message::Command {
+        id: 3,
+        plugin: victim.clone(),
+        command: command("after-drop"),
+    });
+    harness.send(Message::Command {
+        id: 4,
+        plugin: marker,
+        command: command("free-worker"),
+    });
+    // Reaching the later marker proves the worker had the chance to claim the
+    // earlier victim job. A correct busy reservation makes it skip that job.
+    harness.wait_for_reply(4);
+    let before_release = harness.log();
+    let early_work = before_release.contains(&"command:com.example.victim:after-drop".to_string());
+    harness.release_drop();
+    assert!(
+        !early_work,
+        "work entered the victim while its idle drop was still held: {before_release:?}"
+    );
+
+    harness.wait_for_reply(3);
+    let log = harness.log();
+    let evicted = log
+        .iter()
+        .position(|call| call == "evict:com.example.victim")
+        .expect("the idle instance was dropped");
+    let activations: Vec<usize> = log
+        .iter()
+        .enumerate()
+        .filter(|(_, call)| call.as_str() == "activate:com.example.victim")
+        .map(|(index, _)| index)
+        .collect();
+    assert_eq!(
+        activations.len(),
+        2,
+        "the queued work reactivates once: {log:?}"
+    );
+    assert!(
+        evicted < activations[1],
+        "the fresh activation follows the completed idle drop: {log:?}"
+    );
+    harness.finish();
+}
+
 /// The activation after a lower budget is refused with the budget the person
 /// set, and such a refusal is the helper's limit rather than the plugin's
 /// doing: it costs no strike, or three of them would suspend the plugin.
