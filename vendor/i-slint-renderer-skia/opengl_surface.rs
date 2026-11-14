@@ -509,7 +509,7 @@ impl OpenGLSurface {
             skia_safe::gpu::SurfaceOrigin::BottomLeft,
             skia_safe::ColorType::RGBA8888,
             crate::attachment_color_space(crate::TextureEncoding::Unorm),
-            None,
+            Some(&crate::text_surface_props()),
         ) {
             Some(surface) => Ok(surface),
             None => {

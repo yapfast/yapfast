@@ -2238,6 +2238,12 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.date_format = Some(window.get_date_format()).filter(|&index| index >= 0);
         layout.apply_date_format();
         layout.text_size = Some(window.get_text_size());
+        let smoothing = window.get_font_smoothing();
+        if layout.font_smoothing.unwrap_or(2) != smoothing {
+            layout.font_smoothing = Some(smoothing);
+            apply_font_smoothing(smoothing);
+            window.window().request_redraw();
+        }
         layout.link_previews = Some(window.get_link_previews());
         layout.boost_gems = Some(window.get_boost_gems());
         layout.reply_ping = Some(window.get_reply_ping_default());

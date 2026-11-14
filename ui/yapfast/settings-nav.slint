@@ -78,7 +78,8 @@ export component SettingsNavigation inherits Rectangle {
                     if entry.heading && root.query == "": VerticalLayout {
                         padding-top: entry.text == "Account" ? 0px : 16px;
                         height: entry.text == "Account" ? 24px : 40px;
-                        Text { x: 8px; text: entry.text; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+                        padding-left: 8px;
+                        Text { text: entry.text; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
                     }
                     if !entry.heading && root.matches(entry.text) && (root.with-discord || (entry.id != 4 && entry.id != 8)): ChannelRow {
                         height: 40px; text: entry.text; icon: entry.icon;

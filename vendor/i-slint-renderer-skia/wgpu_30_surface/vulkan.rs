@@ -74,7 +74,7 @@ unsafe fn wrap_vulkan_texture(
             skia_safe::gpu::SurfaceOrigin::TopLeft,
             color_type,
             color_space,
-            None,
+            Some(&crate::text_surface_props()),
         )
     }
 }

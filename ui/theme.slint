@@ -124,6 +124,8 @@ export component Label inherits Text {
 // whole, a flag or a skin tone included, and never the system's emoji.
 export global Twemoji {
     pure callback text(string) -> string;
+    /// The bundled picture at the requested physical size, or an empty image.
+    pure callback picture(string, float) -> image;
 }
 
 // Whether Discord's things carry its badge. A build without Matrix shows

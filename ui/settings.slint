@@ -935,6 +935,7 @@ component ThemeColourRow inherits HorizontalLayout {
 // before.
 export component AppearanceSettings inherits VerticalLayout {
     callback preferences-changed();
+    in-out property <int> font-smoothing: 2;
     in-out property <bool> show-nameplates;
     in property <[ThemeCard]> themes;
     in property <string> theme-id;
@@ -990,6 +991,16 @@ export component AppearanceSettings inherits VerticalLayout {
                 choose => { root.choose-theme(card.id); }
                 edit => { root.edit-theme(card.id); }
             }
+        }
+    }
+    if !root.editor: VerticalLayout {
+        spacing: 8px;
+        SettingsHeading { text: "FONT SMOOTHING"; }
+        Choices {
+            label: "Font smoothing";
+            options: ["None", "Grayscale", "Subpixel (RGB)"];
+            current <=> root.font-smoothing;
+            chosen => { root.preferences-changed(); }
         }
     }
     if !root.editor && root.title-bar-choice: SettingsSwitch {

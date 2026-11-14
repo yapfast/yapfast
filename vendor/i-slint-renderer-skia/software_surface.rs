@@ -208,7 +208,12 @@ impl super::Surface for SoftwareSurface {
                 let row_bytes = pixels.len() / height.get() as usize;
                 let row_bytes = (row_bytes >= image_info.min_row_bytes()).then_some(row_bytes);
                 let mut surface_borrow =
-                    skia_safe::surfaces::wrap_pixels(&image_info, pixels, row_bytes, None)
+                    skia_safe::surfaces::wrap_pixels(
+                        &image_info,
+                        pixels,
+                        row_bytes,
+                        Some(&crate::text_surface_props()),
+                    )
                         .ok_or_else(|| {
                             "Error wrapping target buffer for rendering into with Skia".to_string()
                         })?;

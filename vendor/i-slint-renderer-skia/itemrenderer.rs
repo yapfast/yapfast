@@ -1287,12 +1287,44 @@ impl GlyphRenderer for SkiaItemRenderer<'_> {
         y_offset: sharedparley::PhysicalLength,
         glyphs_it: &mut dyn Iterator<Item = sharedparley::parley::layout::Glyph>,
     ) {
+        let mut remaining;
+        let glyphs_it: &mut dyn Iterator<Item = _> =
+            if let Some((bitmap_font, image_for)) = crate::BITMAP_GLYPH_IMAGES.get()
+                && std::ptr::eq::<[u8]>(font.data.as_ref(), bitmap_font)
+            {
+                let origin = self.translation_origin().unwrap_or_default();
+                let canvas = self.canvas;
+                let paint = &brush;
+                remaining = glyphs_it.filter(move |glyph| {
+                    let Some((image, offset)) = image_for(glyph.id as u16, font_size.get()) else {
+                        return true;
+                    };
+                    let x = (origin.x + glyph.x + offset.x).round() - origin.x;
+                    let y = (origin.y + glyph.y + y_offset.get() + offset.y).round() - origin.y;
+                    canvas.draw_image(&image, (x, y), Some(paint));
+                    false
+                });
+                &mut remaining
+            } else {
+                glyphs_it
+            };
+        let (glyph_ids, glyph_positions): (Vec<_>, Vec<_>) = glyphs_it
+            .map(|g| (g.id as skia_safe::GlyphId, skia_safe::Point::new(g.x, g.y + y_offset.get())))
+            .unzip();
+        if glyph_ids.is_empty() {
+            return;
+        }
         let Some(type_face) = crate::font_cache::FONT_CACHE
             .with_borrow_mut(|font_cache| font_cache.font_with_variations(font, synthesis))
         else {
             return;
         };
         let mut font = skia_safe::Font::from_typeface(type_face, font_size.get());
+        font.set_edging(match crate::FONT_SMOOTHING.get() {
+            crate::FontSmoothing::None => skia_safe::font::Edging::Alias,
+            crate::FontSmoothing::Grayscale => skia_safe::font::Edging::AntiAlias,
+            crate::FontSmoothing::Subpixel => skia_safe::font::Edging::SubpixelAntiAlias,
+        });
         font.set_subpixel(true);
         // Yapfast: hint vertically only, as Chromium does on Linux. Skia's default
         // hinting also snaps glyphs horizontally while their positions stay
@@ -1309,11 +1341,6 @@ impl GlyphRenderer for SkiaItemRenderer<'_> {
             // to the right, matching the forward lean of real italic/oblique faces.
             font.set_skew_x(-skew_degrees.to_radians().tan());
         }
-
-        let (glyph_ids, glyph_positions): (Vec<_>, Vec<_>) = glyphs_it
-            .into_iter()
-            .map(|g| (g.id as skia_safe::GlyphId, skia_safe::Point::new(g.x, g.y + y_offset.get())))
-            .unzip();
 
         self.canvas.draw_glyphs_at(
             &glyph_ids,

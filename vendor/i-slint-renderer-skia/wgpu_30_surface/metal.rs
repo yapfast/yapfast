@@ -28,7 +28,7 @@ unsafe fn wrap_metal_texture(
             skia_safe::gpu::SurfaceOrigin::TopLeft,
             color_type,
             color_space,
-            None,
+            Some(&crate::text_surface_props()),
         )
     }
 }

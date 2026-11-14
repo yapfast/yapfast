@@ -37,6 +37,42 @@ type PhysicalBorderRadius = BorderRadius<f32, PhysicalPx>;
 
 mod cached_image;
 
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub enum FontSmoothing {
+    None,
+    Grayscale,
+    #[default]
+    Subpixel,
+}
+
+thread_local! {
+    static FONT_SMOOTHING: Cell<FontSmoothing> = Cell::new(FontSmoothing::Subpixel);
+}
+
+type BitmapGlyphImage = fn(u16, f32) -> Option<(skia_safe::Image, skia_safe::Vector)>;
+
+thread_local! {
+    static BITMAP_GLYPH_IMAGES: Cell<Option<(&'static [u8], BitmapGlyphImage)>> = const { Cell::new(None) };
+}
+
+/// Supplies prefiltered artwork for glyphs in an application-owned bitmap font.
+pub fn register_bitmap_glyph_images(font: &'static [u8], image: BitmapGlyphImage) {
+    BITMAP_GLYPH_IMAGES.set(Some((font, image)));
+}
+
+pub fn set_font_smoothing(mode: FontSmoothing) {
+    FONT_SMOOTHING.set(mode);
+}
+
+fn text_surface_props() -> skia_safe::SurfaceProps {
+    // Standard horizontal RGB layout. Skia falls back to grayscale for
+    // destinations that cannot composite LCD glyph masks.
+    skia_safe::SurfaceProps::new(
+        skia_safe::SurfacePropsFlags::empty(),
+        skia_safe::PixelGeometry::RGBH,
+    )
+}
+
 std::thread_local! {
     /// Yapfast: set by [`yapfast_let_go_of_caches`].
     static YAPFAST_LET_GO: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
@@ -472,6 +508,7 @@ pub struct SkiaRenderer {
     surface_factory: SurfaceFactoryFn,
     pre_present_callback: RefCell<Option<Box<dyn FnMut()>>>,
     partial_rendering_state: Option<PartialRenderingState>,
+    last_font_smoothing: Cell<FontSmoothing>,
     dirty_region_debug_mode: DirtyRegionDebugMode,
     /// Tracking dirty regions indexed by buffer age - 1. More than 3 back buffers aren't supported, but also unlikely to happen.
     dirty_region_history: RefCell<[DirtyRegion; 3]>,
@@ -522,6 +559,7 @@ impl SkiaRenderer {
             surface_factory,
             pre_present_callback: Default::default(),
             partial_rendering_state,
+            last_font_smoothing: Default::default(),
             dirty_region_debug_mode: Default::default(),
             dirty_region_history: Default::default(),
             shared_context: context.clone(),
@@ -901,6 +939,14 @@ impl SkiaRenderer {
             window.size().to_logical(window_inner.scale_factor()),
         );
 
+        let smoothing = FONT_SMOOTHING.get();
+        if self.last_font_smoothing.replace(smoothing) != smoothing {
+            self.layer_cache.clear_all();
+            self.dirty_region_history.replace(Default::default());
+            if let Some(state) = self.partial_rendering_state() {
+                state.force_screen_refresh();
+            }
+        }
         let mut dirty_region = None;
 
         {

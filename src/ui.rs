@@ -298,9 +298,16 @@ fn prepare(window: &YapfastWindow) {
     }
     window.set_emoji_font(emoji::family().into());
     emoji_text::register();
+    i_slint_renderer_skia::register_bitmap_glyph_images(
+        crate::twemoji::FONT,
+        crate::twemoji::inline_image,
+    );
     window
         .global::<Twemoji>()
         .on_text(|text| emoji_text::text(&text).into());
+    window.global::<Twemoji>().on_picture(|emoji, pixels| {
+        crate::twemoji::picture(&emoji, pixels, 1.0).unwrap_or_default()
+    });
     copy_whole_messages(window);
     mark_autoscrolls(window);
     type_anywhere(window);
@@ -1228,6 +1235,7 @@ struct Layout {
     /// How far the whole window is zoomed, as one of [`zoom::LEVELS`]; 100%
     /// unless changed.
     zoom: Option<f32>,
+    font_smoothing: Option<i32>,
     /// Each server's last selected channel, by server ID.
     channels: HashMap<String, String>,
     /// Each server's collapsed channel categories, by server ID: a Discord
@@ -1594,6 +1602,9 @@ impl Layout {
 
     // Appearance checks can apply these preferences without changing global audio gains.
     fn apply_appearance(&self, window: &YapfastWindow) {
+        let smoothing = self.font_smoothing.unwrap_or(2).clamp(0, 2);
+        window.set_font_smoothing(smoothing);
+        apply_font_smoothing(smoothing);
         // Before the first frame, which the event loop draws. A window made
         // again, after closing to the tray, keeps the theme this way too.
         let default_theme = window
@@ -1771,6 +1782,15 @@ impl Layout {
             tracing::warn!(%error, "could not store the window layout");
         }
     }
+}
+
+fn apply_font_smoothing(index: i32) {
+    use i_slint_renderer_skia::FontSmoothing;
+    i_slint_renderer_skia::set_font_smoothing(match index {
+        0 => FontSmoothing::None,
+        1 => FontSmoothing::Grayscale,
+        _ => FontSmoothing::Subpixel,
+    });
 }
 
 #[derive(Default)]

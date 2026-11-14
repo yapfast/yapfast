@@ -251,7 +251,33 @@ export component EmojiButton inherits Rectangle {
     }
 }
 
-// A reaction under a message: the emoji in a color emoji font, then the count.
+// A standalone reaction uses the same pre-scaled Twemoji artwork as the picker.
+// Custom emoji glyphs and reactions without bundled artwork still use text.
+export component ReactionEmoji inherits Rectangle {
+    in property <string> label;
+    in property <string> font;
+    in property <length> side: 22px;
+    in property <length> text-size: 16px;
+    property <image> picture: Twemoji.picture(root.label, root.side / 1phx);
+    min-width: root.picture.width > 0 ? root.side : fallback.preferred-width;
+    preferred-width: self.min-width;
+    min-height: root.side;
+    horizontal-stretch: 0;
+    Image {
+        source: root.picture;
+        visible: root.picture.width > 0;
+        width: root.side; height: root.side;
+        x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+    }
+    fallback := Text {
+        visible: root.picture.width == 0;
+        width: parent.width; height: parent.height;
+        text: Twemoji.text(root.label); font-family: root.font; font-size: root.text-size;
+        horizontal-alignment: center; vertical-alignment: center;
+    }
+}
+
+// A reaction under a message: the emoji, then the count.
 // Staying on it shows who reacted, as ReactionHover says.
 export component ReactionToggle inherits Rectangle {
     /// The message's item, which a tooltip of who reacted needs.
@@ -273,7 +299,7 @@ export component ReactionToggle inherits Rectangle {
     accessible-action-default => { if root.enabled { root.clicked(); } }
     chip := HorizontalLayout {
         padding-left: 8px; padding-right: 9px; spacing: 6px;
-        Text { text: Twemoji.text(root.label); font-family: root.emoji-font; font-size: 16px; vertical-alignment: center; }
+        ReactionEmoji { label: root.label; font: root.emoji-font; }
         Text { text: root.count; color: root.mine ? Theme.accent : Theme.secondary; font-size: 14px; font-weight: 700; vertical-alignment: center; }
     }
     property <bool> tip-shown: root.item != "" && ReactionHover.item == root.item && ReactionHover.key == root.key;

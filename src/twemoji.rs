@@ -27,6 +27,62 @@ const MOST_BYTES: u32 = 4 << 20;
 
 thread_local! {
     static PICTURES: RefCell<HashMap<(String, u32), Option<slint::Image>>> = RefCell::default();
+    static INLINE_IMAGES: RefCell<InlineImages> = RefCell::default();
+}
+
+#[derive(Default)]
+struct InlineImages {
+    entries: HashMap<(u16, u32), skia_safe::Image>,
+    bytes: u32,
+}
+
+/// Shaping keeps the font's metrics and ligatures. The renderer paints the
+/// artwork already filtered to the physical pixel size of its glyph run.
+pub fn inline_image(glyph: u16, em: f32) -> Option<(skia_safe::Image, skia_safe::Vector)> {
+    let index = usize::from(glyph.checked_sub(1)?);
+    if index >= count() {
+        return None;
+    }
+    use crate::emoji_font_tables::{TWEMOJI, TWEMOJI_MARGIN};
+    let scale = em / f32::from(TWEMOJI.ppem);
+    let margin = TWEMOJI_MARGIN as f32;
+    let pixels = (scale * (f32::from(TWEMOJI.side) - 2.0 * margin))
+        .round()
+        .max(1.0) as u32;
+    let offset = skia_safe::Vector::new(
+        scale * (f32::from(TWEMOJI.bearing_x) + margin),
+        scale * (margin - f32::from(TWEMOJI.bearing_y)),
+    );
+    let image = INLINE_IMAGES.with_borrow_mut(|images| {
+        let key = (glyph, pixels);
+        if let Some(image) = images.entries.get(&key) {
+            return Some(image.clone());
+        }
+        let bytes = u64::from(pixels).pow(2).saturating_mul(4);
+        if bytes > u64::from(MOST_BYTES) {
+            return None;
+        }
+        let bytes = bytes as u32;
+        if images.entries.len() >= 1024 || bytes > MOST_BYTES - images.bytes {
+            *images = InlineImages::default();
+        }
+        let pixels = resize_picture(decode_published(entry(index).1)?, pixels);
+        let info = skia_safe::ImageInfo::new(
+            (pixels.width() as i32, pixels.height() as i32),
+            skia_safe::ColorType::RGBA8888,
+            skia_safe::AlphaType::Premul,
+            skia_safe::ColorSpace::new_srgb(),
+        );
+        let image = skia_safe::images::raster_from_data(
+            &info,
+            skia_safe::Data::new_copy(pixels.as_raw()),
+            pixels.width() as usize * 4,
+        )?;
+        images.entries.insert(key, image.clone());
+        images.bytes += bytes;
+        Some(image)
+    })?;
+    Some((image, offset))
 }
 
 /// The picture of `glyph` at `px` logical pixels, for a display of `scale`, or
@@ -59,9 +115,15 @@ pub fn has_picture(glyph: &str) -> bool {
 /// frame a scroll drew, a quarter of the scroll's time; shrunk here once, a
 /// frame copies it.
 fn decode(glyph: &str, pixels: u32) -> Option<slint::Image> {
-    let picture = premultiplied(&published(glyph)?);
+    let shrunk = resize_picture(published(glyph)?, pixels);
+    let buffer = slint::SharedPixelBuffer::clone_from_slice(shrunk.as_raw(), pixels, pixels);
+    Some(slint::Image::from_rgba8_premultiplied(buffer))
+}
+
+fn resize_picture(picture: image::RgbaImage, pixels: u32) -> image::RgbaImage {
+    let picture = premultiplied(&picture);
     let (width, height) = picture.dimensions();
-    let shrunk = if (width, height) == (pixels, pixels) {
+    if (width, height) == (pixels, pixels) {
         picture
     } else if pixels < width.min(height) {
         shrunk(&picture, pixels)
@@ -73,9 +135,7 @@ fn decode(glyph: &str, pixels: u32) -> Option<slint::Image> {
             pixels,
             image::imageops::FilterType::Triangle,
         )
-    };
-    let buffer = slint::SharedPixelBuffer::clone_from_slice(shrunk.as_raw(), pixels, pixels);
-    Some(slint::Image::from_rgba8_premultiplied(buffer))
+    }
 }
 
 /// `picture` with each colour multiplied by its alpha, so mixing pixels
@@ -170,11 +230,14 @@ fn names(glyph: &str) -> [String; 2] {
 /// The picture of `glyph` as Twemoji publishes it, without the margin it has in the
 /// font.
 pub(crate) fn published(glyph: &str) -> Option<image::RgbaImage> {
+    decode_published(picture_bytes(glyph)?)
+}
+
+fn decode_published(bytes: &[u8]) -> Option<image::RgbaImage> {
     use crate::emoji_font_tables::TWEMOJI_MARGIN as MARGIN;
-    let bitmap =
-        image::load_from_memory_with_format(picture_bytes(glyph)?, image::ImageFormat::Png)
-            .ok()?
-            .into_rgba8();
+    let bitmap = image::load_from_memory_with_format(bytes, image::ImageFormat::Png)
+        .ok()?
+        .into_rgba8();
     let side = bitmap.width() - 2 * MARGIN;
     Some(image::imageops::crop_imm(&bitmap, MARGIN, MARGIN, side, side).to_image())
 }
