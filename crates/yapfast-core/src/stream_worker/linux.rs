@@ -744,7 +744,7 @@ pub(crate) fn capture_dmabufs(
                 height: sent.1,
             });
         }
-        match sink.dmabuf(shot, sent, &mut scratch, hdr)? {
+        match sink.dmabuf(shot, sent, &mut scratch, Light { hdr, white: 0 })? {
             Taken::Sent => {}
             Taken::Held => continue,
             Taken::Processor(why) => {

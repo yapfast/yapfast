@@ -452,23 +452,22 @@ struct scale {
    * does. */
   ID3D11VideoDevice *video;
   ID3D11VideoContext *video_context;
-  /* D3D11.1's context, which is the one that names a colour space by its DXGI
-   * name: an HDR picture is tone-mapped by telling the processor what it is and
-   * what the frame it becomes is, and that call exists nowhere else. Asked for
-   * when it is needed and kept with the processor it belongs to. */
-  ID3D11VideoContext1 *video_context1;
   ID3D11VideoProcessorEnumerator *enumerator;
   ID3D11VideoProcessor *processor;
   ID3D11VideoProcessorOutputView *output;
   ID3D11RenderTargetView *target;
   unsigned source_width, source_height;
   /* The shader that stands in when the driver has no video processor, or none
-   * that takes these formats: one program for a colour picture and one for a
-   * planar one, since what a shader is given is known when it is compiled and
-   * not per frame. */
+   * that takes these formats: one program for a colour picture, one for a
+   * planar one, and one for the half-float picture of an HDR screen, which is
+   * the only thing that tone-maps here — a video processor converts scRGB to
+   * sRGB's codes and puts 80 nits at white, which is a frame three times too
+   * bright on a desktop composited at 240. What a shader is given is known when
+   * it is compiled and not per frame. */
   ID3D11VertexShader *vertex;
   ID3D11PixelShader *rgb;
   ID3D11PixelShader *planar;
+  ID3D11PixelShader *tone;
   ID3D11SamplerState *sampler;
   ID3D11Buffer *sizes;
   /* D3D11.3's device, which is what makes a view of one plane of a planar
@@ -513,10 +512,16 @@ struct yapfast_d3d11enc {
   NV_ENC_CONFIG settings;
   unsigned codec_id, width, height, fps, kbps;
   /* Whether the textures this reads are the 16-bit float scRGB picture an HDR
-   * screen hands over, which never reaches the encoder: the video processor
+   * screen hands over, which never reaches the encoder: the scale's shader
    * tone-maps it into the BGRA picture the encoder registers. Zero for every
    * session a caller didn't open for one, which is every SDR share. */
   int hdr;
+  /* What the screen draws plain SDR content at, as a multiple of scRGB's 1.0:
+   * 1.0 on a desktop that composites SDR at 80 nits, 3.0 where Windows is set
+   * to 240 nits, which is where it starts. The tone map divides by it, so a grey
+   * arrives at the brightness the screen shows it at; 1.0 is what a session that
+   * wasn't told anything reads an HDR picture through. */
+  float white;
   /* Which of the codecs the driver offered this session, as bits of codec ids:
    * AV1 needs an RTX 40 series or newer, and what a card refuses is worth
    * saying in the open's report rather than leaving to a status number. */
@@ -902,7 +907,7 @@ static void describe_open(struct yapfast_d3d11enc *e, char *report, size_t repor
   if (e->adapter && SUCCEEDED(e->adapter->lpVtbl->GetDesc1(e->adapter, &desc)))
     snprintf(card, sizeof card, "%ls, ", desc.Description);
   snprintf(e->config, sizeof e->config, "%s%s, NV12 4:2:0 out, bt601 limited range", card,
-           e->hdr ? "scRGB half-floats tone-mapped on the card to BGRA" : "BGRA in");
+           e->hdr ? "scRGB half-floats tone-mapped to BGRA on the card" : "BGRA in");
   snprintf(e->tuning_text, sizeof e->tuning_text,
            "%s preset, %s rate control, keyframe every %u frames", e->tuning->preset,
            e->tuning->rc, e->settings.gopLength);
@@ -917,21 +922,37 @@ static int destination(struct yapfast_d3d11enc *e, unsigned width, unsigned heig
                        size_t size);
 static int video_processor(struct yapfast_d3d11enc *e, unsigned source_width,
                            unsigned source_height, DXGI_FORMAT format, char *why, size_t size);
+static int tone_picture(struct yapfast_d3d11enc *e, ID3D11Texture2D *texture, unsigned subresource,
+                        unsigned source_width, unsigned source_height, char *why, size_t size);
+static int shader_ready(struct yapfast_d3d11enc *e, char *why, size_t size);
 
 /* Whether this device can tone-map an HDR picture at all, asked before a stream
- * starts: the video processor is made for the stream's own size in and out, the
- * half-float picture is checked as one it takes, and both colour spaces are set
- * and read back. That is the whole of what a frame will ask of it, so a driver
- * that would answer the first frame with a refusal answers the open instead,
- * and a share goes to the processor's capture before a viewer is watching it
- * rather than a frame into the stream. The textures this makes are the ones the
- * first frame would have made anyway, so nothing is paid for twice. */
+ * starts: the destination is made for the stream's own size, the shader that
+ * tone-maps is compiled, and the half-float picture is checked as one a shader
+ * can sample. That is the whole of what a frame will ask of them, so a device
+ * that would refuse the first frame refuses the open, and a share goes to the
+ * processor's capture before a viewer is watching it rather than a frame into
+ * the stream. The textures and programs this makes are the ones the first frame
+ * would have made anyway, so nothing is paid for twice. */
 static int tone_map_ready(struct yapfast_d3d11enc *e, char *why, size_t size) {
-  char said[128] = "the video processor wasn't tried";
+  char said[128] = "the shader wasn't tried";
+  UINT support = 0;
+  HRESULT status;
   if (destination(e, e->width, e->height, why, size)) return -1;
-  if (video_processor(e, e->width, e->height, DXGI_FORMAT_R16G16B16A16_FLOAT, said, sizeof said)) {
+  /* Filtered taps, which is what a scale down needs: a format a shader can read
+   * only with point sampling is one the picture would crawl through. */
+  status =
+      e->device->lpVtbl->CheckFormatSupport(e->device, DXGI_FORMAT_R16G16B16A16_FLOAT, &support);
+  if (FAILED(status) || !(support & D3D11_FORMAT_SUPPORT_SHADER_SAMPLE)) {
     if (size)
-      snprintf(why, size, "this card won't tone-map an HDR picture on the card: %s", said);
+      snprintf(why, size,
+               "this card won't sample the 16-bit float picture of an HDR screen in a shader "
+               "(0x%08lX, support 0x%08lX)",
+               (unsigned long)status, (unsigned long)support);
+    return -1;
+  }
+  if (shader_ready(e, said, sizeof said)) {
+    if (size) snprintf(why, size, "this card won't tone-map an HDR picture on the card: %s", said);
     return -1;
   }
   return 0;
@@ -1017,12 +1038,17 @@ failed:
  * capture can't fill while it is held, which at 4K is 33 MB apiece.
  *
  * `hdr` says the capture's textures are the half-float scRGB picture an HDR
- * screen hands over rather than BGRA, which makes this session's video processor
- * the tone map: it is verified here, before the open answers, so a card that
- * can't is refused in words rather than three frames into a stream. */
+ * screen hands over rather than BGRA, which makes the scaler's shader the tone
+ * map: it is compiled and its input format checked here, before the open
+ * answers, so a card that can't is refused in words rather than three frames
+ * into a stream. `white` is what that screen composites plain SDR content at, in
+ * thousandths of 80 nits, as the system's display configuration reports it: the
+ * tone map divides the picture's linear light by it, so a grey arrives at the
+ * brightness the screen shows it at. Zero is no answer and is read as 1000, or
+ * 80 nits. */
 struct yapfast_d3d11enc *yapfast_d3d11enc_new_on(void *device, unsigned codec_id, unsigned width,
                                                  unsigned height, unsigned fps, unsigned kbps,
-                                                 unsigned surfaces, int hdr,
+                                                 unsigned surfaces, int hdr, unsigned white,
                                                  const char *tuning_name, char *report,
                                                  size_t report_size) {
   struct yapfast_d3d11enc *e;
@@ -1052,6 +1078,7 @@ struct yapfast_d3d11enc *yapfast_d3d11enc_new_on(void *device, unsigned codec_id
   e->kbps = kbps;
   e->tuning = tuning;
   e->hdr = hdr ? 1 : 0;
+  e->white = white ? (float)white / 1000.0f : 1.0f;
   /* One surface is the least a session can keep, and `SLOTS` the most: what a
    * caller asks for is what it reads, and a count outside that range is one of
    * the two ends rather than a session that remembers nothing or writes past
@@ -1069,10 +1096,9 @@ struct yapfast_d3d11enc *yapfast_d3d11enc_new_on(void *device, unsigned codec_id
     snprintf(why, sizeof why, "the device handed in has no immediate context");
     goto failed;
   }
-  /* The tone map is the video processor this session already scales with, so it
-   * is the one that is checked: a session opened for an HDR picture that can
-   * only be read by copying every frame back to the processor is not this
-   * encoder's to offer. */
+  /* The tone map is the scaler's own shader, so it is the one that is checked: a
+   * session opened for an HDR picture that can only be read by copying every
+   * frame back to the processor is not this encoder's to offer. */
   if (e->hdr && tone_map_ready(e, why, sizeof why)) goto failed;
   if (start_session(e, why, sizeof why)) goto failed;
   describe_open(e, report, report_size);
@@ -1219,11 +1245,13 @@ static void close_shader(struct yapfast_d3d11enc *e) {
   if (e->scaler.vertex) e->scaler.vertex->lpVtbl->Release(e->scaler.vertex);
   if (e->scaler.rgb) e->scaler.rgb->lpVtbl->Release(e->scaler.rgb);
   if (e->scaler.planar) e->scaler.planar->lpVtbl->Release(e->scaler.planar);
+  if (e->scaler.tone) e->scaler.tone->lpVtbl->Release(e->scaler.tone);
   if (e->scaler.sampler) e->scaler.sampler->lpVtbl->Release(e->scaler.sampler);
   if (e->scaler.sizes) e->scaler.sizes->lpVtbl->Release(e->scaler.sizes);
   e->scaler.vertex = NULL;
   e->scaler.rgb = NULL;
   e->scaler.planar = NULL;
+  e->scaler.tone = NULL;
   e->scaler.sampler = NULL;
   e->scaler.sizes = NULL;
 }
@@ -1238,7 +1266,6 @@ static void close_scale(struct yapfast_d3d11enc *e) {
   if (e->scaler.output) e->scaler.output->lpVtbl->Release(e->scaler.output);
   if (e->scaler.processor) e->scaler.processor->lpVtbl->Release(e->scaler.processor);
   if (e->scaler.enumerator) e->scaler.enumerator->lpVtbl->Release(e->scaler.enumerator);
-  if (e->scaler.video_context1) e->scaler.video_context1->lpVtbl->Release(e->scaler.video_context1);
   if (e->scaler.video_context) e->scaler.video_context->lpVtbl->Release(e->scaler.video_context);
   if (e->scaler.video) e->scaler.video->lpVtbl->Release(e->scaler.video);
   if (e->scaler.planes_of) e->scaler.planes_of->lpVtbl->Release(e->scaler.planes_of);
@@ -1590,63 +1617,10 @@ static int video_processor(struct yapfast_d3d11enc *e, unsigned source_width,
     hr_failure(why, size, "CreateVideoProcessor", status);
     return -1;
   }
-  if (e->hdr) {
-    /* What this picture is, and what the frame it becomes is. Windows Graphics
-     * Capture hands over scRGB for an HDR display: linear light with BT.709's
-     * primaries and 1.0 at 80 nits, which is DXGI's
-     * `RGB_FULL_G10_NONE_P709`. It is not PQ — that is what an HDR10 surface's
-     * 10-bit codes carry (`RGB_FULL_G2084_NONE_P2020`), and reading linear light
-     * through that curve is a picture that comes out nearly black. The frame
-     * that goes to the encoder is sRGB over BT.709's primaries, which is what
-     * the stream declares and what NVENC reads, so the two calls below are the
-     * whole of the tone map: the driver's conversion takes 80 nits to white and
-     * rolls off what is above it, in the same blit that already scaled the
-     * picture, and nothing else in this file changes. */
-    DXGI_COLOR_SPACE_TYPE wanted = DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709;
-    DXGI_COLOR_SPACE_TYPE shown = DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
-    if (!e->scaler.video_context1) {
-      status = e->context->lpVtbl->QueryInterface(e->context, &IID_ID3D11VideoContext1,
-                                                 (void **)&e->scaler.video_context1);
-      if (FAILED(status) || !e->scaler.video_context1) {
-        e->scaler.video_context1 = NULL;
-        hr_failure(why, size,
-                   "this device has no video context that names a colour space "
-                   "(ID3D11VideoContext1)",
-                   status);
-        return -1;
-      }
-    }
-    e->scaler.video_context1->lpVtbl->VideoProcessorSetStreamColorSpace1(
-        e->scaler.video_context1, e->scaler.processor, 0, wanted);
-    /* Both calls answer nothing, so what they did is read back: a processor that
-     * quietly kept its default colour spaces would hand the encoder an untone-
-     * mapped picture that looks like a working stream, and a share told it is on
-     * the 8-bit path is the better answer. */
-    wanted = DXGI_COLOR_SPACE_CUSTOM;
-    e->scaler.video_context1->lpVtbl->VideoProcessorGetStreamColorSpace1(
-        e->scaler.video_context1, e->scaler.processor, 0, &wanted);
-    if (wanted != DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709) {
-      if (size)
-        snprintf(why, size,
-                 "the video processor wouldn't take scRGB as what its input is "
-                 "(VideoProcessorSetStreamColorSpace1, it says %u)",
-                 (unsigned)wanted);
-      return -1;
-    }
-    e->scaler.video_context1->lpVtbl->VideoProcessorSetOutputColorSpace1(
-        e->scaler.video_context1, e->scaler.processor, shown);
-    shown = DXGI_COLOR_SPACE_CUSTOM;
-    e->scaler.video_context1->lpVtbl->VideoProcessorGetOutputColorSpace1(
-        e->scaler.video_context1, e->scaler.processor, &shown);
-    if (shown != DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709) {
-      if (size)
-        snprintf(why, size,
-                 "the video processor wouldn't take sRGB as what its output is "
-                 "(VideoProcessorSetOutputColorSpace1, it says %u)",
-                 (unsigned)shown);
-      return -1;
-    }
-  }
+  /* The colour spaces are left as the driver's defaults, which are what they were
+   * for every picture before the half-float one existed: this processor is only
+   * ever handed BGRA, RGBA or NV12 and writes BGRA, and a picture of an HDR
+   * screen never reaches it (see `tone_picture`). */
   /* The whole source into the whole destination, said rather than left to the
    * defaults: the whole of one to the whole of the other is the stretch that is
    * the scale, and a driver's idea of a border has no place in the picture. */
@@ -1715,13 +1689,14 @@ static int processor_blit(struct yapfast_d3d11enc *e, ID3D11Texture2D *texture,
  * and the picture crawls with whatever the samples happened to land on; four
  * taps spread over the footprint are the cheap end of a box filter, and what is
  * between them is the hardware's bilinear filter, which costs nothing. The same
- * source compiles twice — once with NV12 defined, for a surface it reads as two
- * planes — so the two paths can't drift apart. */
+ * source compiles three times — once with NV12 defined, for a surface it reads
+ * as two planes, and once with HDR defined, for the half-float picture of an HDR
+ * screen, which it tone-maps as it scales — so the paths can't drift apart. */
 static const char *scale_shader =
     "Texture2D<float4> luma : register(t0);\n"
     "Texture2D<float4> chroma : register(t1);\n"
     "SamplerState tap : register(s0);\n"
-    "cbuffer Sizes : register(b0) { float2 source; float2 target; };\n"
+    "cbuffer Sizes : register(b0) { float2 source; float2 target; float4 tone; };\n"
     "struct Varying { float4 position : SV_Position; float2 uv : TEXCOORD0; };\n"
     /* One triangle over the whole target: three vertices, no vertex buffer and
      * nothing uploaded per frame, with the corner of the target at the corner of
@@ -1733,6 +1708,35 @@ static const char *scale_shader =
     "  varying.uv = corner;\n"
     "  return varying;\n"
     "}\n"
+    "#ifdef HDR\n"
+    /* The sRGB transfer function, piecewise as it is defined. A 2.2 power is
+     * close and is wrong by up to two code values in the shadows, which is the
+     * sort of wrong a viewer comparing a share against their own screen sees. */
+    "float3 srgb_encode(float3 light) {\n"
+    "  light = max(light, 0.0);\n"
+    "  float3 low = light * 12.92;\n"
+    "  float3 high = 1.055 * pow(light, 1.0 / 2.4) - 0.055;\n"
+    "  return lerp(low, high, step(0.0031308, light));\n"
+    "}\n"
+    /* What an HDR screen's picture becomes on an SDR one. scRGB is linear light
+     * with 1.0 at 80 nits, and 80 nits is not white: Windows composites plain
+     * SDR content at the brightness its display settings call SDR white, which
+     * is 240 nits on a fresh screen, so an SDR white arrives at 3.0 and dividing
+     * by 1.0 would send every window out three times too bright with everything
+     * above a third of white clipped. `tone.x` is that divisor, in the same
+     * units, and what sits above it is a highlight: below the knee this is the
+     * light as it is, so an SDR pixel arrives exactly as Windows composited it,
+     * and above it a soft shoulder that approaches white without reaching it,
+     * so a 1000-nit specular arrives as white rather than as a clipped patch
+     * with a hard edge. */
+    "float3 tone_map(float3 colour) {\n"
+    "  float3 light = colour / max(tone.x, 0.001);\n"
+    "  const float knee = 0.9;\n"
+    "  float3 over = max(light - knee, 0.0) / (1.0 - knee);\n"
+    "  light = lerp(light, knee + (1.0 - knee) * (1.0 - exp(-over)), step(knee, light));\n"
+    "  return srgb_encode(light);\n"
+    "}\n"
+    "#endif\n"
     "float4 PSMain(Varying varying) : SV_Target {\n"
     /* A quarter of the footprint, so the four taps are at the corners of a box
      * half the footprint across. A picture that is growing keeps a footprint of
@@ -1760,21 +1764,24 @@ static const char *scale_shader =
     "                                brightness + 1.772 * colour.x)),\n"
     "                1.0);\n"
     "#else\n"
+    "#ifdef HDR\n"
+    "  picture.rgb = tone_map(picture.rgb);\n"
+    "#endif\n"
     /* Colour in, the same colour out: a shader's channels are R, G, B whatever
      * order the surface keeps them in, so a BGRA or an RGBA texture lands in the
      * BGRA destination with its colours where it put them. */
     "  return float4(picture.rgb, 1.0);\n"
     "#endif\n"
     "}\n";
-/* One entry point of the scale's shader, compiled for `profile`: D3DCompile
- * either writes the program or says, in its own words, which line it didn't
- * like. */
-static int shader_stage(const char *entry, const char *profile, int planar, ID3DBlob **out,
+/* One entry point of the scale's shader, compiled for `profile` with `define`
+ * (none, NV12 or HDR): D3DCompile either writes the program or says, in its own
+ * words, which line it didn't like. */
+static int shader_stage(const char *entry, const char *profile, const char *define, ID3DBlob **out,
                         char *why, size_t size) {
-  D3D_SHADER_MACRO macros[2] = {{"NV12", "1"}, {NULL, NULL}};
+  D3D_SHADER_MACRO macros[2] = {{define, "1"}, {NULL, NULL}};
   ID3DBlob *errors = NULL;
   HRESULT status = D3DCompile(scale_shader, strlen(scale_shader), "yapfast-scale.hlsl",
-                              planar ? macros : NULL, NULL, entry, profile,
+                              define ? macros : NULL, NULL, entry, profile,
                               D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, out, &errors);
   if (FAILED(status)) {
     if (size)
@@ -1787,12 +1794,13 @@ static int shader_stage(const char *entry, const char *profile, int planar, ID3D
   return 0;
 }
 /* One stage of that shader, made on the device: the vertex stage, or the pixel
- * stage for a colour picture or a planar one. */
+ * stage for a colour picture, a planar one, or the half-float picture of an HDR
+ * screen, which is the one `hdr` compiles. */
 static int make_stage(struct yapfast_d3d11enc *e, const char *entry, const char *profile,
-                      int planar, const char *what, void **out, char *why, size_t size) {
+                      const char *define, const char *what, void **out, char *why, size_t size) {
   ID3DBlob *code = NULL;
   HRESULT status;
-  if (shader_stage(entry, profile, planar, &code, why, size)) return -1;
+  if (shader_stage(entry, profile, define, &code, why, size)) return -1;
   if (profile[0] == 'v')
     status = e->device->lpVtbl->CreateVertexShader(e->device, code->lpVtbl->GetBufferPointer(code),
                                                    code->lpVtbl->GetBufferSize(code), NULL,
@@ -1817,14 +1825,20 @@ static int shader_ready(struct yapfast_d3d11enc *e, char *why, size_t size) {
   D3D11_BUFFER_DESC sizes;
   HRESULT status;
   if (e->scaler.vertex) return 0;
-  if (make_stage(e, "VSMain", "vs_5_0", 0, "CreateVertexShader", (void **)&e->scaler.vertex, why,
+  if (make_stage(e, "VSMain", "vs_5_0", NULL, "CreateVertexShader",
+                 (void **)&e->scaler.vertex, why, size))
+    goto failed;
+  if (make_stage(e, "PSMain", "ps_5_0", NULL, "CreatePixelShader", (void **)&e->scaler.rgb, why,
                  size))
     goto failed;
-  if (make_stage(e, "PSMain", "ps_5_0", 0, "CreatePixelShader", (void **)&e->scaler.rgb, why,
-                 size))
-    goto failed;
-  if (make_stage(e, "PSMain", "ps_5_0", 1, "CreatePixelShader for NV12",
+  if (make_stage(e, "PSMain", "ps_5_0", "NV12", "CreatePixelShader for NV12",
                  (void **)&e->scaler.planar, why, size))
+    goto failed;
+  /* The one that tone-maps: a device that won't compile it is a device that
+   * can't tone-map an HDR screen's picture here, which an HDR session's open
+   * asks for before a frame is lost to it. */
+  if (make_stage(e, "PSMain", "ps_5_0", "HDR", "CreatePixelShader for an HDR picture",
+                 (void **)&e->scaler.tone, why, size))
     goto failed;
   /* Bilinear and clamped: the taps decide what is read, the filter between them
    * is the hardware's, and a texel outside the picture is the picture's edge. */
@@ -1841,10 +1855,11 @@ static int shader_ready(struct yapfast_d3d11enc *e, char *why, size_t size) {
     hr_failure(why, size, "CreateSamplerState", status);
     goto failed;
   }
-  /* Sixteen bytes: the source's size and the target's, written per frame, which
-   * is a register write and not an allocation. */
+  /* Thirty-two bytes: the source's size, the target's, and what the tone map
+   * divides an HDR picture's light by, written per frame, which is a register
+   * write and not an allocation. */
   memset(&sizes, 0, sizeof sizes);
-  sizes.ByteWidth = 16;
+  sizes.ByteWidth = 32;
   sizes.Usage = D3D11_USAGE_DEFAULT;
   sizes.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
   status = e->device->lpVtbl->CreateBuffer(e->device, &sizes, NULL, &e->scaler.sizes);
@@ -1977,9 +1992,20 @@ static int shader_blit(struct yapfast_d3d11enc *e, ID3D11Texture2D *texture, uns
   ID3D11ShaderResourceView *unbound[2] = {NULL, NULL};
   ID3D11Buffer *sizes = e->scaler.sizes;
   ID3D11SamplerState *sampler = e->scaler.sampler;
-  ID3D11PixelShader *shader = format == DXGI_FORMAT_NV12 ? e->scaler.planar : e->scaler.rgb;
-  float extents[4] = {(float)source_width, (float)source_height, (float)e->scaler.width,
-                      (float)e->scaler.height};
+  ID3D11PixelShader *shader = format == DXGI_FORMAT_NV12     ? e->scaler.planar
+                              : format == DXGI_FORMAT_R16G16B16A16_FLOAT ? e->scaler.tone
+                                                                         : e->scaler.rgb;
+  float extents[8] = {(float)source_width,
+                      (float)source_height,
+                      (float)e->scaler.width,
+                      (float)e->scaler.height,
+                      /* What the tone map divides by, which the other two
+                       * programs never read: the screen's SDR white in
+                       * scRGB's units. */
+                      e->white > 0.f ? e->white : 1.f,
+                      0.f,
+                      0.f,
+                      0.f};
   D3D11_VIEWPORT viewport;
   struct drawing drawing;
   HRESULT status;
@@ -2045,6 +2071,11 @@ static int scale_picture(struct yapfast_d3d11enc *e, ID3D11Texture2D *texture, u
     return -1;
   }
   if (destination(e, width, height, why, size)) return -1;
+  /* The half-float picture of an HDR screen is the one a video processor reads
+   * as a transfer function and nothing more, so it goes through the shader that
+   * tone-maps it and knows nothing else needs asking. */
+  if (e->hdr && format == DXGI_FORMAT_R16G16B16A16_FLOAT)
+    return tone_picture(e, texture, subresource, source_width, source_height, why, size);
   e->scaler.scaled++;
   if (width == source_width && height == source_height && format == DXGI_FORMAT_B8G8R8A8_UNORM) {
     e->context->lpVtbl->CopySubresourceRegion(e->context, (ID3D11Resource *)e->scaler.picture, 0, 0,
@@ -2058,14 +2089,8 @@ static int scale_picture(struct yapfast_d3d11enc *e, ID3D11Texture2D *texture, u
     e->scaler.filter = "the video processor";
     return 0;
   }
-  /* An HDR picture is tone-mapped by the video processor and by nothing else
-   * here: the shader would write scRGB's linear light into an sRGB picture,
-   * which is a curve off rather than a frame, so a driver that won't take the
-   * colour spaces leaves the share on the processor's capture instead. */
-  if (e->hdr && format == DXGI_FORMAT_R16G16B16A16_FLOAT) {
-    if (size) snprintf(why, size, "%s", processor_why);
-    return -1;
-  }
+  /* A shader after it: one that takes the formats the driver's processor has
+   * no view of. */
   if (!shader_ready(e, shader_why, sizeof shader_why) &&
       !shader_blit(e, texture, subresource, format, source_width, source_height, shader_why,
                    sizeof shader_why)) {
@@ -2073,6 +2098,27 @@ static int scale_picture(struct yapfast_d3d11enc *e, ID3D11Texture2D *texture, u
     return 0;
   }
   if (size) snprintf(why, size, "%s, and %s", processor_why, shader_why);
+  return -1;
+}
+/* Puts the half-float picture in `texture`'s `subresource` into the destination
+ * at `width` by `height`, tone-mapped on the way: the one thing that turns an HDR
+ * screen's linear light into the picture an SDR screen shows. The video processor
+ * is not tried: its colour-space conversion puts scRGB's 1.0 at white, which is
+ * 80 nits, so a desktop composited at 240 arrives three times too bright with
+ * everything above a third of white clipped, and no call it has divides by the
+ * screen's own white or rolls a highlight off. Answers 0, or -1 with `why`. */
+static int tone_picture(struct yapfast_d3d11enc *e, ID3D11Texture2D *texture,
+                        unsigned subresource, unsigned source_width, unsigned source_height,
+                        char *why, size_t size) {
+  char shader_why[128] = "the shader wasn't tried";
+  e->scaler.scaled++;
+  if (!shader_ready(e, shader_why, sizeof shader_why) &&
+      !shader_blit(e, texture, subresource, DXGI_FORMAT_R16G16B16A16_FLOAT, source_width,
+                   source_height, shader_why, sizeof shader_why)) {
+    e->scaler.filter = "a pixel shader tone-mapping the picture";
+    return 0;
+  }
+  if (size) snprintf(why, size, "%s", shader_why);
   return -1;
 }
 /* Scales the picture in `texture`'s `subresource` to `width` by `height` on the

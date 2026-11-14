@@ -20,9 +20,14 @@
  *
  * A converter opened for an HDR screen does one thing more with the same blit: it
  * tells the processor that its input is scRGB's linear light and that its output
- * is the BT.709 the stream declares, which is what makes the conversion the tone
- * map. That is why this is the interface the HDR path goes through on a card
- * whose encoder reads surfaces — Quick Sync's and AMF's — as well as on NVIDIA's.
+ * is the BT.709 the stream declares. That is a transfer conversion and not a tone
+ * map: the driver puts scRGB's 1.0, which is 80 nits, at white, and knows nothing
+ * of the screen's own SDR white or of a shoulder over what is above it, so a
+ * desktop composited at 240 arrives three times too bright with its highlights
+ * clipped. NVENC's path tone-maps in the shader that scales its picture (see
+ * native/d3d11enc.c); a card whose encoder reads surfaces has no such pass here
+ * yet, which docs/discord/go-live.md says where it says what has and has not
+ * been seen on hardware.
  */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -55,7 +60,8 @@ struct yapfast_d3d11conv {
   ID3D11VideoProcessorOutputView *output_view;
   unsigned from_width, from_height, to_width, to_height;
   /* Whether the pictures come in as the half-float scRGB an HDR screen hands over,
-   * which the colour spaces below turn this blit into a tone map for. */
+   * which the colour spaces below convert — a transfer conversion, not a tone map:
+   * see the note at the top of this file. */
   int hdr;
   unsigned long long converted;
   char error[192];
@@ -107,13 +113,17 @@ static int make_output(struct yapfast_d3d11conv *conv) {
   return 1;
 }
 
-/* Says what the picture is and what the frame it becomes is, which is the whole of
- * the tone map: Windows Graphics Capture hands over scRGB for an HDR screen
- * (linear light, BT.709's primaries, 1.0 at 80 nits), and what an encoder reads
- * here is NV12 in BT.709's studio range, which is the claim the stream declares.
- * The output is named as YCbCr rather than as RGB because the texture this blit
- * writes is NV12: a processor told its output is RGB writes the samples a
- * different way, and the encoder would read a picture skewed towards green.
+/* Says what the picture is and what the frame it becomes is. Windows Graphics
+ * Capture hands over scRGB for an HDR screen (linear light, BT.709's primaries,
+ * 1.0 at 80 nits), and what an encoder reads here is NV12 in BT.709's studio
+ * range, which is the claim the stream declares. The output is named as YCbCr
+ * rather than as RGB because the texture this blit writes is NV12: a processor
+ * told its output is RGB writes the samples a different way, and the encoder
+ * would read a picture skewed towards green.
+ *
+ * It is a conversion and not a tone map, and that is worth saying plainly: the
+ * driver's own white point for scRGB is 80 nits and it rolls nothing off, so this
+ * path is over-bright on an HDR screen until it gets a curve of its own.
  *
  * Both calls answer nothing, so each is read back: a processor that kept its
  * defaults would convert linear light as if it were sRGB, which is a frame that

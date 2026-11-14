@@ -964,41 +964,55 @@ takes the kernels' curve today: it is there for a capture that hands HDR's codes
 over, as the `R16G16B16A16_FLOAT` picture Desktop Duplication hands over, which
 Windows' own card rung is still to ask for. The format it writes is the one the
 encoder reports it took, NV12
-HDR is the one case the card does something about, and it does it with the blit
-that was already there. Whether a display shows HDR is the system's own
-per-monitor answer, `advancedColorEnabled`, the question
-`picture::tone_of_screen` asks, and it is asked once per share: a screen showing
-SDR is captured as the 8-bit BGRA it always was and takes the path below
-unchanged, byte for byte, because a curve over frames that never needed one is a
-share darker than the screen. A screen showing HDR is asked of Windows Graphics
-Capture for the `R16G16B16A16_FLOAT` picture instead of the 8-bit one, which is
-the scRGB the compositor really draws — linear light, BT.709's primaries, 1.0 at
-80 nits — and the session that reads it names its input colour space
-`DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709` and its output
-`DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709` on the video processor that already
-scales every frame. That conversion is the tone map: 80 nits to white and what is
-above it rolled off by the driver, in the same one blit, and the BGRA picture the
-encoder registered before is what comes out of it, so a frame of an HDR screen
-costs what a frame of an SDR one did and nothing downstream changed. It is scRGB
-rather than PQ because that is what Graphics Capture hands over: reading linear
-light through PQ's curve is a picture that comes out nearly black. Desktop
-Duplication never asks for the float picture, because its own shader has already
-tone-mapped the scRGB surface into the BGRA it hands over, and a hint of the SDR
-white level the system reports is what keeps that tone map the screen's.
+HDR is the one case the card does something about, and it does it with the shader
+that was already there for a picture the driver's video processor won't take.
+Whether a display shows HDR is the system's own per-monitor answer,
+`advancedColorEnabled`, the question `picture::tone_of_screen` asks, and it is
+asked once per share: a screen showing SDR is captured as the 8-bit BGRA it always
+was and takes the path below unchanged, byte for byte, because a curve over frames
+that never needed one is a share darker than the screen. The screen is found by
+the name the desktop configuration gives its *source*, which is the one name GDI
+and a monitor handle share, and the target that name is shown on is what the
+question is put to.
 
-Two things can refuse the float picture, and each leaves the share with what it
-had before any of this existed. A frame pool that won't hold it is asked for the
-8-bit one instead, inside the shim, and the capture's own line in the log says
-which call refused it ("the screen shows HDR, and the frame pool refused the
+A screen showing HDR is asked of Windows Graphics Capture for the
+`R16G16B16A16_FLOAT` picture instead of the 8-bit one, which is the scRGB the
+compositor really draws — linear light, BT.709's primaries, 1.0 at 80 nits — and
+the scale that already runs on every frame compiles its HDR program: four
+bilinear taps, the light divided by the screen's own SDR white, a shoulder above
+nine tenths of it and sRGB's transfer function, into the BGRA picture the encoder
+registered before. That divisor is what makes it a tone map rather than a curve:
+80 nits is *not* white — Windows composites plain SDR content at the brightness
+its display settings call SDR white, 240 nits on a fresh screen, which the system
+reports as 3000 thousandths of 80 nits — so a share that divided by 1.0 would
+send every window out three times too bright with everything above a third of
+white clipped, and an HDR game brighter again. The light above the shoulder
+rolls off short of white instead of clipping, so a 1000-nit specular arrives as
+white rather than as a flat patch with a hard edge. The video processor is never
+the one that does this: `VideoProcessorSetStreamColorSpace1` names the transfer
+curve on either side and nothing else, with no white point to divide by and no
+shoulder to roll off, which is a transfer conversion and not a tone map. The
+screen's answer is read from `DISPLAYCONFIG_SDR_WHITE_LEVEL`, and a machine that
+can't answer reads as 80 nits.
+
+It is scRGB rather than PQ because that is what Graphics Capture hands over:
+reading linear light through PQ's curve is a picture that comes out nearly black.
+Desktop Duplication never asks for the float picture, because its own shader has
+already tone-mapped the scRGB surface into the BGRA it hands over, through the
+same SDR white level and the same shoulder.
+
+The float picture can be refused in two places, and each leaves the share with
+what it had before any of this existed. A frame pool that won't hold it is asked
+for the 8-bit one instead, inside the shim, and the capture's own line in the log
+says which call refused it ("the screen shows HDR, and the frame pool refused the
 16-bit float picture (CreateFreeThreaded, 0x…)"): that share is Windows' own
-tone map rather than ours. A card whose video processor won't take the float
-picture, the input view, or either colour space fails the session's open — the
-colour spaces are set and read back before the stream starts rather than
-discovered three frames into it — and the rung is named in the line that says
-the share is on the processor, where `picture::Tone::pq()` tone-maps to SDR's
-brightness over a picture in memory, one pass, in the same buffer. That table is
-the fallback it always was; it is no longer the only way an HDR share reaches a
-viewer. The format the encoder writes is the one it reports it took, NV12
+conversion rather than ours. A card whose device won't sample the float picture in
+a shader, or won't compile the program that does, fails the session's open —
+compiled and checked before the stream starts rather than discovered three frames
+into it — and the rung is named in the line that says the share is on the
+processor, where `picture::Tone::pq()` tone-maps to SDR's brightness over a
+picture in memory, one pass, in the same buffer. That table is the fallback it
+always was. The format the encoder writes is the one it reports it took, NV12
 or planar I420, and an open that gets neither fails by name rather than
 scrambling the picture. Its frames carry the caller's 90 kHz time rescaled into
 the encoder's own time base, so every engine, and a fallback between them, runs
@@ -1143,16 +1157,18 @@ described above; what has been run on hardware is this:
   exercised on one from here. A stream the card can't take falls back to the
   processor, and the log says why; whether a given machine's driver takes it
   is that machine's to answer.
-- **Tone-mapping an HDR screen on the card** is code and a build, not a
-  measurement: no HDR share was captured to write it. What the driver makes of
-  `DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709` in and
-  `DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709` out — where its white point sits,
-  how far it rolls off a 1000-nit highlight, and whether a desktop's SDR white
-  arrives at the brightness the screen shows it at — is that driver's answer and
-  not one seen here, and so is whether a frame pool gives the
-  `R16G16B16A16_FLOAT` picture at all. What was checked is that every shim and
-  every caller builds, and that a share of a screen showing SDR takes exactly
-  the calls it took before.
+- **Tone-mapping an HDR screen on the card** has run, on one machine: an RTX
+  4090 driving a 3440×1440 HDR10 screen, where the system answers
+  `advancedColorEnabled` with 10-bit, an SDR white of 240 nits, and a frame pool
+  that gives the `R16G16B16A16_FLOAT` picture, so the shader that tone-maps it
+  compiles, runs, and is what a share of that screen sends. What that has not
+  been compared against is the screen itself, by eye or by measurement: whether
+  the divisor leaves a grey at the brightness the screen shows it at, and where
+  a real highlight lands, are still the screen's to answer. Nor has a share of
+  an HDR screen on a card whose encoder reads surfaces — Quick Sync's, AMF's —
+  been tone-mapped at all: that path still converts scRGB to the stream's codes
+  through the driver's colour-space conversion, which puts 80 nits at white, so
+  it comes out over-bright where NVENC's path does not.
 - **Intel Quick Sync** is in the vendored build (oneVPL 2.14.0,
   `--enable-libvpl`) and in the probe, and no Intel GPU has run it. It is fed
   from the processor, like AMF, and says so.

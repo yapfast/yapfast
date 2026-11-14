@@ -596,7 +596,7 @@ fn offers_the_gpus_codecs_first() {
         #[cfg(nvcuda)]
         refused_pictures: 0,
     };
-    let (offers, encoder) = sink.offers(320, 180, None, false).unwrap();
+    let (offers, encoder) = sink.offers(320, 180, None, Light::default()).unwrap();
     eprintln!("offering {offers:?}, encoding with {}", encoder.engine());
     assert_eq!(offers.last(), Some(&Codec::H264));
     let mut order = [Codec::Av1, Codec::H265, Codec::H264].iter();
@@ -606,7 +606,7 @@ fn offers_the_gpus_codecs_first() {
     );
     assert_eq!(encoder.codec(), offers[0]);
     sink.hardware = false;
-    let (offers, encoder) = sink.offers(320, 180, None, false).unwrap();
+    let (offers, encoder) = sink.offers(320, 180, None, Light::default()).unwrap();
     assert_eq!((offers, encoder.engine()), (vec![Codec::H264], "x264"));
 }
 
@@ -678,7 +678,15 @@ fn a_share_from_the_card_encodes_on_the_card() {
     // A machine without NVENC on that device has nothing to check here,
     // and says so the way a stream on it would: this is the error that
     // keeps that machine sharing from the processor.
-    let Ok((offers, encoder)) = sink.offers(320, 180, Some(capture.device()), capture.hdr()) else {
+    let Ok((offers, encoder)) = sink.offers(
+        320,
+        180,
+        Some(capture.device()),
+        Light {
+            hdr: capture.hdr(),
+            white: 0,
+        },
+    ) else {
         eprintln!("no NVENC here, so there is no card's encoder to check");
         return;
     };
@@ -933,7 +941,7 @@ fn the_capture_and_the_encoder_are_on_one_device() {
         30,
         kbps(sent_width, sent_height, 30),
         d3d11::Surfaces::Ring,
-        d3d11::Light::of(capture.hdr()),
+        d3d11::Light::of(capture.hdr(), 0),
     ) else {
         eprintln!(
             "and this machine has no H264 NVENC session on the device the capture fills its \
@@ -953,6 +961,89 @@ fn the_capture_and_the_encoder_are_on_one_device() {
              texture only on the one it opened on"
     );
     assert_eq!(encoder.size(), (sent_width, sent_height));
+}
+
+/// What the card makes of a screen that only draws linear light: the picture it
+/// sends is divided by the SDR white the screen reports, so a grey arrives where
+/// the screen shows it and not where 80 nits would put it — which is what a share
+/// that read scRGB's 1.0 as white sends, and what such a share looked like: a
+/// desktop two and a half times too bright with its highlights clipped.
+///
+/// The two pictures are the same captured texture read back through two sessions
+/// that differ in nothing but that divisor, so the numbers are one picture and
+/// one curve. It asserts only that the divisor darkens it, which is true of any
+/// screen whose SDR white is above 80 nits; how far is the screen's own answer and
+/// is printed rather than asserted.
+#[cfg(all(windows, wgc))]
+#[test]
+#[ignore = "needs a screen showing HDR and an NVIDIA card"]
+fn an_hdr_screen_is_tone_mapped_on_the_card() {
+    /// The mean of the luma a readback's BGRA pixels carry.
+    fn mean(pixels: &[u8]) -> f64 {
+        let luma: f64 = pixels
+            .chunks_exact(4)
+            .map(|pixel| {
+                0.0722 * f64::from(pixel[0])
+                    + 0.7152 * f64::from(pixel[1])
+                    + 0.2126 * f64::from(pixel[2])
+            })
+            .sum();
+        luma / (pixels.len() / 4) as f64
+    }
+    let mut hdr = wgc::Capture::open_hdr(wgc::Monitor::PRIMARY).expect("an HDR capture");
+    // A capture answers with a picture only when the desktop drew one: the first
+    // look can be a still one, and there is no texture until a frame arrives.
+    for _ in 0..200 {
+        if hdr.frame().expect("a look at the screen") == wgc::Arrival::Frame {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(
+        hdr.hdr(),
+        "the screen didn't hand over its half-float picture: {}",
+        hdr.describe()
+    );
+    let session = |white: u32| {
+        d3d11::D3d11Encoder::open_on(
+            hdr.device(),
+            stream_connection::SEND_CODEC,
+            640,
+            360,
+            30,
+            800,
+            d3d11::Surfaces::One,
+            d3d11::Light::of(true, white),
+        )
+        .expect("an HDR session on the capture's device")
+    };
+    let read = |encoder: &d3d11::D3d11Encoder| {
+        let mut pixels = vec![0u8; 64 * 36 * 4];
+        // SAFETY: the capture's own texture, alive for the call, on the device the
+        // session was opened on.
+        unsafe {
+            encoder
+                .readback(d3d11::Texture::new(hdr.texture()), 64, 36, &mut pixels)
+                .expect("a readback of the picture");
+        }
+        pixels
+    };
+    let toned = read(&session(3000));
+    // The same picture through the divisor the driver's own conversion amounts to:
+    // scRGB's 1.0 at white, which is what a share without a tone map sends.
+    let naive = read(&session(1000));
+    eprintln!(
+        "mean luma of {}, tone-mapped at 240 nits of SDR white {:.1}, at 80 nits to white {:.1}",
+        hdr.describe(),
+        mean(&toned),
+        mean(&naive)
+    );
+    assert!(
+        mean(&toned) < mean(&naive),
+        "the screen's SDR white is the divisor that darkens it: {} against {}",
+        mean(&toned),
+        mean(&naive)
+    );
 }
 
 /// The fake Discord's fixture: Alice, in the guild, in the Lounge. The ids

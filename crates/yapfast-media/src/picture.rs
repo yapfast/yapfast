@@ -348,6 +348,37 @@ pub fn tone_of_window(window: u64) -> Tone {
     tone_of_screen(monitor as u64)
 }
 
+/// What the screen `monitor` calls white for plain SDR content, in thousandths of
+/// 80 nits: the brightness Windows composites ordinary SDR content at while it
+/// shows HDR, and the divisor an HDR picture's linear light is read through so
+/// that a grey arrives as the grey the screen shows it as. 1000 is 80 nits and
+/// 3000 is the 240 a fresh screen starts at; zero is the system having no answer,
+/// which a tone map reads as 1000.
+#[cfg(windows)]
+pub fn white_of_screen(monitor: u64) -> u32 {
+    display::sdr_white(monitor as *mut std::ffi::c_void)
+}
+
+/// The same for the screen the window `window` is shown on.
+#[cfg(windows)]
+pub fn white_of_window(window: u64) -> u32 {
+    // SAFETY: as in `tone_of_window`.
+    let monitor = unsafe {
+        display::MonitorFromWindow(window as *mut std::ffi::c_void, display::NEAREST_SCREEN)
+    };
+    white_of_screen(monitor as u64)
+}
+
+#[cfg(not(windows))]
+pub fn white_of_screen(_monitor: u64) -> u32 {
+    0
+}
+
+#[cfg(not(windows))]
+pub fn white_of_window(_window: u64) -> u32 {
+    0
+}
+
 /// The name the system gives the screen `monitor`, as its display settings show
 /// it: `DISPLAY1` and the like, without the device path's prefix. Windows numbers
 /// its screens that way, which is what a person's display arrangement and every
@@ -355,7 +386,7 @@ pub fn tone_of_window(window: u64) -> Tone {
 #[cfg(windows)]
 pub fn screen_name(monitor: u64) -> Option<String> {
     let device = display::device_name(monitor as *mut std::ffi::c_void)?;
-    Some(device.trim_start_matches(r"\.\").to_owned())
+    Some(device.trim_start_matches(r"\\.\").to_owned())
 }
 
 #[cfg(not(windows))]
@@ -404,6 +435,9 @@ mod display {
     /// Ask for the screen nearest the window, rather than none at all.
     pub(super) const NEAREST_SCREEN: u32 = 2;
 
+    /// Answer with the desktop's primary screen rather than none.
+    const DEFAULT_TO_PRIMARY: u32 = 1;
+
     /// A locally unique id: which graphics adapter a target is on.
     #[repr(C)]
     #[derive(Clone, Copy)]
@@ -420,27 +454,24 @@ mod display {
         denominator: u32,
     }
 
-    /// The head of every structure the display configuration is asked for.
+    /// The head of every structure the display configuration is asked for. The
+    /// id is a source's or a target's, whichever the kind asks about, and the
+    /// size is the whole structure's: the system reads both and checks the size
+    /// against the structure it knows, so a size that is not its own is a
+    /// refusal rather than a short read.
     #[repr(C)]
     struct DeviceInfoHeader {
         kind: u32,
         size: u32,
         adapter: Luid,
-        target: u32,
+        id: u32,
     }
 
-    /// What a screen is called: the name the system knows it by, beside the one
-    /// GDI knows it by, which is how a captured screen is matched to it.
+    /// What a source is called: the name GDI knows the screen by, which is the
+    /// one name a monitor handle and the display configuration share.
     #[repr(C)]
-    struct TargetName {
+    struct SourceName {
         header: DeviceInfoHeader,
-        flags: u32,
-        output_technology: u32,
-        edid_manufacture: u16,
-        edid_product: u16,
-        connector: u32,
-        monitor_path: [u16; 128],
-        friendly_name: [u16; 64],
         gdi_name: [u16; 32],
     }
 
@@ -452,6 +483,15 @@ mod display {
         value: u32,
         encoding: u32,
         bits_per_channel: u32,
+    }
+
+    /// What a target calls white for plain SDR content, in thousandths of 80
+    /// nits: 1000 is 80 nits, and the 240 a fresh HDR screen composites SDR at
+    /// is 3000.
+    #[repr(C)]
+    struct SdrWhite {
+        header: DeviceInfoHeader,
+        level: u32,
     }
 
     /// The screen a path comes from.
@@ -500,14 +540,18 @@ mod display {
     // read by it at all.
     const _: () = {
         assert!(size_of::<DeviceInfoHeader>() == 20);
+        assert!(size_of::<PathSource>() == 20);
+        assert!(size_of::<PathTarget>() == 48);
         assert!(size_of::<Path>() == 72);
-        assert!(size_of::<TargetName>() == 484);
+        assert!(size_of::<SourceName>() == 84);
         assert!(size_of::<AdvancedColor>() == 32);
+        assert!(size_of::<SdrWhite>() == 24);
         assert!(size_of::<MonitorInfo>() == 104);
     };
 
-    const GET_TARGET_NAME: u32 = 2;
+    const GET_SOURCE_NAME: u32 = 1;
     const GET_ADVANCED_COLOR_INFO: u32 = 9;
+    const GET_SDR_WHITE_LEVEL: u32 = 11;
     /// The screen is showing HDR now, rather than being able to.
     const ADVANCED_COLOR_ENABLED: u32 = 0x2;
     /// The screens that are on, not every one that ever was.
@@ -530,22 +574,15 @@ mod display {
         fn DisplayConfigGetDeviceInfo(request: *mut DeviceInfoHeader) -> i32;
     }
 
-    impl TargetName {
-        fn of(adapter: Luid, target: u32) -> Self {
+    impl SourceName {
+        fn of(adapter: Luid, source: u32) -> Self {
             Self {
                 header: DeviceInfoHeader {
-                    kind: GET_TARGET_NAME,
+                    kind: GET_SOURCE_NAME,
                     size: size_of::<Self>() as u32,
                     adapter,
-                    target,
+                    id: source,
                 },
-                flags: 0,
-                output_technology: 0,
-                edid_manufacture: 0,
-                edid_product: 0,
-                connector: 0,
-                monitor_path: [0; 128],
-                friendly_name: [0; 64],
                 gdi_name: [0; 32],
             }
         }
@@ -558,7 +595,7 @@ mod display {
                     kind: GET_ADVANCED_COLOR_INFO,
                     size: size_of::<Self>() as u32,
                     adapter,
-                    target,
+                    id: target,
                 },
                 value: 0,
                 encoding: 0,
@@ -567,13 +604,24 @@ mod display {
         }
     }
 
+    impl SdrWhite {
+        fn of(adapter: Luid, target: u32) -> Self {
+            Self {
+                header: DeviceInfoHeader {
+                    kind: GET_SDR_WHITE_LEVEL,
+                    size: size_of::<Self>() as u32,
+                    adapter,
+                    id: target,
+                },
+                level: 0,
+            }
+        }
+    }
+
     /// Whether the screen `monitor` is showing HDR now, as the system's display
     /// configuration says.
     pub(super) fn showing_hdr(monitor: Monitor) -> bool {
-        let Some(device) = device_name(monitor) else {
-            return false;
-        };
-        let Some((adapter, target)) = target_showing(&device) else {
+        let Some((adapter, target)) = screen_of(monitor) else {
             return false;
         };
         let mut info = AdvancedColor::of(adapter, target);
@@ -583,55 +631,84 @@ mod display {
         asked == 0 && info.value & ADVANCED_COLOR_ENABLED != 0
     }
 
-    /// The name GDI knows the screen `monitor` by, `\\.\DISPLAY1` and the like.
-    /// Whether the screen is the desktop's primary one, as the system says.
+    /// What the screen `monitor` calls white for plain SDR content, in
+    /// thousandths of 80 nits, or zero where the system has no answer.
+    pub(super) fn sdr_white(monitor: Monitor) -> u32 {
+        let Some((adapter, target)) = screen_of(monitor) else {
+            return 0;
+        };
+        let mut info = SdrWhite::of(adapter, target);
+        // SAFETY: as in `showing_hdr`: the header names the kind and size.
+        if unsafe { DisplayConfigGetDeviceInfo(&mut info.header) } != 0 {
+            return 0;
+        }
+        info.level
+    }
+
+    /// Whether the screen `monitor` is the desktop's primary one, as the system
+    /// says.
     pub(super) fn is_primary(monitor: Monitor) -> bool {
         const PRIMARY: u32 = 1;
-        let mut info = MonitorInfo {
-            size: size_of::<MonitorInfo>() as u32,
-            monitor: [0; 4],
-            work: [0; 4],
-            flags: 0,
-            device: [0; 32],
-        };
+        let mut info = MonitorInfo::empty();
         // SAFETY: the size is the structure's, which is what the call reads.
-        if unsafe { GetMonitorInfoW(monitor, &mut info) } == 0 {
+        if unsafe { GetMonitorInfoW(resolved(monitor), &mut info) } == 0 {
             return false;
         }
         info.flags & PRIMARY != 0
     }
 
+    /// The name GDI knows the screen `monitor` by, `\\.\DISPLAY1` and the like:
+    /// the one name a monitor handle and the display configuration share.
     pub(super) fn device_name(monitor: Monitor) -> Option<String> {
-        let mut info = MonitorInfo {
-            size: size_of::<MonitorInfo>() as u32,
-            monitor: [0; 4],
-            work: [0; 4],
-            flags: 0,
-            device: [0; 32],
-        };
+        let mut info = MonitorInfo::empty();
         // SAFETY: the size is the structure's, which is what the call reads.
-        if unsafe { GetMonitorInfoW(monitor, &mut info) } == 0 {
+        if unsafe { GetMonitorInfoW(resolved(monitor), &mut info) } == 0 {
             return None;
         }
-        Some(name(&info.device))
+        Some(name_of(&info.device))
     }
 
-    /// The adapter and target of the path showing the screen named `device`.
-    fn target_showing(device: &str) -> Option<(Luid, u32)> {
+    /// The screen a handle names, with the desktop's primary one standing in for
+    /// no handle at all: a share of "the screen" is the primary screen, which is
+    /// what a capture of it takes.
+    fn resolved(monitor: Monitor) -> Monitor {
+        if !monitor.is_null() {
+            return monitor;
+        }
+        // SAFETY: the primary screen is asked for, which needs no window.
+        unsafe { MonitorFromWindow(std::ptr::null_mut(), DEFAULT_TO_PRIMARY) }
+    }
+
+    /// The target — the screen itself, as distinct from what draws it — of the
+    /// path whose source is the screen `monitor`.
+    fn screen_of(monitor: Monitor) -> Option<(Luid, u32)> {
+        let device = device_name(monitor)?;
+        paths().into_iter().find_map(|path| {
+            let mut name = SourceName::of(path.source.adapter, path.source.id);
+            // SAFETY: the header names the structure's kind and its size, and
+            // the system writes nothing past it.
+            if unsafe { DisplayConfigGetDeviceInfo(&mut name.header) } != 0 {
+                return None;
+            }
+            (name_of(&name.gdi_name) == device).then_some((path.target.adapter, path.target.id))
+        })
+    }
+
+    /// Every path the desktop configuration has, one per screen that is on.
+    fn paths() -> Vec<Path> {
         let (mut paths, mut modes) = (0u32, 0u32);
         // SAFETY: it reads nothing; it only says how long the two arrays are.
         if unsafe { GetDisplayConfigBufferSizes(ONLY_ACTIVE_PATHS, &mut paths, &mut modes) } != 0 {
-            return None;
+            return Vec::new();
         }
-        // A path is the system's structure; only the adapter and target it
-        // names are read here.
         let mut path_array: Vec<Path> = (0..paths).map(|_| Path::empty()).collect();
         // The modes are what the call insists on a place for, and what this
         // never looks at: eight words are as long as one is.
         let mut mode_array = vec![0u64; modes as usize * 8];
-        let mut topology = 0u32;
         // SAFETY: both arrays are as long as the sizes the call asked for, and
-        // they outlive it.
+        // they outlive it. The topology it would write is asked for by no flag,
+        // and a place offered for it anyway is the whole call refused
+        // (ERROR_INVALID_PARAMETER) rather than the array filled.
         if unsafe {
             QueryDisplayConfig(
                 ONLY_ACTIVE_PATHS,
@@ -639,23 +716,14 @@ mod display {
                 path_array.as_mut_ptr(),
                 &mut modes,
                 mode_array.as_mut_ptr(),
-                &mut topology,
+                std::ptr::null_mut(),
             )
         } != 0
         {
-            return None;
+            return Vec::new();
         }
-        for path in path_array.iter().take(paths as usize) {
-            let mut name = TargetName::of(path.target.adapter, path.target.id);
-            // SAFETY: as in `showing_hdr`: the header names the kind and size.
-            if unsafe { DisplayConfigGetDeviceInfo(&mut name.header) } != 0 {
-                continue;
-            }
-            if name_of(&name.gdi_name) == device {
-                return Some((path.target.adapter, path.target.id));
-            }
-        }
-        None
+        path_array.truncate(paths as usize);
+        path_array
     }
 
     impl Path {
@@ -696,9 +764,16 @@ mod display {
         String::from_utf16_lossy(&units[..end])
     }
 
-    /// The same, from a GDI name whose array is the caller's.
-    fn name(units: &[u16]) -> String {
-        name_of(units)
+    impl MonitorInfo {
+        fn empty() -> Self {
+            Self {
+                size: size_of::<Self>() as u32,
+                monitor: [0; 4],
+                work: [0; 4],
+                flags: 0,
+                device: [0; 32],
+            }
+        }
     }
 }
 
@@ -1108,6 +1183,30 @@ mod tests {
         let tone = Tone::pq();
         let table = tone.table().expect("a curve");
         assert!(table.windows(2).all(|pair| pair[0] <= pair[1]), "{table:?}");
+    }
+
+    /// The system answers about a screen at all, which is what every HDR share
+    /// hangs on: the desktop configuration is asked by the name GDI gives the
+    /// screen, and a structure of the wrong shape — a size the system doesn't
+    /// know, a name field where none is — is answered with a refusal that reads
+    /// as "this screen shows SDR", which is a share of an HDR desktop sent out
+    /// over-bright with no curve over it at all.
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "needs a screen to ask the system about"]
+    fn the_system_answers_about_a_screen() {
+        // The primary screen, by the handle of none, which is what a share of
+        // "the screen" asks about.
+        let name = screen_name(0).expect("the primary screen's name");
+        assert!(
+            name.starts_with("DISPLAY"),
+            "the name the desktop gives a screen is the one its display settings show: {name}"
+        );
+        eprintln!(
+            "the primary screen is {name}, showing HDR: {}, SDR white: {} thousandths of 80 nits",
+            tone_of_screen(0).is_hdr(),
+            white_of_screen(0)
+        );
     }
 
     fn first(buffer: &dyn FrameBuffer) -> u8 {

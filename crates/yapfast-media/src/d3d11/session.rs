@@ -240,8 +240,8 @@ impl Surfaces {
 /// What a capture's textures hold, which is the one thing a session has to be
 /// told rather than shown: the 8-bit BGRA every screen's capture falls back to,
 /// or the half-float scRGB an HDR screen hands over, which never reaches the
-/// encoder as it is — the card's video processor tone-maps it into the BGRA the
-/// encoder registers, in the same blit that already scales the picture.
+/// encoder as it is — a pixel shader tone-maps it into the BGRA the encoder
+/// registers, in the same blit that already scales the picture.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Light {
     /// Eight-bit BGRA in sRGB's codes: a screen showing SDR, and the 8-bit
@@ -251,8 +251,11 @@ pub enum Light {
     Sdr,
     /// `R16G16B16A16_FLOAT` scRGB: linear light with BT.709's primaries and 1.0
     /// at 80 nits, which is what Windows Graphics Capture hands over for a
-    /// display showing HDR.
-    ScRgb,
+    /// display showing HDR. `white` is what that screen composites plain SDR
+    /// content at, in thousandths of 80 nits, as the system's display
+    /// configuration reports it: the divisor that puts the picture's greys where
+    /// the screen shows them. Zero is no answer, which the shim reads as 1000.
+    ScRgb { white: u32 },
 }
 
 impl Light {
@@ -260,15 +263,28 @@ impl Light {
     /// picture: a share asks its capture rather than the setting that asked for
     /// one, since a driver that refused the float picture hands over the 8-bit
     /// one instead.
-    pub fn of(hdr: bool) -> Self {
-        if hdr { Self::ScRgb } else { Self::Sdr }
+    pub fn of(hdr: bool, white: u32) -> Self {
+        if hdr {
+            Self::ScRgb { white }
+        } else {
+            Self::Sdr
+        }
     }
 
     /// The flag the shim opens a session with.
     pub(crate) fn hdr(self) -> c_int {
         match self {
             Self::Sdr => 0,
-            Self::ScRgb => 1,
+            Self::ScRgb { .. } => 1,
+        }
+    }
+
+    /// The screen's SDR white level, in thousandths of 80 nits, which is what
+    /// its tone map divides by.
+    pub(crate) fn white(self) -> c_uint {
+        match self {
+            Self::Sdr => 1000,
+            Self::ScRgb { white } => white,
         }
     }
 }
@@ -383,9 +399,9 @@ impl D3d11Encoder {
     ///
     /// `light` is what those surfaces hold, which is [`Light::of`] the capture's
     /// own answer rather than what the setting asked for: an HDR capture's
-    /// half-floats are tone-mapped on the card by the video processor this
-    /// session already scales with, and a session whose card won't is refused
-    /// here, before a frame is lost to it.
+    /// half-floats are tone-mapped on the card by the shader that scales them,
+    /// through the screen's own SDR white, and a session whose card won't is
+    /// refused here, before a frame is lost to it.
     ///
     // `device` is an opaque handle in the same sense [`Texture`] is: nothing in
     // this crate reads through it, it is handed to the shim, and the shim holds
@@ -420,6 +436,7 @@ impl D3d11Encoder {
                 kbps,
                 surfaces.held(),
                 light.hdr(),
+                light.white(),
                 std::ptr::null(),
                 report.as_mut_ptr().cast(),
                 report.len(),

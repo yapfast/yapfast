@@ -419,8 +419,8 @@ impl Capture {
 
     /// Whether the frames are the half-float scRGB picture an HDR screen hands
     /// over, rather than BGRA: what a caller that encodes them has to be told, so
-    /// that the encoder's video processor tone-maps them instead of reading the
-    /// linear light as if it were sRGB's.
+    /// that the shader scaling them tone-maps them instead of reading the linear
+    /// light as if it were sRGB's.
     ///
     /// It is what the pool took rather than what [`Capture::open_hdr`] asked for,
     /// so a driver that refused the float picture answers false here and says in

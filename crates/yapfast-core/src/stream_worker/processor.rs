@@ -264,14 +264,30 @@ pub(crate) struct Scratch {
 /// is. Nothing there reads a format either.
 /// What the display's setting is good for is the format a capture asks Windows
 /// for: the card's rung asks it exactly that, so a screen showing HDR is captured
-/// as the half-floats and tone-mapped by the encoder's video processor, where this
-/// returns a curve for a picture the processor captured in memory. Two questions
-/// about one answer, and only this one is about pixels.
+/// as the half-floats and tone-mapped on the card by the shader that scales them,
+/// where this returns a curve for a picture the processor captured in memory.
+/// Two questions about one answer, and only this one is about pixels.
 pub(crate) fn tone_of(source: &Source) -> Tone {
     match source {
+        // "The screen" is the primary one, which is the screen a capture of it
+        // takes: a monitor handle of nothing answers for that one.
+        Source::Screen => picture::tone_of_screen(0),
         Source::Display(monitor) => picture::tone_of_screen(*monitor),
         Source::Window(window) => picture::tone_of_window(*window),
         _ => Tone::SDR,
+    }
+}
+
+/// What the screen `source` is shown on calls white for SDR content, in
+/// thousandths of 80 nits, which is the divisor the card's tone map reads an HDR
+/// picture's linear light through. Zero where nothing is asked or nothing
+/// answers, which a tone map reads as 80 nits.
+pub(crate) fn white_of(source: &Source) -> u32 {
+    match source {
+        Source::Screen => picture::white_of_screen(0),
+        Source::Display(monitor) => picture::white_of_screen(*monitor),
+        Source::Window(window) => picture::white_of_window(*window),
+        _ => 0,
     }
 }
 

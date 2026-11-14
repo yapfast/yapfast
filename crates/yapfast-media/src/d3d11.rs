@@ -10,9 +10,9 @@
 //! it has to be a concrete format — BGRA, RGBA or NV12, and the half-float scRGB
 //! an HDR screen hands over where the session was opened for one
 //! ([`Light`]) — since the driver reads the surface's own format and refuses a
-//! typeless one. That last one is never registered: the card's video processor
-//! tone-maps it into BGRA in the blit that already scales the picture, so the
-//! encoder reads what it always read.
+//! typeless one. That last one is never registered: a pixel shader tone-maps it
+//! into BGRA in the pass that already scales the picture, so the encoder reads
+//! what it always read.
 //!
 //! The one copy is the bitstream: the driver's mapped output is moved into the
 //! caller's buffer once per frame, so a packet can outlive the encoder's lock.
@@ -30,8 +30,10 @@
 //! tile of it back at whatever size a preview asks for through one staging
 //! texture, so a preview costs that tile rather than the screen. Both stay on the
 //! GPU and go through the driver's video processor where it takes the texture,
-//! and through a pixel shader where it doesn't; [`D3d11Encoder::filter`] says
-//! which ran.
+//! and through a pixel shader where it doesn't — the half-float picture of an HDR
+//! screen is always the shader's, since the processor's colour-space conversion is
+//! a transfer curve with no white point and no shoulder in it;
+//! [`D3d11Encoder::filter`] says which ran.
 //!
 //! Wiring this into a stream needs a capture source that fills a texture on
 //! [`D3d11Encoder::device`] instead of handing over I420, or an encoder opened on
@@ -91,6 +93,7 @@ unsafe extern "C" {
         kbps: c_uint,
         surfaces: c_uint,
         hdr: c_int,
+        white: c_uint,
         tuning: *const c_char,
         report: *mut c_char,
         report_size: usize,

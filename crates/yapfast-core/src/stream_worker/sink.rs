@@ -76,6 +76,37 @@ pub(crate) enum Footage {
     Dmabuf,
 }
 
+/// What a share's captured pictures hold, as the encoder that reads them has to
+/// be told: whether they are the half-float scRGB an HDR screen hands over, and,
+/// where they are, what that screen composites plain SDR content at. The two
+/// travel together because they are the same answer — the display's — and only
+/// the screen itself has it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Light {
+    /// Whether the frames are the half-float scRGB picture rather than 8-bit
+    /// BGRA, which is a texture's format and not the display's setting: a card
+    /// that refused the float picture hands over the 8-bit one on an HDR screen.
+    pub(crate) hdr: bool,
+    /// What the screen calls SDR white, in thousandths of 80 nits, which is what
+    /// a tone map divides the picture's linear light by. Zero is no answer.
+    pub(crate) white: u32,
+}
+
+impl Light {
+    /// What a capture of `source` hands over, asked of the screen it is shown on.
+    pub(crate) fn of(source: &Source) -> Self {
+        let hdr = super::processor::tone_of(source).is_hdr();
+        Self {
+            hdr,
+            white: if hdr {
+                super::processor::white_of(source)
+            } else {
+                0
+            },
+        }
+    }
+}
+
 impl Sink {
     /// Takes a frame at the size it's sent: the preview shows it, scaled
     /// down to fit, while the UI shows a preview, and Discord gets it once
@@ -89,7 +120,8 @@ impl Sink {
         if self.footage != Footage::InMemory {
             return Ok(());
         }
-        let Some((pts, keyframe)) = self.ready((picture.width(), picture.height()), None, false)?
+        let Some((pts, keyframe)) =
+            self.ready((picture.width(), picture.height()), None, Light::default())?
         else {
             return Ok(());
         };
@@ -126,8 +158,8 @@ impl Sink {
     /// copy is the one this path makes of a frame, and [`Taken::Sent`] says which
     /// of the ways sent it.
     ///
-    /// `hdr` is the display's own answer about the screen these pictures come
-    /// from, which the card's kernels read the codes of a picture with: a screen
+    /// `light` is what the screen these pictures come from has to say about them,
+    /// which the card's kernels read the codes of a picture with: a screen
     /// showing HDR hands its frames over as HDR's codes. A picture the card's own
     /// path can't take while the screen shows HDR is the share's to answer with
     /// the capturer that has the curve, since nothing else here does.
@@ -137,9 +169,9 @@ impl Sink {
         shot: &Shot,
         sent: (u32, u32),
         scratch: &mut Scratch,
-        hdr: bool,
+        light: Light,
     ) -> Result<Taken> {
-        let Some((pts, keyframe)) = self.ready(sent, None, false)? else {
+        let Some((pts, keyframe)) = self.ready(sent, None, Light::default())? else {
             return Ok(Taken::Held);
         };
         let time_ms = u64::try_from(self.started.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -151,7 +183,7 @@ impl Sink {
             (
                 encoder.codec(),
                 encoder.bitrate(),
-                encoder.encode_dmabuf(shot, scratch, sent, pts, keyframe, time_ms, hdr)?,
+                encoder.encode_dmabuf(shot, scratch, sent, pts, keyframe, time_ms, light.hdr)?,
             )
         };
         let made = match made {
@@ -161,7 +193,7 @@ impl Sink {
             // colour: the share goes where the curve is rather than sending
             // HDR's codes as SDR. The loop says which picture it was, once.
             #[cfg(nvcuda)]
-            Sent::Card(why) if hdr => {
+            Sent::Card(why) if light.hdr => {
                 return Ok(Taken::Processor(format!(
                     "the screen shows HDR, and the card can't take a picture of it where it \
                      lies: {why}"
@@ -270,9 +302,9 @@ impl Sink {
         content: (u32, u32),
         size: (u32, u32),
         device: *mut c_void,
-        hdr: bool,
+        light: Light,
     ) -> Result<()> {
-        let Some((pts, keyframe)) = self.ready(size, Some(device), hdr)? else {
+        let Some((pts, keyframe)) = self.ready(size, Some(device), light)? else {
             return Ok(());
         };
         let video = self.video.as_mut().expect("ready has opened the stream");
@@ -297,8 +329,13 @@ impl Sink {
                         .is_some_and(|converter| converter.fits(content, size));
                     if !fits {
                         video.converter = Some(
-                            d3d11::Converter::new(device, content, size, d3d11::Light::of(hdr))
-                                .map_err(|error| anyhow::anyhow!("{error:#}"))?,
+                            d3d11::Converter::new(
+                                device,
+                                content,
+                                size,
+                                d3d11::Light::of(light.hdr, light.white),
+                            )
+                            .map_err(|error| anyhow::anyhow!("{error:#}"))?,
                         );
                     }
                     let converter = video.converter.as_mut().expect("made above");
@@ -490,10 +527,10 @@ impl Sink {
         &mut self,
         (width, height): (u32, u32),
         device: Option<*mut c_void>,
-        hdr: bool,
+        light: Light,
     ) -> Result<Option<(u64, bool)>> {
         if let Some(server) = self.server.take() {
-            let (offers, encoder) = self.offers(width, height, device, hdr)?;
+            let (offers, encoder) = self.offers(width, height, device, light)?;
             let sender = StreamSender::start(server, width, height, self.fps, offers)?;
             let sound = if self.sound {
                 stream_audio::Capture::start(sender.sound())
@@ -545,7 +582,7 @@ impl Sink {
             if let Some(video) = self.video.as_mut() {
                 video.encoder = None;
             }
-            let opened = self.encoder(codec, width, height, device, hdr);
+            let opened = self.encoder(codec, width, height, device, light);
             let video = self.video.as_mut().expect("checked above");
             match opened {
                 Ok(encoder) => {
@@ -785,7 +822,7 @@ impl Sink {
         width: u32,
         height: u32,
         device: Option<*mut c_void>,
-        hdr: bool,
+        light: Light,
     ) -> Result<(Vec<Codec>, Encoding)> {
         // The settings' codec is asked for first, so the encoder opened for the
         // stream is that codec's. H264 joins the probe only where the setting
@@ -800,14 +837,14 @@ impl Sink {
             .into_iter()
             .filter(|_| self.hardware)
         {
-            if let Ok(encoder) = self.open(codec, width, height, device, hdr) {
+            if let Ok(encoder) = self.open(codec, width, height, device, light) {
                 first = Some(encoder);
                 break;
             }
         }
         let encoder = match first {
             Some(encoder) => encoder,
-            None => self.open(stream_connection::SEND_CODEC, width, height, device, hdr)?,
+            None => self.open(stream_connection::SEND_CODEC, width, height, device, light)?,
         };
         let mut offers = match &encoder {
             // The codecs the session's driver encodes, which is what the card
@@ -823,7 +860,7 @@ impl Sink {
                     .copied()
                     .filter(|codec| self.hardware && *codec != encoder.codec())
                 {
-                    if self.open(codec, width, height, device, hdr).is_ok() {
+                    if self.open(codec, width, height, device, light).is_ok() {
                         offers.push(codec);
                     }
                 }
@@ -856,9 +893,9 @@ impl Sink {
         width: u32,
         height: u32,
         device: Option<*mut c_void>,
-        hdr: bool,
+        light: Light,
     ) -> Result<Encoding> {
-        let encoder = self.open(codec, width, height, device, hdr)?;
+        let encoder = self.open(codec, width, height, device, light)?;
         log_encoder(&encoder);
         Ok(encoder)
     }
@@ -873,7 +910,7 @@ impl Sink {
         width: u32,
         height: u32,
         _device: Option<*mut c_void>,
-        _hdr: bool,
+        _light: Light,
     ) -> Result<Encoding> {
         // Where the controller has got to, so an encoder opened mid-stream
         // starts at the rate the stream sends at; a stream's first encoder,
@@ -920,7 +957,7 @@ impl Sink {
                     self.fps,
                     aimed,
                     d3d11::Surfaces::Ring,
-                    d3d11::Light::of(_hdr),
+                    d3d11::Light::of(_light.hdr, _light.white),
                 )?))
             }
             // A picture the desktop's compositor drew is a descriptor the encoder
