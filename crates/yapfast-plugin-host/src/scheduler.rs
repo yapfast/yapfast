@@ -1436,14 +1436,24 @@ impl<B: Backend + 'static> Shared<B> {
                 let victim = victim.map(|(index, _)| index);
                 if let Some(victim) = victim {
                     // Reserve this drop too, so two workers cannot select the
-                    // same idle instance and count its room twice. The backend
-                    // drop still happens outside the lock in `evict`.
+                    // same idle instance and count its room twice. Keeping the
+                    // victim busy until the backend drop returns also stops its
+                    // queued work from activating a fresh instance that this
+                    // same drop could then take away. The backend call itself
+                    // still happens outside the lock in `evict`.
                     state.slots[victim].live = false;
+                    state.slots[victim].busy = true;
                 }
                 (state.budget_bytes, victim)
             };
             match victim {
-                Some(victim) => self.evict(victim),
+                Some(victim) => {
+                    self.evict(victim);
+                    lock(&self.state).slots[victim].busy = false;
+                    // Work that arrived while the drop was reserved may now
+                    // take the ordinary fresh-activation path.
+                    self.work.notify_all();
+                }
                 None => {
                     let fault = Fault {
                         kind: FaultKind::ActivateFailed,
@@ -2055,7 +2065,7 @@ struct Slot {
     background: VecDeque<Arc<Task>>,
     /// Whether it is in the rotation already.
     queued: bool,
-    /// Whether a worker holds it, 0 or 1, so it is never on two at once.
+    /// Whether a worker or an admission's in-progress eviction holds it, 0 or 1.
     busy: bool,
     /// Whether an instance is up, or an activation in progress has reserved its cap.
     live: bool,

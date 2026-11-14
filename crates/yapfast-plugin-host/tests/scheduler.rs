@@ -1121,6 +1121,77 @@ fn concurrent_activations_reserve_their_memory_before_entering_the_backend() {
     harness.finish();
 }
 
+/// Admission evicts a different slot without owning its task. The victim stays
+/// busy until that drop finishes, so work queued meanwhile cannot activate a
+/// fresh instance that the same in-flight drop could then take away.
+#[test]
+fn admission_holds_a_victim_until_its_drop_finishes() {
+    let harness = Harness::new(config(2));
+    let victim = plugin("victim");
+    let marker = plugin("marker");
+    let incoming = plugin("incoming");
+    harness.load(&victim, 1024);
+    harness.load(&marker, 1024);
+    harness.load(&incoming, 3072);
+    harness.live(&victim, 1);
+    harness.live(&marker, 2);
+
+    // The incoming 192 MiB needs the LRU victim's 64 MiB. Hold that drop at the
+    // backend, after admission has reserved it but before it can return.
+    harness.hold_drop(&victim);
+    harness.activate(&incoming, 3);
+    harness.wait_log("evict:com.example.victim");
+
+    // The other worker takes the marker only after skipping the busy victim.
+    // Without that reservation it takes the earlier victim job first and a
+    // second activation enters the backend while its first drop is still held.
+    harness.send(Message::Command {
+        id: 4,
+        plugin: victim.clone(),
+        command: command("after-drop"),
+    });
+    harness.send(Message::Command {
+        id: 5,
+        plugin: marker,
+        command: command("free-worker"),
+    });
+    harness.wait_for_reply(5);
+    let before_release = harness.log();
+    let early_activations = before_release
+        .iter()
+        .filter(|call| call.as_str() == "activate:com.example.victim")
+        .count();
+    harness.release_drop();
+    assert_eq!(
+        early_activations, 1,
+        "no fresh activation may enter before the old drop returns: {before_release:?}"
+    );
+
+    harness.wait_for_reply(3);
+    harness.wait_for_reply(4);
+    let log = harness.log();
+    let evicted = log
+        .iter()
+        .position(|call| call == "evict:com.example.victim")
+        .expect("the old instance was dropped");
+    let activations: Vec<usize> = log
+        .iter()
+        .enumerate()
+        .filter(|(_, call)| call.as_str() == "activate:com.example.victim")
+        .map(|(index, _)| index)
+        .collect();
+    assert_eq!(
+        activations.len(),
+        2,
+        "the queued work reactivates once: {log:?}"
+    );
+    assert!(
+        evicted < activations[1],
+        "the fresh activation follows the completed drop: {log:?}"
+    );
+    harness.finish();
+}
+
 /// The activation after a lower budget is refused with the budget the person
 /// set, and such a refusal is the helper's limit rather than the plugin's
 /// doing: it costs no strike, or three of them would suspend the plugin.
