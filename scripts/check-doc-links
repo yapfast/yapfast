@@ -12,7 +12,7 @@ def anchor(heading):
     return re.sub(r'[^\w\- ]', '', heading.strip().lower()).replace(' ', '-')
 
 
-documents = [ROOT / name for name in ('README.md', 'CLAUDE.md', 'CONTRIBUTING.md')]
+documents = [ROOT / name for name in ('README.md', 'AGENTS.md', 'CONTRIBUTING.md')]
 documents += sorted((ROOT / 'docs').rglob('*.md'))
 broken = []
 for document in documents:

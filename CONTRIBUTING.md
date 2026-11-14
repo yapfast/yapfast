@@ -72,7 +72,7 @@ linking an account against the fake. The comment at the top of
 With Nix, `scripts/ui-session` does the same on a private display, and adds
 screenshots and scripted input; run it with `--help`.
 
-A coding agent is fine. `CLAUDE.md` gives it these commands and rules, and
+A coding agent is fine. `AGENTS.md` gives it these commands and rules, and
 assumes Nix, so tell it if you don't use it. Read what it wrote and run the result
 before you open the pull request.
 
