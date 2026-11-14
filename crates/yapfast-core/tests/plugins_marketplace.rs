@@ -35,6 +35,7 @@ const THEME: &str = "dev.local.night";
 /// A theme's entry: `kind: "theme"`, pinned to its `theme.json`'s hash, with
 /// no permissions because a theme has no code.
 fn theme_entry(repository: &str, rev: &str, sha256: &str) -> String {
+    let repository = serde_json::to_string(repository).expect("a repository URL is a JSON string");
     format!(
         r#"{{
   "kind": "theme",
@@ -44,13 +45,13 @@ fn theme_entry(repository: &str, rev: &str, sha256: &str) -> String {
   "version": "1.0.0",
   "description": "Amber on black.",
   "authors": [],
-  "repo": "{repository}",
+  "repo": {repository},
   "path": "",
   "rev": "{rev}",
   "sha256": "{sha256}",
   "category": "Themes",
   "tags": [],
-  "source": "{repository}",
+  "source": {repository},
   "license": "MIT"
 }}"#
     )
@@ -76,6 +77,9 @@ fn manifest() -> String {
 
 /// An entry for that plugin, pinned to `rev` and to the module's hash.
 fn entry(repository: &str, rev: &str, sha256: &str) -> String {
+    let source = serde_json::to_string(&format!("{repository}#path=plugins/echo"))
+        .expect("a source URL is a JSON string");
+    let repository = serde_json::to_string(repository).expect("a repository URL is a JSON string");
     format!(
         r#"{{
   "api": 1,
@@ -84,13 +88,13 @@ fn entry(repository: &str, rev: &str, sha256: &str) -> String {
   "version": "0.1.0",
   "description": "Answers every message with what it read.",
   "authors": [],
-  "repo": "{repository}",
+  "repo": {repository},
   "path": "plugins/echo",
   "rev": "{rev}",
   "sha256": "{sha256}",
   "category": "Chat",
   "tags": ["test"],
-  "source": "{repository}#path=plugins/echo",
+  "source": {source},
   "license": "MIT",
   "icon": "icons/{ID}.webp",
   "permissions": {{ "capabilities": ["messages.read"], "network": [] }}
