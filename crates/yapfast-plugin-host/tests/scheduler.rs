@@ -1041,6 +1041,86 @@ fn work_arriving_with_a_conditional_drop_takes_the_ordinary_path() {
     harness.finish();
 }
 
+/// Two workers cannot both spend the same free memory: an admitted activation
+/// reserves its cap before entering the backend, so the other activation is
+/// refused instead of taking the combined live caps over the budget.
+#[test]
+fn concurrent_activations_reserve_their_memory_before_entering_the_backend() {
+    let harness = Harness::new(config(2));
+    let resident = plugin("resident");
+    let a = plugin("a");
+    let b = plugin("b");
+    for plugin in [&resident, &a, &b] {
+        harness.load(plugin, 2048);
+    }
+    // The resident's 128 MiB may not be evicted, leaving room for exactly one
+    // of the two 128 MiB activations under the default 256 MiB budget.
+    harness.live(&resident, 1);
+    harness.report(&resident, Wait::Call(7));
+    harness.hold(true);
+    harness.activate(&a, 2);
+    harness.activate(&b, 3);
+
+    // One activation reaches the fake backend and stays there. The other must
+    // answer with its refusal. If both reach the backend, the old unreserved
+    // admission bug has just let them spend the same 128 MiB twice.
+    let deadline = Instant::now() + PATIENCE;
+    loop {
+        let log = harness.log();
+        let activations = log
+            .iter()
+            .filter(|call| {
+                call.as_str() == "activate:com.example.a"
+                    || call.as_str() == "activate:com.example.b"
+            })
+            .count();
+        if activations == 2 {
+            harness.hold(false);
+            panic!("both activations entered the backend against one slot's room: {log:?}");
+        }
+        if activations == 1 && harness.reply_count() >= 2 {
+            break;
+        }
+        if Instant::now() >= deadline {
+            harness.hold(false);
+            panic!(
+                "one activation was not held while the other was refused: {:?} {:?}",
+                log,
+                harness.reports()
+            );
+        }
+        thread::sleep(Duration::from_millis(2));
+    }
+    harness.hold(false);
+    harness.wait_replies(3);
+
+    let log = harness.log();
+    assert!(
+        !log.contains(&"evict:com.example.resident".to_string()),
+        "{log:?}"
+    );
+    let mut refused: Vec<PluginId> = harness
+        .reports()
+        .into_iter()
+        .filter_map(|report| match report {
+            FromHelper::Fault { plugin, fault }
+                if (plugin == a || plugin == b) && fault.reason.contains("256 MiB") =>
+            {
+                Some(plugin)
+            }
+            _ => None,
+        })
+        .collect();
+    refused.sort();
+    refused.dedup();
+    assert_eq!(
+        refused.len(),
+        1,
+        "exactly one activation is refused: {log:?}"
+    );
+    harness.finish();
+}
+
 /// The activation after a lower budget is refused with the budget the person
 /// set, and such a refusal is the helper's limit rather than the plugin's
 /// doing: it costs no strike, or three of them would suspend the plugin.

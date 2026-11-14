@@ -1410,8 +1410,8 @@ impl<B: Backend + 'static> Shared<B> {
     fn admit(&self, slot: usize) -> bool {
         let wanted = u64::from(self.cap_pages(slot)) * PAGE_BYTES;
         loop {
-            let (used, budget, victim) = {
-                let state = lock(&self.state);
+            let (budget, victim) = {
+                let mut state = lock(&self.state);
                 let mut used = 0u64;
                 let mut victim: Option<(usize, Instant)> = None;
                 for (index, entry) in state.slots.iter().enumerate() {
@@ -1426,11 +1426,22 @@ impl<B: Backend + 'static> Shared<B> {
                         victim = Some((index, entry.last_call));
                     }
                 }
-                (used, state.budget_bytes, victim.map(|(index, _)| index))
+                if used + wanted <= state.budget_bytes {
+                    // Reserve the cap before the backend call. Another worker
+                    // admitting a different plugin must see it in `used` now,
+                    // not only after this activation returns.
+                    state.slots[slot].live = true;
+                    return true;
+                }
+                let victim = victim.map(|(index, _)| index);
+                if let Some(victim) = victim {
+                    // Reserve this drop too, so two workers cannot select the
+                    // same idle instance and count its room twice. The backend
+                    // drop still happens outside the lock in `evict`.
+                    state.slots[victim].live = false;
+                }
+                (state.budget_bytes, victim)
             };
-            if used + wanted <= budget {
-                return true;
-            }
             match victim {
                 Some(victim) => self.evict(victim),
                 None => {
@@ -2046,7 +2057,7 @@ struct Slot {
     queued: bool,
     /// Whether a worker holds it, 0 or 1, so it is never on two at once.
     busy: bool,
-    /// Whether an instance is up.
+    /// Whether an instance is up, or an activation in progress has reserved its cap.
     live: bool,
     /// The module in the runtime, once the parent has loaded it.
     loaded: Option<LoadSpec>,
