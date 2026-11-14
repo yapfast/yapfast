@@ -354,7 +354,8 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   field there, tinted as the row is while edited, with "escape to cancel •
   enter to save" under it, and the cursor after the text. Enter saves, Shift+Enter
   breaks the line, and Escape or the hint's cancel closes it, changing nothing.
-  The field takes `@` and `:name` suggestions and the emoji button's picker. It
+  The field takes `@` and `:name` suggestions and the emoji button's picker;
+  while suggestions show, Enter and Escape choose and close them instead. It
   is its own text, apart from the composer's draft and a reply being written,
   which stay as they were; one message is edited at a time. Saving text that
   is empty asks whether to delete the message, as Delete does, unless the
