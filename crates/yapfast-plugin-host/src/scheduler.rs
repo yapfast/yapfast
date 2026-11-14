@@ -107,6 +107,11 @@ pub struct Config {
     /// minutes in a real helper; a test sets a few milliseconds, since it can't
     /// wait for the real one.
     pub idle_after: Duration,
+    /// The helper's whole budget for plugin memory. [`limits::MAX_HELPER_BYTES`]
+    /// in a real helper, and the person's choice after a
+    /// [`Scheduler::set_limits`]; a test sets a smaller one where the real
+    /// budget would need more instances than the test has.
+    pub budget_bytes: u64,
 }
 
 impl Default for Config {
@@ -114,6 +119,7 @@ impl Default for Config {
         Config {
             workers: 0,
             idle_after: Duration::from_millis(limits::IDLE_EVICTION_MS),
+            budget_bytes: limits::MAX_HELPER_BYTES,
         }
     }
 }
@@ -238,7 +244,7 @@ impl<B: Backend + 'static> Scheduler<B> {
     /// Starts the workers and the watchdog around a backend.
     pub fn start(backend: B, outbox: Outbox, waker: Waker, config: Config) -> io::Result<Self> {
         let shared = Arc::new(Shared {
-            state: Mutex::new(State::new(config.idle_after)),
+            state: Mutex::new(State::new(config.idle_after, config.budget_bytes)),
             work: Condvar::new(),
             watch: Condvar::new(),
             backend,
@@ -305,6 +311,30 @@ impl<B: Backend + 'static> Scheduler<B> {
             .index
             .get(plugin)
             .map_or(0, |&slot| state.slots[slot].waiting.len())
+    }
+
+    /// Takes new limits: how long an instance may sit without a call, and the
+    /// helper's whole memory budget, both at once.
+    ///
+    /// A budget the live caps no longer fit evicts the least recently used
+    /// instances that may go, and only those: a busy instance, one a guest is
+    /// waiting on, one holding a timer or with work in its mailbox stays, and
+    /// the helper remains over budget rather than dropping it. The victims are
+    /// queued the way the parent's own `Evict` is, as work for a worker — this
+    /// runs on the pipe loop, which must never touch the runtime — and the
+    /// watchdog is woken, so a shorter idle is measured now rather than when
+    /// the old deadline would have come round.
+    pub fn set_limits(&self, idle_after: Duration, budget_bytes: u64) {
+        let victims = {
+            let mut state = lock(&self.shared.state);
+            state.idle_after = idle_after;
+            state.budget_bytes = budget_bytes;
+            state.over_budget()
+        };
+        self.shared.watch.notify_all();
+        for plugin in victims {
+            self.send(Message::Evict { plugin });
+        }
     }
 
     /// Stops the watchdog and the workers, dropping work that hasn't started.
@@ -1348,12 +1378,14 @@ impl<B: Backend + 'static> Shared<B> {
     }
 
     /// Whether one more instance of this plugin's cap fits in the helper's
-    /// budget. Over it, the least recently used idle instance is evicted; if
-    /// there is none, the activation is refused with a fault the parent shows.
+    /// budget — the live one, which the person may have lowered or raised with
+    /// [`Scheduler::set_limits`]. Over it, the least recently used idle
+    /// instance is evicted; if there is none, the activation is refused with a
+    /// fault the parent shows, naming the budget in force.
     fn admit(&self, slot: usize) -> bool {
         let wanted = u64::from(self.cap_pages(slot)) * PAGE_BYTES;
         loop {
-            let (used, victim) = {
+            let (used, budget, victim) = {
                 let state = lock(&self.state);
                 let mut used = 0u64;
                 let mut victim: Option<(usize, Instant)> = None;
@@ -1369,9 +1401,9 @@ impl<B: Backend + 'static> Shared<B> {
                         victim = Some((index, entry.last_call));
                     }
                 }
-                (used, victim.map(|(index, _)| index))
+                (used, state.budget_bytes, victim.map(|(index, _)| index))
             };
-            if used + wanted <= limits::MAX_HELPER_BYTES {
+            if used + wanted <= budget {
                 return true;
             }
             match victim {
@@ -1381,7 +1413,7 @@ impl<B: Backend + 'static> Shared<B> {
                         kind: FaultKind::ActivateFailed,
                         reason: format!(
                             "the helper's {} MiB of plugin memory is taken",
-                            limits::MAX_HELPER_BYTES >> 20
+                            budget >> 20
                         ),
                     };
                     // Full memory is the helper's limit, not this plugin's
@@ -2079,11 +2111,14 @@ struct State {
     running: Vec<Running>,
     serial: u64,
     idle_after: Duration,
+    /// The helper's whole budget for plugin memory, in bytes: what admission
+    /// and eviction hold the live caps against.
+    budget_bytes: u64,
     stopping: bool,
 }
 
 impl State {
-    fn new(idle_after: Duration) -> Self {
+    fn new(idle_after: Duration, budget_bytes: u64) -> Self {
         State {
             slots: Vec::new(),
             index: HashMap::new(),
@@ -2091,8 +2126,41 @@ impl State {
             running: Vec::with_capacity(2),
             serial: 0,
             idle_after,
+            budget_bytes,
             stopping: false,
         }
+    }
+
+    /// The instances a lower budget has no room for, least recently used first,
+    /// and only those that may go.
+    ///
+    /// The eligibility is the one admission's victims have: a busy instance,
+    /// one a guest is waiting on, one holding a timer or with work in its
+    /// mailbox is not dropped to meet a number, and the helper stays over
+    /// budget for as long as only such instances are in the way.
+    fn over_budget(&self) -> Vec<PluginId> {
+        let cap = |slot: &Slot| u64::from(slot.memory_pages) * PAGE_BYTES;
+        let mut used: u64 = self.slots.iter().filter(|slot| slot.live).map(cap).sum();
+        let mut victims = Vec::new();
+        let mut taken = vec![false; self.slots.len()];
+        while used > self.budget_bytes {
+            let victim = self
+                .slots
+                .iter()
+                .enumerate()
+                .filter(|(index, slot)| {
+                    slot.live && !taken[*index] && !slot.busy && slot.unheld() && !slot.has_work()
+                })
+                .min_by_key(|(_, slot)| slot.last_call)
+                .map(|(index, slot)| (index, cap(slot)));
+            let Some((index, bytes)) = victim else {
+                break;
+            };
+            taken[index] = true;
+            used -= bytes;
+            victims.push((*self.slots[index].id).clone());
+        }
+        victims
     }
 
     /// The slot for a plugin, making one if it is new.

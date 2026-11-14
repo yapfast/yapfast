@@ -103,6 +103,17 @@ pub struct Activation {
 pub enum ToHelper {
     /// The first frame: which API this parent speaks.
     Hello { api: u32 },
+    /// What the person allows the helper: its whole memory budget and how long
+    /// an instance may sit without a call before it is evicted, as
+    /// [`crate::limits::Limits`] names them.
+    ///
+    /// It is sent once after [`FromHelper::Ready`] and again whenever the
+    /// person changes either number, with frame id `0` and no answer: the
+    /// helper applies what it is given and says nothing. Both fields are meant
+    /// to be [`crate::limits::MEMORY_BUDGETS`] and [`crate::limits::IDLE_MINUTES`]
+    /// steps, and one that isn't is snapped to the nearest step rather than
+    /// refused.
+    Limits { memory_mib: u32, idle_minutes: u32 },
     /// Load a module and its limits, without activating it.
     Load {
         plugin: PluginId,
@@ -544,6 +555,20 @@ mod tests {
         let text = serde_json::to_string(&hello).unwrap();
         assert_eq!(text, "{\"t\":\"hello\",\"api\":1}");
         assert_eq!(serde_json::from_str::<ToHelper>(&text).unwrap(), hello);
+    }
+
+    #[test]
+    fn a_limits_frame_round_trips() {
+        let limits = ToHelper::Limits {
+            memory_mib: 128,
+            idle_minutes: 1,
+        };
+        let text = serde_json::to_string(&limits).unwrap();
+        assert_eq!(
+            text,
+            "{\"t\":\"limits\",\"memory_mib\":128,\"idle_minutes\":1}"
+        );
+        assert_eq!(serde_json::from_str::<ToHelper>(&text).unwrap(), limits);
     }
 
     #[test]

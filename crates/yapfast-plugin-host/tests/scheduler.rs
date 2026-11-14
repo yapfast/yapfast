@@ -16,9 +16,10 @@ use yapfast_plugin_api::call::{CommandInvocation, CommandOutcome, HostReturn};
 use yapfast_plugin_api::event::{EventEnvelope, EventKind, Network, TopicEvent};
 use yapfast_plugin_api::frame::{Frame, FrameKind, read_frame};
 use yapfast_plugin_api::hook::{Draft, HookKind, HookOutcome, HookRequest, HookSubject};
-use yapfast_plugin_api::message::{Fault, FaultKind, FromHelper, PluginStatus};
+use yapfast_plugin_api::message::{Fault, FaultKind, FromHelper, PluginStatus, ToHelper};
 
 use yapfast_plugin_host::backend::{Backend, CancelToken, LoadSpec, Wait, Waits};
+use yapfast_plugin_host::host::apply_limits;
 use yapfast_plugin_host::pipe::{Pipe, Signal};
 use yapfast_plugin_host::scheduler::{Config, Message, Scheduler};
 
@@ -486,6 +487,7 @@ fn idle_eviction_leaves_an_instance_holding_a_timer() {
     let harness = Harness::new(Config {
         workers: 1,
         idle_after: Duration::from_millis(40),
+        budget_bytes: yapfast_plugin_api::limits::MAX_HELPER_BYTES,
     });
     let a = plugin("a");
     let b = plugin("b");
@@ -530,6 +532,7 @@ fn a_plugin_waiting_for_an_answer_is_not_idle() {
     let harness = Harness::new(Config {
         workers: 1,
         idle_after: Duration::from_millis(40),
+        budget_bytes: yapfast_plugin_api::limits::MAX_HELPER_BYTES,
     });
     let a = plugin("a");
     harness.load(&a, 256);
@@ -635,6 +638,238 @@ fn going_over_the_memory_budget_evicts_the_least_recently_used() {
     harness.finish();
 }
 
+/// A lower budget makes room by evicting the least recently used instances,
+/// and exactly as many as the budget needs.
+#[test]
+fn lowering_the_budget_evicts_the_least_recently_used_and_only_those() {
+    let harness = Harness::new(config(1));
+    let plugins: Vec<PluginId> = ["a", "b", "c", "d"]
+        .iter()
+        .map(|name| plugin(name))
+        .collect();
+    // Four maximum-cap instances are 256 MiB, the whole starting budget; the
+    // 128 MiB this is lowered to leaves room for two of them.
+    for (index, name) in plugins.iter().enumerate() {
+        harness.load(name, 1024);
+        harness.live(name, index as u64 + 1);
+    }
+
+    harness.scheduler.set_limits(
+        Duration::from_millis(yapfast_plugin_api::limits::IDLE_EVICTION_MS),
+        128 << 20,
+    );
+
+    harness.wait_log("evict:com.example.a");
+    harness.wait_log("evict:com.example.b");
+    // c answers a command, which both settles the evictions and says the
+    // newest two instances were left alone.
+    harness.send(Message::Command {
+        id: 5,
+        plugin: plugins[2].clone(),
+        command: command("still-here"),
+    });
+    harness.wait_log("command:com.example.c:still-here");
+    let log = harness.log();
+    assert!(!log.contains(&"evict:com.example.c".to_string()), "{log:?}");
+    assert!(!log.contains(&"evict:com.example.d".to_string()), "{log:?}");
+    harness.finish();
+}
+
+/// A budget lowered below what the live caps need evicts only what may go: an
+/// instance a guest is waiting on, or one holding a timer, stays even when
+/// that leaves the helper over budget.
+#[test]
+fn a_held_instance_survives_a_lower_budget_and_the_helper_stays_over() {
+    let harness = Harness::new(config(1));
+    let plugins: Vec<PluginId> = ["a", "b", "c", "d"]
+        .iter()
+        .map(|name| plugin(name))
+        .collect();
+    for (index, name) in plugins.iter().enumerate() {
+        harness.load(name, 1024);
+        harness.live(name, index as u64 + 1);
+    }
+    // b waits on an answer, c on a timer, d on an answer of its own: only the
+    // oldest instance is one the budget may take.
+    harness.report(&plugins[1], Wait::Call(7));
+    harness.report(&plugins[2], Wait::Timer(true));
+    harness.report(&plugins[3], Wait::Call(8));
+
+    harness.scheduler.set_limits(
+        Duration::from_millis(yapfast_plugin_api::limits::IDLE_EVICTION_MS),
+        128 << 20,
+    );
+
+    harness.wait_log("evict:com.example.a");
+    let log = harness.log();
+    for name in ["b", "c", "d"] {
+        assert!(
+            !log.contains(&format!("evict:com.example.{name}")),
+            "an instance that is held is not evicted: {log:?}"
+        );
+    }
+    // 192 MiB of held caps remain against a 128 MiB budget: the helper stays
+    // over rather than dropping an instance a guest is waiting on.
+    assert_eq!(harness.scheduler.waiting(&plugins[1]), 1, "the hold stands");
+    assert_eq!(harness.scheduler.waiting(&plugins[3]), 1, "the hold stands");
+    harness.finish();
+}
+
+/// The activation after a lower budget is refused with the budget the person
+/// set, and such a refusal is the helper's limit rather than the plugin's
+/// doing: it costs no strike, or three of them would suspend the plugin.
+#[test]
+fn an_activation_refused_by_a_lower_budget_names_it_and_costs_no_strike() {
+    let harness = Harness::new(config(1));
+    let a = plugin("a");
+    let b = plugin("b");
+    let c = plugin("c");
+    harness.load(&a, 1024);
+    harness.load(&b, 1024);
+    harness.live(&a, 1);
+    harness.live(&b, 2);
+    // Both are held, so a 128 MiB budget takes nothing from them and leaves no
+    // room for a third maximum-cap instance.
+    harness.report(&a, Wait::Call(7));
+    harness.report(&b, Wait::Timer(true));
+    harness.scheduler.set_limits(
+        Duration::from_millis(yapfast_plugin_api::limits::IDLE_EVICTION_MS),
+        128 << 20,
+    );
+    harness.load(&c, 1024);
+
+    for id in 10u64..13 {
+        harness.activate(&c, id);
+    }
+    for id in 10u64..13 {
+        harness.wait_for_reply(id);
+    }
+    let reports = harness.reports();
+    let refusals: Vec<&Fault> = reports
+        .iter()
+        .filter_map(|report| match report {
+            FromHelper::Fault { plugin, fault } if *plugin == c => Some(fault),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        refusals.len() >= 3,
+        "every refused activation is a fault of its own: {reports:?}"
+    );
+    for fault in refusals {
+        assert!(
+            fault.reason.contains("128 MiB") && !fault.reason.contains("256 MiB"),
+            "the refusal names the budget in force, not the default: {fault:?}"
+        );
+    }
+    assert!(
+        !reports.iter().any(|report| matches!(
+            report,
+            FromHelper::Status {
+                status: PluginStatus::Suspended { .. },
+                ..
+            }
+        )),
+        "a refusal that is the helper's limit adds no strike: {reports:?}"
+    );
+    harness.finish();
+}
+
+/// A shorter idle timeout applies to instances that have already run out the
+/// old one: `set_limits` wakes the watchdog rather than leaving it to the
+/// deadline it was given.
+#[test]
+fn shortening_the_idle_timeout_evicts_an_already_expired_instance() {
+    let harness = Harness::new(config(1));
+    let a = plugin("a");
+    harness.load(&a, 256);
+    harness.live(&a, 1);
+    // Past the millisecond about to be set, and nowhere near the five minutes
+    // the watchdog is sleeping on.
+    thread::sleep(Duration::from_millis(50));
+    harness.scheduler.set_limits(
+        Duration::from_millis(1),
+        yapfast_plugin_api::limits::MAX_HELPER_BYTES,
+    );
+
+    // PATIENCE is five seconds, far inside the five-minute deadline the
+    // watchdog would otherwise wait out: this waits on the wake.
+    harness.wait_log("evict:com.example.a");
+    harness.finish();
+}
+
+/// Raising the budget makes room; it takes nothing away.
+#[test]
+fn raising_the_budget_evicts_nothing() {
+    let harness = Harness::new(config(1));
+    let plugins: Vec<PluginId> = ["a", "b", "c"].iter().map(|name| plugin(name)).collect();
+    for (index, name) in plugins.iter().enumerate() {
+        harness.load(name, 1024);
+        harness.live(name, index as u64 + 1);
+    }
+    // 192 MiB of caps against 1024 MiB: nothing has to go, and nothing does.
+    harness.scheduler.set_limits(
+        Duration::from_millis(yapfast_plugin_api::limits::IDLE_EVICTION_MS),
+        1024 << 20,
+    );
+    for (id, name) in [(10u64, &plugins[0]), (11, &plugins[1]), (12, &plugins[2])] {
+        harness.send(Message::Command {
+            id,
+            plugin: name.clone(),
+            command: command("still-here"),
+        });
+    }
+    harness.wait_log("command:com.example.c:still-here");
+    assert!(!harness.saw_log("evict:"), "{:?}", harness.log());
+    harness.finish();
+}
+
+/// The dispatch arm for `ToHelper::Limits` snaps whatever the frame carries,
+/// so a zero or a number past every step is a rounding question rather than a
+/// budget that empties the helper.
+#[test]
+fn dispatch_snaps_off_step_limits_rather_than_emptying_the_helper() {
+    let harness = Harness::new(config(1));
+    let a = plugin("a");
+    let b = plugin("b");
+    // Two maximum-cap instances: 128 MiB against the 256 MiB the helper starts
+    // with, and exactly what the smallest snapped budget allows.
+    harness.load(&a, 1024);
+    harness.load(&b, 1024);
+    harness.live(&a, 1);
+    harness.live(&b, 2);
+
+    for wire in [
+        r#"{"t":"limits","memory_mib":0,"idle_minutes":0}"#,
+        r#"{"t":"limits","memory_mib":300,"idle_minutes":3}"#,
+        r#"{"t":"limits","memory_mib":4294967295,"idle_minutes":4294967295}"#,
+    ] {
+        let request: ToHelper = serde_json::from_str(wire).expect("a limits frame decodes");
+        let ToHelper::Limits {
+            memory_mib,
+            idle_minutes,
+        } = request
+        else {
+            panic!("`{wire}` decodes to a limits frame");
+        };
+        // The arm of `host::dispatch`, run as the pipe loop runs it.
+        apply_limits(&harness.scheduler, memory_mib, idle_minutes);
+    }
+
+    // A budget of zero bytes would evict both; the snapped budgets are 128,
+    // 256 and 1024 MiB, and both instances fit even the smallest.
+    for (id, name) in [(3u64, &a), (4, &b)] {
+        harness.send(Message::Command {
+            id,
+            plugin: name.clone(),
+            command: command("still-here"),
+        });
+    }
+    harness.wait_log("command:com.example.b:still-here");
+    assert!(!harness.saw_log("evict:"), "{:?}", harness.log());
+    harness.finish();
+}
+
 // What a test drives, and what it watches.
 
 /// A worker count, or the machine's own shape when zero.
@@ -642,6 +877,7 @@ fn config(workers: usize) -> Config {
     Config {
         workers,
         idle_after: Duration::from_millis(yapfast_plugin_api::limits::IDLE_EVICTION_MS),
+        budget_bytes: yapfast_plugin_api::limits::MAX_HELPER_BYTES,
     }
 }
 

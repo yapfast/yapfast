@@ -17,9 +17,10 @@ use tracing::warn;
 
 use yapfast_plugin_api::API_VERSION;
 use yapfast_plugin_api::frame::{Frame, FrameKind};
+use yapfast_plugin_api::limits::Limits;
 use yapfast_plugin_api::message::{FromHelper, ToHelper};
 
-use crate::backend::LoadSpec;
+use crate::backend::{Backend, LoadSpec};
 use crate::pipe::{Pipe, Signal};
 use crate::runtime::ExtismBackend;
 use crate::scheduler::{Config, Message, Scheduler};
@@ -179,6 +180,13 @@ fn dispatch(
     };
     match request {
         ToHelper::Hello { api } => hello(pipe, api, frame.id),
+        ToHelper::Limits {
+            memory_mib,
+            idle_minutes,
+        } => {
+            apply_limits(scheduler, memory_mib, idle_minutes);
+            After::Continue
+        }
         ToHelper::Load {
             plugin,
             wasm,
@@ -323,6 +331,26 @@ fn dispatch(
             reason: "Yapfast asked the helper to exit".into(),
         })),
     }
+}
+
+/// What dispatch does with a [`ToHelper::Limits`], and the one place the
+/// helper turns its two numbers into a budget and a timeout.
+///
+/// Both are snapped to the steps the settings offer: a frame can carry any
+/// number, and one off the list is a rounding question rather than a reason to
+/// empty the helper over a budget of zero bytes. Public so the scheduler tests
+/// drive the same path the pipe's frames take.
+pub fn apply_limits<B: Backend + 'static>(
+    scheduler: &Scheduler<B>,
+    memory_mib: u32,
+    idle_minutes: u32,
+) {
+    let limits = Limits {
+        memory_mib,
+        idle_minutes,
+    }
+    .snapped();
+    scheduler.set_limits(limits.idle_after(), limits.bytes());
 }
 
 /// Answers the parent's opening frame with what this helper speaks.
