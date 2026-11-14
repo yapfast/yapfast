@@ -447,8 +447,13 @@ fn locate() -> PathBuf {
         );
         return named;
     }
+    let name = if cfg!(windows) {
+        "yapfast-plugins.exe"
+    } else {
+        "yapfast-plugins"
+    };
     let directory = profile();
-    let beside = directory.join("yapfast-plugins");
+    let beside = directory.join(name);
     assert!(beside.is_file(), "{}", missing(&directory));
     beside
 }
