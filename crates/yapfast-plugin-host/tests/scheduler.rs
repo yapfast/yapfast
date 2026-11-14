@@ -715,6 +715,75 @@ fn a_held_instance_survives_a_lower_budget_and_the_helper_stays_over() {
     harness.finish();
 }
 
+/// A lower budget chooses its victims before any worker can carry the
+/// evictions out, and the world moves in between: a guest can leave an
+/// instance waiting, the parent can queue it work. The victims are checked
+/// again where the drop happens, so what arrived after the choice keeps its
+/// instance; the one nothing arrived for is still dropped.
+#[test]
+fn a_lower_budget_rechecks_its_victims_before_dropping_them() {
+    let harness = Harness::new(config(1));
+    let plugins: Vec<PluginId> = ["a", "b", "c", "d"]
+        .iter()
+        .map(|name| plugin(name))
+        .collect();
+    // Four maximum-cap instances are 256 MiB, the whole starting budget.
+    for (index, name) in plugins.iter().enumerate() {
+        harness.load(name, 1024);
+        harness.live(name, index as u64 + 1);
+    }
+
+    // The only worker is held inside d's call, so nothing a lower budget
+    // queues can run until the test says so. d is busy, which is also what
+    // keeps it off the victims: a, b and c are the least recently used.
+    harness.hold(true);
+    harness.send(Message::Command {
+        id: 5,
+        plugin: plugins[3].clone(),
+        command: command("blocker"),
+    });
+    harness.wait_log("command:com.example.d:blocker");
+
+    // 64 MiB against 256 MiB of caps: room for one instance, so the budget
+    // takes the three oldest.
+    harness.scheduler.set_limits(
+        Duration::from_millis(yapfast_plugin_api::limits::IDLE_EVICTION_MS),
+        64 << 20,
+    );
+
+    // The victims are chosen and queued, and now the world moves: a is left
+    // waiting by a guest, and b is given work of its own.
+    harness.report(&plugins[0], Wait::Call(7));
+    harness.send(Message::Command {
+        id: 6,
+        plugin: plugins[1].clone(),
+        command: command("arrived-later"),
+    });
+    harness.hold(false);
+
+    // b's work runs — it was queued behind b's eviction and must outlive it —
+    // and only the one victim nothing arrived for is dropped.
+    harness.wait_for_reply(6);
+    harness.wait_log("evict:com.example.c");
+    let log = harness.log();
+    let evicted: Vec<&str> = log
+        .iter()
+        .filter(|call| call.starts_with("evict:"))
+        .map(|call| call.as_str())
+        .collect();
+    assert_eq!(
+        evicted,
+        ["evict:com.example.c"],
+        "a hold or work arriving after the victims were chosen keeps the instance: {log:?}"
+    );
+    assert_eq!(
+        harness.scheduler.waiting(&plugins[0]),
+        1,
+        "the hold a guest left stands"
+    );
+    harness.finish();
+}
+
 /// The activation after a lower budget is refused with the budget the person
 /// set, and such a refusal is the helper's limit rather than the plugin's
 /// doing: it costs no strike, or three of them would suspend the plugin.

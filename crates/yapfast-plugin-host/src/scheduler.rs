@@ -320,10 +320,14 @@ impl<B: Backend + 'static> Scheduler<B> {
     /// instances that may go, and only those: a busy instance, one a guest is
     /// waiting on, one holding a timer or with work in its mailbox stays, and
     /// the helper remains over budget rather than dropping it. The victims are
-    /// queued the way the parent's own `Evict` is, as work for a worker — this
-    /// runs on the pipe loop, which must never touch the runtime — and the
-    /// watchdog is woken, so a shorter idle is measured now rather than when
-    /// the old deadline would have come round.
+    /// queued as conditional work for a worker — this runs on the pipe loop,
+    /// which must never touch the runtime — and each one is checked again
+    /// before it is dropped: work or a hold that arrived after the victim was
+    /// chosen keeps the instance, because the choice was made under this lock
+    /// and carried out later. The parent's own `Evict` is a different thing and
+    /// stays unconditional: it is the parent saying the instance goes now.
+    /// The watchdog is woken too, so a shorter idle is measured now rather than
+    /// when the old deadline would have come round.
     pub fn set_limits(&self, idle_after: Duration, budget_bytes: u64) {
         let victims = {
             let mut state = lock(&self.shared.state);
@@ -333,7 +337,7 @@ impl<B: Backend + 'static> Scheduler<B> {
         };
         self.shared.watch.notify_all();
         for plugin in victims {
-            self.send(Message::Evict { plugin });
+            self.shared.evict_for_limits(&plugin);
         }
     }
 
@@ -678,6 +682,21 @@ impl<B: Backend + 'static> Shared<B> {
         self.work.notify_all();
     }
 
+    /// Queues the eviction a lowered budget wants, as work for a worker.
+    ///
+    /// The same mailbox and lane the parent's own `Evict` takes, but a job that
+    /// is conditional: the victims were chosen under the state lock and a
+    /// worker carries the drop out later, so the worker is the one that sees
+    /// whether the instance may still go. This runs on the pipe loop, which
+    /// must never touch the runtime.
+    fn evict_for_limits(&self, plugin: &PluginId) {
+        let mut state = lock(&self.state);
+        let slot = state.slot_for(plugin);
+        state.push(slot, Lane::Interactive, 0, Job::EvictIfIdle);
+        drop(state);
+        self.work.notify_all();
+    }
+
     /// Records what a guest left a plugin waiting on.
     ///
     /// The runtime calls this from the thread running the guest, which is why
@@ -704,6 +723,14 @@ impl<B: Backend + 'static> Shared<B> {
             Job::Evict => {
                 let slot = task.owner();
                 if self.is_live(slot) {
+                    self.evict(slot);
+                }
+            }
+            // A lowered budget's victim, checked against the world as it is
+            // now rather than as it was when the victim was chosen.
+            Job::EvictIfIdle => {
+                let slot = task.owner();
+                if self.may_evict_for_limits(slot) {
                     self.evict(slot);
                 }
             }
@@ -1435,6 +1462,23 @@ impl<B: Backend + 'static> Shared<B> {
         }
     }
 
+    /// Whether a lowered budget may still take this instance: live, with
+    /// nothing a guest is waiting on and no work in its mailbox.
+    ///
+    /// This is the check [`State::over_budget`] made when it chose the victim,
+    /// made again where the drop happens. The task asking holds its plugin
+    /// busy by its own claim and has taken itself out of the mailbox already,
+    /// so neither says anything here; what this sees is what arrived since the
+    /// choice — a host call a guest is now waiting on, a timer, work queued
+    /// behind this very task — and each of those keeps the instance. Work that
+    /// ran and left no hold and no queue behind it doesn't: the instance is as
+    /// idle as the choice found it.
+    fn may_evict_for_limits(&self, slot: usize) -> bool {
+        let state = lock(&self.state);
+        let entry = &state.slots[slot];
+        entry.live && entry.unheld() && !entry.has_work()
+    }
+
     /// Drops an instance because it has been idle, which is how its guest
     /// memory comes back: WebAssembly can't shrink.
     fn evict(&self, slot: usize) {
@@ -1641,11 +1685,12 @@ impl<B: Backend + 'static> Shared<B> {
                     },
                 );
             }
-            // Nothing answers an input, a load, an unload, a tick or an answer:
-            // there is no one waiting on any of them.
+            // Nothing answers an input, a load, an unload, a tick, an eviction
+            // or an answer: there is no one waiting on any of them.
             Job::Load(_)
             | Job::Unload
             | Job::Evict
+            | Job::EvictIfIdle
             | Job::Kick
             | Job::Input { .. }
             | Job::Return { .. } => {}
@@ -1882,6 +1927,9 @@ enum Job {
     Load(LoadSpec),
     Unload,
     Evict,
+    /// A lowered budget's eviction, dropped only if the instance is still one
+    /// the budget may take when a worker reaches it.
+    EvictIfIdle,
     Activate,
     Deactivate,
     Kick,
@@ -2137,7 +2185,9 @@ impl State {
     /// The eligibility is the one admission's victims have: a busy instance,
     /// one a guest is waiting on, one holding a timer or with work in its
     /// mailbox is not dropped to meet a number, and the helper stays over
-    /// budget for as long as only such instances are in the way.
+    /// budget for as long as only such instances are in the way. The choice is
+    /// one moment's view, and a worker checks each victim again before
+    /// dropping it: the world can move between here and there.
     fn over_budget(&self) -> Vec<PluginId> {
         let cap = |slot: &Slot| u64::from(slot.memory_pages) * PAGE_BYTES;
         let mut used: u64 = self.slots.iter().filter(|slot| slot.live).map(cap).sum();
