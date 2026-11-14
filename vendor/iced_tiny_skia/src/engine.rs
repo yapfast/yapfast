@@ -9,6 +9,8 @@ use crate::text;
 #[derive(Debug)]
 pub struct Engine {
     text_pipeline: text::Pipeline,
+    /// Yapfast port (patch 17): shadows worked out lately, by their shape.
+    shadows: Vec<(ShadowKey, tiny_skia::Pixmap)>,
 
     #[cfg(feature = "image")]
     pub(crate) raster_pipeline: crate::raster::Pipeline,
@@ -20,6 +22,7 @@ impl Engine {
     pub fn new() -> Self {
         Self {
             text_pipeline: text::Pipeline::new(),
+            shadows: Vec::new(),
             #[cfg(feature = "image")]
             raster_pipeline: crate::raster::Pipeline::new(),
             #[cfg(feature = "svg")]
@@ -206,74 +209,87 @@ impl Engine {
                 .into_iter()
                 .map(|radius| radius * transformation.scale_factor())
                 .collect::<Vec<_>>();
-            let half_width = physical_bounds.width / 2.0;
-            let half_height = physical_bounds.height / 2.0;
-
-            for shadow_bounds in bands {
-            if shadow_bounds.width < 1.0 || shadow_bounds.height < 1.0 {
-                continue;
-            }
-            let (x, y, width, height) = (
-                shadow_bounds.x as u32,
-                shadow_bounds.y as u32,
-                shadow_bounds.width as u32,
-                shadow_bounds.height as u32,
+            // Yapfast port (patch 17): a small shadow is worked out once for
+            // its whole reach, kept by its shape (size, place within a
+            // pixel, corners, blur, offset, colour), and each band is a
+            // copy from it. The hover bar moving with a scroll had every
+            // pixel of its shadow worked out again each frame.
+            let origin = (reach.x.floor(), reach.y.floor());
+            let key = ShadowKey::new(
+                physical_bounds,
+                origin,
+                (
+                    (reach.x + reach.width).ceil() - origin.0,
+                    (reach.y + reach.height).ceil() - origin.1,
+                ),
+                &radii,
+                shadow,
+                transformation.scale_factor(),
             );
-
-            let colors = (y..y + height)
-                .flat_map(|y| (x..x + width).map(move |x| (x as f32, y as f32)))
-                .filter_map(|(x, y)| {
-                    tiny_skia::Size::from_wh(half_width, half_height).map(
-                        |size| {
-                            let shadow_distance = rounded_box_sdf(
-                                Vector::new(
-                                    x - physical_bounds.position().x
-                                        - (shadow.offset.x
-                                            * transformation.scale_factor())
-                                        - half_width,
-                                    y - physical_bounds.position().y
-                                        - (shadow.offset.y
-                                            * transformation.scale_factor())
-                                        - half_height,
-                                ),
-                                size,
-                                &radii,
-                            )
-                            .max(0.0);
-                            let shadow_alpha = 1.0
-                                - smoothstep(
-                                    -shadow.blur_radius
-                                        * transformation.scale_factor(),
-                                    shadow.blur_radius
-                                        * transformation.scale_factor(),
-                                    shadow_distance,
-                                );
-
-                            let mut color = into_color(shadow.color);
-                            color.apply_opacity(shadow_alpha);
-
-                            color.to_color_u8().premultiply()
-                        },
-                    )
-                })
-                .collect();
-
-            if let Some(pixmap) = tiny_skia::IntSize::from_wh(width, height)
-                .and_then(|size| {
-                    tiny_skia::Pixmap::from_vec(
-                        bytemuck::cast_vec(colors),
-                        size,
-                    )
-                })
-            {
-                pixels.draw_pixmap(
-                    x as i32,
-                    y as i32,
+            let found = self.shadows.iter().position(|(known, _)| *known == key);
+            // A large shadow (a menu's, the picker's) isn't kept: it would
+            // hold a megabyte after its panel closed, and it moves seldom.
+            // Only the bands the clip leaves outside its panel are worked
+            // out, as patch 11 has them.
+            let small = key.pixels.0 * key.pixels.1 <= SHADOW_KEPT_PIXELS;
+            if found.is_none() && !small {
+                for band in bands {
+                    if band.width < 1.0 || band.height < 1.0 {
+                        continue;
+                    }
+                    let corner = (band.x, band.y);
+                    let size = (band.width as u32, band.height as u32);
+                    if let Some(pixmap) =
+                        shadow_pixmap(physical_bounds, corner, size, &radii, shadow, transformation)
+                    {
+                        pixels.draw_pixmap(
+                            band.x as i32,
+                            band.y as i32,
+                            pixmap.as_ref(),
+                            &tiny_skia::PixmapPaint::default(),
+                            tiny_skia::Transform::default(),
+                            None,
+                        );
+                    }
+                }
+            } else {
+            let at = found.or_else(|| {
+                let pixmap = shadow_pixmap(
+                    physical_bounds,
+                    origin,
+                    key.pixels,
+                    &radii,
+                    shadow,
+                    transformation,
+                )?;
+                if self.shadows.len() == SHADOWS_KEPT {
+                    let _ = self.shadows.remove(0);
+                }
+                self.shadows.push((key, pixmap));
+                Some(self.shadows.len() - 1)
+            });
+            if let Some(pixmap) = at.map(|at| &self.shadows[at].1) {
+            let paint = tiny_skia::Paint {
+                shader: tiny_skia::Pattern::new(
                     pixmap.as_ref(),
-                    &tiny_skia::PixmapPaint::default(),
-                    tiny_skia::Transform::default(),
-                    None,
-                );
+                    tiny_skia::SpreadMode::Pad,
+                    tiny_skia::FilterQuality::Nearest,
+                    1.0,
+                    tiny_skia::Transform::from_translate(origin.0, origin.1),
+                ),
+                anti_alias: false,
+                ..tiny_skia::Paint::default()
+            };
+            for band in bands {
+                if band.width < 1.0 || band.height < 1.0 {
+                    continue;
+                }
+                if let Some(rect) =
+                    tiny_skia::Rect::from_xywh(band.x, band.y, band.width, band.height)
+                {
+                    pixels.fill_rect(rect, &paint, tiny_skia::Transform::identity(), None);
+                }
+            }
             }
             }
         }
@@ -1078,6 +1094,99 @@ pub fn adjust_clip_mask(clip_mask: &mut tiny_skia::Mask, bounds: Rectangle) {
 /// Yapfast port (patches 11 and 15): where a quad's shadow reaches, if it
 /// has one: the quad moved by the shadow's offset and grown by its blur.
 /// Drawing takes the shadow inside it; the layer's damage counts it too.
+/// How many shadows the engine keeps worked out: the hover bar's, a menu's,
+/// a popup's, with room for the sizes they take as they change.
+const SHADOWS_KEPT: usize = 8;
+/// The most pixels a kept shadow has: a hover bar's, 128 KiB.
+const SHADOW_KEPT_PIXELS: u32 = 32 * 1024;
+
+/// A shadow's shape, which its pixels follow from wholly.
+#[derive(Debug, Clone, PartialEq)]
+struct ShadowKey {
+    /// The quad's size, its place within its pixel from the shadow's
+    /// corner, and the shadow's size in whole pixels.
+    size: (u32, u32),
+    within: (u32, u32),
+    pixels: (u32, u32),
+    radii: [u32; 4],
+    blur: u32,
+    offset: (u32, u32),
+    color: [u32; 4],
+}
+
+impl ShadowKey {
+    fn new(
+        bounds: Rectangle,
+        origin: (f32, f32),
+        pixels: (f32, f32),
+        radii: &[f32],
+        shadow: crate::core::Shadow,
+        scale: f32,
+    ) -> Self {
+        let mut corners = [0; 4];
+        for (corner, radius) in corners.iter_mut().zip(radii) {
+            *corner = radius.to_bits();
+        }
+        Self {
+            size: (bounds.width.to_bits(), bounds.height.to_bits()),
+            within: ((bounds.x - origin.0).to_bits(), (bounds.y - origin.1).to_bits()),
+            pixels: (pixels.0 as u32, pixels.1 as u32),
+            radii: corners,
+            blur: (shadow.blur_radius * scale).to_bits(),
+            offset: ((shadow.offset.x * scale).to_bits(), (shadow.offset.y * scale).to_bits()),
+            color: [
+                shadow.color.r.to_bits(),
+                shadow.color.g.to_bits(),
+                shadow.color.b.to_bits(),
+                shadow.color.a.to_bits(),
+            ],
+        }
+    }
+}
+
+/// A shadow's pixels over `width` by `height` from `origin` (its whole
+/// reach, or a band of it), as stock iced works them out pixel by pixel.
+fn shadow_pixmap(
+    physical_bounds: Rectangle,
+    origin: (f32, f32),
+    (width, height): (u32, u32),
+    radii: &[f32],
+    shadow: crate::core::Shadow,
+    transformation: Transformation,
+) -> Option<tiny_skia::Pixmap> {
+    let half_width = physical_bounds.width / 2.0;
+    let half_height = physical_bounds.height / 2.0;
+    let size = tiny_skia::Size::from_wh(half_width, half_height)?;
+    let scale = transformation.scale_factor();
+    let colors: Vec<tiny_skia::PremultipliedColorU8> = (0..height)
+        .flat_map(|y| (0..width).map(move |x| (origin.0 + x as f32, origin.1 + y as f32)))
+        .map(|(x, y)| {
+            let shadow_distance = rounded_box_sdf(
+                Vector::new(
+                    x - physical_bounds.position().x - (shadow.offset.x * scale) - half_width,
+                    y - physical_bounds.position().y - (shadow.offset.y * scale) - half_height,
+                ),
+                size,
+                radii,
+            )
+            .max(0.0);
+            let shadow_alpha = 1.0
+                - smoothstep(
+                    -shadow.blur_radius * scale,
+                    shadow.blur_radius * scale,
+                    shadow_distance,
+                );
+            let mut color = into_color(shadow.color);
+            color.apply_opacity(shadow_alpha);
+            color.to_color_u8().premultiply()
+        })
+        .collect();
+    tiny_skia::Pixmap::from_vec(
+        bytemuck::cast_vec(colors),
+        tiny_skia::IntSize::from_wh(width, height)?,
+    )
+}
+
 pub(crate) fn shadow_reach(quad: &Quad) -> Option<Rectangle> {
     let shadow = quad.shadow;
     (shadow.color.a > 0.0).then(|| Rectangle {

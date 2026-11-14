@@ -57,6 +57,9 @@ serde_json.workspace = true
 qrcode = { version = "0.14", default-features = false }
 # Discord's captcha page, where xdg-open isn't there.
 webbrowser = "1"
+# The file dialog files to attach are chosen in, through the desktop's
+# portal on Linux, as the Slint client's.
+rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 
 [dev-dependencies]
 # The headless simulator for the UI tests; see docs/iced-client.md.

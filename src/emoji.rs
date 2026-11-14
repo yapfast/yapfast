@@ -9,7 +9,6 @@
 //! as 𝓯𝓪𝓷𝓬𝔂, are all of the "Common" script, which no font is picked for. So
 //! Yapfast puts the fonts Windows ships for them in the fallback itself.
 
-use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use slint::{
@@ -20,6 +19,9 @@ use yapfast_core::chat::EmojiSet;
 use yapfast_ui::{EmojiCell, EmojiRow, EmojiSection, SectionGlyph};
 
 use crate::custom_emoji;
+pub use yapfast_core::emoji::{
+    composer_text, custom_key, discord_keys, discord_name, query, shortcode,
+};
 
 /// The heading Frequently Used's section goes under, which both pickers draw a
 /// clock for rather than an emoji's picture.
@@ -82,15 +84,11 @@ pub fn columns(width: f32) -> usize {
     (((width - BESIDE) / CELL).floor() as usize).max(1)
 }
 
-/// Windows 11 and the Noto Color Emoji builds Yapfast is tested with draw Unicode
-/// 15.0; newer emoji would show as empty boxes.
-const NEWEST: emojis::UnicodeVersion = emojis::UnicodeVersion::new(15, 0);
-
 /// Whether an emoji is one the picker and the suggestions offer: one Twemoji
 /// draws, since no emoji is drawn by the system's font, and of the versions
 /// Discord's client offers.
 fn drawn(emoji: &&'static emojis::Emoji) -> bool {
-    emoji.unicode_version() <= NEWEST && crate::twemoji::has_picture(emoji.as_str())
+    yapfast_core::emoji::offered(emoji, crate::twemoji::has_picture)
 }
 
 /// An emoji and its name, such as "Thumbs up", by the reaction it adds: the
@@ -126,25 +124,6 @@ pub fn cell(key: &str) -> EmojiCell {
         picture: slint::Image::default(),
         usable: true,
     }
-}
-
-/// A reaction's emoji as Discord's client names it: `:name:` for a custom
-/// one, whose key is already that, and the first shortcode of a Unicode one
-/// that's a word, such as `:thumbsup:` rather than `:+1:`; the emoji itself
-/// without one.
-pub fn shortcode(key: &str) -> String {
-    if key.starts_with(':') && key.ends_with(':') && key.len() > 2 {
-        return key.to_owned();
-    }
-    let codes = || {
-        emojis::get(key)
-            .into_iter()
-            .flat_map(emojis::Emoji::shortcodes)
-    };
-    codes()
-        .find(|code| code.starts_with(|c: char| c.is_ascii_alphanumeric()))
-        .or_else(|| codes().next())
-        .map_or_else(|| key.to_owned(), |code| format!(":{code}:"))
 }
 
 /// The cells as Twemoji draws them, each with its picture in place of its glyph,
@@ -209,200 +188,15 @@ fn with_picture(shown: EmojiCell) -> Option<EmojiCell> {
     (picture.size().width > 0).then_some(EmojiCell { picture, ..shown })
 }
 
-/// The picker's key for an emoji as Discord's settings name it, and whether it
-/// may be used here: a custom emoji's id, found in `custom`, or a Unicode
-/// emoji's Discord name, such as `slight_smile`, `thumbsup_tone2`,
-/// `person_tone1_bald` or `flag_fr`, from Discord's own names where they differ
-/// from GitHub's shortcodes. `None` for a custom emoji not there, or a name
-/// Yapfast doesn't know. A number can be a Unicode emoji's name too: `100`.
-pub fn discord_key(
-    name: &str,
-    custom: &HashMap<&str, &yapfast_core::chat::CustomEmoji>,
-) -> Option<(String, bool)> {
-    if let Some(emoji) = custom.get(name) {
-        return Some((custom_key(emoji), emoji.usable));
-    }
-    // A skin tone comes last in most names, but in some within them.
-    let (base, tone) = match name.split_once("_tone") {
-        Some((start, rest)) if !rest.contains("_tone") => {
-            let (tone, end) = rest.split_at_checked(1)?;
-            (format!("{start}{end}"), tone)
-        }
-        _ => (name.to_owned(), ""),
-    };
-    let names = crate::discord_emoji_names::NAMES;
-    let emoji = names
-        .binary_search_by_key(&base.as_str(), |(name, _)| name)
-        .ok()
-        .and_then(|at| emojis::get(names[at].1))
-        .or_else(|| country_flag(&base))
-        .or_else(|| emojis::get_by_shortcode(&base))?;
-    let emoji = match tone {
-        "" => emoji,
-        "1" => emoji.with_skin_tone(emojis::SkinTone::Light)?,
-        "2" => emoji.with_skin_tone(emojis::SkinTone::MediumLight)?,
-        "3" => emoji.with_skin_tone(emojis::SkinTone::Medium)?,
-        "4" => emoji.with_skin_tone(emojis::SkinTone::MediumDark)?,
-        "5" => emoji.with_skin_tone(emojis::SkinTone::Dark)?,
-        _ => return None,
-    };
-    (emoji.unicode_version() <= NEWEST).then(|| (emoji.as_str().to_owned(), true))
-}
-
-/// The name Discord's settings keep the emoji of picker key `key` by, as
-/// [`discord_key`] reads it back: a custom emoji's id, or a Unicode emoji's
-/// Discord name without its skin tone, as Discord's client stars the emoji
-/// itself.
-pub fn discord_name(key: &str) -> Option<String> {
-    if let Some((_, id)) = key.rsplit_once(':') {
-        return Some(id.to_owned());
-    }
-    let emoji = emojis::get(key)?;
-    let base = emoji
-        .with_skin_tone(emojis::SkinTone::Default)
-        .unwrap_or(emoji);
-    let flag = || {
-        let letters: Option<String> = base
-            .as_str()
-            .chars()
-            .map(|point| {
-                let letter = u32::from(point).checked_sub(0x1F1E6)?;
-                (letter < 26).then(|| char::from(b'a' + letter as u8))
-            })
-            .collect();
-        letters
-            .filter(|letters| letters.len() == 2)
-            .map(|letters| format!("flag_{letters}"))
-    };
-    // The emoji's first name, which Discord's client takes a favourite out
-    // by, then any other it reads back as this emoji: some of GitHub's name
-    // another one on Discord.
-    let none = HashMap::new();
-    let plain = |text: &str| text.replace('\u{FE0F}', "");
-    let first = crate::discord_emoji_names::FIRST
-        .iter()
-        .find(|(glyph, _)| plain(glyph) == plain(base.as_str()))
-        .map(|(_, name)| (*name).to_owned());
-    first
-        .into_iter()
-        .chain(
-            base.shortcodes()
-                .filter(|code| code.starts_with(|c: char| c.is_ascii_alphanumeric()))
-                .map(str::to_owned),
-        )
-        .chain(
-            crate::discord_emoji_names::NAMES
-                .iter()
-                .filter(|(_, glyph)| {
-                    emojis::get(glyph).map(emojis::Emoji::as_str) == Some(base.as_str())
-                })
-                .map(|(name, _)| (*name).to_owned()),
-        )
-        .chain(flag())
-        .chain(base.shortcodes().map(str::to_owned))
-        .find(|name| discord_key(name, &none).is_some_and(|(found, _)| found == base.as_str()))
-}
-
-/// The flag `flag_xx` names, from its country's two letters: GitHub's shortcode
-/// `cl` is the CL button, not Chile's flag.
-fn country_flag(name: &str) -> Option<&'static emojis::Emoji> {
-    let code = name.strip_prefix("flag_").filter(|code| code.len() == 2)?;
-    let flag: String = code
-        .bytes()
-        .map(|letter| char::from_u32(0x1F1E6 + u32::from(letter.checked_sub(b'a')?)))
-        .collect::<Option<_>>()?;
-    emojis::get(&flag)
-}
-
-/// The picker's keys of the emoji `names`, those Discord's settings name, and
-/// whether each may be used here, leaving out those there's no showing.
-pub fn discord_keys<'a>(
-    names: impl IntoIterator<Item = &'a String>,
-    custom: &HashMap<&str, &yapfast_core::chat::CustomEmoji>,
-) -> Vec<(String, bool)> {
-    names
-        .into_iter()
-        .filter_map(|name| discord_key(name, custom))
-        .collect()
-}
-
-/// A custom emoji's reaction key, Discord's `name:id`.
-pub fn custom_key(emoji: &yapfast_core::chat::CustomEmoji) -> String {
-    format!("{}:{}", emoji.text.trim_matches(':'), emoji.id)
-}
-
-/// What an emoji puts in the composer: the emoji itself, or a custom emoji's
-/// `:name:`, which goes out in Discord's form; see `yapfast_core::chat::wire_emoji`.
-pub fn composer_text(key: &str) -> String {
-    match key.split_once(':') {
-        Some((name, _)) => format!(":{name}:"),
-        None => key.to_owned(),
-    }
-}
-
-/// Emoji names shorter than this aren't looked up while typing, as on Discord.
-const MIN_QUERY: usize = 2;
-const MAX_QUERY: usize = 32;
-
-/// The `:name` word ending at `cursor`, a byte offset into `text`: where its
-/// `:` is, and the name so far, of at least two letters.
-pub fn query(text: &str, cursor: usize) -> Option<(usize, &str)> {
-    let before = text.get(..cursor)?;
-    let colon = before.rfind(':')?;
-    let query = &before[colon + 1..];
-    let starts_word = before[..colon]
-        .chars()
-        .next_back()
-        .is_none_or(|previous| previous.is_whitespace() || "([{\"'".contains(previous));
-    let name = |c: char| c.is_ascii_alphanumeric() || "_+-".contains(c);
-    (starts_word && (MIN_QUERY..=MAX_QUERY).contains(&query.len()) && query.chars().all(name))
-        .then_some((colon, query))
-}
-
-/// Suggestions for a `:name` being typed, at most `limit`: emoji whose name
-/// starts with `query`, then those whose name contains it, a server's custom
-/// emoji first. Each is named by its `:name:`.
+/// Suggestions for a `:name` being typed, at most `limit`, as cells; see
+/// [`yapfast_core::emoji::suggestions`].
 pub fn suggestions(query: &str, custom: &[EmojiSet], limit: usize) -> Vec<EmojiCell> {
-    let query = query.to_lowercase();
-    // The emoji's rank and the name it matched by.
-    let rank = |name: &str| {
-        let lower = name.to_lowercase();
-        if lower == query {
-            Some(0)
-        } else if lower.starts_with(&query) {
-            Some(1)
-        } else if lower.contains(&query) {
-            Some(2)
-        } else {
-            None
-        }
-    };
-    let mut found: Vec<(u8, bool, String, String)> = Vec::new();
-    for emoji in custom.iter().flat_map(|set| &set.emoji) {
-        let name = emoji.text.trim_matches(':');
-        if let Some(rank) = rank(name) {
-            found.push((rank, false, name.to_owned(), custom_key(emoji)));
-        }
-    }
-    for emoji in emojis::iter().filter(drawn) {
-        if let Some((rank, code)) = emoji
-            .shortcodes()
-            .filter_map(|code| Some((rank(code)?, code)))
-            .min_by_key(|(rank, _)| *rank)
-        {
-            found.push((rank, true, code.to_owned(), emoji.as_str().to_owned()));
-        }
-    }
-    // Stable, so each rank keeps custom emoji, then Unicode's own order.
-    found.sort_by_key(|(rank, unicode, ..)| (*rank, *unicode));
-    found
+    yapfast_core::emoji::suggestions(query, custom, crate::twemoji::has_picture, limit)
         .into_iter()
-        .take(limit)
-        .map(|(_, _, name, key)| EmojiCell {
+        .map(|found| EmojiCell {
             usable: true,
-
-            name: format!(":{name}:").into(),
-            ..cell(&key)
+            name: found.name.into(),
+            ..cell(&found.key)
         })
         .collect()
 }
@@ -833,65 +627,6 @@ mod tests {
                 .key,
             "pog:5"
         );
-    }
-
-    #[test]
-    fn finds_emoji_by_discord_names() {
-        let names = crate::discord_emoji_names::NAMES;
-        assert!(names.windows(2).all(|pair| pair[0].0 < pair[1].0), "sorted");
-        let talk = yapfast_core::chat::CustomEmoji {
-            text: ":talk:".into(),
-            id: "5".into(),
-            animated: false,
-            usable: false,
-            picture: String::new(),
-        };
-        let custom = HashMap::from([("5", &talk)]);
-        let key = |name| discord_key(name, &custom).map(|(key, _)| key);
-        // Discord's own names, then GitHub's that it shares.
-        assert_eq!(key("skull_crossbones").as_deref(), Some("☠️"));
-        assert_eq!(key("slight_smile").as_deref(), Some("🙂"));
-        assert_eq!(key("joy").as_deref(), Some("😂"));
-        assert_eq!(key("thumbsup_tone4").as_deref(), Some("👍🏾"));
-        assert_eq!(key("person_tone1_bald").as_deref(), Some("🧑🏻‍🦲"));
-        assert_eq!(key("6"), None, "a custom emoji not usable here");
-        assert_eq!(key("no_such_emoji"), None);
-        // Whether it may be used comes with a custom emoji.
-        assert_eq!(discord_key("5", &custom), Some(("talk:5".into(), false)));
-        // A number that's no custom emoji can be a Unicode emoji's name.
-        assert_eq!(key("100").as_deref(), Some("💯"));
-        assert_eq!(key("1234").as_deref(), Some("🔢"));
-        // Flags are their country's, though GitHub's shortcode is something else.
-        assert_eq!(key("flag_fr").as_deref(), Some("🇫🇷"));
-        assert_eq!(key("flag_cl").as_deref(), Some("🇨🇱"));
-        assert_eq!(key("flag_tv").as_deref(), Some("🇹🇻"));
-        // Where JoyPixels and Discord mean different emoji by a name.
-        assert_eq!(key("beach_umbrella").as_deref(), Some("⛱️"));
-        assert_eq!(key("city_sunset").as_deref(), Some("🌇"));
-    }
-
-    #[test]
-    fn names_an_emoji_as_discord_keeps_its_favourites() {
-        // As Discord's settings name them, read back to the same emoji.
-        for (key, name) in [
-            ("☠️", "skull_crossbones"),
-            ("🙂", "slight_smile"),
-            ("😂", "joy"),
-            ("🇫🇷", "flag_fr"),
-            ("🇨🇱", "flag_cl"),
-            ("💯", "100"),
-            ("⛱️", "beach_umbrella"),
-            ("talk:5", "5"),
-        ] {
-            assert_eq!(discord_name(key).as_deref(), Some(name), "{key}");
-        }
-        // Discord's first name, not GitHub's `+1` or the `thumbs_up` it reads
-        // too, and a hyphen as Discord writes it.
-        assert_eq!(discord_name("👍").as_deref(), Some("thumbsup"));
-        assert_eq!(discord_name("📧").as_deref(), Some("e_mail"));
-        // A skin tone is the emoji itself, which Discord's client stars.
-        assert_eq!(discord_name("👍🏾").as_deref(), Some("thumbsup"));
-        assert_eq!(discord_name("not an emoji"), None);
     }
 
     #[test]

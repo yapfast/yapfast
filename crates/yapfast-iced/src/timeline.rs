@@ -521,6 +521,9 @@ impl App {
             self.selecting.then_some(Message::SelectEnd),
         );
         let mut layers = stack![list].width(Length::Fill).height(Length::Fill);
+        if let Some(typing) = self.typing_view() {
+            layers = layers.push(typing);
+        }
         if let Some(bar) = self.unread_bar() {
             layers = layers.push(
                 container(bar)
@@ -564,7 +567,11 @@ impl App {
         }
         let pointed = self.pointed_message.as_deref() == Some(message.item.as_str());
         let jumped = self.jump_lit.as_deref() == Some(message.item.as_str());
-        let ground = if jumped {
+        let edited = self.editing.as_deref() == Some(message.item.as_str());
+        let ground = if edited {
+            // Discord's edit tint (#29292d on its dark theme).
+            Some(crate::theme::mix(theme.active, theme.chat, 0.79))
+        } else if jumped {
             Some(Color {
                 a: 0.14,
                 ..theme.accent

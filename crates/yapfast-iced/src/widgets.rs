@@ -347,6 +347,9 @@ pub struct Rows<'a> {
     children: Vec<Element<'a, Message>>,
     tops: Vec<f32>,
     heights: Vec<f32>,
+    /// A placed child's left and width ([`Rows::place`]); a row spans the
+    /// list.
+    spans: Vec<Option<(f32, f32)>>,
     total: f32,
     measured: Option<Measure>,
 }
@@ -381,6 +384,7 @@ impl<'a> Rows<'a> {
             children: Vec::new(),
             tops: Vec::new(),
             heights: Vec::new(),
+            spans: Vec::new(),
             total,
             measured: None,
         }
@@ -413,7 +417,18 @@ impl<'a> Rows<'a> {
         self.keys.push(key);
         self.tops.push(top);
         self.heights.push(height);
+        self.spans.push(None);
         self.children.push(child.into());
+    }
+
+    /// A child in its own box, `at` from the list's corner, rather than a
+    /// row across it: a picker's tile, beside others in its row or column.
+    /// Not for a measured list.
+    pub fn place(&mut self, key: u64, at: Rectangle, child: impl Into<Element<'a, Message>>) {
+        self.push(key, at.y, at.height, child);
+        if let Some(span) = self.spans.last_mut() {
+            *span = Some((at.x, at.width));
+        }
     }
 }
 
@@ -510,13 +525,14 @@ impl Widget<Message, Theme, Renderer> for Rows<'_> {
             .children
             .iter_mut()
             .zip(&mut tree.children)
-            .zip(self.tops.iter().zip(&self.heights))
-            .map(|((child, state), (&top, &height))| {
-                let size = Size::new(width, height);
+            .zip(self.tops.iter().zip(&self.heights).zip(&self.spans))
+            .map(|((child, state), ((&top, &height), span))| {
+                let (left, wide) = span.unwrap_or((0.0, width));
+                let size = Size::new(wide, height);
                 child
                     .as_widget_mut()
                     .layout(state, renderer, &layout::Limits::new(size, size))
-                    .move_to((0.0, top))
+                    .move_to((left, top))
             })
             .collect();
         layout::Node::with_children(Size::new(width, self.total), nodes)

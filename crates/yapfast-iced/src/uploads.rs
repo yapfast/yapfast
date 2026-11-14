@@ -1,0 +1,446 @@
+//! Files that go with the next message, as the Slint client takes them:
+//! chosen in the system's file dialog (through the desktop's portal on
+//! Linux), pasted (files copied in a file manager, or a picture), or
+//! dropped on the window. They wait over the composer's text as tiles
+//! (`StagedTile`): a picture's preview or a file's icon, the name and size,
+//! a button that marks it as a spoiler where the room has them, and one
+//! that takes it out. A drag over the window shows Discord's card saying
+//! where they'd go, and a drop that can't go says why until Got It.
+//!
+//! The core keeps the files (`Action::Stage`) and checks each against the
+//! room's limits; the previews are made off the window's thread, at 240 px
+//! at most, and go when their file does.
+
+use std::{path::PathBuf, sync::Arc, time::Duration};
+
+use iced::{
+    Alignment, Border, Color, Element, Length, Padding, Size, Task,
+    widget::{button, column, container, row, scrollable, stack, text},
+};
+use yapfast_core::{
+    application::Action,
+    chat::{self, Picture},
+};
+
+use crate::{
+    after,
+    app::{App, Message},
+    composer::{self, Event as Write},
+    controls::{self, lit_style},
+    fonts::{BOLD, MEDIUM},
+    media::{Fit, Shot},
+    pictures::Icon,
+    style::{card_shadow, rounded},
+};
+
+/// The tray's height over the text, and a tile's size and picture.
+pub const TRAY: f32 = 152.0;
+const TILE: Size = Size::new(120.0, 140.0);
+const TILE_PICTURE: f32 = 86.0;
+/// The tiles' round buttons, on a dark disc.
+const TILE_BUTTON: f32 = 28.0;
+const DISC: Color = Color::from_rgba8(0, 0, 0, 0xb3 as f32 / 255.0);
+/// The drop card's width.
+const CARD: f32 = 310.0;
+/// How long after the first file of a drop the drop is taken whole: a
+/// drop comes a file at a time.
+const DROP_GATHER: Duration = Duration::from_millis(30);
+
+#[derive(Clone, Debug)]
+pub enum Event {
+    /// The file dialog, to attach; what it chose.
+    Attach,
+    Chosen(Vec<PathBuf>),
+    Unstage(usize),
+    Spoiler(usize),
+    /// A paste found files or a picture, or nothing to attach (text).
+    Clipboard(Option<Vec<PathBuf>>),
+    /// A file's preview was made, or couldn't be.
+    Preview(PathBuf, Option<Arc<Picture>>),
+    /// Files dragged over the window, dropped (one at a time), the drop
+    /// gathered, the drag gone.
+    Hovered,
+    Dropped(PathBuf),
+    Drop,
+    Left,
+    /// The refusal's Got It, or a click on it.
+    Understood,
+}
+
+/// What files over the window would do, and why a drop didn't.
+#[derive(Default)]
+pub struct Drop {
+    pub dragging: bool,
+    pub gathered: Vec<PathBuf>,
+    pub refusal: Option<(String, String)>,
+}
+
+impl App {
+    pub fn uploads_event(&mut self, event: Event) -> Task<Message> {
+        match event {
+            Event::Attach => self.attach(),
+            Event::Chosen(files) => {
+                self.client.dispatch(Action::Stage(files));
+                Task::batch([self.sync(), self.previews(), self.refocus()])
+            }
+            Event::Unstage(index) => {
+                self.client.dispatch(Action::Unstage(index));
+                self.sync()
+            }
+            Event::Spoiler(index) => {
+                self.client.dispatch(Action::ToggleSpoiler(index));
+                self.sync()
+            }
+            Event::Clipboard(Some(files)) => {
+                self.client.dispatch(Action::Stage(files));
+                Task::batch([self.sync(), self.previews()])
+            }
+            Event::Clipboard(None) => iced::clipboard::read()
+                .map(|text| Message::Write(Write::Pasted(composer::Writing::Draft, text))),
+            Event::Preview(path, picture) => {
+                // Unless it was taken out meanwhile.
+                if let Some(slot) = self.thumbnails.get_mut(&path) {
+                    *slot = picture;
+                }
+                Task::none()
+            }
+            Event::Hovered => {
+                self.drop.dragging = true;
+                self.drop.refusal = None;
+                Task::none()
+            }
+            Event::Dropped(path) => {
+                self.drop.dragging = false;
+                self.drop.gathered.push(path);
+                if self.drop.gathered.len() == 1 {
+                    return after(DROP_GATHER, Message::Write(Write::Uploads(Event::Drop)));
+                }
+                Task::none()
+            }
+            Event::Drop => self.dropped(),
+            Event::Left => {
+                self.drop.dragging = false;
+                Task::none()
+            }
+            Event::Understood => {
+                self.drop.refusal = None;
+                Task::none()
+            }
+        }
+    }
+
+    /// The files of a drop go with the next message, all of them, or none
+    /// and why, as in Discord's client.
+    fn dropped(&mut self) -> Task<Message> {
+        let paths = std::mem::take(&mut self.drop.gathered);
+        if paths.is_empty() {
+            return Task::none();
+        }
+        let state = self.client.state();
+        // Staging says why it can't, as in a message being edited.
+        if !state.can_attach() {
+            self.client.dispatch(Action::Stage(paths));
+            return self.sync();
+        }
+        if let Some(refusal) = state.drop_refusal(&paths) {
+            self.drop.refusal = Some((refusal.title().to_owned(), refusal.help().to_owned()));
+            return Task::none();
+        }
+        self.client.dispatch(Action::Stage(paths));
+        Task::batch([self.sync(), self.previews(), self.refocus()])
+    }
+
+    /// The system's file dialog, as the Slint client's `attach` opens it.
+    pub fn attach(&mut self) -> Task<Message> {
+        if !self.client.state().can_attach() {
+            return Task::none();
+        }
+        Task::perform(
+            async {
+                rfd::AsyncFileDialog::new()
+                    .set_title("Attach files")
+                    .pick_files()
+                    .await
+                    .map(|files| {
+                        files
+                            .iter()
+                            .map(|file| file.path().to_owned())
+                            .collect::<Vec<_>>()
+                    })
+            },
+            |files| match files {
+                Some(files) => Message::Write(Write::Uploads(Event::Chosen(files))),
+                None => Message::Nothing,
+            },
+        )
+    }
+
+    /// Makes the previews of staged pictures that have none yet, off the
+    /// window's thread, and lets go of those of files no longer staged.
+    pub fn previews(&mut self) -> Task<Message> {
+        let staged = self.client.state().staged();
+        self.thumbnails
+            .retain(|path, _| staged.iter().any(|file| &file.path == path));
+        let mut tasks = Vec::new();
+        for file in staged.iter().filter(|file| file.image) {
+            if self.thumbnails.contains_key(&file.path) {
+                continue;
+            }
+            self.thumbnails.insert(file.path.clone(), None);
+            let path = file.path.clone();
+            tasks.push(Task::perform(
+                {
+                    let path = path.clone();
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            std::fs::read(&path)
+                                .ok()
+                                .and_then(|data| chat::decode_picture(&data, 240, 240))
+                                .map(Arc::new)
+                        })
+                        .await
+                        .ok()
+                        .flatten()
+                    }
+                },
+                move |picture| {
+                    Message::Write(Write::Uploads(Event::Preview(path.clone(), picture)))
+                },
+            ));
+        }
+        Task::batch(tasks)
+    }
+
+    /// The files waiting, in a row that scrolls sideways; none without.
+    pub fn tray(&self) -> Option<Element<'_, Message>> {
+        let staged = self.client.state().staged();
+        if staged.is_empty() {
+            return None;
+        }
+        let can_spoil = self.client.state().can_mark_spoilers();
+        let mut tiles = row![].spacing(8);
+        for (index, file) in staged.iter().enumerate() {
+            tiles = tiles.push(self.staged_tile(index, file, can_spoil));
+        }
+        Some(
+            scrollable(container(tiles).padding(Padding {
+                top: 10.0,
+                right: 10.0,
+                bottom: 2.0,
+                left: 10.0,
+            }))
+            .direction(scrollable::Direction::Horizontal(
+                scrollable::Scrollbar::new().width(4).scroller_width(4),
+            ))
+            .width(Length::Fill)
+            .height(TRAY)
+            .style(crate::style::scrollbar(&self.theme))
+            .into(),
+        )
+    }
+
+    /// A file waiting, as the Slint client's `StagedTile`.
+    fn staged_tile<'a>(
+        &'a self,
+        index: usize,
+        file: &'a chat::Staged,
+        can_spoil: bool,
+    ) -> Element<'a, Message> {
+        let theme = &self.theme;
+        let inner = TILE.width - 12.0;
+        let picture: Element<'_, Message> =
+            match self.thumbnails.get(&file.path).and_then(Option::as_ref) {
+                Some(picture) => self.shot(
+                    Shot::new(Some(picture), Size::new(inner, TILE_PICTURE))
+                        .fit(Fit::Cover)
+                        .radius(6.0)
+                        .covered(file.spoiler),
+                ),
+                None => {
+                    let ground = theme.sidebar;
+                    container(self.glyph(Icon::File, 32, theme.muted))
+                        .center_x(inner)
+                        .center_y(TILE_PICTURE)
+                        .style(move |_| rounded(ground, 6))
+                        .into()
+                }
+            };
+        let words = column![
+            text(file.name.clone())
+                .size(13)
+                .font(MEDIUM)
+                .color(theme.text)
+                .wrapping(text::Wrapping::None),
+            text(chat::file_size(file.size))
+                .size(12)
+                .color(theme.muted)
+                .wrapping(text::Wrapping::None),
+        ]
+        .spacing(2)
+        .width(inner)
+        .clip(true);
+        let ground = theme.raised;
+        let tile = container(column![picture, words].spacing(2))
+            .padding(6)
+            .width(TILE.width)
+            .height(TILE.height)
+            .style(move |_| rounded(ground, 8));
+        let mut buttons = row![].spacing(4);
+        if can_spoil {
+            buttons = buttons.push(self.disc_button(
+                if file.spoiler {
+                    Icon::EyeOff
+                } else {
+                    Icon::Eye
+                },
+                if file.spoiler {
+                    "Stop covering"
+                } else {
+                    "Mark as a spoiler"
+                },
+                Message::Write(Write::Uploads(Event::Spoiler(index))),
+            ));
+        }
+        buttons = buttons.push(self.disc_button(
+            Icon::X,
+            "Remove",
+            Message::Write(Write::Uploads(Event::Unstage(index))),
+        ));
+        stack![
+            tile,
+            container(buttons)
+                .width(TILE.width)
+                .padding(4)
+                .align_x(Alignment::End)
+        ]
+        .into()
+    }
+
+    /// A tile's round button, white on a dark disc.
+    fn disc_button(
+        &self,
+        icon: Icon,
+        label: &'static str,
+        message: Message,
+    ) -> Element<'_, Message> {
+        let face = self.glyph(icon, 16, Color::WHITE).boxed(TILE_BUTTON);
+        let lit = crate::theme::mix(DISC, Color::WHITE, 0.85);
+        let face = button(face)
+            .padding(0)
+            .width(TILE_BUTTON)
+            .height(TILE_BUTTON)
+            .on_press(message)
+            .style(lit_style(Some(DISC), lit, TILE_BUTTON / 2.0));
+        iced::widget::tooltip(
+            face,
+            controls::tip(&self.theme, label),
+            iced::widget::tooltip::Position::Top,
+        )
+        .gap(6)
+        .into()
+    }
+
+    /// Discord's card over the dimmed window while files are dragged over
+    /// it, or why a drop didn't go.
+    pub fn drop_view(&self) -> Option<Element<'_, Message>> {
+        let theme = &self.theme;
+        let dragging = self.drop.dragging && self.client.state().can_attach();
+        if !dragging && self.drop.refusal.is_none() {
+            return None;
+        }
+        let ink = theme.on_accent;
+        let mut lines = column![container(self.glyph(Icon::File, 40, ink)).center_x(Length::Fill)]
+            .spacing(8)
+            .padding(Padding {
+                top: 24.0,
+                right: 20.0,
+                bottom: 20.0,
+                left: 20.0,
+            })
+            .align_x(Alignment::Center);
+        if dragging {
+            lines = lines
+                .push(
+                    row![
+                        text("Upload to ").size(20).color(ink),
+                        text(self.client.state().upload_destination())
+                            .size(20)
+                            .font(BOLD)
+                            .color(ink)
+                            .wrapping(text::Wrapping::None),
+                    ]
+                    .width(Length::Shrink),
+                )
+                .push(
+                    text("You can add comments before uploading.")
+                        .size(15)
+                        .color(ink)
+                        .align_x(Alignment::Center),
+                );
+        } else if let Some((title, help)) = &self.drop.refusal {
+            lines = lines
+                .push(
+                    text(title.clone())
+                        .size(20)
+                        .font(BOLD)
+                        .color(ink)
+                        .align_x(Alignment::Center),
+                )
+                .push(
+                    text(help.clone())
+                        .size(15)
+                        .color(ink)
+                        .align_x(Alignment::Center),
+                )
+                .push(
+                    container(controls::action(
+                        theme,
+                        "Got It",
+                        controls::Kind::Plain,
+                        Some(Message::Write(Write::Uploads(Event::Understood))),
+                    ))
+                    .padding(Padding::ZERO.top(8)),
+                );
+        }
+        let frame_ink = Color { a: 0.6, ..ink };
+        let framed = container(lines)
+            .width(Length::Fill)
+            .style(move |_| container::Style {
+                border: Border {
+                    color: frame_ink,
+                    width: 2.0,
+                    radius: 6.0.into(),
+                },
+                ..Default::default()
+            });
+        let ground = if dragging { theme.accent } else { theme.danger };
+        let card = container(framed)
+            .padding(8)
+            .width(CARD)
+            .style(move |_| container::Style {
+                shadow: card_shadow(),
+                ..rounded(ground, 10)
+            });
+        Some(
+            iced::widget::mouse_area(
+                container(card)
+                    .center(Length::Fill)
+                    .style(|_| crate::style::fill(Color::from_rgba8(0, 0, 0, 0xa6 as f32 / 255.0))),
+            )
+            .on_press(Message::Write(Write::Uploads(Event::Understood)))
+            .into(),
+        )
+    }
+}
+
+/// The window's drag-and-drop events, where the platform has them (winit
+/// takes drops on X11 and Windows).
+pub fn drops(event: &iced::window::Event) -> Option<Message> {
+    let event = match event {
+        iced::window::Event::FileHovered(_) => Event::Hovered,
+        iced::window::Event::FileDropped(path) => Event::Dropped(path.clone()),
+        iced::window::Event::FilesHoveredLeft => Event::Left,
+        _ => return None,
+    };
+    Some(Message::Write(Write::Uploads(event)))
+}

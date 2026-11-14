@@ -39,6 +39,9 @@ pub enum Event {
     RemoveVote(String),
     ShowResults(String),
     BackToVote(String),
+    /// End Poll Now, asked about from the message's menu, or not.
+    EndPoll,
+    KeepPoll,
 }
 
 /// What the card's button under the answers does.
@@ -295,7 +298,38 @@ impl App {
             footer = footer
                 .push(action(theme, label, kind, enabled.then_some(Message::Poll(event))).small());
         }
-        footer.into()
+        // Closing it before its time, once made sure of from the message's
+        // menu.
+        if self.client.state().confirm_end_poll.as_deref() != Some(item) {
+            return footer.into();
+        }
+        let ask = column![
+            crate::controls::bar(theme.line, Length::Fill, 1),
+            text("End the poll now? This will close it immediately and reveal the results.")
+                .size(14)
+                .color(theme.secondary),
+            row![
+                Space::new().width(Length::Fill),
+                action(
+                    theme,
+                    "Cancel",
+                    Kind::Ghost,
+                    Some(Message::Poll(Event::KeepPoll))
+                )
+                .small(),
+                action(
+                    theme,
+                    "End Poll Now",
+                    Kind::Danger,
+                    Some(Message::Poll(Event::EndPoll))
+                )
+                .small(),
+            ]
+            .spacing(8),
+        ]
+        .spacing(8)
+        .padding(Padding::ZERO.top(4));
+        column![footer, ask].into()
     }
 
     /// A radio button, or for several answers a checkbox, picked or not.
@@ -371,6 +405,14 @@ impl App {
             Event::ShowResults(item) => {
                 self.revealed.insert(results_key(&item));
                 Task::none()
+            }
+            Event::EndPoll => {
+                self.client.dispatch(Action::EndPoll);
+                Task::batch([self.sync(), self.refocus()])
+            }
+            Event::KeepPoll => {
+                self.client.dispatch(Action::CancelEndPoll);
+                Task::batch([self.sync(), self.refocus()])
             }
             Event::BackToVote(item) => {
                 self.revealed.remove(&results_key(&item));

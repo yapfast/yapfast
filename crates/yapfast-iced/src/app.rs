@@ -25,10 +25,9 @@ use crate::{
     after,
     call::Focus,
     client::Client,
-    composer::COMPOSER,
     control::{self, Command},
     controls::outside,
-    field::{self, Draft, MenuEdit},
+    field::{self, Draft},
     fonts,
     looks::MemberLine,
     menus::Menu,
@@ -92,18 +91,12 @@ pub enum Message {
     Account(crate::account::Event),
     /// The minute turned, for the clocks of busy voice channels.
     Minute,
-    /// The composer's text, keys and menu.
-    Composer(field::Event),
-    ComposerMenu(MenuEdit),
-    Pasted(Option<String>),
-    /// A mention suggestion clicked, by its place.
-    Mention(usize),
-    CancelReply,
-    /// The edit bar's cancel button.
-    CancelEdit,
-    /// The emoji picker: opened for the composer or a reaction, and what's
-    /// done in it.
-    OpenPicker(Target),
+    /// The composer's and the inline edit's fields, bars and buttons.
+    Write(crate::composer::Event),
+    /// The expression picker: opened for the composer, the edit or a
+    /// reaction on a tab, and what's done in it.
+    OpenPicker(Target, crate::picker::Tab),
+    Forward(crate::forward::Event),
     Picker(picker::Event),
     /// Text in the timeline: a press or drag on it, the button let go, a
     /// press on nothing.
@@ -121,6 +114,8 @@ pub enum Message {
     CancelDelete,
     /// A key nothing in the window took.
     Key(keyboard::Key, keyboard::Modifiers),
+    /// Shift, Ctrl, Alt or the logo key went down or up.
+    Modifiers(keyboard::Modifiers),
     /// Scripts are waiting for a fallback font (`fonts::load_wanted`).
     FontsWanted,
     /// The pointer came onto a reaction chip or left it, and its tooltip
@@ -129,7 +124,7 @@ pub enum Message {
     ReactionDue(String, String),
     ToggleMembers,
     /// One of the menu's quick reactions.
-    React(String, &'static str),
+    React(String, String),
     /// A button of a message's hover bar: what it does, to which message,
     /// and where what it opens goes.
     Act(crate::menus::MenuAct, String, Point),
@@ -157,6 +152,8 @@ pub enum Message {
     /// An app's button that asks the app, on a message by item, by the
     /// button's id.
     UseButton(String, String),
+    /// An app's select menu: opened, an option toggled, searched, closed.
+    BotSelect(crate::bot_select::Event),
     /// The pointer came onto or left a member's row, a message, the card.
     PointMember(String, bool),
     PointRow(String, bool),
@@ -266,14 +263,23 @@ pub struct App {
     pub draft: Draft,
     /// The draft the core last had, to tell its own changes from ours.
     pub draft_known: String,
-    /// The message being edited in the composer (the core's `edit`).
+    /// Whether the composer's field has the keys, which its outline shows.
+    pub composer_focused: bool,
+    /// The message being edited in its row (the core's `edit`), and the
+    /// edit's own field.
     pub editing: Option<String>,
-    /// Where the `@` word being typed starts, the suggestion lit, and the
-    /// `@` whose suggestions Escape closed.
-    pub mention_at: Option<usize>,
-    pub mention_index: usize,
-    pub mention_dismissed: Option<usize>,
+    pub edit: Draft,
+    /// The suggestions over the field typed in last.
+    pub suggest: crate::suggest::Suggest,
+    /// Previews of the staged pictures, by path (none while being made),
+    /// and files dragged over the window.
+    pub thumbnails: HashMap<std::path::PathBuf, Option<Arc<yapfast_core::chat::Picture>>>,
+    pub drop: crate::uploads::Drop,
     pub picker: Option<Picker>,
+    /// The keys held with a click: Shift puts a GIF in the composer.
+    pub modifiers: keyboard::Modifiers,
+    /// The message added to one being forwarded.
+    pub forward_note: String,
     /// The timeline's selection, where it started and where it goes to, and
     /// whether the button is still down.
     pub selection: Option<(Sel, Sel)>,
@@ -289,6 +295,8 @@ pub struct App {
     pub reporting: bool,
     pub pointed_member: Option<String>,
     pub pointed_message: Option<String>,
+    /// The message the keyboard is stepping on (`browse.rs`), by item.
+    pub keyed: Option<String>,
     /// The voice message whose card the pointer is on, and the one paused
     /// while its waveform is held.
     pub pointed_voice: Option<String>,
@@ -382,11 +390,15 @@ impl App {
             member_scroll: Scroll::new(height),
             draft: Draft::default(),
             draft_known: String::new(),
+            composer_focused: false,
             editing: None,
-            mention_at: None,
-            mention_index: 0,
-            mention_dismissed: None,
+            edit: Draft::default(),
+            suggest: Default::default(),
+            thumbnails: HashMap::new(),
+            drop: Default::default(),
             picker: None,
+            modifiers: keyboard::Modifiers::default(),
+            forward_note: String::new(),
             selection: None,
             selecting: false,
             menu: None,
@@ -398,6 +410,7 @@ impl App {
             reporting: false,
             pointed_member: None,
             pointed_message: None,
+            keyed: None,
             pointed_voice: None,
             pointed_clip: None,
             clip_time: None,
@@ -489,29 +502,10 @@ impl App {
                 self.minute = yapfast_core::clock::now_ms() / 1000 / 60 * 60;
                 Task::none()
             }
-            Message::Composer(event) => self.composer_event(event),
-            Message::ComposerMenu(edit) => self.composer_menu(edit),
-            Message::Pasted(text) => {
-                if text.is_some() {
-                    self.draft.act(MenuEdit::Paste, text);
-                    self.edited(self.draft.text(), self.draft.caret());
-                }
-                Task::none()
-            }
-            Message::Mention(index) => {
-                self.mention_index = index;
-                Task::batch([self.choose_mention(), operation::focus(COMPOSER)])
-            }
-            Message::CancelEdit => {
-                self.client.dispatch(Action::CancelEdit);
-                Task::batch([self.sync(), operation::focus(COMPOSER)])
-            }
-            Message::CancelReply => {
-                self.client.dispatch(Action::CancelCompose);
-                Task::batch([self.sync(), operation::focus(COMPOSER)])
-            }
-            Message::OpenPicker(target) => self.open_picker(target),
+            Message::Write(event) => self.write_event(event),
+            Message::OpenPicker(target, tab) => self.open_picker(target, tab),
             Message::Picker(event) => self.picker_event(event),
+            Message::Forward(event) => self.forward_event(event),
             Message::Select(select) => {
                 self.select(select);
                 Task::none()
@@ -536,17 +530,21 @@ impl App {
             Message::Act(act, item, at) => self.act(act, item, at, None),
             Message::CloseMenu => {
                 self.menu = None;
-                operation::focus(COMPOSER)
+                self.refocus()
             }
             Message::ConfirmDelete => {
                 self.client.dispatch(Action::ConfirmDelete);
-                Task::batch([self.sync(), operation::focus(COMPOSER)])
+                Task::batch([self.sync(), self.refocus()])
             }
             Message::CancelDelete => {
                 self.client.dispatch(Action::CancelDelete);
-                Task::batch([self.sync(), operation::focus(COMPOSER)])
+                Task::batch([self.sync(), self.refocus()])
             }
             Message::Key(key, modifiers) => self.key(key, modifiers),
+            Message::Modifiers(modifiers) => {
+                self.modifiers = modifiers;
+                Task::none()
+            }
             Message::FontsWanted => {
                 fonts::load_wanted();
                 Task::none()
@@ -571,11 +569,8 @@ impl App {
             Message::Nothing => Task::none(),
             Message::React(item, key) => {
                 self.menu = None;
-                self.client.dispatch(Action::React {
-                    item,
-                    key: key.to_owned(),
-                });
-                Task::batch([self.sync(), operation::focus(COMPOSER)])
+                self.client.dispatch(Action::React { item, key });
+                Task::batch([self.sync(), self.refocus()])
             }
             Message::AskPictures => self.ask_now(),
             Message::Report => {
@@ -592,6 +587,7 @@ impl App {
             Message::Voice(event) => self.voice_event(event),
             Message::Clip(clip) => self.clip_event(clip),
             Message::Leave(visit) => self.leave(visit),
+            Message::BotSelect(event) => self.select_event(event),
             Message::UseButton(item, custom_id) => {
                 self.client.dispatch(Action::UseButton { item, custom_id });
                 self.sync()
@@ -710,6 +706,11 @@ impl App {
         if self.menu.is_some() {
             return self.menu_key(named);
         }
+        if self.keyed.is_some()
+            && let Some(task) = self.browse_key(&key, modifiers)
+        {
+            return task;
+        }
         if modifiers.command()
             && key.as_ref() == keyboard::Key::Character("c")
             && let Some(copied) = self.copied()
@@ -724,12 +725,18 @@ impl App {
 
     /// Escape where nothing else took it: the topmost thing open closes.
     pub fn escape(&mut self) -> Task<Message> {
+        if self.client.state().select_menu.is_some() {
+            return self.select_event(crate::bot_select::Event::Close);
+        }
+        if self.client.state().forwarding.is_some() {
+            return self.forward_event(crate::forward::Event::Close);
+        }
         if self.menu.is_some() {
             self.menu = None;
-            return operation::focus(COMPOSER);
+            return self.refocus();
         }
         if self.picker.is_some() {
-            return self.close_picker();
+            return self.picker_event(picker::Event::Field(field::Event::Escape));
         }
         if self.card.is_some() {
             return self.update(Message::CloseProfile);
@@ -740,7 +747,7 @@ impl App {
         }
         if self.editing.is_some() {
             self.client.dispatch(Action::CancelEdit);
-            return Task::batch([self.sync(), operation::focus(COMPOSER)]);
+            return Task::batch([self.sync(), operation::focus(crate::composer::COMPOSER)]);
         }
         if self.client.state().compose().is_some() {
             self.client.dispatch(Action::CancelCompose);
@@ -776,10 +783,15 @@ impl App {
             keyboard::Event::KeyPressed { key, modifiers, .. } => {
                 Some(Message::Key(key, modifiers))
             }
+            keyboard::Event::ModifiersChanged(modifiers) => Some(Message::Modifiers(modifiers)),
             _ => None,
         });
         let fonts = Subscription::run(fonts::wakes).map(|()| Message::FontsWanted);
-        let mut subscriptions = vec![keys, fonts];
+        let drops = iced::event::listen_with(|event, _, _| match event {
+            iced::Event::Window(event) => crate::uploads::drops(&event),
+            _ => None,
+        });
+        let mut subscriptions = vec![keys, fonts, drops];
         // Busy voice channels show how long their call has gone on, to the
         // minute.
         // Open polls, how long they have left.
@@ -830,32 +842,29 @@ impl App {
                 .push(outside(Message::CloseProfile, false))
                 .push(card);
         }
-        if let Some(mentions) = self.mentions_view() {
-            layers = layers.push(mentions);
-        }
-        if let Some(picker) = &self.picker {
+        if let Some(picker) = &self.picker
+            && let Some(shown) = self.picker_view()
+        {
             let size = picker.size();
             let place = match &picker.target {
                 // Over the emoji button, its right edge level with the button's.
                 Target::Composer => {
                     let right = self.chat_right() - 8.0 - 4.0;
-                    let bottom = self.window.height - 8.0 - self.draft.height() - 8.0;
-                    Place::new(
-                        picker.view(&self.theme),
-                        Point::new(right - size.width, bottom),
-                        8.0,
-                    )
-                    .anchor(Anchor::Bottom)
+                    let bottom = self.composer_buttons_top() - 8.0;
+                    Place::new(shown, Point::new(right - size.width, bottom), 8.0)
+                        .anchor(Anchor::Bottom)
                 }
-                Target::React(_, at) => {
-                    Place::new(picker.view(&self.theme), *at, 8.0).anchor(Anchor::Pointer)
+                // Over the edit's field, at the timeline's right.
+                Target::Edit => {
+                    let right = self.chat_right() - 16.0;
+                    let bottom = self.edit_top().unwrap_or(self.composer_top()) - 8.0;
+                    Place::new(shown, Point::new(right - size.width, bottom), 8.0)
+                        .anchor(Anchor::Bottom)
                 }
+                Target::React(_, at) => Place::new(shown, *at, 8.0).anchor(Anchor::Pointer),
             };
             layers = layers
-                .push(outside(
-                    Message::Picker(picker::Event::Field(field::Event::Escape)),
-                    false,
-                ))
+                .push(outside(Message::Picker(picker::Event::Close), false))
                 .push(place);
         }
         if let Some(menu) = self.menu_view() {
@@ -864,8 +873,14 @@ impl App {
         if let Some(modal) = self.delete_view() {
             layers = layers.push(modal);
         }
+        if let Some(forward) = self.forward_view() {
+            layers = layers.push(forward);
+        }
         if let Some(leaving) = self.leaving_view() {
             layers = layers.push(leaving);
+        }
+        if let Some(drop) = self.drop_view() {
+            layers = layers.push(drop);
         }
         if let Some(prompt) = self.mfa_view() {
             layers = layers.push(prompt);

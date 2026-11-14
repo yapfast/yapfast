@@ -74,5 +74,13 @@ marked `Yapfast port` in the source and numbered there:
     channel's new names and messages spent most of their glyphs' time
     there.
 
+17. `engine.rs` `draw_quad`: a shadow's pixels are worked out once for its
+    whole reach and, when it's small (a hover bar's, at most 32 Ki
+    pixels), kept: the last eight, by size, place within a pixel, corners,
+    blur, offset and colour. Each frame copies the bands it
+    needs from them. Stock, and with patch 11, every pixel was worked out
+    again each frame, so the hover bar moving with a scroll, or a menu
+    over a scrolling list, paid for its shadow in full every frame.
+
 Unmarked lines are iced's. Updating iced means taking the new
 iced_tiny_skia and carrying each marked change over.

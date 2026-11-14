@@ -71,13 +71,9 @@ impl App {
             return Task::none();
         }
         self.menu = Some(Menu {
-            at,
-            rows,
-            lit: None,
-            item: None,
-            reactions: false,
             place: Some(id.to_owned()),
             header,
+            ..Menu::new(at, rows).width(crate::menus::FIELD_WIDTH)
         });
         operation::focus(NOBODY)
     }

@@ -41,13 +41,37 @@ fn preview() -> (App, tempfile::TempDir) {
 /// of a Yapfast that has no account yet.
 fn start(folder: &tempfile::TempDir, preview: bool) -> App {
     static FONTS: Once = Once::new();
-    FONTS.call_once(|| fonts::install(&[]));
+    FONTS.call_once(|| fonts::install(twemoji().unwrap_or_default()));
     let runtime = Arc::new(BackgroundRuntime::new().expect("runtime"));
     let mut client = Client::new(runtime, folder.path().into());
     if preview {
         client.dispatch(Action::Preview);
     }
     App::new(client, (1120, 760)).0
+}
+
+/// The Twemoji font the root crate's `build.rs` packs, the newest any
+/// build of it left, for the tests that draw or offer emoji; none before
+/// the root crate was built.
+pub(crate) fn twemoji() -> Option<&'static [u8]> {
+    static FONT: std::sync::OnceLock<Option<&'static [u8]>> = std::sync::OnceLock::new();
+    *FONT.get_or_init(|| {
+        let target = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target");
+        let newest = std::fs::read_dir(&target)
+            .ok()?
+            .flatten()
+            .flat_map(|profile| {
+                std::fs::read_dir(profile.path().join("build"))
+                    .into_iter()
+                    .flatten()
+            })
+            .flatten()
+            .map(|build| build.path().join("out/twemoji.ttf"))
+            .filter_map(|font| Some((font.metadata().ok()?.modified().ok()?, font)))
+            .max()?;
+        let bytes = std::fs::read(newest.1).ok()?;
+        Some(&*Box::leak(bytes.into_boxed_slice()))
+    })
 }
 
 /// The workspace's ignored `.local`, where tests keep their fixtures.
@@ -657,18 +681,16 @@ fn a_menus_keys_pass_over_greyed_rows_and_clicks_on_them_do_nothing() {
         ..MenuRow::new(MenuAct::Place(choice), "row", crate::pictures::Icon::Id)
     };
     app.menu = Some(Menu {
-        at: Point::new(200.0, 120.0),
-        rows: vec![
-            row(MenuChoice::MarkRead, false),
-            row(MenuChoice::AddFriend, true),
-            row(MenuChoice::OpenChat, false),
-            row(MenuChoice::AcceptFriend, true),
-        ],
-        lit: None,
-        item: None,
-        reactions: false,
         place: Some("nowhere".into()),
-        header: false,
+        ..Menu::new(
+            Point::new(200.0, 120.0),
+            vec![
+                row(MenuChoice::MarkRead, false),
+                row(MenuChoice::AddFriend, true),
+                row(MenuChoice::OpenChat, false),
+                row(MenuChoice::AcceptFriend, true),
+            ],
+        )
     });
     let down = || {
         Message::Key(
@@ -843,3 +865,5 @@ fn messages_the_core_makes_anew_keep_their_text_laid_out() {
     }
     assert!(shows(&app, "Other words"));
 }
+
+mod writing;

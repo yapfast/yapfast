@@ -32,6 +32,9 @@ base64 = { version = "0.22", optional = true }
 # weights (MIT/Apache-2.0, 8 MB) into Yapfast.
 deep_filter = { git = "https://github.com/Rikorose/DeepFilterNet", rev = "d375b2d8309e0935d165700c91da9de862a99c31", default-features = false, features = ["tract", "default-model"], optional = true }
 directories.workspace = true
+# Unicode's emoji, their names and shortcodes: what `:name` finds and the
+# names Discord's settings keep emoji by (`emoji.rs`).
+emojis = "0.9"
 futures-util.workspace = true
 # Decode received images with bounded dimensions before the UI sees them.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }

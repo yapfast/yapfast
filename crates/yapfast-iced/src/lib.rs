@@ -29,16 +29,21 @@ compile_error!("yapfast-iced needs a renderer: `cpu` or `gpu`");
 
 mod account;
 mod app;
+mod bot_select;
+mod browse;
 mod browser;
 mod call;
 mod cards;
 mod client;
+mod commands;
 mod composer;
 mod control;
 mod controls;
 mod dialogs;
+mod edit;
 mod field;
 mod fonts;
+mod forward;
 mod header;
 mod layout;
 mod looks;
@@ -54,15 +59,19 @@ mod pictures;
 mod places;
 mod playback;
 mod polls;
+mod popover;
 mod profile;
 mod rail;
 mod select;
 mod sidebar;
 mod signin;
 mod style;
+mod suggest;
 mod sync;
 mod theme;
 mod timeline;
+mod typing;
+mod uploads;
 mod video;
 mod widgets;
 
@@ -90,6 +99,18 @@ pub struct Options {
     pub gpu: bool,
     /// The Twemoji font the root crate's `build.rs` packs.
     pub twemoji: &'static [u8],
+    /// Reads what a paste in the composer attaches: files, or a picture
+    /// saved to a file; none for text. Blocks, so it runs off the window's
+    /// thread.
+    pub paste: Option<fn() -> Option<Vec<PathBuf>>>,
+}
+
+/// The root crate's [`Options::paste`], set once as the window opens.
+static PASTE: OnceLock<fn() -> Option<Vec<PathBuf>>> = OnceLock::new();
+
+/// What reads a paste's files, where the build has one.
+pub(crate) fn paste_reader() -> Option<fn() -> Option<Vec<PathBuf>>> {
+    PASTE.get().copied()
 }
 
 /// The window's size when the private test display doesn't set one.
@@ -102,6 +123,9 @@ pub fn run(runtime: BackgroundRuntime, root: PathBuf, options: Options) -> anyho
             gpu = options.gpu,
             "this iced build draws with its one renderer whatever --renderer asks"
         );
+    }
+    if let Some(paste) = options.paste {
+        let _ = PASTE.set(paste);
     }
     pictures::install();
     video::install();

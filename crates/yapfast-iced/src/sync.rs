@@ -169,14 +169,11 @@ impl App {
                 .dispatch(yapfast_core::application::Action::CancelEdit);
         }
         let state = self.client.state();
-        // The edit ended (saved, cancelled, or its room left): the draft
-        // comes back.
+        // The edit ended (saved, cancelled, or its room left): its field
+        // goes.
         if self.editing.is_some() && state.edit().is_none() {
             self.editing = None;
-            if !switched {
-                self.draft.reset(state.draft());
-                self.draft_known = state.draft().to_owned();
-            }
+            self.edit.reset("");
         }
         if switched {
             self.selected = state.selected.clone();
@@ -189,7 +186,7 @@ impl App {
             self.selection = None;
             self.selecting = false;
             self.menu = None;
-            self.mention_at = None;
+            self.suggest.clear(&mut self.client);
             tasks.push(operation::scroll_to(
                 TIMELINE,
                 AbsoluteOffset {
@@ -199,11 +196,15 @@ impl App {
             ));
         }
         // The core changed the draft itself, as when a message it sent went.
-        if !switched && self.editing.is_none() && state.draft() != self.draft_known {
+        let state = self.client.state();
+        if !switched && state.draft() != self.draft_known {
             self.draft_known = state.draft().to_owned();
             if self.draft_known != self.draft.text() {
                 self.draft.reset(&self.draft_known);
             }
+        }
+        if self.thumbnails.len() != self.client.state().staged().len() {
+            tasks.push(self.previews());
         }
         tasks.push(self.roster(switched));
         let state = self.client.state();
@@ -252,6 +253,7 @@ impl App {
             self.watched = watching;
         }
         self.place_videos();
+        self.picker_sync();
         tasks.push(self.ask());
         self.sync_sign_in();
         tasks.push(self.sync_mfa());
@@ -553,6 +555,20 @@ impl App {
                 }
             }
             top += height;
+        }
+        for url in self.suggestion_pictures() {
+            want(Some(&url));
+        }
+        for url in self.picker_pictures() {
+            want(Some(&url));
+        }
+        // A custom emoji among the reactions the hover bar and menus offer.
+        if self.pointed_message.is_some() || self.menu.is_some() {
+            for key in self.client.app.frequent_reactions(crate::menus::QUICK) {
+                if let Some((_, id)) = key.split_once(':') {
+                    want(self.custom_emoji(id).as_deref());
+                }
+            }
         }
         want(self.account.avatar.as_deref());
         want(self.header.avatar.as_deref());

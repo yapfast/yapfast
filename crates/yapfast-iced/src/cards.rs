@@ -4,8 +4,8 @@
 //! galleries and files, gaps and lines, rows of buttons, and menus. A link
 //! button opens its page; a button that asks its app does so through the
 //! core, which holds the message's other controls back until the app
-//! answers; why one failed shows under them. A menu's list comes with the
-//! dialogs of a later milestone, so a menu shows but doesn't open yet.
+//! answers; why one failed shows under them. A menu opens its dropdown
+//! (`bot_select.rs`).
 
 use iced::{
     Alignment, Border, Element, Length, Padding, Point, Size,
@@ -167,12 +167,26 @@ impl App {
                     text: shown,
                     disabled,
                     options,
+                    custom_id,
                     ..
-                } => self.select_box(
-                    shown,
-                    options.iter().any(|option| option.default),
-                    !disabled && !busy,
-                ),
+                } => {
+                    let enabled = !disabled && !busy;
+                    self.select_with_dropdown(
+                        self.select_box(
+                            shown,
+                            options.iter().any(|option| option.default),
+                            enabled,
+                            enabled.then(|| {
+                                Message::BotSelect(crate::bot_select::Event::Open(
+                                    message.item.clone(),
+                                    custom_id.clone(),
+                                ))
+                            }),
+                        ),
+                        &message.item,
+                        custom_id,
+                    )
+                }
                 // As Discord's client tells of components it doesn't know.
                 CardRow::Unknown => {
                     let accent = theme.accent;
@@ -279,6 +293,7 @@ impl App {
         shown: &'a str,
         picked: bool,
         enabled: bool,
+        open: Option<Message>,
     ) -> Element<'a, Message> {
         let theme = &self.theme;
         let (ground, edge) = (theme.field, theme.edge);
@@ -293,22 +308,35 @@ impl App {
         .spacing(8)
         .align_y(Alignment::Center);
         let opacity = if enabled { 1.0 } else { 0.5 };
+        let lit = theme.secondary;
         container(
-            container(face)
-                .padding([0, 12])
-                .height(40)
-                .width(Length::Fill)
-                .align_y(Alignment::Center)
-                .clip(true)
-                .style(move |_| container::Style {
-                    background: Some(crate::style::faded(ground, opacity).into()),
-                    border: Border {
-                        color: crate::style::faded(edge, opacity),
-                        width: 1.0,
-                        radius: 8.0.into(),
-                    },
-                    ..container::Style::default()
-                }),
+            iced::widget::button(
+                container(face)
+                    .height(Length::Fill)
+                    .width(Length::Fill)
+                    .align_y(Alignment::Center)
+                    .clip(true),
+            )
+            .padding([0, 12])
+            .height(40)
+            .width(Length::Fill)
+            .on_press_maybe(open)
+            .style(move |_, status| iced::widget::button::Style {
+                background: Some(crate::style::faded(ground, opacity).into()),
+                border: Border {
+                    color: crate::style::faded(
+                        if enabled && controls::lights(status) {
+                            lit
+                        } else {
+                            edge
+                        },
+                        opacity,
+                    ),
+                    width: 1.0,
+                    radius: 8.0.into(),
+                },
+                ..Default::default()
+            }),
         )
         .max_width(SELECT)
         .into()

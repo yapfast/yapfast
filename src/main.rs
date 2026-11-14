@@ -19,8 +19,6 @@ mod custom_emoji;
 #[cfg(all(feature = "desktop", target_os = "linux"))]
 mod desktop_entry;
 #[cfg(feature = "desktop")]
-mod discord_emoji_names;
-#[cfg(feature = "desktop")]
 mod drop;
 #[cfg(feature = "desktop")]
 mod emoji;
@@ -39,7 +37,7 @@ mod icon;
 mod instance;
 #[cfg(feature = "desktop")]
 mod notify;
-#[cfg(feature = "desktop")]
+#[cfg(any(feature = "desktop", feature = "pasting"))]
 mod paste;
 #[cfg(feature = "desktop")]
 mod protocol;
@@ -396,15 +394,56 @@ fn launch(
         tracing::info!("the iced client has no tray yet; showing the window");
     }
     yapfast_core::keep_discord_files(&root);
-    yapfast_iced::run(
+    let ran = yapfast_iced::run(
         runtime,
         root,
         yapfast_iced::Options {
             preview,
             gpu: start.renderer == Some("gpu"),
             twemoji: include_bytes!(concat!(env!("OUT_DIR"), "/twemoji.ttf")),
+            paste: Some(pasted_files),
         },
-    )
+    );
+    // Pasted pictures go as Yapfast closes.
+    drop(PASTED.lock().map(|mut folder| folder.take()));
+    ran
+}
+
+/// Where pictures pasted in the iced client are saved, removed as it
+/// closes.
+#[cfg(all(not(feature = "desktop"), any(feature = "iced", feature = "iced-gpu")))]
+static PASTED: std::sync::Mutex<Option<tempfile::TempDir>> = std::sync::Mutex::new(None);
+
+/// What a paste in the iced client attaches, as the Slint client's
+/// `paste` finds it: files copied in a file manager, or a picture saved as
+/// `image.<extension>` in a folder of its own, as in Discord; none for
+/// text. Blocks while the copying app sends its data.
+#[cfg(all(not(feature = "desktop"), any(feature = "iced", feature = "iced-gpu")))]
+fn pasted_files() -> Option<Vec<std::path::PathBuf>> {
+    match paste::read() {
+        paste::Clipboard::Files(files) => Some(files),
+        paste::Clipboard::Picture(bytes, extension) => {
+            let mut folder = PASTED.lock().ok()?;
+            if folder.is_none() {
+                *folder = tempfile::Builder::new()
+                    .prefix("yapfast-pasted-")
+                    .tempdir()
+                    .inspect_err(
+                        |error| tracing::warn!(%error, "could not make a folder for pasted pictures"),
+                    )
+                    .ok();
+            }
+            let folder = tempfile::Builder::new()
+                .prefix("")
+                .tempdir_in(folder.as_ref()?.path())
+                .ok()?
+                .keep();
+            let path = folder.join(format!("image.{extension}"));
+            std::fs::write(&path, bytes).ok()?;
+            Some(vec![path])
+        }
+        paste::Clipboard::Other => None,
+    }
 }
 
 #[cfg(not(any(feature = "desktop", feature = "iced", feature = "iced-gpu")))]

@@ -41,6 +41,7 @@ pub mod discord_text;
 mod discord_video;
 #[cfg(feature = "discord")]
 mod discord_voice;
+pub mod emoji;
 #[cfg(feature = "discord")]
 pub mod encode;
 #[cfg(feature = "matrix")]

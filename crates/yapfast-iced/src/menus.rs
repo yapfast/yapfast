@@ -11,10 +11,9 @@ use yapfast_core::application::Action;
 
 use crate::{
     app::{App, Message, NOBODY},
-    composer::COMPOSER,
     controls::{Item, Light, menu_panel, separator},
     field::MenuEdit,
-    picker::Target,
+    picker::{Tab, Target},
     pictures::Icon,
     style::blend,
     widgets::{Anchor, Place},
@@ -22,11 +21,12 @@ use crate::{
 
 /// A message's menu's width; the composer's is wider, as in the Slint
 /// client.
-const WIDTH: f32 = 224.0;
-const FIELD_WIDTH: f32 = 255.0;
-/// Discord's quick reactions over a message's menu, until this device has
-/// reacted; the first three are on its hover bar.
-pub const QUICK: [&str; 4] = ["👍", "❤️", "😂", "🎉"];
+pub const WIDTH: f32 = 224.0;
+pub const FIELD_WIDTH: f32 = 255.0;
+/// How many of the reactions this device uses most a message's menu
+/// offers over its rows (the core fills them with Discord's until it has
+/// reacted); the first three are on its hover bar.
+pub const QUICK: usize = 4;
 
 /// An open context menu.
 pub struct Menu {
@@ -42,6 +42,36 @@ pub struct Menu {
     /// server's header menu.
     pub place: Option<String>,
     pub header: bool,
+    /// How its point is read, and its width.
+    pub anchor: Anchor,
+    pub width: f32,
+}
+
+impl Menu {
+    /// A menu of `rows` opening at the pointer at `at`.
+    pub fn new(at: Point, rows: Vec<MenuRow>) -> Self {
+        Self {
+            at,
+            rows,
+            lit: None,
+            item: None,
+            reactions: false,
+            place: None,
+            header: false,
+            anchor: Anchor::Pointer,
+            width: WIDTH,
+        }
+    }
+
+    pub fn anchor(mut self, anchor: Anchor) -> Self {
+        self.anchor = anchor;
+        self
+    }
+
+    pub fn width(mut self, width: f32) -> Self {
+        self.width = width;
+        self
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -49,10 +79,23 @@ pub enum MenuAct {
     AddReaction,
     Edit,
     Reply,
+    Forward,
     CopyText,
     CopySelection,
+    EndPoll,
+    /// Pin, or unpin.
+    Pin,
+    MarkUnread,
+    CopyLink,
+    CopyId,
     Delete,
-    Field(MenuEdit),
+    /// Delete without asking, as Shift and the hover bar's Delete do.
+    DeleteNow,
+    Field(crate::composer::Writing, MenuEdit),
+    /// The composer's + menu.
+    Upload,
+    NewThread,
+    NewPoll,
     Place(yapfast_core::application::MenuChoice),
 }
 
@@ -96,14 +139,20 @@ impl App {
         }
         let row = MenuRow::new;
         let mut rows = Vec::new();
+        let state = self.client.state();
+        let writes = self.composer_look().enabled;
+        let sent = message.delivery == yapfast_core::chat::Delivery::default();
         if message.can_react {
             rows.push(row(MenuAct::AddReaction, "Add reaction", Icon::SmilePlus));
         }
-        if message.can_edit {
+        if message.can_edit && writes {
             rows.push(row(MenuAct::Edit, "Edit message", Icon::Pencil));
         }
-        if message.can_reply {
+        if message.can_reply && writes {
             rows.push(row(MenuAct::Reply, "Reply", Icon::Reply));
+        }
+        if message.can_forward && self.forward_allowed() {
+            rows.push(row(MenuAct::Forward, "Forward", Icon::Forward));
         }
         if !message.body.is_empty() {
             rows.push(row(MenuAct::CopyText, "Copy text", Icon::Copy));
@@ -115,24 +164,45 @@ impl App {
                 Icon::TextSelect,
             ));
         }
-        if message.can_delete {
+        if message.poll.as_ref().is_some_and(|poll| poll.can_end) {
+            rows.push(row(MenuAct::EndPoll, "End Poll Now", Icon::CircleStop));
+        }
+        if message.can_pin && sent {
+            rows.push(if message.pinned {
+                row(MenuAct::Pin, "Unpin message", Icon::PinOff)
+            } else {
+                row(MenuAct::Pin, "Pin message", Icon::Pin)
+            });
+        }
+        // After Apps, as in Discord's menu.
+        if self.client.app.marks_unread(&message.item) {
+            rows.push(row(MenuAct::MarkUnread, "Mark Unread", Icon::MessageCircle));
+        }
+        let link = state.message_link(&message.item);
+        if link.is_some() {
+            rows.push(row(MenuAct::CopyLink, "Copy Message Link", Icon::Chain));
+        }
+        if message.can_delete && writes {
             rows.push(MenuRow {
                 danger: true,
                 separated: true,
                 ..row(MenuAct::Delete, "Delete message", Icon::Trash)
             });
         }
+        // Last, as Discord's client puts it.
+        if link.is_some() {
+            rows.push(MenuRow {
+                separated: true,
+                ..row(MenuAct::CopyId, "Copy Message ID", Icon::Id)
+            });
+        }
         if rows.is_empty() {
             return Task::none();
         }
         self.menu = Some(Menu {
-            at,
-            rows,
-            lit: None,
             item: Some(message.item.clone()),
             reactions: message.can_react,
-            place: None,
-            header: false,
+            ..Menu::new(at, rows)
         });
         operation::focus(NOBODY)
     }
@@ -167,9 +237,9 @@ impl App {
         at: Point,
         place: Option<String>,
     ) -> Task<Message> {
-        let focus = operation::focus(COMPOSER);
+        let focus = self.refocus();
         match act {
-            MenuAct::AddReaction => self.open_picker(Target::React(item, at)),
+            MenuAct::AddReaction => self.open_picker(Target::React(item, at), Tab::Emoji),
             MenuAct::Edit => self.begin_edit(item),
             MenuAct::Reply => {
                 self.client.dispatch(Action::Reply(item));
@@ -193,7 +263,34 @@ impl App {
                 self.confirm_focus = true;
                 Task::batch([self.sync(), operation::focus(NOBODY)])
             }
-            MenuAct::Field(edit) => self.composer_menu(edit),
+            MenuAct::DeleteNow => {
+                self.client.dispatch(Action::DeleteNow(item));
+                Task::batch([self.sync(), focus])
+            }
+            MenuAct::Forward => {
+                self.client.dispatch(Action::StartForward(item));
+                Task::batch([self.sync(), self.forward_focus()])
+            }
+            MenuAct::EndPoll => {
+                self.client.dispatch(Action::AskEndPoll(item));
+                Task::batch([self.sync(), operation::focus(NOBODY)])
+            }
+            MenuAct::Pin => {
+                self.client.dispatch(Action::PinMessage(item));
+                Task::batch([self.sync(), focus])
+            }
+            MenuAct::MarkUnread => {
+                self.client.dispatch(Action::MarkUnread(item));
+                Task::batch([self.sync(), focus])
+            }
+            MenuAct::CopyLink | MenuAct::CopyId => {
+                let (link, id) = self.client.state().message_link(&item).unwrap_or_default();
+                let copied = if act == MenuAct::CopyLink { link } else { id };
+                Task::batch([iced::clipboard::write(copied), focus])
+            }
+            MenuAct::Field(which, edit) => self.field_menu(which, edit),
+            MenuAct::Upload => Task::batch([focus, self.attach()]),
+            MenuAct::NewThread | MenuAct::NewPoll => focus,
             MenuAct::Place(choice) => {
                 let place = place.unwrap_or_default();
                 Task::batch([self.choose_place(place, choice), focus])
@@ -257,13 +354,13 @@ impl App {
             // As the Slint client's quick reactions: the field's ground,
             // lifted under the pointer.
             let (ground, lifted) = (theme.field, blend(theme.field, theme.wash(0.12)));
-            for key in QUICK {
+            for key in self.client.app.frequent_reactions(QUICK) {
                 quick = quick.push(self.emoji_button(
-                    key,
+                    &key,
                     24,
                     44.0,
                     (Some(ground), lifted),
-                    Message::React(item.clone(), key),
+                    Message::React(item.clone(), key.clone()),
                 ));
             }
             rows = rows.push(quick);
@@ -285,15 +382,10 @@ impl App {
                     .on_enter(Message::MenuLight(index)),
             );
         }
-        let width = if menu.item.is_some() {
-            WIDTH
-        } else {
-            FIELD_WIDTH
-        };
-        let panel = container(rows).width(width).style(menu_panel(theme));
+        let panel = container(rows).width(menu.width).style(menu_panel(theme));
         Some(
             Place::new(opaque(panel), menu.at, 8.0)
-                .anchor(Anchor::Pointer)
+                .anchor(menu.anchor)
                 .into(),
         )
     }

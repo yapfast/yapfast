@@ -393,19 +393,13 @@ impl App {
     /// pointer: the menu's quick reactions, the hover bar's.
     pub fn emoji_button(
         &self,
-        key: &'static str,
+        key: &str,
         glyph: u32,
         side: f32,
         (rest, lit): (Option<Color>, Color),
         press: Message,
     ) -> Element<'_, Message> {
-        let face: Element<'_, Message> = match self.emoji_picture(key, glyph) {
-            Some(picture) => crate::widgets::Pic::square(picture, glyph as f32)
-                .boxed(side)
-                .into(),
-            None => text(key).size(glyph as f32 - 2.0).into(),
-        };
-        button(face)
+        button(container(self.emoji_face(key, glyph)).center(side))
             .padding(0)
             .width(side)
             .height(side)

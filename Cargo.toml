@@ -30,9 +30,12 @@ live-preview = ["desktop", "yapfast-ui/live-preview"]
 # The iced front end in place of Slint's, drawn on the CPU: build with
 # --no-default-features --features iced. It can't share a build with
 # `desktop`; see docs/iced-client.md.
-iced = ["discord", "dep:yapfast-iced", "yapfast-iced/cpu"]
+iced = ["discord", "dep:yapfast-iced", "yapfast-iced/cpu", "pasting"]
 # The iced front end on wgpu instead, for trying the GPU renderer.
-iced-gpu = ["discord", "dep:yapfast-iced", "yapfast-iced/gpu"]
+iced-gpu = ["discord", "dep:yapfast-iced", "yapfast-iced/gpu", "pasting"]
+# What a paste in the iced client reads files and pictures with (`paste.rs`),
+# which `desktop` has too.
+pasting = ["dep:image", "dep:tempfile", "dep:wl-clipboard-rs", "dep:x11rb", "dep:windows-sys"]
 
 [dependencies]
 anyhow.workspace = true

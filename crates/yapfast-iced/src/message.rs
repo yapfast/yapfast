@@ -61,6 +61,8 @@ const PLAY_GROUND: Color = Color::from_rgba8(0, 0, 0, 0xb3 as f32 / 255.0);
 const SPINE: u32 = 33;
 /// The hover bar's buttons.
 const BAR_BUTTON: f32 = 32.0;
+/// Discord's flag on an answer only this account sees.
+const EPHEMERAL: u64 = 1 << 6;
 
 impl App {
     /// Row `index`'s message, beside its gutter.
@@ -97,7 +99,10 @@ impl App {
         } else {
             theme.text
         };
-        if !look.body.parts.is_empty() && !look.body.plain().is_empty() {
+        let editing = self.editing.as_deref() == Some(message.item.as_str());
+        if editing {
+            content = content.push(self.inline_edit());
+        } else if !look.body.parts.is_empty() && !look.body.plain().is_empty() {
             let body = self.body_view(
                 &look.body,
                 index,
@@ -114,7 +119,7 @@ impl App {
                 body
             });
         }
-        if message.edited && message.notice.is_none() {
+        if message.edited && message.notice.is_none() && !editing {
             content = content.push(text("(edited)").size(10).color(theme.muted));
         }
         let gallery = Gallery::of(
@@ -161,6 +166,12 @@ impl App {
             content =
                 content.push(container(self.reactions(message)).padding(Padding::ZERO.top(4)));
         }
+        if let Some(delivery) = self.delivery_line(message) {
+            content = content.push(delivery);
+        }
+        if message.flags & EPHEMERAL != 0 {
+            content = content.push(self.ephemeral_line(message));
+        }
         let gutter = self.gutter(index, message, look, header);
         let shown = container(row![gutter, content].spacing(16))
             .width(Length::Fill)
@@ -168,7 +179,7 @@ impl App {
                 top: CONTENT_PAD,
                 bottom: CONTENT_PAD,
                 left: (GUTTER - AVATAR) / 2.0,
-                right: END_PAD,
+                right: if editing { 21.0 } else { END_PAD },
             });
         if !header {
             return shown.into();
@@ -806,10 +817,12 @@ impl App {
         .into()
     }
 
-    /// A message's hover bar, as the Slint client's: the first three quick
-    /// reactions and Add reaction, Edit on one's own message or Reply on
-    /// someone else's, and More, which opens its menu. Forward, Pin and the
-    /// Shift actions come with the actions they lead to.
+    /// A message's hover bar, as the Slint client's: the three reactions
+    /// this device uses most and Add reaction, Edit on one's own message or
+    /// Reply on someone else's, Forward, and More, which opens its menu.
+    /// Holding Shift swaps the reactions for Pin and, on one's own message,
+    /// Reply, and More for a Delete that doesn't ask, as Discord's client
+    /// does; not while the message's menu or picker is open.
     pub fn hover_bar(&self, index: usize) -> Option<Element<'_, Message>> {
         let message = &self.messages[index];
         if message.deleted || message.delivery != chat::Delivery::default() {
@@ -822,58 +835,75 @@ impl App {
             header::HEIGHT + 1.0 + self.tops[index] - self.view_top() + 24.0,
         );
         let item = &message.item;
+        let writes = self.composer_look().enabled;
+        let open_here = self
+            .menu
+            .as_ref()
+            .is_some_and(|menu| menu.item.as_ref() == Some(item))
+            || self
+                .picker
+                .as_ref()
+                .is_some_and(|picker| matches!(&picker.target, crate::picker::Target::React(on, _) if on == item));
+        let quick = self.modifiers.shift() && !open_here;
+        let deletes = quick && message.can_delete && writes;
+        let act = |act: MenuAct| Message::Act(act, item.clone(), at);
+        let button = |icon: Icon, label: &'static str, message: Message| {
+            self.icon_button(icon, label, BAR_BUTTON, 20, message, false)
+        };
         let mut buttons = row![].align_y(Alignment::Center);
+        if quick && message.can_pin {
+            buttons = buttons.push(if message.pinned {
+                button(Icon::PinOff, "Unpin", act(MenuAct::Pin))
+            } else {
+                button(Icon::Pin, "Pin", act(MenuAct::Pin))
+            });
+        }
+        if quick && message.own && message.can_edit && message.can_reply && writes {
+            buttons = buttons.push(button(Icon::Reply, "Reply", act(MenuAct::Reply)));
+        }
         if message.can_react {
-            for key in &crate::menus::QUICK[..3] {
-                buttons = buttons.push(self.emoji_button(
-                    key,
-                    20,
-                    BAR_BUTTON,
-                    (None, theme.wash(0.1)),
-                    Message::React(item.clone(), key),
-                ));
+            if !quick {
+                for key in self.client.app.frequent_reactions(3) {
+                    buttons = buttons.push(self.emoji_button(
+                        &key,
+                        20,
+                        BAR_BUTTON,
+                        (None, theme.wash(0.1)),
+                        Message::React(item.clone(), key.clone()),
+                    ));
+                }
+                buttons = buttons.push(
+                    container(controls::bar(theme.line, 1, 20))
+                        .width(9)
+                        .center_x(9),
+                );
             }
-            buttons = buttons.push(
-                container(controls::bar(theme.line, 1, 20))
-                    .width(9)
-                    .center_x(9),
-            );
-            buttons = buttons.push(self.icon_button(
+            buttons = buttons.push(button(
                 Icon::SmilePlus,
                 "Add reaction",
-                BAR_BUTTON,
-                20,
-                Message::Act(MenuAct::AddReaction, item.clone(), at),
-                false,
+                act(MenuAct::AddReaction),
             ));
         }
-        if message.own && message.can_edit {
-            buttons = buttons.push(self.icon_button(
-                Icon::Pencil,
-                "Edit",
-                BAR_BUTTON,
-                20,
-                Message::Act(MenuAct::Edit, item.clone(), at),
-                false,
-            ));
-        } else if message.can_reply {
-            buttons = buttons.push(self.icon_button(
-                Icon::Reply,
-                "Reply",
-                BAR_BUTTON,
-                20,
-                Message::Act(MenuAct::Reply, item.clone(), at),
-                false,
-            ));
+        if message.own && message.can_edit && writes {
+            buttons = buttons.push(button(Icon::Pencil, "Edit", act(MenuAct::Edit)));
+        } else if message.can_reply && writes {
+            buttons = buttons.push(button(Icon::Reply, "Reply", act(MenuAct::Reply)));
         }
-        buttons = buttons.push(self.icon_button(
-            Icon::Ellipsis,
-            "More",
-            BAR_BUTTON,
-            20,
-            Message::RowMenu(index, at),
-            false,
-        ));
+        // Beside Reply, as in Discord, whether or not Shift is held.
+        if message.can_forward && self.forward_allowed() {
+            buttons = buttons.push(button(Icon::Forward, "Forward", act(MenuAct::Forward)));
+        }
+        buttons = buttons.push(if deletes {
+            self.icon_face_button(
+                self.glyph(Icon::Trash, 20, theme.danger),
+                "Delete",
+                BAR_BUTTON,
+                act(MenuAct::DeleteNow),
+                false,
+            )
+        } else {
+            button(Icon::Ellipsis, "More", Message::RowMenu(index, at))
+        });
         let (ground, edge) = (theme.raised, theme.edge);
         Some(
             // The pointer on the bar is on its message, though the bar
@@ -899,6 +929,84 @@ impl App {
             .on_enter(Message::PointRow(item.clone(), true))
             .into(),
         )
+    }
+
+    /// How a message of one's own is going, under it, as the Slint
+    /// client's: "Sending..." with Cancel while its files go, "Not sent
+    /// yet" while the connection is down, or "Not sent" with Retry.
+    fn delivery_line(&self, message: &ChatMessage) -> Option<Element<'_, Message>> {
+        use crate::composer::Event;
+        let theme = &self.theme;
+        let (words, retry, cancel) = match message.delivery {
+            chat::Delivery::Sent => return None,
+            chat::Delivery::Sending if message.attachments.is_empty() => return None,
+            chat::Delivery::Sending => ("Sending...", false, true),
+            chat::Delivery::Waiting => (
+                "Not sent yet. Yapfast sends it when the connection returns.",
+                false,
+                true,
+            ),
+            // An app's command, whose row says why.
+            chat::Delivery::Failed if message.item.starts_with("c:") => ("Not sent.", true, true),
+            chat::Delivery::Failed => ("Not sent. The server refused this message.", true, true),
+        };
+        let failed = message.delivery == chat::Delivery::Failed;
+        let mut line =
+            row![
+                text(words)
+                    .size(13)
+                    .color(if failed { theme.danger } else { theme.muted })
+            ]
+            .spacing(4)
+            .align_y(Alignment::Center);
+        let item = &message.item;
+        if retry {
+            line = line.push(
+                controls::action(
+                    theme,
+                    "Retry",
+                    controls::Kind::Ghost,
+                    Some(Message::Write(Event::Retry(item.clone()))),
+                )
+                .small(),
+            );
+        }
+        if cancel {
+            line = line.push(
+                controls::action(
+                    theme,
+                    "Cancel",
+                    controls::Kind::Ghost,
+                    Some(Message::Write(Event::CancelSend(item.clone()))),
+                )
+                .small(),
+            );
+        }
+        Some(line.into())
+    }
+
+    /// As Discord's client marks an answer only this account sees.
+    fn ephemeral_line(&self, message: &ChatMessage) -> Element<'_, Message> {
+        let theme = &self.theme;
+        let preview = self.client.state().preview;
+        let dismiss = button(text("Dismiss message").size(12))
+            .padding(0)
+            .on_press_maybe(
+                (!preview)
+                    .then(|| Message::Write(crate::composer::Event::Dismiss(message.item.clone()))),
+            )
+            .style(controls::ink_style(
+                if preview { theme.muted } else { theme.link },
+                theme.text,
+            ));
+        row![
+            self.glyph(Icon::Eye, 16, theme.muted),
+            text("Only you can see this ·").size(12).color(theme.muted),
+            dismiss,
+        ]
+        .spacing(4)
+        .align_y(Alignment::Center)
+        .into()
     }
 
     /// The room a message's content has across: the timeline's width but

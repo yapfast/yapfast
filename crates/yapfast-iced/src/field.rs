@@ -63,6 +63,20 @@ pub enum Event {
     Menu(Point),
     /// Up in an empty composer: edit the last message.
     UpFromEmpty,
+    /// Alt+Up: into the messages, to step through them.
+    UpToMessages,
+    /// Ctrl+V in a field that takes files (`Field::pastes`): the app looks
+    /// at the clipboard first, and pastes text itself.
+    Paste,
+    /// Ctrl+G, as Discord's: the GIF picker.
+    Gifs,
+    /// The field took the keys, or lost them.
+    Focus(bool),
+    /// Tab, or with `true` Shift+Tab, in a field that passes them on
+    /// (`Field::tabs`): to the next or the last of an app command's options.
+    Tab(bool),
+    /// Backspace in an empty field that passes Tab on.
+    BackFromEmpty,
 }
 
 /// How a run of typing is grouped for undo.
@@ -311,6 +325,12 @@ pub struct Field<'a> {
     lines: f32,
     /// A search field: one line, no line breaks.
     single: bool,
+    /// Ctrl+V asks the app (`Event::Paste`).
+    pastes: bool,
+    /// Tab and Backspace at its start go to the app.
+    tabs: bool,
+    /// Takes no input, its text greyed.
+    enabled: bool,
     colors: Colors,
     on: fn(Event) -> Message,
 }
@@ -347,9 +367,29 @@ impl<'a> Field<'a> {
             },
             lines: 10.0,
             single: false,
+            pastes: false,
+            tabs: false,
+            enabled: true,
             colors,
             on,
         }
+    }
+
+    /// Ctrl+V asks the app, which may find files or a picture to attach.
+    pub fn pastes(mut self) -> Self {
+        self.pastes = true;
+        self
+    }
+
+    /// Tab and Backspace at an empty field's start go to the app.
+    pub fn tabs(mut self, tabs: bool) -> Self {
+        self.tabs = tabs;
+        self
+    }
+
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
     }
 
     pub fn single(mut self) -> Self {
@@ -382,6 +422,8 @@ impl<'a> Field<'a> {
 #[derive(Default)]
 struct State {
     focus: Option<Focus>,
+    /// Whether the app was last told the field has the keys.
+    told: bool,
     last_click: Option<mouse::Click>,
     dragging: bool,
 }
@@ -510,6 +552,18 @@ impl Widget<Message, Theme, Renderer> for Field<'_> {
         _viewport: &Rectangle,
     ) {
         let state = tree.state.downcast_mut::<State>();
+        if !self.enabled {
+            state.focus = None;
+        }
+        // Focus moves by the app's tasks as well as by presses: the next
+        // event after it tells the app.
+        if state.focus.is_some() != state.told {
+            state.told = state.focus.is_some();
+            shell.publish((self.on)(Event::Focus(state.told)));
+        }
+        if !self.enabled {
+            return;
+        }
         let bounds = layout.bounds();
         let text_bounds = self.text_bounds(layout);
         match event {
@@ -708,7 +762,22 @@ impl Widget<Message, Theme, Renderer> for Field<'_> {
                         }
                     }
                     (Some(key::Named::Escape), _) => return publish(shell, Event::Escape),
+                    (Some(key::Named::Tab), _) if self.tabs => {
+                        return publish(shell, Event::Tab(modifiers.shift()));
+                    }
                     (Some(key::Named::Tab), _) => return,
+                    (Some(key::Named::Backspace), _) if self.tabs && inner.editor.is_empty() => {
+                        return publish(shell, Event::BackFromEmpty);
+                    }
+                    (Some(key::Named::ArrowUp), _) if modifiers.alt() && !self.single => {
+                        return publish(shell, Event::UpToMessages);
+                    }
+                    (_, Some('v')) if command && !modifiers.alt() && self.pastes => {
+                        return publish(shell, Event::Paste);
+                    }
+                    (_, Some('g')) if command && !modifiers.shift() && !self.single => {
+                        return publish(shell, Event::Gifs);
+                    }
                     (_, Some('c')) if command => {
                         // Nothing selected here: the timeline's selection may be.
                         let Some(selection) = inner.editor.copy() else {
