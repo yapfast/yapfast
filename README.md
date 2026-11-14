@@ -142,6 +142,10 @@ does, and names games Yapfast doesn't know. See
 [game detection](docs/discord/people.md#game-detection) and
 [Rich Presence](docs/discord/people.md#linux-rich-presence).
 
+What your linked Spotify account plays shows as "Listening to Spotify" with only
+Yapfast open, from any player, as Discord's own "Display Spotify as your status"
+setting says. See [Spotify](docs/discord/people.md#listening-to-spotify).
+
 <p align="center">
   <img src="docs/images/features/playing.webp" width="260" alt="A profile card saying Playing Deadlock, with the game's icon.">
 </p>
@@ -166,8 +170,8 @@ interested. Folders show up as they do in Discord.
 - **Servers, channels, DMs and group DMs**, all live, with member lists. Pin,
   mute or close a DM from its menu, leave a group DM, and accept or ignore
   message requests.
-- **Messages** you can send, reply to, edit, react to, pin, forward and attach
-  files to, with Markdown, embeds, custom emoji, stickers and spoilers. Bots'
+- **Messages** you can send, reply to, edit, react to, pin, forward, mark
+  unread, copy a link to and attach files to, with Markdown, embeds, custom emoji, stickers and spoilers. Bots'
   buttons, dropdown menus and forms work too, radio buttons, checkboxes and
   file uploads included, and so do apps' slash commands: type `/`, pick one
   and fill in its options, files and autocomplete included; an app's answer

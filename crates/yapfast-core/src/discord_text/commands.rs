@@ -46,6 +46,18 @@ pub fn command(
         }
         return;
     }
+    if let Command::Discord(DiscordCommand::MarkUnread {
+        room,
+        last,
+        mentions,
+        sync,
+    }) = &command
+    {
+        if let (Ok(discord), Some((_, channel))) = (discord, discord::parse_room(room)) {
+            discord.mark_unread(channel, *last, *mentions, *sync);
+        }
+        return;
+    }
     if let Command::Typing { room, typing } = &command
         && Network::of(room) == Network::Discord
     {

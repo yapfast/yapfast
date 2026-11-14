@@ -33,7 +33,10 @@
 // `--members N` adds N people, online, to Server's member list, as a busy
 // server's first hundred rows are. POST /_control/churn-start takes one of
 // them offline or back online ten times a second, each a member list update,
-// and /_control/churn-stop stops it.
+// and /_control/churn-stop stops it. `--member-looks` dresses them, and the
+// crowd's posters, as a busy server's people are: name styles, decorations,
+// nameplates, server tags, mixed statuses with custom statuses and games,
+// every eighth in Mods (with a role icon), and banners on their profiles.
 // POST /_control/crowd-start makes someone new post in the last of them, or
 // in #general, 50 times a second, and /_control/crowd-stop stops them.
 // POST /_control/burst?count=N posts N messages, 150 every 10 ms, for
@@ -123,6 +126,9 @@
 // first, and POST clears the list.
 // GET /_control/acks lists Alice's read acknowledgements, oldest first: each
 // request's channels, several for POST /read-states/ack-bulk.
+// GET /_control/manual-acks lists her manual ones, Mark Unread's, oldest
+// first: each one's channel_id, message_id and mention_count, which
+// MESSAGE_ACK sends back with `manual`.
 // POST /_control/react makes Carol add or take back a reaction on the newest
 // message in #general.
 // POST /_control/poll makes Bob post a poll in #general that Carol and Dave
@@ -136,7 +142,8 @@
 // a MESSAGE_UPDATE and a "poll closed" notice (type 46).
 // GET /users/{id}/profile answers for everyone: Bob has a bio, pronouns, a
 // banner, a server bio and three badges, Carol a banner colour, and the rest
-// nothing more. GET /users/{id}/badges gives Bob's playing time its level,
+// nothing more; Status Bot's says it's a bot. Friendships began at JOINED_AT,
+// as `since` on each relationship says. GET /users/{id}/badges gives Bob's playing time its level,
 // GET /_control/badge-reads counts those requests, and /assets/content/ serves
 // the level's SVGs.
 // POST /_control/components makes Discord's own account write Alice a
@@ -198,7 +205,11 @@
 // file into an image embed.
 // Alice's custom status, "Testing Yapfast", is in her settings; PATCH
 // /users/@me/settings-proto/1 replaces each top-level field it sends, and GET
-// /_control/presence shows the presence her session last sent with op 3. POST /users/@me/relationships sends
+// /_control/presence shows the presence her session last sent with op 3, GET
+// /_control/settings her settings as GET /users/@me/settings-proto/1 gives them,
+// and how many times that was asked.
+// POST /_control/other-session brings her phone online playing a song, with
+// SESSIONS_REPLACE. POST /users/@me/relationships sends
 // a friend request by username: Frank takes none, and unknown names fail.
 // Erin's request is a stranger's (`stranger_request`), which PUT accepts only
 // with `confirm_stranger_request`, as Discord's client confirms one; without it
@@ -391,6 +402,7 @@ const { values: args } = parseArgs({
     authors: { type: "string", default: "0" },
     members: { type: "string", default: "0" },
     "name-styles": { type: "boolean", default: false },
+    "member-looks": { type: "boolean", default: false },
     nitro: { type: "boolean", default: false },
     folders: { type: "boolean", default: false },
     "cdn-delay": { type: "string", default: "0" },
@@ -458,6 +470,12 @@ const ALICE = "1400000000000000001";
 
 /** The profile effect Bob equips: an intro layer and a looping one over the card. */
 const PROFILE_EFFECT = "1500000000000000010";
+/** The profile frame Dave equips, a staple over the top and a border down
+ *  the sides, which GET /collectibles-products/{sku} describes; its layers
+ *  are served at /media/v1/collectibles-shop/{sku}/{layer}/static. Dave's
+ *  banner moves: its hash starts with `a_`, and its GIF is
+ *  testing/fixtures/gifs/hello.gif. */
+const PROFILE_FRAME = "1500000000000000011";
 // The SKUs that are nameplates, whose pictures are strips.
 const nameplateSkus = new Set<string>();
 // How many times a collectible's animated picture was asked for.
@@ -677,6 +695,8 @@ function joinSound(guild: string | null): [string, bigint] | undefined {
   }
   return (guild ? found.get(guild) : undefined) ?? found.get("0");
 }
+// How many times GET /users/@me/settings-proto/1 was asked.
+let settingsReads = 0;
 let settings = Buffer.from(
   protoBytes(11, protoBytes(2, new Uint8Array([...protoBytes(1, text("Testing Yapfast")), ...protoBytes(3, text("🧪"))]))),
 ).toString("base64");
@@ -1025,17 +1045,22 @@ function wireProfile(user: User, guild: string | null, origin: string) {
   if (world) return envProfile(world, user, guild);
   const bob = user.id === users.bob.id;
   const carol = user.id === users.carol.id;
-  const inServer = Object.values(users).includes(user) && user.id !== ALICE;
+  // Status Bot posts in the server, so Discord lists it as shared.
+  const inServer = (Object.values(users).includes(user) && user.id !== ALICE) || user.id === statusBot.id;
   const isMember = Object.values(users).includes(user);
-  const profile = user.id === ALICE ? aliceProfile : {
+  const dave = user.id === users.dave.id;
+  const profile = user.id === ALICE ? aliceProfile : lookProfiles.get(user.id) ?? {
     bio: bob ? "Plays bass in a **ska** band. Ask me about https://example.com/gigs" : "",
     pronouns: bob ? "he/him" : "",
-    banner: bob ? "bob-banner" : null,
+    banner: bob ? "bob-banner" : dave ? "a_davebanner" : null,
     accent_color: carol ? 0x5865f2 : null,
   };
   return {
     user: { ...wireUser(user), banner: profile.banner, accent_color: profile.accent_color, bio: profile.bio },
-    user_profile: { ...profile, profile_effect: user.effect ? { id: user.effect, expires_at: null } : null },
+    user_profile: {
+      ...profile, profile_effect: user.effect ? { id: user.effect, expires_at: null } : null,
+      collectibles: dave ? [{ type: 3, sku_id: PROFILE_FRAME }] : [],
+    },
     ...(guild === GUILD && isMember
       ? {
           guild_member_profile: guildMemberProfile(user.id),
@@ -2914,6 +2939,7 @@ function ready(ws: Socket) {
         session_id: ws.data.session,
         status: "online",
         activities: [],
+        active: true,
         client_info: { client: "web", os: "linux", version: 0 },
       },
     ],
@@ -3014,17 +3040,64 @@ const presences: Record<string, { status: string; activities: unknown[]; client_
   [users.dave.id]: { status: "offline", activities: [] },
 };
 
+/** With `--member-looks`, what the nth person of `--members` or the crowd
+ *  wears: every second a name style, every third a decoration, every fourth
+ *  a nameplate, every fifth a server tag. */
+function memberLook(n: number): Pick<User, "style" | "decoration" | "nameplate"> & { clan?: unknown } {
+  if (!args["member-looks"]) return {};
+  const palettes = ["bubble_gum", "sky", "violet", "teal", "forest", "sunset"];
+  const decorations = ["1500000000000000001", "1500000000000000003", "1500000000000000005"];
+  const nameplate = n % 4 === 1 ? { sku: String(1_500_000_000_000_000_100n + BigInt(n % 6)), palette: palettes[n % 6]! } : undefined;
+  if (nameplate) nameplateSkus.add(nameplate.sku);
+  return {
+    ...(n % 2 === 0 ? { style: nameStyleSample(n / 2).style } : {}),
+    ...(n % 3 === 0 ? { decoration: decorations[(n / 3) % 3] } : {}),
+    ...(nameplate ? { nameplate } : {}),
+    ...(n % 5 === 2
+      ? { clan: { identity_guild_id: GUILD, identity_enabled: true, tag: ["GG", "ZAP", "MOON", "404"][n % 4], badge: "bobtag" } }
+      : {}),
+  };
+}
+
+/** With `--member-looks`, the nth listed person's presence: online, idle,
+ *  do not disturb or on a phone in turn, with a custom status or a game. */
+function lookPresence(n: number): any {
+  if (!args["member-looks"]) return { status: "online", activities: [] };
+  const status = ["online", "idle", "dnd", "online"][n % 4]!;
+  const activities =
+    n % 3 === 1
+      ? [{ type: 4, name: "Custom Status", state: `status line ${n}`, emoji: { name: "🌙", id: null } }]
+      : n % 3 === 2
+        ? [{ type: 0, name: ["Factorio", "Celeste", "Hades", "Balatro"][n % 4] }]
+        : [];
+  return { status, activities, ...(n % 4 === 3 ? { client_status: { mobile: status } } : {}) };
+}
+
+/** With `--member-looks`, the listed people's profiles: every tenth a moving
+ *  banner, the other even ones a banner picture, the odd ones a colour. */
+const lookProfiles = new Map<string, { bio: string; pronouns: string; banner: string | null; accent_color: number | null }>();
+
 // The people of `--members`, in Server's member list alone.
 const listed: User[] = Array.from({ length: Number(args.members) }, (_, n) => ({
   id: (1_750_000_000_000_000_000n + BigInt(n)).toString(),
   username: `member${n}`,
   global_name: `Member ${n}`,
   avatar: `m${n}`,
+  ...memberLook(n),
 }));
-for (const person of listed) {
+for (const [n, person] of listed.entries()) {
   userById.set(person.id, person);
-  presences[person.id] = { status: "online", activities: [] };
+  presences[person.id] = lookPresence(n);
+  if (!args["member-looks"]) continue;
+  if (n % 8 === 0) memberRoles.set(person.id, [MODS]);
+  lookProfiles.set(person.id, {
+    bio: `Member ${n} of a busy server. Likes **bold** things and \`code\`.`,
+    pronouns: ["they/them", "she/her", "he/him"][n % 3]!,
+    banner: n % 10 === 0 ? "a_memberbanner" : n % 2 === 0 ? `mbanner${n}` : null,
+    accent_color: n % 2 === 1 ? 0x5865f2 + n * 997 : null,
+  });
 }
+if (args["member-looks"]) serverRoles.find((role) => role.id === MODS)!.icon = "modsicon";
 
 // The member list's Activity feed, as /content-inventory/users/@me answers:
 // Bob and Carol now, Dave's game earlier, this week's top ones, then what no
@@ -6216,6 +6289,19 @@ async function api(req: Request, path: string, origin: string): Promise<Response
 
   // The shop's product for a profile effect, whose layers Discord's client
   // lays over a profile card: an intro that plays once, and a loop.
+  if (method === "GET" && path === `/collectibles-products/${PROFILE_FRAME}`) {
+    return json({
+      sku_id: PROFILE_FRAME, store_listing_id: "2", type: 3, name: "Brass", summary: "A brass frame",
+      items: [{
+        type: 3, sku_id: PROFILE_FRAME, label: "A brass frame", inner_width: 1200,
+        overflow_top: 304, overflow_bottom: 212, overflow_horizontal: 56,
+        layers: [
+          { id: "1", type: "staple", order: "front", anchor: "top" },
+          { id: "2", type: "border", order: "back", anchor: "center" },
+        ],
+      }],
+    });
+  }
   if (method === "GET" && (m = path.match(/^\/collectibles-products\/(\d+)$/))) {
     const sku = m[1]!;
     if (!profileEffects.has(sku)) return notFound("Unknown Collectibles Product", 10000);
@@ -6237,7 +6323,8 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   }
 
   if (method === "GET" && (m = path.match(/^\/users\/(\d+|@me)\/profile$/))) {
-    const user = userById.get(m[1] === "@me" ? ALICE : m[1]!);
+    const id = m[1] === "@me" ? ALICE : m[1]!;
+    const user = userById.get(id) ?? (id === statusBot.id ? statusBot : undefined);
     if (!user) return notFound("Unknown User", 10013);
     return json(wireProfile(user, url.searchParams.get("guild_id"), origin));
   }
@@ -6600,6 +6687,15 @@ async function api(req: Request, path: string, origin: string): Promise<Response
 
   if (method === "POST" && (m = path.match(/^\/channels\/(\d+)\/messages\/(\d+)\/ack$/))) {
     if (!messages.has(m[1]!)) return notFound("Unknown Channel", 10003);
+    const body: any = await req.json().catch(() => ({}));
+    // Mark Unread: the read message goes back, with the mentions after it.
+    if (body.manual === true) {
+      const mentions = Number(body.mention_count ?? 0);
+      readStates.set(m[1]!, { last: m[2]!, mentions });
+      manualAcks.push({ channel_id: m[1]!, message_id: m[2]!, mention_count: mentions });
+      dispatch("MESSAGE_ACK", { channel_id: m[1], message_id: m[2], version: 1, manual: true, mention_count: mentions });
+      return json({ token: null });
+    }
     readStates.set(m[1]!, { last: m[2]!, mentions: 0 });
     acks.push([m[1]!]);
     dispatch("MESSAGE_ACK", { channel_id: m[1], message_id: m[2], version: 1, mention_count: 0 });
@@ -6923,7 +7019,10 @@ async function api(req: Request, path: string, origin: string): Promise<Response
       entries: env ? [] : feedEntries(url.origin).map((content) => ({ content })),
     });
   }
-  if (method === "GET" && path === "/users/@me/settings-proto/1") return json({ settings });
+  if (method === "GET" && path === "/users/@me/settings-proto/1") {
+    settingsReads++;
+    return json({ settings });
+  }
   if (method === "PATCH" && path === "/users/@me/settings-proto/1") {
     const body: any = await req.json().catch(() => ({}));
     if (typeof body.settings !== "string") return json({ message: "Invalid Form Body", code: 50035 }, 400);
@@ -8246,7 +8345,7 @@ const ENV_IDS = 1_450_000_000_000_000_000n;
 const GENERIC_CONTROLS = new Set([
   "media-requests", "history", "forwards", "gif-selects", "nitro", "profile", "profile-reset", "server-profile", "health", "presence", "logouts",
   "voice-identifies", "voice-changes", "call-audio", "call-video", "voice-link", "voice-drop", "voice-move", "voice-kick",
-  "stream-move", "sessions", "cookies", "list-requests", "audit-log", "slow", "gateway-reconnect", "qr-scan",
+  "stream-move", "sessions", "other-session", "cookies", "list-requests", "audit-log", "slow", "gateway-reconnect", "qr-scan",
   "qr-confirm", "qr-captcha", "qr-cancel", "qr-expire", "voice-audio", "video", "stream-codec", "reactor-pages",
   "reactor-removals", "thread-searches", "thread-creates", "thread-members", "typed", "acks", "invites",
   "invite-joins", "invite-captcha", "invite-form", "event-interest", "gift-redeems", "oauth-authorizations", "mfa", "soundboard-sends", "custom-call-sounds",
@@ -8661,6 +8760,8 @@ let busyCount = 0;
 const typed: string[] = [];
 // Each read acknowledgement's channels, oldest first.
 const acks: string[][] = [];
+/** Alice's manual acknowledgements, Mark Unread's, oldest first. */
+const manualAcks: { channel_id: string; message_id: string; mention_count: number }[] = [];
 let chatCount = 0;
 
 function chatTick(origin: string) {
@@ -8784,6 +8885,20 @@ const server = Bun.serve<SocketData>({
     if (effectLayer && profileEffects.has(effectLayer[1]!)) {
       return new Response(effectPicture(effectLayer[2]!), { headers: { "content-type": "image/png" } });
     }
+    // A frame's layers: a brass bar with a knob for the staple, and a
+    // brass edge down either side for the border.
+    const frameLayer = req.method === "GET" ? path.match(/^\/media\/v1\/collectibles-shop\/(\d+)\/([12])\/static$/) : null;
+    if (frameLayer) {
+      const brass = [196, 150, 60, 255];
+      const picture = frameLayer[2] === "1"
+        ? png(460, 110, (x, y) => (y > 70 && y < 90) || Math.hypot(x - 230, y - 60) < 40 ? brass : [0, 0, 0, 0])
+        : png(460, 200, (x) => x < 14 || x >= 446 ? brass : [0, 0, 0, 0]);
+      return new Response(picture, { headers: { "content-type": "image/png" } });
+    }
+    const movingBanner = req.method === "GET" ? path.match(/^\/banners\/\d+\/a_[a-z]+\.gif$/) : null;
+    if (movingBanner) {
+      return new Response(Bun.file(new URL("gifs/hello.gif", fixtures)), { headers: { "content-type": "image/gif" } });
+    }
     const collectible = req.method === "GET" ? path.match(COLLECTIBLES_PATH) : null;
     if (collectible) {
       if (collectible[2] === "animated") collectibleAnimations++;
@@ -8823,6 +8938,32 @@ const server = Bun.serve<SocketData>({
     }
     if (path === "/_control/health") return new Response("ok\n");
     if (path === "/_control/presence") return Response.json(alicePresence);
+    if (req.method === "POST" && path === "/_control/other-session") {
+      // Alice's phone comes online playing a song, as SESSIONS_REPLACE
+      // lists every session of hers with what each shows.
+      const own = [...sockets].filter(ws => ws.data.identified).map(ws => ({
+        session_id: ws.data.session, status: "online", activities: [], active: true,
+        client_info: { client: "web", os: "linux", version: 0 },
+      }));
+      const song = {
+        type: 2, name: "Spotify", id: "spotify:1", application_id: null, created_at: Date.now(),
+        details: "Song on the phone", state: "An artist", sync_id: "4uLU6hMCjMI75M1A2tKUQC",
+        timestamps: { start: Date.now() - 30_000, end: Date.now() + 150_000 },
+        assets: { large_image: "spotify:ab67616d0000b273", large_text: "An album" },
+      };
+      // With more than one session, Discord puts a merged one, "all", first.
+      dispatch("SESSIONS_REPLACE", [{
+        session_id: "all", status: "online", active: true,
+        client_info: { client: "unknown", os: "unknown", version: 0 },
+        activities: [song],
+      }, ...own, {
+        session_id: "fake-phone", status: "online", active: true,
+        client_info: { client: "mobile", os: "ios", version: 0 },
+        activities: [song],
+      }]);
+      return new Response("online\n");
+    }
+    if (path === "/_control/settings") return Response.json({ settings, reads: settingsReads });
     if (req.method === "POST" && path === "/_control/bob-away") {
       // Bob goes idle with a custom status, as his friends hear it.
       presences[users.bob.id] = {
@@ -8843,8 +8984,9 @@ const server = Bun.serve<SocketData>({
       churn = setInterval(() => {
         const person = listed[(turn++ * 7) % listed.length]!;
         changeMembers(() => {
-          const status = presences[person.id]!.status === "offline" ? "online" : "offline";
-          presences[person.id] = { status, activities: [] };
+          presences[person.id] = presences[person.id]!.status === "offline"
+            ? lookPresence(listed.indexOf(person))
+            : { status: "offline", activities: [] };
           dispatch("PRESENCE_UPDATE", { user: { id: person.id }, client_status: {}, ...presences[person.id] });
         });
       }, 100);
@@ -9473,6 +9615,9 @@ const server = Bun.serve<SocketData>({
     if (req.method === "GET" && path === "/_control/acks") {
       return Response.json(acks);
     }
+    if (req.method === "GET" && path === "/_control/manual-acks") {
+      return Response.json(manualAcks);
+    }
     if (req.method === "GET" && path === "/_control/invites") {
       return Response.json(invites);
     }
@@ -9594,6 +9739,7 @@ const server = Bun.serve<SocketData>({
           username: `crowd${n}`,
           global_name: `Crowd ${n}`,
           avatar: `c${n}`,
+          ...memberLook(n),
         };
         const message = post(rooms.at(-1) ?? GENERAL, person, `Hello from ${person.global_name}`, Date.now());
         dispatch("MESSAGE_CREATE", dispatched(message, origin));

@@ -610,6 +610,8 @@ pub struct Private {
     pub icon: Option<String>,
     /// Everyone in it besides this account.
     pub recipients: Vec<String>,
+    /// Who made a group DM, whom its member list crowns.
+    pub owner: Option<String>,
     /// A message request: someone outside this account's DMs wrote, and it
     /// waits to be accepted or ignored.
     pub request: bool,
@@ -653,6 +655,9 @@ pub fn private_channel(channel: &Value) -> Option<Private> {
             )
         }),
         recipients,
+        owner: group
+            .then(|| channel["owner_id"].as_str().map(str::to_owned))
+            .flatten(),
         request: spam || channel["is_message_request"] == true,
         spam,
         id,
@@ -2471,5 +2476,19 @@ mod tests {
         // Without a duration, never.
         later.archive_after = 0;
         assert_eq!(later.quiet_at(&thread.id), u64::MAX);
+    }
+
+    #[test]
+    fn a_group_dm_knows_who_made_it_and_a_dm_has_no_maker() {
+        let group = private_channel(&json!({
+            "id": "5", "type": 3, "owner_id": "2", "recipient_ids": ["2", "3"],
+        }))
+        .unwrap();
+        assert_eq!(group.owner.as_deref(), Some("2"));
+        let dm = private_channel(&json!({
+            "id": "6", "type": 1, "owner_id": "2", "recipient_ids": ["2"],
+        }))
+        .unwrap();
+        assert_eq!(dm.owner, None);
     }
 }

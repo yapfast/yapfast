@@ -416,7 +416,9 @@ impl Application {
 
     /// Whether this account is in a Discord thread, by its room id; none for
     /// a room that isn't a thread Yapfast knows.
-    fn thread_joined(&self, room: &str) -> Option<bool> {
+    /// Whether this account is in a Discord thread, and whether it's
+    /// archived; none for a room that isn't a thread.
+    pub(super) fn thread_state(&self, room: &str) -> Option<(bool, bool)> {
         #[cfg(feature = "discord")]
         {
             let (guild, channel) = discord::parse_room(room)?;
@@ -426,13 +428,17 @@ impl Application {
                 .channel(channel)?
                 .thread
                 .as_ref()
-                .map(|thread| thread.joined)
+                .map(|thread| (thread.joined, thread.archived))
         }
         #[cfg(not(feature = "discord"))]
         {
             let _ = room;
             None
         }
+    }
+
+    fn thread_joined(&self, room: &str) -> Option<bool> {
+        self.thread_state(room).map(|(joined, _)| joined)
     }
 
     /// What a Discord thread header's More menu offers, by its room id, as

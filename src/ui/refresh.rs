@@ -1165,6 +1165,45 @@ impl Adapter {
             .collect();
         update_model(&self.models.friends_online, around);
         update_model(&self.models.friends, friend_rows);
+        // Active Now is made only while the friends page shows it, as
+        // Discord's is; a card that stays keeps its lists, so it isn't
+        // drawn again.
+        let cards: Vec<ActiveNowCard> = if state.dm_screen == Some(DmScreen::Friends) {
+            self.active_now_cards(&rooms_by_id)
+                .into_iter()
+                .map(|mut card| {
+                    if let Some(shown) = self
+                        .models
+                        .active_now
+                        .iter()
+                        .find(|shown| shown.id == card.id)
+                    {
+                        // Slint compares lists by identity: keep each row's
+                        // faces, then the rows, where nothing changed.
+                        let rows: Vec<ActiveNowRow> = card
+                            .rows
+                            .iter()
+                            .enumerate()
+                            .map(|(at, mut row)| {
+                                if let Some(old) = shown.rows.row_data(at) {
+                                    row.faces = same_list(&old.faces, row.faces);
+                                }
+                                row
+                            })
+                            .collect();
+                        card.rows = same_list(&shown.rows, ModelRc::new(VecModel::from(rows)));
+                    }
+                    card
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let timed = cards
+            .iter()
+            .any(|card| card.start > 0 || card.rows.iter().any(|row| row.start > 0));
+        update_model(&self.models.active_now, cards);
+        self.active_now_timed = timed && state.dm_screen == Some(DmScreen::Friends);
         window.set_friend_count(i32::try_from(state.friends.len()).unwrap_or(i32::MAX));
         // Those blocked, for Settings.
         update_model(
@@ -3203,6 +3242,8 @@ impl Adapter {
                 )),
                 created: fallback.and_then(|fallback| fallback.created.clone()),
                 joined: fallback.and_then(|fallback| fallback.joined.clone()),
+                server_name: fallback_text(fallback.map(|fallback| &fallback.server_name)),
+                server_icon: fallback.and_then(|fallback| fallback.server_icon.clone()),
                 theme: editor.theme().ok().flatten(),
                 style: editor.name_style().map(Arc::new),
                 widgets: fallback
@@ -3895,7 +3936,6 @@ impl Adapter {
             Some(Compose::Reply { author, body, .. }) => {
                 format!("Replying to {author}: {body}").into()
             }
-            Some(Compose::Edit { .. }) => "Editing your message".into(),
             None => SharedString::default(),
         });
         // Pictures and link previews fit the panel's width beside the avatar.
@@ -3939,19 +3979,19 @@ impl Adapter {
     /// show them. Who it may mention is found again only when the draft or
     /// what they come from changed.
     fn mark_mentions(&mut self) {
-        self.mark_mentions_of(false);
-        self.mark_mentions_of(true);
+        self.mark_mentions_of(Field::Channel);
+        self.mark_mentions_of(Field::Aside);
+        self.mark_mentions_of(Field::Edit);
     }
 
-    /// [`Self::mark_mentions`] of the channel's composer, or the thread's beside it.
-    fn mark_mentions_of(&mut self, aside: bool) {
+    /// [`Self::mark_mentions`] of what `field` holds.
+    fn mark_mentions_of(&mut self, field: Field) {
         let state = &self.app.state;
-        let draft = if aside {
-            state.aside_draft()
-        } else {
-            state.draft()
+        let (draft, slot) = match field {
+            Field::Channel => (state.draft(), 0),
+            Field::Aside => (state.aside_draft(), 1),
+            Field::Edit => (state.edit().map_or("", |edit| edit.text.as_str()), 2),
         };
-        let slot = usize::from(aside);
         let sources = MentionSources {
             messages: Arc::as_ptr(&state.messages) as usize,
             members: state
@@ -3990,8 +4030,48 @@ impl Adapter {
         self.mentions_marked[slot] = Some(marked);
     }
 
+    /// The field of the message being edited, in its row: what it holds, and
+    /// the keys when an edit starts, with the cursor after its text.
+    fn show_inline_edit(&mut self, window: &YapfastWindow) {
+        let state = &self.app.state;
+        let edit = state.edit();
+        let shown = window.global::<InlineEdit>();
+        let text = edit.map_or("", |edit| edit.text.as_str());
+        if shown.get_text() != text {
+            shown.set_text(text.into());
+        }
+        // In the thread beside the channel when its room is the one edited.
+        shown.set_aside(edit.is_some_and(|edit| {
+            state.selected.as_ref() != Some(&edit.room)
+                && state.aside_room().is_some_and(|room| room.id == edit.room)
+        }));
+        shown.set_item(edit.map_or("", |edit| edit.item.as_str()).into());
+        let started = edit.map(|edit| (edit.room.clone(), edit.item.clone()));
+        let end = edit.map(|edit| edit.text.len());
+        if started != self.edit_focused {
+            self.edit_focused = started;
+            if let Some(end) = end {
+                callbacks::focus_edit(window, end);
+            }
+        }
+        // Suggestions for a field that's gone go with it.
+        if self.suggesting == Field::Edit && edit.is_none() {
+            self.suggesting = Field::Channel;
+            self.mention_at = None;
+            self.emoji_word = None;
+            window.set_suggesting_edit(false);
+            shown.set_suggesting(false);
+            window.set_mention_index(0);
+            if self.app.state.mention_query.is_some() {
+                self.action(window, Action::MentionQuery(None));
+            }
+            self.show_emoji_suggestions(window);
+        }
+    }
+
     pub(super) fn show_composer(&mut self, window: &YapfastWindow) {
         self.mark_mentions();
+        self.show_inline_edit(window);
         let state = &self.app.state;
         let room = state.selected_room();
         window.set_voice_room(room.is_some_and(|room| room.voice));
@@ -4047,7 +4127,6 @@ impl Adapter {
             Some(Compose::Reply { author, body, .. }) => {
                 format!("Replying to {author}: {body}").into()
             }
-            Some(Compose::Edit { .. }) => "Editing your message".into(),
             None => SharedString::default(),
         });
         window.set_sending(state.sending.is_some());
@@ -4252,7 +4331,12 @@ impl Adapter {
             self.clock_minute = minute;
             self.restyle |= polls::open_poll(&state.messages, minute * 60) | new_day;
         }
-        let restyle = std::mem::take(&mut self.restyle);
+        // A divider that moved, as Mark Unread moves it, goes on its new row.
+        let unread_moved = self.unread_shown != state.first_unread;
+        if unread_moved {
+            self.unread_shown.clone_from(&state.first_unread);
+        }
+        let restyle = std::mem::take(&mut self.restyle) || unread_moved && !reset;
         // The thread beside builds its rows again with the timeline's.
         self.aside_restyle |= restyle;
         if messages_changed || selection_changed || reset || pictures_arrived || restyle {
@@ -4316,7 +4400,7 @@ impl Adapter {
             Some((index, item))
         });
         window.set_caught_up(state.caught_up);
-        if messages_changed || selection_changed || reset {
+        if messages_changed || selection_changed || reset || unread_moved {
             window.set_unread_index(
                 unread.map_or(-1, |(index, _)| i32::try_from(index).unwrap_or(i32::MAX)),
             );

@@ -151,6 +151,8 @@ pub(super) struct Tracker {
     ignored: Vec<String>,
     /// The nicknames this account gave its friends, by user id.
     nicknames: HashMap<String, String>,
+    /// When its friendships began, in Unix milliseconds, by user id.
+    friends_since: HashMap<String, u64>,
     /// The server list's order and folders, from the settings.
     order: Vec<String>,
     folders: Vec<settings::Folder>,
@@ -163,11 +165,19 @@ pub(super) struct Tracker {
     /// Whether the account shares the game it plays, from the settings, and
     /// the game it shows.
     pub(super) show_game: bool,
+    /// The settings' `status`, as Discord last sent it: what a change to the
+    /// status, custom status or game sharing starts from.
+    status_settings: Option<Arc<[u8]>>,
     /// Whether Discord lets the account see age-restricted content, and
     /// whether its settings offer age-restricted commands in DMs.
     nsfw_allowed: bool,
     nsfw_commands_in_dms: bool,
     pub(super) playing: Option<Arc<crate::own_activity::Playing>>,
+    /// What this session and another of this account's show it doing, and
+    /// the two together as its own profile shows them.
+    here: Vec<Value>,
+    elsewhere: Vec<Value>,
+    own_activities: crate::activity::Activities,
     /// The soundboard's volume and join sounds, from the settings.
     soundboard_volume: Option<f32>,
     join_sounds: Arc<[crate::soundboard::JoinSound]>,
@@ -235,6 +245,7 @@ impl Tracker {
             blocked: Vec::new(),
             ignored: Vec::new(),
             nicknames: HashMap::new(),
+            friends_since: HashMap::new(),
             order: Vec::new(),
             folders: Vec::new(),
             status: "online".into(),
@@ -242,7 +253,11 @@ impl Tracker {
             afk_timeout: settings::AFK_TIMEOUT,
             // As in Discord's apps, until the settings say otherwise.
             show_game: true,
+            status_settings: None,
             playing: None,
+            here: Vec::new(),
+            elsewhere: Vec::new(),
+            own_activities: Default::default(),
             soundboard_volume: None,
             join_sounds: Arc::from([]),
             requests: HashMap::new(),
@@ -252,6 +267,7 @@ impl Tracker {
             viewing: None,
             beside: None,
         };
+        tracker.sessions(&ready["sessions"]);
         tracker.sort_servers();
         if let Some(encoded) = ready["user_settings_proto"].as_str() {
             tracker.settings(encoded);
@@ -336,8 +352,32 @@ impl Tracker {
         self.apply_servers(event, data) || unreads
     }
 
+    /// Takes in the list of this account's sessions; returns whether what it
+    /// shows it doing changed.
+    fn sessions(&mut self, sessions: &Value) -> bool {
+        self.elsewhere = crate::activity::elsewhere(sessions, self.session.as_deref());
+        self.own_activities_changed()
+    }
+
+    /// Takes in what this session sends Discord it's doing; returns whether
+    /// what the account shows changed.
+    pub(super) fn shows_here(&mut self, activities: &Value) -> bool {
+        self.here = activities.as_array().cloned().unwrap_or_default();
+        self.own_activities_changed()
+    }
+
+    fn own_activities_changed(&mut self) -> bool {
+        let shown = crate::activity::own(&self.here, &self.elsewhere);
+        let changed = shown != self.own_activities;
+        if changed {
+            self.own_activities = shown;
+        }
+        changed
+    }
+
     fn apply_servers(&mut self, event: &Event, data: &Value) -> bool {
         match event {
+            Event::SessionsReplace => self.sessions(data),
             Event::ReadySupplemental => {
                 // The DMs left out of READY to make it smaller.
                 for channel in data["lazy_private_channels"]
@@ -452,6 +492,7 @@ impl Tracker {
                 if let Some(id) = id {
                     self.requests.remove(id);
                     self.nicknames.remove(id);
+                    self.friends_since.remove(id);
                 }
                 true
             }
@@ -1303,6 +1344,10 @@ impl Tracker {
 
     /// Learns the status from settings, all or some of them, in base64.
     fn settings(&mut self, encoded: &str) {
+        // Each change to the status settings starts from these, whole.
+        if let Some(status) = settings::status_field(encoded) {
+            self.status_settings = Some(status.into());
+        }
         let read = settings::read(encoded);
         if let Some(status) = read.status.filter(|status| !status.is_empty()) {
             self.status = status;
@@ -1445,14 +1490,32 @@ impl Tracker {
                 None => self.nicknames.remove(id),
             };
         }
+        // When a friendship began, kept for friends alone: a request keeps
+        // its own `since`, and a block needs none.
+        let since = relationship["since"]
+            .as_str()
+            .and_then(crate::message::iso_ms);
         let Some(kind) = relationship["type"].as_u64() else {
+            if let Some(since) = since
+                && self.friends.iter().any(|friend| friend == id)
+            {
+                self.friends_since.insert(id.to_owned(), since);
+            }
             return;
         };
         self.friends.retain(|friend| friend != id);
         self.blocked.retain(|blocked| blocked != id);
         self.requests.remove(id);
+        if kind != FRIEND {
+            self.friends_since.remove(id);
+        }
         match kind {
-            FRIEND => self.friends.push(id.to_owned()),
+            FRIEND => {
+                self.friends.push(id.to_owned());
+                if let Some(since) = since {
+                    self.friends_since.insert(id.to_owned(), since);
+                }
+            }
             BLOCKED => self.blocked.push(id.to_owned()),
             INCOMING_REQUEST | OUTGOING_REQUEST => {
                 let spam = relationship["is_spam_request"].as_bool().unwrap_or(false);
@@ -1487,7 +1550,12 @@ impl Tracker {
         let mut hasher = DefaultHasher::new();
         for user in &self.friends {
             shown(&mut hasher, user);
-            (self.nicknames.get(user), self.presences.get(user)).hash(&mut hasher);
+            (
+                self.nicknames.get(user),
+                self.friends_since.get(user),
+                self.presences.get(user),
+            )
+                .hash(&mut hasher);
         }
         let friend_list = shared(&mut kept.friend_list, hasher.finish(), || {
             self.friend_list(names).into()
@@ -1550,6 +1618,7 @@ impl Tracker {
                         names.user_name(user).unwrap_or("Discord user").to_owned()
                     }),
                     nickname,
+                    since: self.friends_since.get(user).copied(),
                     avatar: names.avatar(None, user),
                     presence: known.map(|known| known.presence),
                     activity: known.and_then(|known| known.activity.clone()),
@@ -1743,6 +1812,7 @@ impl Tracker {
                 && self.unreads.last_message(&private.id) == 0,
             group: private.group,
             people: private.recipients.len() + 1,
+            owner: private.owner.clone(),
             request: private.request,
             spam: private.spam,
             person: (!private.group)
@@ -1963,9 +2033,11 @@ impl Tracker {
                 .clone()
                 .filter(|custom| !custom.expired(now_ms())),
             show_game: self.show_game,
+            status_settings: self.status_settings.clone(),
             soundboard_volume: self.soundboard_volume,
             join_sounds: self.join_sounds.clone(),
             playing: self.playing.clone(),
+            own_activities: self.own_activities.clone(),
             friend_requests: people.friend_requests,
             voice,
             voice_started: self.voice_started.clone(),
@@ -2487,7 +2559,7 @@ mod tests {
         // Changing only the status leaves the order alone.
         tracker.apply(
             &Event::UserSettingsProtoUpdate,
-            &json!({"settings": {"type": 1, "proto": settings::write_custom(None)}, "partial": true}),
+            &json!({"settings": {"type": 1, "proto": settings::encode_status(&settings::write_custom(&[], None, 1))}, "partial": true}),
         );
         assert_eq!(
             order(&tracker),
@@ -2526,10 +2598,12 @@ mod tests {
         };
         let ready = json!({
             "user": {"id": "1", "username": "me"},
-            "user_settings_proto": settings::write_custom(Some(&away)),
+            "user_settings_proto": settings::encode_status(&settings::write_custom(&[], Some(&away), 1)),
         });
         let mut tracker = Tracker::from_ready("1".into(), &ready, Default::default());
         assert_eq!(tracker.snapshot().custom_status, Some(away));
+        // Kept whole, for the next change to start from.
+        assert!(tracker.snapshot().status_settings.is_some());
         assert_eq!(tracker.snapshot().presence, "online");
         assert_eq!(
             tracker.own_presence(settings::Away::default())["activities"][0]["state"],
@@ -2537,7 +2611,7 @@ mod tests {
         );
 
         // Settings of another type say nothing of it; clearing it does.
-        let cleared = settings::write_custom(None);
+        let cleared = settings::encode_status(&settings::write_custom(&[], None, 1));
         assert!(!tracker.apply(
             &Event::UserSettingsProtoUpdate,
             &json!({"settings": {"type": 2, "proto": cleared}, "partial": true}),

@@ -2,7 +2,8 @@ import { Theme, Middle } from "../theme.slint";
 import { Avatar, TextField } from "../controls.slint";
 import { ChannelRow } from "../rail.slint";
 import { ScrollView } from "../scrollview.slint";
-import { BuildStamp } from "build-info.slint";
+import { BuildStamp, UpdateNotice } from "build-info.slint";
+import { NewTags } from "new-tags.slint";
 
 // Section IDs are the existing SettingsScreen contract. Only implemented pages
 // belong here; Discord's billing and subscription destinations have no adapter.
@@ -72,6 +73,7 @@ export component SettingsNavigation inherits Rectangle {
                     { text: "Discord", icon: @image-url("../icons/discord.svg"), id: 4 },
                     { text: "Game Activity", icon: @image-url("../icons/play.svg"), id: 8 },
                     { text: "Advanced", icon: @image-url("../icons/settings.svg"), id: 6 },
+                    { text: "About", icon: @image-url("../icons/help-circle.svg"), id: 9 },
                 ]: VerticalLayout {
                     if entry.heading && root.query == "": VerticalLayout {
                         padding-top: entry.text == "Account" ? 0px : 16px;
@@ -81,11 +83,13 @@ export component SettingsNavigation inherits Rectangle {
                     if !entry.heading && root.matches(entry.text) && (root.with-discord || (entry.id != 4 && entry.id != 8)): ChannelRow {
                         height: 40px; text: entry.text; icon: entry.icon;
                         selected: root.selected == entry.id;
+                        fresh: NewTags.section-new(entry.id, NewTags.revision);
                         clicked => { root.chose(entry.id); }
                     }
                 }
             }
         }
+        UpdateNotice { clicked => { root.chose(9); } }
         // Which build this is, as Discord's own settings end with its version.
         BuildStamp { copy(text) => { root.copy-text(text); } }
     }

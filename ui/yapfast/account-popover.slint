@@ -1,7 +1,7 @@
 import { ScrollView } from "../scrollview.slint";
 import { Theme, Middle } from "../theme.slint";
 import { Avatar, MenuItem, StatusText, StyledName, ServerTagChip, AccountLook } from "../controls.slint";
-import { ProfileData, ProfileBadge, ProfileTheme } from "../people.slint";
+import { ProfileData, BadgeRows, ProfileTheme } from "../people.slint";
 import { StatusDot } from "../rail.slint";
 import { StatusOption } from "../dialogs.slint";
 
@@ -79,21 +79,11 @@ export component AccountPopover inherits Rectangle {
                     if root.profile.tag != "": Middle { ServerTagChip { text: root.profile.tag; badge: root.profile.tag-badge; fill: root.light ? #ffffff3d : #97979f33; text-color: root.themed ? root.ink : Theme.text; } }
                 }
             }
-            // Its badges, in Discord's pill.
-            if root.profile.badges.length > 0: HorizontalLayout {
-                padding-left: 16px; alignment: start;
-                Rectangle {
-                    width: min(root.profile.badges.length, 8) * 22px + 6px; height: 24px;
-                    background: #97979f1f; border-radius: 8px; border-width: 1px; border-color: #97979f0a;
-                    Rectangle {
-                        x: 3px; y: 1px; width: parent.width - 6px; height: 20px;
-                        for badge[index] in root.profile.badges: ProfileBadge {
-                            x: index * 22px; width: 20px; height: 20px; visible: index < 8;
-                            badge: badge;
-                            open-link(url) => { root.open-link(url); }
-                        }
-                    }
-                }
+            // Its badges, in Discord's pills.
+            if root.profile.badges.length > 0: BadgeRows {
+                padding-left: 16px;
+                badges: root.profile.badges;
+                open-link(url) => { root.open-link(url); }
             }
             VerticalLayout {
                 padding: 16px; padding-top: 8px; spacing: 12px;

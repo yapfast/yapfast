@@ -246,6 +246,8 @@ export component FriendsScreen inherits Rectangle {
     callback add-friend;
     /// A friend's menu was asked for: their id, and where in the window.
     callback open-friend-menu(string, length, length);
+    // Nothing of the list draws outside it, over Active Now beside it.
+    clip: true;
     if root.total == 0: VerticalLayout {
         padding: 32px; spacing: 10px; alignment: center;
         HorizontalLayout {
@@ -276,9 +278,14 @@ export component FriendsScreen inherits Rectangle {
                 text: root.filter != "" ? "No friend's name matches that." : "None of your friends are around right now.";
             }
         }
-        ListView {
+        friend-list := ListView {
             vertical-stretch: 1;
+            // Rows are as wide as the list, however long a name or status:
+            // a row wider than it pushed its button off the list.
+            content-width: self.visible-width;
+            horizontal-scrollbar-policy: always-off;
             for friend[index] in root.rows: VerticalLayout {
+                width: friend-list.visible-width;
                 padding-bottom: index == root.rows.length - 1 ? 16px : 0px;
                 FriendItem {
                     friend: friend;
