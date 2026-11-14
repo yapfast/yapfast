@@ -867,5 +867,8 @@ fn messages_the_core_makes_anew_keep_their_text_laid_out() {
 }
 
 mod calls;
+mod dialogs;
+mod editor;
 mod people;
+mod settings;
 mod writing;

@@ -44,6 +44,7 @@ mod dialogs;
 mod edit;
 mod field;
 mod fonts;
+mod form;
 mod forward;
 mod friends;
 mod header;
@@ -68,10 +69,13 @@ mod profile;
 mod rail;
 mod reactions;
 mod select;
+mod settings;
 mod sidebar;
 mod signin;
+mod status;
 mod style;
 mod suggest;
+mod switcher;
 mod sync;
 mod theme;
 mod tile;
@@ -96,6 +100,7 @@ use iced::{Size, Task};
 use yapfast_core::{application::Action, runtime::BackgroundRuntime};
 
 use crate::{app::App, client::Client};
+pub use settings::Build;
 
 /// How the window starts.
 pub struct Options {
@@ -113,13 +118,37 @@ pub struct Options {
     /// Watches the push-to-talk key the layout keeps (as the Slint client
     /// wrote it) in every app it can, until what it returns is dropped.
     pub push_to_talk: Option<TalkKey>,
+    /// Which build this is, as Settings shows it.
+    pub build: settings::Build,
 }
 
 /// See [`Options::push_to_talk`].
-pub type TalkKey = fn(&serde_json::Value, &BackgroundRuntime) -> Option<Box<dyn std::any::Any>>;
+/// It's given the key and what to tell where the key works (what Settings
+/// says under it), each time that changes.
+pub type TalkKey = fn(
+    &serde_json::Value,
+    &BackgroundRuntime,
+    Box<dyn Fn(String) + Send + Sync>,
+) -> Option<Box<dyn std::any::Any>>;
 
 /// The root crate's [`Options::paste`], set once as the window opens.
 static PASTE: OnceLock<fn() -> Option<Vec<PathBuf>>> = OnceLock::new();
+
+/// The root crate's [`Options::push_to_talk`], set once as the window
+/// opens.
+static TALK_KEY: OnceLock<TalkKey> = OnceLock::new();
+
+/// What watches the push-to-talk key, where the build has one.
+pub(crate) fn talk_key_watcher() -> Option<TalkKey> {
+    TALK_KEY.get().copied()
+}
+
+/// Which build this is, set once as the window opens.
+static BUILD: OnceLock<settings::Build> = OnceLock::new();
+
+pub(crate) fn build() -> settings::Build {
+    BUILD.get().cloned().unwrap_or_default()
+}
 
 /// What reads a paste's files, where the build has one.
 pub(crate) fn paste_reader() -> Option<fn() -> Option<Vec<PathBuf>>> {
@@ -140,13 +169,12 @@ pub fn run(runtime: BackgroundRuntime, root: PathBuf, options: Options) -> anyho
     if let Some(paste) = options.paste {
         let _ = PASTE.set(paste);
     }
-    // Push to talk's key, watched until the window closes; Settings, which
-    // changes it, is to come.
-    let _talk = layout::Layout::read(&root)
-        .voice
-        .talk_key()
-        .zip(options.push_to_talk)
-        .and_then(|(key, watch)| watch(key, &runtime));
+    // Push to talk's key is watched by the window (`settings/voice.rs`),
+    // which Settings changes.
+    if let Some(watch) = options.push_to_talk {
+        let _ = TALK_KEY.set(watch);
+    }
+    let _ = BUILD.set(options.build);
     pictures::install();
     video::install();
     fonts::install(options.twemoji);

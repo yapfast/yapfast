@@ -33,8 +33,9 @@ use yapfast_core::{
 };
 
 pub use popups::Volumes;
+pub use popups::device_rows;
 #[cfg(test)]
-pub use popups::{Listing, ShareEvent, device_rows};
+pub use popups::{Listing, ShareEvent};
 pub use stage::{Focus, speaking};
 
 use crate::app::{App, Message};
@@ -418,7 +419,7 @@ impl App {
         self.choose_suppressor(next);
     }
 
-    fn choose_suppressor(&mut self, suppressor: yapfast_core::noise::Suppressor) {
+    pub(crate) fn choose_suppressor(&mut self, suppressor: yapfast_core::noise::Suppressor) {
         if suppressor != yapfast_core::noise::Suppressor::Off {
             self.call.noise_last = suppressor;
         }

@@ -55,7 +55,7 @@ const JUMP_LIT: Duration = Duration::from_secs(2);
 /// gutter (16 px either side), 48 px kept right of the text for the row's
 /// actions.
 pub const AVATAR: f32 = 40.0;
-pub const FONT_SIZE: f32 = 15.0;
+
 pub const LINE_HEIGHT: f32 = 19.5;
 pub const AUTHOR_LINE: f32 = 20.0;
 pub const AUTHOR_GAP: f32 = 2.0;
@@ -124,6 +124,26 @@ pub struct RowLook {
     pub body: Arc<Laid>,
     /// Its message's local date, worked out once.
     pub date: Option<chrono::NaiveDate>,
+    /// When it was sent, on the clock Messages' settings chose.
+    pub time: String,
+}
+
+/// The clock message times are shown on: 12-hour, and with seconds.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Clock {
+    pub twelve_hour: bool,
+    pub seconds: bool,
+}
+
+impl Clock {
+    /// When a message was sent, as its author line says it: the core's own
+    /// words for one without a time.
+    pub fn sent(self, message: &ChatMessage, now: u64) -> String {
+        if message.timestamp == 0 {
+            return message.time.clone();
+        }
+        yapfast_core::clock::sent(message.timestamp, now, self.twelve_hour, self.seconds)
+    }
 }
 
 /// A message's text laid out: its body, which it derefs to, and its
@@ -172,19 +192,25 @@ impl RowLook {
 pub fn row_looks<'a>(
     messages: &[Arc<ChatMessage>],
     state: &AppState,
+    clock: Clock,
     old: impl Fn(usize) -> Option<&'a RowLook>,
     mut body: impl FnMut(usize) -> Arc<Laid>,
 ) -> Vec<RowLook> {
     let first_new = chat::first_new(messages, state.seen.as_deref());
+    let now = yapfast_core::clock::now_ms() / 1000;
     let mut before_date = None;
     messages
         .iter()
         .enumerate()
         .map(|(index, message)| {
             let before = index.checked_sub(1).map(|before| &*messages[before]);
-            let (laid, date) = match old(index) {
-                Some(look) => (look.body.clone(), look.date),
-                None => (body(index), yapfast_core::clock::date(message.timestamp)),
+            let (laid, date, time) = match old(index) {
+                Some(look) => (look.body.clone(), look.date, look.time.clone()),
+                None => (
+                    body(index),
+                    yapfast_core::clock::date(message.timestamp),
+                    clock.sent(message, now),
+                ),
             };
             let new_day = date.is_some() && (before.is_none() || before_date != date);
             before_date = date;
@@ -200,6 +226,7 @@ pub fn row_looks<'a>(
                 last: index + 1 == messages.len(),
                 body: laid,
                 date,
+                time,
             }
         })
         .collect()

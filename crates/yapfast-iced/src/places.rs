@@ -92,6 +92,7 @@ impl App {
                 pinned: choice == MenuChoice::Pin,
             },
             MenuChoice::CloseDm => Action::CloseDm(place),
+            MenuChoice::EditServerProfile => Action::EditServerProfile(place),
             MenuChoice::CopyLink => return iced::clipboard::write(network_link(&place)),
             MenuChoice::CopyId => return iced::clipboard::write(network_id(&place).to_owned()),
             _ => return Task::none(),
@@ -113,6 +114,7 @@ fn acts(choice: MenuChoice) -> bool {
             | MenuChoice::Pin
             | MenuChoice::Unpin
             | MenuChoice::CloseDm
+            | MenuChoice::EditServerProfile
             | MenuChoice::CopyLink
             | MenuChoice::CopyId
     )

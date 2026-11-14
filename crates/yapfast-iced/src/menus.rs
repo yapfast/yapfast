@@ -335,7 +335,8 @@ impl App {
             }
             MenuAct::Field(which, edit) => self.field_menu(which, edit),
             MenuAct::Upload => Task::batch([focus, self.attach()]),
-            MenuAct::NewThread | MenuAct::NewPoll => focus,
+            MenuAct::NewThread => focus,
+            MenuAct::NewPoll => self.switcher_event(crate::switcher::Event::OpenPoll),
             MenuAct::Place(choice) => {
                 let place = place.unwrap_or_default();
                 Task::batch([self.choose_place(place, choice), focus])

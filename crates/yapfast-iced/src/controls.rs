@@ -54,7 +54,7 @@ pub enum Kind {
 /// and [`Action::ring`] rings it in the accent, as a focused one.
 pub fn action<'a>(
     theme: &Theme,
-    label: &'a str,
+    label: impl Into<std::borrow::Cow<'a, str>>,
     kind: Kind,
     message: Option<Message>,
 ) -> Action<'a> {
@@ -96,7 +96,7 @@ pub fn action<'a>(
         (Kind::Ghost | Kind::Plain, true) => theme.text,
     };
     Action {
-        label,
+        label: label.into(),
         message,
         width: Length::Shrink,
         height: 36.0,
@@ -117,7 +117,7 @@ pub fn action<'a>(
 
 /// An [`action`] button being built.
 pub struct Action<'a> {
-    label: &'a str,
+    label: std::borrow::Cow<'a, str>,
     message: Option<Message>,
     width: Length,
     height: f32,
@@ -177,7 +177,7 @@ impl<'a> From<Action<'a>> for Element<'a, Message> {
                 match action.icon {
                     Some(icon) => Element::from(
                         row![crate::widgets::Pic::square(icon, side), label]
-                            .spacing(6)
+                            .spacing(8)
                             .align_y(Alignment::Center),
                     ),
                     None => label.into(),
@@ -637,6 +637,9 @@ pub struct Slider<'a> {
     maximum: u32,
     on_change: Box<dyn Fn(u32) -> Message + 'a>,
     on_release: Option<Message>,
+    step: u32,
+    shown: Option<String>,
+    mark: bool,
 }
 
 /// A [`Slider`] for `value` out of `maximum`.
@@ -652,6 +655,9 @@ pub fn slider<'a>(
         maximum,
         on_change: Box::new(on_change),
         on_release: None,
+        step: 5,
+        shown: None,
+        mark: maximum > 100,
     }
 }
 
@@ -662,6 +668,24 @@ impl<'a> Slider<'a> {
         self
     }
 
+    /// How far a step goes; 5 unless set.
+    pub fn step(mut self, step: u32) -> Self {
+        self.step = step;
+        self
+    }
+
+    /// The value as shown, in place of its percentage.
+    pub fn shown(mut self, shown: String) -> Self {
+        self.shown = Some(shown);
+        self
+    }
+
+    /// Whether 100% is marked and snapped to; past 100% unless set.
+    pub fn mark(mut self, mark: bool) -> Self {
+        self.mark = mark;
+        self
+    }
+
     pub fn view(self, theme: &Theme) -> Element<'a, Message> {
         let Slider {
             label,
@@ -669,15 +693,17 @@ impl<'a> Slider<'a> {
             maximum,
             on_change,
             on_release,
+            step,
+            shown,
+            mark,
         } = self;
-        let mark = maximum > 100;
         let head = row![
             text(label)
                 .size(13)
                 .font(MEDIUM)
                 .color(theme.secondary)
                 .width(Length::Fill),
-            text(format!("{value}%"))
+            text(shown.unwrap_or_else(|| format!("{value}%")))
                 .size(13)
                 .font(MEDIUM)
                 .color(theme.text),
@@ -691,7 +717,7 @@ impl<'a> Slider<'a> {
             };
             on_change(value)
         })
-        .step(5u32)
+        .step(step)
         .height(18)
         .style(move |_, _| iced::widget::slider::Style {
             rail: iced::widget::slider::Rail {
@@ -852,6 +878,17 @@ pub fn choices<'a>(
     current: usize,
     on_choose: impl Fn(usize) -> Message,
 ) -> Element<'a, Message> {
+    choices_within(theme, options, current, 360.0, on_choose)
+}
+
+/// [`choices`] at most `widest` across, for a row of many.
+pub fn choices_within<'a>(
+    theme: &Theme,
+    options: &[&'a str],
+    current: usize,
+    widest: f32,
+    on_choose: impl Fn(usize) -> Message,
+) -> Element<'a, Message> {
     let mut row = row![].spacing(3).padding(3);
     for (index, option) in options.iter().enumerate() {
         let chosen = index == current;
@@ -895,7 +932,7 @@ pub fn choices<'a>(
     let sunken = theme.sunken;
     container(row)
         .height(36)
-        .max_width(360)
+        .max_width(widest)
         .style(move |_| rounded(sunken, 8))
         .into()
 }

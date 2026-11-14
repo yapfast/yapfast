@@ -18,7 +18,7 @@ menus, Delete's confirmation, the member list with each member's looks
 and its Activity panel, people's menus and their questions, the profile
 card, the full profile and the panel beside a DM, the friends list with
 Active Now, requests and Add Friend, calls (below) in voice channels and
-DMs, and Discord's two-factor prompt.
+DMs, Settings (below), and Discord's two-factor prompt.
 
 ## Building and running
 
@@ -68,9 +68,10 @@ crown, blurple, role and name colours, the nameplates' two grounds).
 It's the theme `layout.json` names, with the person's custom themes from
 the same file, as the Slint client keeps them; with none it's Bonfire, the
 Slint client's default with its Discord look, which is the only look this
-client has. There's no Appearance yet, so `theme ID` is how to choose one
-while it runs: it writes `theme` into `layout.json`, leaving the rest as it
-was, and swaps the struct. A switch costs no picture: the client's icons
+client has. Settings' Appearance chooses another (below), as does the
+window-control command `theme ID`: either writes `theme` into
+`layout.json`, leaving the rest as it was, and swaps the struct. A switch
+costs no picture: the client's icons
 and dots are drawn per colour and the ones of the old theme go, but
 avatars, emoji and attachments are the same buffers; the names styled for
 the other ground (dark or light) are made again as they show.
@@ -116,6 +117,76 @@ row opens their card at the pointer, and a right click their voice menu.
 Open folders, folded categories and Developer Mode (which shows Copy ID)
 are kept in the data folder's `layout.json`, which the Slint client keeps
 them in too (`layout.rs`); each change writes its one key back.
+
+## Settings
+
+Settings (`settings/`) is the Slint client's `SettingsScreen` with its
+Discord look: a card over the window dimmed by 70%, 72 px in from its
+edges and at most 1400 px wide, centred; on its left, on the chat's ground, the account with Edit Profile,
+a search that keeps the sections whose names hold it, the sections under
+Account, Experience and App Settings (Discord and Game Activity only
+outside the preview), and which build this is, which a click copies; on
+the right the section's title and the close button over its page, a
+column at most 696 px wide that starts at its top for each section. The
+account card's gear opens it on My Account, a device menu's Voice Settings
+on Voice & Video. Escape closes an open dropdown, then stops recording a
+key, then Settings; so does a click outside or the close button.
+
+It holds its state only while open (`Settings`, boxed in the app):
+closing it lets go of the theme being edited, the camera being tried, the
+gate's meter and the recording. Each change is kept at once in
+`layout.json` under the Slint client's key for it (`layout::Prefs` and
+`layout::Voice` read them) and handed to the core as the Slint client
+hands it; the Slint client reads what this one writes, and the other way
+round.
+
+- My account (`pages.rs`): the account's card, where its login is kept,
+  Reconnect while offline, Edit profile, the custom status, and Sign out
+  (Back to sign in in the preview).
+- Voice & video (`voice.rs`): the microphone, speakers and camera, each a
+  dropdown of the devices the core lists (listed again as the page shows),
+  the microphone's and speakers' volumes, which play while dragged and are
+  kept when let go, and the camera's preview, filmed only while Test video
+  is on (`camera:settings` among the window's video sources, at 400 by
+  225); then joining unmuted, evening out the voice, and in Discord calls
+  noise suppression and its strength, the soundboard's volume (Discord
+  keeps it), the entrance sound for every server or one (Choose, with
+  Nitro, lists the sounds Discord has), the room's echo and, on Windows,
+  Windows' own effects; the input mode, and either the gate's sensitivity
+  over the microphone's level as the gate hears it (read twenty times a
+  second only while it shows) or push to talk's key and release delay.
+  Record keybind takes the next key pressed, wherever the keys are: its
+  scan code as winit gives it (iced's key codes are winit's by name), its
+  name and its keysym, as the root crate's `Keybind` keeps it; Escape
+  stops without changing it. The root crate's watcher then watches the
+  new key, and says under it where it works.
+- Messages: a message as the clock and text size show it; the text size
+  (which the timeline's text takes), the clock and its seconds, the date's
+  order (message times are worked out again for each), when GIFs and emoji
+  play, link previews (hidden ones leave "A card, hidden while link
+  previews are off." where a card was the whole message), long messages
+  folding, boost gems in the member list, sharing that this account types
+  (off, the core's typing commands go nowhere), mentioning those replied
+  to and tracking taken out of links.
+- Notifications, Sounds (the set, which plays a sound when chosen, the
+  volume, and each sound's own with its play button) and Advanced, in the
+  Slint client's words.
+- Appearance (`appearance.rs`): each theme as a small window in its own
+  colours, as many 150 px or wider across as fit; a click shows one and
+  keeps it. New theme opens the editor on a copy of the theme shown (Start
+  from takes another, and its name unless it was renamed); each custom
+  theme's pencil edits it. A colour's field shows its change at once, or
+  says "Not a colour"; Save keeps the theme among the person's own and
+  chooses it, Cancel (or leaving Appearance or Settings) shows the theme
+  from before, and a saved one's Delete asks once more. Then the profile
+  switches, which the core is told of.
+- Discord: linking, as the sign-in screen's panel, while none is linked;
+  then Unlink in a build with Matrix, hidden channels, reads marked on
+  Discord, idle while away, blocked people's messages hidden, and those
+  blocked, five more at a time, each with Unblock.
+- Game Activity: sharing the game played (Discord keeps it), and the games
+  named by hand, added, edited and removed, which detection takes at once.
+- About: the build with Copy version, the update switches, and the links.
 
 ## Header and timeline
 
@@ -232,8 +303,8 @@ emoji picker, Ctrl+G the GIFs.
 
 Files go with the next message (`uploads.rs`) from the system's file
 dialog (the + where nothing else can start, or the + menu's "Upload a
-File", whose Create Thread and Create Poll show greyed until their forms
-come), from Ctrl+V (files copied in a file manager, or a picture, which
+File", whose Create Thread shows greyed until threads come; its Create
+Poll opens Create a Poll, below), from Ctrl+V (files copied in a file manager, or a picture, which
 the root crate's `paste.rs` reads and saves as `image.<extension>` in a
 folder removed as Yapfast closes; text otherwise), or dropped on the
 window where winit takes drops (X11 and Windows; Wayland's data device,
@@ -353,6 +424,30 @@ member list, the DMs, and the lists still to come build on it.
   View Full Profile at its foot; the header's profile button shows or
   hides it, kept in `layout.json`. Activities' times move each second
   while one shows.
+- The profile editor (`profile/editor.rs`), the Slint client's
+  `ProfileEditorDialog`, opens from one's own card and full profile (Edit
+  Profile), from Settings over it, and from a server's Edit server
+  profile. Its card is a profile view of what's written over what Discord
+  has, as the Slint client's adapter makes it, drawn with the card's own
+  parts and made again only when the core's editor changes; a picture
+  just chosen shows from the core's preview of it. Each text is edited in
+  place: the name and pronouns turn into fields when clicked, the bio into
+  a field of its own (Shift+Enter breaks a line) with what's left of
+  Discord's 190 characters; the avatar and banner offer Change and Remove
+  (Reset in a server) once there's one to remove, else open the file
+  dialog, and without Nitro the main banner opens its colour, with
+  swatches and "Not a colour". The main profile has the server tag's
+  picker under the name, Message, the shop and More (Copy User ID), the
+  custom status's thought (which opens its dialog), Connections and the
+  note; down its left what it wears (`Main Profile`), which Hide Styles
+  folds away, with the avatar and banner tiles, the theme's two colours
+  (Nitro) as handles that open their codes, and the shop's for the rest;
+  and its Board, Activity and Wishlist tabs where the card is 880 px or
+  wider. A server's has what it edits over its banner and Nitro's offer
+  over what takes it. Once something changed the form kit's
+  `unsaved_bar` offers Reset and Save Changes, which waits while a text is
+  too long or a picture is read. Escape ends the editing, closes what's
+  open, then the editor.
 - The friends list (`friends.rs`), from Friends on the DM home: the
   header's Online and All tabs and Add Friend, a search, and each friend
   with their presence, voice channel and status, ruled apart, with a
@@ -473,6 +568,32 @@ parts of `ui/yapfast.slint`, with the adapter's logic beside them.
 Only what shows takes frames: a tile's video is mapped while its tile is
 in view or in the corner, at the size it shows.
 
+## Dialogs
+
+Over the dimmed window, in the frame `dialogs::dialog` draws, each as the
+Slint client's in `ui/dialogs.slint`; Escape or a click outside closes
+each, and what each lists or makes is the core's.
+
+- The account's popover (`status.rs`, the Slint client's
+  `AccountPopover`), from the account card's picture or name: the account
+  over its banner colour or theme, as Discord's own card shows it (the
+  core's `account_profile`, asked for as it opens), the custom status,
+  Edit Profile, the Discord status (its row shows the four to choose),
+  Set or Change custom status, Copy User ID and User Settings.
+- Set a custom status (`status.rs`): an emoji from the picker (opened over
+  the dialog, beside its button; its badge takes it off), the words, and
+  Clear After; it starts from the status set, and Save, Clear status and
+  Cancel go to the core, which says while it saves and why it couldn't.
+- The quick switcher (`switcher.rs`), from Ctrl+K wherever the keys are:
+  the core's `switcher_places` for what's typed (PREVIOUS CHANNELS while
+  nothing is), each with its picture or channel icon, where it is and its
+  mentions; Up, Down and Tab move to the place Enter goes to.
+- New message, from the DM list's pencil: the people the core finds for
+  what's typed, each with Message, and what the search came to.
+- Create a Poll, from the composer's + menu: the question with its count,
+  the answers each with an emoji from the picker and a bin, Add another
+  answer, the duration, Allow Multiple Answers, what's too long, and Post.
+
 ## How it's built
 
 iced builds the whole view again after every message and lays it out, so
@@ -508,7 +629,7 @@ what costs is kept out of the view:
 
 Each part of the window has its module: `signin`, `mfa`, `rail`,
 `sidebar`, `account`, `header`, `timeline`, `message`, `cards`, `bot_select`, `browse`, `composer`, `edit`, `suggest`, `commands`, `typing`, `uploads`, `forward`, `members`,
-`people`, `person`, `profile`, `friends`, `active_now`, `reactions`, `picker` (with its tabs `emoji`, `gifs`, `stickers`), `menus`, `places`, `dialogs`, `call` (with `stage`, `dock`, `popups`, `dm`, `corner`); `theme` holds
+`people`, `person`, `profile` (with `editor`), `friends`, `active_now`, `reactions`, `picker` (with its tabs `emoji`, `gifs`, `stickers`), `menus`, `places`, `dialogs`, `call` (with `stage`, `dock`, `popups`, `dm`, `corner`), `settings` (with `pages`, `voice`, `appearance`), `status`, `switcher`; `form` is Settings' kit; `theme` holds
 the colours and `layout` what's kept in `layout.json`.
 `sync.rs` takes in what changed in the core's state after each message.
 `widgets.rs`, `field.rs` (the composer's text field), `select.rs`
@@ -597,6 +718,20 @@ When a second screen needs what a first one built, it moves here:
   choices, one picked; `controls::Check` and `App::checkbox` a menu row's
   tick or checkbox, and `Item::subtitle` a second line under its label.
 - `widgets::Hover`: a layer shown over its child only under the pointer.
+- `form.rs`, the form kit Settings is built of and the editors to come
+  will be: `title` (a page's), `heading` (a group's), `note` (what a
+  control does, under it), `rule`, `group` and `page` (the spacing of
+  each), `buttons`, `beside` (a stretched thing and one at its end) and
+  `halves` (two equal columns); `Switch` (a label, what it does, the
+  `toggle` at the row's end, the whole row a click; without a message
+  greyed, with a lock saying why), `Dropdown` (the chosen option in a box,
+  its options in a list under it that its owner opens and closes),
+  `readout` (a value set elsewhere in a sunken box), `capture` (a key's
+  box, "Press a key..." while recording), `field` (a form's text field),
+  `colour_row` (a swatch, its name and its hex) and `card`. Rows of choices
+  are `controls::choices` (`choices_within` for a wider row), sliders
+  `controls::Slider` with `step`, `shown` (the value in other words) and
+  `mark`. `unsaved_bar` is an editor's bar once something changed.
 - `App::emoji_button`: an emoji on a lit square, for quick reactions in
   menus and the hover bar. `controls::action(..).small()` and `.icon()`
   make an app's button; `Kind::Success` is the green one.
@@ -645,7 +780,16 @@ profile's tabs, labels and theme inks; and in `tests/calls.rs` the dock's
 noise toggle, a device gone away, the device volumes played and kept,
 the share menu in a short window, the input level only while its menu
 shows, the dock's channel line, a voice channel's Join, and someone's
-volume from their menu. `call/stage.rs` tests the tiles' layout, the
+volume from their menu; and in `tests/settings.rs` a theme chosen in
+Appearance shown at once and kept, a custom theme made, edited, cancelled
+and deleted, preferences kept across a restart (and message times
+following the clock), a device chosen in Voice & video, push to talk's key
+recorded and kept, and closing Settings letting go of an edited theme;
+in `tests/editor.rs` the profile editor's card and bar (Escape ending the
+editing, Reset putting it back), a bio too long that can't be saved, and
+a banner colour that isn't one; in `tests/dialogs.rs` the custom status
+starting from the one set and saving what's written, and the quick
+switcher finding a place and going there with the keys. `call/stage.rs` tests the tiles' layout, the
 stage's slots and the corner, `call/dock.rs` the call's time and
 `viewer.rs` the fit. The emoji
 ones need the Twemoji font the root crate's `build.rs` packs: they take
@@ -655,9 +799,16 @@ builds and smoke-tests the CPU build; see [building](building.md#checks).
 
 ## Not there yet
 
-Settings (Appearance among them, so themes are chosen by `theme ID` and
-custom ones are made in the Slint client), other accounts, threads,
-Edit Profile, profile effects and frames, a mutual server's card, an
+In Settings: the NEW tags on settings not yet seen, Start when you sign
+in, Discord links and the system title bar (which come with the platform's
+parts), Check now and the rest of About's updates, the renderer's restart
+(this build's renderer is chosen when it's built), the entrance sound's
+soundboard (it's a list), and idle while away, which isn't sent yet.
+In the profile editor: Display Name Style's window (its tile does
+nothing), the nameplate's and effect's art on their tiles, the theme
+colours' picker (each is its code alone), a moving banner, and the avatar's
+colour behind a banner without one, which the profile cards lack too.
+Other accounts, threads, profile effects and frames, a mutual server's card, an
 activity's menu, the Invite to server submenu, the tray,
 notifications, links, accessibility and Windows' own checks. On the rail
 and in the sidebar: dragging servers, channels and people, the voice
@@ -672,8 +823,7 @@ lead to what the client doesn't have yet: Create Thread
 and View Thread, Apps' message commands, a picture's Copy Image, Save and
 Open Link; keys typed in the timeline going to the composer. In the composer: dragging the expression
 picker's left edge to widen it, and Nitro's offer on a locked emoji or
-sticker. In calls: voice settings (and the cameras' choice, which lives
-there), the voice menu's Move To, push to talk's fallback while the
+sticker. In calls: the voice menu's Move To, push to talk's fallback while the
 window has focus where no global shortcut is had, the ringing card's
 pulse, and the video over the switch dialog's dim (the renderer draws
 video after the layers above it).

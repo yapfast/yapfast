@@ -166,7 +166,7 @@ impl App {
         if self.account != account {
             self.account = account;
         }
-        let mut tasks = vec![self.profile_sync()];
+        let mut tasks = vec![self.profile_sync(), self.status_sync()];
         self.friends_sync();
         self.active_now_sync();
         self.reactions_page();
@@ -411,9 +411,15 @@ impl App {
             rgb(self.theme.muted),
         );
         let revealed = &self.revealed;
+        let prefs = &self.layout.prefs;
+        let clock = timeline::Clock {
+            twelve_hour: prefs.twelve_hour_clock,
+            seconds: prefs.clock_seconds,
+        };
         let looks = timeline::row_looks(
             &messages,
             self.client.state(),
+            clock,
             |index| old_at(index).map(|before| &old_looks[before]),
             |index| {
                 if let Some(before) = same_text(index) {

@@ -481,6 +481,12 @@ impl App {
         let corner = self.corner();
         let voice = &self.client.state().voice;
         let mut sources = video::Sources::default();
+        // The camera Voice's settings try.
+        if let Some(feed) = self.camera_test() {
+            sources
+                .feeds
+                .push((crate::settings::voice::CAMERA_TEST.to_owned(), feed.clone()));
+        }
         let corner_pixels = (CORNER.width as u32, CORNER.height as u32);
         for (place, slot) in slots.iter().enumerate() {
             let Slot::Person(index) = *slot else {

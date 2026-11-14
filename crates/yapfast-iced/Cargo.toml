@@ -60,6 +60,11 @@ webbrowser = "1"
 # The file dialog files to attach are chosen in, through the desktop's
 # portal on Linux, as the Slint client's.
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
+# Push to talk's key as Settings records it: winit's scan code for iced's
+# key code (iced's window is winit's), and its keysym name for the portal.
+# Both already in the tree through iced.
+winit = { version = "0.30.13", default-features = false }
+xkeysym = "0.2.1"
 
 [dev-dependencies]
 # The headless simulator for the UI tests; see docs/iced-client.md.

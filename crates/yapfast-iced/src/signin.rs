@@ -331,7 +331,7 @@ impl App {
     /// `DiscordLinkPanel`: the warning and its buttons (the token's field
     /// under them once asked for), the code and what to do with it, the
     /// captcha, the token being checked.
-    fn link_panel(&self) -> Element<'_, Message> {
+    pub(crate) fn link_panel(&self) -> Element<'_, Message> {
         let theme = &self.theme;
         let form = &self.sign_in;
         let link = self.client.state().discord_link.as_ref();

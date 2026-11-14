@@ -44,6 +44,11 @@ impl Themes {
         Theme::new(id, &theme)
     }
 
+    /// The chosen theme's id, as Appearance marks it.
+    pub fn chosen_id(&self) -> &str {
+        palette::chosen(self.chosen.as_deref().or(Some(DEFAULT)), &self.custom).0
+    }
+
     /// `id`'s theme, if it's one Yapfast has or the person made.
     pub fn find(&self, id: &str) -> Option<Theme> {
         palette::lookup(id, &self.custom).map(|(id, theme)| Theme::new(id, &theme))

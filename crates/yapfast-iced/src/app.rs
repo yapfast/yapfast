@@ -180,6 +180,10 @@ pub enum Message {
     Frames(Vec<Fresh>),
     /// Something done to the call or in it (`call/`).
     Call(crate::call::Event),
+    /// Something done in Settings (`settings/`).
+    Settings(crate::settings::Event),
+    Status(crate::status::Event),
+    Switcher(crate::switcher::Event),
 }
 
 pub struct App {
@@ -342,6 +346,16 @@ pub struct App {
     pub frames: HashMap<String, (Handle, (u32, u32))>,
     /// The call's own state: what's large, what's open, the corner.
     pub call: crate::call::Call,
+    /// Settings while it's open, and which build this is, which it shows.
+    pub settings: Option<Box<crate::settings::Settings>>,
+    /// The account's popover, and the custom status's dialog's draft.
+    pub popover: Option<crate::status::Popover>,
+    pub status_draft: Option<crate::status::Draft>,
+    /// The quick switcher's place Enter goes to.
+    pub switcher_chosen: usize,
+    pub build: crate::settings::Build,
+    /// Push to talk's watcher while it's the input mode.
+    pub talk: crate::settings::voice::Talk,
     /// A message's video full screen; the size its cell asked for its
     /// frames at; the pointer on its volume's button or slider.
     pub clip_full: bool,
@@ -373,8 +387,12 @@ impl App {
         for action in layout.actions() {
             client.dispatch(action);
         }
-        // How calls send and play, as Voice's settings keep it.
+        // How calls send and play, as Voice's settings keep it; message
+        // times on the clock Messages chose; the games named by hand.
         layout.voice.apply();
+        layout.prefs.apply_clock();
+        yapfast_core::discord::set_custom_games(&layout.prefs.game_executables);
+        client.share_typing = layout.prefs.share_typing.unwrap_or(true);
         let mut app = Self {
             client,
             window: Size::new(width, height),
@@ -466,6 +484,12 @@ impl App {
             video: Default::default(),
             frames: HashMap::new(),
             call: Default::default(),
+            settings: None,
+            popover: None,
+            status_draft: None,
+            switcher_chosen: 0,
+            build: crate::build(),
+            talk: Default::default(),
             clip_full: false,
             clip_cell: (0, 0),
             clip_volume: 0,
@@ -477,6 +501,7 @@ impl App {
             mfa_shown: None,
             wait: mfa::Wait::default(),
         };
+        app.watch_talk_key();
         if app.layout.voice.noise_suppression != yapfast_core::noise::Suppressor::Off {
             app.call.noise_last = app.layout.voice.noise_suppression;
         }
@@ -681,6 +706,9 @@ impl App {
                 Task::none()
             }
             Message::Call(event) => self.call_event(event),
+            Message::Settings(event) => self.settings_event(event),
+            Message::Status(event) => self.status_event(event),
+            Message::Switcher(event) => self.switcher_event(event),
         }
     }
 
@@ -731,6 +759,47 @@ impl App {
         }
         if self.client.state().confirm_delete.is_some() {
             return self.confirm_key(named);
+        }
+        if self.client.state().switcher.is_some() {
+            return self.switcher_key(named, modifiers.shift());
+        }
+        if self.client.state().new_dm.is_some() {
+            return match named {
+                Some(key::Named::Escape) => self.switcher_event(crate::switcher::Event::CloseNewDm),
+                _ => Task::none(),
+            };
+        }
+        if self.client.state().poll_draft.is_some() {
+            return match named {
+                Some(key::Named::Escape) if self.picker.is_some() => self.close_picker(),
+                Some(key::Named::Escape) => self.switcher_event(crate::switcher::Event::ClosePoll),
+                _ => Task::none(),
+            };
+        }
+        if self.client.state().status_editor.is_some() {
+            return match named {
+                Some(key::Named::Escape) if self.picker.is_some() => self.close_picker(),
+                Some(key::Named::Escape) => self.status_event(crate::status::Event::Cancel),
+                _ => Task::none(),
+            };
+        }
+        if self.popover.is_some() {
+            return match named {
+                Some(key::Named::Escape) => self.status_event(crate::status::Event::Close),
+                _ => Task::none(),
+            };
+        }
+        if self.editor_open() {
+            return match named {
+                Some(key::Named::Escape) => self.editor_escape(),
+                _ => Task::none(),
+            };
+        }
+        if self.settings.is_some() {
+            return match named {
+                Some(key::Named::Escape) => self.settings_escape(),
+                _ => Task::none(),
+            };
         }
         if self.client.state().switch_voice.is_some() {
             return match named {
@@ -863,11 +932,38 @@ impl App {
             _ => None,
         });
         let mut subscriptions = vec![keys, fonts, drops];
+        // Ctrl+K opens the quick switcher wherever the keys are, as the
+        // Slint client's does.
+        if self.workspace() {
+            subscriptions.push(iced::event::listen_with(|event, _, _| match event {
+                iced::Event::Keyboard(keyboard::Event::KeyPressed {
+                    key: keyboard::Key::Character(c),
+                    modifiers,
+                    repeat: false,
+                    ..
+                }) if c.as_str() == "k"
+                    && modifiers.control()
+                    && !modifiers.alt()
+                    && !modifiers.shift() =>
+                {
+                    Some(Message::Switcher(crate::switcher::Event::Toggle))
+                }
+                _ => None,
+            }));
+        }
         // A dialog's field keeps Escape to itself, only letting go of the
         // keys: while a dialog with one is open, Escape closes the dialog,
         // as the Slint client's do.
         let state = self.client.state();
-        if state.add_friend.is_some() || state.person_dialog.is_some() || state.forwarding.is_some()
+        if state.add_friend.is_some()
+            || state.person_dialog.is_some()
+            || state.forwarding.is_some()
+            || self.settings.is_some()
+            || state.profile_editor.is_some()
+            || state.status_editor.is_some()
+            || state.new_dm.is_some()
+            || state.poll_draft.is_some()
+            || state.switcher.is_some()
         {
             subscriptions.push(iced::event::listen_with(|event, status, _| match event {
                 iced::Event::Keyboard(keyboard::Event::KeyPressed {
@@ -902,6 +998,20 @@ impl App {
                 iced::time::every(Duration::from_millis(50))
                     .map(|_| Message::Call(crate::call::Event::Meter)),
             );
+        }
+        // Settings: the gate's meter while it shows, the push-to-talk key
+        // while it's recorded.
+        if self.gate_metered() {
+            subscriptions.push(
+                iced::time::every(crate::settings::voice::METER_EVERY).map(|_| {
+                    Message::Settings(crate::settings::Event::Voice(
+                        crate::settings::voice::Event::Meter,
+                    ))
+                }),
+            );
+        }
+        if self.recording_talk_key() {
+            subscriptions.push(crate::settings::voice::record_keys());
         }
         if self.call.since.is_some() {
             subscriptions.push(
@@ -966,6 +1076,8 @@ impl App {
         if let Some(full) = self.full_profile_view() {
             layers = layers.push(full);
         }
+        // The picker for a dialog's emoji opens over the dialog.
+        let mut over_dialogs = None;
         if let Some(picker) = &self.picker
             && let Some(shown) = self.picker_view()
         {
@@ -985,11 +1097,17 @@ impl App {
                     Place::new(shown, Point::new(right - size.width, bottom), 8.0)
                         .anchor(Anchor::Bottom)
                 }
-                Target::React(_, at) => Place::new(shown, *at, 8.0).anchor(Anchor::Pointer),
+                Target::React(_, at) | Target::Status(at) | Target::Poll(_, at) => {
+                    Place::new(shown, *at, 8.0).anchor(Anchor::Pointer)
+                }
             };
-            layers = layers
-                .push(outside(Message::Picker(picker::Event::Close), false))
-                .push(place);
+            if matches!(picker.target, Target::Status(_) | Target::Poll(..)) {
+                over_dialogs = Some(place);
+            } else {
+                layers = layers
+                    .push(outside(Message::Picker(picker::Event::Close), false))
+                    .push(place);
+            }
         }
         for layer in self.call_layers() {
             layers = layers.push(layer);
@@ -1001,6 +1119,35 @@ impl App {
             layers = layers
                 .push(outside(Message::Call(crate::call::Event::Close), false))
                 .push(popup);
+        }
+        if let Some(settings) = self.settings_view() {
+            layers = layers.push(settings);
+        }
+        if let Some(editor) = self.profile_editor_view() {
+            layers = layers.push(editor);
+        }
+        if let Some(popover) = self.popover_view() {
+            layers = layers
+                .push(outside(Message::Status(crate::status::Event::Close), false))
+                .push(popover);
+        }
+        if let Some(dialog) = self.status_dialog_view() {
+            layers = layers.push(dialog);
+        }
+        for dialog in [
+            self.new_dm_view(),
+            self.poll_draft_view(),
+            self.switcher_view(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            layers = layers.push(dialog);
+        }
+        if let Some(place) = over_dialogs {
+            layers = layers
+                .push(outside(Message::Picker(picker::Event::Close), false))
+                .push(place);
         }
         if let Some(menu) = self.menu_view() {
             layers = layers.push(outside(Message::CloseMenu, false)).push(menu);
@@ -1064,13 +1211,19 @@ impl App {
             return false;
         };
         self.themes.choose(self.client.root(), &theme.id);
+        self.show_theme(theme);
+        true
+    }
+
+    /// Shows the window in `theme` without keeping it, as the theme
+    /// editor shows what's edited.
+    pub fn show_theme(&mut self, theme: Theme) {
         if theme == self.theme {
-            return true;
+            return;
         }
         self.theme = theme;
         self.marks.borrow_mut().clear();
         self.show_roster(false);
-        true
     }
 }
 

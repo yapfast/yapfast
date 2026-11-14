@@ -222,6 +222,7 @@ impl App {
                 }
             }),
         )
+        .on_press(Message::Status(crate::status::Event::Toggle))
         .on_enter(Message::Account(Event::Point(true)))
         .on_exit(Message::Account(Event::Point(false)));
         let join = (
@@ -300,11 +301,22 @@ impl App {
                 ),
                 caret("Output options", crate::call::Popup::Output),
             ],
-            self.tinted_button(Icon::Settings, "Settings", theme.text, 24, Message::Nothing),
+            self.tinted_button(
+                Icon::Settings,
+                "Settings",
+                theme.text,
+                24,
+                Message::Settings(crate::settings::Event::Open(
+                    crate::settings::Section::Account
+                )),
+            ),
         ]
         .spacing(5)
         .align_y(Alignment::Center);
         let ground = theme.panel;
+        let face = mouse_area(face)
+            .on_press(Message::Status(crate::status::Event::Toggle))
+            .interaction(iced::mouse::Interaction::Pointer);
         let card = row![
             container(face)
                 .width(50)

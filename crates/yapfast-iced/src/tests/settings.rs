@@ -1,0 +1,276 @@
+//! Settings, as the Slint client's tests of it: a theme chosen in
+//! Appearance shows at once and is kept, a custom theme made, edited and
+//! deleted there, preferences kept across a restart, a device chosen in
+//! Voice & video, and push to talk's key recorded and kept.
+
+use iced::keyboard::{Key, Location, key};
+use yapfast_core::voice;
+
+use super::{change, interact, preview, shows, start};
+use crate::{
+    app::{App, Message},
+    settings::{Event, Section, voice::Event as VoiceEvent},
+};
+
+/// Settings on a section, in a window tall enough to show its whole page.
+fn open(app: &mut App, section: Section) {
+    app.window.height = 2400.0;
+    let _ = app.update(Message::Settings(Event::Open(section)));
+}
+
+fn stored(folder: &tempfile::TempDir) -> serde_json::Value {
+    serde_json::from_slice(&std::fs::read(folder.path().join("layout.json")).expect("the layout"))
+        .expect("JSON")
+}
+
+#[test]
+fn a_theme_chosen_in_appearance_shows_at_once_and_is_kept() {
+    let (mut app, folder) = preview();
+    open(&mut app, Section::Account);
+    assert!(shows(&app, "My account"));
+    interact(&mut app, |ui| {
+        ui.click("Appearance").expect("the section");
+    });
+    assert!(shows(&app, "Catppuccin Latte"), "the themes' tiles");
+    interact(&mut app, |ui| {
+        ui.click("Nord").expect("its tile");
+    });
+    assert_eq!(app.theme.id, "nord", "at once");
+    assert_eq!(stored(&folder)["theme"], "nord");
+    // Escape closes Settings and lets go of what it held.
+    let _ = app.update(Message::Key(
+        Key::Named(key::Named::Escape),
+        Default::default(),
+    ));
+    assert!(app.settings.is_none());
+    assert_eq!(start(&folder, true).theme.id, "nord", "the next start too");
+}
+
+#[test]
+fn a_custom_theme_is_made_edited_and_deleted_in_appearance() {
+    use crate::settings::appearance_event as theme;
+    let (mut app, folder) = preview();
+    open(&mut app, Section::Appearance);
+    interact(&mut app, |ui| {
+        ui.click("New theme").expect("New theme");
+    });
+    assert!(shows(&app, "NEW THEME") && shows(&app, "START FROM"));
+    // A colour typed shows at once; one that isn't a colour says so.
+    let chat = yapfast_core::theme::Theme::NAMES
+        .iter()
+        .position(|name| *name == "chat")
+        .expect("chat");
+    let _ = app.update(theme(crate::settings::ThemeEvent::Colour(
+        chat,
+        "#102030".into(),
+    )));
+    assert_eq!(app.theme.chat, crate::style::hex(0x102030));
+    let _ = app.update(theme(crate::settings::ThemeEvent::Colour(
+        chat,
+        "#1020".into(),
+    )));
+    assert!(shows(&app, "Not a colour"));
+    assert_eq!(
+        app.theme.chat,
+        crate::style::hex(0x102030),
+        "the last good one"
+    );
+    let _ = app.update(theme(crate::settings::ThemeEvent::Colour(
+        chat,
+        "#203040".into(),
+    )));
+    let _ = app.update(theme(crate::settings::ThemeEvent::Name("Harbour".into())));
+    interact(&mut app, |ui| {
+        ui.click("Save").expect("Save");
+    });
+    assert_eq!(app.theme.id, "custom:1", "chosen once saved");
+    let layout = stored(&folder);
+    assert_eq!(layout["theme"], "custom:1");
+    assert_eq!(layout["custom_themes"][0]["name"], "Harbour");
+    assert_eq!(layout["custom_themes"][0]["colours"]["chat"], "#203040");
+    assert!(shows(&app, "Harbour"), "among the tiles");
+    // Edited, then cancelled: the theme from before comes back.
+    let _ = app.update(theme(crate::settings::ThemeEvent::Edit("custom:1".into())));
+    assert!(shows(&app, "EDIT THEME"));
+    let _ = app.update(theme(crate::settings::ThemeEvent::Colour(
+        chat,
+        "#ffffff".into(),
+    )));
+    assert_eq!(app.theme.chat, crate::style::hex(0xffffff));
+    interact(&mut app, |ui| {
+        ui.click("Cancel").expect("Cancel");
+    });
+    assert_eq!(app.theme.chat, crate::style::hex(0x203040));
+    // Deleted, asked once more: the chosen theme goes, and Yap shows.
+    let _ = app.update(theme(crate::settings::ThemeEvent::Edit("custom:1".into())));
+    interact(&mut app, |ui| {
+        ui.click("Delete theme").expect("Delete theme");
+    });
+    assert!(shows(&app, "Delete it for good"));
+    interact(&mut app, |ui| {
+        ui.click("Delete it for good").expect("Delete it for good");
+    });
+    assert_eq!(app.theme.id, "yap");
+    assert_eq!(stored(&folder)["custom_themes"], serde_json::json!([]));
+}
+
+#[test]
+fn preferences_are_kept_across_a_restart() {
+    let (mut app, folder) = preview();
+    // The newest message sent at a time of its own, as Discord's are.
+    change(&mut app, |state| {
+        let mut messages = (*state.messages).clone();
+        let last = messages.last_mut().expect("a message");
+        let mut message = (**last).clone();
+        message.timestamp = 1_790_000_000;
+        *last = std::sync::Arc::new(message);
+        state.messages = std::sync::Arc::new(messages);
+    });
+    open(&mut app, Section::Messages);
+    interact(&mut app, |ui| {
+        ui.click("12-hour").expect("the clock");
+    });
+    interact(&mut app, |ui| {
+        ui.click("Show seconds").expect("the switch");
+    });
+    interact(&mut app, |ui| {
+        ui.click("Collapse long messages").expect("the switch");
+    });
+    interact(&mut app, |ui| {
+        ui.click("Large").expect("the text size");
+    });
+    assert!(app.layout.prefs.twelve_hour_clock && app.layout.prefs.clock_seconds);
+    // The timeline's times follow at once: 9:41:05 PM, say.
+    let time = &app.looks.last().expect("a message").time;
+    assert!(
+        time.matches(':').count() == 2 && (time.ends_with("AM") || time.ends_with("PM")),
+        "{time}"
+    );
+    open(&mut app, Section::Notifications);
+    interact(&mut app, |ui| {
+        ui.click("Flash the taskbar").expect("the switch");
+    });
+    open(&mut app, Section::Advanced);
+    interact(&mut app, |ui| {
+        ui.click("Developer Mode").expect("the switch");
+    });
+    let again = start(&folder, true);
+    let prefs = &again.layout.prefs;
+    assert!(prefs.twelve_hour_clock && prefs.clock_seconds);
+    assert!(again.layout.collapse_long && again.layout.developer_mode);
+    assert_eq!(prefs.text_size, Some(2));
+    assert_eq!(prefs.flash_taskbar, Some(false));
+    // What the Slint client wrote is what it reads.
+    let layout = stored(&folder);
+    assert_eq!(layout["twelve_hour_clock"], true);
+    assert_eq!(layout["flash_taskbar"], false);
+}
+
+#[test]
+fn a_device_chosen_in_voice_settings_is_the_one_used() {
+    let (mut app, _folder) = preview();
+    change(&mut app, |state| {
+        let device = |id: &str, name: &str| voice::Device {
+            id: id.into(),
+            name: name.into(),
+        };
+        state.voice.microphones = vec![device("mic-a", "Desk"), device("mic-b", "Headset")];
+        state.voice.microphone = Some("mic-a".into());
+    });
+    open(&mut app, Section::Voice);
+    assert!(shows(&app, "Desk"), "the one chosen");
+    assert!(!shows(&app, "Headset"), "the rest only in the list");
+    interact(&mut app, |ui| {
+        ui.click("Desk").expect("the dropdown");
+    });
+    interact(&mut app, |ui| {
+        ui.click("Headset").expect("its option");
+    });
+    assert_eq!(
+        app.client.state().voice.microphone.as_deref(),
+        Some("mic-b")
+    );
+    assert!(
+        app.settings.as_ref().is_some_and(|s| s.open.is_none()),
+        "closed"
+    );
+}
+
+#[test]
+fn a_recorded_push_to_talk_key_is_named_and_kept() {
+    use crate::settings::voice::recorded;
+    use iced::keyboard::key::{Code, Physical};
+    let v = recorded(
+        &Key::Character("v".into()),
+        Physical::Code(Code::KeyV),
+        Location::Standard,
+    )
+    .expect("a key");
+    assert_eq!(v["name"], "V");
+    if cfg!(target_os = "linux") {
+        assert_eq!(v["scancode"], 47, "evdev's, as winit gives it");
+        assert_eq!(v["trigger"], "v");
+    }
+    let ctrl = recorded(
+        &Key::Named(key::Named::Control),
+        Physical::Code(Code::ControlRight),
+        Location::Right,
+    )
+    .expect("a key");
+    assert_eq!(ctrl["name"], "Right Ctrl");
+    if cfg!(target_os = "linux") {
+        assert_eq!(ctrl["trigger"], "Control_R");
+    }
+    assert!(
+        recorded(
+            &Key::Named(key::Named::Escape),
+            Physical::Code(Code::Escape),
+            Location::Standard
+        )
+        .is_none(),
+        "Escape stops recording"
+    );
+
+    let (mut app, folder) = preview();
+    open(&mut app, Section::Voice);
+    interact(&mut app, |ui| {
+        ui.click("Push to talk").expect("the input mode");
+    });
+    interact(&mut app, |ui| {
+        ui.click("Record keybind").expect("the button");
+    });
+    assert!(app.recording_talk_key());
+    assert!(shows(&app, "Press a key..."));
+    let voice = |event| Message::Settings(Event::Voice(event));
+    let _ = app.update(voice(VoiceEvent::Recorded(Some(v))));
+    assert!(!app.recording_talk_key());
+    assert!(shows(&app, "Edit keybind"));
+    let layout = stored(&folder);
+    assert_eq!(layout["input_mode"], "push_to_talk");
+    assert_eq!(layout["push_to_talk_key"]["name"], "V");
+    let again = start(&folder, true);
+    assert_eq!(
+        again
+            .layout
+            .voice
+            .talk_key()
+            .and_then(|key| key.get("name")),
+        Some(&serde_json::json!("V"))
+    );
+}
+
+#[test]
+fn closing_settings_lets_go_of_an_edited_theme() {
+    let (mut app, _folder) = preview();
+    open(&mut app, Section::Appearance);
+    interact(&mut app, |ui| {
+        ui.click("New theme").expect("New theme");
+    });
+    let _ = app.update(crate::settings::appearance_event(
+        crate::settings::ThemeEvent::Dark(false),
+    ));
+    assert!(!app.theme.dark, "shown while edited");
+    let _ = app.update(Message::Settings(Event::Close));
+    assert!(app.settings.is_none());
+    assert_eq!(app.theme.id, "bonfire", "the theme from before");
+}

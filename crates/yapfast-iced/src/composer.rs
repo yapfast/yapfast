@@ -741,8 +741,7 @@ impl App {
             check: crate::controls::Check::None,
             ..MenuRow::new(MenuAct::Upload, "Upload a File", Icon::File)
         }];
-        // The thread's and the poll's forms come with the settings and
-        // forms milestone: greyed until then.
+        // The thread's form comes with threads: greyed until then.
         if self.client.app.can_start_threads() {
             rows.push(MenuRow {
                 disabled: true,
@@ -753,7 +752,7 @@ impl App {
         }
         if self.client.app.can_create_polls() {
             rows.push(MenuRow {
-                disabled: true,
+                disabled: false,
                 subtitle: None,
                 check: crate::controls::Check::None,
                 ..MenuRow::new(MenuAct::NewPoll, "Create Poll", Icon::ChartBar)

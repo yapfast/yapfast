@@ -235,7 +235,9 @@ impl App {
             let lists = &self.client.state().discord_emojis;
             let used = match picker.target {
                 Target::React(..) => &lists.reactions,
-                Target::Composer | Target::Edit => &lists.frequent,
+                Target::Composer | Target::Edit | Target::Status(_) | Target::Poll(..) => {
+                    &lists.frequent
+                }
             };
             let mut frequent = names::discord_keys(used, &by_id);
             for key in self.client.app.frequent_reactions(16) {
@@ -598,6 +600,8 @@ impl App {
                 match picker.target {
                     Target::Composer | Target::Edit => "Pick an emoji for your message.",
                     Target::React(..) => "Pick an emoji to react with.",
+                    Target::Status(_) => "Pick an emoji for your status.",
+                    Target::Poll(..) => "Pick an emoji for your message.",
                 }
                 .into(),
                 false,

@@ -143,11 +143,15 @@ impl App {
         }
         if mode == Mode::Card && look.own {
             let pencil = self.icon(Icon::Pencil, 18, rgb(theme.on_accent));
-            // The profile editor isn't in this client yet.
             body = body.push(
-                action(theme, "Edit Profile", Kind::Primary, None)
-                    .icon(pencil)
-                    .wide(36.0),
+                action(
+                    theme,
+                    "Edit Profile",
+                    Kind::Primary,
+                    Some(Message::Profile(Event::EditProfile)),
+                )
+                .icon(pencil)
+                .wide(36.0),
             );
         }
         if mode != Mode::Side && !look.message_hint.is_empty() {
@@ -257,7 +261,7 @@ impl App {
     }
 
     /// The avatar on its ring, with its decoration and presence.
-    fn profile_avatar<'a>(
+    pub(super) fn profile_avatar<'a>(
         &'a self,
         shown: &'a Shown,
         size: f32,
@@ -501,7 +505,12 @@ impl App {
 
     /// The name, with its whole style drawn once while the profile shows,
     /// or in plain bold.
-    fn profile_name(&self, shown: &Shown, size: f32, ink: Color) -> Element<'_, Message> {
+    pub(super) fn profile_name(
+        &self,
+        shown: &Shown,
+        size: f32,
+        ink: Color,
+    ) -> Element<'_, Message> {
         let state = self.client.state();
         let profile = shown.look.profile();
         let style = state.cosmetics.style(profile.style.as_deref());
@@ -626,12 +635,16 @@ impl App {
         let theme = &self.theme;
         if look.own {
             let pencil = self.icon(Icon::Pencil, 16, rgb(theme.on_accent));
-            // The profile editor isn't in this client yet.
             return Some(
-                action(theme, "Edit Profile", Kind::Primary, None)
-                    .icon(pencil)
-                    .small()
-                    .into(),
+                action(
+                    theme,
+                    "Edit Profile",
+                    Kind::Primary,
+                    Some(Message::Profile(Event::EditProfile)),
+                )
+                .icon(pencil)
+                .small()
+                .into(),
             );
         }
         let id = look.profile().id.clone();
@@ -721,7 +734,7 @@ impl App {
     /// Someone's badges as Discord's profile sets them: twelve to a row,
     /// 20 px icons 2 px apart, each row a pill of its own; a badge's name
     /// shows over it, and a click opens its page when it has one.
-    fn badge_rows<'a>(&'a self, shown: &'a Shown) -> Element<'a, Message> {
+    pub(super) fn badge_rows<'a>(&'a self, shown: &'a Shown) -> Element<'a, Message> {
         let profile = shown.look.profile();
         let mut rows = column![].spacing(4);
         for chunk in profile.badges.chunks(12) {
@@ -847,7 +860,7 @@ impl App {
 
     /// The bio: three lines and "View full bio" on the card, whole
     /// elsewhere.
-    fn bio_view<'a>(
+    pub(super) fn bio_view<'a>(
         &'a self,
         bio: &'a markdown::Body,
         inks: &Inks,
@@ -887,7 +900,11 @@ impl App {
     /// Member Since's dates in one row, as Discord's: the Discord logo and
     /// the account's date, then a bullet, the server's icon and the date of
     /// joining it.
-    fn member_since<'a>(&'a self, shown: &'a Shown, inks: &Inks) -> Element<'a, Message> {
+    pub(super) fn member_since<'a>(
+        &'a self,
+        shown: &'a Shown,
+        inks: &Inks,
+    ) -> Element<'a, Message> {
         let profile = shown.look.profile();
         let ink = inks.ink2;
         let mut line = row![].spacing(8).align_y(Alignment::Center);

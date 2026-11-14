@@ -93,7 +93,7 @@ impl App {
                     let first =
                         CARD_PARTS.saturating_add(u8::try_from(place * 8).unwrap_or(u8::MAX));
                     let look = Look {
-                        size: crate::timeline::FONT_SIZE,
+                        size: self.text_size(),
                         line_height: crate::timeline::LINE_HEIGHT,
                         ink: theme.text,
                     };

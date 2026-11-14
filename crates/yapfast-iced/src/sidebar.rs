@@ -748,7 +748,7 @@ impl App {
                     "Add a friend",
                     24.0,
                     16,
-                    Message::Nothing,
+                    Message::Friends(crate::friends::Event::OpenAdd),
                     true
                 ),
                 self.icon_button(
@@ -756,7 +756,7 @@ impl App {
                     "New message",
                     24.0,
                     16,
-                    Message::Nothing,
+                    Message::Switcher(crate::switcher::Event::OpenNewDm),
                     true
                 ),
             ]

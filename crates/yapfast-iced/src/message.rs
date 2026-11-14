@@ -28,8 +28,8 @@ use crate::{
     sidebar,
     style::{CHIP, hex, rounded},
     timeline::{
-        AUTHOR_GAP, AUTHOR_LINE, AVATAR, CONTENT_PAD, END_PAD, EmbedText, FONT_SIZE, GROUP_GAP,
-        GUTTER, LINE_HEIGHT, RowLook,
+        AUTHOR_GAP, AUTHOR_LINE, AVATAR, CONTENT_PAD, END_PAD, EmbedText, GROUP_GAP, GUTTER,
+        LINE_HEIGHT, RowLook,
     },
     widgets::{Fold, Pic},
 };
@@ -111,7 +111,7 @@ impl App {
                 index,
                 FIRST_PART,
                 Look {
-                    size: FONT_SIZE,
+                    size: self.text_size(),
                     line_height: LINE_HEIGHT,
                     ink,
                 },
@@ -152,10 +152,15 @@ impl App {
         if let Some(poll) = &message.poll {
             content = content.push(self.poll_view(message, poll));
         }
-        for (place, embed) in message.embeds.iter().enumerate() {
-            if let Some(laid) = look.body.embeds.get(place) {
-                content = content.push(self.embed(index, message, place, embed, laid));
+        if self.layout.prefs.link_previews.unwrap_or(true) {
+            for (place, embed) in message.embeds.iter().enumerate() {
+                if let Some(laid) = look.body.embeds.get(place) {
+                    content = content.push(self.embed(index, message, place, embed, laid));
+                }
             }
+        } else if let Some(hidden) = hidden_card(message) {
+            // A bot's card can be the whole message: say it's there.
+            content = content.push(text(hidden).size(self.text_size()).color(self.theme.muted));
         }
         for (place, card) in message.cards.iter().enumerate() {
             if let Some(bodies) = look.body.cards.get(place) {
@@ -213,7 +218,7 @@ impl App {
             content = content.push(
                 container(
                     text("Blocked user")
-                        .size(FONT_SIZE)
+                        .size(self.text_size())
                         .font(MEDIUM)
                         .color(theme.text)
                         .height(AUTHOR_LINE),
@@ -229,10 +234,10 @@ impl App {
         content = content.push(
             row![
                 text("Blocked message.")
-                    .size(FONT_SIZE)
+                    .size(self.text_size())
                     .font(ITALIC)
                     .color(theme.text),
-                button(text("Show it").size(FONT_SIZE))
+                button(text("Show it").size(self.text_size()))
                     .padding(0)
                     .on_press(Message::ShowBlocked(index))
                     .style(controls::ink_style(theme.link, theme.text)),
@@ -284,7 +289,7 @@ impl App {
             layers = layers.push(placed(
                 self.glyph(icon, 16, ink),
                 12.0,
-                (FONT_SIZE * 1.375 - 16.0) / 2.0 + 1.0,
+                (self.text_size() * 1.375 - 16.0) / 2.0 + 1.0,
             ));
         } else if look.first {
             let decoration = self
@@ -308,8 +313,8 @@ impl App {
             ));
         } else if self.pointed_message.as_ref() == Some(&message.item) {
             // Right-aligned to the avatar's edge.
-            let clock = message
-                .time
+            let clock = self
+                .sent_time(index, message)
                 .split_whitespace()
                 .find(|word| word.contains(':'))
                 .unwrap_or_default();
@@ -419,6 +424,19 @@ impl App {
     /// A message's author line, as the Slint client's with its Discord
     /// look: the name in its style's font (only the font, in a server) and
     /// role colour, the server tag chip, APP for a bot, the time.
+    /// Messages' text size, as Messages' settings chose it.
+    pub fn text_size(&self) -> f32 {
+        crate::settings::message_size(self.layout.prefs.text_size)
+    }
+
+    /// When the message at `index` was sent, on the clock Messages'
+    /// settings chose.
+    fn sent_time<'a>(&'a self, index: usize, message: &'a ChatMessage) -> &'a str {
+        self.looks
+            .get(index)
+            .map_or(message.time.as_str(), |look| look.time.as_str())
+    }
+
     fn author_line<'a>(&'a self, index: usize, message: &'a ChatMessage) -> Element<'a, Message> {
         let theme = &self.theme;
         let cosmetics = self.client.state().cosmetics;
@@ -443,7 +461,7 @@ impl App {
             index,
             0,
         )
-        .size(FONT_SIZE, AUTHOR_LINE)
+        .size(self.text_size(), AUTHOR_LINE)
         .color(color)
         .starts(false)
         .selection(self.selected(index, 0), self.selecting, theme.selection);
@@ -451,7 +469,7 @@ impl App {
             .spacing(8)
             .align_y(Alignment::Center);
         if let Some(tag) = cosmetics.tag(message.tag.as_ref()) {
-            let size = FONT_SIZE * 0.72;
+            let size = self.text_size() * 0.72;
             line = line.push(self.tag_chip(
                 &tag.text,
                 tag.badge.as_deref(),
@@ -470,8 +488,8 @@ impl App {
         if message.bot {
             line = line.push(self.bot_tag(1.0));
         }
-        let time = Piece::new(vec![span(message.time.as_str())], index, 1)
-            .size(FONT_SIZE - 4.0, 16.0)
+        let time = Piece::new(vec![span(self.sent_time(index, message))], index, 1)
+            .size(self.text_size() - 4.0, 16.0)
             .color(theme.muted)
             .selection(self.selected(index, 1), self.selecting, theme.selection);
         line.push(time).height(AUTHOR_LINE).into()
@@ -860,7 +878,7 @@ impl App {
         let theme = &self.theme;
         let more = button(
             text(if whole { "Show less" } else { "Show more" })
-                .size(FONT_SIZE * 0.875)
+                .size(self.text_size() * 0.875)
                 .font(SEMIBOLD),
         )
         .padding(0)
@@ -1152,6 +1170,29 @@ pub fn emoji_shortcode(key: &str) -> String {
         .find(|code| code.starts_with(|c: char| c.is_ascii_alphanumeric()))
         .or_else(|| codes().next())
         .map_or_else(|| key.to_owned(), |code| format!(":{code}:"))
+}
+
+/// What a message whose only content is a card says while link previews
+/// are off, as the Slint client says it.
+fn hidden_card(message: &ChatMessage) -> Option<String> {
+    let embed = message.embeds.first()?;
+    let pictures = message.attachments.iter().any(|attachment| {
+        matches!(
+            attachment.placement,
+            Placement::Message | Placement::Sticker
+        )
+    });
+    if !message.body.trim().is_empty() || pictures {
+        return None;
+    }
+    Some(if embed.title.is_empty() {
+        "A card, hidden while link previews are off.".to_owned()
+    } else {
+        format!(
+            "A card, \"{}\", hidden while link previews are off.",
+            embed.title
+        )
+    })
 }
 
 #[cfg(test)]

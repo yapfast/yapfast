@@ -38,6 +38,10 @@ pub enum Target {
     Edit,
     /// A reaction to the message with this item, the menu's place.
     React(String, Point),
+    /// The custom status's emoji, beside where its button was pressed.
+    Status(Point),
+    /// A poll's answer's emoji, by its place, likewise.
+    Poll(usize, Point),
 }
 
 /// The expression picker's tabs, as Discord orders them.
@@ -393,6 +397,14 @@ impl App {
             }
             Target::React(item, _) => {
                 self.client.dispatch(Action::React { item, key });
+                Task::batch([close, self.sync()])
+            }
+            Target::Status(_) => {
+                self.status_emoji(key);
+                close
+            }
+            Target::Poll(index, _) => {
+                self.poll_draft_emoji(index, key);
                 Task::batch([close, self.sync()])
             }
         }

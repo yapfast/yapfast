@@ -39,6 +39,9 @@ pub struct Client {
     link_stopped: bool,
     /// Sounds the core asked for, for the window to play.
     sounds: Vec<yapfast_core::sounds::Sound>,
+    /// Others see when this account types, as Messages' settings say; off,
+    /// the core's typing commands go nowhere.
+    pub share_typing: bool,
 }
 
 impl Client {
@@ -54,7 +57,13 @@ impl Client {
             link_progress: None,
             link_stopped: false,
             sounds: Vec::new(),
+            share_typing: true,
         }
+    }
+
+    /// The backend's runtime, for what runs beside the window.
+    pub fn runtime(&self) -> &BackgroundRuntime {
+        &self.runtime
     }
 
     /// The data folder.
@@ -129,6 +138,8 @@ impl Client {
                     self.backend = Some(backend);
                     self.events = Some(events);
                 }
+                Effect::Backend(yapfast_core::chat::Command::Typing { .. })
+                    if !self.share_typing => {}
                 Effect::Backend(command) => {
                     let result = match &self.backend {
                         Some(backend) => backend.send(command),

@@ -636,14 +636,15 @@ impl App {
                 );
             }
         }
-        // Voice's settings are Settings', still to come here.
         menu.push(separator(theme))
             .push(self.popup_row(
                 "Voice Settings",
                 None,
                 Some(Icon::Settings),
                 Check::None,
-                None,
+                Some(Message::Settings(crate::settings::Event::Open(
+                    crate::settings::Section::Voice,
+                ))),
             ))
             .into()
     }

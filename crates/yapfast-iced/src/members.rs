@@ -192,7 +192,9 @@ impl App {
             let crown = self.icon(Icon::Crown, 14, CROWN);
             name_line = name_line.push(Pic::square(crown, 14.0).opacity(opacity));
         }
-        if let Some(boosting) = &look.boosting {
+        if let Some(boosting) = &look.boosting
+            && self.layout.prefs.boost_gems.unwrap_or(true)
+        {
             let gem = Pic::square(self.icon(Icon::Gem, 14, BOOST), 14.0);
             name_line = name_line.push(
                 tooltip(

@@ -5,14 +5,16 @@
 //!
 //! [`look`] works out what a profile shows once each time the core's view
 //! of it changes; `body` draws the card in each of its three places;
-//! `full` the full profile's tabs; `activity` an activity's card.
+//! `full` the full profile's tabs; `activity` an activity's card;
+//! [`editor`] the profile editor, drawn with the card's parts.
 
 mod activity;
 mod body;
+pub mod editor;
 mod full;
 pub mod look;
 
-use std::{cell::RefCell, collections::HashMap};
+use std::{cell::RefCell, collections::HashMap, sync::Arc};
 
 use iced::{
     Element, Length, Point, Task,
@@ -97,6 +99,10 @@ pub enum Event {
     Bubble(bool),
     /// The header's profile button: the panel beside a DM shows or goes.
     TogglePanel,
+    /// Edit Profile on one's own: the card or full profile goes and the
+    /// editor opens.
+    EditProfile,
+    Editor(editor::Event),
 }
 
 /// The floating card: whose, where.
@@ -113,6 +119,9 @@ pub struct Shown {
     pictures: RefCell<HashMap<(String, u32, u32), Handle>>,
     /// The name drawn with its whole style, and what it was drawn of.
     name: RefCell<Option<StyledName>>,
+    /// Pictures chosen in the editor and not yet sent, by the names its
+    /// card gives them.
+    picked: RefCell<HashMap<String, Arc<yapfast_core::chat::Picture>>>,
 }
 
 impl Shown {
@@ -121,6 +130,7 @@ impl Shown {
             look,
             pictures: Default::default(),
             name: Default::default(),
+            picked: Default::default(),
         }
     }
 }
@@ -154,6 +164,8 @@ pub struct Profiles {
     pub pointed: bool,
     pub panel_pointed: bool,
     pub bubble: bool,
+    /// The profile editor, while the core has one open.
+    pub editor: Option<editor::Editor>,
 }
 
 impl App {
@@ -190,6 +202,7 @@ impl App {
                 activities: room.activities.clone(),
             });
         self.profiles.panel = make_shown(app, panel, panel_view, live, link);
+        self.editor_sync();
         // The note follows the profile's while it isn't being written.
         if let Some(profile) = self
             .profiles
@@ -346,6 +359,12 @@ impl App {
                 self.profiles.bubble = pointed;
                 return Task::none();
             }
+            Event::EditProfile => {
+                self.client.dispatch(Action::CloseProfile);
+                self.card = None;
+                self.client.dispatch(Action::EditProfile);
+            }
+            Event::Editor(event) => return self.editor_event(event),
             Event::TogglePanel => {
                 let shown = !self.client.state().profile_panel;
                 crate::layout::store(self.client.root(), "profile_panel_hidden", !shown);
@@ -460,7 +479,11 @@ impl App {
         if let Some(handle) = shown.pictures.borrow().get(&key) {
             return Some(handle.clone());
         }
-        let picture = self.client.state().pictures.get(url)?;
+        let picked = shown.picked.borrow().get(url).cloned();
+        let picture = match &picked {
+            Some(picture) => picture,
+            None => self.client.state().pictures.get(url)?,
+        };
         if picture.width == 0 || picture.height == 0 {
             return None;
         }
@@ -484,7 +507,7 @@ impl App {
     pub fn profile_pictures(&self) -> Vec<String> {
         let state = self.client.state();
         let cosmetics = state.cosmetics;
-        let mut urls = Vec::new();
+        let mut urls = self.editor_pictures();
         for (shown, pointed) in [
             (&self.profiles.shown, self.profiles.pointed),
             (&self.profiles.panel, self.profiles.panel_pointed),
@@ -586,7 +609,7 @@ impl App {
 
 /// The card's frame: its ground (a theme's gradient, or plain), corners and
 /// outline, and the shadow of one that floats.
-fn frame_style(
+pub(crate) fn frame_style(
     inks: look::Inks,
     edge: iced::Color,
     radius: f32,

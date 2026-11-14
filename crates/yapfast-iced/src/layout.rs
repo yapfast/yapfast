@@ -49,11 +49,104 @@ pub struct Layout {
     /// keep them; see [`Voice`].
     #[serde(flatten)]
     pub voice: Voice,
+    /// What Settings' other pages keep; see [`Prefs`].
+    #[serde(flatten)]
+    pub prefs: Prefs,
+}
+
+/// Settings' pages besides Voice's, under the keys the Slint client keeps
+/// them by, each as it means there: `None` is the default, which for most
+/// switches is on.
+#[derive(Default, serde::Deserialize)]
+#[serde(default)]
+pub struct Prefs {
+    /// Messages: the clock, its seconds, the date's order (an index into
+    /// `clock::DateFormat::ALL`, following the clock unless chosen), the
+    /// text's size (0 small, 1 default, 2 large), link previews, boost gems,
+    /// mentioning those replied to, tracking taken out of links sent,
+    /// sharing that this account types, and when animations play.
+    pub twelve_hour_clock: bool,
+    pub clock_seconds: bool,
+    pub date_format: Option<i32>,
+    pub text_size: Option<i32>,
+    pub link_previews: Option<bool>,
+    pub boost_gems: Option<bool>,
+    pub reply_ping: Option<bool>,
+    pub strip_tracking: Option<bool>,
+    pub share_typing: Option<bool>,
+    pub animate: Animate,
+    /// Appearance's profile switches, and nameplates.
+    pub nameplates: Option<bool>,
+    pub profile_effects: Option<bool>,
+    pub decorations: Option<bool>,
+    pub moving_cosmetics: Option<bool>,
+    pub name_styles: Option<bool>,
+    pub server_tags: Option<bool>,
+    pub profile_frames: Option<bool>,
+    /// Notifications: shown, saying what messages say, flashing the
+    /// taskbar.
+    pub notifications: Option<bool>,
+    pub notification_text: Option<bool>,
+    pub flash_taskbar: Option<bool>,
+    /// Advanced: rendering with the GPU from the next start, closing to the
+    /// tray, starting another Yapfast rather than showing this one.
+    pub gpu_rendering: bool,
+    pub close_to_tray: Option<bool>,
+    pub multiple_windows: bool,
+    /// Discord: channels this account can't see listed locked, reading
+    /// marked on Discord, idle shown while away.
+    pub show_hidden_channels: bool,
+    pub sync_discord_reads: Option<bool>,
+    pub show_idle: Option<bool>,
+    /// Game Activity's own games: an executable and what to show for it.
+    pub game_executables: Vec<(String, String)>,
+    /// About: looking for releases, nightlies among them.
+    pub check_for_updates: bool,
+    pub update_nightlies: bool,
+}
+
+/// When GIFs, animated emoji and stickers play, as Messages' choice.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Animate {
+    /// While Yapfast's window has the focus, as in Discord.
+    #[default]
+    Focused,
+    Always,
+    Never,
+}
+
+impl Prefs {
+    /// The profile switches, each on unless turned off.
+    pub fn cosmetics(&self) -> yapfast_core::application::Cosmetics {
+        let default = yapfast_core::application::Cosmetics::default();
+        yapfast_core::application::Cosmetics {
+            effects: self.profile_effects.unwrap_or(default.effects),
+            decorations: self.decorations.unwrap_or(default.decorations),
+            moving: self.moving_cosmetics.unwrap_or(default.moving),
+            name_styles: self.name_styles.unwrap_or(default.name_styles),
+            server_tags: self.server_tags.unwrap_or(default.server_tags),
+            frames: self.profile_frames.unwrap_or(default.frames),
+        }
+    }
+
+    /// Hands the date's order and the clock to what formats times, as the
+    /// Slint client does.
+    pub fn apply_clock(&self) {
+        use yapfast_core::clock;
+        clock::set_date_format(self.date_format.and_then(|index| {
+            clock::DateFormat::ALL
+                .get(usize::try_from(index).ok()?)
+                .copied()
+        }));
+        // After the date's order, which Discord's timestamps follow.
+        clock::set_twelve_hour_clock(self.twelve_hour_clock);
+    }
 }
 
 /// Voice's settings in `layout.json`, which the core is told of as the
-/// window opens ([`Voice::apply`]), as the Slint client tells it. Settings,
-/// which changes them, is M3's; until then the Slint client's are used.
+/// window opens ([`Voice::apply`]), as the Slint client tells it, and
+/// Settings' Voice & video changes.
 #[derive(Default, serde::Deserialize)]
 #[serde(default)]
 pub struct Voice {
@@ -92,7 +185,7 @@ pub struct Voice {
 }
 
 /// How calls decide when to send the microphone, as Discord's Input Mode.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum InputMode {
     #[default]
@@ -176,6 +269,12 @@ impl Layout {
             Action::SkipCallPrompt(self.skip_call_prompt),
             Action::ActivityCardsHidden(self.activity_cards_hidden),
             Action::SetPinned(self.pinned.clone()),
+            Action::ShowHiddenChannels(self.prefs.show_hidden_channels),
+            Action::SyncDiscordReads(self.prefs.sync_discord_reads.unwrap_or(true)),
+            Action::ReplyPing(self.prefs.reply_ping.unwrap_or(true)),
+            Action::SetCosmetics(self.prefs.cosmetics()),
+            Action::StripTracking(self.prefs.strip_tracking.unwrap_or(true)),
+            Action::HideNameplates(!self.prefs.nameplates.unwrap_or(true)),
         ]
     }
 }

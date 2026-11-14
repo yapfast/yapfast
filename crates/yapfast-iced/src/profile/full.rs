@@ -131,7 +131,12 @@ impl App {
 
     /// A tab's page: rows the shape of what's coming while Discord hasn't
     /// said, its words while there's nothing, else what it shows.
-    fn tab_page<'a>(&'a self, shown: &'a Shown, tab: Tab, inks: &Inks) -> Element<'a, Message> {
+    pub(super) fn tab_page<'a>(
+        &'a self,
+        shown: &'a Shown,
+        tab: Tab,
+        inks: &Inks,
+    ) -> Element<'a, Message> {
         let look = &shown.look;
         let profile = look.profile();
         let blank = match tab {

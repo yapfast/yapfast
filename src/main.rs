@@ -408,6 +408,16 @@ fn launch(
             twemoji: include_bytes!(concat!(env!("OUT_DIR"), "/twemoji.ttf")),
             paste: Some(pasted_files),
             push_to_talk: Some(watch_talk_key),
+            build: {
+                let build = build_info::current();
+                yapfast_iced::Build {
+                    headline: build.headline(),
+                    channel: build.channel().label().to_owned(),
+                    details: build.details(),
+                    tone: build.channel().tone(),
+                    summary: build.summary(),
+                }
+            },
         },
     );
     // Pasted pictures go as Yapfast closes.
@@ -421,10 +431,13 @@ fn launch(
 fn watch_talk_key(
     key: &serde_json::Value,
     runtime: &BackgroundRuntime,
+    told: Box<dyn Fn(String) + Send + Sync>,
 ) -> Option<Box<dyn std::any::Any>> {
     let key: push_to_talk::Keybind = serde_json::from_value(key.clone()).ok()?;
-    let watcher = push_to_talk::Watcher::start(key, runtime, |reach| {
-        tracing::info!(note = reach.note(), "push to talk");
+    let watcher = push_to_talk::Watcher::start(key, runtime, move |reach| {
+        let note = reach.note();
+        tracing::info!(note, "push to talk");
+        told(note);
     });
     Some(Box::new(watcher))
 }
