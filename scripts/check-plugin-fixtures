@@ -50,7 +50,11 @@ USAGE = "usage: scripts/check-plugin-fixtures [--update [--artifact-unchanged]]"
 
 
 def sha256(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    """Hash text as Git records it across checkouts, and modules as their exact bytes."""
+    contents = path.read_bytes()
+    if path.suffix != ".wasm":
+        contents = contents.replace(bytes((13, 10)), bytes((10,)))
+    return hashlib.sha256(contents).hexdigest()
 
 
 def read_record(path):
@@ -141,7 +145,10 @@ def groups(stems):
     """Each committed module, with the files it was compiled from, as pairs."""
     fixtures = [(f"{stem}.wasm", [f"{stem}.wat"]) for stem in stems]
     sources = (SAMPLE / "src").rglob("*")
-    sample = [*SAMPLE_SOURCES, *(str(path.relative_to(SAMPLE)) for path in sorted(sources) if path.is_file())]
+    sample = [
+        *SAMPLE_SOURCES,
+        *(path.relative_to(SAMPLE).as_posix() for path in sorted(sources) if path.is_file()),
+    ]
     return [
         (FIXTURES, FIXTURE_RECORD, fixtures),
         (SAMPLE, SAMPLE_RECORD, [(SAMPLE_MODULE, sample)]),
