@@ -469,6 +469,12 @@ pub fn address_problem(address: IpAddr) -> Option<&'static str> {
                 Some("is on a carrier's private range")
             } else if octets[0] == 0 {
                 Some("is on the reserved 0.0.0.0/8 range")
+            } else if octets[0] >= 240 {
+                Some("is on the reserved 240.0.0.0/4 range")
+            } else if octets[0] == 198 && (octets[1] & 0xfe) == 18 {
+                Some("is on the benchmarking range, which stays inside a network")
+            } else if octets[..3] == [192, 0, 0] {
+                Some("is on the IETF's protocol range")
             } else {
                 None
             }
@@ -494,6 +500,29 @@ pub fn address_problem(address: IpAddr) -> Option<&'static str> {
                 Some("is on a private network")
             } else if segments[0] & 0xffc0 == 0xfe80 {
                 Some("is link-local")
+            } else if segments[..6] == [0x64, 0xff9b, 0, 0, 0, 0] {
+                // 64:ff9b::/96, NAT64's well-known prefix: what it reaches is
+                // the IPv4 address in its last 32 bits.
+                let [a, b] = [segments[6], segments[7]];
+                address_problem(IpAddr::V4(std::net::Ipv4Addr::new(
+                    (a >> 8) as u8,
+                    a as u8,
+                    (b >> 8) as u8,
+                    b as u8,
+                )))
+            } else if segments[0] == 0x64 && segments[1] == 0xff9b && segments[2] == 1 {
+                Some("is on a network's own NAT64 range")
+            } else if segments[0] == 0x2002 {
+                // 6to4: the IPv4 address it tunnels to is the next 32 bits.
+                let [a, b] = [segments[1], segments[2]];
+                address_problem(IpAddr::V4(std::net::Ipv4Addr::new(
+                    (a >> 8) as u8,
+                    a as u8,
+                    (b >> 8) as u8,
+                    b as u8,
+                )))
+            } else if segments[0] == 0x2001 && segments[1] == 0 {
+                Some("is a Teredo tunnel, which hides where it goes")
             } else {
                 None
             }

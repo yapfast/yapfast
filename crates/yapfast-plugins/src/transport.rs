@@ -18,6 +18,13 @@ use futures_util::stream::BoxStream;
 
 use crate::network::{ConnectPlan, Served, Transport};
 
+/// How long a plugin's request may take to connect.
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// How long a plugin's request may take altogether, body included: a 16 MiB
+/// answer, the most a manifest may ask for, at well under 1 Mbit/s.
+const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(180);
+
 /// Opens one connection per request, to the address the gate resolved.
 #[derive(Debug, Default)]
 pub struct PinnedTransport;
@@ -40,6 +47,11 @@ impl Transport for PinnedTransport {
                 .resolve(plan.host.as_str(), SocketAddr::new(address, plan.port))
                 .https_only(true)
                 .pool_max_idle_per_host(0)
+                // A server that accepts and never answers would otherwise hold
+                // one of the plugin's four places, and one of sixteen in all,
+                // for as long as the app runs.
+                .connect_timeout(CONNECT_TIMEOUT)
+                .timeout(REQUEST_TIMEOUT)
                 .build()
                 .context("the plugin's HTTP client couldn't be built")?;
 

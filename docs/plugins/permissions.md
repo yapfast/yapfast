@@ -165,14 +165,17 @@ point a request at a private address as a plugin is.
   anywhere says nothing useful at install.
 - **An address that isn't public.** Loopback, an RFC 1918 network, a carrier's
   range, link-local, a cloud metadata address, the unspecified address,
-  broadcast or multicast, and an IPv4 address written the IPv6 way: each of
-  those reaches a machine that never expected a plugin to be able to reach it.
+  broadcast or multicast, the reserved, benchmarking and IETF ranges, a Teredo
+  tunnel, and an IPv4 address written the IPv6 way, including through NAT64 or
+  6to4, which are checked as the IPv4 address they reach: each of those reaches
+  a machine that never expected a plugin to be able to reach it.
   The name is resolved here, the addresses are checked, and the connection goes
   to those addresses and no other, so a second lookup that answers differently
   finds nobody left to connect anywhere.
 - **Past the caps.** A response is read under 4 MiB unless the manifest asked for
   more, up to 16 MiB, and past it the stream is dropped rather than read to the
-  end. A plugin may have 4 requests in flight while the whole helper has 16.
+  end. A plugin may have 4 requests in flight while the whole helper has 16, and
+  a request that hasn't connected in 10 seconds, or finished in 180, is dropped.
 
 A request body is at most 768 KiB undone from its base64, because it arrives
 inside one frame. A response body above 752 KiB is written to

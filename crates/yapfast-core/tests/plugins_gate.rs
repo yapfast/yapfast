@@ -402,6 +402,15 @@ fn every_private_shape_is_refused() {
         ("::", "unspecified"),
         ("224.0.0.1", "multicast"),
         ("ff02::1", "multicast"),
+        ("240.0.0.1", "reserved"),
+        ("198.18.0.1", "benchmarking"),
+        ("192.0.0.170", "IETF"),
+        // NAT64 and 6to4 reach the IPv4 address inside them.
+        ("64:ff9b::a9fe:a9fe", "cloud metadata"),
+        ("64:ff9b::7f00:1", "loopback"),
+        ("64:ff9b:1::1", "NAT64"),
+        ("2002:a9fe:a9fe::1", "cloud metadata"),
+        ("2001:0:4136:e378::1", "Teredo"),
     ] {
         let parsed: IpAddr = address.parse().expect("a test address");
         let problem = address_problem(parsed).expect("this address is not a public one");
@@ -412,7 +421,14 @@ fn every_private_shape_is_refused() {
     }
     // And the sentinel: public addresses are allowed, or the whole gate is a
     // wall and the tests above would prove nothing.
-    for address in ["93.184.216.34", "1.1.1.1", "2606:4700:4700::1111"] {
+    for address in [
+        "93.184.216.34",
+        "1.1.1.1",
+        "2606:4700:4700::1111",
+        // A public address through NAT64 or 6to4 stays public.
+        "64:ff9b::5db8:d822",
+        "2002:5db8:d822::1",
+    ] {
         let parsed: IpAddr = address.parse().expect("a test address");
         assert_eq!(address_problem(parsed), None, "{address} is public");
     }
