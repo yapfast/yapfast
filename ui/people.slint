@@ -1624,11 +1624,13 @@ export component ProfileCard inherits Rectangle {
                         height: root.banner-height + root.avatar-size / 2 + 8px;
                         Rectangle {
                             y: 0px; height: root.banner-height;
-                            // Its top corners follow the card's, inside its border,
-                            // unless a theme keeps room above it.
-                            border-top-left-radius: root.inset-top > 0px ? 0px : max(0px, root.corner - max(root.edge-inset, root.border-width));
-                            border-top-right-radius: root.inset-top > 0px ? 0px : max(0px, root.corner - max(root.edge-inset, root.border-width));
-                            clip: true;
+                            // Under a theme's card edge its top corners follow the
+                            // card's, inside the border, unless the theme keeps room
+                            // above it; the stock card's own corners clip it.
+                            property <length> top-corner: !root.edge-themed || root.inset-top > 0px ? 0px : max(0px, root.corner - max(root.edge-inset, root.border-width));
+                            border-top-left-radius: self.top-corner;
+                            border-top-right-radius: self.top-corner;
+                            clip: root.edge-themed;
                             background: root.data.has-accent ? root.data.accent : root.themed ? root.data.theme-primary : Theme.raised-fill;
                             if root.data.banner.width > 0: Picture {
                                 width: parent.width; height: parent.height; image-fit: cover;
