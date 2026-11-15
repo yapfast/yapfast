@@ -227,7 +227,7 @@ fn help() -> String {
          --renderer selects tiny-skia (software) or wgpu (gpu) for this start, over the setting.\n\
          If wgpu fails to start, Yapfast restarts with tiny-skia.\n\
          --background starts in the system tray with a saved session, as starting at sign-in does.\n\
-         --no-plugins starts without plugins' changes to the interface, keeping which are enabled.\n\
+         --no-plugins starts without the plugin system for this run, keeping which plugins are enabled for the next.\n\
          LINK opens a Discord server, channel, message, profile or invite link in Yapfast.\n\
          --release-discord-links gives discord:// links back to the app that had them, as uninstalling does.\n"
     } else {
@@ -239,7 +239,7 @@ fn help() -> String {
         ""
     };
     format!(
-        "Usage: yapfast [--preview] [--data-dir PATH] [--renderer gpu|software] [--background] [LINK]\n\
+        "Usage: yapfast [--preview] [--data-dir PATH] [--renderer gpu|software] [--background] [--no-plugins] [LINK]\n\
          \x20      yapfast [--smoke-test | --version | --help{links}]\n\
          \x20      yapfast --call-experiment [--resume PATH]\n\
          \x20      yapfast [--voice-demo | --audio-devices]\n\
