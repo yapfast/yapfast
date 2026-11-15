@@ -14,6 +14,7 @@ use std::sync::OnceLock;
 
 pub mod art;
 pub mod budget;
+pub mod plain;
 
 use super::layout::BUBBLE_PADDING;
 use super::package::{Mode, Package, Paint, READABLE, Resolved, TEXT_ON, follows};
