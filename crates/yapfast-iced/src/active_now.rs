@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 
 use iced::{
-    Alignment, Border, Element, Length, Padding,
+    Alignment, Element, Length, Padding,
     widget::{Space, button, column, container, row, scrollable, stack, text},
 };
 use yapfast_core::{
@@ -18,7 +18,7 @@ use yapfast_core::{
 
 use crate::{
     app::{App, Message},
-    controls::{self, bar, placed},
+    controls::{bar, placed},
     fonts::{BOLD, SEMIBOLD},
     people::voice_spots,
     pictures::{initials, tint},
@@ -87,7 +87,7 @@ impl App {
     /// Makes the cards again while the friends list shows, and lets go of
     /// them when it doesn't.
     pub fn active_now_sync(&mut self) {
-        if self.dm_screen() != Some(DmScreen::Friends) {
+        if self.dm_screen() != Some(DmScreen::Friends) || !self.active_now_fits() {
             self.active_now.clear();
             return;
         }
@@ -95,6 +95,12 @@ impl App {
         if cards != self.active_now {
             self.active_now = cards;
         }
+    }
+
+    /// Whether the Friends screen is wide enough for the column: narrower,
+    /// it isn't drawn, so its cards aren't made, timed or fetched for.
+    pub fn active_now_fits(&self) -> bool {
+        self.window.width - self.chat_left() >= ROOM
     }
 
     /// Whether a card shows a time that moves each second.
@@ -216,7 +222,6 @@ impl App {
         if let Some(icon) = &card.icon {
             head = head.push(self.row_icon(Some(icon), "", false));
         }
-        let _ = card.presence;
         let hover = theme.hover;
         let head = button(head)
             .padding(0)
@@ -224,10 +229,7 @@ impl App {
             .on_press(Message::Friends(crate::friends::Event::Menu(
                 card.face.id.clone(),
             )))
-            .style(move |_, status| button::Style {
-                background: controls::lights(status).then_some(hover.into()),
-                ..Default::default()
-            });
+            .style(crate::controls::lit_style(None, hover, 0.0));
         let mut body = column![head];
         for entry in &card.rows {
             body = body
@@ -238,14 +240,7 @@ impl App {
         container(body)
             .width(Length::Fill)
             .clip(true)
-            .style(move |_| iced::widget::container::Style {
-                border: Border {
-                    color: edge,
-                    width: 1.0,
-                    radius: 8.0.into(),
-                },
-                ..rounded(raised, 8)
-            })
+            .style(move |_| crate::style::outlined(raised, edge, 8.0))
             .into()
     }
 
@@ -300,10 +295,7 @@ impl App {
             .padding(0)
             .width(Length::Fill)
             .on_press(Message::Side(crate::sidebar::Event::Select(room.clone())))
-            .style(move |_, status| button::Style {
-                background: controls::lights(status).then_some(hover.into()),
-                ..Default::default()
-            })
+            .style(crate::controls::lit_style(None, hover, 0.0))
             .into()
     }
 

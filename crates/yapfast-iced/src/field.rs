@@ -973,11 +973,7 @@ impl Widget<Message, Theme, Renderer> for Field<'_> {
         let bounds = layout.bounds();
         let text_bounds = self.text_bounds(layout);
         let border = match self.ring.filter(|_| state.focus.is_some()) {
-            Some(ring) => Border {
-                color: ring,
-                width: 1.0,
-                radius: self.radius.into(),
-            },
+            Some(ring) => crate::style::edge(ring, self.radius),
             None => Border::default().rounded(self.radius),
         };
         renderer.fill_quad(

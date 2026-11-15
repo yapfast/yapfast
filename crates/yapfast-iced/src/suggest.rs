@@ -7,11 +7,14 @@
 //! message's edit.
 
 use iced::{
-    Alignment, Border, Element, Length, Padding, Task,
+    Alignment, Element, Length, Padding, Task,
     widget::{Space, button, column, container, row, text},
 };
+use std::sync::Arc;
+
 use yapfast_core::{
-    application::Action,
+    application::{Action, AppState},
+    chat::{ChatMember, ChatMessage},
     emoji::{self, Found},
     mention,
 };
@@ -49,8 +52,63 @@ pub struct Suggest {
     emoji_word: Option<(usize, String)>,
     emoji_dismissed: Option<usize>,
     pub emoji: Vec<Found>,
+    /// Each one's picture's address, for a custom emoji.
+    emoji_pictures: Vec<Option<String>>,
+    /// The core's mention suggestions for the `@` or `#` word, and what
+    /// they were worked out from: every member and author, so once per
+    /// change, not per view.
+    mentions: Vec<mention::Candidate>,
+    mentions_for: Option<MentionsFrom>,
     /// The suggestion lit.
     index: usize,
+}
+
+/// What the core's mention suggestions come from: the word, the room,
+/// its members and those found by name, its authors, its roles and
+/// groups. The lists are held, so one let go can't be mistaken for a new
+/// one made where it was.
+struct MentionsFrom {
+    query: Option<(char, String)>,
+    selected: Option<String>,
+    members: Option<Arc<Vec<ChatMember>>>,
+    messages: Arc<Vec<Arc<ChatMessage>>>,
+    found: u64,
+}
+
+impl MentionsFrom {
+    fn of(state: &AppState) -> Self {
+        use std::hash::{Hash, Hasher};
+        let mut found = std::hash::DefaultHasher::new();
+        for member in &state.found_members {
+            (&member.id, &member.name, &member.avatar).hash(&mut found);
+        }
+        for group in &state.mention_groups {
+            (&group.name, &group.mention).hash(&mut found);
+        }
+        Self {
+            query: state.mention_query.clone(),
+            selected: state.selected.clone(),
+            members: state
+                .members
+                .as_ref()
+                .and_then(|members| members.as_ref().ok())
+                .cloned(),
+            messages: state.messages.clone(),
+            found: found.finish(),
+        }
+    }
+
+    fn same(&self, other: &Self) -> bool {
+        self.query == other.query
+            && self.selected == other.selected
+            && self.found == other.found
+            && Arc::ptr_eq(&self.messages, &other.messages)
+            && match (&self.members, &other.members) {
+                (Some(this), Some(that)) => Arc::ptr_eq(this, that),
+                (None, None) => true,
+                _ => false,
+            }
+    }
 }
 
 impl Suggest {
@@ -71,8 +129,11 @@ impl Suggest {
     /// Sending or switching rooms closes them all.
     pub fn clear(&mut self, client: &mut Client) {
         self.mention_at = None;
+        self.mentions.clear();
+        self.mentions_for = None;
         self.emoji_word = None;
         self.emoji.clear();
+        self.emoji_pictures.clear();
         if client.state().mention_query.is_some() {
             client.dispatch(Action::MentionQuery(None));
         }
@@ -86,9 +147,9 @@ impl Suggest {
 
 /// One list's rows: an app's commands or an option's values, mentions, or
 /// emoji.
-enum Shown {
+enum Shown<'a> {
     Commands(Vec<yapfast_core::application::CommandRow>, String),
-    Mentions(Vec<mention::Candidate>),
+    Mentions(&'a [mention::Candidate]),
     Emoji,
 }
 
@@ -112,7 +173,7 @@ impl App {
         }
     }
 
-    fn shown_suggestions(&self) -> Option<Shown> {
+    fn shown_suggestions(&self) -> Option<Shown<'_>> {
         let suggest = &self.suggest;
         // The `/` list over the composer comes first, and with a command
         // being written, it's the only one.
@@ -124,11 +185,8 @@ impl App {
                 return None;
             }
         }
-        if suggest.mention_at.is_some() {
-            let found = self.client.state().mention_suggestions();
-            if !found.is_empty() {
-                return Some(Shown::Mentions(found));
-            }
+        if suggest.mention_at.is_some() && !suggest.mentions.is_empty() {
+            return Some(Shown::Mentions(&suggest.mentions));
         }
         (suggest.emoji_word.is_some() && !suggest.emoji.is_empty()).then_some(Shown::Emoji)
     }
@@ -152,15 +210,24 @@ impl App {
             .map(|(at, name)| (at, name.to_owned()));
         if suggest.emoji_word != word {
             suggest.index = 0;
-            suggest.emoji = match &word {
-                Some((_, name)) => emoji::suggestions(
-                    name,
-                    &self.client.app.usable_emoji(),
-                    crate::picker::drawn,
-                    EMOJI_SUGGESTIONS,
-                ),
-                None => Vec::new(),
-            };
+            suggest.emoji.clear();
+            suggest.emoji_pictures.clear();
+            if let Some((_, name)) = &word {
+                let sets = self.client.app.usable_emoji();
+                suggest.emoji =
+                    emoji::suggestions(name, &sets, crate::picker::drawn, EMOJI_SUGGESTIONS);
+                suggest.emoji_pictures = suggest
+                    .emoji
+                    .iter()
+                    .map(|found| {
+                        let (_, id) = found.key.split_once(':')?;
+                        sets.iter()
+                            .flat_map(|set| &set.emoji)
+                            .find(|emoji| emoji.id == id)
+                            .map(|emoji| emoji.picture.clone())
+                    })
+                    .collect();
+            }
             suggest.emoji_word = word;
         }
         // An app command's option offers its own people, roles and
@@ -177,6 +244,29 @@ impl App {
             self.suggest.index = 0;
             self.client.dispatch(Action::MentionQuery(query));
         }
+        self.mentions_sync();
+    }
+
+    /// Works the mention suggestions out again when what they come from
+    /// changed; on each sync and as the caret moves.
+    pub fn mentions_sync(&mut self) {
+        let state = self.client.state();
+        if self.suggest.mention_at.is_none() || state.mention_query.is_none() {
+            self.suggest.mentions.clear();
+            self.suggest.mentions_for = None;
+            return;
+        }
+        let from = MentionsFrom::of(state);
+        if self
+            .suggest
+            .mentions_for
+            .as_ref()
+            .is_some_and(|known| known.same(&from))
+        {
+            return;
+        }
+        self.suggest.mentions = state.mention_suggestions();
+        self.suggest.mentions_for = Some(from);
     }
 
     /// Escape with suggestions open closes them until their word is left;
@@ -187,11 +277,13 @@ impl App {
             Some(Shown::Mentions(_)) => {
                 self.suggest.mention_dismissed = self.suggest.mention_at.take();
                 self.client.dispatch(Action::MentionQuery(None));
+                self.mentions_sync();
                 true
             }
             Some(Shown::Emoji) => {
                 self.suggest.emoji_dismissed = self.suggest.emoji_word.take().map(|(at, _)| at);
                 self.suggest.emoji.clear();
+                self.suggest.emoji_pictures.clear();
                 true
             }
             None => false,
@@ -220,13 +312,14 @@ impl App {
                 else {
                     return Task::none();
                 };
-                let chosen = &found[self.suggest.lit(found.len())];
+                let chosen = found[self.suggest.lit(found.len())].clone();
                 let end = at + 1 + query.len();
                 if text.get(at..end) != Some(format!("{sigil}{query}").as_str()) {
                     return Task::none();
                 }
                 self.suggest.mention_at = None;
                 self.client.dispatch(Action::MentionQuery(None));
+                self.mentions_sync();
                 (at, end, format!("{}{} ", chosen.sigil(), chosen.name))
             }
             Some(Shown::Emoji) => {
@@ -235,6 +328,7 @@ impl App {
                 };
                 let chosen = self.suggest.emoji[self.suggest.lit(self.suggest.emoji.len())].clone();
                 self.suggest.emoji.clear();
+                self.suggest.emoji_pictures.clear();
                 let end = at + 1 + name.len();
                 if text.get(at..end) != Some(format!(":{name}").as_str()) {
                     return Task::none();
@@ -285,8 +379,12 @@ impl App {
                     .unwrap_or_default();
                 list = list.push(heading(theme, format!("EMOJI MATCHING :{query}")));
                 let lit = self.suggest.lit(self.suggest.emoji.len());
+                let pictures = &self.suggest.emoji_pictures;
                 for (index, found) in self.suggest.emoji.iter().enumerate() {
-                    let face = self.emoji_face(&found.key, EMOJI);
+                    let face = match pictures.get(index).and_then(Option::as_deref) {
+                        Some(url) => self.picture_face(url, EMOJI),
+                        None => self.emoji_face(&found.key, EMOJI),
+                    };
                     let face = container(face).width(24).center_x(24);
                     list = list.push(self.suggestion_row(
                         index,
@@ -309,11 +407,7 @@ impl App {
                 .width(Length::Fill)
                 .style(move |_| container::Style {
                     background: Some(ground.into()),
-                    border: Border {
-                        color: edge,
-                        width: 1.0,
-                        radius: 8.0.into(),
-                    },
+                    border: crate::style::edge(edge, 8.0),
                     shadow: raised_shadow(),
                     ..Default::default()
                 })
@@ -415,6 +509,16 @@ impl App {
         }
     }
 
+    /// A picture by its address, `size` square once it has come (a quiet
+    /// square until then).
+    fn picture_face(&self, url: &str, size: u32) -> Element<'_, Message> {
+        let side = size as f32;
+        match self.picture(url, size, size, false) {
+            Some(handle) => Pic::square(handle, side).into(),
+            None => Space::new().width(side).height(side).into(),
+        }
+    }
+
     /// A custom emoji's picture's address, by its id, among those this
     /// account has.
     pub fn custom_emoji(&self, id: &str) -> Option<String> {
@@ -433,20 +537,14 @@ impl App {
         match self.shown_suggestions() {
             Some(Shown::Commands(..)) => urls.extend(self.command_pictures()),
             Some(Shown::Mentions(found)) => {
-                urls.extend(found.into_iter().filter_map(|candidate| candidate.avatar));
+                urls.extend(
+                    found
+                        .iter()
+                        .filter_map(|candidate| candidate.avatar.clone()),
+                );
             }
             Some(Shown::Emoji) => {
-                let sets = self.client.app.usable_emoji();
-                for found in &self.suggest.emoji {
-                    if let Some((_, id)) = found.key.split_once(':')
-                        && let Some(custom) = sets
-                            .iter()
-                            .flat_map(|set| &set.emoji)
-                            .find(|emoji| emoji.id == id)
-                    {
-                        urls.push(custom.picture.clone());
-                    }
-                }
+                urls.extend(self.suggest.emoji_pictures.iter().flatten().cloned())
             }
             None => {}
         }

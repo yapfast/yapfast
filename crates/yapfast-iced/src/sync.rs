@@ -28,8 +28,11 @@ use crate::{
     rail::rail,
     sidebar::sidebar,
     theme::rgb,
-    timeline::{self, Edge, MARGIN, RowLook, TIMELINE, row_height},
+    timeline::{self, Edge, RowLook, TIMELINE, row_height},
 };
+
+/// Rows built beyond each edge of a list's viewport.
+pub const MARGIN: f32 = 300.0;
 
 /// A list's viewport, as its scrollable last reported it.
 #[derive(Clone, Copy, Debug, Default)]
@@ -326,6 +329,7 @@ impl App {
             self.browse_filter.clear();
         }
         self.picker_sync();
+        self.mentions_sync();
         self.person_sync();
         tasks.push(self.server_settings_sync());
         tasks.push(self.server_dialogs_sync());
@@ -373,12 +377,8 @@ impl App {
     /// change (`ROSTER_PAUSE`): the first change shows at once, those in the
     /// pause after it together at its end. A new room shows at once.
     fn roster(&mut self, switched: bool) -> Task<Message> {
-        let state = self.client.state();
-        let members = match &state.members {
-            Some(Ok(members)) if self.server => Some(members),
-            _ => None,
-        };
-        let same = match (members, &self.members) {
+        let members = self.roster_source();
+        let same = match (&members, &self.members) {
             (Some(new), Some(old)) => Arc::ptr_eq(new, old),
             (None, None) => true,
             _ => false,
@@ -393,7 +393,11 @@ impl App {
             return Task::none();
         }
         let since = self.roster_shown.map(|shown| shown.elapsed());
-        if self.members.is_none() || since.is_none_or(|since| since >= looks::ROSTER_PAUSE) {
+        // Shown or hidden at once; only churn waits.
+        if self.members.is_none()
+            || members.is_none()
+            || since.is_none_or(|since| since >= looks::ROSTER_PAUSE)
+        {
             self.show_roster(false);
             return Task::none();
         }
@@ -404,14 +408,21 @@ impl App {
         )
     }
 
+    /// The core's members for the list, while it shows: a hidden list
+    /// (its toggle off, a thread or search in its place) keeps no lines,
+    /// cards or pictures, and builds none as the roster churns.
+    fn roster_source(&self) -> Option<Arc<Vec<yapfast_core::chat::ChatMember>>> {
+        match &self.client.state().members {
+            Some(Ok(members)) if self.server && self.members_shown() => Some(members.clone()),
+            _ => None,
+        }
+    }
+
     /// Shows the member list as the core has it; `held`, at the end of a
     /// pause, only if it changed meanwhile.
     pub fn show_roster(&mut self, held: bool) {
+        let members = self.roster_source();
         let state = self.client.state();
-        let members = match &state.members {
-            Some(Ok(members)) if self.server => Some(members.clone()),
-            _ => None,
-        };
         if held && members.as_ref().map(Arc::as_ptr) == self.members.as_ref().map(Arc::as_ptr) {
             return;
         }

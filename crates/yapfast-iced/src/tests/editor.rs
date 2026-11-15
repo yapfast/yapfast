@@ -96,10 +96,13 @@ fn a_bio_too_long_says_so_and_cant_be_saved() {
     let _ = app.update(edit(EditorEvent::Write(ProfileText::Bio, long)));
     assert!(shows(&app, "Too long by 3"));
     assert!(shows(&app, BAR));
-    // Save Changes does nothing while it's too long.
-    interact(&mut app, |ui| {
-        let _ = ui.click("Save Changes");
-    });
+    // Save Changes shows and does nothing while it's too long.
+    {
+        let mut ui =
+            iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+        ui.click("Save Changes").expect("Save Changes shows");
+        assert!(ui.into_messages().next().is_none(), "a press sends nothing");
+    }
     assert!(
         !app.client
             .state()

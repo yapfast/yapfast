@@ -14,7 +14,7 @@ use std::{
 };
 
 use iced::{
-    Alignment, Border, Element, Length, Padding, Size, Task,
+    Alignment, Element, Length, Padding, Size, Task,
     widget::{Space, button, column, container, row, scrollable, stack, text},
 };
 use yapfast_core::{
@@ -25,7 +25,7 @@ use yapfast_core::{
 use crate::{
     app::{App, Message},
     composer::Writing,
-    controls::{self, Kind, bar},
+    controls::{self, Kind},
     elide::elide,
     field::Draft,
     fonts::{BOLD, SEMIBOLD},
@@ -51,7 +51,6 @@ const PICTURE: f32 = 72.0;
 const SHOWN_TAGS: usize = 3;
 const NEAR_END: f32 = 200.0;
 const TAGS_MENU: f32 = 320.0;
-const HEAD: f32 = 48.0;
 const GUIDELINES: f32 = 220.0;
 
 /// What the forum keeps while it shows: the form's first message as typed,
@@ -66,6 +65,11 @@ pub struct Post {
     guidelines: Option<(Arc<Topic>, Body)>,
     cards: Vec<Card>,
     shown: Option<u64>,
+    /// What shows in place of the cards: searching, loading or an error;
+    /// and whether there are none, and of a search.
+    note: Option<String>,
+    empty: bool,
+    searched: bool,
 }
 
 /// A post as its card shows it, as Discord's client does.
@@ -126,9 +130,11 @@ impl App {
                     .state()
                     .forum()
                     .is_some_and(|forum| forum.wants_more(cards) && !forum.loading());
-                if more && top > 0.0 && top + seen >= whole - NEAR_END {
-                    self.client.dispatch(Action::MorePosts);
+                // Only a page asked for changes what shows.
+                if !(more && top > 0.0 && top + seen >= whole - NEAR_END) {
+                    return Task::none();
                 }
+                self.client.dispatch(Action::MorePosts);
             }
             Event::Open(room) => self.client.dispatch(if self.modifiers.shift() {
                 Action::Open(room)
@@ -219,6 +225,18 @@ impl App {
         };
         let room = forum.list.room.clone();
         let posts = self.client.app.forum_posts().unwrap_or_default();
+        let cards = posts.active.len() + posts.older.len();
+        let (note, empty) = match &posts.found {
+            Some(None) => (Some("Searching...".to_owned()), false),
+            Some(Some(Err(error))) => (Some(error.clone()), false),
+            Some(Some(Ok(found))) => (None, found.is_empty()),
+            None if cards == 0 && forum.list.loading => (Some("Loading posts...".into()), false),
+            None if cards == 0 => (forum.list.error.clone(), forum.list.error.is_none()),
+            None => (None, false),
+        };
+        self.forum_post.note = note;
+        self.forum_post.empty = empty;
+        self.forum_post.searched = posts.found.is_some();
         let info = self.client.app.forum_info(&room).unwrap_or_default();
         let now = yapfast_core::clock::now_ms();
         let mut hasher = std::hash::DefaultHasher::new();
@@ -313,24 +331,14 @@ impl App {
         if searchable || can_post {
             page = page.push(container(top).padding(Padding::new(16.0).bottom(8)));
         }
-        let posts = app.forum_posts().unwrap_or_default();
-        let cards = posts.active.len() + posts.older.len();
-        let (note, empty) = match &posts.found {
-            Some(None) => (Some("Searching...".to_owned()), false),
-            Some(Some(Err(error))) => (Some(error.clone()), false),
-            Some(Some(Ok(found))) => (None, found.is_empty()),
-            None if cards == 0 && forum.list.loading => (Some("Loading posts...".into()), false),
-            None if cards == 0 => (forum.list.error.clone(), forum.list.error.is_none()),
-            None => (None, false),
-        };
-        if let Some(note) = note {
+        if let Some(note) = &self.forum_post.note {
             page = page.push(
                 container(text(note).size(14).color(theme.muted).center())
                     .padding(24)
                     .center(Length::Fill),
             );
-        } else if empty {
-            let words = if posts.found.is_some() {
+        } else if self.forum_post.empty {
+            let words = if self.forum_post.searched {
                 "No results found"
             } else {
                 "There are no posts yet."
@@ -449,7 +457,7 @@ impl App {
         if card.new {
             let accent = theme.accent;
             title = title.push(
-                container(text("NEW").size(10).font(BOLD).color(iced::Color::WHITE))
+                container(text("NEW").size(10).font(BOLD).color(theme.on_accent))
                     .padding([0, 5])
                     .height(16)
                     .align_y(Alignment::Center)
@@ -493,14 +501,7 @@ impl App {
                     .padding([0, 6])
                     .height(22)
                     .align_y(Alignment::Center)
-                    .style(move |_| container::Style {
-                        border: Border {
-                            color: edge,
-                            width: 1.0,
-                            radius: 6.0.into(),
-                        },
-                        ..rounded(ground, 6)
-                    }),
+                    .style(move |_| crate::style::outlined(ground, edge, 6.0)),
             );
         }
         foot = foot
@@ -552,18 +553,9 @@ impl App {
         .padding(0)
         .width(Length::Fill)
         .on_press(Message::Forum(Event::Open(card.room.clone())))
-        .style(move |_, status| {
-            let pointed = matches!(status, button::Status::Hovered | button::Status::Pressed);
-            button::Style {
-                background: Some(if pointed { lit } else { rest }.into()),
-                border: Border {
-                    color: if pointed { edge_lit } else { edge },
-                    width: 1.0,
-                    radius: 8.0.into(),
-                },
-                ..button::Style::default()
-            }
-        });
+        .style(crate::controls::outlined_lit_style(
+            rest, lit, edge, edge_lit, 8.0,
+        ));
         container(face)
             .padding(Padding::ZERO.left(16).right(16).bottom(8))
             .into()
@@ -578,29 +570,18 @@ impl App {
             return Space::new().into();
         };
         let posting = post.posting;
-        let head = column![
-            container(
-                row![
-                    self.glyph(Icon::Thread, 18, theme.muted),
-                    container(text("New Post").size(15).font(BOLD).color(theme.text))
-                        .width(Length::Fill),
-                    self.icon_button(
-                        Icon::X,
-                        "Close",
-                        28.0,
-                        18,
-                        Message::Forum(Event::Close),
-                        true
-                    ),
-                ]
-                .spacing(10)
-                .align_y(Alignment::Center),
-            )
-            .padding(Padding::ZERO.left(16).right(10))
-            .height(HEAD - 1.0)
-            .align_y(Alignment::Center),
-            bar(theme.line, Length::Fill, 1),
-        ];
+        let head = self.panel_head(row![
+            self.glyph(Icon::Thread, 18, theme.muted),
+            container(text("New Post").size(15).font(BOLD).color(theme.text)).width(Length::Fill),
+            self.icon_button(
+                Icon::X,
+                "Close",
+                28.0,
+                18,
+                Message::Forum(Event::Close),
+                true
+            ),
+        ]);
         let heading = |words: &'static str| text(words).size(12).font(BOLD).color(theme.muted);
         let title = controls::field(theme, TITLE, "Title", &post.title, false, !posting);
         let title = if posting {
@@ -744,14 +725,7 @@ impl App {
         container(guide)
             .padding(12)
             .width(Length::Fill)
-            .style(move |_| container::Style {
-                border: Border {
-                    color: edge,
-                    width: 1.0,
-                    radius: 8.0.into(),
-                },
-                ..rounded(ground, 8)
-            })
+            .style(move |_| crate::style::outlined(ground, edge, 8.0))
             .into()
     }
 

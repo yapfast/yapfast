@@ -384,7 +384,7 @@ pub fn plain(text: &str) -> Body {
 /// with links to the message and to the pinned messages; then when, which
 /// shows in `muted`.
 pub fn notice(message: &ChatMessage, notice: &Notice, text: u32, muted: u32) -> Body {
-    use crate::timeline::{AUTHOR_LINK, JUMP_LINK, PINS_LINK};
+    use crate::links::{AUTHOR_LINK, JUMP_LINK, PINS_LINK};
     let strong = |words: &str, rgb: u32, link: Option<&str>| {
         let words = format!("**{}**", links::escape_markdown(words));
         let words = match link {
@@ -794,11 +794,7 @@ impl App {
                     .width(Length::Fill)
                     .style(move |_| container::Style {
                         background: Some(ground.into()),
-                        border: Border {
-                            color: line,
-                            width: 1.0,
-                            radius: 4.0.into(),
-                        },
+                        border: crate::style::edge(line, 4.0),
                         ..container::Style::default()
                     })
                     .into()

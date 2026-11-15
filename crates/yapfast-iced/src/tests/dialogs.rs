@@ -34,7 +34,7 @@ fn the_custom_status_starts_from_the_one_set_and_saves_whats_written() {
     interact(&mut app, |ui| {
         ui.click("Change custom status").expect("the row");
     });
-    assert!(app.popover.is_none(), "the popover goes");
+    assert!(app.account_popover.is_none(), "the popover goes");
     assert!(shows(&app, "Set a custom status") && shows(&app, "CLEAR AFTER"));
     let draft = app.status_draft.clone().expect("open");
     assert_eq!(draft.text, "Testing");
@@ -194,6 +194,6 @@ fn the_account_popover_shows_the_accounts_own_card_while_open() {
     assert!(shows(&app, "2 hr 5 min") || shows(&app, "2 hr 4 min"));
     assert!(app.popover_playing(), "its time kept up to the minute");
     press(&mut app, key::Named::Escape);
-    assert!(app.popover.is_none());
+    assert!(app.account_popover.is_none());
     assert!(app.profiles.account.is_none(), "let go as it closes");
 }

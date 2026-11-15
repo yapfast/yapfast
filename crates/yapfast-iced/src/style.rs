@@ -69,6 +69,26 @@ pub fn rounded(color: Color, radius: impl Into<border::Radius>) -> container::St
     }
 }
 
+/// A 1 px outline in `color`, its corners rounded by `radius`.
+pub fn edge(color: Color, radius: impl Into<border::Radius>) -> Border {
+    Border {
+        color,
+        width: 1.0,
+        radius: radius.into(),
+    }
+}
+
+/// A container filled with `ground` in a 1 px `outline`, its corners
+/// rounded by `radius`: a card, a bar, a field.
+pub fn outlined(
+    ground: Color,
+    outline: Color,
+    radius: impl Into<border::Radius>,
+) -> container::Style {
+    let radius = radius.into();
+    rounded(ground, radius).border(edge(outline, radius))
+}
+
 /// Each corner its own radius: top left, top right, bottom right, bottom left.
 pub fn corners([top_left, top_right, bottom_right, bottom_left]: [f32; 4]) -> border::Radius {
     border::Radius {
@@ -101,6 +121,25 @@ pub fn raised_shadow() -> iced::Shadow {
         },
         offset: iced::Vector::new(0.0, 8.0),
         blur_radius: 24.0,
+    }
+}
+
+/// The shadow of a bar floating over the timeline: Jump to present, the
+/// unread bar.
+pub fn bar_shadow() -> iced::Shadow {
+    iced::Shadow {
+        color: Color::from_rgba8(0, 0, 0, 0x60 as f32 / 255.0),
+        offset: iced::Vector::new(0.0, 4.0),
+        blur_radius: 12.0,
+    }
+}
+
+/// The shadow of a message's hover bar, over its row's top edge.
+pub fn hover_bar_shadow() -> iced::Shadow {
+    iced::Shadow {
+        color: Color::from_rgba8(0, 0, 0, 0x59 as f32 / 255.0),
+        offset: iced::Vector::new(0.0, 2.0),
+        blur_radius: 10.0,
     }
 }
 

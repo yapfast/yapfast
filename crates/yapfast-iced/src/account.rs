@@ -183,22 +183,19 @@ impl App {
         let theme = &self.theme;
         let account = &self.account;
         let pointed = self.account_pointed;
-        let face = self.face(Face {
-            url: account.avatar.as_deref(),
-            name: &account.name,
-            key: None,
-            size: AVATAR,
-            opacity: 1.0,
-            decoration: self
-                .client
-                .state()
-                .cosmetics
-                .decoration(self.client.state().account_decoration.as_deref()),
-            play: pointed,
-            dot: account
-                .presence
-                .map(|presence| (presence, rgb(theme.panel), Point::new(26.0, 26.0))),
-        });
+        let state = self.client.state();
+        let decoration = state
+            .cosmetics
+            .decoration(state.account_decoration.as_deref());
+        let face = self.face(
+            Face::new(account.avatar.as_deref(), &account.name, AVATAR)
+                .decoration(decoration, pointed)
+                .dot(
+                    account
+                        .presence
+                        .map(|presence| (presence, rgb(theme.panel), Point::new(26.0, 26.0))),
+                ),
+        );
         let second: Element<'_, Message> = if pointed && !account.username.is_empty() {
             text(account.username.as_str())
                 .size(13)

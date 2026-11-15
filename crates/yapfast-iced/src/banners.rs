@@ -17,6 +17,18 @@ use crate::{
 };
 
 impl App {
+    /// The preview's note, Matrix's verification and the core's notice,
+    /// as the Slint client stacks them over the conversation or the call.
+    pub fn banners(&self) -> impl Iterator<Item = Element<'_, Message>> {
+        [
+            self.preview_banner(),
+            self.verify_banner(),
+            self.notice_banner(),
+        ]
+        .into_iter()
+        .flatten()
+    }
+
     /// The core's notice, while there's one.
     pub fn notice_banner(&self) -> Option<Element<'_, Message>> {
         let notice = self.client.state().notice.as_deref()?;

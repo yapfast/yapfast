@@ -291,7 +291,15 @@ fn a_member_clicked_in_the_list_shows_their_card_until_a_click_outside() {
     let view = app.client.state().profile.as_ref().expect("the profile");
     assert_eq!(view.profile.name, "Riley");
     assert_eq!(app.card.as_ref().expect("the card").user, view.profile.id);
-    assert!(shows(&app, "Riley"));
+    // Their name on the card itself: the timeline and the list show it too.
+    {
+        let mut ui = Simulator::with_size(
+            iced::Settings::default(),
+            app.window,
+            app.card_view().expect("the card"),
+        );
+        assert!(ui.find("Riley").is_ok(), "on the card");
+    }
     interact(&mut app, |ui| {
         ui.point_at(Point::new(500.0, 300.0));
         ui.simulate(click());
@@ -1099,6 +1107,7 @@ mod link_dialogs;
 mod media;
 mod menus;
 mod people;
+mod polls;
 mod rows;
 mod server;
 mod server_dialogs;

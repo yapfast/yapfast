@@ -20,7 +20,6 @@ use crate::{
     media::{Fit, Gallery, Shot},
     message::{PICTURE_RADIUS, files, reveal_key},
     pictures::Icon,
-    style::rounded,
     theme::rgb,
 };
 
@@ -200,11 +199,7 @@ impl App {
                     .padding(16)
                     .width(Length::Fill)
                     .style(move |_| container::Style {
-                        border: Border {
-                            color: accent,
-                            width: 1.0,
-                            radius: 12.0.into(),
-                        },
+                        border: crate::style::edge(accent, 12.0),
                         ..container::Style::default()
                     })
                     .into()
@@ -226,14 +221,7 @@ impl App {
             container(inner)
                 .max_width(WIDTH)
                 .clip(true)
-                .style(move |_| container::Style {
-                    border: Border {
-                        color: edge,
-                        width: 1.0,
-                        radius: 8.0.into(),
-                    },
-                    ..rounded(ground, 8)
-                })
+                .style(move |_| crate::style::outlined(ground, edge, 8.0))
                 .into()
         } else {
             rows.into()

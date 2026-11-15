@@ -534,3 +534,108 @@ impl App {
         .into()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use yapfast_core::{
+        application::AppState,
+        chat::{ChatMember, Presence, Role},
+    };
+
+    use super::{MemberLine, member_lines};
+
+    fn member(id: &str, role: Role, group: Option<&str>) -> ChatMember {
+        ChatMember {
+            id: id.into(),
+            bot: false,
+            name: id.into(),
+            username: None,
+            role,
+            avatar: None,
+            decoration: None,
+            nameplate: None,
+            style: None,
+            group: group.map(Into::into),
+            group_icon: None,
+            role_icon: None,
+            presence: Some(Presence::Online),
+            color: None,
+            activity: None,
+            activities: Default::default(),
+            roles: Default::default(),
+            timed_out_until: None,
+            tag: None,
+            boosting_since: None,
+        }
+    }
+
+    fn headings(lines: &[MemberLine]) -> Vec<&str> {
+        lines
+            .iter()
+            .filter_map(|line| match line {
+                MemberLine::Heading { text, .. } => Some(text.as_str()),
+                MemberLine::Member(_) => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn members_sit_under_their_roles_counted_or_their_hoisted_groups() {
+        let state = AppState::default();
+        let by_role = [
+            member("ann", Role::Admin, None),
+            member("bob", Role::Member, None),
+            member("cat", Role::Member, None),
+        ];
+        let lines = member_lines(&state, &by_role, Some("ann"), true);
+        assert_eq!(headings(&lines), ["ADMINS — 1", "MEMBERS — 2"]);
+        assert_eq!(lines.len(), 5, "two headings and three rows");
+        let owner: Vec<bool> = lines
+            .iter()
+            .filter_map(|line| match line {
+                MemberLine::Member(look) => Some(look.owner),
+                MemberLine::Heading { .. } => None,
+            })
+            .collect();
+        assert_eq!(owner, [true, false, false], "the owner's crown on theirs");
+        // Discord's groups come as the core names them, each once.
+        let grouped = [
+            member("ann", Role::Member, Some("Online — 2")),
+            member("bob", Role::Member, Some("Online — 2")),
+            member("cat", Role::Member, Some("Offline — 1")),
+        ];
+        let lines = member_lines(&state, &grouped, None, true);
+        assert_eq!(headings(&lines), ["Online — 2", "Offline — 1"]);
+    }
+
+    #[test]
+    fn a_timeout_still_running_shows_its_clock_and_a_boost_says_since_when() {
+        let state = AppState::default();
+        let now = yapfast_core::clock::now_ms();
+        let mut timed = member("ann", Role::Member, None);
+        timed.timed_out_until = Some(now + 60_000);
+        let mut over = member("bob", Role::Member, None);
+        over.timed_out_until = Some(now - 60_000);
+        over.boosting_since = Some(1_700_000_000_000);
+        let lines = member_lines(&state, &[timed, over], None, true);
+        let looks: Vec<_> = lines
+            .iter()
+            .filter_map(|line| match line {
+                MemberLine::Member(look) => Some(look),
+                MemberLine::Heading { .. } => None,
+            })
+            .collect();
+        assert!(
+            looks[0].timed_out && !looks[1].timed_out,
+            "only while it runs"
+        );
+        assert!(
+            looks[1]
+                .boosting
+                .as_deref()
+                .is_some_and(|words| words.starts_with("Server boosting since ")),
+            "{:?}",
+            looks[1].boosting
+        );
+    }
+}

@@ -353,3 +353,26 @@ fn show_more_under_a_long_message_unfolds_it() {
     assert!(shows(&app, "Show less"));
     assert!(shows(&app, "the end"));
 }
+
+#[test]
+fn an_at_words_suggestions_follow_the_members_as_they_change() {
+    let (mut app, _folder) = preview();
+    interact(&mut app, |ui| {
+        ui.click(Id::new(COMPOSER)).expect("the composer");
+        ui.typewrite("hi @Zo");
+    });
+    assert!(!shows(&app, "Zoe"), "no Zoe yet");
+    // Zoe joins while the word is open.
+    super::change(&mut app, |state| {
+        for members in state.members.iter_mut().flatten() {
+            let members = std::sync::Arc::make_mut(members);
+            let mut zoe = members[0].clone();
+            zoe.id = "zoe".into();
+            zoe.name = "Zoe".into();
+            zoe.username = Some("zoe".into());
+            members.push(zoe);
+        }
+    });
+    assert!(app.suggesting(crate::composer::Writing::Draft));
+    assert!(shows(&app, "Zoe"), "suggested once she's a member");
+}

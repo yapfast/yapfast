@@ -20,7 +20,7 @@ use crate::{
     fonts::BOLD,
     found::Found,
     pictures::Icon,
-    style::{fill, rounded, scrollbar},
+    style::{fill, scrollbar},
 };
 
 /// The panel's width, and the box's at rest and while it holds a search.
@@ -202,14 +202,7 @@ impl App {
             .height(BOX_HEIGHT)
             .align_y(Alignment::Center)
             .clip(true)
-            .style(move |_| container::Style {
-                border: Border {
-                    color: line,
-                    width: 1.0,
-                    radius: 8.0.into(),
-                },
-                ..rounded(ground, 8)
-            })
+            .style(move |_| crate::style::outlined(ground, line, 8.0))
     }
 
     /// What the search found, beside the conversation.

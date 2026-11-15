@@ -81,7 +81,7 @@ fn message(event: Event) -> Message {
 
 /// The popover, while it's open.
 #[derive(Default)]
-pub struct Popover {
+pub struct AccountPopover {
     expanded: bool,
 }
 
@@ -98,37 +98,37 @@ impl App {
     pub fn status_event(&mut self, event: Event) -> Task<Message> {
         match event {
             Event::Toggle => {
-                if self.popover.take().is_none() {
-                    self.popover = Some(Popover::default());
+                if self.account_popover.take().is_none() {
+                    self.account_popover = Some(AccountPopover::default());
                     self.client.dispatch(Action::LoadOwnProfile);
                 }
             }
-            Event::Close => self.popover = None,
+            Event::Close => self.account_popover = None,
             Event::Expand => {
-                if let Some(popover) = &mut self.popover {
+                if let Some(popover) = &mut self.account_popover {
                     popover.expanded = !popover.expanded;
                 }
                 return Task::none();
             }
             Event::Choose(status) => {
-                self.popover = None;
+                self.account_popover = None;
                 self.client.dispatch(Action::SetStatus(status.to_owned()));
             }
             Event::EditProfile => {
-                self.popover = None;
+                self.account_popover = None;
                 self.client.dispatch(Action::EditProfile);
             }
             Event::CustomStatus => {
-                self.popover = None;
+                self.account_popover = None;
                 self.client.dispatch(Action::OpenStatusEditor);
             }
             Event::CopyId => {
-                self.popover = None;
+                self.account_popover = None;
                 let id = self.client.state().discord_user.clone().unwrap_or_default();
                 return iced::clipboard::write(id);
             }
             Event::Settings => {
-                self.popover = None;
+                self.account_popover = None;
                 return self.update(Message::Settings(crate::settings::Event::Open(
                     crate::settings::Section::Account,
                 )));
@@ -217,7 +217,7 @@ impl App {
 
     /// The popover over the account card, its foot 4 px above it.
     pub fn popover_view(&self) -> Option<Element<'_, Message>> {
-        let popover = self.popover.as_ref()?;
+        let popover = self.account_popover.as_ref()?;
         let theme = &self.theme;
         let state = self.client.state();
         let account = &self.account;
@@ -341,16 +341,12 @@ impl App {
                 .width(88)
                 .height(88)
                 .style(move |_| rounded(ring, 44)),
-            container(self.face(crate::pictures::Face {
-                url: account.avatar.as_deref(),
-                name: &account.name,
-                key: None,
-                size: 80.0,
-                opacity: 1.0,
-                decoration: state.account_decoration.as_deref(),
-                play: true,
-                dot: None,
-            }))
+            container(
+                self.face(
+                    crate::pictures::Face::new(account.avatar.as_deref(), &account.name, 80.0)
+                        .decoration(state.account_decoration.as_deref(), true)
+                )
+            )
             .padding(4),
         ];
         let status = state.discord_presence.as_deref().unwrap_or("online");
@@ -430,7 +426,7 @@ impl App {
     /// Whether the popover shows how long a game has run, which the
     /// minute's clock keeps up to date.
     pub fn popover_playing(&self) -> bool {
-        self.popover.is_some()
+        self.account_popover.is_some()
             && self
                 .client
                 .state()
@@ -554,50 +550,12 @@ impl App {
         let editor = self.client.state().status_editor.as_ref()?;
         let draft = self.status_draft.as_ref()?;
         let theme = &self.theme;
-        let head = row![
-            text("Set a custom status")
-                .size(18)
-                .font(BOLD)
-                .color(theme.text)
-                .width(Length::Fill),
-            self.icon_button(Icon::X, "Close", 28.0, 18, message(Event::Cancel), true),
-        ]
-        .align_y(Alignment::Center);
-        let face: Element<'_, Message> = match &draft.emoji {
-            Some(key) => self.emoji_face(key, 22),
-            None => self.glyph(Icon::SmilePlus, 20, theme.secondary).into(),
-        };
-        let (sunken, hover) = (theme.sunken, theme.hover);
-        let emoji = button(container(face).center(40))
-            .padding(0)
-            .width(40)
-            .height(40)
-            .on_press(message(Event::Emoji))
-            .style(move |_, status| button::Style {
-                background: Some(if lights(status) { hover } else { sunken }.into()),
-                border: Border::default().rounded(6),
-                ..Default::default()
-            });
-        let mut emoji = stack![emoji];
-        if draft.emoji.is_some() {
-            // Taking the emoji off: a small badge on its corner.
-            let (faint, danger, raised) = (theme.faint, theme.danger, theme.raised);
-            let remove = button(container(self.glyph(Icon::X, 10, theme.text)).center(14))
-                .padding(0)
-                .width(18)
-                .height(18)
-                .on_press(message(Event::RemoveEmoji))
-                .style(move |_, status| button::Style {
-                    background: Some(if lights(status) { danger } else { faint }.into()),
-                    border: Border {
-                        color: raised,
-                        width: 2.0,
-                        radius: 9.0.into(),
-                    },
-                    ..Default::default()
-                });
-            emoji = emoji.push(placed(remove, 28.0, 0.0));
-        }
+        let head = self.dialog_head("Set a custom status", message(Event::Cancel));
+        let emoji = self.emoji_slot(
+            draft.emoji.as_deref(),
+            message(Event::Emoji),
+            message(Event::RemoveEmoji),
+        );
         let field = form::field(theme, FIELD, "What's happening?", &draft.text)
             .padding(10)
             .on_input(|text| message(Event::Text(text)))

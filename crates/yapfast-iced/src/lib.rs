@@ -51,6 +51,7 @@ mod commands;
 mod composer;
 mod control;
 mod controls;
+mod conversation;
 mod desktop;
 mod dialogs;
 // The avatar's colour behind a profile's banner, as the Slint client works
@@ -75,6 +76,7 @@ mod image_viewer;
 mod info_cards;
 mod layout;
 mod link_dialogs;
+mod links;
 mod looks;
 mod markdown;
 mod media;

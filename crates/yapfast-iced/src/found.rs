@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use iced::{
-    Alignment, Border, Element, Length, Padding,
+    Alignment, Element, Length, Padding,
     widget::{Space, button, column, container, row, stack},
 };
 use yapfast_core::chat::{ChatMessage, FOUND_PICTURES, Placement};
@@ -165,16 +165,11 @@ impl App {
                 .align_y(Alignment::Center),
             );
         }
-        let face = self.face(Face {
-            url: message.avatar.as_deref(),
-            name: &message.author,
-            key: None,
-            size: AVATAR,
-            opacity: 1.0,
-            decoration: None,
-            play: false,
-            dot: None,
-        });
+        let face = self.face(Face::new(
+            message.avatar.as_deref(),
+            &message.author,
+            AVATAR,
+        ));
         let content = row![container(face).align_y(Alignment::Start), words]
             .spacing(12)
             .padding(12);
@@ -183,22 +178,7 @@ impl App {
             .padding(0)
             .width(Length::Fill)
             .on_press(jump.clone())
-            .style(move |_, status| button::Style {
-                background: Some(
-                    if matches!(status, button::Status::Hovered | button::Status::Pressed) {
-                        lit
-                    } else {
-                        rest
-                    }
-                    .into(),
-                ),
-                border: Border {
-                    color: edge,
-                    width: 1.0,
-                    radius: 8.0.into(),
-                },
-                ..button::Style::default()
-            });
+            .style(controls::outlined_lit_style(rest, lit, edge, edge, 8.0));
         let jump_button =
             container(controls::action(theme, "Jump", Kind::Plain, Some(jump)).small())
                 .width(Length::Fill)

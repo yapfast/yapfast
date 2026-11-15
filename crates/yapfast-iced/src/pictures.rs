@@ -884,6 +884,43 @@ pub struct Face<'a> {
     pub dot: Option<(Presence, u32, Point)>,
 }
 
+impl<'a> Face<'a> {
+    /// A face of `size` from its picture's address, or else `name`'s
+    /// initial on its tint: fully drawn, with no decoration or dot.
+    pub fn new(url: Option<&'a str>, name: &'a str, size: f32) -> Self {
+        Self {
+            url,
+            name,
+            key: None,
+            size,
+            opacity: 1.0,
+            decoration: None,
+            play: false,
+            dot: None,
+        }
+    }
+
+    pub fn key(self, key: Option<&'a str>) -> Self {
+        Self { key, ..self }
+    }
+
+    pub fn opacity(self, opacity: f32) -> Self {
+        Self { opacity, ..self }
+    }
+
+    pub fn decoration(self, decoration: Option<&'a str>, play: bool) -> Self {
+        Self {
+            decoration,
+            play,
+            ..self
+        }
+    }
+
+    pub fn dot(self, dot: Option<(Presence, u32, Point)>) -> Self {
+        Self { dot, ..self }
+    }
+}
+
 /// A tint, as 0xRRGGBB, for an avatar without a picture, as the Slint
 /// client picks it: mid tones that keep a white initial legible, the same
 /// key always the same one.

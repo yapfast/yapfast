@@ -56,7 +56,7 @@ fn results_key(item: &str) -> String {
     format!("{item}/results")
 }
 
-fn pick_key(item: &str, answer: u64) -> String {
+pub fn pick_key(item: &str, answer: u64) -> String {
     format!("{item}/pick{answer}")
 }
 
@@ -214,14 +214,7 @@ impl App {
                 .max_width(WIDTH)
                 .style({
                     let (ground, line) = (theme.sidebar, theme.line);
-                    move |_| container::Style {
-                        border: Border {
-                            color: line,
-                            width: 1.0,
-                            radius: 8.0.into(),
-                        },
-                        ..rounded(ground, 8)
-                    }
+                    move |_| crate::style::outlined(ground, line, 8.0)
                 }),
         )
         .padding(Padding::ZERO.top(4))

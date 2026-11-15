@@ -19,8 +19,8 @@ use crate::{
     fonts::{BOLD, SEMIBOLD},
     pictures::Icon,
     style::{raised_shadow, scrollbar},
+    sync::MARGIN,
     theme::Theme,
-    timeline::MARGIN,
     widgets::Rows,
 };
 
@@ -335,11 +335,7 @@ pub fn frame<'a>(
         .clip(true)
         .style(move |_| container::Style {
             background: Some(raised.into()),
-            border: Border {
-                color: edge,
-                width: 1.0,
-                radius: 10.0.into(),
-            },
+            border: crate::style::edge(edge, 10.0),
             shadow: raised_shadow(),
             ..Default::default()
         })

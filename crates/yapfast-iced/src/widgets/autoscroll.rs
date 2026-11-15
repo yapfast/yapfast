@@ -316,11 +316,7 @@ impl Hooks for Autoscroll {
             renderer.fill_quad(
                 renderer::Quad {
                     bounds: marker,
-                    border: Border {
-                        color: look.edge,
-                        width: 1.0,
-                        radius: (side / 2.0).into(),
-                    },
+                    border: crate::style::edge(look.edge, side / 2.0),
                     shadow: MARKER_SHADOW,
                     ..Default::default()
                 },

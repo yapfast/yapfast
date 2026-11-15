@@ -22,7 +22,7 @@ use std::{cell::RefCell, collections::HashMap, sync::Arc};
 use iced::{
     Element, Length, Point, Task,
     advanced::{graphics::text::Version, image::Handle},
-    widget::{Space, column, container, mouse_area, opaque, scrollable, stack},
+    widget::{column, container, mouse_area, opaque, scrollable, stack},
 };
 use yapfast_core::{
     application::{Action, ProfileTab, ProfileView},
@@ -34,7 +34,7 @@ use crate::{
     controls::{Kind, action},
     looks, paint,
     pictures::shared,
-    style::{card_shadow, fill, scrollbar},
+    style::{card_shadow, scrollbar},
     widgets::Place,
 };
 use look::{Look, Tab};
@@ -125,12 +125,15 @@ pub struct Card {
     pub at: Point,
 }
 
+/// One picture's handles, by the size each is drawn at.
+type Sizes = HashMap<(u32, u32), Handle>;
+
 /// A profile on screen: what it shows, and what it alone draws, let go of
 /// when it closes.
 pub struct Shown {
     pub look: Look,
     /// Its pictures at the sizes it draws them, by address.
-    pictures: RefCell<HashMap<(String, u32, u32), Handle>>,
+    pictures: RefCell<HashMap<String, Sizes>>,
     /// The name drawn with its whole style, and what it was drawn of.
     name: RefCell<Option<StyledName>>,
     /// Pictures chosen in the editor and not yet sent, by the names its
@@ -472,19 +475,9 @@ impl App {
         let width = (window_width * 0.7).max(720.0).min(window_width - 32.0);
         let height = (window_height * 0.75).max(520.0).min(window_height - 32.0);
         let modal = self.full_view(shown, width, height);
-        let dim = iced::Color {
-            a: 0.7,
-            ..iced::Color::BLACK
-        };
-        let backdrop = mouse_area(
-            container(Space::new())
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .style(move |_| fill(dim)),
-        )
-        .on_press(Message::Profile(Event::Close));
+        // Over the window dimmed as under a settings card.
         Some(opaque(stack![
-            opaque(backdrop),
+            crate::controls::dimmed(Message::Profile(Event::Close), crate::sheet::DIM),
             container(opaque(modal)).center(Length::Fill),
         ]))
     }
@@ -545,7 +538,7 @@ impl App {
         let Some(profile) = state
             .account_profile
             .as_ref()
-            .filter(|_| self.popover.is_some())
+            .filter(|_| self.account_popover.is_some())
         else {
             self.profiles.account = None;
             return;
@@ -604,8 +597,12 @@ impl App {
         height: u32,
         cover: bool,
     ) -> Option<Handle> {
-        let key = (url.to_owned(), width, height);
-        if let Some(handle) = shown.pictures.borrow().get(&key) {
+        if let Some(handle) = shown
+            .pictures
+            .borrow()
+            .get(url)
+            .and_then(|sizes| sizes.get(&(width, height)))
+        {
             return Some(handle.clone());
         }
         let picked = shown.picked.borrow().get(url).cloned();
@@ -627,7 +624,12 @@ impl App {
             );
             Handle::from_rgba(width, height, pixels)
         };
-        shown.pictures.borrow_mut().insert(key, handle.clone());
+        shown
+            .pictures
+            .borrow_mut()
+            .entry(url.to_owned())
+            .or_default()
+            .insert((width, height), handle.clone());
         Some(handle)
     }
 

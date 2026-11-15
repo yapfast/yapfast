@@ -189,19 +189,13 @@ impl App {
         let mut head = row![].spacing(10).align_y(Alignment::Center);
         if header.direct {
             head =
-                head.push(self.face(Face {
-                    url: header.avatar.as_deref(),
-                    name: &header.name,
-                    key: None,
-                    size: AVATAR,
-                    opacity: 1.0,
-                    decoration: None,
-                    play: false,
-                    dot:
+                head.push(self.face(
+                    Face::new(header.avatar.as_deref(), &header.name, AVATAR).dot(
                         header.presence.map(|presence| {
                             (presence, rgb(theme.chat), iced::Point::new(14.0, 14.0))
                         }),
-                }));
+                    ),
+                ));
         }
         if let Some((id, name, forum)) = &header.parent {
             let icon = if *forum { Icon::ForumPost } else { Icon::Hash };
@@ -282,6 +276,28 @@ impl App {
             .into()
     }
 
+    /// One of the header's buttons: its glyph lit while what it opens is
+    /// open, and where it is as it's pressed, which what it opens opens
+    /// from.
+    fn header_icon_button(
+        &self,
+        icon: Icon,
+        label: &'static str,
+        message: Message,
+        lit: bool,
+    ) -> Element<'_, Message> {
+        let ink = if lit {
+            self.theme.text
+        } else {
+            self.theme.secondary
+        };
+        Spot::new(
+            self.icon_face_button(self.glyph(icon, GLYPH, ink), label, BUTTON, message, true),
+            &self.header_spot,
+        )
+        .into()
+    }
+
     /// The buttons after the name, as the Slint client orders them.
     fn header_buttons(&self) -> Vec<Element<'_, Message>> {
         let header = &self.header;
@@ -334,22 +350,8 @@ impl App {
                 true,
             ));
         }
-        let mut push = |icon, label, message, lit: bool| {
-            let ink = if lit { theme.text } else { theme.secondary };
-            // Where it is, as it's pressed: what it opens opens from it.
-            buttons.push(
-                Spot::new(
-                    self.icon_face_button(
-                        self.glyph(icon, GLYPH, ink),
-                        label,
-                        BUTTON,
-                        message,
-                        true,
-                    ),
-                    &self.header_spot,
-                )
-                .into(),
-            );
+        let mut push = |icon, label, message, lit| {
+            buttons.push(self.header_icon_button(icon, label, message, lit));
         };
         if header.can_call {
             let label = if header.call_going {
@@ -410,22 +412,8 @@ impl App {
         if let Some(signal) = self.header_signal() {
             buttons.push(signal);
         }
-        let mut push = |icon, label, message, lit: bool| {
-            let ink = if lit { theme.text } else { theme.secondary };
-            // Where it is, as it's pressed: what it opens opens from it.
-            buttons.push(
-                Spot::new(
-                    self.icon_face_button(
-                        self.glyph(icon, GLYPH, ink),
-                        label,
-                        BUTTON,
-                        message,
-                        true,
-                    ),
-                    &self.header_spot,
-                )
-                .into(),
-            );
+        let mut push = |icon, label, message, lit| {
+            buttons.push(self.header_icon_button(icon, label, message, lit));
         };
         if header.members_available && !header.direct {
             push(Icon::Users, members, Message::ToggleMembers, shown);

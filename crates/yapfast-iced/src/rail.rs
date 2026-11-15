@@ -23,12 +23,12 @@ use yapfast_core::{
 
 use crate::{
     app::{App, Message, key},
-    controls::{self, Count, bar, count_pill},
+    controls::{self, RAIL_COUNT, bar, count_badge, count_pill},
     fonts::{BOLD, MEDIUM},
     pictures::{Icon, initials},
     style::{corners, hex, rounded, scrollbar},
+    sync::MARGIN,
     sync::Scroll,
-    timeline::MARGIN,
     widgets::{Pic, Rows},
 };
 
@@ -44,12 +44,6 @@ const FOLDER_RADIUS: f32 = 16.0;
 /// it, and below it for the badge, 4 px past it.
 const ABOVE: f32 = 3.0;
 const BELOW: f32 = 4.0;
-/// The mention count on a tile: 16 px, 12 px bold, on a 3 px ring.
-const RAIL_COUNT: Count = Count {
-    height: 16.0,
-    size: 12.0,
-    pad: 4.0,
-};
 /// Discord's colour for a folder that wasn't given one.
 const FOLDER_COLOR: u32 = 0x5865f2;
 /// The pill at the rail's edge: open, pointed at, unread.
@@ -145,15 +139,6 @@ impl RailItem {
             Kind::Nested { last, .. } => TILE + if *last { 4.0 } else { 0.0 } + GAP,
             Kind::Server | Kind::Dm => TILE + GAP,
         }
-    }
-}
-
-/// A count as a badge shows it: nothing for none, and at most "99+".
-pub fn count_badge(count: u64) -> String {
-    match count {
-        0 => String::new(),
-        count if count > 99 => "99+".into(),
-        count => count.to_string(),
     }
 }
 

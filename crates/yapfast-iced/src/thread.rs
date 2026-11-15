@@ -12,13 +12,13 @@
 use std::{sync::Arc, time::Instant};
 
 use iced::{
-    Alignment, Border, Element, Length, Padding, Task,
+    Alignment, Element, Length, Padding, Task,
     widget::{
         Id, Space, column, container, mouse_area, operation, row, scrollable, scrollable::Viewport,
         stack, text,
     },
 };
-use yapfast_core::application::{Action, Compose, ThreadFrom};
+use yapfast_core::application::{Action, ThreadFrom};
 
 use crate::{
     app::{App, Message, Messages, key},
@@ -31,7 +31,8 @@ use crate::{
     pictures::Icon,
     popover::{Popover, Side},
     style::{corners, rounded, scrollbar},
-    timeline::{ASIDE, Edge, MARGIN, Marks, RowLook},
+    sync::MARGIN,
+    timeline::{ASIDE, Edge, Marks, RowLook},
     widgets::{Found, Rows, Watch},
 };
 
@@ -150,7 +151,6 @@ pub struct Drafts {
     /// The form's name, as typed, and the message it starts from.
     pub name: String,
     pub starter: Option<crate::found::Found>,
-    pub focused: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -315,8 +315,7 @@ impl App {
     /// `width` within what the panel may take: 320 to 800 px, and no more
     /// than leaves the conversation 420 px, as the Slint client's.
     fn aside_room(&self, width: f32) -> f32 {
-        let most = (self.window.width - CHAT_KEPT - crate::rail::WIDTH - crate::sidebar::WIDTH)
-            .clamp(LEAST, MOST);
+        let most = (self.window.width - CHAT_KEPT - self.chat_left()).clamp(LEAST, MOST);
         width.clamp(LEAST, most)
     }
 
@@ -579,19 +578,10 @@ impl App {
     }
 
     fn attach_aside(&mut self) -> Task<Message> {
-        Task::perform(
-            async {
-                rfd::AsyncFileDialog::new()
-                    .set_title("Attach files")
-                    .pick_files()
-                    .await
-                    .map(|files| files.iter().map(|file| file.path().to_owned()).collect())
-                    .unwrap_or_default()
-            },
-            |files: Vec<std::path::PathBuf>| {
-                Message::Write(Write::Uploads(crate::uploads::Event::ChosenAside(files)))
-            },
-        )
+        // Cancelled, the field takes the keys again all the same.
+        let chosen =
+            |files| Message::Write(Write::Uploads(crate::uploads::Event::ChosenAside(files)));
+        crate::uploads::pick_files(chosen, chosen(Vec::new()))
     }
 
     /// Whether the panel beside the conversation is the thread's or the
@@ -680,7 +670,7 @@ impl App {
     }
 
     /// A panel's header: its row, and the line under it.
-    fn panel_head<'a>(&'a self, head: iced::widget::Row<'a, Message>) -> Element<'a, Message> {
+    pub fn panel_head<'a>(&'a self, head: iced::widget::Row<'a, Message>) -> Element<'a, Message> {
         column![
             container(head.spacing(8).align_y(Alignment::Center))
                 .padding(Padding::ZERO.left(16).right(10))
@@ -751,18 +741,7 @@ impl App {
     fn aside_composer<'a>(&'a self, aside: &'a Aside) -> Element<'a, Message> {
         let state = self.client.state();
         let writes = state.can_write_in(&aside.room);
-        let reply = match state.aside_compose() {
-            Some(Compose::Reply {
-                author, body, ping, ..
-            }) => Some((
-                format!(
-                    "Replying to {author}: {}",
-                    body.lines().next().unwrap_or_default()
-                ),
-                *ping,
-            )),
-            _ => None,
-        };
+        let reply = crate::composer::reply_label(state.aside_compose());
         let placeholder = if reply.is_some() {
             "Write a reply".to_owned()
         } else {
@@ -924,14 +903,7 @@ impl App {
         )
         .padding(16)
         .max_width(440)
-        .style(move |_| container::Style {
-            border: Border {
-                color: edge,
-                width: 1.0,
-                radius: 10.0.into(),
-            },
-            ..rounded(ground, 10)
-        });
+        .style(move |_| crate::style::outlined(ground, edge, 10.0));
         mouse_area(
             container(card)
                 .padding([0, 16])

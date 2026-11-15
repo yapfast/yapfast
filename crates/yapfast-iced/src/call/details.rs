@@ -11,7 +11,7 @@
 //! second of the call's clock.
 
 use iced::{
-    Alignment, Border, Color, Element, Length, Point, Rectangle, Size, Task, Theme,
+    Alignment, Color, Element, Length, Point, Rectangle, Size, Task, Theme,
     advanced::{Layout, Widget, layout, mouse, renderer, widget::Tree},
     widget::{Space, column, container, mouse_area, row, stack, text, tooltip},
 };
@@ -223,11 +223,7 @@ impl App {
             .width(WIDTH)
             .style(move |_| container::Style {
                 background: Some(ground.into()),
-                border: Border {
-                    color: edge,
-                    width: 1.0,
-                    radius: 8.0.into(),
-                },
+                border: crate::style::edge(edge, 8.0),
                 shadow: raised_shadow(),
                 ..Default::default()
             })

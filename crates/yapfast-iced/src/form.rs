@@ -288,11 +288,7 @@ pub fn tri_state<'a>(
         .width(TRI_WIDTH)
         .height(TRI_HEIGHT)
         .style(move |_| container::Style {
-            border: Border {
-                color: line,
-                width: 1.0,
-                radius: 6.0.into(),
-            },
+            border: crate::style::edge(line, 6.0),
             ..Default::default()
         })
         .into()
@@ -509,11 +505,7 @@ impl<'a> Dropdown<'a> {
         .on_press_maybe(enabled.then(|| self.toggle.clone()))
         .style(move |_, status| button::Style {
             background: Some(if lights(status) { lit } else { ground }.into()),
-            border: Border {
-                color: if open { accent } else { edge },
-                width: 1.0,
-                radius: 4.0.into(),
-            },
+            border: crate::style::edge(if open { accent } else { edge }, 4.0),
             ..Default::default()
         });
         let list = (self.open && enabled).then(|| {
@@ -724,11 +716,7 @@ pub fn colour_card<'a>(
             .padding(10)
             .width(Length::Fill)
             .style(move |_| container::Style {
-                border: Border {
-                    color: edge,
-                    width: 1.0,
-                    radius: 12.0.into(),
-                },
+                border: crate::style::edge(edge, 12.0),
                 shadow: crate::style::card_shadow(),
                 ..rounded(raised, 12)
             }),
@@ -752,11 +740,7 @@ pub fn colour_row<'a>(
         .height(28)
         .style(move |_| container::Style {
             background: Some(colour.into()),
-            border: Border {
-                color: edge,
-                width: 1.0,
-                radius: 6.0.into(),
-            },
+            border: crate::style::edge(edge, 6.0),
             ..Default::default()
         });
     let mut words = column![

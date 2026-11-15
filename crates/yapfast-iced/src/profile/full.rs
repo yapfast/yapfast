@@ -4,7 +4,7 @@
 //! what's coming while Discord hasn't said.
 
 use iced::{
-    Alignment, Border, Color, Element, Length, Padding,
+    Alignment, Color, Element, Length, Padding,
     widget::{Space, button, column, container, mouse_area, row, scrollable, stack, text},
 };
 use yapfast_core::chat::{Presence, Wishlist};
@@ -42,7 +42,7 @@ impl App {
         .width(side_width)
         .height(Length::Fill)
         .clip(true)
-        .style(super::frame_style(inks, self.theme.edge, 12.0, true));
+        .style(super::frame_style(inks, self.theme.edge, 12.0, false));
         let side = mouse_area(self.dressed(shown, Mode::Side, side_width, side.into()))
             .on_enter(Message::Profile(Event::Pointed(true)))
             .on_exit(Message::Profile(Event::Pointed(false)));
@@ -108,7 +108,7 @@ impl App {
         container(row![side, right].spacing(8).padding(8))
             .width(width)
             .height(height)
-            .style(super::frame_style(inks, edge, 8.0, true))
+            .style(super::frame_style(inks, edge, 8.0, false))
             .into()
     }
 
@@ -553,11 +553,7 @@ fn list_row<'a>(
         .height(height)
         .width(Length::Fill)
         .on_press(message)
-        .style(move |_, status| button::Style {
-            background: crate::controls::lights(status).then_some(hover.into()),
-            border: Border::default().rounded(6),
-            ..Default::default()
-        }),
+        .style(crate::controls::lit_style(None, hover, 6.0)),
     )
     .interaction(iced::mouse::Interaction::Pointer)
     .into()

@@ -228,6 +228,25 @@ pub fn lit_style(
     }
 }
 
+/// The style of a card that's a button: `rest` in a 1 px `edge`, `lit`
+/// in `edge_lit` under the pointer.
+pub fn outlined_lit_style(
+    rest: Color,
+    lit: Color,
+    edge: Color,
+    edge_lit: Color,
+    radius: f32,
+) -> impl Fn(&iced::Theme, button::Status) -> button::Style + Copy {
+    move |_, status| {
+        let lit_now = lights(status);
+        button::Style {
+            background: Some(if lit_now { lit } else { rest }.into()),
+            border: crate::style::edge(if lit_now { edge_lit } else { edge }, radius),
+            ..Default::default()
+        }
+    }
+}
+
 /// The style of a button that is only its text, in `rest`, brightening to
 /// `lit` under the pointer: a link-like name, as a thread's channel in the
 /// header.
@@ -390,11 +409,7 @@ impl iced::advanced::Widget<Message, iced::Theme, iced::Renderer> for Outline {
         renderer.fill_quad(
             iced::advanced::renderer::Quad {
                 bounds: layout.bounds(),
-                border: Border {
-                    color: self.edge,
-                    width: 1.0,
-                    radius: self.radius.into(),
-                },
+                border: crate::style::edge(self.edge, self.radius),
                 ..Default::default()
             },
             Color::TRANSPARENT,
@@ -414,11 +429,7 @@ pub fn menu_panel(theme: &Theme) -> impl Fn(&iced::Theme) -> container::Style + 
     let (ground, edge) = (theme.menu, theme.menu_line);
     move |_| container::Style {
         background: Some(ground.into()),
-        border: Border {
-            color: edge,
-            width: 1.0,
-            radius: 8.0.into(),
-        },
+        border: crate::style::edge(edge, 8.0),
         shadow: raised_shadow(),
         ..Default::default()
     }
@@ -483,6 +494,35 @@ pub enum Light {
 }
 
 impl App {
+    /// An empty screen's words, under its icon on a disc, and maybe a
+    /// button.
+    pub fn empty_screen<'a>(
+        &self,
+        icon: Icon,
+        heading: &'a str,
+        words: &'a str,
+        offer: Option<(&'a str, Message)>,
+    ) -> Element<'a, Message> {
+        let theme = &self.theme;
+        let raised = theme.raised;
+        let mut page = column![
+            container(self.glyph(icon, 36, theme.secondary))
+                .center(80)
+                .style(move |_| rounded(raised, 40)),
+            text(heading).size(22).font(BOLD).color(theme.text),
+            text(words)
+                .size(14)
+                .color(theme.secondary)
+                .align_x(Alignment::Center),
+        ]
+        .spacing(10)
+        .align_x(Alignment::Center);
+        if let Some((label, message)) = offer {
+            page = page.push(action(theme, label, Kind::Primary, Some(message)));
+        }
+        container(page).padding(32).center(Length::Fill).into()
+    }
+
     /// An emoji as a button `side` across, its picture `glyph` across (its
     /// text where there's no picture), on `rest` and `lit` under the
     /// pointer: the menu's quick reactions, the hover bar's.
@@ -655,6 +695,34 @@ pub struct Count {
     pub height: f32,
     pub size: f32,
     pub pad: f32,
+}
+
+/// The mention count on a tile: 16 px, 12 px bold, on a 3 px ring.
+pub const RAIL_COUNT: Count = Count {
+    height: 16.0,
+    size: 12.0,
+    pad: 4.0,
+};
+/// A channel's count of mentions: 18 px, 11 px bold.
+pub const ROW_COUNT: Count = Count {
+    height: 18.0,
+    size: 11.0,
+    pad: 5.0,
+};
+/// An inbox row's count of mentions: 16 px, 11 px bold.
+pub const INBOX_COUNT: Count = Count {
+    height: 16.0,
+    size: 11.0,
+    pad: 5.0,
+};
+
+/// A count as a badge shows it: nothing for none, and at most "99+".
+pub fn count_badge(count: u64) -> String {
+    match count {
+        0 => String::new(),
+        count if count > 99 => "99+".into(),
+        count => count.to_string(),
+    }
 }
 
 /// A count in a red pill, as the rail's mentions (on a ring of the rail's

@@ -807,16 +807,11 @@ impl App {
         );
         let mut line = row![].align_y(Alignment::Center);
         if let Some((person, avatar, _)) = &entry.person {
-            line = line.push(self.face(Face {
-                url: (!avatar.is_empty()).then_some(avatar.as_str()),
-                name: person,
-                key: None,
-                size: 16.0,
-                opacity: 1.0,
-                decoration: None,
-                play: false,
-                dot: None,
-            }));
+            line = line.push(self.face(Face::new(
+                (!avatar.is_empty()).then_some(avatar.as_str()),
+                person,
+                16.0,
+            )));
             line = line.push(Space::new().width(6));
         } else if entry.archived {
             line = line
@@ -860,16 +855,7 @@ impl App {
             ];
             for (index, avatar) in entry.avatars.iter().enumerate() {
                 faces = faces.push(placed(
-                    self.face(Face {
-                        url: Some(avatar.as_str()),
-                        name: "",
-                        key: None,
-                        size: 18.0,
-                        opacity: 1.0,
-                        decoration: None,
-                        play: false,
-                        dot: None,
-                    }),
+                    self.face(Face::new(Some(avatar.as_str()), "", 18.0)),
                     index as f32 * 12.0 + 1.0,
                     1.0,
                 ));
@@ -896,18 +882,9 @@ impl App {
         .padding(0)
         .width(Length::Fill)
         .on_press(Message::Popover(Event::OpenThread(entry.room.clone())))
-        .style(move |_, status| {
-            let pointed = matches!(status, button::Status::Hovered | button::Status::Pressed);
-            button::Style {
-                background: Some(if pointed { lit } else { rest }.into()),
-                border: Border {
-                    color: if pointed { edge_lit } else { edge },
-                    width: 1.0,
-                    radius: 8.0.into(),
-                },
-                ..button::Style::default()
-            }
-        });
+        .style(crate::controls::outlined_lit_style(
+            rest, lit, edge, edge_lit, 8.0,
+        ));
         container(card)
             .padding(
                 Padding::ZERO
@@ -1002,25 +979,20 @@ impl App {
     /// name, and a box ticked once chosen.
     fn pick_row<'a>(&'a self, person: &'a PickRow, can_choose: bool) -> Element<'a, Message> {
         let theme = &self.theme;
-        let face = self.face(Face {
-            url: person.avatar.as_deref(),
-            name: &person.name,
-            key: None,
-            size: 32.0,
-            opacity: 1.0,
-            decoration: None,
-            play: false,
-            dot: person
-                .presence
-                .filter(|presence| *presence != Presence::Offline)
-                .map(|presence| {
-                    (
-                        presence,
-                        crate::theme::rgb(theme.sidebar),
-                        iced::Point::new(20.0, 20.0),
-                    )
-                }),
-        });
+        let face = self.face(
+            Face::new(person.avatar.as_deref(), &person.name, 32.0).dot(
+                person
+                    .presence
+                    .filter(|presence| *presence != Presence::Offline)
+                    .map(|presence| {
+                        (
+                            presence,
+                            crate::theme::rgb(theme.sidebar),
+                            iced::Point::new(20.0, 20.0),
+                        )
+                    }),
+            ),
+        );
         let content = row![
             face,
             container(elide(person.name.as_str()).size(16).font(MEDIUM).color(

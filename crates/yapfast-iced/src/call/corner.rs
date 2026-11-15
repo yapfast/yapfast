@@ -5,7 +5,7 @@
 //! tile over the whole window, full screen.
 
 use iced::{
-    Alignment, Background, Border, Color, Element, Length, Padding, Point, Size, gradient,
+    Alignment, Background, Color, Element, Length, Padding, Point, Size, gradient,
     widget::{Space, column, container, mouse_area, pin, stack, text},
 };
 use yapfast_core::voice::SharePhase;
@@ -20,7 +20,6 @@ use crate::{
     fonts::BOLD,
     header,
     pictures::Icon,
-    rail, sidebar,
     tile::{self, GLASS, NOTE},
     viewer::Viewer,
     widgets::Hover,
@@ -34,7 +33,7 @@ impl App {
     /// The corners the picture may sit in: its left, right, top and bottom
     /// as the window has room.
     fn corners(&self) -> (f32, f32, f32, f32) {
-        let left = rail::WIDTH + sidebar::WIDTH + MARGIN;
+        let left = self.chat_left() + MARGIN;
         let right = self.window.width - CORNER.width - MARGIN;
         let top = header::HEIGHT + MARGIN;
         let bottom = self.window.height - CORNER.height - MARGIN;
@@ -173,11 +172,7 @@ impl App {
             .clip(true)
             .style(move |_| container::Style {
                 background: Some(Color::BLACK.into()),
-                border: Border {
-                    color: edge,
-                    width: 1.0,
-                    radius: RADIUS.into(),
-                },
+                border: crate::style::edge(edge, RADIUS),
                 ..Default::default()
             });
         let held = mouse_area(framed)

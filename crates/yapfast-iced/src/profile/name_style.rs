@@ -849,11 +849,7 @@ impl App {
                     .add_stop(1.0, end)
                     .into(),
             )),
-            border: Border {
-                color: edge,
-                width: 1.0,
-                radius: 14.0.into(),
-            },
+            border: crate::style::edge(edge, 14.0),
             shadow: card_shadow(24.0, 0.4, 8.0),
             ..Default::default()
         });
@@ -878,11 +874,7 @@ impl App {
             placed(text(SAMPLE).size(15).color(sample_ink), 72.0, 46.0),
         ])
         .style(move |_| container::Style {
-            border: Border {
-                color: sample_edge,
-                width: 1.0,
-                radius: 12.0.into(),
-            },
+            border: crate::style::edge(sample_edge, 12.0),
             shadow: card_shadow(18.0, 0.33, 6.0),
             ..rounded(sample_fill, 12)
         });
@@ -901,11 +893,7 @@ impl App {
             ),
         ])
         .style(move |_| container::Style {
-            border: Border {
-                color: sample_edge,
-                width: 1.0,
-                radius: 10.0.into(),
-            },
+            border: crate::style::edge(sample_edge, 10.0),
             shadow: card_shadow(14.0, 0.33, 4.0),
             ..rounded(sample_fill, 10)
         });

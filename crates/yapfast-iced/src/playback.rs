@@ -352,11 +352,7 @@ impl App {
             .width(VOICE_SLOT)
             .height(VOICE_SLIDER)
             .style(move |_| iced::widget::container::Style {
-                border: iced::Border {
-                    color: edge,
-                    width: 1.0,
-                    radius: 8.0.into(),
-                },
+                border: crate::style::edge(edge, 8.0),
                 shadow: crate::style::raised_shadow(),
                 ..rounded(ground, 8)
             });

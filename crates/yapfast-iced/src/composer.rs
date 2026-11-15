@@ -104,6 +104,21 @@ pub struct Look {
     pub plus: bool,
 }
 
+/// A reply's bar over a composer: "Replying to" its author and its first
+/// line, and whether it mentions them.
+pub fn reply_label(compose: Option<&Compose>) -> Option<(String, bool)> {
+    let Compose::Reply {
+        author, body, ping, ..
+    } = compose?;
+    Some((
+        format!(
+            "Replying to {author}: {}",
+            body.lines().next().unwrap_or_default()
+        ),
+        *ping,
+    ))
+}
+
 impl App {
     /// What the composer shows for the open room, as the Slint client's
     /// `show_composer` works it out.
@@ -174,15 +189,8 @@ impl App {
         if let Some(title) = &look.request {
             compose = compose.push(self.request_bar(title));
         } else {
-            if let Some(Compose::Reply {
-                author, body, ping, ..
-            }) = self.client.state().compose()
-            {
-                let label = format!(
-                    "Replying to {author}: {}",
-                    body.lines().next().unwrap_or_default()
-                );
-                compose = compose.push(self.reply_bar(label, *ping));
+            if let Some((label, ping)) = reply_label(self.client.state().compose()) {
+                compose = compose.push(self.reply_bar(label, ping));
             }
             compose = compose.push(if look.locked {
                 self.locked_bar()
@@ -453,14 +461,7 @@ impl App {
         .height(HEIGHT)
         .clip(true)
         .align_y(Alignment::Center)
-        .style(move |_| container::Style {
-            border: Border {
-                color: edge,
-                width: 1.0,
-                radius: 10.0.into(),
-            },
-            ..rounded(ground, 10)
-        })
+        .style(move |_| crate::style::outlined(ground, edge, 10.0))
         .into()
     }
 
@@ -841,9 +842,6 @@ impl App {
                 if which == Writing::Draft {
                     self.composer_focused = focused;
                 }
-                if which == Writing::Aside {
-                    self.drafts.focused = focused;
-                }
                 if focused {
                     self.leave_messages();
                 }
@@ -916,10 +914,7 @@ impl App {
                 ..MenuRow::new(MenuAct::NewPoll, "Create Poll", Icon::ChartBar)
             });
         }
-        let at = iced::Point::new(
-            crate::rail::WIDTH + crate::sidebar::WIDTH + GUTTER + 10.0,
-            self.composer_top() - 8.0,
-        );
+        let at = iced::Point::new(self.chat_left() + GUTTER + 10.0, self.composer_top() - 8.0);
         self.menu = Some(Menu::new(at, rows).anchor(crate::widgets::Anchor::Bottom));
         operation::focus(NOBODY)
     }
@@ -977,13 +972,14 @@ impl App {
     /// changed tells the room this account is typing (the core's).
     pub fn edited(&mut self, which: Writing, text: String, caret: usize) {
         self.keep_text(which, text.clone());
-        let draft = self.writing(which);
-        if draft.text() != text {
-            let (text, caret) = (draft.text(), draft.caret());
-            self.caret_moved(which, &text, caret);
+        // The core may have kept something else: the field shows that.
+        let kept = self.writing(which).text();
+        let caret = if kept == text {
+            caret
         } else {
-            self.caret_moved(which, &text, caret);
-        }
+            self.writing(which).caret()
+        };
+        self.caret_moved(which, &kept, caret);
     }
 
     /// The core's draft or edit takes a field's text.

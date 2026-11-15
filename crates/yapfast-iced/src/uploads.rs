@@ -40,8 +40,10 @@ const TILE_PICTURE: f32 = 86.0;
 /// The tiles' round buttons, on a dark disc.
 const TILE_BUTTON: f32 = 28.0;
 const DISC: Color = Color::from_rgba8(0, 0, 0, 0xb3 as f32 / 255.0);
-/// The drop card's width.
+/// The drop card's width, and the dim under it: the Slint client's, a
+/// shade lighter than a dialog's.
 const CARD: f32 = 310.0;
+const DROP_DIM: Color = Color::from_rgba8(0, 0, 0, 0xa6 as f32 / 255.0);
 /// How long after the first file of a drop the drop is taken whole: a
 /// drop comes a file at a time.
 const DROP_GATHER: Duration = Duration::from_millis(30);
@@ -107,6 +109,27 @@ pub struct Drop {
     pub aside: bool,
     pub gathered: Vec<PathBuf>,
     pub refusal: Option<(String, String)>,
+}
+
+/// The system's file dialog for files to attach: `to` the files chosen,
+/// or `cancelled`.
+pub fn pick_files(
+    to: impl Fn(Vec<PathBuf>) -> Message + Send + 'static,
+    cancelled: Message,
+) -> Task<Message> {
+    Task::perform(
+        async {
+            rfd::AsyncFileDialog::new()
+                .set_title("Attach files")
+                .pick_files()
+                .await
+                .map(|files| files.iter().map(|file| file.path().to_owned()).collect())
+        },
+        move |files| match files {
+            Some(files) => to(files),
+            None => cancelled.clone(),
+        },
+    )
 }
 
 impl App {
@@ -294,23 +317,9 @@ impl App {
         if !self.client.state().can_attach() {
             return Task::none();
         }
-        Task::perform(
-            async {
-                rfd::AsyncFileDialog::new()
-                    .set_title("Attach files")
-                    .pick_files()
-                    .await
-                    .map(|files| {
-                        files
-                            .iter()
-                            .map(|file| file.path().to_owned())
-                            .collect::<Vec<_>>()
-                    })
-            },
-            |files| match files {
-                Some(files) => Message::Write(Write::Uploads(Event::Chosen(files))),
-                None => Message::Nothing,
-            },
+        pick_files(
+            |files| Message::Write(Write::Uploads(Event::Chosen(files))),
+            Message::Nothing,
         )
     }
 
@@ -602,7 +611,7 @@ impl App {
             iced::widget::mouse_area(
                 container(card)
                     .center(Length::Fill)
-                    .style(|_| crate::style::fill(Color::from_rgba8(0, 0, 0, 0xa6 as f32 / 255.0))),
+                    .style(|_| crate::style::fill(DROP_DIM)),
             )
             .on_press(Message::Write(Write::Uploads(Event::Understood)))
             .into(),

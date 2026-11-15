@@ -357,19 +357,6 @@ impl App {
         let metrics = mode.metrics();
         let (banner, avatar, pad) = (metrics.banner, metrics.avatar, metrics.pad);
         let (bubble, edge) = (inks.bubble, inks.bubble_edge);
-        let dot = move |side: f32| {
-            container(Space::new())
-                .width(side)
-                .height(side)
-                .style(move |_| container::Style {
-                    border: Border {
-                        color: edge,
-                        width: 1.0,
-                        radius: (side / 2.0).into(),
-                    },
-                    ..rounded(bubble, side / 2.0)
-                })
-        };
         let large = mode.large();
         let (dots, at, size, lines, radius, inset) = if large {
             let y = banner - avatar / 2.0;
@@ -413,29 +400,14 @@ impl App {
             .padding([inset.1, inset.0])
             .max_width(room)
             .clip(true)
-            .style(move |_| container::Style {
-                border: Border {
-                    color: edge,
-                    width: 1.0,
-                    radius: radius.into(),
-                },
-                ..rounded(bubble, radius)
-            });
+            .style(move |_| crate::style::outlined(bubble, edge, radius));
         if !whole {
             bubble_box = bubble_box.max_height(lines + 2.0 * inset.1);
         }
         let bubble_box = mouse_area(bubble_box)
             .on_enter(Message::Profile(Event::Bubble(true)))
             .on_exit(Message::Profile(Event::Bubble(false)));
-        // A stack is the size of its first child, which lays out the rest:
-        // the whole top, so the second dot and the bubble have room.
-        stack![
-            Space::new().width(Length::Fill).height(Length::Fill),
-            placed(dot(dots[0].2), dots[0].0, dots[0].1),
-            placed(dot(dots[1].2), dots[1].0, dots[1].1),
-            placed(bubble_box, at.x, at.y),
-        ]
-        .into()
+        thought(inks, dots, at, bubble_box.into())
     }
 
     /// The friend request and the person's menu, over the banner's top
@@ -483,29 +455,8 @@ impl App {
             )
         };
         let mut buttons = row![].spacing(8);
-        match look.offer {
-            Offer::None => {}
-            Offer::Friends => {
-                buttons = buttons.push(round(
-                    Icon::Check,
-                    "Friends",
-                    Some(Message::Profile(Event::More(id.clone()))),
-                ));
-            }
-            offer => {
-                let (label, message) = match offer {
-                    Offer::Sent => ("Friend Request Sent", None),
-                    Offer::Accept => (
-                        "Accept Friend Request",
-                        Some(Message::Profile(Event::Befriend(id.clone()))),
-                    ),
-                    _ => (
-                        "Add Friend",
-                        Some(Message::Profile(Event::Befriend(id.clone()))),
-                    ),
-                };
-                buttons = buttons.push(round(Icon::UserPlus, label, message));
-            }
+        if let Some((icon, label, message)) = look.offer.button(&id) {
+            buttons = buttons.push(round(icon, label, message));
         }
         if !id.is_empty() {
             buttons = buttons.push(round(
@@ -641,25 +592,7 @@ impl App {
         let ink = inks.ink;
         let (rest, lit) = (Color { a: 0.12, ..ink }, Color { a: 0.2, ..ink });
         let mut row = row![].spacing(8).align_y(Alignment::Center);
-        if look.offer != Offer::None {
-            let (icon, label, message) = match look.offer {
-                Offer::Friends => (
-                    Icon::Check,
-                    "Friends",
-                    Some(Message::Profile(Event::More(id.clone()))),
-                ),
-                Offer::Sent => (Icon::UserPlus, "Friend Request Sent", None),
-                Offer::Accept => (
-                    Icon::UserPlus,
-                    "Accept Friend Request",
-                    Some(Message::Profile(Event::Befriend(id.clone()))),
-                ),
-                _ => (
-                    Icon::UserPlus,
-                    "Add Friend",
-                    Some(Message::Profile(Event::Befriend(id.clone()))),
-                ),
-            };
+        if let Some((icon, label, message)) = look.offer.button(&id) {
             let accept = look.offer == Offer::Accept;
             let (accent, on_accent) = (theme.accent, theme.on_accent);
             let face_ink = if accept { on_accent } else { ink };
@@ -761,14 +694,7 @@ impl App {
                     .padding([1, 3])
                     .height(24)
                     .align_y(Alignment::Center)
-                    .style(move |_| container::Style {
-                        border: Border {
-                            color: edge,
-                            width: 1.0,
-                            radius: 8.0.into(),
-                        },
-                        ..rounded(ground, 8)
-                    }),
+                    .style(move |_| crate::style::outlined(ground, edge, 8.0)),
             );
         }
         rows.into()
@@ -836,11 +762,7 @@ impl App {
             .width(BADGE_TIP_WIDTH)
             .style(move |_| container::Style {
                 background: Some(ground.into()),
-                border: Border {
-                    color: BADGE_TIP_EDGE,
-                    width: 1.0,
-                    radius: 8.0.into(),
-                },
+                border: crate::style::edge(BADGE_TIP_EDGE, 8.0),
                 shadow: crate::style::raised_shadow(),
                 ..Default::default()
             })
@@ -1153,4 +1075,34 @@ impl App {
 /// card's ink.
 fn title<'a>(words: &'a str, ink: Color) -> Element<'a, Message> {
     text(words).size(12).font(BOLD).color(ink).into()
+}
+
+/// A thought's bubble over a profile's top: two dots, each `(x, y,
+/// side)`, rising from the avatar to `content` at `at`, in the bubble's
+/// inks. A stack is the size of its first child, which lays out the rest:
+/// the whole top, so the second dot and the bubble have room.
+pub(crate) fn thought<'a>(
+    inks: &Inks,
+    dots: [(f32, f32, f32); 2],
+    at: Point,
+    content: Element<'a, Message>,
+) -> Element<'a, Message> {
+    let (bubble, edge) = (inks.bubble, inks.bubble_edge);
+    let dot = move |(x, y, side): (f32, f32, f32)| {
+        placed(
+            container(Space::new())
+                .width(side)
+                .height(side)
+                .style(move |_| crate::style::outlined(bubble, edge, side / 2.0)),
+            x,
+            y,
+        )
+    };
+    stack![
+        Space::new().width(Length::Fill).height(Length::Fill),
+        dot(dots[0]),
+        dot(dots[1]),
+        placed(content, at.x, at.y),
+    ]
+    .into()
 }

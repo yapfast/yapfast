@@ -261,7 +261,7 @@ pub struct App {
     pub leave_shown: bool,
     pub channel_screen: Option<Box<crate::channel_settings::Screen>>,
     /// The account's popover, and the custom status's dialog's draft.
-    pub popover: Option<crate::status::Popover>,
+    pub account_popover: Option<crate::status::AccountPopover>,
     pub status_draft: Option<crate::status::Draft>,
     /// The quick switcher's places and the one Enter goes to.
     pub quick: crate::switcher::Quick,
@@ -379,7 +379,7 @@ impl App {
             account_pointed: false,
             from_end: 0.0,
             timeline_height: height,
-            width: width - crate::rail::WIDTH - crate::sidebar::WIDTH,
+            width: width - crate::conversation::NAVIGATION,
             at_end: true,
             latest_due: false,
             side_scroll: Scroll::new(height),
@@ -428,7 +428,7 @@ impl App {
             away: Default::default(),
             leave_shown: false,
             channel_screen: None,
-            popover: None,
+            account_popover: None,
             status_draft: None,
             quick: Default::default(),
             build: crate::build(),
@@ -624,7 +624,8 @@ impl App {
             }
             Message::ToggleMembers => {
                 self.hide_members = !self.hide_members;
-                Task::none()
+                // Hidden, the list lets its lines and pictures go.
+                Task::batch([self.sync(), self.ask()])
             }
             Message::Nothing => Task::none(),
             Message::Bell => {
@@ -704,8 +705,13 @@ impl App {
             Message::ServerSettings(event) => self.server_settings_event(event),
             Message::Resized(size) => {
                 self.shell.frame = size;
+                let fitted = self.active_now_fits();
                 self.fit_window();
-                self.read_window_state()
+                if self.active_now_fits() == fitted {
+                    return self.read_window_state();
+                }
+                self.active_now_sync();
+                Task::batch([self.read_window_state(), self.ask()])
             }
             Message::ServerDialog(event) => self.server_dialog_event(event),
             Message::LinkDialog(event) => self.link_dialog_event(event),

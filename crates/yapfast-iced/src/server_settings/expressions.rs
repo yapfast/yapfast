@@ -611,11 +611,7 @@ impl App {
             .width(Length::Fill)
             .style(move |_| container::Style {
                 background: Some(ground.into()),
-                border: Border {
-                    color: line,
-                    width: 1.0,
-                    radius: 8.0.into(),
-                },
+                border: crate::style::edge(line, 8.0),
                 ..Default::default()
             })
             .into()

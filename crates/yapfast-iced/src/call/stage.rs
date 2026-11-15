@@ -18,7 +18,6 @@ use crate::{
     controls::{self, ROUND, ROUND_GLYPH, bar},
     header,
     pictures::Icon,
-    rail, sidebar,
     style::{faded, fill, rounded},
     theme::rgb,
     tile::{self, GLASS, NOTE, Tile},
@@ -418,7 +417,7 @@ impl App {
             // Above a DM's messages, beside its profile panel.
             (self.chat_right(), self.dm_panel_height(below_header))
         };
-        let width = right - rail::WIDTH - sidebar::WIDTH;
+        let width = right - self.chat_left();
         Size::new(width, (height - CONTROLS).max(0.0))
     }
 

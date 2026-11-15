@@ -102,11 +102,7 @@ pub fn frame<'a>(
         .clip(true)
         .style(move |_| container::Style {
             background: Some(ground.into()),
-            border: Border {
-                color: edge,
-                width: 1.0,
-                radius: radius.into(),
-            },
+            border: crate::style::edge(edge, radius),
             shadow: raised_shadow(),
             ..Default::default()
         })
@@ -356,11 +352,7 @@ impl App {
             .padding(0)
             .width(Length::Fill)
             .on_press(Message::Info(Event::OpenServer(server.id)))
-            .style(move |_, status| button::Style {
-                background: controls::lights(status).then_some(hover.into()),
-                border: Border::default().rounded(6),
-                ..Default::default()
-            });
+            .style(crate::controls::lit_style(None, hover, 6.0));
         let heading = if sticker {
             expression::STICKER_FROM
         } else {
@@ -462,11 +454,7 @@ impl App {
                         .height(ROLE_ROW)
                         .width(Length::Fill)
                         .on_press(Message::Info(Event::RoleMember(member.id.clone())))
-                        .style(move |_, status| button::Style {
-                            background: controls::lights(status).then_some(hover.into()),
-                            border: Border::default().rounded(6),
-                            ..Default::default()
-                        }),
+                        .style(crate::controls::lit_style(None, hover, 6.0)),
                 );
             }
             let tall = (members.len() as f32 * ROLE_ROW).min(ROLE_LIST);

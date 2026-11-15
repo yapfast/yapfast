@@ -1,0 +1,139 @@
+//! A message's hover bar, as the Slint client's: quick reactions, Edit or
+//! Reply, Forward and More, and where their menus open.
+
+use iced::{
+    Alignment, Element, Point,
+    widget::{container, mouse_area, row},
+};
+use yapfast_core::chat::{self};
+
+use crate::{
+    app::{App, Message},
+    controls,
+    menus::MenuAct,
+    pictures::Icon,
+};
+
+use super::BAR_BUTTON;
+
+impl App {
+    /// Where the picker and the menu of row `index`'s message open, from
+    /// its hover bar or the keys: under the bar's right end.
+    pub fn bar_menu_at(&self, index: usize) -> Point {
+        let (lane, _) = self.lane_place(index);
+        Point::new(
+            lane.left + lane.width - 16.0 - 200.0,
+            self.row_body_top(index) + 24.0,
+        )
+    }
+
+    /// A message's hover bar, as the Slint client's: the three reactions
+    /// this device uses most and Add reaction, Edit on one's own message or
+    /// Reply on someone else's, Forward, and More, which opens its menu.
+    /// Holding Shift swaps the reactions for Pin and, on one's own message,
+    /// Reply, and More for a Delete that doesn't ask, as Discord's client
+    /// does; not while the message's menu or picker is open.
+    pub fn hover_bar(&self, index: usize) -> Option<Element<'_, Message>> {
+        let message = self.row_message(index)?;
+        if message.deleted || message.delivery != chat::Delivery::default() {
+            return None;
+        }
+        let theme = &self.theme;
+        let at = self.bar_menu_at(index);
+        // The thread beside the channel is narrower: two quick reactions.
+        let quick_reactions = if index >= crate::timeline::ASIDE {
+            2
+        } else {
+            3
+        };
+        let item = &message.item;
+        let shared = self.row_item(index);
+        let writes = if index >= crate::timeline::ASIDE {
+            self.aside_writes()
+        } else {
+            self.composer_look().enabled
+        };
+        let open_here = self
+            .menu
+            .as_ref()
+            .is_some_and(|menu| menu.item.as_ref() == Some(item))
+            || self
+                .picker
+                .as_ref()
+                .is_some_and(|picker| matches!(&picker.target, crate::picker::Target::React(on, _) if on == item));
+        let quick = self.modifiers.shift() && !open_here;
+        let deletes = quick && message.can_delete && writes;
+        let act = |act: MenuAct| Message::Act(act, item.clone(), at);
+        let button = |icon: Icon, label: &'static str, message: Message| {
+            self.icon_button(icon, label, BAR_BUTTON, 20, message, false)
+        };
+        let mut buttons = row![].align_y(Alignment::Center);
+        if quick && message.can_pin {
+            buttons = buttons.push(if message.pinned {
+                button(Icon::PinOff, "Unpin", act(MenuAct::Pin))
+            } else {
+                button(Icon::Pin, "Pin", act(MenuAct::Pin))
+            });
+        }
+        if quick && message.own && message.can_edit && message.can_reply && writes {
+            buttons = buttons.push(button(Icon::Reply, "Reply", act(MenuAct::Reply)));
+        }
+        if message.can_react {
+            if !quick {
+                for key in self.client.app.frequent_reactions(quick_reactions) {
+                    buttons = buttons.push(self.emoji_button(
+                        &key,
+                        20,
+                        BAR_BUTTON,
+                        (None, theme.wash(0.1)),
+                        Message::React(item.clone(), key.clone()),
+                    ));
+                }
+                buttons = buttons.push(
+                    container(controls::bar(theme.line, 1, 20))
+                        .width(9)
+                        .center_x(9),
+                );
+            }
+            buttons = buttons.push(button(
+                Icon::SmilePlus,
+                "Add reaction",
+                act(MenuAct::AddReaction),
+            ));
+        }
+        if message.own && message.can_edit && writes {
+            buttons = buttons.push(button(Icon::Pencil, "Edit", act(MenuAct::Edit)));
+        } else if message.can_reply && writes {
+            buttons = buttons.push(button(Icon::Reply, "Reply", act(MenuAct::Reply)));
+        }
+        // Beside Reply, as in Discord, whether or not Shift is held.
+        if message.can_forward && self.forward_allowed() {
+            buttons = buttons.push(button(Icon::Forward, "Forward", act(MenuAct::Forward)));
+        }
+        buttons = buttons.push(if deletes {
+            self.icon_face_button(
+                self.glyph(Icon::Trash, 20, theme.danger),
+                "Delete",
+                BAR_BUTTON,
+                act(MenuAct::DeleteNow),
+                false,
+            )
+        } else {
+            button(Icon::Ellipsis, "More", Message::RowMenu(shared.clone(), at))
+        });
+        let (ground, edge) = (theme.raised, theme.edge);
+        let bar = mouse_area(container(buttons).padding(3).style(move |_| {
+            crate::style::outlined(ground, edge, 8.0).shadow(crate::style::hover_bar_shadow())
+        }))
+        .on_enter(Message::PointRow(shared, true));
+        // The pointer on the bar is on its message, though the bar floats
+        // over the row above: the bar keeps its moves from that row, and
+        // from its own row's saying the pointer left. Not while a drag
+        // selects, whose moves the text under it follows.
+        Some(if self.selecting {
+            bar.into()
+        } else {
+            crate::widgets::Holds::new(bar).into()
+        })
+    }
+}

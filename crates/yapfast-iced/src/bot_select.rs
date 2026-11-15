@@ -181,11 +181,7 @@ impl App {
                 .clip(true)
                 .style(move |_| container::Style {
                     background: Some(raised.into()),
-                    border: Border {
-                        color: edge,
-                        width: 1.0,
-                        radius: 8.0.into(),
-                    },
+                    border: crate::style::edge(edge, 8.0),
                     shadow: crate::style::raised_shadow(),
                     ..Default::default()
                 }),

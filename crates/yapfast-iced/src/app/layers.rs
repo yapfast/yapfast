@@ -188,7 +188,7 @@ impl App {
             Layer::LinkDialog => self.link_dialog_open(),
             Layer::ServerDialog => self.server_dialog_open(),
             Layer::StatusEditor => state.status_editor.is_some(),
-            Layer::AccountPopover => self.popover.is_some(),
+            Layer::AccountPopover => self.account_popover.is_some(),
             Layer::HeaderPopover => self.popover_open(),
             Layer::ProfileEditor => self.editor_open(),
             Layer::Settings => self.settings.is_some(),

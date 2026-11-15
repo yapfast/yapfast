@@ -170,7 +170,7 @@ speaker while this account is in a call there, and its name in a tooltip.
 A folder opens and closes on a click, its servers on a strip of its
 colour; closed it shows its first four servers' icons.
 
-The sidebar (`sidebar.rs`) is the Slint client's `RoomList`: on the DM
+The sidebar (`sidebar/`: its rows' model in `rows.rs`, the top, channels, voice and DM rows each a file) is the Slint client's `RoomList`: on the DM
 home the search field (which keeps the DMs whose names hold its text,
 and empties as the rail goes elsewhere),
 Friends and Requests, "Direct Messages" and each DM with its person's
@@ -537,7 +537,7 @@ preview's "Local preview: sample data" line, Matrix's verification while
 the device isn't trusted, and the core's notice (`AppState::notice`) with
 Dismiss.
 
-The timeline (`timeline.rs`, one message's content in `message.rs`) groups
+The timeline (`timeline/`: its rows' looks, the view, scrolling and clocks each a file; one message's content in `message/`: its embeds, attachments, reaction chips and hover bar each a file) groups
 messages as Discord does: the same person within seven minutes, unless
 one replies, answers a command or is a notice. Each message's time is
 worked out as its row is made, and again at midnight (a timer set for it
@@ -851,8 +851,10 @@ member list, the DMs, and the lists still to come build on it.
   plays, listens to or watches, and since when); its eye hides the cards,
   kept in `layout.json`, and its arrow opens the whole feed. Under it a
   note says the list is loading, why it failed, or that no one else has
-  joined.
-- A DM's row (`sidebar.rs`) shows the person's face, styled name and server
+  joined. Hidden (its toggle off, a thread or search in its place), the
+  list keeps no lines, cards or pictures and builds none as the roster
+  changes; shown again, it's built as the roster is then.
+- A DM's row (`sidebar/dms.rs`) shows the person's face, styled name and server
   tag (OFFICIAL on Discord's own), the voice channel they're in or what
   they're up to, a group's members, and its nameplate under the pointer or
   while open; a new DM offers Wave, which sends 👋.
@@ -909,7 +911,7 @@ member list, the DMs, and the lists still to come build on it.
   them with its top staple 8 px lower and none at the foot, in a window
   over 785 px tall; the docked card has none. Settings' cosmetics switches
   turn each off.
-- The profile editor (`profile/editor.rs`), the Slint client's
+- The profile editor (`profile/editor/`: the card, its menus, the colours and the styles column each a file), the Slint client's
   `ProfileEditorDialog`, opens from one's own card and full profile (Edit
   Profile), from Settings over it, and from a server's Edit server
   profile. Its card is a profile view of what's written over what Discord
@@ -953,7 +955,7 @@ member list, the DMs, and the lists still to come build on it.
   `Unsaved` bar offers Reset and Save Changes, which waits while a text is
   too long or a picture is read. Escape ends the editing, closes what's
   open, then the editor.
-- The friends list (`friends.rs`), from Friends on the DM home: the
+- The friends list (`friends/`, the Requests screen in `friends/requests.rs`), from Friends on the DM home: the
   header's Online and All tabs and Add Friend, a search, and each friend
   with their presence, voice channel and status, ruled apart, with a
   message button; a click opens their DM, a right click their menu. Only
@@ -961,7 +963,8 @@ member list, the DMs, and the lists still to come build on it.
   Active Now (`active_now.rs`) stands beside it: friends together in a
   voice channel, in one game party, or each doing something Discord can
   name, a card each, made as Discord's `NowPlayingViewStore` makes them,
-  only while the list shows; a card's head opens its person's menu, a
+  only while the list shows and has that room (narrower, none are made,
+  timed or fetched for); a card's head opens its person's menu, a
   voice channel's row the channel.
 - Requests: friend requests and message requests, a person's on one row
   with Accept and Ignore (or Cancel for those sent) and their latest
@@ -1232,8 +1235,10 @@ When a second screen needs what a first one built, it moves here:
   that takes a click outside it, clear or dimmed (dialogs by 60%,
   settings cards by 70%, dialogs over them by 67%, as Slint's).
 - `controls::lit_style`: a button with no face, or a fixed one, lit under
-  the pointer: icon buttons, list rows; `controls::ink_style` a button that
-  is only its text, brightening under the pointer.
+  the pointer: icon buttons, list rows, pills; `controls::outlined_lit_style`
+  a card that's a button, in a 1 px edge that may light too;
+  `controls::ink_style` a button that is only its text, brightening under
+  the pointer.
 - `App::menu_item` with `controls::Item`: a row of a menu or a list of
   choices (`MenuItem`), lit under the pointer or, in a context menu, where
   the keys put the light (`menu_item_sized` at a height of its own); `controls::menu_panel` and `separator` are the
@@ -1330,8 +1335,11 @@ When a second screen needs what a first one built, it moves here:
 - `markdown.rs`: text laid out as Discord's client does (`parse`,
   `plain`, `notice`), and drawn (`App::body_view`, `App::run_span`) as
   selectable pieces (`select::Piece`), which follow their links.
-- `style.rs`: container grounds (`fill`, `rounded`, `corners`), the two
-  shadows, the scrollbar.
+- `style.rs`: container grounds (`fill`, `rounded`, `corners`, and
+  `outlined` in a 1 px `edge`), the shadows (cards, raised panels, the
+  timeline's floating bars, the hover bar), the scrollbar.
+- `pictures::Face::new(url, name, size)` with `key`, `opacity`,
+  `decoration` and `dot`: an avatar as `App::face` draws it.
 - `widgets/`: `Pic`, `Animated`, `Framed` (a profile frame's layers
   under and over a child, past its sides), `ColourPad` (a colour's
   saturation, brightness and hue, kept as `Hsv`), the virtualized `Rows` (rows across

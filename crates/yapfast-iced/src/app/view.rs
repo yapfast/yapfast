@@ -40,7 +40,7 @@ impl App {
             row![self.rail_view(), self.sidebar_view()].height(Length::Fill),
             foot.push(self.account_view()),
         ])
-        .width(crate::rail::WIDTH + crate::sidebar::WIDTH)
+        .width(crate::conversation::NAVIGATION)
         .height(Length::Fill)
         .style(move |_| crate::style::fill(rail));
         let base: Element<'_, Message> = row![navigation, self.conversation()]

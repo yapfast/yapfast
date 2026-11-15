@@ -12,7 +12,8 @@ use yapfast_core::{
     chat::{Activities, Activity, Presence, Profile, Wishlist},
 };
 
-use crate::{looks::Status, markdown::Body, style::hex, theme::mix};
+use super::Event;
+use crate::{app::Message, looks::Status, markdown::Body, pictures::Icon, style::hex, theme::mix};
 
 /// The full profile's tabs, in Discord's order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -32,6 +33,26 @@ pub enum Offer {
     Sent,
     Accept,
     Friends,
+}
+
+impl Offer {
+    /// Its button's icon, words and what a press does, for person `id`:
+    /// Friends opens their menu, a request sent waits, Accept and Add
+    /// befriend; none with nothing to offer.
+    pub fn button(self, id: &str) -> Option<(Icon, &'static str, Option<Message>)> {
+        let befriend = || Some(Message::Profile(Event::Befriend(id.to_owned())));
+        Some(match self {
+            Offer::None => return None,
+            Offer::Friends => (
+                Icon::Check,
+                "Friends",
+                Some(Message::Profile(Event::More(id.to_owned()))),
+            ),
+            Offer::Sent => (Icon::UserPlus, "Friend Request Sent", None),
+            Offer::Accept => (Icon::UserPlus, "Accept Friend Request", befriend()),
+            Offer::Add => (Icon::UserPlus, "Add Friend", befriend()),
+        })
+    }
 }
 
 /// A profile as its card, the DM's panel and the full profile show it.

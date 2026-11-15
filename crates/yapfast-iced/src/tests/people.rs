@@ -251,7 +251,18 @@ fn view_reactions_opens_from_a_messages_menu_and_escape_closes_it() {
     let window = app.client.state().reactions.as_ref().expect("the window");
     assert_eq!(window.key, "🎉", "the one most reacted with first");
     assert!(shows(&app, "Reactions"));
-    assert!(shows(&app, "5") && shows(&app, "2"));
+    // The counts in the window itself: the timeline's chips show them too.
+    {
+        let mut ui = iced_test::Simulator::with_size(
+            iced::Settings::default(),
+            app.window,
+            app.reactions_view().expect("the window"),
+        );
+        assert!(
+            ui.find("5").is_ok() && ui.find("2").is_ok(),
+            "its tabs count them"
+        );
+    }
     let _ = app.update(Message::Key(
         keyboard::Key::Named(key::Named::Escape),
         keyboard::Modifiers::default(),
@@ -737,4 +748,73 @@ fn view_full_bio_shows_when_the_bio_is_taller_than_three_lines_as_laid_out() {
     // Narrow ones: many by count, two lines as laid out.
     bio(&mut app, &"il ".repeat(40));
     assert!(!shows(&app, "View full bio"), "a bio that fits doesn't");
+}
+
+#[test]
+fn a_hidden_member_list_keeps_no_lines_and_builds_them_again_when_shown() {
+    let (mut app, _folder) = preview();
+    app.show_roster(false);
+    assert!(!app.lines.is_empty(), "the list shows");
+    let _ = app.update(Message::ToggleMembers);
+    assert!(!app.members_shown());
+    assert!(app.lines.is_empty(), "hidden, its lines go");
+    // The roster churns meanwhile: nothing is built.
+    change(&mut app, |state| {
+        for members in state.members.iter_mut().flatten() {
+            let members = Arc::make_mut(members);
+            let mut first = members[0].clone();
+            first.id = "newcomer".into();
+            first.name = "Aaron".into();
+            members.insert(0, first);
+        }
+    });
+    assert!(app.lines.is_empty(), "nor while the roster changes");
+    let _ = app.update(Message::ToggleMembers);
+    assert!(
+        app.lines.iter().any(|line| matches!(
+            line,
+            crate::looks::MemberLine::Member(look) if look.name == "Aaron"
+        )),
+        "shown again, as the roster is now"
+    );
+}
+
+#[test]
+fn active_now_is_made_only_while_the_friends_screen_has_room_for_it() {
+    let (mut app, _folder) = preview();
+    let playing = yapfast_core::chat::Activity {
+        kind: yapfast_core::chat::ActivityKind::Playing,
+        name: "Stardew Valley".into(),
+        details: None,
+        state: None,
+        party: None,
+        party_id: None,
+        application_id: Some("stardew".into()),
+        start: None,
+        end: None,
+        large_image: None,
+        large_text: None,
+        small_image: None,
+        small_text: None,
+        url: None,
+        link: None,
+        emoji: None,
+    };
+    change(&mut app, |state| {
+        let mut ann = friend("1", "Ann", Presence::Online);
+        ann.activities = Arc::from([playing]);
+        state.friends = vec![ann];
+    });
+    let width = |app: &mut App, width: f32| {
+        let size = iced::Size::new(width, app.shell.frame.height);
+        let _ = app.update(Message::Resized(size));
+    };
+    width(&mut app, 1500.0);
+    dm_screen(&mut app, DmScreen::Friends);
+    assert!(!app.active_now.is_empty(), "wide, Ann's card is made");
+    width(&mut app, 1100.0);
+    assert!(app.active_now.is_empty(), "too narrow to show, none is");
+    assert!(!app.active_now_minutes() && !app.active_now_ticks());
+    width(&mut app, 1500.0);
+    assert!(!app.active_now.is_empty(), "wide again");
 }

@@ -8,7 +8,7 @@
 //! it. It takes `@` and `:name` suggestions and the emoji picker.
 
 use iced::{
-    Alignment, Border, Element, Length, Padding, Task,
+    Alignment, Element, Length, Padding, Task,
     widget::{Id, button, column, container, operation, row, scrollable::AbsoluteOffset, text},
 };
 use yapfast_core::application::Action;
@@ -22,7 +22,6 @@ use crate::{
     picker::Target,
     pictures::Icon,
     popover::{Popover, Side},
-    style::rounded,
     timeline::TIMELINE,
 };
 
@@ -138,14 +137,7 @@ impl App {
         let frame = container(line)
             .width(Length::Fill)
             .height(Length::Shrink)
-            .style(move |_| container::Style {
-                border: Border {
-                    color: edge,
-                    width: 1.0,
-                    radius: 8.0.into(),
-                },
-                ..rounded(ground, 8)
-            });
+            .style(move |_| crate::style::outlined(ground, edge, 8.0));
         let frame = Popover::new(frame, self.suggestions_view(Writing::Edit), Side::Above);
         // Discord's hint: 12 px in the text's colour, its two actions links.
         let words = |words: &'static str| text(words).size(12).font(MEDIUM).color(theme.text);

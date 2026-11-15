@@ -125,19 +125,17 @@ fn add_people_counts_the_room_left_in_the_group() {
     let (mut app, _folder) = preview();
     change(&mut app, |state| {
         let room = state.selected.clone().expect("an open room");
+        // A group of 8, of Discord's 10.
+        for each in state.rooms.iter_mut().filter(|each| each.id == room) {
+            std::sync::Arc::make_mut(each).members = 8;
+        }
         state.add_people = Some(yapfast_core::application::AddPeople {
             room,
             ..Default::default()
         });
     });
     assert!(shows(&app, "Select Friends"));
-    let left = app.client.state().group_room();
-    let detail = match left {
-        0 => "This group has no room for more.".to_owned(),
-        1 => "You can add 1 more friend.".to_owned(),
-        left => format!("You can add {left} more friends."),
-    };
-    assert!(shows(&app, &detail));
+    assert!(shows(&app, "You can add 2 more friends."));
     // Typing in its search leaves the focus, and so the caret, alone.
     let typed = app.popover_event(crate::popovers::Event::PeopleQuery("ri".into()));
     assert_eq!(typed.units(), 0, "nothing focused again");

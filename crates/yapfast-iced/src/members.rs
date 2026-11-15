@@ -164,19 +164,14 @@ impl App {
         let selected = self.card.as_ref().is_some_and(|card| card.user == look.id);
         let offline = look.offline();
         let (avatar_opacity, opacity) = if offline { (0.4, 0.5) } else { (1.0, 1.0) };
-        let face = Face {
-            url: look.avatar.as_deref(),
-            name: &look.name,
-            key: None,
-            size: 32.0,
-            opacity: avatar_opacity,
-            decoration: look.decoration.as_deref(),
-            play: pointed,
-            dot: look
-                .presence
-                .filter(|presence| *presence != Presence::Offline)
-                .map(|presence| (presence, rgb(theme.sidebar), Point::new(20.0, 20.0))),
-        };
+        let face = Face::new(look.avatar.as_deref(), &look.name, 32.0)
+            .opacity(avatar_opacity)
+            .decoration(look.decoration.as_deref(), pointed)
+            .dot(
+                look.presence
+                    .filter(|presence| *presence != Presence::Offline)
+                    .map(|presence| (presence, rgb(theme.sidebar), Point::new(20.0, 20.0))),
+            );
         let color = faded(look.color.map_or(theme.secondary, hex), opacity);
         let name = self.person_name(
             &look.name,
@@ -516,11 +511,7 @@ impl App {
             .on_press(Message::MemberActivity(Event::Open(card.id.clone())))
             .style(move |_, status| iced::widget::button::Style {
                 background: Some(if controls::lights(status) { lit } else { rest }.into()),
-                border: Border {
-                    color: line,
-                    width: 1.0,
-                    radius: 8.0.into(),
-                },
+                border: crate::style::edge(line, 8.0),
                 ..Default::default()
             });
         // The panel is in no scrollable: the point is the window's already.
@@ -741,5 +732,28 @@ pub fn finished_ago(at_ms: u64, now_ms: u64) -> String {
         _ if seconds < 9 * DAY => format!("{}d ago", (seconds / DAY).max(1)),
         _ if seconds < 28 * DAY => format!("{}w ago", seconds / (7 * DAY)),
         _ => format!("{}mo ago", (seconds / (30 * DAY)).max(1)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{finished_ago, running_for};
+
+    #[test]
+    fn the_activity_panels_times_read_in_discords_steps() {
+        let now = 100 * 24 * 3_600_000;
+        let ago = |seconds: u64| finished_ago(now - seconds * 1000, now);
+        assert_eq!(ago(42), "42s ago");
+        assert_eq!(ago(5 * 60), "5m ago");
+        assert_eq!(ago(3 * 3600), "3h ago");
+        // From twelve hours a day, at least one.
+        assert_eq!(ago(13 * 3600), "1d ago");
+        assert_eq!(ago(10 * 86_400), "1w ago");
+        assert_eq!(ago(40 * 86_400), "1mo ago");
+        let since = |minutes: u64| running_for(now - minutes * 60_000, now);
+        assert_eq!(since(0), "just started");
+        assert_eq!(since(25), "for 25 min");
+        assert_eq!(since(130), "for 2 hr");
+        assert_eq!(since(3 * 1440), "for 3 d");
     }
 }

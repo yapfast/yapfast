@@ -370,19 +370,12 @@ impl App {
         .spacing(10)
         .align_y(Alignment::Center);
         if mentions > 0 {
-            let (danger, on_danger) = (theme.danger, theme.on_danger);
-            line = line.push(
-                container(
-                    text(crate::rail::count_badge(mentions))
-                        .size(11)
-                        .font(BOLD)
-                        .color(on_danger),
-                )
-                .padding([0, 5])
-                .height(18)
-                .center_y(18)
-                .style(move |_| rounded(danger, 9)),
-            );
+            line = line.push(controls::count_pill(
+                theme,
+                &controls::count_badge(mentions),
+                controls::ROW_COUNT,
+                None,
+            ));
         }
         let (active, hover) = (theme.active, theme.hover);
         button(line)
@@ -408,15 +401,7 @@ impl App {
         let state = self.client.state();
         let new_dm = state.new_dm.as_ref()?;
         let theme = &self.theme;
-        let head = row![
-            text("New message")
-                .size(18)
-                .font(BOLD)
-                .color(theme.text)
-                .width(Length::Fill),
-            self.icon_button(Icon::X, "Close", 28.0, 18, message(Event::CloseNewDm), true),
-        ]
-        .align_y(Alignment::Center);
+        let head = self.dialog_head("New message", message(Event::CloseNewDm));
         let placeholder = if cfg!(feature = "matrix") {
             "Find a friend, or type a Matrix id"
         } else {
@@ -534,15 +519,7 @@ impl App {
         let theme = &self.theme;
         let edit = |edit: PollEdit| message(Event::Poll(edit));
         let caps = |words: &'static str| text(words).size(12).font(BOLD).color(theme.muted);
-        let head = row![
-            text("Create a Poll")
-                .size(18)
-                .font(BOLD)
-                .color(theme.text)
-                .width(Length::Fill),
-            self.icon_button(Icon::X, "Close", 28.0, 18, message(Event::ClosePoll), true),
-        ]
-        .align_y(Alignment::Center);
+        let head = self.dialog_head("Create a Poll", message(Event::ClosePoll));
         let mut form = column![
             row![
                 caps("QUESTION").width(Length::Fill),
@@ -672,43 +649,11 @@ impl App {
         several: bool,
     ) -> Element<'a, Message> {
         let theme = &self.theme;
-        let face: Element<'a, Message> = match &answer.emoji {
-            Some(key) => self.emoji_face(key, 22),
-            None => self.glyph(Icon::SmilePlus, 20, theme.secondary).into(),
-        };
-        let (sunken, hover) = (theme.sunken, theme.hover);
-        let emoji = button(container(face).center(40))
-            .padding(0)
-            .width(40)
-            .height(40)
-            .on_press(message(Event::PollEmoji(index)))
-            .style(move |_, status| button::Style {
-                background: Some(if lights(status) { hover } else { sunken }.into()),
-                border: Border::default().rounded(6),
-                ..Default::default()
-            });
-        let mut emoji = stack![emoji];
-        if answer.emoji.is_some() {
-            let (faint, danger, raised) = (theme.faint, theme.danger, theme.raised);
-            emoji = emoji.push(placed(
-                button(container(self.glyph(Icon::X, 10, theme.text)).center(14))
-                    .padding(0)
-                    .width(18)
-                    .height(18)
-                    .on_press(message(Event::Poll(PollEdit::Emoji { index, emoji: None })))
-                    .style(move |_, status| button::Style {
-                        background: Some(if lights(status) { danger } else { faint }.into()),
-                        border: Border {
-                            color: raised,
-                            width: 2.0,
-                            radius: 9.0.into(),
-                        },
-                        ..Default::default()
-                    }),
-                28.0,
-                0.0,
-            ));
-        }
+        let emoji = self.emoji_slot(
+            answer.emoji.as_deref(),
+            message(Event::PollEmoji(index)),
+            message(Event::Poll(PollEdit::Emoji { index, emoji: None })),
+        );
         let field = controls::field(
             theme,
             "poll-answer",

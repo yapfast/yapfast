@@ -20,7 +20,7 @@ use iced::{
 
 use crate::{
     app::{App, Message},
-    controls::{self, Count, lit_style},
+    controls::{self, lit_style},
     elide::elide,
     fonts::BOLD,
     pictures::Icon,
@@ -307,9 +307,9 @@ impl App {
         }
         self.shell.own_title_bar = own;
         self.inbox = None;
-        let Some(id) = self.shell.window else {
+        if self.shell.window.is_none() {
             return Task::none();
-        };
+        }
         // iced could take the frame off the window as it is, but where the
         // desktop draws none winit draws its own, and a maximized window
         // taking it or losing it grows or shrinks past the screen.
@@ -317,7 +317,6 @@ impl App {
         let closed = self.drop_window();
         self.shell.window = None;
         let opened = self.open_window();
-        let _ = id;
         let back = match settings_open {
             Some(section) => self.open_settings(section),
             None => Task::none(),
@@ -448,13 +447,17 @@ impl App {
                 false,
             ))
             .push(self.caption_button(Icon::X, Event::Close, true));
-        // The bar's ground moves the window; its buttons sit over it.
-        let ground = mouse_area(container(Space::new()).width(Length::Fill).height(HEIGHT))
+        // The bar's ground moves the window; its buttons sit over it. Its
+        // moves are messages only once pressed: a pointer passing over it
+        // sends none.
+        let mut ground = mouse_area(container(Space::new()).width(Length::Fill).height(HEIGHT))
             .interaction(Interaction::Idle)
             .on_press(Message::Bar(Event::Press))
-            .on_move(|at| Message::Bar(Event::Moved(at)))
             .on_release(Message::Bar(Event::Release))
             .on_double_click(Message::Bar(Event::Maximize));
+        if self.bar_drag.armed.is_some() {
+            ground = ground.on_move(|at| Message::Bar(Event::Moved(at)));
+        }
         let rail = theme.rail;
         let bar = stack![
             ground,
@@ -705,11 +708,7 @@ impl App {
         .height((self.window.height - 4.0 - 12.0).min(INBOX_MOST))
         .style(move |_| iced::widget::container::Style {
             background: Some(raised.into()),
-            border: iced::Border {
-                color: line,
-                width: 1.0,
-                radius: 8.0.into(),
-            },
+            border: crate::style::edge(line, 8.0),
             shadow: crate::style::raised_shadow(),
             ..Default::default()
         });
@@ -748,19 +747,10 @@ impl App {
         .spacing(12)
         .align_y(Alignment::Center);
         if entry.mentions > 0 {
-            let count = if entry.mentions > 99 {
-                "99+".to_owned()
-            } else {
-                entry.mentions.to_string()
-            };
             line = line.push(controls::count_pill(
                 theme,
-                &count,
-                Count {
-                    height: 16.0,
-                    size: 11.0,
-                    pad: 5.0,
-                },
+                &controls::count_badge(entry.mentions),
+                controls::INBOX_COUNT,
                 None,
             ));
         }

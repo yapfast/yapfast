@@ -442,16 +442,10 @@ impl App {
         let card = form::card(
             theme,
             row![
-                self.face(crate::pictures::Face {
-                    url: account.avatar.as_deref(),
-                    name: &account.name,
-                    key: None,
-                    size: 64.0,
-                    opacity: 1.0,
-                    decoration: state.account_decoration.as_deref(),
-                    play: false,
-                    dot: None,
-                }),
+                self.face(
+                    crate::pictures::Face::new(account.avatar.as_deref(), &account.name, 64.0)
+                        .decoration(state.account_decoration.as_deref(), false)
+                ),
                 column![
                     text(account.name.as_str())
                         .size(20)
@@ -567,11 +561,7 @@ impl App {
         .padding(16)
         .width(Length::Fill)
         .style(move |_| iced::widget::container::Style {
-            border: iced::Border {
-                color: edge,
-                width: 1.0,
-                radius: 8.0.into(),
-            },
+            border: crate::style::edge(edge, 8.0),
             ..Default::default()
         });
         let text_size = prefs.text_size.unwrap_or(1).clamp(0, 2) as usize;

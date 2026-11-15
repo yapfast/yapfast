@@ -210,11 +210,7 @@ impl App {
                 .width(INCOMING_WIDTH)
                 .style(move |_| container::Style {
                     background: Some(ground.into()),
-                    border: Border {
-                        color: edge,
-                        width: 1.0,
-                        radius: 12.0.into(),
-                    },
+                    border: crate::style::edge(edge, 12.0),
                     shadow: card_shadow(),
                     ..Default::default()
                 }),

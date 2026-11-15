@@ -3,7 +3,7 @@
 //! confirmation. While one is open nothing under it takes a click or a key.
 
 use iced::{
-    Alignment, Border, Element, Length, Task,
+    Alignment, Element, Length, Task,
     keyboard::key,
     widget::{Space, column, container, opaque, row, scrollable, stack, text},
 };
@@ -76,11 +76,7 @@ impl App {
                 .max_height(160)
                 .clip(true)
                 .style(move |_| container::Style {
-                    border: Border {
-                        color: line,
-                        width: 1.0,
-                        radius: 6.0.into(),
-                    },
+                    border: crate::style::edge(line, 6.0),
                     ..Default::default()
                 }),
             );
@@ -165,7 +161,11 @@ impl App {
 impl App {
     /// A dialog's title with its close button, as the Slint client's
     /// dialogs in `ui/server.slint` start.
-    pub fn dialog_head<'a>(&'a self, title: String, close: Message) -> Element<'a, Message> {
+    pub fn dialog_head<'a>(
+        &'a self,
+        title: impl text::IntoFragment<'a>,
+        close: Message,
+    ) -> Element<'a, Message> {
         row![
             text(title)
                 .size(18)
@@ -177,6 +177,63 @@ impl App {
         ]
         .align_y(Alignment::Center)
         .into()
+    }
+
+    /// An emoji to pick in a form, as the Slint client's custom status and
+    /// poll answers have it: 40 px on a sunken ground, the emoji chosen
+    /// (`key`) or a smile with a plus, and with one, a small badge on its
+    /// corner that takes it off.
+    pub fn emoji_slot<'a>(
+        &'a self,
+        key: Option<&'a str>,
+        pick: Message,
+        remove: Message,
+    ) -> Element<'a, Message> {
+        let theme = &self.theme;
+        let face: Element<'a, Message> = match key {
+            Some(key) => self.emoji_face(key, 22),
+            None => self
+                .glyph(crate::pictures::Icon::SmilePlus, 20, theme.secondary)
+                .into(),
+        };
+        let pick = iced::widget::button(container(face).center(40))
+            .padding(0)
+            .width(40)
+            .height(40)
+            .on_press(pick)
+            .style(crate::controls::lit_style(
+                Some(theme.sunken),
+                theme.hover,
+                6.0,
+            ));
+        if key.is_none() {
+            return pick.into();
+        }
+        let (faint, danger, raised) = (theme.faint, theme.danger, theme.raised);
+        let remove = iced::widget::button(
+            container(self.glyph(crate::pictures::Icon::X, 10, theme.text)).center(14),
+        )
+        .padding(0)
+        .width(18)
+        .height(18)
+        .on_press(remove)
+        .style(move |_, status| iced::widget::button::Style {
+            background: Some(
+                if crate::controls::lights(status) {
+                    danger
+                } else {
+                    faint
+                }
+                .into(),
+            ),
+            border: iced::Border {
+                color: raised,
+                width: 2.0,
+                radius: 9.0.into(),
+            },
+            ..Default::default()
+        });
+        iced::widget::stack![pick, crate::controls::placed(remove, 28.0, 0.0)].into()
     }
 
     /// A dialog's parts, 12 px apart in 20 px of padding, in [`dialog`]'s
@@ -265,11 +322,7 @@ pub fn dialog<'a>(
             .width(width)
             .style(move |_| container::Style {
                 background: Some(ground.into()),
-                border: Border {
-                    color: edge,
-                    width: 1.0,
-                    radius: 12.0.into(),
-                },
+                border: crate::style::edge(edge, 12.0),
                 shadow: card_shadow(),
                 ..Default::default()
             }),

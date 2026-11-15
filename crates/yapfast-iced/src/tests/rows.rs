@@ -291,9 +291,9 @@ fn a_rows_menu_and_its_authors_card_open_by_its_message_under_any_head() {
             .collect()
     };
     let mut cards = Vec::new();
-    for row in 0..3 {
+    for (row, name) in names.iter().enumerate() {
         let _ = app.open_author(row);
-        cards.push(app.card.take().expect("a card").at.y - names[row]);
+        cards.push(app.card.take().expect("a card").at.y - name);
     }
     assert!(
         cards.iter().all(|card| (card - cards[1]).abs() < 0.5),
