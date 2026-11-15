@@ -20,7 +20,7 @@ glyphs such as check, x and chevrons.
   (pen-new-square), star (star, Linear style), star-filled (star), sticky-note
   (notes), text-select (text-selection), trash-2 (trash-bin-trash),
   trending-up (graph-up), triangle-alert (danger-triangle), user, users
-  (users-group-rounded) and video (videocamera).
+  (users-group-rounded), video (videocamera) and keyboard.
 - Adapted from Solar: headphone-off, eye-off, pin-off and video-off are the
   icon of the same name with a slash, and a gap cut around it; screen-share is
   Solar's monitor with an arrow cut out of its screen, and screen-share-off

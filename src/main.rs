@@ -33,13 +33,13 @@ mod icon;
 #[cfg(feature = "desktop")]
 mod instance;
 #[cfg(feature = "desktop")]
+mod keybinds;
+#[cfg(feature = "desktop")]
 mod notify;
 #[cfg(feature = "desktop")]
 mod paste;
 #[cfg(feature = "desktop")]
 mod protocol;
-#[cfg(feature = "desktop")]
-mod push_to_talk;
 #[cfg(feature = "desktop")]
 mod tray;
 #[cfg(feature = "desktop")]
