@@ -1486,6 +1486,9 @@ export component YapfastWindow inherits Window {
     /// While sharing, share what the share menu lists at this index in place
     /// of what's shared, as go-live counts them.
     callback switch-live(int);
+    callback stream-audio-changed(int);
+    in property <[string]> share-audio-options;
+    in-out property <int> share-audio-choice: 1;
     /// The screens and windows to share, where Yapfast lists them (share-lists),
     /// and the cameras: asked for as the share menu opens, which shows once
     /// they're in, with the first picked. The screens' pictures come after.
@@ -1494,14 +1497,10 @@ export component YapfastWindow inherits Window {
     in property <[string]> share-windows;
     in property <[string]> share-cameras;
     callback list-share-sources();
-    /// Opens the share menu once its lists are in. Switching where the
-    /// system's dialog picks and there's no camera goes straight to the dialog.
+    /// Opens the share menu once its lists are in, including audio controls
+    /// while sharing through the system portal.
     public function show-share-menu() {
-        if root.pick-switch && !root.share-lists && root.share-cameras.length == 0 {
-            root.switch-live(0);
-        } else {
-            share-menu.show();
-        }
+        share-menu.show();
     }
     callback stream-tick;
     callback toggle-camera;
@@ -1969,7 +1968,7 @@ export component YapfastWindow inherits Window {
     property <bool> pick-switch;
     function open-share-menu(x: length, y: length) {
         root.menu-x = x; root.menu-y = y;
-        root.pick-source = 0;
+        root.pick-source = root.sharing ? -1 : 0;
         root.pick-resolution = root.share-resolution;
         root.pick-fps = root.share-fps;
         root.pick-high-quality = root.share-high-quality;
@@ -2009,9 +2008,12 @@ export component YapfastWindow inherits Window {
             dialog: !root.share-lists; switching: root.pick-switch;
             pick-source <=> root.pick-source; pick-resolution <=> root.pick-resolution; pick-fps <=> root.pick-fps;
             pick-high-quality <=> root.pick-high-quality;
+            audio-options: root.share-audio-options;
+            pick-audio <=> root.share-audio-choice;
+            audio-changed(index) => { root.stream-audio-changed(index); }
             go-live(source, resolution, fps, high-quality) => {
                 if root.pick-switch {
-                    root.switch-live(source);
+                    if source >= 0 { root.switch-live(source); }
                 } else {
                     root.go-live(source, resolution, fps, high-quality);
                 }

@@ -99,6 +99,17 @@ pub enum Resolution {
     Source,
 }
 
+/// Audio shared with Go Live. Window ids are session-local and are not saved.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StreamAudio {
+    Off,
+    #[default]
+    All,
+    /// The application owning this window, including its child processes.
+    Window(u64),
+}
+
 /// How a screen is shared: chosen before going live, and remembered.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct StreamQuality {
@@ -241,6 +252,7 @@ pub struct State {
     pub watching: Option<Box<Watching>>,
     /// How the next screen share is sent.
     pub quality: StreamQuality,
+    pub stream_audio: StreamAudio,
     /// This account's camera, turned on or starting.
     pub camera_phase: CameraPhase,
     /// The call carries camera video, so the camera can be turned on.
@@ -310,6 +322,7 @@ impl Default for State {
             sharing: None,
             watching: None,
             quality: StreamQuality::default(),
+            stream_audio: StreamAudio::default(),
             camera_phase: CameraPhase::Off,
             can_film: false,
             link: None,
@@ -358,6 +371,8 @@ pub enum Command {
     /// Share a screen or window with Discord's Go Live, at this quality,
     /// which is remembered for next time.
     GoLive(StreamQuality),
+    /// Change outgoing audio without restarting the video.
+    StreamAudio(StreamAudio),
     /// Share the screen or window picked last in place of the one shared,
     /// keeping the stream; in a Wayland session, what the system's dialog picks.
     SwitchLive,
@@ -540,6 +555,7 @@ async fn worker(
                 state.speaker = Some(id);
                 Chosen::write(remembered.as_deref(), &state);
             }
+            Command::StreamAudio(audio) => state.stream_audio = audio,
             Command::Camera(id) => {
                 state.camera = Some(id);
                 Chosen::write(remembered.as_deref(), &state);

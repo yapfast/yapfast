@@ -3060,7 +3060,10 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     #[cfg(feature = "discord")]
     let weak = window.as_weak();
     #[cfg(feature = "discord")]
+    let share_state = adapter.clone();
+    #[cfg(feature = "discord")]
     window.on_list_share_sources(move || {
+        let audio = share_state.borrow().app.state.voice.stream_audio;
         use yapfast_core::stream_worker::{Report, Source, Worker};
         // A picture fills a card in the share menu, in pixels.
         let scale = weak
@@ -3106,6 +3109,31 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 };
                 window.set_share_screens(Rc::new(VecModel::from(rows)).into());
                 window.set_share_windows(titles(&windows));
+                use yapfast_core::voice::StreamAudio;
+                let mut audio_sources = vec![StreamAudio::Off, StreamAudio::All];
+                let mut audio_titles = vec![
+                    SharedString::from("No audio"),
+                    SharedString::from("All applications"),
+                ];
+                #[cfg(windows)]
+                for listed in &windows {
+                    if let Source::Window(id) = listed.source {
+                        audio_sources.push(StreamAudio::Window(id));
+                        audio_titles.push(listed.title.as_str().into());
+                    }
+                }
+                let selected = audio_sources
+                    .iter()
+                    .position(|choice| *choice == audio)
+                    .unwrap_or_else(|| {
+                        // A closed window stays selected and silent, never broadening capture.
+                        audio_sources.push(audio);
+                        audio_titles.push("Unavailable application".into());
+                        audio_sources.len() - 1
+                    });
+                AUDIO_SHAREABLE.with_borrow_mut(|sources| *sources = audio_sources);
+                window.set_share_audio_options(Rc::new(VecModel::from(audio_titles)).into());
+                window.set_share_audio_choice(selected as i32);
                 window.set_share_cameras(titles(&cameras));
                 // Where the system's dialog picks a screen or window, the
                 // menu's first choice asks it, before the cameras.
@@ -3179,6 +3207,21 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     window.on_list_share_sources(move || {
         if let Some(window) = weak.upgrade() {
             window.invoke_show_share_menu();
+        }
+    });
+    #[cfg(feature = "discord")]
+    let state = adapter.clone();
+    #[cfg(feature = "discord")]
+    let weak = window.as_weak();
+    #[cfg(feature = "discord")]
+    window.on_stream_audio_changed(move |index| {
+        if let Some(window) = weak.upgrade()
+            && let Some(audio) =
+                AUDIO_SHAREABLE.with_borrow(|sources| sources.get(index as usize).copied())
+        {
+            state
+                .borrow_mut()
+                .action(&window, Action::Voice(voice::Command::StreamAudio(audio)));
         }
     });
     let state = adapter.clone();
@@ -3792,6 +3835,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
 thread_local! {
     /// What the share menu lists to share, in its order.
     static SHAREABLE: RefCell<Vec<yapfast_core::stream_worker::Source>> = const { RefCell::new(Vec::new()) };
+    static AUDIO_SHAREABLE: RefCell<Vec<voice::StreamAudio>> = const { RefCell::new(Vec::new()) };
 }
 
 /// What the field of the message being edited, in its row, asks of the

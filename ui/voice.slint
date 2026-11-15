@@ -1284,13 +1284,16 @@ export component ShareMenu inherits Rectangle {
     in property <bool> switching;
     property <int> dialog-index: root.screens.length + root.windows.length;
     property <int> first-camera: root.dialog-index + (root.dialog ? 1 : 0);
-    property <bool> asks-dialog: root.dialog && root.cameras.length > 0;
+    property <bool> asks-dialog: root.dialog;
     property <bool> lists: root.screens.length + root.windows.length + root.cameras.length > 0;
     in-out property <int> pick-source;
     in-out property <int> pick-resolution;
     in-out property <int> pick-fps;
     /// The encoder's slower preset: a sharper picture for more CPU.
     in-out property <bool> pick-high-quality;
+    in property <[string]> audio-options;
+    in-out property <int> pick-audio;
+    callback audio-changed(int);
     callback go-live(int, int, int, bool);
     /// The menu's height with every choice showing. In a window too short for
     /// it, the menu is as tall as it gets and the choices scroll, above the
@@ -1354,6 +1357,18 @@ export component ShareMenu inherits Rectangle {
                         clicked => { root.pick-source = root.first-camera + index; }
                     }
                 }
+                if root.audio-options.length > 0: HorizontalLayout {
+                    padding-left: 8px; padding-top: 8px; padding-bottom: 4px;
+                    Text { text: "STREAM AUDIO"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                }
+                if root.switching && root.audio-options.length > 0: Text {
+                    text: "Audio changes apply immediately"; color: Theme.secondary; font-size: 12px; wrap: word-wrap;
+                }
+                for audio[index] in root.audio-options: MenuItem {
+                    text: audio; checked: index == root.pick-audio;
+                    subtitle: index == 1 ? "Excludes Yapfast's own audio" : index > 1 ? "Only this application's audio" : "";
+                    clicked => { root.pick-audio = index; root.audio-changed(index); }
+                }
                 if !root.switching: HorizontalLayout {
                     padding-left: 8px; padding-top: root.lists ? 8px : 4px; padding-bottom: 4px;
                     Text { text: "RESOLUTION"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
@@ -1390,7 +1405,7 @@ export component ShareMenu inherits Rectangle {
         start := HorizontalLayout {
             padding: 4px; padding-top: 10px;
             ActionButton {
-                text: root.switching ? "Switch" : "Go Live"; icon: @image-url("icons/screen-share.svg"); primary: true; horizontal-stretch: 1;
+                text: root.switching ? (root.pick-source < 0 ? "Done" : "Switch") : "Go Live"; icon: @image-url("icons/screen-share.svg"); primary: true; horizontal-stretch: 1;
                 clicked => { root.go-live(root.pick-source, root.pick-resolution, root.pick-fps, root.pick-high-quality); }
             }
         }
