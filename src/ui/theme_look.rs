@@ -2154,7 +2154,10 @@ struct Market {
     catalog: Option<Catalog>,
     loading: bool,
     error: String,
+    /// Previews by their address, dropped when the page closes.
     previews: HashMap<String, Image>,
+    /// Previews are being fetched: one fetch at a time.
+    fetching_previews: bool,
     /// The listed theme being fetched for its review, by id.
     fetching: Option<String>,
 }
@@ -2233,30 +2236,63 @@ fn fetch_previews(window: &YapfastWindow, runtime: Arc<BackgroundRuntime>) {
             .iter()
             .flat_map(|catalog| &catalog.themes)
             .filter(|listing| {
-                !listing.preview.is_empty() && !market.previews.contains_key(&listing.id)
+                !listing.preview.is_empty() && !market.previews.contains_key(&listing.preview)
             })
             .map(|listing| (listing.id.clone(), listing.preview.clone()))
             .collect()
     });
-    if wanted.is_empty() {
+    if wanted.is_empty() || MARKET.with_borrow(|market| market.fetching_previews) {
         return;
     }
+    MARKET.with_borrow_mut(|market| market.fetching_previews = true);
     let weak = window.as_weak();
     let spawned = slint::spawn_local(async move {
+        struct Done;
+        impl Drop for Done {
+            fn drop(&mut self) {
+                MARKET.with_borrow_mut(|market| market.fetching_previews = false);
+            }
+        }
+        let _done = Done;
         for (id, url) in wanted {
-            let pixels = super::theme_remote::preview(runtime.clone(), url).await;
+            let pixels = super::theme_remote::preview(runtime.clone(), url.clone()).await;
             let Some(window) = weak.upgrade() else { return };
             // Closed while it came: the page draws nothing until it opens.
-            if !window.get_settings_open() || window.get_settings_section() != themes_section(&window) {
+            if !window.get_settings_open()
+                || window.get_settings_section() != themes_section(&window)
+            {
                 return;
             }
             let picture = pixels.map(Image::from_rgba8).unwrap_or_default();
-            MARKET.with_borrow_mut(|market| market.previews.insert(id, picture));
-            show_page(&window, &marketplace(&window));
+            MARKET.with_borrow_mut(|market| market.previews.insert(url, picture.clone()));
+            show_preview(&window, &id, picture);
         }
     });
     if let Err(error) = spawned {
+        MARKET.with_borrow_mut(|market| market.fetching_previews = false);
         tracing::warn!(%error, "could not start fetching the theme previews");
+    }
+}
+
+/// A listed theme's preview arrived: only its card takes it.
+fn show_preview(window: &YapfastWindow, id: &str, picture: Image) {
+    let page = window.global::<ThemesPage>();
+    let set = |model: &ModelRc<ThemeListing>| {
+        for index in 0..model.row_count() {
+            if let Some(mut listing) = model.row_data(index)
+                && listing.id.as_str() == id
+            {
+                listing.preview = picture.clone();
+                model.set_row_data(index, listing);
+            }
+        }
+    };
+    set(&page.get_listed());
+    let rows = page.get_listed_rows();
+    for index in 0..rows.row_count() {
+        if let Some(pair) = rows.row_data(index) {
+            set(&pair);
+        }
     }
 }
 
@@ -2327,7 +2363,7 @@ pub fn marketplace(_: &YapfastWindow) -> Vec<Listed> {
                 modes: listing.modes().into(),
                 preview: market
                     .previews
-                    .get(&listing.id)
+                    .get(&listing.preview)
                     .cloned()
                     .unwrap_or_default(),
             })
@@ -2689,6 +2725,8 @@ pub fn decode_preview(bytes: &[u8]) -> Option<slint::SharedPixelBuffer<slint::Rg
 /// Drops the gallery's cards once the page closes; the thumbnails and cost
 /// lines stay, so it opens again at once.
 pub fn close_page(window: &YapfastWindow) {
+    // The marketplace's previews go with the page, as its models do.
+    MARKET.with_borrow_mut(|market| market.previews.clear());
     let page = window.global::<ThemesPage>();
     page.set_installed(ModelRc::default());
     page.set_listed(ModelRc::default());
