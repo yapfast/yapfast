@@ -1,14 +1,18 @@
+import { Chrome } from "theme_chrome.slint";
+import { IconPack } from "media.slint";
 import { DmHeading } from "yapfast/dm-heading.slint";
 import { NewTag } from "yapfast/new-tags.slint";
 import { ClientStyle } from "yapfast/style.slint";
 import { ListView } from "scrollview.slint";
-import { Theme, Tip, Middle, Label } from "theme.slint";
+import { Theme, Tip, Middle, Label, Look, SlotMotion } from "theme.slint";
+import { Art, ArtLayer, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil } from "theme_art.slint";
 import { Avatar, Nameplate, PictureStore, StatusText, StyledName, NameStyleRow, VoiceSpot, ServerTagChip, ActivityClock } from "controls.slint";
 import { DiscordBadge } from "discord.slint";
 import { PersonRow, LivePill, VoiceCard } from "voice.slint";
+import { FolderServer, TileLayer, TileAddItem, Rails, ChannelLists, TileRailItem, TileFolderItem, TileBetween, TileDivider, TileArtBox, ListedName, ListedMeta, ListedHeadingText } from "theme_lists.slint";
+import { RansomName } from "theme_layout.slint";
+import { Trim, FrameGround } from "theme_trim.slint";
 
-/// A server in a closed folder's tile: its icon, or its initial.
-export struct FolderServer { initial: string, picture-url: string }
 
 export struct ServerRow {
     id: string, name: string, initial: string, picture: image, selected: bool, unread: bool, discord: bool,
@@ -33,6 +37,9 @@ export struct ServerRow {
     dm: bool,
     /// The line between those DMs and the servers.
     divider: bool,
+    /// From its id, for a theme's art: the same each time (see
+    /// `yapfast_core::themes::lists::seed`).
+    seed: int,
 }
 
 export struct RoomRow {
@@ -96,6 +103,11 @@ export struct RoomRow {
     /// a Discord channel list drags and drops, counting from 1; 0 for
     /// neither, such as a thread or a pinned channel.
     place: int, heading-place: int,
+    /// From its id, for a theme's art; and its category's place among the
+    /// server's categories, from 1, which a theme's heading may show.
+    seed: int, group: int,
+    /// Every other channel in its category, which a theme may stripe.
+    stripe: bool,
 }
 
 // A call going on in a server: a white speaker on green, on a thin ring of
@@ -110,10 +122,10 @@ component CallBubble inherits Rectangle {
         background: Theme.live;
         Image {
             x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2 + 1px;
-            source: @image-url("icons/volume-2-bold.svg"); width: 12px; height: 12px;
-            colorize: #000000; opacity: 0.45;
+            source: IconPack.volume-2-bold; width: 12px; height: 12px;
+            colorize: IconPack.tint(self.source, #000000); opacity: 0.45;
         }
-        Image { source: @image-url("icons/volume-2-bold.svg"); width: 12px; height: 12px; colorize: #ffffff; }
+        Image { source: IconPack.volume-2-bold; width: 12px; height: 12px; colorize: IconPack.tint(self.source, #ffffff); }
     }
 }
 
@@ -147,30 +159,77 @@ export component RailItem inherits Rectangle {
     in property <bool> call;
     /// Marks a Discord server.
     in property <bool> discord;
+    /// The home button, which a theme's `home` slot moves.
+    in property <bool> home;
+    /// Its place among the servers, which a theme's `rail.icon` slot phases by.
+    in property <int> place: -1;
+    /// A theme's text rail: a row of text, `text`, instead of a tile, after
+    /// a file-tree `branch` when the theme draws one.
+    in property <bool> text-mode;
+    in property <string> text;
+    in property <string> branch;
     callback clicked;
     /// A right click, or the Menu key or Shift+F10 when focused: where to open
     /// a menu in the window.
     callback context-menu(length, length);
     property <length> tile-size: ClientStyle.rail-tile;
     property <length> tile-left: (root.width - root.tile-size) / 2;
-    width: 72px; height: root.tile-size;
+    width: 72px; height: root.text-mode ? 22px : root.tile-size;
     accessible-role: button;
     accessible-label: root.label;
     accessible-action-default => { root.clicked(); }
     forward-focus: focus;
     property <bool> lit: root.selected || pointer.has-hover;
-    Rectangle {
-        x: 0px; y: (parent.height - self.height) / 2; width: 4px;
+    if root.text-mode: Rectangle {
+        background: root.selected ? Theme.accent-fill : pointer.has-hover ? Theme.overlay.with-alpha(0.08) : transparent;
+        border-width: focus.has-focus ? 1px : 0px; border-color: root.selected ? Theme.on-accent : Theme.text;
+        HorizontalLayout {
+            padding-left: 4px; padding-right: 4px; spacing: 4px;
+            if root.branch != "": Text {
+                text: root.branch; color: root.selected ? Theme.on-accent : Chrome.tree-ink; font-family: Look.mono; font-size: 14px;
+                vertical-alignment: center; accessible-role: none;
+            }
+            Text {
+                text: root.text; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; font-size: Trim.small-size(14px);
+                font-family: Trim.small-font("");
+                color: root.selected ? Theme.on-accent : root.unread || pointer.has-hover ? Theme.text : Theme.secondary;
+                font-weight: root.unread && !root.selected ? 700 : Trim.small-weight(400);
+                accessible-role: none;
+            }
+            if root.call: Text { text: "*"; color: root.selected ? Theme.on-accent : Theme.live; font-size: 14px; vertical-alignment: center; accessible-role: none; }
+            // Mentions after it, as `(3)`, or in a theme's words; a theme
+            // may mark an unread row too.
+            if Chrome.count(root.badge, root.unread, "(" + root.badge + ")") != "": Text {
+                text: Chrome.count(root.badge, root.unread, "(" + root.badge + ")");
+                color: root.selected ? Theme.on-accent : root.badge != "" ? Chrome.count-ink : Theme.secondary;
+                font-size: 14px; font-weight: root.badge != "" ? 700 : 400; vertical-alignment: center; accessible-role: none;
+            }
+        }
+    }
+    if !root.text-mode: Rectangle {
+        // Inside a theme's pane, clear of its rim.
+        x: Art.rail-paned ? Art.rail-rim : 0px; y: (parent.height - self.height) / 2; width: 4px;
         height: root.selected ? 40px : pointer.has-hover ? 20px : root.unread ? 8px : 0px;
-        border-top-right-radius: 4px; border-bottom-right-radius: 4px;
-        background: Theme.text;
+        border-top-right-radius: Look.radius(4px); border-bottom-right-radius: Look.radius(4px);
+        background: Theme.pill;
         animate height { duration: 200ms; easing: ease-out; }
+        // The unread slot: the pill beside a server with something new.
+        opacity: root.unread && !root.lit ? Look.unread.opacity : 1;
+        transform-scale: root.unread && !root.lit ? Look.unread.scale : 1;
     }
     // A picture only changes shape when lit, as in Discord.
-    tile := Rectangle {
-        x: root.tile-left; width: root.tile-size; height: root.tile-size;
-        border-radius: ClientStyle.enabled ? 12px : root.lit ? 16px : 24px;
-        background: root.lit && root.shown-picture.width == 0 ? Theme.accent : Theme.raised;
+    if !root.text-mode: tile := Rectangle {
+        property <SlotMotion> moved: root.home ? Look.home : Art.rail-icon(root.place);
+        x: root.tile-left + self.moved.x; y: self.moved.y; width: root.tile-size; height: root.tile-size;
+        border-radius: Look.rail-icon.radius >= 0px ? Look.rail-icon.radius : ClientStyle.enabled ? 12px : root.lit ? 16px : 24px;
+        border-width: Look.bw(Look.rail-icon, 0px); border-color: Look.bc(Look.rail-icon, transparent);
+        background: root.lit && root.shown-picture.width == 0 ? Theme.accent-fill : Theme.raised-fill;
+        opacity: self.moved.opacity;
+        transform-scale: self.moved.scale * Look.grow(pointer.has-hover, pointer.pressed);
+        transform-rotation: self.moved.rotation * 1deg;
+        drop-shadow-blur: Look.halo(pointer.has-hover) > 0px ? Look.halo(true) : Look.sb(Look.rail-icon, 0px);
+        drop-shadow-offset-y: Look.halo(pointer.has-hover) > 0px ? 0px : Look.sy(Look.rail-icon, 0px);
+        drop-shadow-color: Look.halo(pointer.has-hover) > 0px ? Look.halo-color(true, Theme.accent) : Look.sc(Look.rail-icon, transparent);
         animate border-radius, background { duration: 160ms; easing: ease-out; }
         clip: true;
         if root.shown-picture.width > 0: Image {
@@ -178,12 +237,13 @@ export component RailItem inherits Rectangle {
         }
         if root.icon.width > 0: Image {
             source: root.icon; width: root.icon-size; height: root.icon-size;
-            colorize: root.lit ? Theme.on-accent : root.icon-color;
+            colorize: IconPack.tint(self.source, root.lit ? Theme.on-accent : root.icon-color);
         }
         if root.icon.width == 0 && root.shown-picture.width == 0: Text {
             text: root.initial; font-size: ClientStyle.enabled ? 16px : 17px; font-weight: ClientStyle.enabled ? 500 : 700;
             color: root.lit ? Theme.on-accent : Theme.text;
         }
+        if Art.gloss: ArtGloss { width: parent.width; height: parent.height; hovered: pointer.has-hover; }
         // The focus ring, drawn over the picture.
         Rectangle {
             width: root.tile-size; height: root.tile-size; border-radius: tile.border-radius;
@@ -193,14 +253,16 @@ export component RailItem inherits Rectangle {
     }
     // Discord's logo on its blurple, at the top left on a ring of the rail's
     // colour so it reads as a tag.
-    if root.discord: DiscordBadge {
+    if root.discord && !root.text-mode: DiscordBadge {
         x: root.tile-left - 2px; y: (parent.height - root.tile-size) / 2 - 2px;
         size: 16px; ring: Theme.rail;
     }
-    if root.call: CallBubble { x: root.tile-left + root.tile-size + 3px - self.width; y: (parent.height - root.tile-size) / 2 - 3px; }
+    if root.call && !root.text-mode: CallBubble { x: root.tile-left + root.tile-size + 3px - self.width; y: (parent.height - root.tile-size) / 2 - 3px; }
     // The mention count, on a ring of the rail's colour.
-    if root.badge != "": Rectangle {
-        x: root.tile-left + root.tile-size + 4px - self.width; y: (parent.height + root.tile-size) / 2 + 4px - self.height;
+    if root.badge != "" && !root.text-mode: Rectangle {
+        // The mention slot.
+        x: root.tile-left + root.tile-size + 4px - self.width + Look.mention.x; y: (parent.height + root.tile-size) / 2 + 4px - self.height + Look.mention.y;
+        opacity: Look.mention.opacity; transform-scale: Look.mention.scale; transform-rotation: Look.mention.rotation * 1deg;
         width: max(16px, badge-text.preferred-width + 8px) + 6px; height: 16px + 6px; border-radius: self.height / 2;
         background: Theme.rail;
         Rectangle {
@@ -272,10 +334,11 @@ component FolderItem inherits Rectangle {
     accessible-action-expand => { root.clicked(); }
     forward-focus: focus;
     Rectangle {
-        x: 0px; y: (parent.height - self.height) / 2; width: 4px;
+        // Inside a theme's pane, clear of its rim.
+        x: Art.rail-paned ? Art.rail-rim : 0px; y: (parent.height - self.height) / 2; width: 4px;
         height: root.open ? 0px : root.selected ? 40px : pointer.has-hover ? 20px : root.unread ? 8px : 0px;
-        border-top-right-radius: 4px; border-bottom-right-radius: 4px;
-        background: Theme.text;
+        border-top-right-radius: Look.radius(4px); border-bottom-right-radius: Look.radius(4px);
+        background: Theme.pill;
         animate height { duration: 200ms; easing: ease-out; }
     }
     tile := Rectangle {
@@ -283,7 +346,7 @@ component FolderItem inherits Rectangle {
         background: root.open ? transparent : root.tint.with-alpha(pointer.has-hover ? 0.55 : 0.4);
         animate background { duration: 160ms; easing: ease-out; }
         if root.open: Image {
-            source: @image-url("icons/folder.svg"); width: 24px; height: 24px; colorize: root.tint;
+            source: IconPack.folder; width: 24px; height: 24px; colorize: IconPack.tint(self.source, root.tint);
         }
         if !root.open: Rectangle {
             for server[index] in root.servers: Avatar {
@@ -361,32 +424,32 @@ export component StatusDot inherits Rectangle {
     property <bool> mobile: root.presence == "mobile";
     property <bool> online: root.presence == "online" || root.mobile || root.presence == "idle" || root.presence == "dnd";
     property <length> unit: root.width / 16;
-    width: 16px; height: 16px; border-radius: root.width / 2;
+    width: 16px; height: 16px; border-radius: Look.radius(root.width / 2);
     background: root.mobile ? transparent : root.ring;
     accessible-role: image;
     accessible-label: root.presence == "dnd" ? "Do not disturb" : root.presence == "idle" ? "Idle" : root.presence == "online" ? "Online" : root.mobile ? "Online on mobile" : "Offline";
     // Idle is Discord's yellow whatever the accent is, and its moon a size larger.
     if !root.mobile: Rectangle {
-        width: (root.presence == "idle" ? 12 : 10) * root.unit; height: self.width; border-radius: self.width / 2;
+        width: (root.presence == "idle" ? 12 : 10) * root.unit; height: self.width; border-radius: Look.radius(self.width / 2);
         background: root.presence == "dnd" ? #f23f43 : root.presence == "idle" ? #f0b232 : root.presence == "online" ? Theme.live : Theme.faint;
     }
     if !root.online: Rectangle {
-        width: 4 * root.unit; height: self.width; border-radius: self.width / 2; background: root.ring;
+        width: 4 * root.unit; height: self.width; border-radius: Look.radius(self.width / 2); background: root.ring;
     }
     if root.presence == "idle": Rectangle {
-        x: root.unit; y: root.unit; width: 7 * root.unit; height: self.width; border-radius: self.width / 2; background: root.ring;
+        x: root.unit; y: root.unit; width: 7 * root.unit; height: self.width; border-radius: Look.radius(self.width / 2); background: root.ring;
     }
     if root.presence == "dnd": Rectangle {
-        width: 6 * root.unit; height: 2 * root.unit; border-radius: self.height / 2; background: root.ring;
+        width: 6 * root.unit; height: 2 * root.unit; border-radius: Look.radius(self.height / 2); background: root.ring;
     }
     // The phone keeps the dot's ring and bottom edge, and stands taller.
     if root.mobile: Rectangle {
         y: root.height - self.height; height: root.height + 5 * root.unit;
-        border-radius: 4 * root.unit; background: root.ring;
+        border-radius: Look.radius(4 * root.unit); background: root.ring;
         Rectangle {
-            width: 10 * root.unit; height: 15 * root.unit; border-radius: 2 * root.unit; background: Theme.live;
-            Rectangle { x: 2 * root.unit; y: 2 * root.unit; width: 6 * root.unit; height: 9 * root.unit; border-radius: root.unit; background: root.ring; }
-            Rectangle { x: 4 * root.unit; y: 12 * root.unit; width: 2 * root.unit; height: 2 * root.unit; border-radius: self.width / 2; background: root.ring; }
+            width: 10 * root.unit; height: 15 * root.unit; border-radius: Look.radius(2 * root.unit); background: Theme.live;
+            Rectangle { x: 2 * root.unit; y: 2 * root.unit; width: 6 * root.unit; height: 9 * root.unit; border-radius: Look.radius(root.unit); background: root.ring; }
+            Rectangle { x: 4 * root.unit; y: 12 * root.unit; width: 2 * root.unit; height: 2 * root.unit; border-radius: Look.radius(self.width / 2); background: root.ring; }
         }
     }
 }
@@ -440,6 +503,22 @@ export component ChannelRow inherits Rectangle {
     in property <string> voice-server;
     /// A Discord thread, which the line from its channel marks in place of an icon.
     in property <bool> thread;
+    /// A row of the channel list, which a theme's chrome marks.
+    in property <bool> themed;
+    /// A theme's file-tree branch before the row, such as `├──`.
+    in property <string> branch;
+    property <bool> marked: root.themed && !root.person;
+    /// A theme's channel rows (`ChannelLists`) draw this row: its seed picks
+    /// its art; a line above it unless it's first under its heading; and
+    /// how many are in it, a voice channel.
+    in property <int> seed;
+    in property <bool> separator-above;
+    in property <int> voice-count;
+    in property <bool> is-voice;
+    in property <bool> stripe;
+    property <bool> listed: ChannelLists.on && !root.person;
+    property <TileLayer> frame: root.selected && ChannelLists.sel-frame.on ? ChannelLists.sel-frame : ChannelLists.frame(root.seed);
+    property <bool> blink-off;
     /// A voice channel with a chat, which a button on the row opens.
     in property <bool> chat;
     /// When a busy voice channel's session started, in ActivityClock's
@@ -502,17 +581,44 @@ export component ChannelRow inherits Rectangle {
     property <bool> in-voice: root.voice-channel != "";
     property <bool> has-detail: root.detail != "" || root.detail-emoji != "";
     property <bool> offers-wave: root.wave != "" && (pointer.has-hover || root.selected);
-    height: root.person ? ClientStyle.dm-row-height : ClientStyle.channel-row-height;
-    border-radius: 6px;
-    background: root.selected ? Theme.active : pointer.has-hover ? Theme.hover : transparent;
-    animate background { duration: 90ms; }
-    border-width: focus.has-focus ? 2px : 0px;
+    height: root.person ? ClientStyle.dm-row-height : root.listed && ChannelLists.height >= 0px ? ChannelLists.height : ClientStyle.channel-row-height;
+    border-radius: Look.radius(6px);
+    /// Every other row of a theme's striped list.
+    in property <bool> striped;
+    background: !root.listed ? (root.selected && !Art.highlighter ? (Art.glass-row-selected ? transparent : Theme.row-selected) : pointer.has-hover ? Theme.hover : root.striped ? Trim.stripe : transparent)
+        : root.selected ? (ChannelLists.selected-plain && !Art.highlighter ? Theme.row-selected : transparent)
+        : pointer.has-hover && ChannelLists.hover-ground == 1 ? Theme.hover : pointer.has-hover && ChannelLists.hover-ground == 2 ? Theme.row-hover
+        : root.striped ? Trim.stripe : transparent;
+    animate background { duration: root.listed ? Art.hover-time(pointer.has-hover) : 90ms; }
+    // A theme's art, or glass, on the selected row.
+    if root.selected && !Art.highlighter && !(root.listed && !ChannelLists.selected-plain) && (Art.row-selected.length > 0 || Art.glass-row-selected): ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height; radius: root.border-radius;
+        layers: Art.row-selected; glass: Art.glass-row-selected; ground: Theme.row-selected;
+    }
+    if Art.highlighter && (!root.listed || ChannelLists.selected-plain): ArtHighlighter { x: 0px; y: 0px; width: parent.width; height: parent.height; selected: root.selected; }
+    if root.listed && ChannelLists.sep-on && root.separator-above: Rectangle {
+        x: ChannelLists.sep-left; y: 0px; width: parent.width - ChannelLists.sep-left - ChannelLists.sep-right; height: ChannelLists.sep-width;
+        background: ChannelLists.sep-colour;
+    }
+    if root.listed && ChannelLists.sep-art.on && root.separator-above: TileArtBox {
+        y: -ChannelLists.sep-height; width: parent.width; height: ChannelLists.sep-height; layer: ChannelLists.sep-art;
+    }
+    border-width: focus.has-focus && !root.listed ? 2px : 0px;
     border-color: Theme.accent;
     accessible-role: button;
     accessible-label: root.label;
     accessible-action-default => { root.clicked(); }
     forward-focus: focus;
-    property <color> ink: root.danger ? Theme.danger : root.locked ? (root.selected ? Theme.muted : Theme.faint) : root.selected || root.unread ? Theme.text : pointer.has-hover ? Theme.secondary : Theme.muted;
+    /// A theme's selected text, as an inverse-video selection draws it.
+    property <bool> inverse: root.selected && Theme.row-selected-text-on && !root.danger;
+    property <color> stock-ink: root.inverse ? Theme.row-selected-text : root.danger ? Theme.danger : root.locked ? (root.selected ? Theme.muted : Theme.faint) : root.selected || root.unread ? Theme.text : pointer.has-hover ? Theme.secondary : Theme.muted;
+    property <color> ink: !root.listed || root.danger || root.locked ? root.stock-ink
+        : root.selected ? (ChannelLists.ink-selected != transparent ? ChannelLists.ink-selected : root.stock-ink)
+        : root.unread ? (ChannelLists.ink-unread != transparent ? ChannelLists.ink-unread : root.stock-ink)
+        : root.muted && ChannelLists.ink-muted != transparent ? ChannelLists.ink-muted
+        : pointer.has-hover && ChannelLists.ink-hover != transparent ? ChannelLists.ink-hover
+        : ChannelLists.ink-read != transparent ? ChannelLists.ink-read : root.stock-ink;
+    property <length> meta-room: root.listed ? meta.width + (meta.width > 0px ? 8px : 0px) : 0px;
     // Discord's client draws a DM row's plate only while the row is selected,
     // pointed at or focused, so a long list holds none. It stops short of the
     // focus ring.
@@ -529,7 +635,9 @@ export component ChannelRow inherits Rectangle {
     if root.unread && !root.selected: Rectangle {
         // A thread sits further in, past the line from its channel.
         x: root.thread ? -36px : -8px; y: (parent.height - self.height) / 2; width: 4px; height: 8px;
-        border-top-right-radius: 4px; border-bottom-right-radius: 4px; background: Theme.text;
+        border-top-right-radius: Look.radius(4px); border-bottom-right-radius: Look.radius(4px);
+        background: root.listed && ChannelLists.pill-colour != transparent ? ChannelLists.pill-colour : Theme.text;
+        border-width: root.listed && ChannelLists.pill-rim != transparent ? 1px : 0px; border-color: ChannelLists.pill-rim;
     }
     focus := FocusScope {
         key-pressed(event) => {
@@ -584,10 +692,51 @@ export component ChannelRow inherits Rectangle {
                 }
             }
             // The row's contents sit in its pointer area, so a voice spot in
-            // them takes its own clicks while the row stays hovered.
-            HorizontalLayout {
-                padding-left: 8px; padding-right: 8px; spacing: root.person ? 12px : 8px;
+            // them takes its own clicks while the row stays hovered. A
+            // theme's list lifts or turns them, with their art, never the
+            // pointer area.
+            group := Rectangle {
+                property <bool> moved: root.listed && pointer.has-hover;
+                x: 0px;
+                y: self.moved && ChannelLists.hover == 2 ? -ChannelLists.hover-amount * 1px : 0px;
+                width: root.listed && ChannelLists.fit-text ? min(parent.width - root.meta-room, contents.preferred-width) : parent.width;
+                transform-rotation: root.listed ? (ChannelLists.lean(root.seed) + (self.moved && ChannelLists.hover == 3 ? ChannelLists.hover-amount : 0)) * 1deg : 0deg;
+                transform-scale: self.moved && ChannelLists.hover == 1 ? ChannelLists.hover-amount : 1;
+                transform-origin: { x: 0px, y: self.height / 2 };
+                animate y, transform-rotation, transform-scale { duration: ChannelLists.hover-time; easing: ease-out; }
+                if root.listed && root.frame.on: TileArtBox {
+                    width: parent.width; height: parent.height; layer: root.frame;
+                    fade: pointer.has-hover && ChannelLists.hover-frame-opacity >= 0 && !root.selected ? ChannelLists.hover-frame-opacity : -1;
+                }
+                if root.listed && root.selected && ChannelLists.prefix-art.on: TileArtBox {
+                    x: max(0px, ChannelLists.inset - (ChannelLists.prefix-art.sized ? ChannelLists.prefix-art.w : 8px) - 3px);
+                    width: ChannelLists.prefix-art.sized ? ChannelLists.prefix-art.w : 8px; height: parent.height;
+                    layer: { on: true, picture: ChannelLists.prefix-art.picture, opacity: ChannelLists.prefix-art.opacity,
+                        sized: true, w: ChannelLists.prefix-art.sized ? ChannelLists.prefix-art.w : 8px,
+                        h: ChannelLists.prefix-art.sized ? ChannelLists.prefix-art.h : 10px,
+                        ax: 0, ay: 0.5, density: ChannelLists.prefix-art.density, pixelated: ChannelLists.prefix-art.pixelated };
+                    visible: !(root.blink-off && ChannelLists.blink > 0ms);
+                }
+                if root.listed && root.selected && ChannelLists.prefix != "": Text {
+                    x: max(0px, ChannelLists.inset - self.preferred-width - 3px); height: parent.height;
+                    text: ChannelLists.prefix; color: ChannelLists.prefix-colour != transparent ? ChannelLists.prefix-colour : Theme.accent-text;
+                    font-family: ChannelLists.family; font-size: ChannelLists.size >= 0px ? ChannelLists.size : ClientStyle.text-size;
+                    vertical-alignment: center; accessible-role: none;
+                    visible: !(root.blink-off && ChannelLists.blink > 0ms);
+                }
+                Timer {
+                    interval: max(100ms, ChannelLists.blink); running: root.listed && root.selected && ChannelLists.blink > 0ms && (ChannelLists.prefix != "" || ChannelLists.prefix-art.on);
+                    triggered => { root.blink-off = !root.blink-off; }
+                }
+            contents := HorizontalLayout {
+                padding-left: root.listed ? ChannelLists.inset : 8px;
+                padding-right: root.listed && !ChannelLists.fit-text ? max(8px, root.meta-room) : root.listed ? ChannelLists.inset : 8px;
+                spacing: root.person ? 12px : root.listed ? ChannelLists.icon-gap : 8px;
                 opacity: root.muted && !root.selected && !pointer.has-hover ? 0.5 : 1;
+                if root.branch != "": Text {
+                    text: root.branch; color: Chrome.tree-ink; font-family: Look.mono; font-size: ClientStyle.text-size;
+                    vertical-alignment: center; horizontal-stretch: 0; accessible-role: none;
+                }
                 if root.person: Middle {
                     Avatar {
                         size: 32px; initial: root.initial; tint: root.tint; picture: root.picture; picture-url: root.picture-url;
@@ -602,27 +751,50 @@ export component ChannelRow inherits Rectangle {
                         }
                     }
                 }
-                if !root.person && !root.thread: Image { source: root.icon; width: 20px; image-fit: contain; colorize: root.danger ? Theme.danger : root.selected && ClientStyle.enabled ? Theme.text : root.selected || root.unread ? Theme.secondary : Theme.faint; }
+                if !root.person && !root.thread && !(root.themed && Chrome.hide-channel-icons): Image {
+                    source: root.icon; width: root.listed ? ChannelLists.icon-size : 20px; image-fit: contain;
+                    // A list's own icon colours take even a coloured icon pack's
+                    // icons, as the mockups draw them.
+                    property <bool> themed-ink: root.listed && (ChannelLists.icon-follows-ink || (root.selected && ChannelLists.icon-selected != transparent)
+                        || (!root.selected && ChannelLists.icon-colour != transparent));
+                    colorize: self.themed-ink ? self.ink : IconPack.tint(self.source, self.ink);
+                    property <color> ink: (root.listed && ChannelLists.icon-follows-ink ? root.ink
+                        : root.listed && root.selected && ChannelLists.icon-selected != transparent ? ChannelLists.icon-selected
+                        : root.listed && !root.selected && ChannelLists.icon-colour != transparent ? (pointer.has-hover && ChannelLists.icon-hover != transparent ? ChannelLists.icon-hover : ChannelLists.icon-colour)
+                        : root.inverse ? Theme.row-selected-text : root.danger ? Theme.danger : root.selected && ClientStyle.enabled ? Theme.text : root.selected || root.unread ? Theme.secondary : Theme.faint);
+                }
                 text-column := VerticalLayout {
                     alignment: center; spacing: 0px; horizontal-stretch: 1;
                     HorizontalLayout {
                         alignment: start; spacing: 4px;
-                        if root.name-style.length == 0: Text {
-                            text: root.text; color: root.ink; font-size: ClientStyle.text-size; font-weight: ClientStyle.enabled ? 500 : root.unread ? 700 : root.selected ? 700 : 500;
+                        if root.name-style.length == 0 && root.listed: ListedName {
+                            text: root.marked ? Chrome.channel-before + root.text + Chrome.channel-after : root.text;
+                            ink: root.ink; selected: root.selected; bold: root.unread || root.selected;
+                        }
+                        if root.name-style.length == 0 && !root.listed: Text {
+                            text: root.marked ? Chrome.channel-before + root.text + Chrome.channel-after : root.text; accessible-label: root.text;
+                            color: root.ink; font-size: ClientStyle.text-size; font-weight: ClientStyle.enabled ? 500 : root.unread ? 700 : root.selected ? 700 : 500;
                             vertical-alignment: center; overflow: elide; horizontal-stretch: 0;
                         }
                         if root.name-style.length > 0: StyledName {
                             text: root.text; styles: root.name-style; ink: root.ink; font-size: ClientStyle.text-size; font-weight: ClientStyle.enabled ? 500 : root.unread ? 700 : root.selected ? 700 : 500;
                         }
+                        // A tree row's count in the theme's words, after the name.
+                        if root.branch != "" && Chrome.count(root.badge, root.unread, "") != "": Text {
+                            text: Chrome.count(root.badge, root.unread, "");
+                            color: root.badge != "" ? Chrome.count-ink : Theme.secondary;
+                            font-size: ClientStyle.text-size; font-weight: root.badge != "" ? 700 : 400; font-family: Look.mono;
+                            vertical-alignment: center; horizontal-stretch: 0; accessible-role: none;
+                        }
                         if root.tag != "": Middle { ServerTagChip { text: root.tag; badge: root.tag-badge; } }
                         if root.official: Middle {
                             Rectangle {
                                 // Discord's verified-style badge: blurple, 16px, a check and OFFICIAL.
-                                height: 16px; width: official-text.preferred-width + 24px; border-radius: 4px; background: Theme.accent;
+                                height: 16px; width: official-text.preferred-width + 24px; border-radius: Look.radius(4px); background: Theme.accent-fill;
                                 accessible-role: AccessibleRole.text; accessible-label: "OFFICIAL";
                                 HorizontalLayout {
                                     padding-left: 4px; padding-right: 4px; spacing: 2px; alignment: center;
-                                    Middle { Image { source: @image-url("icons/check.svg"); width: 12px; height: 12px; colorize: Theme.on-accent; accessible-role: none; } }
+                                    Middle { Image { source: IconPack.check; width: 12px; height: 12px; colorize: IconPack.tint(self.source, Theme.on-accent); accessible-role: none; } }
                                     official-text := Text { text: "OFFICIAL"; color: Theme.on-accent; font-size: 10px; font-weight: 700; vertical-alignment: center; }
                                 }
                             }
@@ -652,13 +824,13 @@ export component ChannelRow inherits Rectangle {
                 // Discord offers to wave at someone in a DM nobody has written in yet.
                 if root.offers-wave: Middle {
                     Rectangle {
-                        height: 24px; width: wave-label.preferred-width + 40px; border-radius: 4px;
-                        background: wave-touch.has-hover ? Theme.accent-hover : Theme.accent;
+                        height: 24px; width: wave-label.preferred-width + 40px; border-radius: Look.radius(4px);
+                        background: wave-touch.has-hover ? Theme.accent-hover : Theme.accent-fill;
                         accessible-role: button; accessible-label: "Wave";
                         accessible-action-default => { root.waved(); }
                         HorizontalLayout {
                             padding-left: 8px; padding-right: 8px; spacing: 4px; alignment: center;
-                            Middle { Image { source: @image-url("icons/hand.svg"); width: 14px; height: 14px; colorize: Theme.on-accent; accessible-role: none; } }
+                            Middle { Image { source: IconPack.hand; width: 14px; height: 14px; colorize: IconPack.tint(self.source, Theme.on-accent); accessible-role: none; } }
                             wave-label := Text { text: "Wave"; color: Theme.on-accent; font-size: 12px; font-weight: 500; vertical-alignment: center; }
                         }
                         wave-touch := TouchArea {
@@ -668,23 +840,24 @@ export component ChannelRow inherits Rectangle {
                     }
                 }
                 if root.call: Image {
-                    source: @image-url("icons/phone.svg"); width: 16px; image-fit: contain; colorize: Theme.live;
+                    source: IconPack.phone; width: 16px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.live);
                     accessible-role: image; accessible-label: "In a call";
                 }
                 if root.pinned: Image {
-                    source: @image-url("icons/pin.svg"); width: 14px; image-fit: contain; colorize: Theme.faint;
+                    source: IconPack.pin; width: 14px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.faint);
                 }
                 if root.fresh: Middle { NewTag { } }
                 // How long a busy voice channel's call has gone on, as
                 // Discord's client counts it from its first person in.
-                if root.voice-started > 0: Text {
+                if root.voice-started > 0 && !root.listed: Text {
                     text: ActivityClock.lasted(root.voice-started, ActivityClock.minute * 60);
                     color: Theme.muted; font-size: 12px; vertical-alignment: center;
                     accessible-role: none;
                 }
-                if root.badge != "": Middle {
+                // A theme's tree writes the count after the name instead.
+                if root.badge != "" && !root.listed && (root.branch == "" || Chrome.count-mentions == ""): Middle {
                     Rectangle {
-                        width: max(18px, badge-text.preferred-width + 10px); height: 18px; border-radius: 9px; background: Theme.danger;
+                        width: max(18px, badge-text.preferred-width + 10px); height: 18px; border-radius: Look.radius(9px); background: Theme.danger;
                         badge-text := Text { text: root.badge; color: Theme.on-danger; font-size: 11px; font-weight: 700; }
                     }
                 }
@@ -694,14 +867,14 @@ export component ChannelRow inherits Rectangle {
                 // row's menu opens the chat from the keyboard.
                 if root.chat && (pointer.has-hover || root.selected): Middle {
                     Rectangle {
-                        width: 24px; height: 24px; border-radius: 6px;
+                        width: 24px; height: 24px; border-radius: Look.radius(6px);
                         background: chat-pointer.has-hover ? Theme.overlay.with-alpha(0.08) : transparent;
                         accessible-role: button;
                         accessible-label: "Open chat";
                         accessible-action-default => { root.open-chat(); }
                         chat-icon := Image {
-                            source: @image-url("icons/message-square-text.svg"); width: 16px; height: 16px;
-                            colorize: chat-pointer.has-hover ? Theme.text : Theme.secondary;
+                            source: IconPack.message-square-text; width: 16px; height: 16px;
+                            colorize: IconPack.tint(self.source, chat-pointer.has-hover ? Theme.text : Theme.secondary);
                         }
                         chat-pointer := TouchArea {
                             mouse-cursor: MouseCursor.pointer;
@@ -720,7 +893,27 @@ export component ChannelRow inherits Rectangle {
                     }
                 }
             }
+            }
+            // A theme's list puts the mention count, the unread glyph and the
+            // voice channel's words at the row's right, upright.
+            meta := ListedMeta {
+                visible: root.listed;
+                x: parent.width - self.width - ChannelLists.meta-inset; height: parent.height;
+                badge: root.listed ? root.badge : ""; unread: root.unread; selected: root.selected;
+                voice: root.is-voice;
+                people: root.voice-count;
+                timer: root.listed && root.voice-started > 0 ? ActivityClock.lasted(root.voice-started, ActivityClock.minute * 60) : "";
+            }
         }
+    }
+    // A theme's list rings a focused row over its art, which would hide a
+    // border on the row itself.
+    if root.listed && focus.has-focus: Rectangle {
+        x: -ChannelLists.focus-outset; y: -ChannelLists.focus-outset;
+        width: parent.width + 2 * ChannelLists.focus-outset; height: parent.height + 2 * ChannelLists.focus-outset;
+        border-width: 2px; border-color: ChannelLists.focus-outset > 0px ? Theme.focus-ring : Theme.accent;
+        border-radius: ChannelLists.focus-radius >= 0px ? ChannelLists.focus-radius : root.border-radius + ChannelLists.focus-outset;
+        accessible-role: none;
     }
 }
 
@@ -738,8 +931,8 @@ export component VoiceCardView inherits Rectangle {
     height: card-layout.preferred-height;
     x: min(VoiceCard.x + 8px, root.bounds-width - self.width - 8px);
     y: max(8px, min(root.bounds - self.height - 8px, VoiceCard.y - self.height / 2));
-    border-radius: 8px; background: Theme.tooltip;
-    drop-shadow-blur: 12px; drop-shadow-color: #00000080; drop-shadow-offset-y: 3px;
+    border-radius: Look.radius(8px); background: Theme.tooltip;
+    drop-shadow-blur: Look.shadow-blur(12px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(3px);
     card-layout := VerticalLayout {
         padding: 12px; padding-top: 10px; spacing: 4px;
         Text {
@@ -757,8 +950,8 @@ export component VoiceCardView inherits Rectangle {
                 vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
             }
             if card-row.person.video && !card-row.person.elsewhere: Image {
-                source: @image-url("icons/video.svg"); width: 16px; image-fit: contain;
-                colorize: Theme.muted; accessible-role: image; accessible-label: card-row.person.name + "'s camera is on";
+                source: IconPack.video; width: 16px; image-fit: contain;
+                colorize: IconPack.tint(self.source, Theme.muted); accessible-role: image; accessible-label: card-row.person.name + "'s camera is on";
             }
             if card-row.person.live && !card-row.person.elsewhere: Middle { LivePill { clickable: false; } }
         }
@@ -771,8 +964,8 @@ export component VoiceCardView inherits Rectangle {
 // Where a channel or category dragged in the channel list would drop: a
 // line across the edge of the row it's over, as Discord draws it.
 component DropLine inherits Rectangle {
-    height: 4px; border-radius: 2px; background: Theme.live;
-    drop-shadow-blur: 3px; drop-shadow-color: #00000066;
+    height: 4px; border-radius: Look.radius(2px); background: Theme.live;
+    drop-shadow-blur: Look.shadow-blur(3px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000066);
 }
 
 // Someone listed under a voice channel: a click opens their profile and a
@@ -836,8 +1029,11 @@ component CategoryHeading inherits Rectangle {
     property <bool> refused;
     callback toggled;
     callback context-menu(length, length);
+    /// Its category's place among the server's, from 1, which a theme's
+    /// heading may show.
+    in property <int> place;
     // Discord keeps 17px above a category's name, then 21px for its line.
-    height: 38px;
+    height: ChannelLists.on && ChannelLists.head-height >= 0px ? ChannelLists.head-height : 38px;
     accessible-role: button;
     accessible-label: root.text + (root.collapsed ? ", collapsed" : ", expanded");
     accessible-action-default => { root.toggled(); }
@@ -846,16 +1042,41 @@ component CategoryHeading inherits Rectangle {
     /// pointer is over it.
     in property <bool> can-create;
     callback create;
-    property <color> ink: touch.has-hover ? Theme.secondary : Theme.muted;
+    property <color> ink: Trim.label.on ? Trim.label.text : touch.has-hover ? Theme.secondary : Theme.muted;
+    // A theme's label bar under the words.
+    if Trim.label.on: FrameGround {
+        x: 8px; y: 15px; width: parent.width - 16px; height: 22px; frame: Trim.label;
+        opacity: touch.has-hover ? 0.88 : 1;
+        if Trim.label-art.length > 0: ArtLayer { x: 0px; y: 0px; width: parent.width; height: parent.height; layers: Trim.label-art; radius: Trim.label.radius; }
+    }
     HorizontalLayout {
-        padding-left: 16px; padding-right: 8px; padding-top: 17px; spacing: 4px;
-        Text {
-            text: root.text; color: root.ink; font-size: 14px; font-weight: 600; letter-spacing: 0px;
+        padding-left: ChannelLists.on && ChannelLists.head-on ? ChannelLists.head-inset : 16px; padding-right: 8px; spacing: 4px;
+        padding-top: ChannelLists.on && ChannelLists.head-on && ChannelLists.head-ransom ? max(0px, root.height - 34px) : root.height - 21px;
+        padding-bottom: ChannelLists.on && ChannelLists.head-on && ChannelLists.head-ransom ? 4px : 0px;
+        if ChannelLists.on && ChannelLists.head-on && !ChannelLists.head-ransom: ListedHeadingText {
+            text: root.text; place: root.place; ink: root.ink; tail: 26px;
+            list-x: root.absolute-position.x; list-width: root.width;
+        }
+        if ChannelLists.on && ChannelLists.head-on && ChannelLists.head-ransom: Rectangle {
+            min-width: heading-ransom.min-width; preferred-width: heading-ransom.preferred-width; horizontal-stretch: 0;
+            heading-ransom := RansomName {
+                x: 0px; y: (parent.height - self.height) / 2; width: parent.width; height: self.preferred-height;
+                text: ChannelLists.cased(ChannelLists.head-text != "" ? ChannelLists.fill(ChannelLists.head-text, root.text, root.place) : root.text, ChannelLists.head-case);
+                font-size: ChannelLists.head-size >= 0px ? ChannelLists.head-size : 14px; font-weight: 600;
+            }
+        }
+        if !(ChannelLists.on && ChannelLists.head-on): Text {
+            property <string> named: Chrome.category != "" ? Chrome.fill(Chrome.category, "name", root.text) : root.text;
+            text: Trim.cased(Trim.label, Chrome.folders ? Chrome.folder(self.named, !root.collapsed) : self.named); accessible-label: root.text;
+            font-family: Trim.label.on ? Look.label-font("") : Chrome.category != "" || Chrome.folders ? Chrome.font : "";
+            color: root.ink; font-size: 14px; font-weight: Trim.label.on ? Look.label-weight(700) : 600; letter-spacing: 0px;
             vertical-alignment: center; overflow: elide; horizontal-stretch: 0;
         }
-        Image {
-            source: @image-url("icons/chevron-down.svg");
-            width: 12px; image-fit: contain; colorize: root.ink;
+        // A theme's tree marks a closed folder with an ellipsis instead.
+        if Chrome.tree-channels && root.collapsed && !Chrome.folders: Text { text: "…"; color: root.ink; font-size: 14px; vertical-alignment: center; accessible-role: none; }
+        if !Chrome.tree-channels && !Chrome.folders && !(ChannelLists.on && !ChannelLists.head-chevron): Image {
+            source: IconPack.chevron-down;
+            width: 12px; image-fit: contain; colorize: IconPack.tint(self.source, root.ink);
             transform-rotation: root.collapsed ? -90deg : 0deg;
             animate transform-rotation { duration: 120ms; easing: ease-out; }
         }
@@ -908,9 +1129,9 @@ component CategoryHeading inherits Rectangle {
         x: parent.width - self.width - 8px; y: 16px; width: 24px; height: 24px;
         opacity: root.can-create && (touch.has-hover || add-touch.has-hover) ? 1 : 0;
         Image {
-            source: @image-url("icons/plus.svg"); width: 16px; height: 16px;
+            source: IconPack.plus; width: 16px; height: 16px;
             x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
-            colorize: add-touch.has-hover ? Theme.text : Theme.muted; accessible-role: none;
+            colorize: IconPack.tint(self.source, add-touch.has-hover ? Theme.text : Theme.muted); accessible-role: none;
         }
         add-touch := TouchArea {
             enabled: root.can-create;
@@ -919,7 +1140,7 @@ component CategoryHeading inherits Rectangle {
         }
     }
     Rectangle {
-        border-radius: 4px; border-width: focus.has-focus ? 2px : 0px; border-color: Theme.accent;
+        border-radius: Look.radius(4px); border-width: focus.has-focus ? 2px : 0px; border-color: Theme.accent;
     }
 }
 
@@ -937,7 +1158,7 @@ export component ServerHeader inherits Rectangle {
     /// The name sits over the server's banner, in white.
     in property <bool> on-banner;
     callback clicked;
-    border-radius: 6px;
+    border-radius: Look.radius(6px);
     background: touch.has-hover || root.open ? Theme.hover : transparent;
     accessible-role: button;
     accessible-label: root.name + ", server menu";
@@ -958,24 +1179,41 @@ export component ServerHeader inherits Rectangle {
         // only a Community server with the Community badge.
         if root.community && !(ClientStyle.enabled && root.verified): VerticalLayout {
             alignment: center;
-            Image { source: @image-url("icons/community.svg"); width: ClientStyle.enabled ? 16px : 20px; height: ClientStyle.enabled ? 16px : 20px; colorize: Theme.text; accessible-role: none; }
+            Image { source: IconPack.community; width: ClientStyle.enabled ? 16px : 20px; height: ClientStyle.enabled ? 16px : 20px; colorize: IconPack.tint(self.source, Theme.text); accessible-role: none; }
         }
         if ClientStyle.enabled && root.verified: VerticalLayout {
             alignment: center;
-            Image { source: @image-url("icons/verified.svg"); width: 16px; height: 16px; accessible-role: none; }
+            Image { source: IconPack.verified; width: 16px; height: 16px; accessible-role: none; }
         }
         // Discord's chevron follows the name closely, small and light.
         HorizontalLayout {
             spacing: ClientStyle.enabled ? 0px : 6px;
-            Text {
-                text: root.name; font-size: ClientStyle.text-size;
-                font-weight: ClientStyle.enabled ? 600 : 700;
-                color: root.on-banner ? #ffffff : Theme.text;
-                vertical-alignment: center; overflow: elide;
+            // The server.name slot, moved inside a box the layout measures as
+            // the name.
+            Rectangle {
+                min-width: 0px; preferred-width: server-name.preferred-width; horizontal-stretch: 0;
+                accessible-role: text; accessible-label: root.name;
+                if Art.headings.on && !Look.readable: ArtTextBehind {
+                    x: server-name.x; y: server-name.y; width: parent.width; height: parent.height; art: Art.headings;
+                    text: server-name.text; font-size: server-name.font-size; font-weight: server-name.font-weight;
+                    font-family: server-name.font-family; letter-spacing: server-name.letter-spacing; overflow: elide; vertical-alignment: center;
+                    opacity: server-name.opacity; transform-scale: server-name.transform-scale; transform-rotation: server-name.transform-rotation;
+                }
+                server-name := Text {
+                    stroke: Art.outline(Art.headings); stroke-width: Look.readable ? 0px : Art.headings.outline; stroke-style: outside;
+                    x: Look.server-name.x; y: Look.server-name.y; width: parent.width; height: parent.height;
+                    text: Look.server-text(Look.heading(root.name)); accessible-role: none;
+                    font-size: Look.header-size(ClientStyle.text-size);
+                    font-weight: Look.header-weight(ClientStyle.enabled ? 600 : 700);
+                    font-family: Look.header-font(""); letter-spacing: Look.header-spacing;
+                    color: root.on-banner ? #ffffff : Theme.text;
+                    vertical-alignment: center; overflow: elide;
+                    opacity: Look.server-name.opacity; transform-scale: Look.server-name.scale; transform-rotation: Look.server-name.rotation * 1deg;
+                }
             }
             Image {
-                source: @image-url("icons/chevron-down.svg"); width: ClientStyle.enabled ? 16px : 20px; height: ClientStyle.enabled ? 16px : 20px; y: (parent.height - self.height) / 2;
-                colorize: root.on-banner ? #ffffff : ClientStyle.enabled ? Theme.secondary : Theme.muted; transform-rotation: root.open ? 180deg : 0deg;
+                source: IconPack.chevron-down; width: ClientStyle.enabled ? 16px : 20px; height: ClientStyle.enabled ? 16px : 20px; y: (parent.height - self.height) / 2;
+                colorize: IconPack.tint(self.source, root.on-banner ? #ffffff : ClientStyle.enabled ? Theme.secondary : Theme.muted); transform-rotation: root.open ? 180deg : 0deg;
                 animate transform-rotation { duration: 120ms; easing: ease-out; }
             }
         }
@@ -1009,35 +1247,224 @@ export component ServerRail inherits Rectangle {
     /// Whether the "+" at the foot offers to join a Discord server.
     in property <bool> can-join;
     callback join-server;
-    width: 72px; background: Theme.rail;
-    VerticalLayout {
-        padding-top: ClientStyle.enabled ? 0px : 12px; padding-bottom: 12px; spacing: 8px;
+    /// A theme's layout runs the rail along the window's top.
+    in property <bool> horizontal;
+    /// The open server's name, which a theme's text rail may end with.
+    in property <string> selected-name;
+    /// Draws a theme's rail art itself: on the right or the top, where the
+    /// navigation pane that draws it on the left isn't behind it.
+    in property <bool> own-art;
+    // On the left, the navigation pane draws the rail's ground and art
+    // beneath it: the rail paints no ground of its own over that art.
+    width: Chrome.rail-px; background: Art.glass-rail || (!root.own-art && Art.rail.length > 0) ? transparent : Theme.rail-fill;
+    // In a theme's floating pane (a gap, rounded corners or a glass rim),
+    // the first server keeps the rail's own spacing, 8px, from the pane's
+    // edge, plus the rim: a lift on hover never meets it. Stock keeps 0.
+    property <length> pane-inset: Art.rail-paned ? 8px + Art.rail-rim : 0px;
+    if root.own-art && (Art.rail.length > 0 || Art.glass-rail): ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height; layers: Art.rail; glass: Art.glass-rail; ground: Theme.rail-fill;
+    }
+    // A theme's tiles' own ground under them, such as a column down an edge.
+    if Rails.on: Rectangle {
+        for layer in Rails.grounds: TileArtBox { x: 0px; y: 0px; width: root.width; height: root.height; layer: layer; }
+    }
+    if root.horizontal: Flickable {
+        content-width: across.preferred-width;
+        across := HorizontalLayout {
+            padding-left: max(6px, root.pane-inset); padding-right: max(6px, root.pane-inset); spacing: 0px; alignment: start;
+            height: parent.height;
+            RailItem {
+                width: 60px; y: (parent.height - self.height) / 2;
+                icon: IconPack.logo; icon-color: Theme.accent-text; icon-size: ClientStyle.enabled ? 24px : 32px; home: true;
+                label: "Direct messages" + (root.dms-badge != "" ? ", " + root.dms-badge + " waiting" : root.dms-unread ? ", unread" : "");
+                tip: "Direct messages";
+                selected: root.dms-selected; unread: root.dms-unread; badge: root.dms-badge;
+                clicked => { root.navigate-dms(); }
+            }
+            for server in root.servers: Rectangle {
+                width: server.divider ? 9px : 60px;
+                if server.divider: Rectangle { x: 4px; width: 1px; height: 32px; background: Theme.outline; }
+                if server.folder: FolderItem {
+                    x: -6px; width: 72px; y: (parent.height - self.height) / 2;
+                    label: server.name + " folder, " + (server.open ? "open" : "closed");
+                    tip: server.name;
+                    open: false; tint: server.tint; servers: server.preview;
+                    selected: server.selected; unread: server.unread; badge: server.badge; call: server.call;
+                    clicked => { root.toggle-folder(server.id); }
+                    context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
+                }
+                if !server.folder && !server.divider: RailItem {
+                    width: 60px; y: (parent.height - self.height) / 2;
+                    initial: server.initial; picture: server.picture; picture-url: server.picture-url;
+                    label: server.name + (server.dm ? ", unread" : "") + (server.badge != "" ? ", " + server.badge + " mentions" : server.unread ? ", unread" : "");
+                    tip: server.name;
+                    selected: server.selected; unread: server.unread || server.dm; badge: server.badge; discord: server.discord;
+                    call: server.call; opacity: server.unavailable ? 0.5 : 1;
+                    clicked => { if server.dm { root.open-dm(server.id); } else { root.navigate-server(server.id); } }
+                    context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
+                }
+            }
+            if root.can-join: RailItem {
+                width: 60px; y: (parent.height - self.height) / 2;
+                icon: IconPack.circle-plus; icon-color: Theme.accent; icon-size: 24px;
+                label: "Join a server"; tip: "Join a server";
+                clicked => { root.join-server(); }
+            }
+        }
+    }
+    // A theme's text rail: the servers' names as rows of text.
+    if !root.horizontal && Chrome.rail-text: VerticalLayout {
+        padding: 8px; padding-top: max(8px, root.pane-inset); padding-bottom: max(8px, root.pane-inset); spacing: 0px;
+        if Chrome.rail-title != "": Text {
+            text: Chrome.rail-title; color: Theme.muted; font-size: 14px; wrap: word-wrap; accessible-role: none;
+            font-family: Chrome.font;
+        }
         RailItem {
-            // The app's logo, as Discord puts its own here.
-            icon: @image-url("icons/logo.svg"); icon-color: Theme.accent; icon-size: ClientStyle.enabled ? 24px : 32px;
+            text-mode: true; width: Chrome.rail-px - 16px;
+            text: Chrome.rail-home != "" ? Chrome.rail-home : "Direct messages";
             label: "Direct messages" + (root.dms-badge != "" ? ", " + root.dms-badge + " waiting" : root.dms-unread ? ", unread" : "");
             tip: "Direct messages";
             selected: root.dms-selected; unread: root.dms-unread; badge: root.dms-badge;
             clicked => { root.navigate-dms(); }
         }
-        if ClientStyle.enabled: Rectangle {
+        ListView {
+            vertical-stretch: 1;
+            for server[index] in root.servers: Rectangle {
+                height: server.divider ? 6px : 22px;
+                // A theme's tree: a branch for each, the last before a divider or the end closing it.
+                property <bool> last: index == root.servers.length - 1 || root.servers[index + 1].divider;
+                property <string> branch: !Chrome.tree-rail ? "" : server.nested ? Chrome.nested(false, server.last) : Chrome.branch(self.last);
+                if server.folder: RailItem {
+                    text-mode: true; x: 0px; y: 0px; width: parent.width; branch: parent.branch;
+                    text: Chrome.folders ? Chrome.folder(server.name, server.open) : (server.open ? "- " : "+ ") + server.name + Chrome.server-after;
+                    label: server.name + " folder, " + (server.open ? "open" : "closed") + (server.call && !server.open ? ", in a call" : "")
+                        + (server.badge != "" ? ", " + server.badge + " mentions" : server.unread ? ", unread" : "");
+                    tip: server.name;
+                    selected: server.selected && !server.open; unread: server.unread && !server.open; badge: server.open ? "" : server.badge; call: server.call && !server.open;
+                    clicked => { root.toggle-folder(server.id); }
+                    context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
+                }
+                if server.dm: RailItem {
+                    text-mode: true; x: 0px; y: 0px; width: parent.width; branch: parent.branch;
+                    text: "@" + server.name;
+                    label: server.name + (server.discord && root.matrix-build ? ", Discord" : "")
+                        + (server.badge != "" ? ", " + server.badge + " unread" : ", unread");
+                    tip: server.name;
+                    unread: true; badge: server.badge;
+                    clicked => { root.open-dm(server.id); }
+                    context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
+                }
+                if !server.folder && !server.dm && !server.divider: RailItem {
+                    text-mode: true; x: 0px; y: 0px; width: parent.width; branch: parent.branch;
+                    text: (server.nested && !Chrome.tree-rail ? "  " : "") + Chrome.server-before + server.name + Chrome.server-after;
+                    label: server.name + (server.discord && root.matrix-build ? ", Discord" : "") + (server.unavailable ? ", unavailable" : "")
+                        + (server.call ? ", in a call" : "")
+                        + (server.badge != "" ? ", " + server.badge + " mentions" : server.unread ? ", unread" : "");
+                    tip: server.unavailable ? server.name + " (unavailable in a Discord outage)" : server.name;
+                    selected: server.selected; unread: server.unread; badge: server.badge; call: server.call;
+                    opacity: server.unavailable ? 0.5 : 1;
+                    clicked => { root.navigate-server(server.id); }
+                    context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
+                }
+            }
+        }
+        if root.can-join: RailItem {
+            text-mode: true; width: Chrome.rail-px - 16px;
+            text: "+ join"; label: "Join a server"; tip: "Join a server";
+            clicked => { root.join-server(); }
+        }
+        if Chrome.rail-footer != "" && root.selected-name != "": Text {
+            text: Chrome.fill(Chrome.rail-footer, "server", root.selected-name); color: Theme.muted; font-size: 14px;
+            font-family: Chrome.font;
+            wrap: word-wrap; accessible-role: none;
+        }
+    }
+    if !root.horizontal && !Chrome.rail-text: VerticalLayout {
+        padding-top: max(ClientStyle.enabled ? 0px : 12px, root.pane-inset); padding-bottom: max(12px, root.pane-inset); spacing: Rails.on ? 0px : 8px;
+        // A theme's tiles (`Rails`): the home tile framed as the servers are.
+        if Rails.on: TileRailItem {
+            icon: IconPack.logo; icon-color: Theme.accent-text; icon-size: 24px; home: true;
+            label: "Direct messages" + (root.dms-badge != "" ? ", " + root.dms-badge + " waiting" : root.dms-unread ? ", unread" : "");
+            tip: "Direct messages"; name: "DMs"; seed: 0;
+            selected: root.dms-selected; unread: root.dms-unread; badge: root.dms-badge;
+            clicked => { root.navigate-dms(); }
+        }
+        if Rails.on && Rails.divider-on: TileDivider {}
+        if !Rails.on: RailItem {
+            // The app's logo, as Discord puts its own here.
+            icon: IconPack.logo; icon-color: Theme.accent-text; icon-size: ClientStyle.enabled ? 24px : 32px; home: true;
+            label: "Direct messages" + (root.dms-badge != "" ? ", " + root.dms-badge + " waiting" : root.dms-unread ? ", unread" : "");
+            tip: "Direct messages";
+            selected: root.dms-selected; unread: root.dms-unread; badge: root.dms-badge;
+            clicked => { root.navigate-dms(); }
+        }
+        if ClientStyle.enabled && !(Rails.on && Rails.divider-on): Rectangle {
             height: 1px;
             Rectangle { width: 32px; height: 1px; background: Theme.outline; }
         }
         // A list view makes only the servers in sight, which
         // matters on accounts in many servers. Unread DMs scroll with them.
+        // A theme's tiles fill the rail edge to edge, with no scroll bar.
         ListView {
             vertical-stretch: 1;
+            vertical-scrollbar-policy: Rails.on ? ScrollBarPolicy.always-off : ScrollBarPolicy.as-needed;
             for server[index] in root.servers: Rectangle {
                 // Home already has a pinned separator. Keep the model's line
                 // only when it separates unread DMs from servers below them.
-                height: server.divider ? (ClientStyle.enabled && index == 0 ? 0px : (ClientStyle.enabled ? 1px : 2px) + 8px) : (server.folder ? ClientStyle.folder-tile : ClientStyle.rail-tile) + (ClientStyle.enabled && ((server.folder && server.open) || (server.nested && server.last)) ? 4px : 0px) + (ClientStyle.enabled && server.folder && server.open ? 0px : 8px);
+                // A theme's tiles each take their slot with the gap above it.
+                height: Rails.on && !server.divider ? Rails.gap + Rails.slot-h
+                    : server.divider ? (ClientStyle.enabled && index == 0 ? 0px : (ClientStyle.enabled ? 1px : 2px) + 8px) : (server.folder ? ClientStyle.folder-tile : ClientStyle.rail-tile) + (ClientStyle.enabled && ((server.folder && server.open) || (server.nested && server.last)) ? 4px : 0px) + (ClientStyle.enabled && server.folder && server.open ? 0px : 8px);
+                // A link between this tile and the one above, such as a chain:
+                // from that one's frame to this one's.
+                if Rails.on && Rails.between.on && index > 0 && !server.divider && !server.dm && !root.servers[index - 1].divider && !root.servers[index - 1].dm: TileBetween {
+                    y: -Rails.pad; width: parent.width; height: Rails.gap + 2 * Rails.pad;
+                }
+                if Rails.on && (server.open || server.nested): Rectangle {
+                    x: (parent.width - Rails.slot-w) / 2; y: server.open ? Rails.gap : 0px; width: Rails.slot-w;
+                    height: server.last ? Rails.gap + Rails.slot-h : parent.height - self.y;
+                    border-top-left-radius: server.open ? 12px : 0px; border-top-right-radius: self.border-top-left-radius;
+                    border-bottom-left-radius: server.last ? 12px : 0px; border-bottom-right-radius: self.border-bottom-left-radius;
+                    background: server.tint.with-alpha(0.16);
+                }
+                if Rails.on && server.folder: TileFolderItem {
+                    y: Rails.gap; width: parent.width;
+                    label: server.name + " folder, " + (server.open ? "open" : "closed") + (server.call && !server.open ? ", in a call" : "")
+                        + (server.badge != "" ? ", " + server.badge + " mentions" : server.unread ? ", unread" : "");
+                    tip: server.name; name: server.name; seed: server.seed;
+                    open: server.open; tint: server.tint; servers: server.preview;
+                    selected: server.selected; unread: server.unread; badge: server.badge; call: server.call;
+                    clicked => { root.toggle-folder(server.id); }
+                    context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
+                }
+                if Rails.on && server.dm: TileRailItem {
+                    y: Rails.gap; width: parent.width;
+                    initial: server.initial; picture-url: server.picture-url; name: server.name; seed: server.seed;
+                    label: server.name + (server.discord && root.matrix-build ? ", Discord" : "")
+                        + (server.badge != "" ? ", " + server.badge + " unread" : ", unread");
+                    tip: server.discord && root.matrix-build ? server.name + " (Discord)" : server.name;
+                    unread: true; badge: server.badge; discord: server.discord;
+                    clicked => { root.open-dm(server.id); }
+                    context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
+                }
+                if Rails.on && !server.folder && !server.dm && !server.divider: TileRailItem {
+                    y: Rails.gap; width: parent.width; place: index;
+                    initial: server.initial; picture: server.picture; picture-url: server.picture-url; name: server.name; seed: server.seed;
+                    label: server.name + (server.discord && root.matrix-build ? ", Discord" : "") + (server.unavailable ? ", unavailable" : "")
+                        + (server.call ? ", in a call" : "")
+                        + (server.badge != "" ? ", " + server.badge + " mentions" : server.unread ? ", unread" : "");
+                    tip: server.unavailable ? server.name + " (unavailable in a Discord outage)" : server.discord && root.matrix-build ? server.name + " (Discord)" : server.name;
+                    selected: server.selected; unread: server.unread; badge: server.badge; discord: server.discord;
+                    call: server.call;
+                    opacity: server.unavailable ? 0.5 : 1;
+                    clicked => { root.navigate-server(server.id); }
+                    context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
+                }
                 if server.divider && (!ClientStyle.enabled || index > 0): Rectangle {
                     x: (72px - self.width) / 2; y: 0px; width: 32px; height: ClientStyle.enabled ? 1px : 2px; border-radius: ClientStyle.enabled ? 0px : 1px; background: ClientStyle.enabled ? Theme.outline : Theme.line;
                 }
                 // An open folder's servers sit on a strip of its colour,
                 // from its folder down to its last server.
-                if server.open || server.nested: Rectangle {
+                if !Rails.on && (server.open || server.nested): Rectangle {
                     x: (72px - ClientStyle.folder-tile) / 2; y: 0px; width: ClientStyle.folder-tile; height: server.last ? ClientStyle.rail-tile + (ClientStyle.enabled ? 4px : 0px) : parent.height;
                     border-top-left-radius: server.open ? (ClientStyle.enabled ? 12px : 16px) : 0px;
                     border-top-right-radius: self.border-top-left-radius;
@@ -1045,7 +1472,7 @@ export component ServerRail inherits Rectangle {
                     border-bottom-right-radius: self.border-bottom-left-radius;
                     background: server.tint.with-alpha(0.16);
                 }
-                if server.folder: FolderItem {
+                if !Rails.on && server.folder: FolderItem {
                     y: 0px;
                     label: server.name + " folder, " + (server.open ? "open" : "closed") + (server.call && !server.open ? ", in a call" : "")
                         + (server.badge != "" ? ", " + server.badge + " mentions" : server.unread ? ", unread" : "");
@@ -1055,7 +1482,7 @@ export component ServerRail inherits Rectangle {
                     clicked => { root.toggle-folder(server.id); }
                     context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
                 }
-                if server.dm: RailItem {
+                if !Rails.on && server.dm: RailItem {
                     y: 0px;
                     initial: server.initial; picture-url: server.picture-url;
                     label: server.name + (server.discord && root.matrix-build ? ", Discord" : "")
@@ -1065,8 +1492,8 @@ export component ServerRail inherits Rectangle {
                     clicked => { root.open-dm(server.id); }
                     context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
                 }
-                if !server.folder && !server.dm && !server.divider: RailItem {
-                    y: 0px;
+                if !Rails.on && !server.folder && !server.dm && !server.divider: RailItem {
+                    y: 0px; place: index;
                     initial: server.initial; picture: server.picture; picture-url: server.picture-url;
                     label: server.name + (server.discord && root.matrix-build ? ", Discord" : "") + (server.unavailable ? ", unavailable" : "")
                         + (server.call ? ", in a call" : "")
@@ -1080,8 +1507,17 @@ export component ServerRail inherits Rectangle {
                 }
             }
         }
-        if root.can-join: RailItem {
-            icon: @image-url("icons/circle-plus.svg"); icon-color: Theme.accent; icon-size: 24px;
+        // A theme's art over the add button, such as a power light.
+        if Rails.on && Rails.foot.on: TileArtBox {
+            height: Rails.foot.sized && Rails.foot.h > 0px ? Rails.foot.h : 48px; layer: Rails.foot;
+        }
+        if Rails.on && Rails.add-on && root.can-join: Rectangle { height: Rails.add-gap; }
+        if root.can-join && Rails.on && Rails.add-on: TileAddItem {
+            label: "Join a server"; tip: "Join a server";
+            clicked => { root.join-server(); }
+        }
+        if root.can-join && !(Rails.on && Rails.add-on): RailItem {
+            icon: IconPack.circle-plus; icon-color: Theme.accent; icon-size: 24px;
             label: "Join a server"; tip: "Join a server";
             clicked => { root.join-server(); }
         }
@@ -1101,14 +1537,14 @@ component DmScreenLinks inherits VerticalLayout {
     padding-top: 6px; padding-bottom: 6px; spacing: 2px;
     ChannelRow {
         text: "Friends";
-        icon: @image-url("icons/users.svg");
+        icon: IconPack.users;
         selected: root.friends-open;
         clicked => { root.open-friends(); }
     }
     ChannelRow {
         text: "Requests";
         label: "Requests" + (root.requests-badge != "" ? ", " + root.requests-badge + " waiting" : "");
-        icon: @image-url("icons/inbox.svg");
+        icon: IconPack.inbox;
         selected: root.requests-current; badge: root.requests-badge;
         clicked => { root.open-requests(); }
     }
@@ -1122,13 +1558,94 @@ component BrowseLink inherits VerticalLayout {
     padding-top: 6px; padding-bottom: 6px;
     ChannelRow {
         text: "Browse channels";
-        icon: @image-url("icons/hash.svg");
+        icon: IconPack.hash;
         selected: root.browsing;
         clicked => { root.open-browse(); }
     }
 }
 
+// A theme's sidebar as one tree (`layout.rail: "tree"`): its root, the
+// direct messages and the servers and folders as rows, the head down to the
+// open server and the tail after it, with the open server's channels (the
+// RoomList) between them. Each row's keys, menu and accessible name are the
+// rail's.
+export component ServerTree inherits VerticalLayout {
+    in property <[ServerRow]> servers;
+    /// The head: the root, the direct messages and the rows up to `at`;
+    /// otherwise the rows after it.
+    in property <bool> head;
+    in property <int> at: Trim.tree-at;
+    in property <bool> dms-selected;
+    in property <bool> dms-unread;
+    in property <string> dms-badge;
+    /// The open server's channels are folded away.
+    in property <bool> folded;
+    in property <bool> matrix-build: true;
+    callback navigate-dms;
+    callback navigate-server(string);
+    callback toggle-folder(string);
+    callback open-dm(string);
+    callback open-server-menu(string, length, length);
+    /// The open server's or the direct messages' row was clicked again.
+    callback fold;
+    padding-left: 8px; padding-right: 8px; spacing: 0px;
+    padding-top: root.head ? 6px : 0px; padding-bottom: root.head ? 0px : 8px;
+    if root.head: Text {
+        height: 22px; text: Trim.tree-root; color: Chrome.tree-ink; font-family: Look.mono; font-size: 14px;
+        vertical-alignment: center; overflow: elide; accessible-role: none;
+    }
+    if root.head: RailItem {
+        text-mode: true; width: root.width - 16px; branch: Chrome.branch(root.servers.length == 0);
+        text: Chrome.folders ? Chrome.folder(Trim.tree-dms, root.dms-selected && !root.folded) : Trim.tree-dms + "/";
+        label: "Direct messages" + (root.dms-badge != "" ? ", " + root.dms-badge + " waiting" : root.dms-unread ? ", unread" : "");
+        tip: "Direct messages";
+        selected: root.dms-selected; unread: root.dms-unread; badge: root.dms-badge;
+        clicked => { if root.dms-selected { root.fold(); } else { root.navigate-dms(); } }
+    }
+    for server[index] in root.servers: tree-row := Rectangle {
+        property <bool> shown: !server.divider && (root.head ? index <= root.at : index > root.at);
+        property <bool> last: index == root.servers.length - 1;
+        property <bool> open: index == root.at && !root.dms-selected && !root.folded;
+        height: self.shown ? 22px : 0px;
+        property <string> branch: server.nested ? Chrome.nested(false, server.last) : Chrome.branch(self.last);
+        if tree-row.shown && server.folder: RailItem {
+            text-mode: true; x: 0px; y: 0px; width: parent.width; branch: parent.branch;
+            text: Chrome.folders ? Chrome.folder(server.name, server.open) : (server.open ? "- " : "+ ") + server.name + "/";
+            label: server.name + " folder, " + (server.open ? "open" : "closed") + (server.call && !server.open ? ", in a call" : "")
+                + (server.badge != "" ? ", " + server.badge + " mentions" : server.unread ? ", unread" : "");
+            tip: server.name;
+            selected: server.selected && !server.open; unread: server.unread && !server.open; badge: server.open ? "" : server.badge; call: server.call && !server.open;
+            clicked => { root.toggle-folder(server.id); }
+            context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
+        }
+        if tree-row.shown && server.dm: RailItem {
+            text-mode: true; x: 0px; y: 0px; width: parent.width; branch: parent.branch;
+            text: "@" + server.name;
+            label: server.name + (server.discord && root.matrix-build ? ", Discord" : "")
+                + (server.badge != "" ? ", " + server.badge + " unread" : ", unread");
+            tip: server.name;
+            unread: true; badge: server.badge;
+            clicked => { root.open-dm(server.id); }
+            context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
+        }
+        if tree-row.shown && !server.folder && !server.dm: RailItem {
+            text-mode: true; x: 0px; y: 0px; width: parent.width; branch: parent.branch;
+            text: Chrome.folders ? Chrome.folder(Chrome.server-before + server.name, parent.open) : Chrome.server-before + server.name + "/";
+            label: server.name + (server.discord && root.matrix-build ? ", Discord" : "") + (server.unavailable ? ", unavailable" : "")
+                + (server.call ? ", in a call" : "")
+                + (server.badge != "" ? ", " + server.badge + " mentions" : server.unread ? ", unread" : "");
+            tip: server.unavailable ? server.name + " (unavailable in a Discord outage)" : server.name;
+            selected: server.selected; unread: server.unread; badge: server.badge; call: server.call;
+            opacity: server.unavailable ? 0.5 : 1;
+            clicked => { if server.selected { root.fold(); } else { root.navigate-server(server.id); } }
+            context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
+        }
+    }
+}
+
 export component RoomList inherits Rectangle {
+    /// Room on the left of every row, as a theme's tree nests the list.
+    in property <length> indent;
     in property <[RoomRow]> rooms;
     in property <bool> dms-selected;
     in property <bool> discord-linked;
@@ -1269,6 +1786,20 @@ export component RoomList inherits Rectangle {
     pure function aimed(place: int) -> bool {
         return root.arranging > 0 && place > 0 && root.hovered == place && place != root.arranging && root.droppable[place - 1];
     }
+    /// The open server's name, which a theme's tree root may name.
+    in property <string> server-name;
+    // A theme's file tree: whether a row is its group's last, past the
+    // threads under it (at most three looked past), and the row a thread
+    // hangs from.
+    pure function past-threads(index: int) -> int {
+        !root.rooms[index + 1].thread ? index + 1 : !root.rooms[index + 2].thread ? index + 2 : !root.rooms[index + 3].thread ? index + 3 : index + 4
+    }
+    pure function tree-last(index: int) -> bool {
+        root.past-threads(index) >= root.rooms.length || root.rooms[root.past-threads(index)].heading != ""
+    }
+    pure function thread-parent(index: int) -> int {
+        !root.rooms[index - 1].thread ? index - 1 : !root.rooms[index - 2].thread ? index - 2 : index - 3
+    }
     pure function dimmed(voice: bool) -> bool {
         return root.arranging > 0 && (root.dragged-category || voice != root.dragged-voice);
     }
@@ -1321,8 +1852,8 @@ export component RoomList inherits Rectangle {
             changed content-y => { VoiceCard.people = []; }
             vertical-stretch: 1;
             for room[index] in root.rooms: VerticalLayout {
-                padding-left: 8px; padding-right: 8px;
-                padding-bottom: index == root.rooms.length - 1 ? 12px : 2px;
+                padding-left: 8px + root.indent; padding-right: 8px;
+                padding-bottom: index == root.rooms.length - 1 ? 12px : ChannelLists.on && !room.direct ? ChannelLists.gap : 2px;
                 spacing: 2px;
                 if index == 0 && root.screens: DmScreenLinks {
                     friends-open: root.friends-open; requests-current: root.requests-current; requests-badge: root.requests-badge;
@@ -1333,6 +1864,13 @@ export component RoomList inherits Rectangle {
                     discord-linked: root.discord-linked;
                     add-friend => { root.open-add-friend(); }
                     new-message => { root.open-new-dm(); }
+                }
+                if index == 0 && Chrome.tree-channels && Chrome.tree-root != "" && !root.dms-selected: HorizontalLayout {
+                    padding-left: 8px; height: 24px;
+                    Text {
+                        text: Chrome.fill(Chrome.tree-root, "server", root.server-name); color: Chrome.tree-ink; font-family: Look.mono;
+                        font-size: ClientStyle.text-size; vertical-alignment: center; overflow: elide; accessible-role: none;
+                    }
                 }
                 if index == 0 && root.browse-offered: BrowseLink {
                     browsing: root.browsing;
@@ -1352,7 +1890,7 @@ export component RoomList inherits Rectangle {
                     }
                 }
                 if room.heading != "" && !(room.pinned && !room.direct): CategoryHeading {
-                    text: room.heading; collapsed: room.collapsed;
+                    text: room.heading; collapsed: room.collapsed; place: room.group;
                     can-create: root.may-create(room.id);
                     create => { root.create-channel(room.id); }
                     toggled => { root.toggle-category(room.category); }
@@ -1379,7 +1917,7 @@ export component RoomList inherits Rectangle {
                 // to the next of its threads.
                 if !room.hidden && room.thread: HorizontalLayout {
                     spacing: 0px;
-                    Rectangle {
+                    if !Chrome.tree-channels: Rectangle {
                         width: 28px;
                         Path {
                             x: 0px; y: -2px; width: 28px; height: 38px;
@@ -1389,7 +1927,8 @@ export component RoomList inherits Rectangle {
                         }
                     }
                     ChannelRow {
-                        text: room.name; thread: true;
+                        text: room.name; thread: true; themed: true; striped: Trim.stripe-channels && Math.mod(index, 2) == 1;
+                        branch: Chrome.tree-channels ? Chrome.nested(root.tree-last(root.thread-parent(index)), !room.thread-continues) : "";
                         opacity: root.dimmed(false) || root.unfit(index) ? 0.3 : 1;
                         tracking: root.dragging;
                         dragged(y) => { root.follow(list.absolute-position.x, y); }
@@ -1402,7 +1941,11 @@ export component RoomList inherits Rectangle {
                     }
                 }
                 if !room.hidden && !room.thread: ChannelRow {
-                    text: room.name;
+                    text: room.name; themed: true;
+                    seed: room.seed; is-voice: room.voice && !room.direct; striped: Trim.stripe-channels && (ChannelLists.on ? room.stripe : Math.mod(index, 2) == 1);
+                    separator-above: index > 0 && room.heading == "";
+                    voice-count: room.id == root.voice-channel ? root.participants.length : room.people.length;
+                    branch: (room.direct ? Chrome.tree-dms : Chrome.tree-channels) ? Chrome.branch(room.direct ? index == root.rooms.length - 1 || root.rooms[index + 1].heading != "" : root.tree-last(index)) : "";
                     label: room.name + (room.discord ? ", Discord" : "")
                         + (room.presence == "dnd" ? ", do not disturb" : room.presence == "mobile" ? ", online on mobile" : room.presence != "" ? ", " + room.presence : "")
                         + (room.voice-room != "" ? ", in " + room.voice-channel + " in " + room.voice-server : "")
@@ -1454,7 +1997,7 @@ export component RoomList inherits Rectangle {
                     }
                     // Where someone dragged would drop, outlined in the drop line's colour.
                     if root.move-aimed(index): Rectangle {
-                        border-radius: 6px; border-width: 2px; border-color: Theme.live;
+                        border-radius: Look.radius(6px); border-width: 2px; border-color: Theme.live;
                     }
                     if root.aimed(room.place): DropLine {
                         x: 8px; width: parent.width - 8px;
@@ -1464,15 +2007,15 @@ export component RoomList inherits Rectangle {
                 // Discord reports who is in every voice channel; Matrix
                 // only shows the call Yapfast is in, below.
                 if room.voice && room.id != root.voice-channel && room.people.length > 0: VerticalLayout {
-                    padding-left: 32px; padding-bottom: 4px; spacing: 0px;
-                    for person in room.people: Rectangle {
+                    padding-left: Chrome.tree-channels ? 8px : 32px; padding-bottom: 4px; spacing: 0px;
+                    for person[spot] in room.people: Rectangle {
                         // A click opens their profile beside the row and a right
                         // click their menu, as in Discord; their LIVE tag watches
                         // their stream. This account in the call on another
                         // client is dimmed until hovered, without its icons.
                         // They may be dragged onto another voice channel.
                         property <string> tip: person.elsewhere ? "Connected on another client" : "";
-                        height: 30px; border-radius: 4px;
+                        height: 30px; border-radius: Look.radius(4px);
                         background: person-touch.has-hover ? Theme.hover : transparent;
                         animate background { duration: 90ms; }
                         opacity: person.elsewhere && !person-touch.has-hover ? 0.5 : 1;
@@ -1502,14 +2045,18 @@ export component RoomList inherits Rectangle {
                         }
                         HorizontalLayout {
                             spacing: 8px; padding-left: 4px; padding-right: 8px;
+                            if Chrome.tree-channels: Text {
+                                text: Chrome.nested(root.tree-last(index), spot == room.people.length - 1); color: Chrome.tree-ink; font-family: Look.mono;
+                                font-size: ClientStyle.text-size; vertical-alignment: center; accessible-role: none;
+                            }
                             Middle { Avatar { size: 22px; initial: person.initial; tint: person.tint; picture: person.picture; } }
                             Text {
                                 text: person.name; font-size: 15px; font-weight: 500; color: Theme.secondary;
                                 vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
                             }
                             if person.video && !person.elsewhere: Image {
-                                source: @image-url("icons/video.svg"); width: 16px; image-fit: contain;
-                                colorize: Theme.muted; accessible-role: image; accessible-label: person.name + "'s camera is on";
+                                source: IconPack.video; width: 16px; image-fit: contain;
+                                colorize: IconPack.tint(self.source, Theme.muted); accessible-role: image; accessible-label: person.name + "'s camera is on";
                             }
                             if person.live && !person.elsewhere: Middle {
                                 LivePill {
@@ -1518,24 +2065,24 @@ export component RoomList inherits Rectangle {
                                 }
                             }
                             if (person.muted || person.deafened) && !person.elsewhere: Image {
-                                source: @image-url("icons/mic-off.svg"); width: 16px; image-fit: contain;
-                                colorize: person.server-muted ? Theme.danger : Theme.muted; accessible-role: image;
+                                source: IconPack.mic-off; width: 16px; image-fit: contain;
+                                colorize: IconPack.tint(self.source, person.server-muted ? Theme.danger : Theme.muted); accessible-role: image;
                                 accessible-label: person.name + (person.server-muted ? " is server muted" : " is muted");
                             }
                             if person.deafened && !person.elsewhere: Image {
-                                source: @image-url("icons/headphone-off.svg"); width: 16px; image-fit: contain;
-                                colorize: person.server-deafened ? Theme.danger : Theme.muted; accessible-role: image;
+                                source: IconPack.headphone-off; width: 16px; image-fit: contain;
+                                colorize: IconPack.tint(self.source, person.server-deafened ? Theme.danger : Theme.muted); accessible-role: image;
                                 accessible-label: person.name + (person.server-deafened ? " is server deafened" : " is deafened");
                             }
                         }
                     }
                 }
                 if room.voice && room.id == root.voice-channel: VerticalLayout {
-                    padding-left: 32px; padding-bottom: 4px; spacing: 0px;
-                    for person in root.participants: Rectangle {
+                    padding-left: Chrome.tree-channels ? 8px : 32px; padding-bottom: 4px; spacing: 0px;
+                    for person[spot] in root.participants: Rectangle {
                         // A click opens their profile and a right click their
                         // menu, and they may be dragged, as above.
-                        height: 30px; border-radius: 4px;
+                        height: 30px; border-radius: Look.radius(4px);
                         background: participant-touch.has-hover ? Theme.hover : transparent;
                         animate background { duration: 90ms; }
                         accessible-role: button; accessible-label: person.name;
@@ -1555,6 +2102,10 @@ export component RoomList inherits Rectangle {
                         }
                         HorizontalLayout {
                             spacing: 8px; padding-left: 4px; padding-right: 8px;
+                            if Chrome.tree-channels: Text {
+                                text: Chrome.nested(root.tree-last(index), spot == root.participants.length - 1); color: Chrome.tree-ink; font-family: Look.mono;
+                                font-size: ClientStyle.text-size; vertical-alignment: center; accessible-role: none;
+                            }
                             Middle { Avatar { size: 22px; initial: person.initial; tint: person.tint; picture: person.picture; speaking: person.speaking; } }
                             Text {
                                 text: person.name; font-size: 15px; font-weight: person.speaking ? 700 : 500;
@@ -1562,8 +2113,8 @@ export component RoomList inherits Rectangle {
                                 vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
                             }
                             if person.video: Image {
-                                source: @image-url("icons/video.svg"); width: 16px; image-fit: contain;
-                                colorize: Theme.muted; accessible-role: image; accessible-label: person.name + "'s camera is on";
+                                source: IconPack.video; width: 16px; image-fit: contain;
+                                colorize: IconPack.tint(self.source, Theme.muted); accessible-role: image; accessible-label: person.name + "'s camera is on";
                             }
                             if person.live: Middle {
                                 LivePill {
@@ -1572,13 +2123,13 @@ export component RoomList inherits Rectangle {
                                 }
                             }
                             if person.muted || person.deafened: Image {
-                                source: @image-url("icons/mic-off.svg"); width: 16px; image-fit: contain;
-                                colorize: person.server-muted ? Theme.danger : Theme.muted; accessible-role: image;
+                                source: IconPack.mic-off; width: 16px; image-fit: contain;
+                                colorize: IconPack.tint(self.source, person.server-muted ? Theme.danger : Theme.muted); accessible-role: image;
                                 accessible-label: person.name + (person.server-muted ? " is server muted" : " is muted");
                             }
                             if person.deafened: Image {
-                                source: @image-url("icons/headphone-off.svg"); width: 16px; image-fit: contain;
-                                colorize: person.server-deafened ? Theme.danger : Theme.muted; accessible-role: image;
+                                source: IconPack.headphone-off; width: 16px; image-fit: contain;
+                                colorize: IconPack.tint(self.source, person.server-deafened ? Theme.danger : Theme.muted); accessible-role: image;
                                 accessible-label: person.name + (person.server-deafened ? " is server deafened" : " is deafened");
                             }
                         }
@@ -1586,12 +2137,17 @@ export component RoomList inherits Rectangle {
                 }
             }
         }
+        // A theme's list leaves room for the sidebar's art at its foot.
+        if ChannelLists.on && ChannelLists.reserve > 0px: Rectangle {
+            height: ChannelLists.reserve;
+            if ChannelLists.foot.on: TileArtBox { layer: ChannelLists.foot; }
+        }
     }
     // Someone dragged follows the pointer the same way, just below it, so the
     // name of the channel they'd drop on stays readable.
     if root.moving: Rectangle {
         x: 40px; y: root.drag-y - root.absolute-position.y + 12px;
-        width: root.width - 48px; height: 30px; border-radius: 4px;
+        width: root.width - 48px; height: 30px; border-radius: Look.radius(4px);
         background: Theme.active; opacity: 0.6;
         HorizontalLayout {
             spacing: 8px; padding-left: 4px; padding-right: 8px;
@@ -1611,8 +2167,8 @@ export component RoomList inherits Rectangle {
         if root.dragged-category: HorizontalLayout {
             padding-left: 2px; spacing: 2px;
             Image {
-                source: root.dragged-row.collapsed ? @image-url("icons/chevron-right.svg") : @image-url("icons/chevron-down.svg");
-                width: 12px; image-fit: contain; colorize: Theme.secondary;
+                source: root.dragged-row.collapsed ? IconPack.chevron-right : IconPack.chevron-down;
+                width: 12px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.secondary);
             }
             Text {
                 text: root.dragged-row.heading; color: Theme.secondary; font-size: 12px; font-weight: 700; letter-spacing: 0.6px;
@@ -1621,7 +2177,7 @@ export component RoomList inherits Rectangle {
         }
         if !root.dragged-category: HorizontalLayout {
             padding-left: 8px; padding-right: 8px; spacing: 8px;
-            Image { source: root.dragged-row.icon; width: 20px; image-fit: contain; colorize: Theme.secondary; }
+            Image { source: root.dragged-row.icon; width: 20px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.secondary); }
             Text {
                 text: root.dragged-row.name; color: Theme.text; font-size: 16px; font-weight: 500;
                 vertical-alignment: center; overflow: elide; horizontal-stretch: 1;

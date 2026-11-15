@@ -1,5 +1,8 @@
+import { IconPack } from "media.slint";
 import { ListView } from "scrollview.slint";
-import { Theme, Middle } from "theme.slint";
+import { Theme, Middle, Look } from "theme.slint";
+import { Art, ArtLayer } from "theme_art.slint";
+import { ActionsFrame, Arrange } from "theme_layout.slint";
 import { IconButton, PingToggle, ActionButton, MessagesSkeleton, TextField } from "controls.slint";
 import { FoundRow, FoundCard } from "header.slint";
 import { SettingsSwitch } from "settings.slint";
@@ -136,9 +139,14 @@ export component ThreadPanel inherits Rectangle {
         root.follow-latest = true;
         thread-list.content-y = min(0px, thread-list.height - thread-list.content-height);
     }
-    background: Theme.chat;
+    // A docked panel's art and glass.
+    background: Art.glass-aside ? transparent : Theme.chat-fill;
     accessible-role: list;
     accessible-label: root.name + " thread";
+    if Art.aside.length > 0 || Art.glass-aside: ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        layers: Art.aside; glass: Art.glass-aside; ground: Theme.chat-fill;
+    }
     Rectangle { x: 0; width: 1px; background: Theme.edge; }
 
     // The newest message stays in view as rows come, until scrolled away from,
@@ -171,16 +179,16 @@ export component ThreadPanel inherits Rectangle {
             height: 48px;
             HorizontalLayout {
                 padding-left: 16px; padding-right: 10px; spacing: 8px;
-                Middle { Image { source: @image-url("icons/thread.svg"); width: 18px; height: 18px; colorize: Theme.muted; } }
+                Middle { Image { source: IconPack.thread; width: 18px; height: 18px; colorize: IconPack.tint(self.source, Theme.muted); } }
                 Text { text: root.name; color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                 Middle {
                     IconButton {
-                        icon: @image-url("icons/ellipsis.svg"); label: "More"; size: 28px; glyph: 18px; tip-side: 2;
+                        icon: IconPack.ellipsis; label: "More"; size: 28px; glyph: 18px; tip-side: 2;
                         clicked => { root.more(self.absolute-position.x, self.absolute-position.y + self.height + 6px); }
                     }
                 }
-                Middle { IconButton { icon: @image-url("icons/maximize.svg"); label: "Open in full view"; size: 28px; glyph: 18px; tip-side: 2; clicked => { root.expand(); } } }
-                Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Close thread"; size: 28px; glyph: 18px; tip-side: 2; clicked => { root.close(); } } }
+                Middle { IconButton { icon: IconPack.maximize; label: "Open in full view"; size: 28px; glyph: 18px; tip-side: 2; clicked => { root.expand(); } } }
+                Middle { IconButton { icon: IconPack.x; label: "Close thread"; size: 28px; glyph: 18px; tip-side: 2; clicked => { root.close(); } } }
             }
             Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
         }
@@ -206,7 +214,7 @@ export component ThreadPanel inherits Rectangle {
                     if message.highlighted: Rectangle {
                         y: index == 0 ? col.padding-top + 42px : 0px;
                         background: row-pointer.has-hover ? Theme.mentioned-hover : Theme.mentioned;
-                        Rectangle { x: 0px; width: 2px; background: Theme.accent; }
+                        Rectangle { x: 0px; width: 2px; background: Theme.accent-fill; }
                     }
                     row-pointer := TouchArea {
                         changed has-hover => { if self.has-hover { root.active-item = message.item; } }
@@ -233,7 +241,7 @@ export component ThreadPanel inherits Rectangle {
                                 Text { text: message.day; color: Theme.muted; font-size: 13px; font-weight: 700; vertical-alignment: center; }
                                 Rectangle { horizontal-stretch: 1; Rectangle { height: 1px; background: Theme.line; } }
                             }
-                            MessageContent {
+                            thread-content := MessageContent {
                                 aside: true;
                                 message: message; active-item: root.active-item; reactions-enabled: root.reactions-enabled; bot-busy-item: root.bot-busy-item; bot-failed-item: root.bot-failed-item; bot-failed-text: root.bot-failed-text;
                                 emoji-font: root.emoji-font; message-font-size: root.message-font-size;
@@ -277,11 +285,13 @@ export component ThreadPanel inherits Rectangle {
                     }
                     // The row's actions float over its top edge, as in the timeline,
                     // with fewer reactions for the narrower panel.
-                    if (self.lit || root.react-item == message.item || root.menu-item == message.item || root.confirm-delete == message.item) && !message.deleted && message.delivery == "": message-bar := Rectangle {
-                        x: parent.width - self.width - 12px; y: index == 0 ? 4px : -16px;
+                    if (self.lit || root.react-item == message.item || root.menu-item == message.item || root.confirm-delete == message.item) && !message.deleted && message.delivery == "": message-bar := ActionsFrame {
+                        // In `bubbles`, beside the bubble, as in the timeline.
+                        x: Arrange.messages != 1 || message.notice != "" ? parent.width - self.width - 12px
+                            : message.own ? max(12px, thread-content.bubble-left - self.width - 8px)
+                            : min(parent.width - self.width - 12px, thread-content.bubble-right + 8px);
+                        y: index == 0 ? 4px : -16px;
                         width: actions.preferred-width; height: actions.preferred-height;
-                        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
-                        drop-shadow-blur: 10px; drop-shadow-color: #00000059; drop-shadow-offset-y: 2px;
                         // Shift's quick actions, as in the timeline.
                         property <bool> quick: root.shift-held && root.react-item != message.item && root.menu-item != message.item;
                         property <bool> deletes: self.quick && message.can-delete && root.composer-enabled;
@@ -295,41 +305,41 @@ export component ThreadPanel inherits Rectangle {
                             }
                             if root.confirm-delete != message.item: HorizontalLayout {
                                 spacing: 0px;
-                                if message-bar.quick && message.can-pin: IconButton {
-                                    icon: message.pinned ? @image-url("icons/pin-off.svg") : @image-url("icons/pin.svg");
+                                if message-bar.quick && message.can-pin: IconButton { hover-fill: Theme.actions-hover;
+                                    icon: message.pinned ? IconPack.pin-off : IconPack.pin;
                                     label: message.pinned ? "Unpin" : "Pin";
                                     clicked => { root.pin-message(message.item); }
                                 }
-                                if message-bar.quick && message.own && message.can-edit && message.can-reply && root.composer-enabled: IconButton {
-                                    icon: @image-url("icons/reply.svg"); label: "Reply";
+                                if message-bar.quick && message.own && message.can-edit && message.can-reply && root.composer-enabled: IconButton { hover-fill: Theme.actions-hover;
+                                    icon: IconPack.reply; label: "Reply";
                                     clicked => { root.reply(message.item); root.focus-composer(); }
                                 }
                                 if message.can-react && root.new-reactions-enabled: HorizontalLayout {
                                     spacing: 0px;
-                                    for cell[slot] in root.bar-reactions: EmojiButton {
+                                    for cell[slot] in root.bar-reactions: EmojiButton { hover-fill: Theme.actions-hover;
                                         animation-key: cell.key;
                                         visible: slot < 2 && !message-bar.quick; width: slot < 2 && !message-bar.quick ? 32px : 0px;
                                         emoji: cell; font: root.emoji-font;
                                         clicked => { root.react(message.item, cell.key); }
                                     }
-                                    IconButton {
-                                        icon: @image-url("icons/smile-plus.svg"); label: "Add reaction";
+                                    IconButton { hover-fill: Theme.actions-hover;
+                                        icon: IconPack.smile-plus; label: "Add reaction";
                                         clicked => { root.open-picker(message.item, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
                                     }
                                 }
-                                if message.own && message.can-edit && root.composer-enabled: IconButton { icon: @image-url("icons/pencil.svg"); label: "Edit"; clicked => { root.edit(message.item); } }
-                                if !(message.own && message.can-edit) && message.can-reply && root.composer-enabled: IconButton { icon: @image-url("icons/reply.svg"); label: "Reply"; clicked => { root.reply(message.item); root.focus-composer(); } }
+                                if message.own && message.can-edit && root.composer-enabled: IconButton { hover-fill: Theme.actions-hover; icon: IconPack.pencil; label: "Edit"; clicked => { root.edit(message.item); } }
+                                if !(message.own && message.can-edit) && message.can-reply && root.composer-enabled: IconButton { hover-fill: Theme.actions-hover; icon: IconPack.reply; label: "Reply"; clicked => { root.reply(message.item); root.focus-composer(); } }
                                 // Beside Reply, as in Discord, whether or not Shift is held.
-                                if message.can-forward && root.forward-allowed: IconButton {
-                                    icon: @image-url("icons/forward.svg"); label: "Forward";
+                                if message.can-forward && root.forward-allowed: IconButton { hover-fill: Theme.actions-hover;
+                                    icon: IconPack.forward; label: "Forward";
                                     clicked => { root.start-forward(message.item); }
                                 }
-                                if message-bar.deletes: IconButton {
-                                    icon: @image-url("icons/trash-2.svg"); label: "Delete"; danger: true;
+                                if message-bar.deletes: IconButton { hover-fill: Theme.actions-hover;
+                                    icon: IconPack.trash-2; label: "Delete"; danger: true;
                                     clicked => { root.delete-now(message.item); }
                                 }
-                                if !message-bar.deletes: IconButton {
-                                    icon: @image-url("icons/ellipsis.svg"); label: "More";
+                                if !message-bar.deletes: IconButton { hover-fill: Theme.actions-hover;
+                                    icon: IconPack.ellipsis; label: "More";
                                     clicked => { root.open-menu(message, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
                                 }
                             }
@@ -349,20 +359,20 @@ export component ThreadPanel inherits Rectangle {
         VerticalLayout {
             padding-left: 12px; padding-right: 12px; padding-bottom: 12px; spacing: 0px; vertical-stretch: 0;
             if root.compose-label != "": Rectangle {
-                height: 36px; background: Theme.sidebar;
-                border-top-left-radius: 10px; border-top-right-radius: 10px;
+                height: 36px; background: Theme.sidebar-fill;
+                border-top-left-radius: Look.radius(10px); border-top-right-radius: Look.radius(10px);
                 HorizontalLayout {
                     padding-left: 14px; padding-right: 4px; spacing: 8px;
-                    Image { source: @image-url("icons/reply.svg"); width: 16px; image-fit: contain; colorize: Theme.muted; }
+                    Image { source: IconPack.reply; width: 16px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
                     Text { text: root.compose-label; color: Theme.secondary; font-size: 14px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                     VerticalLayout { alignment: center; PingToggle { on: root.reply-ping; toggled => { root.toggle-reply-ping(); } } }
-                    IconButton { icon: @image-url("icons/x.svg"); label: "Cancel reply"; size: 28px; glyph: 16px; clicked => { root.cancel-compose(); } }
+                    IconButton { icon: IconPack.x; label: "Cancel reply"; size: 28px; glyph: 16px; clicked => { root.cancel-compose(); } }
                 }
             }
             composer-box := Rectangle {
                 min-height: 48px;
                 background: Theme.field;
-                border-radius: 10px;
+                border-radius: Look.radius(10px);
                 border-top-left-radius: root.compose-label != "" ? 0px : 10px;
                 border-top-right-radius: root.compose-label != "" ? 0px : 10px;
                 VerticalLayout {
@@ -385,7 +395,7 @@ export component ThreadPanel inherits Rectangle {
                         VerticalLayout {
                             alignment: end; padding-bottom: 8px;
                             IconButton {
-                                icon: @image-url("icons/circle-plus.svg"); label: "Attach files";
+                                icon: IconPack.circle-plus; label: "Attach files";
                                 glyph: 22px; enabled: root.can-attach;
                                 clicked => { root.attach(); }
                             }
@@ -407,7 +417,7 @@ export component ThreadPanel inherits Rectangle {
                         VerticalLayout {
                             alignment: end; padding-bottom: 8px;
                             IconButton {
-                                icon: @image-url("icons/send-horizontal.svg");
+                                icon: IconPack.send-horizontal;
                                 label: root.sending ? "Sending..." : "Send";
                                 enabled: root.can-send; emphasis: root.can-send;
                                 clicked => { root.send(); }
@@ -472,18 +482,23 @@ export component NewThreadPanel inherits Rectangle {
     changed typing-tick => { composer.focus-input(); composer.place-caret(1000000); }
     callback composer-focused;
     callback escape-composing() -> bool;
-    background: Theme.chat;
+    // A docked panel's art and glass.
+    background: Art.glass-aside ? transparent : Theme.chat-fill;
     accessible-role: groupbox;
     accessible-label: "New Thread";
+    if Art.aside.length > 0 || Art.glass-aside: ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        layers: Art.aside; glass: Art.glass-aside; ground: Theme.chat-fill;
+    }
     Rectangle { x: 0; width: 1px; background: Theme.edge; }
     VerticalLayout {
         Rectangle {
             height: 48px;
             HorizontalLayout {
                 padding-left: 16px; padding-right: 10px; spacing: 10px;
-                Middle { Image { source: @image-url("icons/thread.svg"); width: 18px; height: 18px; colorize: Theme.muted; } }
+                Middle { Image { source: IconPack.thread; width: 18px; height: 18px; colorize: IconPack.tint(self.source, Theme.muted); } }
                 Text { text: "New Thread"; color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
-                Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; tip-side: 2; clicked => { root.close(); } } }
+                Middle { IconButton { icon: IconPack.x; label: "Close"; size: 28px; glyph: 18px; tip-side: 2; clicked => { root.close(); } } }
             }
             Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
         }
@@ -520,7 +535,7 @@ export component NewThreadPanel inherits Rectangle {
         VerticalLayout {
             padding-left: 12px; padding-right: 12px; padding-bottom: 12px; vertical-stretch: 0;
             Rectangle {
-                min-height: 48px; background: Theme.field; border-radius: 10px;
+                min-height: 48px; background: Theme.field; border-radius: Look.radius(10px);
                 HorizontalLayout {
                     padding-left: 8px; padding-right: 8px; spacing: 6px;
                     composer := Composer {
@@ -535,7 +550,7 @@ export component NewThreadPanel inherits Rectangle {
                     VerticalLayout {
                         alignment: end; padding-bottom: 8px;
                         IconButton {
-                            icon: @image-url("icons/send-horizontal.svg");
+                            icon: IconPack.send-horizontal;
                             label: root.starting ? "Creating..." : "Create Thread";
                             enabled: !root.starting; emphasis: !root.starting && root.body != "";
                             clicked => { root.create(); }
@@ -547,12 +562,12 @@ export component NewThreadPanel inherits Rectangle {
     }
     // Leaving what was written, as Discord's client asks.
     if root.leaving: Rectangle {
-        background: #000000a0;
+        background: Theme.scrim(#000000a0);
         TouchArea { }
         Rectangle {
             x: 16px; width: parent.width - 32px; y: (parent.height - self.height) / 2;
             height: ask.preferred-height;
-            background: Theme.sidebar; border-radius: 10px; border-width: 1px; border-color: Theme.edge;
+            background: Theme.sidebar-fill; border-radius: Look.radius(10px); border-width: Look.line(1px); border-color: Theme.edge;
             ask := VerticalLayout {
                 padding: 16px; spacing: 10px;
                 Text { text: "Are you sure you want to go?"; color: Theme.text; font-size: 17px; font-weight: 700; wrap: word-wrap; }

@@ -503,6 +503,14 @@ impl Adapter {
     }
 
     pub(super) fn refresh(&mut self, window: &YapfastWindow) {
+        // A theme shown without `set_theme`, as at start, gets its sounds'
+        // choices, Rust's icons and its `content` here.
+        if self.media_changes != theme_media::changes() {
+            self.media_changes = theme_media::changes();
+            self.show_theme_media(window);
+            self.show_theme_content(window);
+        }
+        self.sound_context();
         if self.pictures_sourced != Some(self.app.state.picture_changes) {
             self.pictures_sourced = Some(self.app.state.picture_changes);
             bump_picture_slots(window, refresh_avatar_sources(&self.app.state));
@@ -941,6 +949,8 @@ impl Adapter {
         let state = &self.app.state;
         let workspace = state.preview || state.account.is_some();
         window.set_workspace(workspace);
+        // Signing in is drawn in the stock theme, whatever is installed.
+        theme::protect_for(window, theme::Protected::SignIn, !workspace);
         window.set_preview(state.preview);
         window.set_busy(state.busy);
         window.set_trusted(state.trusted);
@@ -1117,7 +1127,9 @@ impl Adapter {
             .collect();
         self.rail_call = call_room(state).map(str::to_owned);
         let rail = rail(state, &rooms_by_id, &self.layout.open_folders);
+        set_tree_at(window, &rail);
         update_model_by_id(&self.models.servers, rail, |row| row.id.clone());
+        super::theme_chrome::workspaces(state);
         let mut listed_text = false;
         let mut listed_voice = false;
         let mut category = None;
@@ -1503,6 +1515,23 @@ impl Adapter {
                 }
             }
         }
+        // A theme's rows pick their art by a seed from the id, and a
+        // category's heading may say its place among the categories.
+        let mut group = 0;
+        // Every other channel in a category, for a theme's zebra rows.
+        let mut in_group = 0;
+        for row in &mut rows {
+            row.seed = yapfast_core::themes::lists::seed(&row.id);
+            if !row.heading.is_empty() && !(row.pinned && !row.direct) {
+                group += 1;
+                row.group = group;
+                in_group = 0;
+            }
+            if !row.hidden {
+                row.stripe = in_group % 2 == 1;
+                in_group += 1;
+            }
+        }
         // A voice channel's people come as a new list each time; the one on
         // screen stays while they're the same, so its row counts as unchanged.
         let rows = rows
@@ -1707,6 +1736,7 @@ impl Adapter {
             .into(),
         );
         window.set_has_custom_status(state.custom_status.is_some());
+        super::theme_chrome::now_playing(window, state);
         window.set_show_game(state.discord_show_game);
         let playing = state.discord_playing.as_ref();
         window.set_game_activity_name(playing.map_or("", |playing| &playing.name).into());
@@ -2496,6 +2526,55 @@ impl Adapter {
             }
             .into(),
         );
+        // Each member's place in their group, from 0, which a theme's
+        // status column may show.
+        let mut places = Vec::with_capacity(members.len());
+        for (index, member) in members.iter().enumerate() {
+            let same = index > 0 && {
+                let before = &members[index - 1];
+                before.group == member.group
+                    && (member.group.is_some() || before.role == member.role)
+            };
+            places.push(if same { places[index - 1] + 1 } else { 0 });
+        }
+        // Each member's place among everyone online, across the groups,
+        // which a theme's badge may show as "P1".
+        let mut online = 0;
+        let online_places: Vec<i32> = members
+            .iter()
+            .map(|member| {
+                if matches!(
+                    member.presence,
+                    Some(
+                        Presence::Online
+                            | Presence::Mobile
+                            | Presence::Idle
+                            | Presence::DoNotDisturb
+                    )
+                ) {
+                    online += 1;
+                    online - 1
+                } else {
+                    -1
+                }
+            })
+            .collect();
+        window
+            .global::<yapfast_ui::MemberLists>()
+            .set_count(members.len() as i32);
+        window
+            .global::<yapfast_ui::Trim>()
+            .set_members_n(i32::try_from(members.len()).unwrap_or(i32::MAX));
+        // Each member's group's place in the list, from 0, which a theme's
+        // marks by role follow.
+        let mut groups: Vec<i32> = Vec::with_capacity(members.len());
+        for (index, place) in places.iter().enumerate() {
+            groups.push(match index {
+                0 => 0,
+                _ if *place == 0 => groups[index - 1] + 1,
+                _ => groups[index - 1],
+            });
+        }
         update_model(
             &self.models.roster,
             members
@@ -2525,11 +2604,21 @@ impl Adapter {
                     } else {
                         SharedString::default()
                     };
+                    let group_name: SharedString = match &member.group {
+                        Some(group) => group_name(group).into(),
+                        None => match member.role {
+                            Role::Admin => "Admins",
+                            Role::Moderator => "Moderators",
+                            Role::Member => "Members",
+                        }
+                        .into(),
+                    };
                     let heading = (!heading.is_empty()).then(|| MemberRow {
                         heading,
                         group_icon: member.group_icon.as_deref().unwrap_or_default().into(),
                         ..MemberRow::default()
                     });
+                    let (activity_name, activity_detail) = activity_words(&member.activities);
                     let (activity_icon, activity_bullet, named) =
                         subline(&member.activities, member.activity.as_deref());
                     let (activity, activity_emoji) =
@@ -2587,11 +2676,18 @@ impl Adapter {
                             .unwrap_or_default()
                             .into(),
                         presence: presence_name(member.presence).into(),
-                        color: role_color(member.color),
-                        has_color: member.color.is_some(),
+                        color: role_color(theme_content::name_of(&member.id, member.color)),
+                        has_color: theme_content::name_of(&member.id, member.color).is_some(),
+                        group: groups[index],
                         // One line under the name, as Discord shows it.
                         activity,
                         activity_emoji,
+                        place: places[index],
+                        seed: yapfast_core::themes::lists::seed(&member.id),
+                        group_name,
+                        online_index: online_places[index],
+                        activity_name,
+                        activity_detail,
                         ..MemberRow::default()
                     };
                     heading.into_iter().chain([row])
@@ -2677,8 +2773,8 @@ impl Adapter {
                 tint: tint(&member.name),
                 picture: slint::Image::default(),
                 picture_url: member.avatar.as_deref().unwrap_or_default().into(),
-                color: role_color(member.color),
-                has_color: member.color.is_some(),
+                color: role_color(theme_content::name(member.color)),
+                has_color: theme_content::name(member.color).is_some(),
                 ..Default::default()
             })
             .collect();
@@ -4136,8 +4232,8 @@ impl Adapter {
                     initial: initial(&candidate.name),
                     tint: tint(&candidate.name),
                     picture: cached_picture(&mut self.pictures, state, candidate.avatar.as_deref()),
-                    color: role_color(candidate.color),
-                    has_color: candidate.color.is_some(),
+                    color: role_color(theme_content::name(candidate.color)),
+                    has_color: theme_content::name(candidate.color).is_some(),
                     group: candidate.group,
                     detail: match candidate.mention.as_str() {
                         "@everyone" => "Everyone in this channel".into(),
@@ -4495,6 +4591,7 @@ impl Adapter {
                 .map(|room| (room.id.as_str(), &**room))
                 .collect();
             let rail = rail(state, &rooms_by_id, &self.layout.open_folders);
+            set_tree_at(window, &rail);
             update_model_by_id(&self.models.servers, rail, |row| row.id.clone());
         }
         let timed = matches!(state.voice.phase, Phase::Connected | Phase::Reconnecting)
@@ -5239,6 +5336,39 @@ impl Adapter {
     }
 }
 
+/// A member list group's name without its count: "Leads" of "Leads — 2".
+fn group_name(group: &str) -> &str {
+    group.rsplit_once(" — ").map_or(group, |(name, _)| name)
+}
+
+/// The name of someone's first activity, but a custom status, and its
+/// detail: a song's artist, a game's details; empty when there's none.
+#[cfg(feature = "discord")]
+fn activity_words(activities: &yapfast_core::chat::Activities) -> (SharedString, SharedString) {
+    use yapfast_core::yapfast_discord::activity::Kind;
+    let Some(first) = activities
+        .iter()
+        .find(|activity| activity.kind != Kind::Hang)
+    else {
+        return (SharedString::new(), SharedString::new());
+    };
+    let detail = match first.kind {
+        Kind::Listening => first.state.as_deref(),
+        Kind::Streaming => first.details.as_deref(),
+        _ => first.details.as_deref(),
+    };
+    let name: &str = match first.kind {
+        Kind::Streaming => first.details.as_deref().unwrap_or(&first.name),
+        _ => &first.name,
+    };
+    (name.into(), detail.unwrap_or_default().into())
+}
+
+#[cfg(not(feature = "discord"))]
+fn activity_words(_activities: &yapfast_core::chat::Activities) -> (SharedString, SharedString) {
+    (SharedString::new(), SharedString::new())
+}
+
 /// The DMs with unread messages, the latest first, as Discord lists them on
 /// its rail above the servers. Message requests and spam stay on their screen.
 pub(super) fn unread_dm_rows(state: &AppState) -> Vec<ServerRow> {
@@ -5281,6 +5411,11 @@ fn rail(
         ..Default::default()
     });
     rail.extend(rail_rows(state, rooms_by_id, open_folders));
+    // A theme's rail tiles pick their art by a seed from the id, so a server
+    // keeps its frame however the rail is ordered.
+    for row in &mut rail {
+        row.seed = yapfast_core::themes::lists::seed(&row.id);
+    }
     rail
 }
 
@@ -5800,8 +5935,8 @@ fn thread_row(thread: &yapfast_core::chat::ListedThread, now: u64) -> ThreadRow 
         initial: person.map_or(SharedString::default(), |person| initial(&person.name)),
         tint: person.map_or(slint::Color::default(), |person| tint(&person.name)),
         picture_url: person.map_or("", |person| person.avatar.as_str()).into(),
-        color: role_color(person.and_then(|person| person.color)),
-        has_color: person.is_some_and(|person| person.color.is_some()),
+        color: role_color(theme_content::name(person.and_then(|person| person.color))),
+        has_color: theme_content::name(person.and_then(|person| person.color)).is_some(),
         lead: lead.into(),
         text: text.into(),
         time: time.into(),
@@ -5903,8 +6038,8 @@ fn post_row(
             more => format!("+{more}").into(),
         },
         person: person.map_or("", |person| person.name.as_str()).into(),
-        color: role_color(person.and_then(|person| person.color)),
-        has_color: person.is_some_and(|person| person.color.is_some()),
+        color: role_color(theme_content::name(person.and_then(|person| person.color))),
+        has_color: theme_content::name(person.and_then(|person| person.color)).is_some(),
         text: text.into(),
         has_reaction: reaction.is_some(),
         reaction_count: reaction
@@ -6086,4 +6221,15 @@ fn sound_rows(
         }
     }
     rows
+}
+
+/// Where a theme's tree opens the selected server's channels: after its row
+/// in the rail's rows, or a closed folder's that holds it; -1 on the direct
+/// messages.
+fn set_tree_at(window: &YapfastWindow, rail: &[yapfast_ui::ServerRow]) {
+    let at = rail
+        .iter()
+        .position(|row| row.selected && !row.divider && !row.dm && !(row.folder && row.open))
+        .map_or(-1, |at| i32::try_from(at).unwrap_or(-1));
+    window.global::<yapfast_ui::Trim>().set_tree_at(at);
 }

@@ -1,13 +1,24 @@
+import { Chrome } from "theme_chrome.slint";
+import { IconPack } from "media.slint";
 import { ClientStyle } from "yapfast/style.slint";
 import { ScrollView, ListView } from "scrollview.slint";
-import { Theme, Middle, Label, Tip, BadgeTip } from "theme.slint";
+import { Theme, Middle, Label, Tip, BadgeTip, Look } from "theme.slint";
+import { Art, ArtLayer, ArtPicture, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil, ArtVeil } from "theme_art.slint";
 import { ActionButton, IconButton, Avatar, Skeleton, Nameplate, StatusText, StyledName, NameStyleRow, EffectLayer, ProfileEffect, PictureStore, Picture, Motion, TextField, ServerTagChip, TipIcon, ActivityClock } from "controls.slint";
 import { StatusDot } from "rail.slint";
 import { BotTag } from "messages.slint";
+import { Arrange, DashedOutline, RansomName, PaneRule } from "theme_layout.slint";
+import { ThemeContent, IlluminatedInitial } from "theme_content.slint";
+import { MemberLists, ListedMember, ListedMemberHeading, ListedMemberTile, ListedTitle, TileArtBox } from "theme_lists.slint";
+import { Trim, FrameGround, SectionBox } from "theme_trim.slint";
 
 /// A member of the open room, or the heading, with no id, that starts a group.
 export struct MemberRow {
     id: string, name: string, initial: string, tint: color, picture: image, heading: string,
+    /// Their place in their group, from 0.
+    place: int,
+    /// Their group's place in the list, from 0.
+    group: int,
     /// Discord's presence: "online", "mobile" (online only on a phone), "idle",
     /// "dnd" or "offline"; empty for Matrix.
     presence: string,
@@ -40,6 +51,15 @@ export struct MemberRow {
     /// Discord server, which a gem by the name says on hover; empty for
     /// anyone else.
     boosting: string,
+    /// For a theme's list (`MemberLists`): a seed from their id, their
+    /// group's name without its count, their place among everyone online
+    /// across the groups from 0 (-1 when offline), and their first
+    /// activity's name and detail, such as a song's artist.
+    seed: int,
+    group-name: string,
+    online-index: int,
+    activity-name: string,
+    activity-detail: string,
 }
 
 /// A role's picture, asked for as it shows.
@@ -75,8 +95,11 @@ component ActivityPicture inherits Rectangle {
     changed url => { root.request(); }
     changed picture => { root.request(); }
     width: root.size; height: root.size;
-    border-radius: root.size / 6; clip: true;
-    background: Theme.raised;
+    border-radius: ThemeContent.activity ? Look.r(Look.card, root.size / 6) : root.size / 6; clip: true;
+    background: Theme.raised-fill;
+    // A theme's tile is framed as its cards are.
+    border-width: ThemeContent.activity ? Look.bw(Look.card, 0px) : 0px;
+    border-color: Look.bc(Look.card, Theme.edge);
     accessible-role: image;
     accessible-label: root.label;
     Image { source: root.picture; width: root.size; height: root.size; image-fit: cover; }
@@ -91,6 +114,49 @@ export struct MemberActivityRow {
     icon: int,
     /// Going on now, which its icon and time show in green.
     live: bool,
+}
+
+// A member as a tile in a theme's grid: the avatar with its status, and the
+// name under it. Clicking shows the profile, as a row does.
+component MemberTile inherits Rectangle {
+    in property <MemberRow> member;
+    in property <bool> selected;
+    in property <length> size;
+    callback open(length);
+    callback menu(length, length);
+    border-radius: Look.radius(8px);
+    background: root.selected ? #97979f33 : touch.has-hover ? #97979f1f : transparent;
+    accessible-role: button;
+    accessible-label: root.member.name + ", " + root.member.id + ", show profile";
+    accessible-action-default => { root.open(self.absolute-position.y); }
+    touch := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.open(root.absolute-position.y); }
+        pointer-event(event) => {
+            if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                root.menu(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+            }
+        }
+    }
+    Rectangle {
+        x: (parent.width - root.size) / 2; y: 6px; width: root.size; height: root.size;
+        Avatar {
+            size: root.size; initial: root.member.initial; tint: root.member.tint; picture: root.member.picture; picture-url: root.member.picture-url;
+            decoration-url: root.member.decoration-url; animate: touch.has-hover; opacity: root.member.presence == "offline" ? 0.4 : 1;
+        }
+        if root.member.presence != "" && root.member.presence != "offline": StatusDot {
+            x: root.size - 13px; y: root.size - 13px; presence: root.member.presence; ring: Theme.sidebar;
+        }
+    }
+    Text {
+        x: 4px; y: root.size + 10px; width: parent.width - 8px; height: 20px;
+        text: Trim.role-mark(root.member.group) + Chrome.member-before + root.member.name + Chrome.member-after;
+        color: root.member.has-color ? root.member.color : Theme.secondary;
+        font-size: Look.name-size(13px); font-weight: Look.name-weight(500); font-family: Look.name-font("");
+        horizontal-alignment: center; vertical-alignment: center; overflow: elide;
+        opacity: root.member.presence == "offline" ? 0.5 : 1;
+        accessible-role: none;
+    }
 }
 
 // The open room's members, grouped by role under the conversation header.
@@ -111,6 +177,12 @@ export component MemberPanel inherits Rectangle {
     in property <string> note;
     /// The member whose profile card is open.
     in property <string> selected;
+    /// A theme's collapsed list, shut: a narrow strip of avatars, without
+    /// headings or activity.
+    in property <bool> strip;
+    // A theme's tiles; the collapsed strip keeps its rows of avatars.
+    property <bool> tiles: Trim.grid && !root.strip;
+    clip: root.strip;
     /// A gem by each server booster's name; on unless turned off.
     in property <bool> boost-gems: true;
     /// A member was clicked: their id, and where their row is in the window.
@@ -118,17 +190,46 @@ export component MemberPanel inherits Rectangle {
     /// A member was right-clicked: their id, and where in the window.
     callback open-member-menu(string, length, length);
     // Discord's member list sits on the conversation's ground, a faint line on its left.
-    background: ClientStyle.enabled ? Theme.chat : Theme.sidebar;
+    background: Art.glass-members ? transparent : Theme.members-on ? Theme.members-set : ClientStyle.enabled ? Theme.chat-fill : Theme.sidebar-fill;
     accessible-role: list;
     accessible-label: "Members";
+    if Art.members.length > 0 || Art.glass-members: ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height; layers: Art.members; glass: Art.glass-members;
+        ground: Theme.members-on ? Theme.members-set : ClientStyle.enabled ? Theme.chat-fill : Theme.sidebar-fill;
+    }
     if ClientStyle.enabled: Rectangle { x: 0px; width: 1px; background: Theme.outline-chat; }
+    // A theme's edge between the conversation and the member list.
+    if Arrange.panes: PaneRule { x: Arrange.members == 1 ? parent.width - self.width : 0px; y: 0px; height: parent.height; z: 10; }
     Timer {
         interval: 60s;
         running: root.activity-rows.length > 0;
         triggered => { root.activity-clock(); }
     }
+    // A theme's art may keep the list clear of an edge; it scrolls in
+    // what's left.
     VerticalLayout {
-        if root.activity-rows.length > 0: VerticalLayout {
+        padding-top: Art.reserve-members.top; padding-bottom: Art.reserve-members.bottom;
+        padding-left: Art.reserve-members.left; padding-right: Art.reserve-members.right;
+        // A theme's line over the list, such as `$ who`.
+        if Chrome.members-title != "" && !(MemberLists.on && (MemberLists.title-centre || MemberLists.title-shadow != transparent || MemberLists.title-rule != transparent || MemberLists.count-size >= 0px)): HorizontalLayout {
+            padding-left: 16px; padding-right: 8px; height: 32px;
+            Text {
+                text: MemberLists.numbered(Chrome.members-title, MemberLists.count);
+                color: MemberLists.on && MemberLists.title-colour != transparent ? MemberLists.title-colour : Theme.muted;
+                font-size: MemberLists.on && MemberLists.title-size >= 0px ? MemberLists.title-size : 14px;
+                font-family: MemberLists.on && MemberLists.title-family != "" ? MemberLists.title-family : Chrome.font;
+                letter-spacing: MemberLists.on ? Look.spacing-labels : 0px;
+                vertical-alignment: bottom; overflow: elide;
+                accessible-role: none; opacity: root.strip ? 0 : 1;
+            }
+        }
+        // A theme's title: centred, with a hard shadow, a rule under it, and
+        // its count in a face of its own.
+        if Chrome.members-title != "" && !root.strip && MemberLists.on && (MemberLists.title-centre || MemberLists.title-shadow != transparent || MemberLists.title-rule != transparent || MemberLists.count-size >= 0px): ListedTitle {
+            height: MemberLists.title-rule != transparent ? 44px : 32px;
+            template: Chrome.members-title; count: MemberLists.count;
+        }
+        if root.activity-rows.length > 0 && !Chrome.hide-activity-cards && !(MemberLists.on && !MemberLists.activity) && !root.strip: VerticalLayout {
             padding-left: 8px; padding-right: 8px; padding-top: 8px; padding-bottom: 4px; spacing: 0px;
             activity-header := Rectangle {
                 // Opening it shows the cards again if they were hidden, as
@@ -142,7 +243,7 @@ export component MemberPanel inherits Rectangle {
                         root.activity-open = !root.activity-open;
                     }
                 }
-                height: 32px; border-radius: 4px;
+                height: 32px; border-radius: Look.radius(4px);
                 background: activity-head.has-hover ? Theme.overlay.with-alpha(0.06) : transparent;
                 accessible-role: button;
                 accessible-label: "Activity, " + root.activity-rows.length + (root.activity-hidden ? ", show cards" : root.activity-open ? ", collapse" : ", expand");
@@ -157,7 +258,7 @@ export component MemberPanel inherits Rectangle {
                     Rectangle { horizontal-stretch: 1; }
                     Middle {
                         Rectangle {
-                            width: 20px; height: 20px; border-radius: 4px;
+                            width: 20px; height: 20px; border-radius: Look.radius(4px);
                             background: hide-touch.has-hover ? Theme.overlay.with-alpha(0.12) : transparent;
                             accessible-role: button;
                             accessible-label: root.activity-hidden ? "Show Activity Cards" : "Hide Activity Cards";
@@ -166,8 +267,8 @@ export component MemberPanel inherits Rectangle {
                                 root.activity-hidden-toggled(root.activity-hidden);
                             }
                             Image {
-                                source: root.activity-hidden ? @image-url("icons/eye-off.svg") : @image-url("icons/eye.svg");
-                                width: 16px; height: 16px; colorize: hide-touch.has-hover ? Theme.text : Theme.muted;
+                                source: root.activity-hidden ? IconPack.eye-off : IconPack.eye;
+                                width: 16px; height: 16px; colorize: IconPack.tint(self.source, hide-touch.has-hover ? Theme.text : Theme.muted);
                             }
                             hide-touch := TouchArea {
                                 mouse-cursor: MouseCursor.pointer;
@@ -180,7 +281,7 @@ export component MemberPanel inherits Rectangle {
                     }
                     if activity-header.opens: Middle {
                         Image {
-                            source: @image-url("icons/chevron-right.svg"); width: 16px; height: 16px; colorize: Theme.muted;
+                            source: IconPack.chevron-right; width: 16px; height: 16px; colorize: IconPack.tint(self.source, Theme.muted);
                             transform-rotation: root.activity-open && !root.activity-hidden ? 90deg : 0deg;
                         }
                     }
@@ -194,7 +295,7 @@ export component MemberPanel inherits Rectangle {
                 height: !root.activity-hidden && (root.activity-open || index < 3) ? 76px : 0px;
                 if !root.activity-hidden && (root.activity-open || index < 3): Rectangle {
                     y: 0px; height: 68px;
-                    border-radius: 8px; border-width: 1px;
+                    border-radius: Look.radius(8px); border-width: Look.line(1px);
                     border-color: Theme.line;
                     background: activity-touch.has-hover ? Theme.overlay.with-alpha(0.12) : Theme.overlay.with-alpha(0.06);
                     accessible-role: button;
@@ -214,8 +315,8 @@ export component MemberPanel inherits Rectangle {
                                 spacing: 4px; alignment: start;
                                 Middle {
                                     Image {
-                                        source: row.icon == 2 ? @image-url("icons/music.svg") : row.icon == 3 ? @image-url("icons/tv.svg") : row.icon == 4 ? @image-url("icons/video.svg") : row.icon == 5 ? @image-url("icons/trophy.svg") : @image-url("icons/gamepad.svg");
-                                        width: 16px; height: 16px; image-fit: contain; colorize: row.live ? Theme.live : Theme.muted;
+                                        source: row.icon == 2 ? IconPack.music : row.icon == 3 ? IconPack.tv : row.icon == 4 ? IconPack.video : row.icon == 5 ? IconPack.trophy : IconPack.gamepad;
+                                        width: 16px; height: 16px; image-fit: contain; colorize: IconPack.tint(self.source, row.live ? Theme.live : Theme.muted);
                                     }
                                 }
                                 Text { text: row.since; color: row.live ? Theme.live : Theme.muted; font-size: 12px; overflow: elide; vertical-alignment: center; }
@@ -240,20 +341,134 @@ export component MemberPanel inherits Rectangle {
         ListView {
             vertical-stretch: 1;
             for member[index] in root.rows: VerticalLayout {
-                padding-left: 8px; padding-right: 8px;
+                padding-left: MemberLists.on ? MemberLists.margin-left : 8px; padding-right: MemberLists.on ? MemberLists.margin-right : 8px;
                 padding-top: index == 0 ? 8px : 0px;
-                padding-bottom: index == root.rows.length - 1 ? 12px : 2px;
+                padding-bottom: index == root.rows.length - 1 ? 12px : root.tiles && member.id != "" && Math.mod(member.place, max(1, Trim.grid-columns)) != 0 ? 0px
+                    : MemberLists.on ? MemberLists.gap : 2px;
                 spacing: 2px;
+                // A theme's heading, in its own face, case and art.
+                if member.heading != "" && MemberLists.on && MemberLists.head-on: HorizontalLayout {
+                    padding-left: 8px; height: MemberLists.head-height >= 0px ? MemberLists.head-height : 42px;
+                    padding-top: self.height - 22px; padding-bottom: 4px;
+                    ListedMemberHeading { heading: member.heading; }
+                }
                 // Discord's group heading: 14px medium in the channel grey, 20px above and 4px below.
-                if member.heading != "": HorizontalLayout {
+                // A theme's label bar lies under it.
+                if member.heading != "" && !(MemberLists.on && MemberLists.head-on): Rectangle {
+                  height: 42px;
+                  if Trim.label.on: FrameGround {
+                      x: 0px; y: 18px; width: parent.width; height: 22px; frame: Trim.label;
+                      if Trim.label-art.length > 0: ArtLayer { x: 0px; y: 0px; width: parent.width; height: parent.height; layers: Trim.label-art; radius: Trim.label.radius; }
+                  }
+                  HorizontalLayout {
                     padding-left: 8px; padding-top: 20px; padding-bottom: 4px; height: 42px; spacing: 8px;
                     if member.group-icon != "": Middle { RoleIcon { url: member.group-icon; size: 20px; } }
-                    Text { text: member.heading; color: #81828a; font-size: 14px; font-weight: 500; vertical-alignment: center; }
+                    Text {
+                        text: Trim.cased(Trim.label, Chrome.members-group != "" ? Chrome.fill(Chrome.members-group, "group", member.heading) : member.heading);
+                        accessible-label: member.heading;
+                        color: Trim.label.on ? Trim.label.text : #81828a; font-size: Trim.label.on ? Look.label-size(14px) : 14px;
+                        font-weight: Trim.label.on ? Look.label-weight(700) : 500; vertical-alignment: center; opacity: root.strip ? 0 : 1;
+                        font-family: Trim.label.on ? Look.label-font("") : Chrome.members-group != "" ? Chrome.font : "";
+                    }
+                  }
+                }
+                // A theme's tiles: the first of each line of them draws the
+                // line, the rest of it taking no room.
+                if member.id != "" && root.tiles: grid-line := Rectangle {
+                    property <int> across: max(1, Trim.grid-columns);
+                    property <bool> leads: Math.mod(member.place, self.across) == 0;
+                    // A theme's member rows set the tiles' gap and height.
+                    property <length> gap: MemberLists.on ? MemberLists.gap : 0px;
+                    property <length> tile-w: (self.width - (self.across - 1) * self.gap) / self.across;
+                    property <length> tile-h: MemberLists.on && MemberLists.height >= 0px ? MemberLists.height : Trim.grid-size + 34px;
+                    height: self.leads ? self.tile-h : 0px;
+                    for k in grid-line.leads && !MemberLists.on ? grid-line.across : 0: MemberTile {
+                        property <int> at: index + k;
+                        property <bool> here: self.at < root.rows.length && root.rows[self.at].id != "" && root.rows[self.at].place == root.rows[index].place + k;
+                        visible: self.here;
+                        x: k * (grid-line.tile-w + grid-line.gap); y: 0px; width: grid-line.tile-w; height: grid-line.tile-h;
+                        member: self.here ? root.rows[self.at] : root.rows[index]; selected: self.here && root.rows[self.at].id == root.selected;
+                        size: Trim.grid-size;
+                        open(y) => { root.open-profile(self.member.id, y); }
+                        menu(x, y) => { root.open-member-menu(self.member.id, x, y); }
+                    }
+                    // A theme's member rows draw the tiles in their look.
+                    for k in grid-line.leads && MemberLists.on ? grid-line.across : 0: Rectangle {
+                        property <int> at: index + k;
+                        property <bool> here: self.at < root.rows.length && root.rows[self.at].id != "" && root.rows[self.at].place == member.place + k;
+                        property <MemberRow> who: self.here ? root.rows[self.at] : member;
+                        visible: self.here;
+                        x: k * (grid-line.tile-w + grid-line.gap); y: 0px; width: grid-line.tile-w; height: grid-line.tile-h;
+                        accessible-role: button;
+                        accessible-label: self.who.name + ", " + self.who.id + ", show profile";
+                        accessible-action-default => { root.open-profile(self.who.id, self.absolute-position.y); }
+                        ListedMemberTile {
+                            name: parent.who.name; initial: parent.who.initial; tint: parent.who.tint; picture: parent.who.picture;
+                            picture-url: parent.who.picture-url; decoration-url: parent.who.decoration-url; presence: parent.who.presence;
+                            name-color: parent.who.color; has-color: parent.who.has-color; owner: parent.who.owner;
+                            online-index: parent.who.online-index;
+                            selected: parent.who.id == root.selected; hovered: tile-touch.has-hover;
+                        }
+                        tile-touch := TouchArea {
+                            enabled: parent.here;
+                            mouse-cursor: MouseCursor.pointer;
+                            clicked => { root.open-profile(parent.who.id, self.absolute-position.y); }
+                            pointer-event(event) => {
+                                if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                                    root.open-member-menu(parent.who.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+                                }
+                            }
+                        }
+                    }
+                }
+                // A theme's row: its art, avatar frame, meta and sub line. The
+                // touch area, label and badges are the stock row's.
+                if member.id != "" && MemberLists.on && !root.tiles: Rectangle {
+                    height: MemberLists.height >= 0px ? MemberLists.height : Look.member-row-height >= 0px ? Look.member-row-height : 42px;
+                    accessible-role: button;
+                    accessible-label: member.name + ", " + member.id + ", show profile";
+                    accessible-action-default => { root.open-profile(member.id, self.absolute-position.y); }
+                    ListedMember {
+                        name: member.name; initial: member.initial; tint: member.tint; picture: member.picture; picture-url: member.picture-url;
+                        decoration-url: member.decoration-url; presence: member.presence; name-color: member.color; has-color: member.has-color;
+                        activity: member.activity; activity-emoji: member.activity-emoji; activity-icon: member.activity-icon; activity-bullet: member.activity-bullet;
+                        activity-name: member.activity-name; activity-detail: member.activity-detail; group-name: member.group-name;
+                        online-index: member.online-index; seed: member.seed; place: member.place;
+                        selected: member.id == root.selected; hovered: listed-pointer.has-hover;
+                        ransom: member.name-style.length == 0 && Arrange.ransom;
+                        if member.role-icon != "": Middle { RoleIcon { url: member.role-icon; size: 16px; } }
+                        if member.tag != "": Middle { ServerTagChip { text: member.tag; badge: member.tag-badge; } }
+                        if member.bot: Middle { BotTag { } }
+                        if member.owner: Middle {
+                            Image {
+                                source: IconPack.crown; width: 14px; height: 14px; image-fit: contain;
+                                colorize: MemberLists.crown-ink != transparent ? MemberLists.crown-ink : IconPack.tint(self.source, #f0b232);
+                                accessible-role: image; accessible-label: "Server Owner";
+                            }
+                        }
+                        if root.boost-gems && member.boosting != "": Middle {
+                            TipIcon { source: IconPack.gem; width: 14px; height: 14px; colorize: IconPack.tint(self.source, #ff73fa); tip: member.boosting; }
+                        }
+                        if member.timed-out: Image {
+                            source: IconPack.clock; width: 14px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.danger);
+                            accessible-role: image; accessible-label: "Timed out";
+                        }
+                    }
+                    listed-pointer := TouchArea {
+                        mouse-cursor: MouseCursor.pointer;
+                        clicked => { root.open-profile(member.id, self.absolute-position.y); }
+                        pointer-event(event) => {
+                            if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                                root.open-member-menu(member.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+                            }
+                        }
+                    }
                 }
                 // A heading is a row of its own; see `show_roster`.
-                if member.id != "": Rectangle {
-                  height: 42px; border-radius: 8px;
-                  background: member.id == root.selected ? #97979f33 : member-pointer.has-hover ? #97979f1f : transparent;
+                if member.id != "" && !MemberLists.on && !root.tiles: Rectangle {
+                  height: Look.member-row-height >= 0px ? Look.member-row-height : 42px; border-radius: Look.radius(8px);
+                  background: member.id == root.selected ? #97979f33 : member-pointer.has-hover ? #97979f1f
+                      : Trim.stripe-members && Math.mod(member.place, 2) == 1 ? Trim.stripe : transparent;
                   if member.nameplate-url != "": Nameplate {
                       radius: 8px; picture-url: member.nameplate-url; palette: Theme.dark ? member.nameplate-color : member.nameplate-light;
                       hovered: member-pointer.has-hover; selected: member.id == root.selected;
@@ -267,6 +482,7 @@ export component MemberPanel inherits Rectangle {
                   accessible-action-default => { root.open-profile(member.id, self.absolute-position.y); }
                   member-pointer := TouchArea {
                     mouse-cursor: MouseCursor.pointer;
+                    changed has-hover => { if self.has-hover && Look.fx-name { Look.name-hover(member.name); } }
                     clicked => { root.open-profile(member.id, self.absolute-position.y); }
                     pointer-event(event) => {
                         if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
@@ -276,11 +492,23 @@ export component MemberPanel inherits Rectangle {
                   }
                   HorizontalLayout {
                     padding-left: 8px; padding-right: member.nameplate-url != "" ? 12px : 8px; spacing: 12px;
+                    // A theme's file tree: each member a branch of their group.
+                    if Chrome.tree-members: Text {
+                        text: Chrome.branch(index == root.rows.length - 1 || root.rows[index + 1].id == "");
+                        color: Chrome.tree-ink; font-family: Look.mono; font-size: Look.name-size(16px);
+                        vertical-alignment: center; horizontal-stretch: 0; accessible-role: none;
+                    }
                     // Offline Discord members are faded, as in Discord.
-                    Middle {
+                    if !Chrome.hide-member-avatars: Middle {
                         Rectangle {
                             width: 32px; height: 32px;
-                            Avatar { size: 32px; initial: member.initial; tint: member.tint; picture: member.picture; picture-url: member.picture-url; decoration-url: member.decoration-url; animate: member-pointer.has-hover; opacity: member.presence == "offline" ? 0.4 : 1; }
+                            Avatar {
+                                size: 32px; initial: member.initial; tint: member.tint; picture: member.picture; picture-url: member.picture-url; decoration-url: member.decoration-url; animate: member-pointer.has-hover; opacity: member.presence == "offline" ? 0.4 : 1;
+                                visible: !ThemeContent.initial-members || !ThemeContent.lettered(member.name, member-pointer.has-hover);
+                            }
+                            if ThemeContent.initial-members && ThemeContent.lettered(member.name, member-pointer.has-hover): IlluminatedInitial {
+                                size: 32px; name: member.name; opacity: member.presence == "offline" ? 0.4 : 1;
+                            }
                             if member.presence != "" && member.presence != "offline": StatusDot { x: 20px; y: 20px; presence: member.presence; ring: Theme.sidebar; }
                         }
                     }
@@ -288,8 +516,21 @@ export component MemberPanel inherits Rectangle {
                         alignment: center; horizontal-stretch: 1;
                         HorizontalLayout {
                             alignment: start; spacing: 4px;
-                            if member.name-style.length == 0: Text {
-                                text: member.name; color: member.has-color ? member.color : Theme.secondary; font-size: 16px; font-weight: 500; overflow: elide;
+                            // A theme's ransom letters, cut short at the row's end.
+                            if member.name-style.length == 0 && Arrange.ransom: Rectangle {
+                                min-width: member-ransom.min-width; preferred-width: member-ransom.preferred-width; height: member-ransom.preferred-height;
+                                opacity: member.presence == "offline" ? 0.5 : 1;
+                                member-ransom := RansomName { x: 0px; y: 0px; width: parent.width; text: member.name; font-size: Look.name-size(16px) * 0.9; font-weight: Look.name-weight(500); }
+                            }
+                            if member.name-style.length == 0 && !Arrange.ransom && !Art.names.on: Text {
+                                text: Trim.role-mark(member.group) + Chrome.member-before + Look.name-text(member.name, member-pointer.has-hover) + Chrome.member-after; accessible-label: member.name; color: member.has-color ? member.color : Theme.secondary; font-size: Look.name-size(16px); font-weight: Look.name-weight(500); overflow: elide;
+                                font-family: Look.name-font(""); letter-spacing: Look.spacing-names;
+                                opacity: member.presence == "offline" ? 0.5 : 1;
+                            }
+                            if member.name-style.length == 0 && !Arrange.ransom && Art.names.on: ArtLabel {
+                                art: Art.names;
+                                text: Trim.role-mark(member.group) + Chrome.member-before + Look.name-text(member.name, member-pointer.has-hover) + Chrome.member-after; ink: member.has-color ? member.color : Theme.secondary; font-size: Look.name-size(16px); font-weight: Look.name-weight(500); overflow: elide;
+                                font-family: Look.name-font(""); letter-spacing: Look.spacing-names;
                                 opacity: member.presence == "offline" ? 0.5 : 1;
                             }
                             if member.name-style.length > 0: StyledName {
@@ -305,7 +546,7 @@ export component MemberPanel inherits Rectangle {
                             if member.bot: Middle { BotTag { opacity: member.presence == "offline" ? 0.5 : 1; } }
                             if member.owner: Middle {
                                 Image {
-                                    source: @image-url("icons/crown.svg"); width: 14px; height: 14px; image-fit: contain;
+                                    source: IconPack.crown; width: 14px; height: 14px; image-fit: contain;
                                     colorize: #f0b232; opacity: member.presence == "offline" ? 0.5 : 1;
                                     accessible-role: image; accessible-label: root.group ? "Group Owner" : "Server Owner";
                                 }
@@ -314,25 +555,44 @@ export component MemberPanel inherits Rectangle {
                             // Discord's client.
                             if root.boost-gems && member.boosting != "": Middle {
                                 TipIcon {
-                                    source: @image-url("icons/gem.svg"); width: 14px; height: 14px;
-                                    colorize: #ff73fa; tip: member.boosting;
+                                    source: IconPack.gem; width: 14px; height: 14px;
+                                    colorize: IconPack.tint(self.source, #ff73fa); tip: member.boosting;
                                 }
                             }
                             if member.timed-out: Image {
-                                source: @image-url("icons/clock.svg"); width: 14px; image-fit: contain;
-                                colorize: Theme.danger;
+                                source: IconPack.clock; width: 14px; image-fit: contain;
+                                colorize: IconPack.tint(self.source, Theme.danger);
                                 accessible-role: image; accessible-label: "Timed out";
                             }
                         }
                         if member.activity != "" || member.activity-emoji != "": StatusText {
-                            text: member.activity; emoji-url: member.activity-emoji; font-size: 12px;
+                            text: member.activity; emoji-url: member.activity-emoji; font-size: Trim.small-size(12px);
+                            font-family: Trim.small-font(""); font-weight: Trim.small-weight(400);
                             icon: member.activity-icon; bullet: member.activity-bullet;
                             opacity: member.presence == "offline" ? 0.5 : 1;
                         }
                     }
+                    // A theme's status column, such as `pts/0` or `idle`.
+                    if Chrome.status-column: Text {
+                        text: Chrome.status(member.presence, member.place); color: member.presence == "offline" || member.presence == "" ? Theme.faint : Theme.muted;
+                        font-family: Chrome.font;
+                        font-size: 13px; vertical-alignment: center; horizontal-alignment: right; overflow: elide;
+                        max-width: 96px; horizontal-stretch: 0;
+                        accessible-role: none;
+                    }
                   }
                 }
+                // A theme's art after the last row, which scrolls with the list.
+                if index == root.rows.length - 1 && MemberLists.on && MemberLists.foot.on: TileArtBox {
+                    height: MemberLists.foot.h + 8px; layer: MemberLists.foot;
+                }
             }
+        }
+        if MemberLists.on && MemberLists.reserve > 0px: Rectangle { height: MemberLists.reserve; }
+        // A theme's stickers at the list's foot, which take no input.
+        if Trim.footer.length > 0: Rectangle {
+            height: Trim.footer-height;
+            for layer in Trim.footer: ArtPicture { x: 0px; y: 0px; width: parent.width; height: parent.height; layer: layer; }
         }
     }
 }
@@ -546,14 +806,14 @@ export component BoardCard inherits Rectangle {
     in property <color> ink3: Theme.muted;
     in property <color> well: Theme.field;
     background: root.tile;
-    border-radius: 12px;
+    border-radius: Look.radius(12px);
     VerticalLayout {
         padding: 14px; spacing: 10px;
         Text { text: root.widget.title; color: root.ink; font-size: 14px; font-weight: 600; overflow: elide; }
         for game in root.widget.games: HorizontalLayout {
             spacing: 10px;
             ShowcasePicture {
-                width: 44px; height: 44px; border-radius: 8px; background: root.well;
+                width: 44px; height: 44px; border-radius: Look.radius(8px); background: root.well;
                 url: game.icon; label: game.name; initial: game.initial; ink: root.ink3;
             }
             VerticalLayout {
@@ -573,11 +833,11 @@ export component WishlistCard inherits Rectangle {
     in property <color> ink: Theme.text;
     in property <color> ink3: Theme.muted;
     background: root.tile;
-    border-radius: 12px;
+    border-radius: Look.radius(12px);
     VerticalLayout {
         padding: 10px; spacing: 8px;
         ShowcasePicture {
-            vertical-stretch: 1; border-radius: 8px;
+            vertical-stretch: 1; border-radius: Look.radius(8px);
             url: root.item.url; label: root.item.name; initial: root.item.initial; initial-size: 40px; ink: root.ink3;
         }
         Text { text: root.item.name; color: root.ink; font-size: 12px; font-weight: 500; horizontal-alignment: center; overflow: elide; }
@@ -715,11 +975,16 @@ export component BadgeTipCard inherits Rectangle {
     }
     width: 200px;
     height: card.preferred-height;
-    background: Theme.tooltip;
-    border-radius: 8px;
-    border-width: 1px;
-    border-color: #97979f1f;
-    drop-shadow-blur: 24px; drop-shadow-color: #0000003d; drop-shadow-offset-y: 12px;
+    // The tooltip's shape, art and glass.
+    background: Art.glass-tooltip ? transparent : Theme.tooltip;
+    border-radius: Look.r(Look.tooltip, 8px);
+    border-width: Look.bw(Look.tooltip, 1px);
+    border-color: Look.bc(Look.tooltip, #97979f1f);
+    drop-shadow-blur: Look.sb(Look.tooltip, 24px); drop-shadow-offset-x: Look.sx(Look.tooltip, 0px); drop-shadow-color: Look.sc(Look.tooltip, #0000003d); drop-shadow-offset-y: Look.sy(Look.tooltip, 12px);
+    if Art.tooltip.length > 0 || Art.glass-tooltip: ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.tooltip, 8px);
+        layers: Art.tooltip; glass: Art.glass-tooltip; ground: Theme.tooltip;
+    }
     // The caret under it, pointing at the badge.
     Path {
         x: parent.width / 2 - 8px; y: parent.height - 1px; width: 16px; height: 9px;
@@ -743,7 +1008,7 @@ export component BadgeTipCard inherits Rectangle {
         VerticalLayout {
             spacing: 4px;
             if BadgeTip.kind != "": Text { text: BadgeTip.kind; color: Theme.secondary; font-size: 14px; font-weight: 500; horizontal-alignment: center; wrap: word-wrap; }
-            Text { text: BadgeTip.title.to-uppercase(); color: Theme.text; font-size: 16px; font-weight: 900; horizontal-alignment: center; wrap: word-wrap; }
+            Text { text: BadgeTip.title.to-uppercase(); color: Theme.on-tooltip; font-size: 16px; font-weight: 900; horizontal-alignment: center; wrap: word-wrap; }
             if BadgeTip.progress != "": Text { text: BadgeTip.progress; color: Theme.secondary; font-size: 14px; font-weight: 500; horizontal-alignment: center; wrap: word-wrap; }
         }
     }
@@ -813,10 +1078,10 @@ export component ActivityCard inherits VerticalLayout {
             width: 64px; height: 64px;
             ActivityPicture { size: 64px; url: root.activity.large-url; label: root.activity.large-text; }
             if root.activity.small-url != "": Rectangle {
-                x: 44px; y: 44px; width: 26px; height: 26px; border-radius: 13px; background: root.ground;
+                x: 44px; y: 44px; width: 26px; height: 26px; border-radius: Look.radius(13px); background: root.ground;
                 Rectangle {
-                    width: 22px; height: 22px; border-radius: 11px; clip: true;
-                    ActivityPicture { size: 22px; border-radius: 11px; url: root.activity.small-url; label: root.activity.small-text; }
+                    width: 22px; height: 22px; border-radius: Look.radius(11px); clip: true;
+                    ActivityPicture { size: 22px; border-radius: Look.radius(11px); url: root.activity.small-url; label: root.activity.small-text; }
                 }
             }
         }
@@ -856,10 +1121,10 @@ export component ActivityCard inherits VerticalLayout {
                 Middle {
                     horizontal-stretch: 1;
                     Rectangle {
-                        height: 3px; border-radius: 1.5px; background: root.track;
+                        height: 3px; border-radius: Look.radius(1.5px); background: root.track;
                         Rectangle {
                             x: 0px; width: parent.width * root.played / max(1, root.length);
-                            border-radius: 1.5px; background: root.ink;
+                            border-radius: Look.radius(1.5px); background: ThemeContent.activity ? Theme.accent : root.ink;
                         }
                     }
                 }
@@ -877,33 +1142,37 @@ export component ActivityCard inherits VerticalLayout {
 export component ServerCard inherits Rectangle {
     in property <ProfileServerRow> server;
     callback open;
-    height: body.preferred-height;
-    background: Theme.sidebar;
-    border-radius: 12px; border-width: 1px; border-color: Theme.edge;
-    drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+    height: body.preferred-height + 2 * root.inset;
+    background: Theme.sidebar-fill;
+    border-radius: Look.radius(12px); border-width: Look.line(1px); border-color: Theme.edge;
+    drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
     accessible-role: groupbox;
     accessible-label: root.server.name;
     // Clicks on the card stay on it, instead of closing it.
     TouchArea { }
+    // A theme's outline stays around the banner; the stock card keeps its
+    // banner to the edge.
+    property <length> inset: Look.outline-width >= 0px ? Look.line(1px) : 0px;
     Rectangle {
-        border-radius: 12px; clip: true;
+        x: root.inset; y: root.inset; width: parent.width - 2 * root.inset; height: parent.height - 2 * root.inset;
+        border-radius: max(0px, Look.radius(12px) - root.inset); clip: true;
         body := VerticalLayout {
             padding-bottom: 16px; spacing: 0px;
             // The banner, with the icon hanging over its lower edge.
             Rectangle {
                 height: 90px + 32px + 8px;
                 Rectangle {
-                    y: 0px; height: 90px; background: Theme.raised;
+                    y: 0px; height: 90px; background: Theme.raised-fill;
                     if root.server.banner.width > 0: Image {
                         width: parent.width; height: parent.height; source: root.server.banner; image-fit: cover;
                     }
                 }
                 Rectangle {
-                    x: 10px; y: 90px - 32px - 6px; width: 76px; height: 76px; border-radius: 22px;
-                    background: Theme.sidebar;
+                    x: 10px; y: 90px - 32px - 6px; width: 76px; height: 76px; border-radius: Look.radius(22px);
+                    background: Theme.sidebar-fill;
                     Rectangle {
-                        width: 64px; height: 64px; border-radius: 18px; clip: true;
-                        background: root.server.picture.width > 0 ? transparent : Theme.raised;
+                        width: 64px; height: 64px; border-radius: Look.radius(18px); clip: true;
+                        background: root.server.picture.width > 0 ? transparent : Theme.raised-fill;
                         if root.server.picture.width == 0: Text {
                             text: root.server.initial; color: Theme.text; font-size: 24px; font-weight: 700;
                         }
@@ -920,12 +1189,12 @@ export component ServerCard inherits Rectangle {
                         spacing: 14px; alignment: start;
                         if root.server.members != "": HorizontalLayout {
                             spacing: 6px;
-                            Middle { Rectangle { width: 8px; height: 8px; border-radius: 4px; background: Theme.faint; } }
+                            Middle { Rectangle { width: 8px; height: 8px; border-radius: Look.radius(4px); background: Theme.faint; } }
                             Text { text: root.server.members; color: Theme.secondary; font-size: 13px; }
                         }
                         HorizontalLayout {
                             spacing: 6px;
-                            Middle { Rectangle { width: 8px; height: 8px; border-radius: 4px; background: Theme.faint; } }
+                            Middle { Rectangle { width: 8px; height: 8px; border-radius: Look.radius(4px); background: Theme.faint; } }
                             Text { text: root.server.channels; color: Theme.secondary; font-size: 13px; }
                         }
                     }
@@ -1075,7 +1344,7 @@ export component ProfileListRow inherits Rectangle {
     in property <color> hover: Theme.hover;
     in property <color> ground: Theme.sidebar;
     callback clicked;
-    height: root.detail != "" ? 46px : 40px; border-radius: 6px;
+    height: root.detail != "" ? 46px : 40px; border-radius: Look.radius(6px);
     background: pointer.has-hover ? root.hover : transparent;
     animate background { duration: Theme.quick; }
     border-width: focus.has-focus ? 2px : 0px;
@@ -1094,8 +1363,8 @@ export component ProfileListRow inherits Rectangle {
                     x: 20px; y: 20px; presence: root.presence; ring: pointer.has-hover ? root.hover : root.ground;
                 }
                 if !root.person: Rectangle {
-                    border-radius: 10px; clip: true;
-                    background: root.picture.width > 0 ? transparent : Theme.raised;
+                    border-radius: Look.radius(10px); clip: true;
+                    background: root.picture.width > 0 ? transparent : Theme.raised-fill;
                     if root.picture.width == 0: Text {
                         text: root.initial; color: root.ink; font-size: 13px; font-weight: 700;
                         horizontal-alignment: center; vertical-alignment: center;
@@ -1268,10 +1537,23 @@ export component ProfileCard inherits Rectangle {
     // themed card, the colours measured off Discord's, white on a light theme.
     property <color> bubble: !root.themed ? Theme.raised : root.light ? #ffffff : #232427;
     property <color> bubble-edge: !root.themed ? Theme.edge : root.light ? #00000026 : #404044;
-    height: min(body.preferred-height, root.limit);
-    background: root.themed ? @linear-gradient(180deg, root.data.theme-primary 0%, root.data.theme-secondary 100%) : root.plain-ground;
-    border-radius: root.docked ? (ClientStyle.enabled ? 8px : 0px) : 12px; border-width: root.themed ? 0px : root.docked && !ClientStyle.enabled ? 0px : 1px; border-color: Theme.edge;
-    drop-shadow-blur: root.docked ? 0px : 24px; drop-shadow-color: root.docked ? transparent : #00000080; drop-shadow-offset-y: root.docked ? 0px : 8px;
+    /// Room a theme keeps above the banner, for chrome its card art draws.
+    property <length> inset-top: root.themed || root.docked ? 0px : Look.card-inset-top;
+    height: min(body.preferred-height + root.inset-top + (root.themed ? 0px : 2 * root.edge-inset), root.limit);
+    background: root.themed ? @linear-gradient(180deg, root.data.theme-primary 0%, root.data.theme-secondary 100%) : Art.glass-card && !root.docked ? transparent : Art.glass-profile-pane && root.docked ? transparent : root.plain-ground;
+    property <length> corner: root.docked ? Look.radius(ClientStyle.enabled ? 8px : 0px) : Look.r(Look.card, 12px);
+    // A theme's border, solid, dashed or dotted, stays around the banner
+    // and the card's art: what's inside starts past it, under corners
+    // rounded to the border's inner edge. The stock card keeps its banner
+    // to the edge.
+    property <bool> dashed: Arrange.dash-card.on && !root.docked;
+    property <bool> edge-themed: Look.card.border >= 0px || Look.outline-width >= 0px || root.dashed;
+    property <length> dash-stroke: Arrange.dash-card.width >= 0px ? Arrange.dash-card.width : Look.bw(Look.card, 1px);
+    property <length> solid-edge: root.themed ? 0px : root.docked && !ClientStyle.enabled ? 0px : Look.bw(Look.card, 1px);
+    property <length> edge-inset: root.themed ? 2px : !root.edge-themed ? 0px : max(root.dashed ? max(1px, root.dash-stroke) : 0px, root.solid-edge);
+    border-radius: root.corner;
+    border-width: root.dashed ? 0px : root.solid-edge; border-color: Look.bc(Look.card, Theme.edge);
+    drop-shadow-blur: root.docked ? 0px : Look.sb(Look.card, 24px); drop-shadow-offset-x: root.docked ? 0px : Look.sx(Look.card, 0px); drop-shadow-color: root.docked ? transparent : Look.sc(Look.card, #00000080); drop-shadow-offset-y: root.docked ? 0px : Look.sy(Look.card, 8px);
     accessible-role: groupbox;
     accessible-label: root.data.name + "'s profile";
     // As Discord's stylesheet: the frame reaches 12px past each side of a card,
@@ -1305,20 +1587,35 @@ export component ProfileCard inherits Rectangle {
             }
         }
     }
+    if Arrange.dash-card.on && !root.docked: DashedOutline { x: 0px; y: 0px; z: 100; dash: Arrange.dash-card; stock-width: Look.bw(Look.card, 1px); stock-ink: Look.bc(Look.card, Theme.edge); }
     // Clicks on the card stay on it, instead of closing it, and it knows when
     // the pointer is on it.
     card-pointer := TouchArea {
         Rectangle {
-            x: root.themed ? 2px : 0px; y: root.themed ? 2px : 0px;
-            width: parent.width - (root.themed ? 4px : 0px); height: parent.height - (root.themed ? 4px : 0px);
-            border-radius: (root.docked ? (ClientStyle.enabled ? 8px : 0px) : 12px) - (root.themed ? 2px : 0px); clip: true;
+            x: root.edge-inset; y: root.edge-inset;
+            width: parent.width - 2 * root.edge-inset; height: parent.height - 2 * root.edge-inset;
+            border-radius: max(0px, (root.edge-themed ? root.corner : root.docked ? (ClientStyle.enabled ? 8px : 0px) : 12px) - root.edge-inset); clip: true;
             if root.themed: Rectangle {
                 background: @linear-gradient(180deg, root.theme-start 0%, root.theme-start root.banner-height / parent.height * 100%, root.theme-end 100%);
+            }
+            // A theme's card art, and its foil, on a card the person hasn't
+            // themed themselves.
+            if !root.themed && !root.docked && (Art.card.length > 0 || Art.glass-card): ArtLayer {
+                x: 0px; y: 0px; width: parent.width; height: parent.height; layers: Art.card; glass: Art.glass-card; ground: root.plain-ground;
+            }
+            // A theme's `profile-pane` art and glass, on the profile docked
+            // beside a DM.
+            if !root.themed && root.docked && (Art.profile-pane.length > 0 || Art.glass-profile-pane): ArtLayer {
+                x: 0px; y: 0px; width: parent.width; height: parent.height; layers: Art.profile-pane; glass: Art.glass-profile-pane; ground: root.plain-ground;
+            }
+            if !root.themed && !root.docked && Art.foil-card: ArtFoil {
+                x: 0px; y: 0px; width: parent.width; height: parent.height;
+                hovered: card-pointer.has-hover; pointer-x: card-pointer.mouse-x; pointer-y: card-pointer.mouse-y;
             }
             // Sized by what the card wants rather than the least it can take, so a
             // long one scrolls to its end.
             ScrollView {
-                y: 0px; height: parent.height - (root.docked && ClientStyle.enabled ? 52px : 0px);
+                y: root.inset-top; height: parent.height - root.inset-top - (root.docked && ClientStyle.enabled ? 52px : 0px);
                 content-height: body.preferred-height;
                 body := VerticalLayout {
                     padding-bottom: root.pad; spacing: 0px;
@@ -1327,7 +1624,12 @@ export component ProfileCard inherits Rectangle {
                         height: root.banner-height + root.avatar-size / 2 + 8px;
                         Rectangle {
                             y: 0px; height: root.banner-height;
-                            background: root.data.has-accent ? root.data.accent : root.themed ? root.data.theme-primary : Theme.raised;
+                            // Its top corners follow the card's, inside its border,
+                            // unless a theme keeps room above it.
+                            border-top-left-radius: root.inset-top > 0px ? 0px : max(0px, root.corner - max(root.edge-inset, root.border-width));
+                            border-top-right-radius: root.inset-top > 0px ? 0px : max(0px, root.corner - max(root.edge-inset, root.border-width));
+                            clip: true;
+                            background: root.data.has-accent ? root.data.accent : root.themed ? root.data.theme-primary : Theme.raised-fill;
                             if root.data.banner.width > 0: Picture {
                                 width: parent.width; height: parent.height; image-fit: cover;
                                 still: root.data.banner; frames: root.banner-frames; delays: root.banner-delays;
@@ -1337,12 +1639,12 @@ export component ProfileCard inherits Rectangle {
                         // lines at most, and all of it while pointed at, as Discord's.
                         // The full profile's.
                         if root.has-thought && root.large: Rectangle {
-                            x: root.pad + root.avatar-size + 14px; y: root.banner-height - root.avatar-size / 2 + 30px; width: 10px; height: 10px; border-radius: 5px;
-                            background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
+                            x: root.pad + root.avatar-size + 14px; y: root.banner-height - root.avatar-size / 2 + 30px; width: 10px; height: 10px; border-radius: Look.radius(5px);
+                            background: root.bubble; border-color: root.bubble-edge; border-width: Look.line(1px);
                         }
                         if root.has-thought && root.large: Rectangle {
-                            x: root.pad + root.avatar-size + 26px; y: root.banner-height - root.avatar-size / 2 + 37px; width: 18px; height: 18px; border-radius: 9px;
-                            background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
+                            x: root.pad + root.avatar-size + 26px; y: root.banner-height - root.avatar-size / 2 + 37px; width: 18px; height: 18px; border-radius: Look.radius(9px);
+                            background: root.bubble; border-color: root.bubble-edge; border-width: Look.line(1px);
                         }
                         if root.has-thought && root.large: Rectangle {
                             x: root.pad + root.avatar-size + 18px; y: root.banner-height - root.avatar-size / 2 + 45px;
@@ -1350,7 +1652,7 @@ export component ProfileCard inherits Rectangle {
                             height: (large-bubble.has-hover ? large-thought.preferred-height : min(large-thought.preferred-height, 42px)) + 16px;
                             animate height { duration: 180ms; easing: ease-out; }
                             clip: true; z: large-bubble.has-hover ? 10 : 0;
-                            border-radius: 16px; background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
+                            border-radius: Look.radius(16px); background: root.bubble; border-color: root.bubble-edge; border-width: Look.line(1px);
                             // The bump joins the bubble with no line between them.
                             Rectangle { x: 9px; y: 0px; width: 16px; height: 2px; background: root.bubble; }
                             large-bubble := TouchArea { }
@@ -1365,12 +1667,12 @@ export component ProfileCard inherits Rectangle {
                         }
                         // The card's.
                         if root.has-thought && !root.large: Rectangle {
-                            x: root.pad + root.avatar-size + 2px; y: root.banner-height - 16px; width: 7px; height: 7px; border-radius: 3.5px;
-                            background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
+                            x: root.pad + root.avatar-size + 2px; y: root.banner-height - 16px; width: 7px; height: 7px; border-radius: Look.radius(3.5px);
+                            background: root.bubble; border-color: root.bubble-edge; border-width: Look.line(1px);
                         }
                         if root.has-thought && !root.large: Rectangle {
-                            x: root.pad + root.avatar-size + 11px; y: root.banner-height - 9px; width: 11px; height: 11px; border-radius: 5.5px;
-                            background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
+                            x: root.pad + root.avatar-size + 11px; y: root.banner-height - 9px; width: 11px; height: 11px; border-radius: Look.radius(5.5px);
+                            background: root.bubble; border-color: root.bubble-edge; border-width: Look.line(1px);
                         }
                         if root.has-thought && !root.large: Rectangle {
                             x: root.pad + root.avatar-size + 12px; y: root.banner-height + 4px;
@@ -1378,7 +1680,7 @@ export component ProfileCard inherits Rectangle {
                             height: (small-bubble.has-hover ? thought.preferred-height : min(thought.preferred-height, 38px)) + 14px;
                             animate height { duration: 180ms; easing: ease-out; }
                             clip: true; z: small-bubble.has-hover ? 10 : 0;
-                            border-radius: 14px; background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
+                            border-radius: Look.radius(14px); background: root.bubble; border-color: root.bubble-edge; border-width: Look.line(1px);
                             small-bubble := TouchArea { }
                             Rectangle {
                                 x: 12px; y: 7px; width: parent.width - 24px; height: parent.height - 14px; clip: true;
@@ -1391,7 +1693,9 @@ export component ProfileCard inherits Rectangle {
                         }
                         Rectangle {
                             x: root.pad - 6px; y: root.banner-height - root.avatar-size / 2 - 6px;
-                            width: root.avatar-size + 12px; height: self.width; border-radius: self.width / 2;
+                            width: root.avatar-size + 12px; height: self.width;
+                            // The ring takes the avatar's shape.
+                            border-radius: Look.avatar.radius >= 0px ? self.width * Look.avatar.radius / 100px : self.width / 2;
                             background: root.ground;
                             Avatar { size: root.avatar-size; initial: root.data.initial; tint: root.data.tint; picture: root.data.picture; decoration-url: root.data.decoration-url; animate: card-pointer.has-hover; }
                             if root.data.presence != "" && root.data.presence != "offline": StatusDot {
@@ -1414,12 +1718,33 @@ export component ProfileCard inherits Rectangle {
                             spacing: 2px;
                             // The name and username select, to copy, as in
                             // Discord; the picture opens the full profile.
-                            if root.data.name-style.length == 0: TextInput {
-                                text: root.data.name; color: root.ink; font-size: root.large ? 26px : 20px; font-weight: 700;
-                                read-only: true; single-line: true;
-                                selection-background-color: Theme.accent.with-alpha(0.35);
-                                selection-foreground-color: root.ink;
-                                accessible-label: "Name";
+                            // The profile.name slot, moved inside a box the layout
+                            // measures as the name.
+                            if root.data.name-style.length == 0: Rectangle {
+                                min-height: Arrange.ransom ? profile-ransom.preferred-height : profile-name.preferred-height;
+                                preferred-width: Arrange.ransom ? profile-ransom.preferred-width : profile-name.preferred-width;
+                                // A theme's ransom letters, nothing unless it cuts names.
+                                profile-ransom := RansomName {
+                                    x: 0px; y: 0px; width: min(self.preferred-width, parent.width); height: parent.height; visible: Arrange.ransom;
+                                    text: Arrange.ransom ? root.data.name : ""; font-size: root.large ? 24px : 19px; font-weight: 800;
+                                }
+                                if Art.names.on && !Arrange.ransom: ArtTextBehind {
+                                    x: profile-name.x; y: profile-name.y; width: parent.width; height: parent.height; art: Art.names;
+                                    text: profile-name.text; font-size: profile-name.font-size; font-weight: profile-name.font-weight;
+                                    font-family: profile-name.font-family; letter-spacing: profile-name.letter-spacing;
+                                    opacity: profile-name.opacity; transform-scale: profile-name.transform-scale; transform-rotation: profile-name.transform-rotation;
+                                }
+                                profile-name := TextInput {
+                                    visible: !Arrange.ransom;
+                                    x: Look.profile-name.x; y: Look.profile-name.y; width: parent.width; height: parent.height;
+                                    text: Look.profile-text(root.data.name); color: root.ink; font-size: root.large ? 26px : 20px; font-weight: Look.name-weight(700);
+                                    font-family: Look.name-font(""); letter-spacing: Look.spacing-names;
+                                    opacity: Look.profile-name.opacity; transform-scale: Look.profile-name.scale; transform-rotation: Look.profile-name.rotation * 1deg;
+                                    read-only: true; single-line: true;
+                                    selection-background-color: Theme.selection;
+                                    selection-foreground-color: root.ink;
+                                    accessible-label: "Name";
+                                }
                             }
                             if root.data.name-style.length > 0: StyledName {
                                 text: root.data.name; styles: root.data.name-style; ink: root.ink; font-size: root.large ? 26px : 20px; font-weight: 700;
@@ -1431,7 +1756,7 @@ export component ProfileCard inherits Rectangle {
                                     text: root.data.handle + (root.data.pronouns != "" ? " \u{2022} " + root.data.pronouns : "");
                                     color: root.ink; font-size: 14px; font-weight: 400; vertical-alignment: center;
                                     read-only: true; single-line: true;
-                                    selection-background-color: Theme.accent.with-alpha(0.35);
+                                    selection-background-color: Theme.selection;
                                     selection-foreground-color: root.ink;
                                     accessible-label: "Username";
                                 }
@@ -1443,13 +1768,13 @@ export component ProfileCard inherits Rectangle {
                         // One's own, as Discord's, has Edit Profile in their place.
                         if root.large && !root.preview && root.data.own: HorizontalLayout {
                             alignment: start; height: 32px;
-                            ActionButton { text: "Edit Profile"; icon: @image-url("icons/pencil.svg"); primary: true; small: true; clicked => { root.edit-profile(); } }
+                            ActionButton { text: "Edit Profile"; icon: IconPack.pencil; primary: true; small: true; clicked => { root.edit-profile(); } }
                         }
                         if root.large && !root.preview && !root.data.own && (root.data.friend > 0 || root.data.can-message || root.data.id != ""): HorizontalLayout {
                             spacing: 8px; alignment: start; height: 32px;
                             if root.data.friend > 0: Rectangle {
-                                height: 32px; width: friend-row.preferred-width + 24px; border-radius: 4px;
-                                background: root.data.friend == 3 ? Theme.accent : action-friend.has-hover && root.data.friend != 2 ? root.ink.transparentize(0.8) : root.ink.transparentize(0.88);
+                                height: 32px; width: friend-row.preferred-width + 24px; border-radius: Look.radius(4px);
+                                background: root.data.friend == 3 ? Theme.accent-fill : action-friend.has-hover && root.data.friend != 2 ? root.ink.transparentize(0.8) : root.ink.transparentize(0.88);
                                 opacity: root.data.friend == 2 ? 0.5 : 1;
                                 accessible-role: button;
                                 accessible-enabled: root.data.friend != 2;
@@ -1457,7 +1782,7 @@ export component ProfileCard inherits Rectangle {
                                 accessible-action-default => { if root.data.friend == 4 { root.more(self.absolute-position.x, self.absolute-position.y + self.height); } else { root.befriend(); } }
                                 friend-row := HorizontalLayout {
                                     x: 12px; spacing: 6px; alignment: center;
-                                    Middle { Image { source: root.data.friend == 4 ? @image-url("icons/check.svg") : @image-url("icons/user-plus.svg"); width: 16px; height: 16px; colorize: root.data.friend == 3 ? #ffffff : root.ink; } }
+                                    Middle { Image { source: root.data.friend == 4 ? IconPack.check : IconPack.user-plus; width: 16px; height: 16px; colorize: IconPack.tint(self.source, root.data.friend == 3 ? #ffffff : root.ink); } }
                                     Text {
                                         text: root.data.friend == 1 ? "Add Friend" : root.data.friend == 2 ? "Friend Request Sent" : root.data.friend == 4 ? "Friends" : "Accept Friend Request";
                                         color: root.data.friend == 3 ? #ffffff : root.ink; font-size: 14px; font-weight: 500; vertical-alignment: center;
@@ -1469,21 +1794,21 @@ export component ProfileCard inherits Rectangle {
                                 }
                             }
                             if root.data.can-message: Rectangle {
-                                width: 32px; height: 32px; border-radius: 16px;
+                                width: 32px; height: 32px; border-radius: Look.radius(16px);
                                 background: action-message.has-hover ? root.ink.transparentize(0.8) : root.ink.transparentize(0.88);
                                 accessible-role: button;
                                 accessible-label: "Message " + root.data.name;
                                 accessible-action-default => { root.message-person(root.data.id); }
-                                Image { source: @image-url("icons/message-circle.svg"); width: 18px; height: 18px; x: 7px; y: 7px; colorize: root.ink; }
+                                Image { source: IconPack.message-circle; width: 18px; height: 18px; x: 7px; y: 7px; colorize: IconPack.tint(self.source, root.ink); }
                                 action-message := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.message-person(root.data.id); } }
                             }
                             if root.data.id != "": Rectangle {
-                                width: 32px; height: 32px; border-radius: 16px;
+                                width: 32px; height: 32px; border-radius: Look.radius(16px);
                                 background: action-more.has-hover ? root.ink.transparentize(0.8) : root.ink.transparentize(0.88);
                                 accessible-role: button;
                                 accessible-label: "More actions";
                                 accessible-action-default => { root.more(self.absolute-position.x, self.absolute-position.y + self.height); }
-                                Image { source: @image-url("icons/ellipsis.svg"); width: 18px; height: 18px; x: 7px; y: 7px; colorize: root.ink; }
+                                Image { source: IconPack.ellipsis; width: 18px; height: 18px; x: 7px; y: 7px; colorize: IconPack.tint(self.source, root.ink); }
                                 action-more := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.more(self.absolute-position.x, self.absolute-position.y + self.height); } }
                             }
                         }
@@ -1495,13 +1820,16 @@ export component ProfileCard inherits Rectangle {
                         // Discord's does; the card leaves them out.
                         if !root.large: VerticalLayout {
                             spacing: 12px;
-                            for activity in root.data.activities: ActivityCard {
+                            for activity in root.data.activities: SectionBox {
+                              title: "Now playing";
+                              ActivityCard {
                                 // Discord's card has it on anyone's but a bot's.
                                 menu: !root.data.bot && !root.preview && !root.docked;
                                 more(x, y) => { root.activity-more(x, y, root.data.own && activity.game); }
                                 activity: activity; ink: root.ink; ink2: root.ink2; ink3: root.ink3;
                                 ground: root.themed ? root.theme-start : Theme.sidebar; track: root.themed ? root.ink.transparentize(0.8) : Theme.raised;
                                 open-link(url) => { root.open-link(url); }
+                              }
                             }
                         }
                         // The card names what is shared, with a few of the faces; the
@@ -1523,7 +1851,7 @@ export component ProfileCard inherits Rectangle {
                                             width: min(3, root.data.friends.length) * 12px + 6px; height: 18px;
                                             for friend[index] in root.data.friends: Rectangle {
                                                 x: index * 12px; width: 18px; height: 18px; visible: index < 3;
-                                                Rectangle { width: 18px; height: 18px; border-radius: 9px; background: root.ground; }
+                                                Rectangle { width: 18px; height: 18px; border-radius: Look.radius(9px); background: root.ground; }
                                                 Avatar { x: 1px; y: 1px; size: 16px; initial: friend.initial; tint: friend.tint; picture: friend.picture; }
                                             }
                                         }
@@ -1543,7 +1871,9 @@ export component ProfileCard inherits Rectangle {
                                 TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.enlarge-on(2); } }
                             }
                         }
-                        if root.data.has-bio: VerticalLayout {
+                        if root.data.has-bio: SectionBox {
+                          title: "About me";
+                          VerticalLayout {
                             spacing: 6px;
                             // The card shows three lines and an ellipsis; the full profile
                             // shows it all. A fixed height, since the text would otherwise
@@ -1578,18 +1908,22 @@ export component ProfileCard inherits Rectangle {
                                 text: "View full bio"; color: root.ink; font-size: 12px; font-weight: 700;
                                 TouchArea { enabled: parent.cut; mouse-cursor: MouseCursor.pointer; clicked => { root.enlarge(); } }
                             }
+                          }
                         }
                         // The card leaves the dates to the full profile and the DM panel:
                         // "Member Since", then the Discord logo and the account's date, and
                         // the server's icon and the date of joining it.
-                        if root.full && (root.data.created != "" || root.data.joined != ""): VerticalLayout {
+                        if root.full && (root.data.created != "" || root.data.joined != ""): SectionBox {
+                          title: "Member Since";
+                          VerticalLayout {
                             spacing: 6px;
-                            ProfileTitle { text: "Member Since"; color: root.ink; }
+                            if !Trim.section.on: ProfileTitle { text: "Member Since"; color: root.ink; }
                             MemberSince {
                                 created: root.data.created; joined: root.data.joined;
                                 server-name: root.data.server-name; server-initial: root.data.server-initial; server-icon: root.data.server-icon;
                                 ink: root.ink2;
                             }
+                          }
                         }
                         // For a friend, as Discord's full profile shows, and its DM
                         // panel doesn't: when the friendship began.
@@ -1598,23 +1932,26 @@ export component ProfileCard inherits Rectangle {
                             ProfileTitle { text: "Friends Since"; color: root.ink; }
                             Text { text: root.data.friends-since; color: root.ink2; font-size: 14px; }
                         }
-                        if (root.large && !root.side ? root.data.role-rows-large : root.data.role-rows).length > 0: VerticalLayout {
+                        if (root.large && !root.side ? root.data.role-rows-large : root.data.role-rows).length > 0: SectionBox {
+                          title: "Roles";
+                          VerticalLayout {
                             spacing: 6px;
                             // The card's chips speak for themselves.
-                            if root.full: ProfileTitle { text: "Roles"; color: root.ink; }
+                            if root.full && !Trim.section.on: ProfileTitle { text: "Roles"; color: root.ink; }
                             for row in (root.large && !root.side ? root.data.role-rows-large : root.data.role-rows): HorizontalLayout {
                                 spacing: 4px; alignment: start;
                                 for role in row.roles: Rectangle {
-                                    height: 24px; border-radius: 8px; background: transparent;
-                                    border-width: 1px; border-color: root.ink.transparentize(0.8);
+                                    height: 24px; border-radius: Look.radius(8px); background: transparent;
+                                    border-width: Look.line(1px); border-color: root.ink.transparentize(0.8);
                                     HorizontalLayout {
                                         padding-left: 6px; padding-right: 8px; spacing: 6px;
-                                        Middle { Rectangle { width: 12px; height: 12px; border-radius: 6px; background: role.has-color ? role.color : Theme.faint; } }
+                                        Middle { Rectangle { width: 12px; height: 12px; border-radius: Look.radius(6px); background: role.has-color ? role.color : Theme.faint; } }
                                         Text { text: role.name; color: root.ink; font-size: 12px; font-weight: 600; vertical-alignment: center; }
                                     }
                                 }
                             }
                         }
+                          }
                         if root.large && root.data.connections.length > 0: VerticalLayout {
                             spacing: 8px;
                             ProfileTitle { text: "Connections"; color: root.ink; }
@@ -1625,14 +1962,14 @@ export component ProfileCard inherits Rectangle {
                                 accessible-action-default => { if connection.url != "" { root.open-link(connection.url); } }
                                 connection-body := HorizontalLayout {
                                     spacing: 8px;
-                                    Middle { Image { source: @image-url("icons/link.svg"); width: 24px; height: 24px; colorize: root.ink2; } }
+                                    Middle { Image { source: IconPack.link; width: 24px; height: 24px; colorize: IconPack.tint(self.source, root.ink2); } }
                                     VerticalLayout {
                                         alignment: center;
                                         HorizontalLayout {
                                             spacing: 4px; alignment: start;
                                             Text { text: connection.name; color: root.ink; font-size: 14px; font-weight: 500; overflow: elide; vertical-alignment: center; }
-                                            if connection.verified: Middle { Image { source: @image-url("icons/check.svg"); width: 14px; height: 14px; colorize: root.ink2; } }
-                                            if connection.url != "": Middle { Image { source: @image-url("icons/external-link.svg"); width: 14px; height: 14px; colorize: root.ink2; } }
+                                            if connection.verified: Middle { Image { source: IconPack.check; width: 14px; height: 14px; colorize: IconPack.tint(self.source, root.ink2); } }
+                                            if connection.url != "": Middle { Image { source: IconPack.external-link; width: 14px; height: 14px; colorize: IconPack.tint(self.source, root.ink2); } }
                                         }
                                         if connection.since != "": Text { text: "Member since" + " " + connection.since; color: root.ink3; font-size: 12px; }
                                     }
@@ -1655,7 +1992,7 @@ export component ProfileCard inherits Rectangle {
                                 }
                                 note-field := TextField {
                                     placeholder: "Click to add a note"; label: "Note (only visible to you)";
-                                    text-size: 14px; border-radius: 4px; pad: 8px; min-height: 32px;
+                                    text-size: 14px; border-radius: Look.radius(4px); pad: 8px; min-height: 32px;
                                     fill: !root.themed ? Theme.sunken : root.light ? #ffffff4d : #00000033; ink: root.ink;
                                     accepted => { root.save-note(root.data.id, self.text); }
                                     changed focused => {
@@ -1696,7 +2033,7 @@ export component ProfileCard inherits Rectangle {
                         }
                         if root.data.note != "": Text { text: root.data.note; color: root.ink3; font-size: 13px; wrap: word-wrap; }
                         if !root.large && !root.preview && root.data.own: ActionButton {
-                            text: "Edit Profile"; icon: @image-url("icons/pencil.svg"); primary: true;
+                            text: "Edit Profile"; icon: IconPack.pencil; primary: true;
                             clicked => { root.edit-profile(); }
                         }
                         // Escape in the box closes the card, as it does elsewhere.
@@ -1710,8 +2047,8 @@ export component ProfileCard inherits Rectangle {
                             }
                             message-field := TextField {
                                 placeholder: root.data.message-hint; label: root.data.message-hint;
-                                placeholder-color: root.ink2; trailing-icon: @image-url("icons/smile.svg");
-                                text-size: 14px; border-radius: 8px; fill: !root.themed ? Theme.text.transparentize(0.92) : root.light ? #ffffff3d : #ffffff1f; ink: root.ink; trailing-tint: root.ink2;
+                                placeholder-color: root.ink2; trailing-icon: IconPack.smile;
+                                text-size: 14px; border-radius: Look.radius(8px); fill: !root.themed ? Theme.text.transparentize(0.92) : root.light ? #ffffff3d : #ffffff1f; ink: root.ink; trailing-tint: root.ink2;
                                 accepted => {
                                     if self.text != "" {
                                         root.send-message(self.text);
@@ -1726,33 +2063,44 @@ export component ProfileCard inherits Rectangle {
             // The friend request and the person's menu sit over the banner's
             // top right corner, as in Discord.
             if !root.preview && !root.large && (root.data.friend > 0 || root.data.id != ""): HorizontalLayout {
-                x: parent.width - self.preferred-width - (root.large && !root.side ? 54px : 10px); y: 10px;
+                x: parent.width - self.preferred-width - (root.large && !root.side ? 54px : 10px); y: root.inset-top + 10px;
                 height: 32px; spacing: 8px;
                 if root.data.friend > 0: Rectangle {
-                    width: 32px; height: 32px; border-radius: 16px;
-                    background: friend-touch.has-hover && root.data.friend != 2 ? #000000b3 : #00000080;
+                    width: 32px; height: 32px; border-radius: Look.r(Look.card-button, 16px);
+                    background: friend-touch.has-hover && root.data.friend != 2 ? Theme.card-button-hover : Theme.card-button;
+                    border-width: Look.card-button.border >= 0px ? Look.card-button.border : 0px; border-color: Look.card-button.border-color;
+                    drop-shadow-blur: Look.card-button.shadow-blur >= 0px ? Look.card-button.shadow-blur : 0px; drop-shadow-offset-x: Look.card-button.shadow-x;
+                    drop-shadow-offset-y: Look.card-button.shadow-y; drop-shadow-color: Look.card-button.shadow-blur >= 0px ? Look.card-button.shadow-color : transparent;
                     accessible-role: button;
                     accessible-enabled: root.data.friend != 2;
                     accessible-label: root.data.friend == 1 ? "Add Friend" : root.data.friend == 2 ? "Friend Request Sent" : root.data.friend == 4 ? "Friends" : "Accept Friend Request";
                     accessible-action-default => { if root.data.friend == 4 { root.more(self.absolute-position.x, self.absolute-position.y + self.height); } else { root.befriend(); } }
-                    Image { source: root.data.friend == 4 ? @image-url("icons/check.svg") : @image-url("icons/user-plus.svg"); width: 18px; height: 18px; x: 7px; y: 7px; colorize: #ffffff; opacity: root.data.friend == 2 ? 0.5 : 1; }
+                    Image { source: root.data.friend == 4 ? IconPack.check : IconPack.user-plus; width: 18px; height: 18px; x: 7px; y: 7px; colorize: IconPack.tint(self.source, Theme.card-button-icon); opacity: root.data.friend == 2 ? 0.5 : 1; }
                     friend-touch := TouchArea {
                         enabled: root.data.friend != 2; mouse-cursor: MouseCursor.pointer;
                         clicked => { if root.data.friend == 4 { root.more(self.absolute-position.x, self.absolute-position.y + self.height); } else { root.befriend(); } }
                     }
                 }
                 if root.data.id != "": Rectangle {
-                    width: 32px; height: 32px; border-radius: 16px;
-                    background: more-touch.has-hover ? #000000b3 : #00000080;
+                    width: 32px; height: 32px; border-radius: Look.r(Look.card-button, 16px);
+                    background: more-touch.has-hover ? Theme.card-button-hover : Theme.card-button;
+                    border-width: Look.card-button.border >= 0px ? Look.card-button.border : 0px; border-color: Look.card-button.border-color;
+                    drop-shadow-blur: Look.card-button.shadow-blur >= 0px ? Look.card-button.shadow-blur : 0px; drop-shadow-offset-x: Look.card-button.shadow-x;
+                    drop-shadow-offset-y: Look.card-button.shadow-y; drop-shadow-color: Look.card-button.shadow-blur >= 0px ? Look.card-button.shadow-color : transparent;
                     accessible-role: button;
                     accessible-label: "More actions";
                     accessible-action-default => { root.more(self.absolute-position.x, self.absolute-position.y + self.height); }
-                    Image { source: @image-url("icons/ellipsis.svg"); width: 18px; height: 18px; x: 7px; y: 7px; colorize: #ffffff; }
+                    Image { source: IconPack.ellipsis; width: 18px; height: 18px; x: 7px; y: 7px; colorize: IconPack.tint(self.source, Theme.card-button-icon); }
                     more-touch := TouchArea {
                         mouse-cursor: MouseCursor.pointer;
                         clicked => { root.more(self.absolute-position.x, self.absolute-position.y + self.height); }
                     }
                 }
+            }
+            // A theme's layers over the card's content, such as a gloss across
+            // the banner; pictures take no clicks.
+            if !root.themed && !root.docked && Art.card-over.length > 0: ArtVeil {
+                x: 0px; y: 0px; width: parent.width; height: parent.height; layers: Art.card-over;
             }
             // The profile effect lies over the card, in front of what it holds, and
             // plays while the pointer is on it; clicks go through it.
@@ -1764,8 +2112,9 @@ export component ProfileCard inherits Rectangle {
         }
     }
     if root.large && !root.side: Rectangle {
-        x: parent.width - 44px; y: 10px; width: 34px; height: 34px; border-radius: 17px; background: #00000080;
-        IconButton { icon: @image-url("icons/x.svg"); label: "Close profile"; tint: #ffffff; clicked => { root.close(); } }
+        x: parent.width - 44px; y: root.inset-top + 10px; width: 34px; height: 34px; border-radius: Look.r(Look.card-button, 17px); background: Theme.card-button;
+        border-width: Look.card-button.border >= 0px ? Look.card-button.border : 0px; border-color: Look.card-button.border-color;
+        IconButton { icon: IconPack.x; label: "Close profile"; tint: Theme.card-button-icon; clicked => { root.close(); } }
     }
     if root.docked && ClientStyle.enabled: Rectangle {
         x: 16px; y: parent.height - 48px; width: parent.width - 32px; height: 36px;
@@ -1879,9 +2228,14 @@ export component ProfileModal inherits Rectangle {
     // The whole panel takes the profile's theme, not only the card on its left.
     background: root.themed
         ? @linear-gradient(180deg, root.theme-start 0%, ProfileTheme.wash(root.data.theme-secondary, root.light) 100%)
-        : Theme.sidebar;
-    border-radius: 8px; border-width: root.data.has-theme ? 0px : 1px; border-color: Theme.edge;
-    drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+        : Art.glass-dialog ? transparent : Theme.sidebar-fill;
+    // A dialog's shape, and its art and glass under a profile without a theme of its own.
+    border-radius: Look.r(Look.dialog, 8px); border-width: root.data.has-theme ? 0px : Look.bw(Look.dialog, 1px); border-color: Look.bc(Look.dialog, Theme.edge);
+    drop-shadow-blur: Look.sb(Look.dialog, 24px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000080); drop-shadow-offset-y: Look.sy(Look.dialog, 8px);
+    if !root.themed && (Art.dialog.length > 0 || Art.glass-dialog): ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.dialog, 8px);
+        layers: Art.dialog; glass: Art.glass-dialog; ground: Theme.sidebar-fill;
+    }
     accessible-role: groupbox;
     accessible-label: root.data.name + "'s full profile";
     TouchArea { }
@@ -1924,17 +2278,17 @@ export component ProfileModal inherits Rectangle {
                         color: root.page == entry.page || tab-touch.has-hover ? root.ink : root.ink3;
                         font-size: 14px; font-weight: root.page == entry.page ? 700 : 500; vertical-alignment: center;
                     }
-                    Rectangle { y: parent.height - 2px; height: 2px; border-radius: 1px; background: root.ink; visible: root.page == entry.page; }
+                    Rectangle { y: parent.height - 2px; height: 2px; border-radius: Look.radius(1px); background: root.ink; visible: root.page == entry.page; }
                     tab-touch := TouchArea { enabled: entry.shows; mouse-cursor: MouseCursor.pointer; clicked => { root.chosen = entry.page; } }
                 }
                 Rectangle { horizontal-stretch: 1; }
                 Rectangle {
-                    width: 32px; height: 32px; y: 4px; border-radius: 16px;
+                    width: 32px; height: 32px; y: 4px; border-radius: Look.radius(16px);
                     background: close-touch.has-hover ? root.hover : transparent;
                     accessible-role: button;
                     accessible-label: "Close profile";
                     accessible-action-default => { root.close(); }
-                    Image { source: @image-url("icons/x.svg"); width: 18px; height: 18px; x: 7px; y: 7px; colorize: root.ink2; }
+                    Image { source: IconPack.x; width: 18px; height: 18px; x: 7px; y: 7px; colorize: IconPack.tint(self.source, root.ink2); }
                     close-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.close(); } }
                 }
             }
@@ -1981,12 +2335,12 @@ export component ProfileModal inherits Rectangle {
                         // What they did lately, from Discord's outbox.
                         if root.data.recent.length > 0: Text { text: "Recent activity"; color: root.ink2; font-size: 12px; font-weight: 500; }
                         for entry in root.data.recent: Rectangle {
-                            border-radius: 10px; background: root.tile;
+                            border-radius: Look.radius(10px); background: root.tile;
                             height: 84px;
                             HorizontalLayout {
                                 padding: 12px; spacing: 12px;
                                 ShowcasePicture {
-                                    width: 60px; height: 60px; border-radius: 8px; background: root.tile;
+                                    width: 60px; height: 60px; border-radius: Look.radius(8px); background: root.tile;
                                     url: entry.url; label: entry.title; initial: entry.initial; initial-size: 22px; ink: root.ink3;
                                 }
                                 VerticalLayout {
@@ -2066,8 +2420,8 @@ export component RoleCard inherits Rectangle {
     /// Someone was chosen without the pointer.
     callback choose-member(string);
     width: 260px; height: min(root.limit, role-content.preferred-height);
-    background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
-    drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+    background: Theme.raised-fill; border-color: Theme.edge; border-width: Look.line(1px); border-radius: Look.radius(8px);
+    drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
     accessible-role: groupbox;
     accessible-label: "Role " + root.role-name;
     TouchArea { }
@@ -2075,7 +2429,7 @@ export component RoleCard inherits Rectangle {
         padding: 12px; spacing: 4px;
         HorizontalLayout {
             spacing: 8px; padding-bottom: 4px;
-            Middle { Rectangle { width: 12px; height: 12px; border-radius: 6px; background: root.role-has-color ? root.role-color : Theme.muted; } }
+            Middle { Rectangle { width: 12px; height: 12px; border-radius: Look.radius(6px); background: root.role-has-color ? root.role-color : Theme.muted; } }
             Text { text: "@" + root.role-name; color: root.role-has-color ? root.role-color : Theme.text; font-size: 16px; font-weight: 700; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
         }
         if root.role-note != "": Label { text: root.role-note; }
@@ -2084,7 +2438,7 @@ export component RoleCard inherits Rectangle {
             VerticalLayout {
                 spacing: 0px; alignment: start;
                 for member in root.role-members: Rectangle {
-                    height: 40px; border-radius: 6px;
+                    height: 40px; border-radius: Look.radius(6px);
                     background: member-touch.has-hover ? Theme.hover : transparent;
                     accessible-role: button;
                     accessible-label: member.name;

@@ -53,6 +53,8 @@ pub(super) struct Marks<'a> {
 /// What a row shows of the messages around it, and of its author's picture.
 struct Decoration<'a> {
     first: bool,
+    /// The group's seed: its first message's, taken from its item.
+    group: i32,
     day: Option<String>,
     picture_url: &'a str,
     reply_picture_url: &'a str,
@@ -67,6 +69,7 @@ impl Decoration<'_> {
     fn apply(&self, row: &mut MessageRow) -> bool {
         let day = self.day.as_deref().unwrap_or_default();
         let changed = row.first != self.first
+            || row.group != self.group
             || row.day.as_str() != day
             || row.picture_url.as_str() != self.picture_url
             || row.reply_picture_url.as_str() != self.reply_picture_url
@@ -75,6 +78,7 @@ impl Decoration<'_> {
             || row.highlighted != self.highlighted;
         if changed {
             row.first = self.first;
+            row.group = self.group;
             row.day = day.into();
             row.picture_url = self.picture_url.into();
             row.reply_picture_url = self.reply_picture_url.into();
@@ -84,6 +88,16 @@ impl Decoration<'_> {
         }
         changed
     }
+}
+
+/// A group's seed from its first message's item: the same each time, and
+/// spread so the groups beside each other differ.
+fn group_seed(item: &str) -> i32 {
+    // FNV-1a, which needs nothing to be set up and is the same on every run.
+    let hash = item.bytes().fold(0x811c_9dc5_u32, |hash, byte| {
+        (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193)
+    });
+    (hash & 0x7fff_ffff) as i32
 }
 
 /// Shows `messages` in `model`, which shows `rows`, built for `shown`. A row
@@ -115,6 +129,7 @@ pub(super) fn show_timeline(
     let mut changed = Vec::with_capacity(messages.len());
     let mut before: Option<&ChatMessage> = None;
     let mut before_date = None;
+    let mut group = 0;
     for (index, message) in messages.iter().enumerate() {
         let was = at.get(message.id.as_str()).copied();
         // A row the backend sent again is the same one.
@@ -124,10 +139,14 @@ pub(super) fn show_timeline(
         let new_day = date.is_some() && (before.is_none() || before_date != date);
         // The author shows again below the "New" divider.
         let unread_start = marks.first_unread == Some(message.item.as_str());
+        let first =
+            new_day || unread_start || before.is_none_or(|before| !continues(before, message));
+        if first {
+            group = group_seed(&message.item);
+        }
         let decoration = Decoration {
-            first: new_day
-                || unread_start
-                || before.is_none_or(|before| !continues(before, message)),
+            first,
+            group,
             day: new_day.then(|| day(message.timestamp)),
             picture_url: if collapsed(message, marks.revealed) {
                 ""
@@ -213,6 +232,25 @@ pub(super) fn markdown(body: &str) -> slint::StyledText {
 /// mentions are where the body as rendered has them, so this comes before
 /// anything else changes it.
 fn with_mentions(body: &str, mentions: &[yapfast_core::mention::Mentioned]) -> String {
+    // A theme that styles names styles mentions the same way: a role's own
+    // colour gives way to the theme's chips, or to the person's palette
+    // colour.
+    if theme_content::styles_names() {
+        let themed: Vec<_> = mentions
+            .iter()
+            .map(|mentioned| {
+                let id = match &mentioned.target {
+                    yapfast_core::mention::Target::User(id) => Some(id.as_str()),
+                    _ => None,
+                };
+                yapfast_core::mention::Mentioned {
+                    color: id.and_then(theme_content::palette_of),
+                    ..mentioned.clone()
+                }
+            })
+            .collect();
+        return mention::linked(body, &themed, theme::mention_color());
+    }
     mention::linked(body, mentions, theme::mention_color())
 }
 
@@ -592,8 +630,8 @@ pub(super) fn message_row_within(
                 laid_out(&previews(Placement::Embed(index)), &covered, room);
             let description_blocks = markdown_blocks(&embed.description);
             EmbedCard {
-                color: role_color(embed.color),
-                has_color: embed.color.is_some(),
+                color: role_color(theme_content::embed(embed.color)),
+                has_color: theme_content::embed(embed.color).is_some(),
                 provider: slint::StyledText::from_plain_text(&embed.provider),
                 has_provider: !embed.provider.is_empty(),
                 author: bold(&embed.author),
@@ -665,8 +703,8 @@ pub(super) fn message_row_within(
         .iter()
         .map(|card| ComponentCard {
             framed: card.framed,
-            color: role_color(card.color),
-            has_color: card.color.is_some(),
+            color: role_color(theme_content::embed(card.color)),
+            has_color: theme_content::embed(card.color).is_some(),
             rows: ModelRc::new(VecModel::from(
                 card.rows
                     .iter()
@@ -714,8 +752,8 @@ pub(super) fn message_row_within(
         sender: discord::sender_user(&message.sender)
             .unwrap_or(&message.sender)
             .into(),
-        color: role_color(message.color),
-        has_color: message.color.is_some(),
+        color: role_color(theme_content::name_of(&message.sender, message.color)),
+        has_color: theme_content::name_of(&message.sender, message.color).is_some(),
         bot: message.bot,
         app_id: message
             .application_id
@@ -738,13 +776,13 @@ pub(super) fn message_row_within(
         short_time: message
             .time
             .split_whitespace()
-            .next()
-            .filter(|time| time.contains(':'))
+            .find(|time| time.contains(':'))
             .unwrap_or_default()
             .into(),
         own: message.own,
         // Grouping depends on the neighbouring messages; refresh sets both.
         first: true,
+        group: 0,
         day: SharedString::default(),
         unread_start: false,
         // A reply to this account's is highlighted too while it's new; refresh knows.
@@ -761,11 +799,11 @@ pub(super) fn message_row_within(
         reply_author: reply_author.into(),
         reply_initial: initial(reply_author),
         reply_tint: tint(reply_author),
-        reply_color: role_color(message.reply.as_ref().and_then(|reply| reply.color)),
-        reply_has_color: message
-            .reply
-            .as_ref()
-            .is_some_and(|reply| reply.color.is_some()),
+        reply_color: role_color(theme_content::name(
+            message.reply.as_ref().and_then(|reply| reply.color),
+        )),
+        reply_has_color: theme_content::name(message.reply.as_ref().and_then(|reply| reply.color))
+            .is_some(),
         // Virtualized avatars resolve their URLs when their components are built.
         reply_picture: slint::Image::default(),
         reply_body: message
@@ -790,11 +828,11 @@ pub(super) fn message_row_within(
             .into(),
         command_initial: initial(message.used.as_ref().map_or("", |used| &used.user)),
         command_tint: tint(message.used.as_ref().map_or("", |used| &used.user)),
-        command_color: role_color(message.used.as_ref().and_then(|used| used.color)),
-        command_has_color: message
-            .used
-            .as_ref()
-            .is_some_and(|used| used.color.is_some()),
+        command_color: role_color(theme_content::name(
+            message.used.as_ref().and_then(|used| used.color),
+        )),
+        command_has_color: theme_content::name(message.used.as_ref().and_then(|used| used.color))
+            .is_some(),
         command_picture_url: message
             .used
             .as_ref()
@@ -1301,8 +1339,8 @@ pub(super) fn found_row(message: &ChatMessage, twelve_hour: bool) -> FoundRow {
         initial: initial(&message.author),
         tint: tint(&message.author),
         picture_url: message.avatar.clone().unwrap_or_default().into(),
-        color: role_color(message.color),
-        has_color: message.color.is_some(),
+        color: role_color(theme_content::name_of(&message.sender, message.color)),
+        has_color: theme_content::name_of(&message.sender, message.color).is_some(),
         when: if message.timestamp == 0 {
             SharedString::default()
         } else {

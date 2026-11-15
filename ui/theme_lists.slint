@@ -1,0 +1,1496 @@
+// A theme's lists: the server rail's tiles, the channel list's rows and the
+// member list's rows, from crates/yapfast-core/src/themes/lists.rs.
+// src/ui/theme_lists.rs sets these globals; every default is off, and each
+// list draws its stock rows unless its global is `on`, so a window without
+// such a theme builds nothing here. Art is decoded once per theme in Rust
+// and shared by every row; a row only picks one by its seed.
+//
+// Hover moves, tilts and scales only the drawn group, never the touch area
+// or focus scope above it, so the pointer can't slip off an item that moved
+// and back on again.
+
+import { Theme, Look, Tip, Middle, SlotMotion } from "theme.slint";
+import { Art, ArtImage, ArtGloss, ArtFoil } from "theme_art.slint";
+import { IconPack } from "media.slint";
+import { Avatar, PictureStore, StatusText } from "controls.slint";
+import { RansomName } from "theme_layout.slint";
+import { ClientStyle } from "yapfast/style.slint";
+import { DiscordBadge } from "discord.slint";
+import { Trim } from "theme_trim.slint";
+
+/// A server in a closed folder's tile: its icon, or its initial.
+export struct FolderServer { initial: string, picture-url: string }
+
+/// One picture of a list's art slot: its pixels (opacity apart), where it
+/// sits in its box, its turn, nine-slice edges and a frame's window.
+export struct TileLayer {
+    on: bool,
+    picture: ArtImage,
+    opacity: float,
+    /// Its drawn size; the box's when not `sized`.
+    sized: bool,
+    w: length,
+    h: length,
+    /// Where it sits in its box when sized, 0 to 1 across and down, and how
+    /// far it moves from there.
+    ax: float,
+    ay: float,
+    dx: length,
+    dy: length,
+    rotation: float,
+    /// Nine-slice edges in the picture's pixels, and its pixels per
+    /// logical pixel.
+    sliced: bool,
+    st: int,
+    sr: int,
+    sb: int,
+    sl: int,
+    density: float,
+    pixelated: bool,
+    /// On a frame: where the server picture or avatar sits inside it.
+    window: bool,
+    wx: length,
+    wy: length,
+    ww: length,
+    wh: length,
+    wr: length,
+}
+
+/// A mark that is a few characters of text or a picture.
+export struct ListGlyph {
+    text: string,
+    art: TileLayer,
+}
+
+/// `layout.rail_tiles`.
+export global Rails {
+    in property <bool> on;
+    /// 0 square, 1 circle, 2 card, 3 ticket, 4 tall.
+    in property <int> shape;
+    in property <length> tile-w: 48px;
+    in property <length> tile-h: 48px;
+    in property <length> radius: 12px;
+    in property <length> gap: 8px;
+    in property <length> pad: 4px;
+    in property <float> tilt;
+    /// 0 none, 1 below, 2 inside.
+    in property <int> label;
+    in property <string> label-family;
+    in property <length> label-size: 8px;
+    in property <int> label-weight: 400;
+    in property <color> label-colour;
+    in property <color> label-ground;
+    /// 0 as is, 1 upper, 2 lower.
+    in property <int> label-case;
+    in property <length> label-x;
+    in property <length> label-y;
+    in property <length> label-w;
+    in property <length> label-h;
+    in property <bool> label-boxed;
+    in property <[TileLayer]> frames;
+    in property <[TileLayer]> overs;
+    in property <TileLayer> below;
+    in property <TileLayer> between;
+    in property <length> between-height;
+    in property <bool> reflection;
+    /// 0 none, 1 magnify, 2 lift, 3 tilt.
+    in property <int> hover;
+    in property <float> hover-amount;
+    /// 0 under reduced motion and Light: the end state at once.
+    in property <duration> hover-time: 120ms;
+    in property <TileLayer> sel-frame;
+    in property <TileLayer> sel-over;
+    in property <length> sel-dx;
+    in property <length> sel-dy;
+    in property <float> sel-scale: 1;
+    in property <duration> stamp-time;
+    /// The edge pill: 0 as stock, 1 none, 2 for unread and mentions only.
+    in property <int> pill;
+    in property <bool> focus-window;
+    in property <TileLayer> folder-frame;
+    in property <TileLayer> folder-open-frame;
+    /// The rail is on the window's right, so an offset toward its edge is +x.
+    in property <bool> right;
+    /// The line under the home tile: its size, colour and whether dotted.
+    in property <bool> divider-on;
+    in property <length> divider-w: 32px;
+    in property <length> divider-h: 2px;
+    in property <color> divider-colour;
+    in property <bool> divider-dotted;
+    /// The mention count's ground and number; transparent for stock.
+    in property <color> badge-ground;
+    in property <color> badge-ink;
+    /// A tile focus ring's corner; negative follows the tile's.
+    in property <length> focus-radius: -1px;
+    /// A frameless folder's fill (transparent: its own colour) and its
+    /// servers' pictures' size (negative: fitted).
+    in property <color> folder-colour;
+    in property <length> folder-mini: -1px;
+    /// Art over the add button, and art under the tiles.
+    in property <TileLayer> foot;
+    in property <[TileLayer]> grounds;
+    /// The add button as a tile in the theme's tile shape, this far below
+    /// the last.
+    in property <bool> add-on;
+    in property <length> add-gap;
+    out property <length> slot-w: self.tile-w + 2 * self.pad;
+    out property <length> slot-h: self.tile-h + 2 * self.pad;
+    public pure function frame(seed: int) -> TileLayer {
+        self.frames.length == 0 ? self.none() : self.frames[Math.mod(seed, self.frames.length)]
+    }
+    public pure function over(seed: int) -> TileLayer {
+        self.overs.length == 0 ? self.none() : self.overs[Math.mod(seed, self.overs.length)]
+    }
+    public pure function none() -> TileLayer { { on: false } }
+    /// A tile's own lean, from its seed: within ±tilt.
+    public pure function lean(seed: int) -> float {
+        self.tilt == 0 ? 0 : self.tilt * (Math.mod(seed, 201) - 100) / 100
+    }
+    public pure function cased(text: string) -> string {
+        self.label-case == 1 ? text.to-uppercase() : self.label-case == 2 ? text.to-lowercase() : text
+    }
+}
+
+/// `layout.channel_rows`.
+export global ChannelLists {
+    in property <bool> on;
+    /// Negative leaves the stock row height.
+    in property <length> height: -1px;
+    in property <length> gap: 2px;
+    in property <string> family;
+    /// Negative leaves the stock size; 0 the stock weight.
+    in property <length> size: -1px;
+    in property <int> weight;
+    /// 0 as is, 1 upper, 2 lower.
+    in property <int> case;
+    in property <length> inset: 8px;
+    in property <length> icon-size: 20px;
+    in property <length> icon-gap: 8px;
+    in property <color> icon-colour;
+    in property <color> icon-hover;
+    in property <color> icon-selected;
+    in property <bool> icon-follows-ink;
+    in property <[TileLayer]> frames;
+    in property <bool> fit-text;
+    in property <float> tilt;
+    in property <bool> sep-on;
+    in property <color> sep-colour;
+    in property <length> sep-width: 1px;
+    in property <length> sep-left;
+    in property <length> sep-right;
+    in property <TileLayer> sep-art;
+    in property <length> sep-height: 1px;
+    in property <TileLayer> sel-frame;
+    in property <string> prefix;
+    in property <color> prefix-colour;
+    in property <duration> blink;
+    in property <TileLayer> after;
+    in property <bool> underline;
+    in property <color> underline-colour;
+    in property <length> underline-width: 2px;
+    in property <length> underline-offset: 2px;
+    /// 0 none, 1 magnify, 2 lift, 3 tilt.
+    in property <int> hover;
+    in property <float> hover-amount;
+    in property <duration> hover-time: 120ms;
+    /// The ground under the pointer: 0 none, 1 `hover` (stock), 2 `row-hover`.
+    in property <int> hover-ground: 1;
+    /// Negative leaves the frame's opacity under the pointer.
+    in property <float> hover-frame-opacity: -1;
+    /// 0 the count badge (stock), 1 a glyph when there are no mentions,
+    /// 2 nothing.
+    in property <int> unread-mark;
+    in property <bool> unread-glyph;
+    in property <ListGlyph> unread;
+    in property <string> voice;
+    in property <string> meta-family;
+    in property <length> meta-size: 12px;
+    in property <color> meta-colour;
+    /// The meta's distance from the row's right edge.
+    in property <length> meta-inset: 8px;
+    /// The mention count's ground, number and corner; stock when unset.
+    in property <color> badge-ground;
+    in property <color> badge-ink;
+    in property <length> badge-radius: -1px;
+    in property <color> ink-hover;
+    /// The unread edge pill's colour and rim; transparent for stock.
+    in property <color> pill-colour;
+    in property <color> pill-rim;
+    /// Room left at the list's foot, and art drawn in it.
+    in property <length> reserve;
+    in property <TileLayer> foot;
+    /// A picture in place of the prefix's characters.
+    in property <TileLayer> prefix-art;
+    in property <bool> head-fill;
+    in property <length> head-inset: 16px;
+    in property <bool> head-chevron: true;
+    in property <color> head-shadow;
+    in property <length> head-shadow-x;
+    in property <length> head-shadow-y;
+    in property <color> ink-read;
+    in property <color> ink-unread;
+    in property <color> ink-selected;
+    in property <color> ink-muted;
+    in property <color> ink-shadow;
+    in property <bool> emboss;
+    in property <length> focus-outset;
+    in property <length> focus-radius: -1px;
+    /// The line under the sidebar's header; transparent for the stock
+    /// hairline. Style 0 solid, 1 dashed, 2 dotted.
+    in property <color> server-rule;
+    in property <length> server-rule-width: 1px;
+    in property <int> server-rule-style;
+    in property <length> server-rule-inset;
+    // Category headings.
+    in property <bool> head-on;
+    in property <string> head-family;
+    in property <length> head-size: -1px;
+    in property <int> head-weight;
+    in property <int> head-case;
+    in property <string> head-text;
+    in property <bool> head-ransom;
+    in property <length> head-height: -1px;
+    in property <color> head-colour;
+    in property <TileLayer> head-frame;
+    /// A heading's words from its template: {name} and {n}.
+    pure callback fill(string /* template */, string /* name */, int /* n */) -> string;
+    public pure function frame(seed: int) -> TileLayer {
+        self.frames.length == 0 ? self.none() : self.frames[Math.mod(seed, self.frames.length)]
+    }
+    pure function none() -> TileLayer { { on: false } }
+    public pure function lean(seed: int) -> float {
+        self.tilt == 0 ? 0 : self.tilt * (Math.mod(seed, 201) - 100) / 100
+    }
+    public pure function cased(text: string, case: int) -> string {
+        case == 1 ? text.to-uppercase() : case == 2 ? text.to-lowercase() : text
+    }
+    /// Whether a selected row draws the stock ground and marks.
+    out property <bool> selected-plain: !self.sel-frame.on && !self.underline;
+}
+
+/// `layout.member_rows`.
+export global MemberLists {
+    in property <bool> on;
+    in property <length> height: -1px;
+    in property <length> gap: 2px;
+    in property <string> family;
+    in property <length> size: -1px;
+    in property <int> weight;
+    in property <int> case;
+    /// Negative leaves the stock avatar; 0 for none.
+    in property <length> avatar: -1px;
+    in property <[TileLayer]> avatar-frames;
+    in property <float> avatar-tilt;
+    in property <bool> ring-on;
+    in property <color> ring-colour;
+    in property <length> ring-width: 2px;
+    in property <length> ring-glow;
+    in property <[string]> ring-presences;
+    in property <[TileLayer]> frames;
+    in property <bool> sep-on;
+    in property <color> sep-colour;
+    in property <length> sep-width: 1px;
+    in property <length> sep-left;
+    in property <length> sep-right;
+    /// 0 the stock dot, 1 glyphs, 2 text, 3 nothing.
+    in property <int> status;
+    /// By presence: online, idle, dnd, offline, streaming.
+    in property <[ListGlyph]> glyphs;
+    in property <bool> meta-on;
+    in property <[string]> meta-presence;
+    in property <string> meta-playing;
+    in property <string> meta-listening;
+    in property <string> meta-watching;
+    in property <string> meta-streaming;
+    in property <string> meta-family;
+    in property <length> meta-size: 12px;
+    in property <color> meta-colour;
+    in property <length> meta-max: 96px;
+    /// 0 activity (stock), 1 the member's group, 2 nothing.
+    in property <int> sub;
+    in property <string> sub-text;
+    in property <bool> badge-on;
+    in property <string> badge-text;
+    in property <color> badge-ground;
+    in property <color> badge-ink;
+    in property <string> badge-family;
+    in property <bool> badge-online-only;
+    in property <TileLayer> sel-frame;
+    in property <TileLayer> sel-over;
+    in property <float> hover-frame-opacity: -1;
+    in property <bool> head-on;
+    in property <string> head-family;
+    in property <length> head-size: -1px;
+    in property <int> head-weight;
+    in property <int> head-case;
+    in property <string> head-text;
+    in property <length> head-height: -1px;
+    in property <color> head-colour;
+    in property <TileLayer> head-frame;
+    in property <string> title-family;
+    in property <length> title-size: -1px;
+    in property <color> title-colour;
+    /// A template filled with a member's words: {role}, {n}, {name},
+    /// {detail}, {detail|name}, {activity} and {online}.
+    pure callback fill(string /* template */, string /* role */, string /* n */, string /* name */, string /* detail */, string /* activity */) -> string;
+    /// A badge's words with {online} filled.
+    pure callback numbered(string /* template */, int /* online */) -> string;
+    /// The presence dot's size, and how far past the avatar's corner it sits.
+    in property <length> dot: 16px;
+    in property <length> dot-out: 4px;
+    /// The members counted, for a title's {n}.
+    in property <int> count;
+    in property <length> avatar-gap: 10px;
+    in property <length> margin-left: 8px;
+    in property <length> margin-right: 8px;
+    in property <length> inset-left: 8px;
+    in property <length> inset-right: 8px;
+    in property <color> name-ink;
+    in property <color> crown-ink;
+    /// A soft halo around a grid tile's name; transparent for none.
+    in property <color> name-glow;
+    /// The Activity cards over the list; `false` leaves them out.
+    in property <bool> activity: true;
+    in property <length> reserve;
+    /// Art after the last row, scrolling with the list.
+    in property <TileLayer> foot;
+    in property <color> dot-ring;
+    in property <bool> head-fill;
+    in property <length> head-inset: 8px;
+    in property <color> head-shadow;
+    in property <length> head-shadow-x;
+    in property <length> head-shadow-y;
+    in property <bool> title-centre;
+    in property <color> title-shadow;
+    in property <length> title-shadow-x;
+    in property <length> title-shadow-y;
+    in property <color> title-rule;
+    in property <bool> title-rule-dotted;
+    in property <string> count-family;
+    in property <length> count-size: -1px;
+    in property <color> count-colour;
+    /// The title's words before " · {n}", when its count has a face of its own.
+    in property <string> title-head;
+    /// A grid's tile (`layout.members_style: "grid"`) takes the theme's
+    /// tile shape.
+    in property <bool> tile-outline;
+    public pure function frame(seed: int) -> TileLayer {
+        self.frames.length == 0 ? self.none() : self.frames[Math.mod(seed, self.frames.length)]
+    }
+    public pure function avatar-frame(seed: int) -> TileLayer {
+        self.avatar-frames.length == 0 ? self.none() : self.avatar-frames[Math.mod(seed, self.avatar-frames.length)]
+    }
+    pure function none() -> TileLayer { { on: false } }
+    /// An avatar's lean, from its seed: half to all of the tilt, to one
+    /// side or the other, so none stands upright.
+    public pure function lean(seed: int) -> float {
+        self.avatar-tilt == 0 ? 0 : self.avatar-tilt * (0.5 + Math.mod(seed, 101) / 200)
+            * (Math.mod(Math.floor(seed / 101), 2) == 0 ? 1 : -1)
+    }
+    public pure function cased(text: string, case: int) -> string {
+        case == 1 ? text.to-uppercase() : case == 2 ? text.to-lowercase() : text
+    }
+    /// A presence's index among the glyphs and meta words.
+    public pure function presence-index(presence: string) -> int {
+        presence == "idle" ? 1 : presence == "dnd" ? 2 : presence == "offline" || presence == "" ? 3 : presence == "streaming" ? 4 : 0
+    }
+    public pure function glyph(presence: string) -> ListGlyph {
+        self.glyphs.length == 0 ? { text: "" } : self.glyphs[self.presence-index(presence)]
+    }
+    public pure function rings(presence: string) -> bool {
+        self.ring-on && presence != "" && (presence == self.ring-presences[0] || presence == self.ring-presences[1]
+            || presence == self.ring-presences[2] || presence == self.ring-presences[3])
+    }
+}
+
+/// A list layer's picture filling this element: nine-sliced, one frame of a
+/// sprite sheet, or whole.
+export component LayerPicture inherits Rectangle {
+    in property <TileLayer> layer;
+    /// The sprite sheet's frame, which the caller's clock advances.
+    in property <int> frame;
+    property <image> source: root.layer.picture.image;
+    property <int> iw: root.source.width;
+    property <int> ih: root.source.height;
+    property <float> density: max(1, root.layer.density);
+    // The edges in logical pixels.
+    property <length> top: root.layer.st / root.density * 1px;
+    property <length> right: root.layer.sr / root.density * 1px;
+    property <length> bottom: root.layer.sb / root.density * 1px;
+    property <length> left: root.layer.sl / root.density * 1px;
+    property <int> cw: root.iw - root.layer.sl - root.layer.sr;
+    property <int> ch: root.ih - root.layer.st - root.layer.sb;
+    property <ImageRendering> rendering: root.layer.pixelated ? ImageRendering.pixelated : ImageRendering.smooth;
+    property <ImageFit> fit: root.layer.picture.fit == 1 ? ImageFit.contain : root.layer.picture.fit == 0 ? ImageFit.cover : ImageFit.fill;
+    opacity: root.layer.opacity;
+    accessible-role: none;
+    if root.layer.sliced: Rectangle {
+        // Corners keep their size; edges stretch one way and the middle both.
+        Image { x: 0px; y: 0px; width: root.left; height: root.top; source: root.source; image-fit: fill; image-rendering: root.rendering;
+            source-clip-x: 0; source-clip-y: 0; source-clip-width: root.layer.sl; source-clip-height: root.layer.st; accessible-role: none; }
+        Image { x: root.left; y: 0px; width: max(0px, root.width - root.left - root.right); height: root.top; source: root.source; image-fit: fill; image-rendering: root.rendering;
+            source-clip-x: root.layer.sl; source-clip-y: 0; source-clip-width: root.cw; source-clip-height: root.layer.st; accessible-role: none; }
+        Image { x: root.width - root.right; y: 0px; width: root.right; height: root.top; source: root.source; image-fit: fill; image-rendering: root.rendering;
+            source-clip-x: root.iw - root.layer.sr; source-clip-y: 0; source-clip-width: root.layer.sr; source-clip-height: root.layer.st; accessible-role: none; }
+        Image { x: 0px; y: root.top; width: root.left; height: max(0px, root.height - root.top - root.bottom); source: root.source; image-fit: fill; image-rendering: root.rendering;
+            source-clip-x: 0; source-clip-y: root.layer.st; source-clip-width: root.layer.sl; source-clip-height: root.ch; accessible-role: none; }
+        Image { x: root.left; y: root.top; width: max(0px, root.width - root.left - root.right); height: max(0px, root.height - root.top - root.bottom); source: root.source; image-fit: fill; image-rendering: root.rendering;
+            source-clip-x: root.layer.sl; source-clip-y: root.layer.st; source-clip-width: root.cw; source-clip-height: root.ch; accessible-role: none; }
+        Image { x: root.width - root.right; y: root.top; width: root.right; height: max(0px, root.height - root.top - root.bottom); source: root.source; image-fit: fill; image-rendering: root.rendering;
+            source-clip-x: root.iw - root.layer.sr; source-clip-y: root.layer.st; source-clip-width: root.layer.sr; source-clip-height: root.ch; accessible-role: none; }
+        Image { x: 0px; y: root.height - root.bottom; width: root.left; height: root.bottom; source: root.source; image-fit: fill; image-rendering: root.rendering;
+            source-clip-x: 0; source-clip-y: root.ih - root.layer.sb; source-clip-width: root.layer.sl; source-clip-height: root.layer.sb; accessible-role: none; }
+        Image { x: root.left; y: root.height - root.bottom; width: max(0px, root.width - root.left - root.right); height: root.bottom; source: root.source; image-fit: fill; image-rendering: root.rendering;
+            source-clip-x: root.layer.sl; source-clip-y: root.ih - root.layer.sb; source-clip-width: root.cw; source-clip-height: root.layer.sb; accessible-role: none; }
+        Image { x: root.width - root.right; y: root.height - root.bottom; width: root.right; height: root.bottom; source: root.source; image-fit: fill; image-rendering: root.rendering;
+            source-clip-x: root.iw - root.layer.sr; source-clip-y: root.ih - root.layer.sb; source-clip-width: root.layer.sr; source-clip-height: root.layer.sb; accessible-role: none; }
+    }
+    if !root.layer.sliced && root.layer.picture.frames > 1: Image {
+        property <int> across: max(1, root.layer.picture.columns);
+        property <int> fw: root.iw / self.across;
+        property <int> fh: root.ih / max(1, Math.ceil(root.layer.picture.frames / self.across));
+        property <int> shown: Math.mod(root.frame, root.layer.picture.frames);
+        x: 0px; y: 0px; width: root.width; height: root.height;
+        source: root.source; image-fit: root.fit; image-rendering: root.rendering;
+        source-clip-x: Math.mod(self.shown, self.across) * self.fw;
+        source-clip-y: Math.floor(self.shown / self.across) * self.fh;
+        source-clip-width: self.fw; source-clip-height: self.fh;
+        accessible-role: none;
+    }
+    if !root.layer.sliced && root.layer.picture.frames <= 1 && root.layer.picture.fit != 2: Image {
+        x: 0px; y: 0px; width: root.width; height: root.height;
+        source: root.source; image-fit: root.fit; image-rendering: root.rendering;
+        accessible-role: none;
+    }
+    if !root.layer.sliced && root.layer.picture.fit == 2: Image {
+        x: 0px; y: 0px; width: root.width; height: root.height;
+        source: root.source; image-rendering: root.rendering;
+        horizontal-tiling: repeat; vertical-tiling: repeat;
+        horizontal-alignment: ImageHorizontalAlignment.left; vertical-alignment: ImageVerticalAlignment.top;
+        accessible-role: none;
+    }
+}
+
+/// A list layer in a box the size of this element: sized and placed by its
+/// position and offset, or filling it; turned about its own centre; a
+/// sprite sheet stepped by its own timer while it may move.
+export component TileArtBox inherits Rectangle {
+    in property <TileLayer> layer;
+    /// A turn on top of the layer's own, in degrees.
+    in property <float> turn;
+    /// Over the layer's own opacity, such as a row's hover.
+    in property <float> fade: -1;
+    property <int> frame;
+    property <length> lw: root.layer.sized && root.layer.w > 0px ? root.layer.w : root.width;
+    property <length> lh: root.layer.sized && root.layer.h > 0px ? root.layer.h : root.height;
+    accessible-role: none;
+    Timer {
+        interval: max(50ms, root.layer.picture.period / max(1, root.layer.picture.frames) * 1ms);
+        running: root.layer.picture.frames > 1 && root.layer.picture.moves;
+        triggered => { root.frame = Math.mod(root.frame + 1, root.layer.picture.frames); }
+    }
+    LayerPicture {
+        x: root.layer.sized ? (root.width - root.lw) * root.layer.ax + root.layer.dx : root.layer.dx;
+        y: root.layer.sized ? (root.height - root.lh) * root.layer.ay + root.layer.dy : root.layer.dy;
+        width: root.lw; height: root.lh;
+        layer: root.layer; frame: root.frame;
+        opacity: root.fade >= 0 ? root.fade : root.layer.opacity;
+        transform-rotation: (root.layer.rotation + root.turn) * 1deg;
+    }
+}
+
+/// What sits in a tile's picture window: the server's picture, or the home
+/// icon, or an initial; clipped to the window's shape.
+component TilePicture inherits Rectangle {
+    in property <image> picture;
+    in property <image> icon;
+    in property <color> icon-color;
+    in property <length> icon-size;
+    in property <string> initial;
+    in property <bool> lit;
+    in property <bool> hovered;
+    /// Its corner; the picture is clipped to it.
+    in property <length> radius;
+    accessible-role: none;
+    Rectangle {
+        border-radius: root.radius;
+        clip: true;
+        background: root.picture.width == 0 && root.icon.width == 0 ? (root.lit ? Theme.accent-fill : Theme.raised-fill) : root.picture.width == 0 ? Theme.raised-fill : transparent;
+        if root.picture.width > 0: Image {
+            source: root.picture; width: root.width; height: root.height; image-fit: cover; accessible-role: none;
+        }
+        if root.icon.width > 0: Image {
+            source: root.icon; width: root.icon-size; height: root.icon-size;
+            colorize: IconPack.tint(self.source, root.icon-color); accessible-role: none;
+        }
+        if root.icon.width == 0 && root.picture.width == 0: Text {
+            text: root.initial; font-size: 16px; font-weight: 600;
+            color: root.lit ? Theme.on-accent : Theme.text; accessible-role: none;
+        }
+        if Art.gloss: ArtGloss { width: parent.width; height: parent.height; hovered: root.hovered; }
+    }
+}
+
+/// A rail tile's drawing, without its touch area: frame, picture, over art,
+/// label and the selected sticker. A tile and its reflection both draw one.
+component TileFace inherits Rectangle {
+    in property <int> seed;
+    in property <bool> selected;
+    in property <bool> hovered;
+    in property <bool> lit;
+    in property <image> picture;
+    in property <image> icon;
+    in property <color> icon-color;
+    in property <length> icon-size;
+    in property <string> initial;
+    in property <string> name;
+    /// A folder's frame instead of the seed's.
+    in property <TileLayer> frame-override;
+    in property <bool> stamped;
+    /// Draws no picture: a folder draws its own preview in the window.
+    in property <bool> preview;
+    /// Draws no frame, as a frameless folder's card.
+    in property <bool> frameless;
+    property <TileLayer> frame: root.frameless ? Rails.none() : root.frame-override.on ? root.frame-override
+        : root.selected && Rails.sel-frame.on ? Rails.sel-frame : Rails.frame(root.seed);
+    property <TileLayer> over: Rails.over(root.seed);
+    out property <length> wx: root.frame.on && root.frame.window ? root.frame.wx : 0px;
+    out property <length> wy: root.frame.on && root.frame.window ? root.frame.wy : 0px;
+    out property <length> ww: root.frame.on && root.frame.window ? root.frame.ww : root.width;
+    out property <length> wh: root.frame.on && root.frame.window ? root.frame.wh : root.height;
+    out property <length> wr: root.frame.on && root.frame.window ? root.frame.wr : Rails.shape == 1 ? root.width / 2 : Rails.radius;
+    accessible-role: none;
+    if root.frame.on: TileArtBox { width: root.width; height: root.height; layer: root.frame; }
+    if !root.preview: TilePicture {
+        x: root.wx; y: root.wy; width: root.ww; height: root.wh; radius: root.wr;
+        picture: root.picture; icon: root.icon; icon-color: root.icon-color; icon-size: root.icon-size;
+        initial: root.initial; lit: root.lit; hovered: root.hovered;
+    }
+    @children
+    if root.over.on && !(root.preview && Rails.folder-frame.on): TileArtBox { width: root.width; height: root.height; layer: root.over; }
+    if Rails.label == 2: Text {
+        x: Rails.label-boxed ? Rails.label-x : 2px;
+        y: Rails.label-boxed ? Rails.label-y : root.height - 12px;
+        width: Rails.label-boxed ? Rails.label-w : root.width - 4px;
+        height: Rails.label-boxed ? Rails.label-h : 10px;
+        text: Rails.cased(root.name);
+        font-family: Rails.label-family; font-size: Rails.label-size; font-weight: Rails.label-weight;
+        color: Rails.label-colour != transparent ? Rails.label-colour : Theme.text;
+        horizontal-alignment: center; vertical-alignment: center; overflow: elide;
+        accessible-role: none;
+    }
+}
+
+/// A server, the DM home or an unread DM as a theme's rail tile. Labels,
+/// tooltip, keys and menu are RailItem's; the drawing follows `Rails`.
+export component TileRailItem inherits Rectangle {
+    in property <string> label;
+    in property <string> tip: root.label;
+    /// The words on the tile, when `Rails.label` shows them.
+    in property <string> name;
+    in property <string> initial;
+    in property <image> icon;
+    in property <color> icon-color: Theme.text;
+    in property <length> icon-size: 24px;
+    in property <image> picture;
+    in property <string> picture-url;
+    in property <int> seed;
+    property <image> shown-picture: root.picture-url != "" ? PictureStore.picture(root.picture-url, PictureStore.revision(root.picture-url)) : root.picture;
+    function request-picture() {
+        if root.picture-url != "" && root.shown-picture.width == 0 {
+            PictureStore.request(root.picture-url);
+        }
+    }
+    init => { root.request-picture(); }
+    changed picture-url => { root.request-picture(); }
+    changed shown-picture => { root.request-picture(); }
+    in property <bool> selected;
+    in property <bool> unread;
+    in property <string> badge;
+    in property <bool> call;
+    in property <bool> discord;
+    in property <bool> home;
+    /// Its place among the servers, which a theme's `rail.icon` motion
+    /// phases by; the home tile takes `home`'s.
+    in property <int> place: -1;
+    property <SlotMotion> moved: root.home ? Look.home : Art.rail-icon(root.place);
+    callback clicked;
+    callback context-menu(length, length);
+    width: 72px; height: Rails.slot-h;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.clicked(); }
+    forward-focus: focus;
+    property <bool> hovered: pointer.has-hover;
+    property <bool> lit: root.selected || root.hovered;
+    property <length> left: (root.width - Rails.tile-w) / 2 + (root.selected ? (Rails.right ? Rails.sel-dx : -Rails.sel-dx) : 0px);
+    property <length> top: (root.height - Rails.tile-h) / 2 + (root.selected ? Rails.sel-dy : 0px);
+    property <length> lift: root.hovered && Rails.hover == 2 ? Rails.hover-amount * 1px : 0px;
+    property <float> grow: root.hovered && Rails.hover == 1 ? Rails.hover-amount : 1;
+    property <float> turn: Rails.lean(root.seed) + (root.hovered && Rails.hover == 3 ? Rails.hover-amount : 0) + root.moved.rotation;
+    // The pill at the rail's inner edge.
+    if Rails.pill != 1: Rectangle {
+        x: 0px; y: (parent.height - self.height) / 2; width: 4px;
+        height: Rails.pill == 2 ? (root.badge != "" || root.unread ? 8px : 0px)
+            : root.selected ? 40px : root.hovered ? 20px : root.unread ? 8px : 0px;
+        border-top-right-radius: Look.radius(4px); border-bottom-right-radius: Look.radius(4px);
+        background: Theme.pill;
+        animate height { duration: 200ms; easing: ease-out; }
+        opacity: root.unread && !root.lit ? Look.unread.opacity : 1;
+    }
+    // The reflection: the tile mirrored under itself, fading in three steps.
+    if Rails.reflection: Rectangle {
+        x: root.left; y: root.top + Rails.tile-h - root.lift; width: Rails.tile-w; height: 12px;
+        transform-scale: root.grow;
+        transform-origin: { x: self.width / 2, y: 0px };
+        animate transform-scale, y { duration: Rails.hover-time; easing: ease-out; }
+        for band[k] in [0.28, 0.14, 0.05]: Rectangle {
+            y: k * 4px; height: 4px; clip: true; opacity: band;
+            TileFace {
+                y: -k * 4px; width: Rails.tile-w; height: Rails.tile-h;
+                transform-scale-y: -1;
+                seed: root.seed; selected: root.selected; lit: root.lit;
+                picture: root.shown-picture; icon: root.icon; icon-color: root.lit ? Theme.on-accent : root.icon-color;
+                icon-size: root.icon-size; initial: root.initial; name: root.name;
+            }
+        }
+    }
+    if Rails.below.on: TileArtBox {
+        x: root.left; y: root.top + Rails.tile-h; width: Rails.tile-w; height: Rails.pad + 4px; layer: Rails.below;
+    }
+    tile := Rectangle {
+        x: root.left + root.moved.x; y: root.top - root.lift + root.moved.y; width: Rails.tile-w; height: Rails.tile-h;
+        opacity: root.moved.opacity;
+        transform-rotation: root.turn * 1deg;
+        transform-scale: root.grow * root.moved.scale * (root.selected ? Rails.sel-scale : 1);
+        transform-origin: { x: self.width / 2, y: Rails.hover == 1 ? self.height : self.height / 2 };
+        animate x, y, transform-rotation, transform-scale { duration: Rails.hover-time; easing: ease-out; }
+        drop-shadow-blur: Rails.reflection || Rails.frames.length > 0 ? 0px : Look.sb(Look.rail-icon, 0px);
+        drop-shadow-offset-y: Look.sy(Look.rail-icon, 0px);
+        drop-shadow-color: Rails.reflection || Rails.frames.length > 0 ? transparent : Look.sc(Look.rail-icon, transparent);
+        border-radius: Rails.frames.length > 0 ? 0px : Rails.shape == 1 ? self.width / 2 : Rails.radius;
+        background: Rails.frames.length > 0 ? transparent : Theme.raised-fill;
+        face := TileFace {
+            width: parent.width; height: parent.height;
+            seed: root.seed; selected: root.selected; hovered: root.hovered; lit: root.lit;
+            picture: root.shown-picture; icon: root.icon; icon-color: root.lit ? Theme.on-accent : root.icon-color;
+            icon-size: root.icon-size; initial: root.initial; name: root.name;
+        }
+        if Rails.frames.length == 0: Rectangle {
+            border-radius: Rails.shape == 1 ? self.width / 2 : Rails.radius;
+            border-width: Look.bw(Look.rail-icon, 0px); border-color: Look.bc(Look.rail-icon, transparent);
+        }
+
+        // The focus ring, turning with the tile: round the window, or 4px
+        // outside the whole tile.
+        if focus.has-focus && Rails.focus-window: Rectangle {
+            x: face.wx - 2px; y: face.wy - 2px; width: face.ww + 4px; height: face.wh + 4px;
+            border-width: 2px; border-color: Theme.focus-ring; border-radius: face.wr > 0px ? face.wr + 2px : 0px;
+        }
+        if focus.has-focus && !Rails.focus-window: Rectangle {
+            x: -4px; y: -4px; width: parent.width + 8px; height: parent.height + 8px;
+            border-width: 2px; border-color: Theme.focus-ring;
+            border-radius: Rails.shape == 1 ? self.width / 2 : Rails.focus-radius >= 0px ? Rails.focus-radius : Rails.radius + 4px;
+        }
+    }
+    if root.discord: DiscordBadge {
+        x: root.left - 2px; y: root.top - 2px;
+        size: 16px; ring: Theme.rail;
+    }
+    if root.call: Rectangle {
+        x: root.left + Rails.tile-w + 3px - self.width; y: root.top - 3px; width: 20px; height: 20px; border-radius: self.width / 2;
+        background: Theme.rail;
+        Rectangle {
+            width: 16px; height: 16px; border-radius: self.width / 2; background: Theme.live;
+            Image { source: IconPack.volume-2-bold; width: 12px; height: 12px; colorize: IconPack.tint(self.source, #ffffff); }
+        }
+    }
+    // The mention count, upright whatever the tile's lean.
+    if root.badge != "": Rectangle {
+        x: root.left + Rails.tile-w + 4px - self.width + Look.mention.x; y: root.top + Rails.tile-h + 4px - self.height + Look.mention.y;
+        opacity: Look.mention.opacity; transform-scale: Look.mention.scale;
+        width: max(16px, badge-text.preferred-width + 8px) + 6px; height: 16px + 6px; border-radius: self.height / 2;
+        background: Theme.rail;
+        Rectangle {
+            width: parent.width - 6px; height: parent.height - 6px; border-radius: self.height / 2;
+            background: Rails.badge-ground != transparent ? Rails.badge-ground : Theme.danger;
+            badge-text := Text { text: root.badge; color: Rails.badge-ink != transparent ? Rails.badge-ink : Theme.on-danger; font-size: 12px; font-weight: 700; }
+        }
+    }
+    // The selected sticker or stamp, over the mention count, turning with
+    // the tile; a stamp scales in from 1.4 each time it's selected.
+    if root.selected && Rails.sel-over.on: Rectangle {
+        x: tile.x; y: tile.y; width: tile.width; height: tile.height;
+        transform-rotation: tile.transform-rotation;
+        transform-scale: tile.transform-scale;
+        transform-origin: tile.transform-origin;
+        TileArtBox {
+            property <float> stamp: Rails.stamp-time > 0ms ? 1.4 : 1;
+            init => { self.stamp = 1; }
+            width: parent.width; height: parent.height; layer: Rails.sel-over;
+            transform-scale: self.stamp;
+            animate transform-scale { duration: Rails.stamp-time; easing: ease-out; }
+        }
+    }
+    focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == "\n" || event.text == " " {
+                root.clicked(); return accept;
+            }
+            if event.text == Key.Menu || (event.text == Key.F10 && event.modifiers.shift) {
+                root.context-menu(self.absolute-position.x + 60px, self.absolute-position.y + 24px);
+                return accept;
+            }
+            return reject;
+        }
+        pointer := TouchArea {
+            mouse-cursor: MouseCursor.pointer;
+            clicked => { root.clicked(); }
+            pointer-event(event) => {
+                if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                    root.context-menu(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+                }
+            }
+            changed has-hover => {
+                if self.has-hover {
+                    Tip.text = root.tip;
+                    Tip.side = 1;
+                    Tip.x = root.absolute-position.x + root.width;
+                    Tip.y = root.absolute-position.y + root.height / 2;
+                } else if Tip.text == root.tip {
+                    Tip.text = "";
+                }
+            }
+        }
+    }
+}
+
+/// A folder as a theme's rail tile: its frame, or a card of its colour, with
+/// the first servers' pictures as a 2×2 preview in its window.
+export component TileFolderItem inherits Rectangle {
+    in property <string> label;
+    in property <string> tip;
+    in property <string> name;
+    in property <bool> open;
+    in property <color> tint;
+    in property <[FolderServer]> servers;
+    in property <bool> selected;
+    in property <bool> unread;
+    in property <string> badge;
+    in property <bool> call;
+    in property <int> seed;
+    callback clicked;
+    callback context-menu(length, length);
+    width: 72px; height: Rails.slot-h;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-expandable: true;
+    accessible-expanded: root.open;
+    accessible-action-default => { root.clicked(); }
+    accessible-action-expand => { root.clicked(); }
+    forward-focus: focus;
+    property <bool> hovered: pointer.has-hover;
+    property <TileLayer> frame: root.open && Rails.folder-open-frame.on ? Rails.folder-open-frame : Rails.folder-frame;
+    property <length> left: (root.width - Rails.tile-w) / 2;
+    property <length> top: (root.height - Rails.tile-h) / 2;
+    property <length> lift: root.hovered && Rails.hover == 2 ? Rails.hover-amount * 1px : 0px;
+    property <float> grow: root.hovered && Rails.hover == 1 ? Rails.hover-amount : 1;
+    property <float> turn: Rails.lean(root.seed) + (root.hovered && Rails.hover == 3 ? Rails.hover-amount : 0);
+    if Rails.pill != 1: Rectangle {
+        x: 0px; y: (parent.height - self.height) / 2; width: 4px;
+        height: root.open ? 0px : Rails.pill == 2 ? (root.badge != "" || root.unread ? 8px : 0px)
+            : root.selected ? 40px : root.hovered ? 20px : root.unread ? 8px : 0px;
+        border-top-right-radius: Look.radius(4px); border-bottom-right-radius: Look.radius(4px);
+        background: Theme.pill;
+        animate height { duration: 200ms; easing: ease-out; }
+    }
+    tile := Rectangle {
+        x: root.left; y: root.top - root.lift; width: Rails.tile-w; height: Rails.tile-h;
+        transform-rotation: root.turn * 1deg;
+        transform-scale: root.grow;
+        transform-origin: { x: self.width / 2, y: Rails.hover == 1 ? self.height : self.height / 2 };
+        animate y, transform-rotation, transform-scale { duration: Rails.hover-time; easing: ease-out; }
+        // Without a folder frame: a card of the folder's colour, outlined as
+        // the theme outlines its tiles.
+        if !root.frame.on && (Rails.frames.length == 0 || Rails.folder-colour != transparent): Rectangle {
+            border-radius: Rails.shape == 1 ? self.width / 2 : Rails.radius;
+            background: Rails.folder-colour != transparent ? Rails.folder-colour : root.tint.with-alpha(root.hovered ? 0.55 : 0.4);
+            border-width: Look.bw(Look.rail-icon, 0px); border-color: Look.bc(Look.rail-icon, transparent);
+            clip: true;
+        }
+        face := TileFace {
+            width: parent.width; height: parent.height; seed: root.seed; hovered: root.hovered;
+            frame-override: root.frame.on ? root.frame : Rails.frame(root.seed);
+            frameless: !root.frame.on && Rails.folder-colour != transparent;
+            preview: true; name: root.name;
+            if root.open: Image {
+                x: face.wx + (face.ww - self.width) / 2; y: face.wy + (face.wh - self.height) / 2;
+                source: IconPack.folder; width: 24px; height: 24px; colorize: IconPack.tint(self.source, root.tint);
+            }
+            // The first servers, two by two, in the window (or the top of a
+            // labelled card).
+            if !root.open: Rectangle {
+                property <length> room: Rails.label == 2 && !face.frame-override.window ? face.wh - 14px : face.wh;
+                property <length> mini: Rails.folder-mini > 0px ? Rails.folder-mini : max(8px, min((face.ww - 9px) / 2, (self.room - 9px) / 2));
+                property <int> rows: root.servers.length > 2 ? 2 : 1;
+                property <length> step-x: (face.ww - 2 * self.mini) / 3;
+                // One row of pictures sits in the middle of the window (or
+                // the top of a labelled card); two fill it.
+                property <length> step-y: (self.room - self.rows * self.mini) / (self.rows + 1);
+                for server[index] in root.servers: Avatar {
+                    x: face.wx + parent.step-x + Math.mod(index, 2) * (parent.mini + parent.step-x);
+                    y: face.wy + parent.step-y + floor(index / 2) * (parent.mini + parent.step-y);
+                    size: parent.mini; corner: Rails.shape == 1 ? -1px : 3px;
+                    initial: server.initial; picture-url: server.picture-url; tint: Theme.raised;
+                }
+            }
+        }
+        if focus.has-focus: Rectangle {
+            x: Rails.focus-window ? face.wx - 2px : -4px; y: Rails.focus-window ? face.wy - 2px : -4px;
+            width: Rails.focus-window ? face.ww + 4px : parent.width + 8px; height: Rails.focus-window ? face.wh + 4px : parent.height + 8px;
+            border-width: 2px; border-color: Theme.focus-ring;
+            border-radius: Rails.shape == 1 ? self.width / 2 : Rails.focus-window ? 0px : Rails.focus-radius >= 0px ? Rails.focus-radius : Rails.radius + 4px;
+        }
+    }
+    if root.badge != "" && !root.open: Rectangle {
+        x: root.left + Rails.tile-w + 4px - self.width; y: root.top + Rails.tile-h + 4px - self.height;
+        width: max(16px, badge-text.preferred-width + 8px) + 6px; height: 16px + 6px; border-radius: self.height / 2;
+        background: Theme.rail;
+        Rectangle {
+            width: parent.width - 6px; height: parent.height - 6px; border-radius: self.height / 2;
+            background: Rails.badge-ground != transparent ? Rails.badge-ground : Theme.danger;
+            badge-text := Text { text: root.badge; color: Rails.badge-ink != transparent ? Rails.badge-ink : Theme.on-danger; font-size: 12px; font-weight: 700; }
+        }
+    }
+    focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == "\n" || event.text == " " {
+                root.clicked(); return accept;
+            }
+            if event.text == Key.Menu || (event.text == Key.F10 && event.modifiers.shift) {
+                root.context-menu(self.absolute-position.x + 60px, self.absolute-position.y + 24px);
+                return accept;
+            }
+            return reject;
+        }
+        pointer := TouchArea {
+            mouse-cursor: MouseCursor.pointer;
+            clicked => { root.clicked(); }
+            pointer-event(event) => {
+                if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                    root.context-menu(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+                }
+            }
+            changed has-hover => {
+                if self.has-hover {
+                    Tip.text = root.tip;
+                    Tip.side = 1;
+                    Tip.x = root.absolute-position.x + root.width;
+                    Tip.y = root.absolute-position.y + root.height / 2;
+                } else if Tip.text == root.tip {
+                    Tip.text = "";
+                }
+            }
+        }
+    }
+}
+
+/// The art between two rail tiles, such as a chain link: centred on the
+/// rail, spanning from the tile above's frame to this one's.
+export component TileBetween inherits Rectangle {
+    accessible-role: none;
+    TileArtBox {
+        x: (root.width - Rails.tile-w) / 2; width: Rails.tile-w;
+        y: (root.height - Rails.between-height) / 2; height: Rails.between-height;
+        layer: Rails.between;
+    }
+}
+
+/// A rule across its width: solid, dashed or dotted.
+export component RuleLine inherits Rectangle {
+    in property <color> colour;
+    in property <int> style;
+    accessible-role: none;
+    if root.style == 0: Rectangle { background: root.colour; }
+    if root.style == 1: Rectangle {
+        for i in ceil(root.width / (root.height * 5)): Rectangle {
+            x: i * root.height * 5; width: min(root.height * 3, root.width - self.x); height: root.height;
+            background: root.colour;
+        }
+    }
+    if root.style == 2: Rectangle {
+        for i in ceil(root.width / (root.height * 2)): Rectangle {
+            x: i * root.height * 2; width: root.height; height: root.height;
+            border-radius: root.height / 2; background: root.colour;
+        }
+    }
+}
+
+/// The line under the home tile.
+export component TileDivider inherits Rectangle {
+    height: Rails.divider-h + 8px;
+    accessible-role: none;
+    if !Rails.divider-dotted: Rectangle {
+        x: (root.width - Rails.divider-w) / 2; y: 4px; width: Rails.divider-w; height: Rails.divider-h;
+        border-radius: Rails.divider-h / 2; background: Rails.divider-colour;
+    }
+    if Rails.divider-dotted: Rectangle {
+        x: (root.width - Rails.divider-w) / 2; y: 4px; width: Rails.divider-w; height: Rails.divider-h;
+        for i in floor(Rails.divider-w / (Rails.divider-h * 2)): Rectangle {
+            x: i * Rails.divider-h * 2; width: Rails.divider-h; height: Rails.divider-h;
+            border-radius: Rails.divider-h / 2; background: Rails.divider-colour;
+        }
+    }
+}
+
+/// A channel row's name as a theme's list draws it: its font and case, an
+/// emboss under the text, the selected underline as wide as the words, and
+/// the selected picture after them.
+export component ListedName inherits Rectangle {
+    in property <string> text;
+    in property <color> ink;
+    in property <bool> selected;
+    in property <bool> bold;
+    property <length> size: ChannelLists.size >= 0px ? ChannelLists.size : ClientStyle.text-size;
+    // A theme's weight, a step bolder on unread and selected rows.
+    property <int> weight: ChannelLists.weight > 0 ? (root.bold ? min(900, ChannelLists.weight + 100) : ChannelLists.weight) : root.bold ? 700 : 500;
+    property <string> shown: ChannelLists.cased(root.text, ChannelLists.case);
+    property <bool> after: root.selected && ChannelLists.after.on;
+    property <length> after-w: root.after ? (ChannelLists.after.sized ? ChannelLists.after.w : 12px) + 6px : 0px;
+    min-width: min(24px, name.preferred-width);
+    preferred-width: name.preferred-width + root.after-w;
+    min-height: name.preferred-height;
+    preferred-height: name.preferred-height;
+    horizontal-stretch: 0;
+    accessible-role: none;
+    if (ChannelLists.emboss && !root.selected) || (root.selected && ChannelLists.ink-shadow != transparent): Text {
+        x: 0px; y: 1px; width: min(root.width - root.after-w, name.preferred-width); height: root.height;
+        text: root.shown; color: root.selected ? ChannelLists.ink-shadow : #00000080; font-family: ChannelLists.family; font-size: root.size; font-weight: root.weight;
+        vertical-alignment: center; overflow: elide; accessible-role: none;
+    }
+    name := Text {
+        x: 0px; width: min(root.width - root.after-w, self.preferred-width); height: root.height;
+        text: root.shown; accessible-label: root.text;
+        color: root.ink; font-family: ChannelLists.family; font-size: root.size; font-weight: root.weight;
+        vertical-alignment: center; overflow: elide;
+    }
+    if root.selected && ChannelLists.underline: Rectangle {
+        x: 0px; width: name.width; height: ChannelLists.underline-width;
+        y: (root.height + root.size * 1.25) / 2 + ChannelLists.underline-offset;
+        background: ChannelLists.underline-colour;
+    }
+    if root.after: TileArtBox {
+        x: name.width + 6px; width: root.after-w - 6px; height: root.height;
+        layer: { on: true, picture: ChannelLists.after.picture, opacity: ChannelLists.after.opacity,
+            sized: ChannelLists.after.sized, w: ChannelLists.after.w, h: ChannelLists.after.h,
+            ax: 0, ay: 0.5, dx: ChannelLists.after.dx, dy: ChannelLists.after.dy, rotation: ChannelLists.after.rotation,
+            density: ChannelLists.after.density, pixelated: ChannelLists.after.pixelated };
+    }
+}
+
+/// What a theme's channel row shows at its right: the mention count, the
+/// unread glyph, the voice channel's words or its call's time.
+export component ListedMeta inherits Rectangle {
+    in property <string> badge;
+    in property <bool> unread;
+    in property <bool> selected;
+    in property <bool> voice;
+    in property <int> people;
+    in property <string> timer;
+    property <bool> shows-badge: root.badge != "" && ChannelLists.unread-mark != 2;
+    property <bool> shows-glyph: !root.shows-badge && root.unread && !root.selected && ChannelLists.unread-mark != 2 && ChannelLists.unread-glyph;
+    property <string> words: root.voice && ChannelLists.voice != "" ? ChannelLists.fill(ChannelLists.voice, "", root.people) : root.timer;
+    width: root.shows-badge ? badge-box.width : root.shows-glyph ? glyph-box.width : root.words != "" ? meta.preferred-width : 0px;
+    accessible-role: none;
+    meta := Text {
+        visible: !root.shows-badge && !root.shows-glyph && root.words != "";
+        x: 0px; width: root.width; height: root.height;
+        text: root.words; font-family: ChannelLists.meta-family; font-size: ChannelLists.meta-size;
+        color: ChannelLists.meta-colour != transparent ? ChannelLists.meta-colour : Theme.muted;
+        horizontal-alignment: right; vertical-alignment: center; accessible-role: none;
+    }
+    badge-box := Rectangle {
+        visible: root.shows-badge;
+        x: 0px; y: (root.height - self.height) / 2;
+        width: max(18px, badge-text.preferred-width + 10px); height: 18px;
+        border-radius: ChannelLists.badge-radius >= 0px ? ChannelLists.badge-radius : Look.radius(9px);
+        background: ChannelLists.badge-ground != transparent ? ChannelLists.badge-ground : Theme.danger;
+        badge-text := Text { text: root.badge; color: ChannelLists.badge-ink != transparent ? ChannelLists.badge-ink : Theme.on-danger; font-size: 11px; font-weight: 700; }
+    }
+    glyph-box := Rectangle {
+        visible: root.shows-glyph;
+        x: 0px; height: root.height;
+        width: ChannelLists.unread.art.on ? (ChannelLists.unread.art.sized ? ChannelLists.unread.art.w : 12px) : glyph-text.preferred-width;
+        glyph-text := Text {
+            visible: !ChannelLists.unread.art.on;
+            text: ChannelLists.unread.text; font-family: ChannelLists.meta-family; font-size: 9px;
+            color: Theme.accent-text; vertical-alignment: center; horizontal-alignment: right; accessible-role: none;
+        }
+        if ChannelLists.unread.art.on: TileArtBox {
+            width: parent.width; height: parent.height;
+            layer: { on: true, picture: ChannelLists.unread.art.picture, opacity: ChannelLists.unread.art.opacity,
+                sized: true, w: parent.width, h: ChannelLists.unread.art.sized ? ChannelLists.unread.art.h : 12px,
+                ax: 0, ay: 0.5, density: ChannelLists.unread.art.density, pixelated: ChannelLists.unread.art.pixelated };
+        }
+    }
+}
+
+/// A channel category's heading words as a theme's list draws them.
+export component ListedHeadingText inherits Rectangle {
+    in property <string> text;
+    in property <int> place;
+    in property <color> ink;
+    in property <string> stock-family;
+    /// How far a heading's frame runs past the words, round what follows
+    /// them, such as the chevron.
+    in property <length> tail: 10px;
+    /// The list's left edge in the window and its width, for a frame that
+    /// spans the heading's width.
+    in property <length> list-x;
+    in property <length> list-width;
+    property <string> words: ChannelLists.cased(ChannelLists.head-text != "" ? ChannelLists.fill(ChannelLists.head-text, root.text, root.place) : root.text, ChannelLists.head-case);
+    property <length> size: ChannelLists.head-size >= 0px ? ChannelLists.head-size : 14px;
+    preferred-width: words-text.preferred-width + (ChannelLists.head-frame.on && !ChannelLists.head-fill ? 12px : 0px);
+    min-width: 0px;
+    horizontal-stretch: 0;
+    accessible-role: none;
+    if ChannelLists.head-frame.on: TileArtBox {
+        x: ChannelLists.head-fill ? 6px - root.absolute-position.x + root.list-x : 0px;
+        y: (root.height - self.height) / 2;
+        width: ChannelLists.head-fill ? root.list-width - 12px : root.width + root.tail;
+        height: min(root.height, 22px);
+        layer: ChannelLists.head-frame;
+    }
+    if ChannelLists.head-shadow != transparent: Text {
+        x: words-text.x + ChannelLists.head-shadow-x; y: words-text.y + ChannelLists.head-shadow-y;
+        width: words-text.width; height: words-text.height;
+        text: words-text.text; color: ChannelLists.head-shadow;
+        font-family: words-text.font-family; font-size: words-text.font-size; font-weight: words-text.font-weight;
+        letter-spacing: words-text.letter-spacing; vertical-alignment: center; overflow: elide; accessible-role: none;
+    }
+    words-text := Text {
+        x: ChannelLists.head-frame.on && !ChannelLists.head-fill ? 12px : 0px;
+        width: min(self.preferred-width, root.width - self.x); height: root.height;
+        text: root.words; accessible-label: root.text;
+        color: ChannelLists.head-colour != transparent ? ChannelLists.head-colour : root.ink;
+        font-family: ChannelLists.head-family != "" ? ChannelLists.head-family : root.stock-family;
+        font-size: root.size; font-weight: ChannelLists.head-weight > 0 ? ChannelLists.head-weight : 600;
+        letter-spacing: Look.spacing-labels;
+        vertical-alignment: center; overflow: elide;
+    }
+}
+
+/// A presence's glyph: a few characters, or a picture such as a pixel heart.
+export component MemberGlyph inherits Rectangle {
+    in property <string> presence;
+    property <ListGlyph> glyph: MemberLists.glyph(root.presence);
+    width: root.glyph.art.on ? (root.glyph.art.sized ? root.glyph.art.w : 12px) : glyph-text.preferred-width;
+    height: root.glyph.art.on ? (root.glyph.art.sized ? root.glyph.art.h : 12px) : glyph-text.preferred-height;
+    accessible-role: none;
+    glyph-text := Text {
+        visible: !root.glyph.art.on;
+        text: root.glyph.text; color: Theme.accent-text; font-size: 12px; accessible-role: none;
+    }
+    if root.glyph.art.on: TileArtBox { width: root.width; height: root.height; layer: root.glyph.art; }
+}
+
+/// A badge such as "P1" on an online member.
+export component MemberBadge inherits Rectangle {
+    in property <string> text;
+    width: words.preferred-width + 8px; height: 13px;
+    border-radius: 5px; border-width: 2px; border-color: Look.bc(Look.rail-icon, Theme.text);
+    background: MemberLists.badge-ground;
+    accessible-role: none;
+    words := Text {
+        text: root.text; color: MemberLists.badge-ink; font-family: MemberLists.badge-family; font-size: 8px;
+        horizontal-alignment: center; vertical-alignment: center; accessible-role: none;
+    }
+}
+
+/// A member list heading as a theme's list draws it.
+export component ListedMemberHeading inherits Rectangle {
+    in property <string> heading;
+    property <string> words: MemberLists.cased(MemberLists.head-text != "" ? MemberLists.fill(MemberLists.head-text, root.heading, "", "", "", "") : root.heading, MemberLists.head-case);
+    property <length> size: MemberLists.head-size >= 0px ? MemberLists.head-size : 14px;
+    accessible-role: none;
+    if MemberLists.head-frame.on: TileArtBox {
+        x: MemberLists.head-fill ? -2px : 0px; y: (root.height - self.height) / 2;
+        width: MemberLists.head-fill ? root.width + 4px : min(root.width, words-text.preferred-width + 22px);
+        height: min(root.height, MemberLists.head-fill ? 22px : 24px);
+        layer: MemberLists.head-frame;
+    }
+    if MemberLists.head-shadow != transparent: Text {
+        x: words-text.x + MemberLists.head-shadow-x; y: words-text.y + MemberLists.head-shadow-y;
+        width: words-text.width; height: words-text.height;
+        text: words-text.text; color: MemberLists.head-shadow;
+        font-family: words-text.font-family; font-size: words-text.font-size; font-weight: words-text.font-weight;
+        letter-spacing: words-text.letter-spacing; vertical-alignment: center; overflow: elide; accessible-role: none;
+    }
+    words-text := Text {
+        x: MemberLists.head-frame.on ? (MemberLists.head-fill ? 8px : 12px) : 0px; width: root.width - self.x; height: root.height;
+        text: root.words; accessible-label: root.heading;
+        color: MemberLists.head-colour != transparent ? MemberLists.head-colour : #81828a;
+        font-family: MemberLists.head-family; font-size: root.size; font-weight: MemberLists.head-weight > 0 ? MemberLists.head-weight : 500;
+        letter-spacing: Look.spacing-labels;
+        vertical-alignment: center; overflow: elide;
+    }
+}
+
+/// A presence dot on a ring cut from the ground, as StatusDot draws it, at
+/// any size: green online, a moon idle, a bar for do not disturb, a ring
+/// offline.
+export component ListDot inherits Rectangle {
+    in property <string> presence;
+    in property <length> size: 16px;
+    in property <color> ring: MemberLists.dot-ring != transparent ? MemberLists.dot-ring : Theme.members-on ? Theme.members-set : Theme.sidebar;
+    property <length> inner: root.size * 0.68;
+    width: root.size; height: root.size; border-radius: root.size / 2;
+    background: root.ring;
+    accessible-role: none;
+    Rectangle {
+        width: root.inner; height: root.inner; border-radius: self.width / 2;
+        background: root.presence == "dnd" ? #f23f43 : root.presence == "idle" ? #f0b232 : root.presence == "offline" ? Theme.faint : Theme.live;
+    }
+    if root.presence == "offline": Rectangle {
+        width: root.inner * 0.45; height: self.width; border-radius: self.width / 2; background: root.ring;
+    }
+    if root.presence == "idle": Rectangle {
+        x: (root.size - root.inner) / 2 - 1px; y: self.x; width: root.inner * 0.6; height: self.width; border-radius: self.width / 2; background: root.ring;
+    }
+    if root.presence == "dnd": Rectangle {
+        width: root.inner * 0.6; height: max(2px, root.inner * 0.2); border-radius: self.height / 2; background: root.ring;
+    }
+}
+
+/// A member's row as a theme's list draws it. Labels, keys, the profile on
+/// click and the menu are MemberPanel's, which lays its touch area over
+/// this; the badges after the name (crown, role icon, tags) are its
+/// children.
+export component ListedMember inherits Rectangle {
+    in property <string> name;
+    in property <string> initial;
+    in property <color> tint;
+    in property <image> picture;
+    in property <string> picture-url;
+    in property <string> decoration-url;
+    in property <string> presence;
+    in property <color> name-color;
+    in property <bool> has-color;
+    in property <string> activity;
+    in property <string> activity-emoji;
+    in property <int> activity-icon;
+    in property <bool> activity-bullet;
+    in property <string> activity-name;
+    in property <string> activity-detail;
+    in property <string> group-name;
+    in property <int> online-index: -1;
+    in property <int> seed;
+    in property <int> place;
+    in property <bool> selected;
+    in property <bool> hovered;
+    in property <bool> focused;
+    in property <bool> ransom;
+    property <bool> offline: root.presence == "offline";
+    property <TileLayer> frame: root.selected && MemberLists.sel-frame.on ? MemberLists.sel-frame : MemberLists.frame(root.seed);
+    property <length> avatar: MemberLists.avatar >= 0px ? MemberLists.avatar : 32px;
+    property <TileLayer> avatar-frame: MemberLists.avatar-frame(root.seed);
+    // The meta's words: an activity first, then the presence.
+    property <string> verb-template: root.activity-icon == 1 ? MemberLists.meta-playing : root.activity-icon == 2 ? MemberLists.meta-listening
+        : root.activity-icon == 3 ? MemberLists.meta-watching : root.activity-icon == 4 ? MemberLists.meta-streaming : "";
+    property <bool> meta-activity: MemberLists.meta-on && root.verb-template != "";
+    property <string> meta: !MemberLists.meta-on ? ""
+        : root.meta-activity ? MemberLists.fill(root.verb-template, root.group-name, "", root.activity-name, root.activity-detail, root.activity)
+        : MemberLists.meta-presence[MemberLists.presence-index(root.presence)];
+    // The line under the name: the stock activity line, without what the
+    // meta already says; or the member's group typed out.
+    property <string> sub: MemberLists.sub == 2 ? ""
+        : MemberLists.sub == 1 ? MemberLists.fill(MemberLists.sub-text != "" ? MemberLists.sub-text : "{role}", root.group-name, "", root.activity-name, root.activity-detail, root.activity)
+        : root.meta-activity ? (root.activity-bullet ? root.activity : "") : root.activity;
+    property <bool> sub-icon: MemberLists.sub == 0 && !root.meta-activity;
+    property <length> size: MemberLists.size >= 0px ? MemberLists.size : 16px;
+    property <int> weight: MemberLists.weight > 0 ? MemberLists.weight : 500;
+    accessible-role: none;
+    background: root.selected ? (MemberLists.sel-frame.on ? transparent : #97979f33)
+        : root.hovered ? (MemberLists.frames.length > 0 ? Theme.row-hover : #97979f1f) : transparent;
+    border-radius: Look.radius(8px);
+    if MemberLists.sep-on && root.place > 0: Rectangle {
+        x: MemberLists.sep-left; y: 0px; width: root.width - MemberLists.sep-left - MemberLists.sep-right; height: MemberLists.sep-width;
+        background: MemberLists.sep-colour;
+    }
+    if root.frame.on: TileArtBox {
+        width: root.width; height: root.height; layer: root.frame;
+        fade: root.hovered && MemberLists.hover-frame-opacity >= 0 && !root.selected ? MemberLists.hover-frame-opacity : -1;
+        opacity: root.offline ? 0.55 : 1;
+    }
+    row := HorizontalLayout {
+        padding-left: MemberLists.inset-left; padding-right: MemberLists.inset-right; spacing: root.avatar > 0px ? MemberLists.avatar-gap : 0px;
+        if root.avatar > 0px: Middle {
+            avatar-group := Rectangle {
+                width: root.avatar; height: root.avatar;
+                transform-rotation: MemberLists.lean(root.seed) * 1deg;
+                opacity: root.offline ? 0.4 : 1;
+                if MemberLists.rings(root.presence): Rectangle {
+                    x: -3px - MemberLists.ring-width; y: self.x; width: root.avatar + 2 * (3px + MemberLists.ring-width); height: self.width;
+                    border-radius: self.width / 2; border-width: MemberLists.ring-width; border-color: MemberLists.ring-colour;
+                    drop-shadow-blur: MemberLists.ring-glow; drop-shadow-color: MemberLists.ring-colour.with-alpha(0.6);
+                }
+                if root.avatar-frame.on && !root.avatar-frame.window: Avatar {
+                    size: root.avatar; initial: root.initial; tint: root.tint; picture: root.picture; picture-url: root.picture-url;
+                    decoration-url: root.decoration-url; animate: root.hovered;
+                }
+                if root.avatar-frame.on: TileArtBox { width: root.avatar; height: root.avatar; layer: root.avatar-frame; }
+                if root.avatar-frame.on && root.avatar-frame.window: Avatar {
+                    x: root.avatar-frame.wx; y: root.avatar-frame.wy; size: root.avatar-frame.ww; corner: root.avatar-frame.wr;
+                    initial: root.initial; tint: root.tint; picture: root.picture; picture-url: root.picture-url; animate: root.hovered;
+                }
+                if !root.avatar-frame.on: Avatar {
+                    size: root.avatar; initial: root.initial; tint: root.tint; picture: root.picture; picture-url: root.picture-url;
+                    decoration-url: root.decoration-url; animate: root.hovered;
+                }
+                if MemberLists.status == 0 && root.presence != "" && root.presence != "offline": ListDot {
+                    x: root.avatar - self.width + MemberLists.dot-out; y: root.avatar - self.height + MemberLists.dot-out;
+                    size: MemberLists.dot; presence: root.presence;
+                }
+            }
+        }
+        name-column := VerticalLayout {
+            alignment: center; horizontal-stretch: 1; spacing: 0px;
+            HorizontalLayout {
+                alignment: start; spacing: 4px;
+                if root.ransom: Rectangle {
+                    min-width: ransom-name.min-width; preferred-width: ransom-name.preferred-width; height: ransom-name.preferred-height;
+                    opacity: root.offline ? 0.5 : 1;
+                    ransom-name := RansomName { x: 0px; y: 0px; width: parent.width; text: root.name; font-size: root.size; }
+                }
+                if !root.ransom: Text {
+                    text: MemberLists.cased(root.name, MemberLists.case); accessible-label: root.name;
+                    // A face's own line height can push a sub line off the
+                    // row: the name takes its size and a little.
+                    height: root.sub != "" ? root.size * 1.15 : self.preferred-height;
+                    vertical-alignment: center;
+                    color: MemberLists.name-ink != transparent ? MemberLists.name-ink : root.has-color ? root.name-color : Theme.secondary;
+                    font-family: MemberLists.family; font-size: root.size; font-weight: root.weight;
+                    letter-spacing: Look.spacing-names; overflow: elide;
+                    opacity: root.offline ? 0.5 : 1;
+                }
+                badges := HorizontalLayout { spacing: 4px; @children }
+            }
+            if root.sub != "" && root.sub-icon: StatusText {
+                text: root.sub; emoji-url: root.activity-emoji; font-size: 12px; height: 16px;
+                icon: root.activity-icon; bullet: root.activity-bullet;
+                opacity: root.offline ? 0.5 : 1;
+            }
+            if root.sub != "" && !root.sub-icon: Text {
+                text: root.sub; color: Theme.muted; font-size: 11px; overflow: elide; height: 14px;
+                font-family: MemberLists.sub == 1 ? MemberLists.meta-family : "";
+                opacity: root.offline ? 0.5 : 1; accessible-role: none;
+            }
+        }
+        if root.meta != "": Text {
+            text: root.meta; font-family: MemberLists.meta-family; font-size: MemberLists.meta-size;
+            color: MemberLists.meta-colour != transparent ? MemberLists.meta-colour : Theme.muted;
+            width: min(self.preferred-width, MemberLists.meta-max); horizontal-stretch: 0;
+            horizontal-alignment: right; vertical-alignment: center; overflow: elide; accessible-role: none;
+            opacity: root.offline ? 0.5 : 1;
+        }
+        if MemberLists.status == 1 && root.avatar == 0px: Middle { MemberGlyph { presence: root.presence; } }
+    }
+    if root.selected && MemberLists.sel-over.on: TileArtBox {
+        width: root.width; height: root.height; layer: MemberLists.sel-over;
+    }
+    if MemberLists.badge-on && (root.online-index >= 0 || !MemberLists.badge-online-only): MemberBadge {
+        x: 3px; y: (root.height - root.avatar) / 2 - 5px;
+        text: MemberLists.numbered(MemberLists.badge-text, root.online-index + 1);
+    }
+}
+
+
+component ArtFoilSlot inherits Rectangle {
+    ArtFoil { width: parent.width; height: parent.height; hovered: false; }
+}
+
+/// A member as a tile of a theme's grid: the avatar, the name, the status
+/// glyph under it and the online badge; the ground lights from the theme's
+/// hover and selected colours. MemberPanel lays its touch area over it.
+export component ListedMemberTile inherits Rectangle {
+    in property <string> name;
+    in property <string> initial;
+    in property <color> tint;
+    in property <image> picture;
+    in property <string> picture-url;
+    in property <string> decoration-url;
+    in property <string> presence;
+    in property <color> name-color;
+    in property <bool> has-color;
+    in property <bool> owner;
+    in property <int> online-index: -1;
+    in property <bool> selected;
+    in property <bool> hovered;
+    property <bool> offline: root.presence == "offline";
+    property <length> size: Trim.grid-size;
+    property <length> name-size: MemberLists.size >= 0px ? MemberLists.size : 13px;
+    accessible-role: none;
+    ground := Rectangle {
+        border-radius: MemberLists.tile-outline ? Look.r(Look.tile, 8px) : Look.radius(4px);
+        background: root.selected ? Theme.row-selected : root.hovered ? Theme.hover : MemberLists.tile-outline ? Theme.raised-fill : transparent;
+        border-width: MemberLists.tile-outline ? Look.bw(Look.tile, 0px) : 0px;
+        border-color: Look.bc(Look.tile, transparent);
+        drop-shadow-blur: MemberLists.tile-outline ? Look.sb(Look.tile, 0px) : 0px;
+        drop-shadow-offset-x: Look.sx(Look.tile, 0px); drop-shadow-offset-y: Look.sy(Look.tile, 0px);
+        drop-shadow-color: MemberLists.tile-outline ? Look.sc(Look.tile, transparent) : transparent;
+        opacity: root.offline && MemberLists.tile-outline ? 0.55 : 1;
+        clip: MemberLists.tile-outline;
+        if MemberLists.tile-outline && Art.foil-tile && !root.selected && !root.hovered: ArtFoilSlot { }
+    }
+    avatar-box := Rectangle {
+        x: (root.width - root.size) / 2; y: 7px; width: root.size; height: root.size;
+        opacity: root.offline ? 0.4 : 1;
+        Rectangle {
+            border-radius: Look.avatar.radius >= 0px ? root.size * Look.avatar.radius / 100px : root.size / 2;
+            background: Theme.raised-fill;
+            drop-shadow-blur: Look.sb(Look.avatar, 0px); drop-shadow-offset-x: Look.sx(Look.avatar, 0px);
+            drop-shadow-offset-y: Look.sy(Look.avatar, 0px); drop-shadow-color: Look.sc(Look.avatar, transparent);
+        }
+        Avatar {
+            size: root.size; initial: root.initial; tint: root.tint; picture: root.picture; picture-url: root.picture-url;
+            decoration-url: root.decoration-url; animate: root.hovered;
+        }
+        Rectangle {
+            border-radius: Look.avatar.radius >= 0px ? root.size * Look.avatar.radius / 100px : root.size / 2;
+            border-width: Look.bw(Look.avatar, 0px); border-color: Look.bc(Look.avatar, transparent);
+        }
+    }
+    // The name, and the owner's crown 3 px after it, centred together.
+    property <length> crown-room: root.owner ? 17px : 0px;
+    // The halo: the name a pixel and a half out on eight sides, faint.
+    if MemberLists.name-glow != transparent: Rectangle {
+        x: name-text.x; y: name-text.y; width: name-text.width; height: name-text.height;
+        opacity: root.offline ? 0.5 : 1;
+        for turn in 8: Text {
+            x: 1.5px * cos(turn * 45deg); y: 1.5px * sin(turn * 45deg); width: parent.width; height: parent.height;
+            text: name-text.text; color: MemberLists.name-glow; font-family: name-text.font-family;
+            font-size: name-text.font-size; font-weight: name-text.font-weight;
+            horizontal-alignment: center; vertical-alignment: center; overflow: elide;
+            opacity: 0.4; accessible-role: none;
+        }
+    }
+    name-text := Text {
+        x: (root.width - min(root.width - 8px, self.preferred-width + root.crown-room)) / 2;
+        y: 7px + root.size - 4px; width: min(root.width - 8px - root.crown-room, self.preferred-width); height: 18px;
+        text: MemberLists.cased(root.name, MemberLists.case); accessible-label: root.name;
+        color: MemberLists.name-ink != transparent ? MemberLists.name-ink : root.has-color ? root.name-color : Theme.text;
+        font-family: MemberLists.family; font-size: root.name-size; font-weight: MemberLists.weight > 0 ? MemberLists.weight : 600;
+        horizontal-alignment: center; vertical-alignment: center; overflow: elide;
+        opacity: root.offline ? 0.5 : 1;
+    }
+    if root.owner: Image {
+        x: name-text.x + name-text.width + 3px; y: name-text.y + (name-text.height - self.height) / 2;
+        source: IconPack.crown; width: 14px; height: 14px; opacity: root.offline ? 0.5 : 1;
+        colorize: IconPack.tint(self.source, MemberLists.crown-ink != transparent ? MemberLists.crown-ink : #f0b232);
+        accessible-role: image; accessible-label: "Server Owner";
+    }
+    // The status between the name and the tile's foot.
+    if MemberLists.status == 1: MemberGlyph {
+        x: (root.width - self.width) / 2;
+        y: name-text.y + name-text.height + max(1px, (root.height - name-text.y - name-text.height - self.height) / 2 - 1px);
+        presence: root.presence;
+    }
+    if root.selected && MemberLists.sel-over.on: TileArtBox {
+        width: root.width; height: root.height; layer: MemberLists.sel-over;
+    }
+    if MemberLists.badge-on && (root.online-index >= 0 || !MemberLists.badge-online-only): MemberBadge {
+        x: -5px; y: -5px;
+        text: MemberLists.numbered(MemberLists.badge-text, root.online-index + 1);
+    }
+}
+
+/// The member list's title as a theme sets it: centred or not, a hard
+/// shadow, a rule under it, and " · {n}" in a face of its own.
+export component ListedTitle inherits Rectangle {
+    in property <string> template;
+    in property <int> count;
+    property <string> whole: MemberLists.numbered(root.template, root.count);
+    // The words before " · {n}", and the count after them.
+    property <bool> split: MemberLists.count-size >= 0px && MemberLists.title-head != "";
+    property <string> head: root.split ? MemberLists.title-head : root.whole;
+    property <length> size: MemberLists.title-size >= 0px ? MemberLists.title-size : 14px;
+    accessible-role: none;
+    property <length> words-width: title.preferred-width + (root.split ? count-text.preferred-width + 6px : 0px);
+    property <length> left: MemberLists.title-centre ? (root.width - root.words-width) / 2 : 12px;
+    property <length> text-h: 32px;
+    if MemberLists.title-shadow != transparent: Text {
+        x: root.left + MemberLists.title-shadow-x; y: MemberLists.title-shadow-y; height: root.text-h;
+        text: root.head; color: MemberLists.title-shadow; font-family: MemberLists.title-family; font-size: root.size;
+        letter-spacing: Look.spacing-labels; vertical-alignment: center; accessible-role: none;
+    }
+    title := Text {
+        x: root.left; y: 0px; height: root.text-h;
+        text: root.head; color: MemberLists.title-colour != transparent ? MemberLists.title-colour : Theme.muted;
+        font-family: MemberLists.title-family; font-size: root.size; letter-spacing: Look.spacing-labels;
+        vertical-alignment: center; accessible-role: none;
+    }
+    count-text := Text {
+        visible: root.split;
+        // On the title's baseline, near enough, rather than its middle.
+        x: title.x + title.preferred-width + 6px; y: max(0px, (root.size - max(9px, MemberLists.count-size)) * 0.3); height: root.text-h;
+        text: "· " + root.count;
+        color: MemberLists.count-colour != transparent ? MemberLists.count-colour : Theme.muted;
+        font-family: MemberLists.count-family; font-size: max(9px, MemberLists.count-size); font-weight: 800;
+        vertical-alignment: center; accessible-role: none;
+    }
+    if MemberLists.title-rule != transparent && !MemberLists.title-rule-dotted: Rectangle {
+        x: 12px; y: root.text-h + 6px; width: root.width - 24px; height: 2px; background: MemberLists.title-rule;
+    }
+    if MemberLists.title-rule != transparent && MemberLists.title-rule-dotted: Rectangle {
+        x: 12px; y: root.text-h + 6px; width: root.width - 24px; height: 2px;
+        for i in floor((root.width - 24px) / 4px): Rectangle {
+            x: i * 4px; width: 2px; height: 2px; background: MemberLists.title-rule;
+        }
+    }
+}
+
+/// The rail's add button as a theme's tile: the tiles' size in the rail
+/// icon's shape (corner, border, hard shadow), a "+" in the accent.
+export component TileAddItem inherits Rectangle {
+    in property <string> label;
+    in property <string> tip;
+    callback clicked;
+    width: 72px; height: Rails.tile-h;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.clicked(); }
+    forward-focus: focus;
+    Rectangle {
+        x: (root.width - self.width) / 2; width: min(48px, Rails.tile-w); height: min(48px, Rails.tile-h);
+        y: (root.height - self.height) / 2;
+        border-radius: Look.r(Look.rail-icon, 12px);
+        background: pointer.has-hover ? Theme.raised : Theme.raised-fill;
+        border-width: Look.bw(Look.rail-icon, 0px); border-color: Look.bc(Look.rail-icon, transparent);
+        drop-shadow-blur: Look.sb(Look.rail-icon, 0px); drop-shadow-offset-x: Look.sx(Look.rail-icon, 0px);
+        drop-shadow-offset-y: Look.sy(Look.rail-icon, 0px); drop-shadow-color: Look.sc(Look.rail-icon, transparent);
+        Image {
+            source: IconPack.plus; width: 24px; height: 24px;
+            colorize: IconPack.tint(self.source, Theme.accent-text); accessible-role: none;
+        }
+        if focus.has-focus: Rectangle {
+            x: -4px; y: -4px; width: parent.width + 8px; height: parent.height + 8px;
+            border-radius: parent.border-radius + 4px; border-width: 2px; border-color: Theme.focus-ring;
+        }
+    }
+    focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == "\n" || event.text == " " { root.clicked(); return accept; }
+            return reject;
+        }
+        pointer := TouchArea {
+            mouse-cursor: MouseCursor.pointer;
+            clicked => { root.clicked(); }
+            changed has-hover => {
+                if self.has-hover {
+                    Tip.text = root.tip; Tip.side = 1;
+                    Tip.x = root.absolute-position.x + root.width; Tip.y = root.absolute-position.y + root.height / 2;
+                } else if Tip.text == root.tip { Tip.text = ""; }
+            }
+        }
+    }
+}
