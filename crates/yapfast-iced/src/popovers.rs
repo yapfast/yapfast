@@ -25,13 +25,15 @@ use crate::{
     found::Found,
     markdown::{self, Body},
     pictures::{Face, Icon},
-    style::{fill, hex, raised_shadow, scrollbar},
+    style::{hex, raised_shadow, scrollbar},
     theme::rgb,
 };
 
 /// A popover's head, taller with a line under its heading.
 const HEAD: f32 = 48.0;
 const HEAD_DETAIL: f32 = 64.0;
+/// The frame's corners, as the Slint client's `Popover`.
+const RADIUS: f32 = 10.0;
 /// The gap under the header, and kept to the window's edges.
 const GAP: f32 = 6.0;
 const MARGIN: f32 = 8.0;
@@ -133,6 +135,15 @@ impl App {
     }
 
     pub fn popover_event(&mut self, event: Event) -> Task<Message> {
+        // Focus moves only as a popover opens or closes: focusing a field
+        // puts its caret at the end, so a keystroke or a scroll mustn't.
+        let shown = |app: &Self| {
+            (
+                app.client.state().thread_list().is_some(),
+                app.popover_open(),
+            )
+        };
+        let before = shown(self);
         // From the header's button pressed, its right edge, as Slint's;
         // opened from elsewhere, from the press.
         let right = self.header_button().map_or(
@@ -228,8 +239,7 @@ impl App {
                 self.client.dispatch(crate::thread::start_from(
                     yapfast_core::application::ThreadFrom::List,
                 ));
-                let _ = self.sync();
-                return operation::focus(crate::thread::FIRST);
+                return Task::batch([self.sync(), operation::focus(crate::thread::FIRST)]);
             }
             Event::PeopleQuery(query) => {
                 self.popovers.people_query = query.clone();
@@ -244,7 +254,11 @@ impl App {
                 return self.open_thread_more(&room, self.pressed.get());
             }
         }
-        Task::batch([self.sync(), self.refocus()])
+        let synced = self.sync();
+        if shown(self) == before {
+            return synced;
+        }
+        Task::batch([synced, self.refocus()])
     }
 
     /// Closes whichever popover is open.
@@ -302,7 +316,9 @@ impl App {
             .pins
             .iter()
             .zip(pinned)
-            .take_while(|(found, message)| found.message.item == message.item)
+            // The same message as it reads now: a pin edited since is laid
+            // out again.
+            .take_while(|(found, message)| *found.message == **message)
             .count();
         if kept < self.popovers.pins.len() || kept < pinned.len() {
             let fresh: Vec<_> = pinned[kept..]
@@ -503,29 +519,29 @@ impl App {
                 .padding(Padding::ZERO.left(16).right(10))
                 .height(if tall { HEAD_DETAIL } else { HEAD } - 1.0)
                 .align_y(Alignment::Center)
-                .style(move |_| fill(panel_ground)),
+                .style(move |_| {
+                    crate::style::rounded(
+                        panel_ground,
+                        crate::style::corners([RADIUS, RADIUS, 0.0, 0.0]),
+                    )
+                }),
             bar(theme.edge, Length::Fill, 1),
         ];
         let (ground, edge) = (theme.sidebar, theme.edge);
-        iced::widget::opaque(
-            container(column![head, body])
-                .height(if fill_place {
-                    Length::Fill
-                } else {
-                    Length::Shrink
-                })
-                .clip(true)
-                .style(move |_| container::Style {
-                    background: Some(ground.into()),
-                    border: Border {
-                        color: edge,
-                        width: 1.0,
-                        radius: 10.0.into(),
-                    },
-                    shadow: raised_shadow(),
-                    ..Default::default()
-                }),
-        )
+        let panel = container(column![head, body])
+            .height(if fill_place {
+                Length::Fill
+            } else {
+                Length::Shrink
+            })
+            .clip(true)
+            .style(move |_| container::Style {
+                background: Some(ground.into()),
+                border: Border::default().rounded(RADIUS),
+                shadow: raised_shadow(),
+                ..Default::default()
+            });
+        iced::widget::opaque(controls::edged(panel, edge, RADIUS))
     }
 
     fn popover_heading<'a>(&self, words: &'a str) -> Element<'a, Message> {

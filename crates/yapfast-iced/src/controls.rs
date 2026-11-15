@@ -332,6 +332,31 @@ pub fn outside<'a>(message: Message, dim: bool) -> Element<'a, Message> {
     opaque(mouse_area(layer).on_press(message))
 }
 
+/// `content` with an edge round it `radius` round, drawn over it last: a
+/// card whose parts paint their own grounds out to its edge keeps its
+/// outline (iced's `clip` cuts to a square, not to the corners).
+pub fn edged<'a>(
+    content: impl Into<Element<'a, Message>>,
+    edge: Color,
+    radius: f32,
+) -> Element<'a, Message> {
+    iced::widget::stack![
+        content.into(),
+        container(Space::new())
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(move |_| container::Style {
+                border: Border {
+                    color: edge,
+                    width: 1.0,
+                    radius: radius.into(),
+                },
+                ..Default::default()
+            }),
+    ]
+    .into()
+}
+
 /// A menu's panel, as the Slint client's `ContextMenu`: the menu's ground
 /// in its outline, round corners, the raised shadow.
 pub fn menu_panel(theme: &Theme) -> impl Fn(&iced::Theme) -> container::Style + use<> {

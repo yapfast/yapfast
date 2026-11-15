@@ -290,16 +290,17 @@ impl App {
             page = page.push(text(error.as_str()).size(14).color(theme.danger));
         }
         let bar = (core.changed() || core.saving).then(|| {
-            form::unsaved_bar(
-                theme,
-                12.0,
-                core.saving,
-                true,
-                core.ready() && app.state.discord_online,
-                screen.shake,
-                input(ChannelInput::Undo),
-                input(ChannelInput::Save),
-            )
+            form::Unsaved {
+                pad: 12.0,
+                radius: crate::sheet::BAR_RADIUS,
+                saving: core.saving,
+                may_reset: true,
+                may_save: core.ready() && app.state.discord_online,
+                shake: screen.shake,
+                undo: input(ChannelInput::Undo),
+                save: input(ChannelInput::Save),
+            }
+            .view(theme)
         });
         let frame = sheet(nav, page, input(ChannelInput::Close), "Channel settings")
             .bar(bar)

@@ -167,6 +167,46 @@ fn starting(ui: &mut Simulator<'_, Message>, prefix: &str) -> Option<Point> {
     found
 }
 
+/// The window as drawn now: its width and height in pixels (twice its
+/// size, as the simulator draws it) and their RGBA.
+fn drawn(ui: &mut Simulator<'_, Message>) -> (u32, u32, Vec<u8>) {
+    let snapshot = ui.snapshot(&iced::Theme::Dark).expect("drawn");
+    let folder = tempfile::tempdir_in(local()).expect("a folder");
+    snapshot
+        .matches_image(folder.path().join("drawn.png"))
+        .expect("written");
+    // Named after the renderer too: the folder's one file.
+    let written = std::fs::read_dir(folder.path())
+        .expect("the folder")
+        .flatten()
+        .next()
+        .expect("the picture");
+    let png = std::fs::read(written.path()).expect("read back");
+    let picture = yapfast_core::chat::decode_picture(&png, u32::MAX, u32::MAX).expect("a PNG");
+    (picture.width, picture.height, picture.rgba.to_vec())
+}
+
+/// Whether hovering `at` draws something in `area` that wasn't there: a
+/// tooltip, which no operation finds (iced's tooltip overlay reports none).
+fn hover_draws(ui: &mut Simulator<'_, Message>, at: Point, area: iced::Rectangle) -> bool {
+    let away = Point::new(1.0, 1.0);
+    ui.point_at(away);
+    ui.simulate([iced::Event::Mouse(mouse::Event::CursorMoved {
+        position: away,
+    })]);
+    let (width, _, before) = drawn(ui);
+    ui.point_at(at);
+    ui.simulate([iced::Event::Mouse(mouse::Event::CursorMoved {
+        position: at,
+    })]);
+    let (_, _, after) = drawn(ui);
+    let scale = 2.0;
+    let rows = (area.y * scale) as usize..((area.y + area.height) * scale) as usize;
+    let columns = (area.x * scale) as usize..((area.x + area.width) * scale) as usize;
+    rows.flat_map(|y| columns.clone().map(move |x| (y * width as usize + x) * 4))
+        .any(|at| before.get(at..at + 4) != after.get(at..at + 4))
+}
+
 /// A right click on the message reading `text`.
 fn right_click(ui: &mut Simulator<'_, Message>, text: &str) {
     let body = ui.find(text).expect("the message");
@@ -428,6 +468,55 @@ fn change(app: &mut App, change: impl FnOnce(&mut yapfast_core::application::App
     change(&mut app.client.app.state);
     app.client.app.state.list_changes += 1;
     let _ = app.sync();
+}
+
+/// The open room holding one message, Sam's, with an 800 by 600 picture,
+/// which shows smaller: a copy the window makes. That copy made.
+fn a_picture_shown(app: &mut App) -> Arc<yapfast_core::chat::Picture> {
+    use yapfast_core::chat::{Attachment, ChatMessage, Picture, Pixels, Placement};
+    let picture = Arc::new(Picture {
+        width: 800,
+        height: 600,
+        rgba: Pixels::new(800, 600, vec![128; 800 * 600 * 4]),
+        ..Default::default()
+    });
+    let shown = picture.clone();
+    change(app, |state| {
+        state.messages = Arc::new(vec![Arc::new(ChatMessage {
+            item: "i0".into(),
+            author: "Sam".into(),
+            attachments: vec![Attachment {
+                name: "a.png".into(),
+                size: None,
+                image: true,
+                dimensions: Some((800, 600)),
+                preview: Some(shown),
+                preview_failed: false,
+                placement: Placement::Message,
+                gif: None,
+                spoiler: false,
+                video: false,
+                url: None,
+                description: None,
+            }],
+            ..Default::default()
+        })]);
+    });
+    drop(app.view());
+    app.pictures.fitter.borrow_mut().make_asked(&picture);
+    drop(app.view());
+    assert!(!app.pictures.fitter.borrow().is_empty(), "the copy kept");
+    picture
+}
+
+#[test]
+fn the_sign_in_screen_lets_go_of_the_timelines_pictures() {
+    let (mut app, _folder) = preview();
+    let _picture = a_picture_shown(&mut app);
+    change(&mut app, |state| state.preview = false);
+    assert!(!app.workspace());
+    drop(app.view());
+    assert!(app.pictures.fitter.borrow().is_empty(), "the copy went");
 }
 
 /// Marks a room unread with `mentions` of this account.

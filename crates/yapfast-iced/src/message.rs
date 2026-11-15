@@ -39,7 +39,9 @@ const HEADER_AVATAR: f32 = 16.0;
 const EMBED_WIDTH: f32 = 432.0;
 const EMBED_BAR: f32 = 4.0;
 const THUMBNAIL: f32 = 80.0;
-const EMBED_PARTS: u8 = 128;
+/// Past any message's body's parts (Discord's 4000 characters make far
+/// fewer), each embed 16 of them, before a bot's cards' (`cards.rs`).
+pub const EMBED_PARTS: crate::select::PartNo = 16384;
 /// A file's card at its widest, and its icon.
 const FILE_CARD_WIDTH: f32 = 432.0;
 const FILE_ICON: u32 = 30;
@@ -694,7 +696,10 @@ impl App {
             ink,
         };
         // Its text isn't selected with the message's.
-        let first = EMBED_PARTS + u8::try_from(place * 16).unwrap_or(0).min(EMBED_PARTS);
+        let first = EMBED_PARTS
+            + crate::select::PartNo::try_from(place * 16)
+                .unwrap_or(0)
+                .min(EMBED_PARTS - 16);
         let mut card = column![].spacing(8).width(Length::Fill);
         if !embed.provider.is_empty() {
             card = card.push(text(embed.provider.as_str()).size(12).color(theme.muted));

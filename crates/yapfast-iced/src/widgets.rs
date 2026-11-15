@@ -928,6 +928,25 @@ impl Widget<Message, Theme, Renderer> for PlateRow<'_> {
             _ => above(renderer, false),
         }
     }
+
+    /// The row's own overlays: its tooltips (a booster's gem).
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut Tree,
+        layout: Layout<'b>,
+        renderer: &Renderer,
+        viewport: &Rectangle,
+        translation: Vector,
+    ) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
+        let content = layout.children().next()?;
+        self.content.as_widget_mut().overlay(
+            &mut tree.children[0],
+            content,
+            renderer,
+            viewport,
+            translation,
+        )
+    }
 }
 
 impl<'a> From<PlateRow<'a>> for Element<'a, Message> {
@@ -1088,6 +1107,7 @@ impl Widget<Message, Theme, Renderer> for Place<'_> {
             let mut top = 0.0;
             for &index in &beside.path {
                 let Some(child) = part.children().get(index) else {
+                    debug_assert!(false, "no part at {:?}", beside.path);
                     break;
                 };
                 top += child.bounds().y;
@@ -1199,14 +1219,19 @@ impl Widget<Message, Theme, Renderer> for Place<'_> {
         viewport: &Rectangle,
         translation: Vector,
     ) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
-        let child = layout.children().next().expect("child's");
-        self.child.as_widget_mut().overlay(
-            &mut tree.children[0],
-            child,
-            renderer,
-            viewport,
-            translation,
-        )
+        // The first child's and the one beside it.
+        let overlays: Vec<_> = self
+            .children_mut()
+            .zip(&mut tree.children)
+            .zip(layout.children())
+            .filter_map(|((child, state), layout)| {
+                child
+                    .as_widget_mut()
+                    .overlay(state, layout, renderer, viewport, translation)
+            })
+            .collect();
+        (!overlays.is_empty())
+            .then(|| iced::advanced::overlay::Group::with_children(overlays).overlay())
     }
 }
 
@@ -2105,8 +2130,8 @@ impl<'a> From<Corner<'a>> for Element<'a, Message> {
 /// off at `cut`, and `more` (Show more, or Show less unfolded) shows under
 /// it, `gap` below; a short body shows whole, without it.
 pub struct Fold<'a> {
-    body: Element<'a, Message>,
-    more: Element<'a, Message>,
+    /// The body, then Show more.
+    parts: [Element<'a, Message>; 2],
     folded: bool,
     long: f32,
     cut: f32,
@@ -2121,12 +2146,28 @@ impl<'a> Fold<'a> {
         (long, cut, gap): (f32, f32, f32),
     ) -> Self {
         Self {
-            body: body.into(),
-            more: more.into(),
+            parts: [body.into(), more.into()],
             folded,
             long,
             cut,
             gap,
+        }
+    }
+}
+
+impl Fold<'_> {
+    /// What shows of the body while it's folded.
+    fn cut_of(&self, body: Layout<'_>) -> Rectangle {
+        Rectangle::new(body.position(), Size::new(body.bounds().width, self.cut))
+    }
+
+    /// The pointer as the body sees it: what's cut off takes none.
+    fn body_cursor(&self, long: bool, body: Layout<'_>, cursor: mouse::Cursor) -> mouse::Cursor {
+        match cursor.position() {
+            Some(at) if self.folded && long && !self.cut_of(body).contains(at) => {
+                mouse::Cursor::Unavailable
+            }
+            _ => cursor,
         }
     }
 }
@@ -2151,11 +2192,11 @@ impl Widget<Message, Theme, Renderer> for Fold<'_> {
     }
 
     fn children(&self) -> Vec<Tree> {
-        vec![Tree::new(&self.body), Tree::new(&self.more)]
+        self.parts.iter().map(Tree::new).collect()
     }
 
     fn diff(&self, tree: &mut Tree) {
-        tree.diff_children(&[&self.body, &self.more]);
+        tree.diff_children(&self.parts);
     }
 
     fn layout(
@@ -2166,8 +2207,7 @@ impl Widget<Message, Theme, Renderer> for Fold<'_> {
     ) -> layout::Node {
         let width = limits.max().width;
         let loose = layout::Limits::new(Size::ZERO, Size::new(width, f32::INFINITY));
-        let body = self
-            .body
+        let body = self.parts[0]
             .as_widget_mut()
             .layout(&mut tree.children[0], renderer, &loose);
         let long = body.size().height > self.long;
@@ -2182,8 +2222,7 @@ impl Widget<Message, Theme, Renderer> for Fold<'_> {
         } else {
             body.size().height
         };
-        let more = self
-            .more
+        let more = self.parts[1]
             .as_widget_mut()
             .layout(&mut tree.children[1], renderer, &loose)
             .move_to((0.0, shown + self.gap));
@@ -2200,14 +2239,14 @@ impl Widget<Message, Theme, Renderer> for Fold<'_> {
     ) {
         let mut children = layout.children();
         if let Some(body) = children.next() {
-            self.body
+            self.parts[0]
                 .as_widget_mut()
                 .operate(&mut tree.children[0], body, renderer, operation);
         }
         if tree.state.downcast_ref::<FoldState>().long
             && let Some(more) = children.next()
         {
-            self.more
+            self.parts[1]
                 .as_widget_mut()
                 .operate(&mut tree.children[1], more, renderer, operation);
         }
@@ -2225,29 +2264,13 @@ impl Widget<Message, Theme, Renderer> for Fold<'_> {
         viewport: &Rectangle,
     ) {
         let long = tree.state.downcast_ref::<FoldState>().long;
-        let shown = layout.bounds();
         let mut children = layout.children();
-        if let Some(body) = children.next() {
-            // What's cut off takes no pointer.
-            let cursor = match cursor.position() {
-                Some(at) if self.folded && long && !shown.contains(at) => {
-                    mouse::Cursor::Unavailable
-                }
-                _ => cursor,
-            };
-            self.body.as_widget_mut().update(
-                &mut tree.children[0],
-                event,
-                body,
-                cursor,
-                renderer,
-                clipboard,
-                shell,
-                viewport,
-            );
-        }
-        if long && let Some(more) = children.next() {
-            self.more.as_widget_mut().update(
+        let (Some(body), more) = (children.next(), children.next()) else {
+            return;
+        };
+        // Show more goes first: the body's cut-off lines lie under it.
+        if long && let Some(more) = more {
+            self.parts[1].as_widget_mut().update(
                 &mut tree.children[1],
                 event,
                 more,
@@ -2257,7 +2280,21 @@ impl Widget<Message, Theme, Renderer> for Fold<'_> {
                 shell,
                 viewport,
             );
+            if shell.is_event_captured() {
+                return;
+            }
         }
+        let cursor = self.body_cursor(long, body, cursor);
+        self.parts[0].as_widget_mut().update(
+            &mut tree.children[0],
+            event,
+            body,
+            cursor,
+            renderer,
+            clipboard,
+            shell,
+            viewport,
+        );
     }
 
     fn mouse_interaction(
@@ -2271,16 +2308,16 @@ impl Widget<Message, Theme, Renderer> for Fold<'_> {
         let long = tree.state.downcast_ref::<FoldState>().long;
         let mut children = layout.children();
         let body = children.next().map_or_else(Default::default, |body| {
-            self.body.as_widget().mouse_interaction(
+            self.parts[0].as_widget().mouse_interaction(
                 &tree.children[0],
                 body,
-                cursor,
+                self.body_cursor(long, body, cursor),
                 viewport,
                 renderer,
             )
         });
         let more = match children.next() {
-            Some(more) if long => self.more.as_widget().mouse_interaction(
+            Some(more) if long => self.parts[1].as_widget().mouse_interaction(
                 &tree.children[1],
                 more,
                 cursor,
@@ -2309,9 +2346,9 @@ impl Widget<Message, Theme, Renderer> for Fold<'_> {
             return;
         };
         if long && self.folded {
-            let cut = Rectangle::new(body.position(), Size::new(body.bounds().width, self.cut));
-            renderer.with_layer(cut, |renderer| {
-                self.body.as_widget().draw(
+            let cursor = self.body_cursor(long, body, cursor);
+            renderer.with_layer(self.cut_of(body), |renderer| {
+                self.parts[0].as_widget().draw(
                     &tree.children[0],
                     renderer,
                     theme,
@@ -2322,7 +2359,7 @@ impl Widget<Message, Theme, Renderer> for Fold<'_> {
                 );
             });
         } else {
-            self.body.as_widget().draw(
+            self.parts[0].as_widget().draw(
                 &tree.children[0],
                 renderer,
                 theme,
@@ -2333,7 +2370,7 @@ impl Widget<Message, Theme, Renderer> for Fold<'_> {
             );
         }
         if long && let Some(more) = children.next() {
-            self.more.as_widget().draw(
+            self.parts[1].as_widget().draw(
                 &tree.children[1],
                 renderer,
                 theme,
@@ -2343,6 +2380,23 @@ impl Widget<Message, Theme, Renderer> for Fold<'_> {
                 viewport,
             );
         }
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut Tree,
+        layout: Layout<'b>,
+        renderer: &Renderer,
+        viewport: &Rectangle,
+        translation: Vector,
+    ) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
+        // A short body's Show more isn't laid out.
+        let parts = if tree.state.downcast_ref::<FoldState>().long {
+            &mut self.parts[..]
+        } else {
+            &mut self.parts[..1]
+        };
+        iced::advanced::overlay::from_children(parts, tree, layout, renderer, viewport, translation)
     }
 }
 
@@ -2498,8 +2552,10 @@ impl Widget<Message, Theme, Renderer> for Scrub<'_> {
                     shell.capture_event();
                 }
             }
-            iced::Event::Mouse(mouse::Event::CursorMoved { position }) if state.held => {
-                shell.publish((self.seek)(at(position.x)));
+            iced::Event::Mouse(mouse::Event::CursorMoved { .. }) if state.held => {
+                if let Some(position) = cursor.position() {
+                    shell.publish((self.seek)(at(position.x)));
+                }
             }
             iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) if state.held => {
                 state.held = false;
@@ -3178,8 +3234,11 @@ impl Widget<Message, Theme, Renderer> for Splitter<'_> {
         let state = tree.state.downcast_mut::<SplitterState>();
         let reach = Self::reach(layout.bounds());
         match event {
-            iced::Event::Mouse(mouse::Event::CursorMoved { position }) => {
-                let pointed = reach.contains(*position);
+            iced::Event::Mouse(mouse::Event::CursorMoved { .. }) => {
+                let Some(position) = cursor.position() else {
+                    return;
+                };
+                let pointed = reach.contains(position);
                 if pointed != state.pointed {
                     state.pointed = pointed;
                     shell.request_redraw();
@@ -3819,11 +3878,36 @@ struct ScrollAt<'a> {
     seen: usize,
     found: Option<usize>,
     by: Option<(usize, f32)>,
+    /// How far what's inside the scrollables passed is moved, and the
+    /// last one's own, for what it holds.
+    moved: Vector,
+    inside: Option<Vector>,
+}
+
+impl<'a> ScrollAt<'a> {
+    fn new(at: Point, anchored: &'a [&'static str], by: Option<(usize, f32)>) -> Self {
+        Self {
+            at,
+            anchored,
+            seen: 0,
+            found: None,
+            by,
+            moved: Vector::ZERO,
+            inside: None,
+        }
+    }
 }
 
 impl Operation for ScrollAt<'_> {
+    /// A scrollable's content is laid out unscrolled: it's moved by the
+    /// scroll of every scrollable it's in, and only within them.
     fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation)) {
+        let moved = self.moved;
+        if let Some(inside) = self.inside.take() {
+            self.moved = moved - inside;
+        }
         operate(self);
+        self.moved = moved;
     }
 
     fn scrollable(
@@ -3831,11 +3915,13 @@ impl Operation for ScrollAt<'_> {
         id: Option<&iced::advanced::widget::Id>,
         bounds: Rectangle,
         content_bounds: Rectangle,
-        _translation: Vector,
+        translation: Vector,
         state: &mut dyn iced::advanced::widget::operation::Scrollable,
     ) {
         let index = self.seen;
         self.seen += 1;
+        self.inside = Some(translation);
+        let bounds = bounds + self.moved;
         if bounds.contains(self.at) && content_bounds.height > bounds.height + 1.0 {
             self.found = Some(index);
         }
@@ -3920,8 +4006,12 @@ impl Widget<Message, Theme, Renderer> for Autoscroll<'_> {
             let scroll = state.scroll.as_mut().expect("going");
             let mut take = true;
             match event {
-                iced::Event::Mouse(mouse::Event::CursorMoved { position }) => {
-                    scroll.pointer = *position;
+                // The cursor, not the event's raw position: a wrapper
+                // (Below, a scrollable) may have moved the child's space.
+                iced::Event::Mouse(mouse::Event::CursorMoved { .. }) => {
+                    if let Some(position) = cursor.position() {
+                        scroll.pointer = position;
+                    }
                     if scroll.held && scroll.pointer.distance(scroll.origin) > AUTOSCROLL_STILL {
                         scroll.dragged = true;
                     }
@@ -3959,21 +4049,11 @@ impl Widget<Message, Theme, Renderer> for Autoscroll<'_> {
                     let by = autoscroll_speed(scroll.pointer.y - scroll.origin.y) * elapsed;
                     let origin = scroll.origin;
                     if by != 0.0 {
-                        let mut find = ScrollAt {
-                            at: origin,
-                            anchored: self.anchored,
-                            seen: 0,
-                            found: None,
-                            by: None,
-                        };
+                        let mut find = ScrollAt::new(origin, self.anchored, None);
                         self.operate_child(tree, layout, renderer, &mut find);
                         if let Some(found) = find.found {
-                            let mut scroll = ScrollAt {
-                                by: Some((found, by)),
-                                seen: 0,
-                                found: None,
-                                ..find
-                            };
+                            let mut scroll =
+                                ScrollAt::new(origin, self.anchored, Some((found, by)));
                             self.operate_child(tree, layout, renderer, &mut scroll);
                         }
                     }
@@ -4002,13 +4082,7 @@ impl Widget<Message, Theme, Renderer> for Autoscroll<'_> {
             && !shell.is_event_captured()
             && let Some(at) = cursor.position()
         {
-            let mut find = ScrollAt {
-                at,
-                anchored: self.anchored,
-                seen: 0,
-                found: None,
-                by: None,
-            };
+            let mut find = ScrollAt::new(at, self.anchored, None);
             self.operate_child(tree, layout, renderer, &mut find);
             if find.found.is_some() {
                 tree.state.downcast_mut::<AutoscrollState>().scroll = Some(Scrolling {
@@ -4149,7 +4223,76 @@ impl<'a> From<Autoscroll<'a>> for Element<'a, Message> {
 
 #[cfg(test)]
 mod autoscroll_tests {
-    use super::autoscroll_speed;
+    use iced::{
+        Point, Settings, Size,
+        advanced::image::Handle,
+        mouse::{Button, Event as Mouse},
+        widget::{Id, Space, column, scrollable},
+    };
+    use iced_test::{Simulator, selector::Candidate};
+
+    use super::{Autoscroll, AutoscrollLook, autoscroll_speed};
+    use crate::app::Message;
+
+    /// A scrollable's offset in `ui`.
+    fn offset(ui: &mut Simulator<'_, Message>, name: &'static str) -> f32 {
+        ui.find(move |candidate: Candidate<'_>| match candidate {
+            Candidate::Scrollable {
+                id: Some(id),
+                translation,
+                ..
+            } if *id == Id::new(name) => Some(translation.y),
+            _ => None,
+        })
+        .expect("the list")
+    }
+
+    #[test]
+    fn a_middle_click_in_a_list_inside_a_scrolled_page_scrolls_that_list() {
+        // A page 1000 px tall in 300, its list 200 px into it, 100 px tall
+        // and holding 400.
+        let space = |height: f32| Space::new().width(300).height(height);
+        let list = scrollable(space(400.0)).id("list").width(300).height(100);
+        let page = scrollable(column![space(200.0), list, space(700.0)])
+            .id("page")
+            .width(300)
+            .height(300);
+        let blank = || Handle::from_rgba(1, 1, vec![0; 4]);
+        let look = AutoscrollLook {
+            ground: iced::Color::BLACK,
+            edge: iced::Color::BLACK,
+            dot: iced::Color::BLACK,
+            up: blank(),
+            down: blank(),
+        };
+        let view: iced::Element<'_, Message> = Autoscroll::new(page, &[], look).into();
+        let mut ui = Simulator::with_size(Settings::default(), Size::new(300.0, 300.0), view);
+        // The page scrolled 150 px down shows the list from 50 px.
+        ui.point_at(Point::new(150.0, 150.0));
+        ui.simulate([iced::Event::Mouse(Mouse::WheelScrolled {
+            delta: iced::mouse::ScrollDelta::Pixels { x: 0.0, y: -150.0 },
+        })]);
+        assert_eq!(offset(&mut ui, "page"), 150.0);
+        let at = Point::new(150.0, 100.0);
+        ui.point_at(at);
+        let start = std::time::Instant::now();
+        let frame = |ms| {
+            iced::Event::Window(iced::window::Event::RedrawRequested(
+                start + std::time::Duration::from_millis(ms),
+            ))
+        };
+        let below = Point::new(150.0, 180.0);
+        ui.simulate([iced::Event::Mouse(Mouse::ButtonPressed(Button::Middle))]);
+        ui.point_at(below);
+        ui.simulate([
+            iced::Event::Mouse(Mouse::CursorMoved { position: below }),
+            frame(0),
+            frame(16),
+            frame(32),
+        ]);
+        assert!(offset(&mut ui, "list") > 0.0, "the list under the click");
+        assert_eq!(offset(&mut ui, "page"), 150.0, "not the page");
+    }
 
     #[test]
     fn autoscroll_is_still_near_the_click_and_faster_farther() {
@@ -4795,9 +4938,11 @@ impl Widget<Message, Theme, Renderer> for ColourPad<'_> {
                     shell.capture_event();
                 }
             }
-            iced::Event::Mouse(mouse::Event::CursorMoved { position }) => {
-                if let Some(part) = state.held {
-                    shell.publish((self.chosen)(self.at(part, bounds, *position)));
+            iced::Event::Mouse(mouse::Event::CursorMoved { .. }) => {
+                if let Some(part) = state.held
+                    && let Some(position) = cursor.position()
+                {
+                    shell.publish((self.chosen)(self.at(part, bounds, position)));
                     shell.capture_event();
                 }
             }

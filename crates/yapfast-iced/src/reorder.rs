@@ -148,8 +148,12 @@ impl Widget<Message, Theme, Renderer> for Reorder<'_> {
         if let Some((index, start, offset)) = &mut dragging.0 {
             let index = *index;
             match event {
-                iced::Event::Mouse(mouse::Event::CursorMoved { position }) => {
-                    *offset = position.y - *start;
+                // The cursor, as the press's start: in a scrolled page or
+                // under the own title bar the raw position is elsewhere.
+                iced::Event::Mouse(mouse::Event::CursorMoved { .. }) => {
+                    if let Some(position) = cursor.position() {
+                        *offset = position.y - *start;
+                    }
                     shell.request_redraw();
                     shell.capture_event();
                 }

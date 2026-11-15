@@ -354,11 +354,7 @@ impl App {
     /// the next window shows it without asking again.
     fn forget_window(&mut self) {
         self.shell.focused = false;
-        *self.previews.borrow_mut() = Default::default();
-        self.scaled.borrow_mut().clear();
-        self.marks.borrow_mut().clear();
-        self.emoji.borrow_mut().clear();
-        self.playing.borrow_mut().clear();
+        self.pictures.forget();
         self.menu = None;
         self.picker = None;
         self.card = None;

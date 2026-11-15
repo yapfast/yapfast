@@ -694,16 +694,19 @@ impl App {
                 && core.reading.is_none()
                 && core.too_long().is_none()
                 && core.accent().is_ok();
-            middle = middle.push(form::unsaved_bar(
-                theme,
-                pad,
-                core.saving,
-                ready,
-                may_save,
-                form::Shake::default(),
-                message(Event::Undo),
-                message(Event::Save),
-            ));
+            middle = middle.push(
+                form::Unsaved {
+                    pad: pad,
+                    radius: 0.0,
+                    saving: core.saving,
+                    may_reset: ready,
+                    may_save: may_save,
+                    shake: form::Shake::default(),
+                    undo: message(Event::Undo),
+                    save: message(Event::Save),
+                }
+                .view(theme),
+            );
         }
         middle.into()
     }

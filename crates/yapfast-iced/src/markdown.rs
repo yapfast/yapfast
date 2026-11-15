@@ -656,7 +656,7 @@ pub struct Look {
 
 /// Where a body's parts are in the timeline's selection: its row, and the
 /// piece its first part is (0 and 1 are the author and time).
-pub const FIRST_PART: u8 = 2;
+pub const FIRST_PART: crate::select::PartNo = 2;
 
 impl App {
     /// A run as a span: its weight and slant, code in monospace on its
@@ -723,13 +723,15 @@ impl App {
         &'a self,
         body: &'a Body,
         row: usize,
-        first: u8,
+        first: crate::select::PartNo,
         look: Look,
     ) -> Element<'a, Message> {
         let theme = &self.theme;
         let mut parts = column![].width(Length::Fill);
         for (index, part) in body.parts.iter().enumerate() {
-            let number = first.saturating_add(u8::try_from(index).unwrap_or(u8::MAX));
+            let number = first.saturating_add(
+                crate::select::PartNo::try_from(index).unwrap_or(crate::select::PartNo::MAX),
+            );
             let ratio = look.line_height / look.size;
             let (size, ink) = match part.shape {
                 Shape::Heading(1) => (look.size * 1.5, theme.text),

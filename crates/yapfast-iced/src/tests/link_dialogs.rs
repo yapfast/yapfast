@@ -82,6 +82,24 @@ fn authorizing_an_app_says_what_it_asks_for_and_where_it_goes() {
     }
     assert!(shows(&app, &prompt.warning));
     assert!(!prompt.guild_picker);
+    // In a short window it stays inside it, its foot a scroll away.
+    let frame = app.shell.frame;
+    app.shell.frame = iced::Size::new(800.0, 200.0);
+    app.window = app.shell.frame;
+    interact(&mut app, |ui| {
+        let head = ui.find("Authorize Alien App").expect("the head");
+        let head = head.visible_bounds().expect("in view");
+        assert!(head.y >= 0.0, "{head:?}");
+        ui.point_at(head.center());
+        ui.simulate([iced::Event::Mouse(iced::mouse::Event::WheelScrolled {
+            delta: iced::mouse::ScrollDelta::Pixels { x: 0.0, y: -2000.0 },
+        })]);
+        let foot = ui.find("Authorize").expect("the foot");
+        let foot = foot.visible_bounds().expect("scrolled into view");
+        assert!(foot.y + foot.height <= 200.0, "{foot:?}");
+    });
+    app.shell.frame = frame;
+    app.window = frame;
     // One that may go to any of them offers them.
     change(&mut app, |state| {
         let dialog = state.oauth.as_mut().expect("open");
@@ -89,6 +107,15 @@ fn authorizing_an_app_says_what_it_asks_for_and_where_it_goes() {
         dialog.guild = Some("10".into());
     });
     assert!(shows(&app, "Server"));
+    // A click on the dim closes the open list, and only the list.
+    let _ = app.update(Message::LinkDialog(crate::link_dialogs::Event::GuildMenu));
+    assert!(app.link_dialogs.guild_menu);
+    interact(&mut app, |ui| {
+        ui.point_at(Point::new(10.0, 10.0));
+        ui.simulate(iced_test::simulator::click());
+    });
+    assert!(!app.link_dialogs.guild_menu, "the list closed");
+    assert!(app.client.state().oauth.is_some(), "the dialog stays");
     let _ = app.update(Message::LinkDialog(crate::link_dialogs::Event::Guild(1)));
     assert_eq!(
         app.client

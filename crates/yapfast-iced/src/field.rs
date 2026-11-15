@@ -376,8 +376,10 @@ pub struct Field<'a> {
     /// Takes no input, its text greyed.
     enabled: bool,
     colors: Colors,
-    /// The line round it while it has the keys, as Slint's `TextField`.
+    /// The line round it while it has the keys, as Slint's `TextField`,
+    /// and its corners.
     ring: Option<Color>,
+    radius: f32,
     on: fn(Event) -> Message,
 }
 
@@ -418,6 +420,7 @@ impl<'a> Field<'a> {
             enabled: true,
             colors,
             ring: None,
+            radius: 8.0,
             on,
         }
     }
@@ -470,6 +473,18 @@ impl<'a> Field<'a> {
         self.lines = lines;
         self
     }
+
+    /// Its corners' radius; 8 px without.
+    pub fn radius(mut self, radius: f32) -> Self {
+        self.radius = radius;
+        self
+    }
+
+    /// Each line's height, in pixels; 24 without.
+    pub fn line_height(mut self, line: f32) -> Self {
+        self.line = line;
+        self
+    }
 }
 
 #[derive(Default)]
@@ -488,6 +503,16 @@ struct Focus {
 }
 
 const BLINK: u128 = 500;
+
+/// What a paste puts in a field: in a one-line field, its line breaks as
+/// spaces.
+fn pasted_into(pasted: String, single: bool) -> String {
+    if single && pasted.contains(['\n', '\r']) {
+        pasted.replace("\r\n", " ").replace(['\n', '\r'], " ")
+    } else {
+        pasted
+    }
+}
 
 impl Focus {
     fn now() -> Self {
@@ -567,7 +592,10 @@ impl Widget<Message, Theme, Renderer> for Field<'_> {
         limits: &layout::Limits,
     ) -> layout::Node {
         let width = limits.max().width;
-        let most = self.lines * self.line;
+        // As many lines as it shows, and no taller than its room.
+        let most = (self.lines * self.line)
+            .min(limits.max().height - self.pad.y())
+            .max(self.line);
         let mut inner = self.draft.0.borrow_mut();
         inner.editor.update(
             Size::new((width - self.pad.x()).max(1.0), most),
@@ -847,6 +875,7 @@ impl Widget<Message, Theme, Renderer> for Field<'_> {
                     }
                     (_, Some('v')) if command && !modifiers.alt() => {
                         if let Some(pasted) = clipboard.read(clipboard::Kind::Standard) {
+                            let pasted = pasted_into(pasted, self.single);
                             edit(
                                 &mut inner,
                                 Kind::Other,
@@ -947,9 +976,9 @@ impl Widget<Message, Theme, Renderer> for Field<'_> {
             Some(ring) => Border {
                 color: ring,
                 width: 1.0,
-                radius: 8.0.into(),
+                radius: self.radius.into(),
             },
-            None => Border::default().rounded(8),
+            None => Border::default().rounded(self.radius),
         };
         renderer.fill_quad(
             renderer::Quad {
@@ -1081,5 +1110,16 @@ fn motion(key: key::Named) -> Option<Motion> {
 impl<'a> From<Field<'a>> for Element<'a, Message> {
     fn from(field: Field<'a>) -> Self {
         Element::new(field)
+    }
+}
+
+#[cfg(test)]
+mod paste_tests {
+    use super::pasted_into;
+
+    #[test]
+    fn a_one_line_field_takes_a_paste_on_one_line() {
+        assert_eq!(pasted_into("foo\nbar\r\nbaz".into(), true), "foo bar baz");
+        assert_eq!(pasted_into("foo\nbar".into(), false), "foo\nbar");
     }
 }

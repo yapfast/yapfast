@@ -5,7 +5,7 @@
 use iced::{
     Alignment, Border, Element, Length, Task,
     keyboard::key,
-    widget::{Space, column, container, opaque, row, stack, text},
+    widget::{Space, column, container, opaque, row, scrollable, stack, text},
 };
 
 use crate::{
@@ -180,20 +180,18 @@ impl App {
     }
 
     /// A dialog's parts, 12 px apart in 20 px of padding, in [`dialog`]'s
-    /// frame at `width`, kept inside the window.
+    /// frame at `width`, kept inside the window: taller than the window
+    /// leaves it, they scroll.
     pub fn framed<'a>(
         &'a self,
         body: impl IntoIterator<Item = Element<'a, Message>>,
         width: f32,
         close: Message,
     ) -> Element<'a, Message> {
-        let body = column(body).spacing(12).padding(20);
-        dialog(
-            &self.theme,
-            body.into(),
-            width.min(self.window.width - ROOM),
-            close,
-        )
+        let body = scrollable(column(body).spacing(12).padding(20))
+            .width(Length::Fill)
+            .style(crate::style::scrollbar(&self.theme));
+        dialog(&self.theme, body.into(), width, close)
     }
 
     /// What a dialog found, on the sunken ground: a picture beside them
@@ -276,9 +274,10 @@ pub fn dialog<'a>(
                 ..Default::default()
             }),
     );
+    // Kept inside the window, by its padding, both ways.
     opaque(stack![
         outside(on_outside, true),
-        container(card).center(Length::Fill)
+        container(card).padding(ROOM / 2.0).center(Length::Fill)
     ])
 }
 

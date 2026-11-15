@@ -435,16 +435,21 @@ impl App {
         .style(scrollbar(theme))
         .height(Length::Fill);
         let panel = theme.panel;
+        let radius = crate::sheet::RADIUS;
         let content = container(column![header, body])
             .width(Length::Fill)
             .height(Length::Fill)
-            .style(move |_| crate::style::fill(panel));
+            .style(move |_| {
+                crate::style::rounded(panel, crate::style::corners([0.0, radius, radius, 0.0]))
+            });
         let chat = theme.chat;
         let card = row![
             container(self.settings_nav(settings))
                 .width(NAV)
                 .height(Length::Fill)
-                .style(move |_| crate::style::fill(chat)),
+                .style(move |_| {
+                    crate::style::rounded(chat, crate::style::corners([radius, 0.0, 0.0, radius]))
+                }),
             content
         ];
         Some(crate::sheet::backdrop(

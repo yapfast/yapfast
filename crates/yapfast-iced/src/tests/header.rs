@@ -39,6 +39,16 @@ fn pinned_messages_show_under_their_button_and_a_click_jumps_and_closes_them() {
     });
     assert!(shows(&app, "Pinned Messages"));
     assert!(shows(&app, "Pinned rules of the place"));
+    // A pin edited since shows as it reads now when they come again.
+    change(&mut app, |state| {
+        let pins = state.pins.as_mut().expect("open");
+        pins.messages = Some(Ok(vec![said("p0", "Pinned rules, edited")]));
+    });
+    assert!(shows(&app, "Pinned rules, edited"));
+    change(&mut app, |state| {
+        let pins = state.pins.as_mut().expect("open");
+        pins.messages = Some(Ok(vec![said("p0", "Pinned rules of the place")]));
+    });
     interact(&mut app, |ui| {
         ui.click("Pinned rules of the place")
             .expect("the pin's card");
@@ -128,6 +138,9 @@ fn add_people_counts_the_room_left_in_the_group() {
         left => format!("You can add {left} more friends."),
     };
     assert!(shows(&app, &detail));
+    // Typing in its search leaves the focus, and so the caret, alone.
+    let typed = app.popover_event(crate::popovers::Event::PeopleQuery("ri".into()));
+    assert_eq!(typed.units(), 0, "nothing focused again");
     escape(&mut app);
     assert!(app.client.state().add_people.is_none());
 }

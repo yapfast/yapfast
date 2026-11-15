@@ -18,7 +18,7 @@ use crate::{
     app::{App, Message},
     fonts::BOLD,
     style::rounded,
-    widgets::{Animated, Pic},
+    widgets::Pic,
 };
 
 /// A gallery's square tiles and the gap between them, as Discord's client
@@ -246,6 +246,7 @@ impl App {
                     ((picture.height as f32 / scale).ceil() as u32).max(1),
                 );
                 match self
+                    .pictures
                     .fitter
                     .borrow_mut()
                     .get(picture, small.0, small.1, false)
@@ -257,26 +258,26 @@ impl App {
                     None => Space::new().width(size.width).height(size.height).into(),
                 }
             }
-            Some(picture) if picture.animation.is_some() && self.plays() => {
-                let animated =
-                    Animated::new(picture.clone(), size, at, fit == Fit::Cover, &self.playing)
-                        .radius(radius);
-                self.moving.borrow_mut().insert(animated.key());
-                animated.into()
-            }
+            Some(picture) if picture.animation.is_some() && self.plays() => self
+                .pictures
+                .animated(picture, size, at, fit == Fit::Cover)
+                .radius(radius)
+                .into(),
             Some(picture) if (picture.width, picture.height) == (width, height) => {
                 let handle = self
+                    .pictures
                     .previews
                     .borrow_mut()
                     .get(picture, crate::pictures::shared);
                 Pic::new(handle, size).at(at).radius(radius).into()
             }
             Some(picture) => {
-                match self
-                    .fitter
-                    .borrow_mut()
-                    .get(picture, width, height, fit == Fit::Cover)
-                {
+                match self.pictures.fitter.borrow_mut().get(
+                    picture,
+                    width,
+                    height,
+                    fit == Fit::Cover,
+                ) {
                     Some(handle) => Pic::new(handle, size).at(at).radius(radius).into(),
                     None => Space::new().width(size.width).height(size.height).into(),
                 }

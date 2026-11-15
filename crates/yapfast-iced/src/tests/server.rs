@@ -151,15 +151,23 @@ fn server_settings_open_from_the_menu_and_hold_their_changes_until_saved() {
         SettingsSection::Profile,
         ServerSettingsPage::Profile(ServerProfile {
             name: "Test".into(),
-            description: "Hi".into(),
+            description: "Hi\nthere\nin\nfive\nlines".into(),
             icon: None,
         }),
     );
     assert!(!shows(&app, "Loading..."));
     match page(&app) {
-        SettingsPage::Profile(page) => assert_eq!(page.description, "Hi"),
+        SettingsPage::Profile(page) => assert!(page.description.starts_with("Hi")),
         _ => panic!("not Server Profile"),
     }
+    // Its description stays in its 96 px box, over what's left under it.
+    interact(&mut app, |ui| {
+        let field = ui.find(Id::new("server-description")).expect("the field");
+        let left = ui.find("278 left").expect("what's left");
+        let (field, left) = (field.bounds(), left.bounds());
+        assert!(field.height <= 96.0, "{field:?}");
+        assert!(field.y + field.height <= left.y, "{field:?} over {left:?}");
+    });
     assert!(!shows(&app, "Save Changes"));
 
     // Typing shows the bar; closing then keeps the settings open.

@@ -33,7 +33,7 @@ const BOX: f32 = 44.0;
 #[derive(Default)]
 pub struct LinkDialogs {
     /// The authorization's list of servers is open.
-    guild_menu: bool,
+    pub(crate) guild_menu: bool,
     /// The address last copied from it.
     copied: Option<String>,
 }

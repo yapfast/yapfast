@@ -137,8 +137,7 @@ impl App {
             }),
             Event::NewPost => {
                 self.client.dispatch(Action::NewPost);
-                let _ = self.sync();
-                return iced::widget::operation::focus(TITLE);
+                return Task::batch([self.sync(), iced::widget::operation::focus(TITLE)]);
             }
             Event::Title(title) => self.client.dispatch(Action::WriteNewPost {
                 title: Some(title),

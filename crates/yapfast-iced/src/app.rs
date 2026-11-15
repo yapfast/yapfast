@@ -4,7 +4,6 @@
 //! with a backdrop that takes a click outside.
 
 use std::{
-    cell::RefCell,
     collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -32,7 +31,6 @@ use crate::{
     menus::Menu,
     mfa,
     picker::{self, Picker, Target},
-    pictures::{Converted, Mark},
     profile::Card,
     rail::RailItem,
     select::{Sel, Select},
@@ -41,7 +39,7 @@ use crate::{
     sync::Scroll,
     theme::{Theme, Themes},
     video::{self, Fresh},
-    widgets::{Anchor, Place, PlayKey, Playing},
+    widgets::{Anchor, Place},
 };
 
 /// The open timeline's messages, as the core shares them.
@@ -120,6 +118,8 @@ pub enum Message {
     /// The menu's row under the pointer or the keys, by its place.
     MenuLight(usize),
     MenuChoose(usize),
+    /// A menu taller than the window was scrolled this far down.
+    MenuScrolled(f32),
     /// The open submenu's row under the pointer, or chosen.
     SubLight(usize),
     SubChoose(usize),
@@ -246,22 +246,8 @@ pub struct App {
     /// A look at the releases nobody asked for is under way, whose newer
     /// release a notification tells of (`settings/updates.rs`).
     pub announce_updates: bool,
-    /// Previews, and avatars that come at the size they're drawn at,
-    /// sharing the core's pixels.
-    pub previews: RefCell<Converted<Handle>>,
-    /// Copies of other pictures, at each size they're drawn at (width,
-    /// height, cut to cover).
-    pub scaled: RefCell<HashMap<(u32, u32, bool), Converted<Handle>>>,
-    /// Dots and icons, by what they are, their size and colour.
-    pub marks: RefCell<HashMap<Mark, Handle>>,
-    /// Emoji for the menu's quick reactions and the reactions' tooltips.
-    pub emoji: RefCell<HashMap<(&'static str, u32), Option<Handle>>>,
-    /// Moving pictures playing, and those the view being built shows: the
-    /// others' decoders go after each view.
-    pub playing: RefCell<HashMap<PlayKey, Playing>>,
-    pub moving: RefCell<HashSet<PlayKey>>,
-    /// Copies of pictures at the sizes messages show them at.
-    pub fitter: RefCell<crate::pictures::Fitter>,
+    /// The pictures made to draw, and the moving ones playing.
+    pub pictures: crate::pictures::Pictures,
     /// The rail's DM home and rows, its viewport, the tile under the
     /// pointer.
     pub rail_home: crate::rail::Home,
@@ -377,8 +363,8 @@ pub struct App {
     pub confirm_focus: bool,
     pub pointed_reaction: Option<(String, String)>,
     pub hide_members: bool,
-    /// Pictures asked for and not here yet, and whether a batch is due.
-    pub asked: HashSet<String>,
+    /// Whether a batch of pictures to ask for is due; what was asked for
+    /// is the core's to know (`Application::picture_requested`).
     pub asking: bool,
     pub reporting: bool,
     pub pointed_member: Option<String>,
@@ -515,13 +501,7 @@ impl App {
             inbox: None,
             bar_drag: Default::default(),
             announce_updates: false,
-            previews: Default::default(),
-            scaled: Default::default(),
-            marks: Default::default(),
-            emoji: Default::default(),
-            playing: Default::default(),
-            moving: Default::default(),
-            fitter: RefCell::new(fitter),
+            pictures: crate::pictures::Pictures::new(fitter),
             rail_home: Default::default(),
             rail: Vec::new(),
             rail_scroll: Scroll::new(height),
@@ -588,7 +568,6 @@ impl App {
             confirm_focus: true,
             pointed_reaction: None,
             hide_members: false,
-            asked: HashSet::new(),
             asking: false,
             reporting: false,
             pointed_member: None,
@@ -768,6 +747,12 @@ impl App {
             }
             Message::SubChoose(index) => self.choose_sub(index),
             Message::MenuChoose(index) => self.choose(index),
+            Message::MenuScrolled(down) => {
+                if let Some(menu) = &mut self.menu {
+                    menu.scrolled = down;
+                }
+                Task::none()
+            }
             Message::Act(act, item, at) => self.act(act, item, at, None),
             Message::CloseMenu => {
                 self.menu = None;
@@ -830,7 +815,7 @@ impl App {
                 self.report()
             }
             Message::Fitted(fitted) => {
-                self.fitter.borrow_mut().made(fitted);
+                self.pictures.fitter.borrow_mut().made(fitted);
                 Task::none()
             }
             Message::Reveal(row, attachment) => self.reveal(row, attachment),
@@ -1359,8 +1344,8 @@ impl App {
     }
 
     pub fn view(&self) -> Element<'_, Message> {
-        self.moving.borrow_mut().clear();
-        self.fitter.borrow_mut().begin();
+        // Whatever this returns, what it no longer shows goes at its end.
+        let _viewing = self.pictures.view();
         if !self.workspace() {
             return self.frame_layers(self.sign_in_view()).into();
         }
@@ -1524,13 +1509,6 @@ impl App {
         if let Some(prompt) = self.mfa_view() {
             layers = layers.push(prompt);
         }
-        // Decoders of moving pictures no longer shown go, and copies of
-        // pictures no longer shown.
-        self.fitter.borrow_mut().end();
-        let moving = self.moving.borrow();
-        self.playing
-            .borrow_mut()
-            .retain(|key, _| moving.contains(key));
         let content = crate::widgets::RightPress::spot(
             layers.width(Length::Fill).height(Length::Fill),
             &self.pressed,
@@ -1633,7 +1611,7 @@ impl App {
             return;
         }
         self.theme = theme;
-        self.marks.borrow_mut().clear();
+        self.pictures.marks.borrow_mut().clear();
         self.show_roster(false);
     }
 }

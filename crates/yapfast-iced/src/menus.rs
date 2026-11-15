@@ -42,9 +42,10 @@ pub struct Menu {
     /// The row lit by the pointer or the arrow keys.
     pub lit: Option<usize>,
     /// The message's item, for a message's menu.
-    /// A message's menu: its row, to build again as its Apps come.
-    pub row: Option<usize>,
     pub item: Option<String>,
+    /// A message's menu in the timeline, opened before its room's apps'
+    /// commands came: its Apps row goes in once they have.
+    pub apps_due: bool,
     /// The quick reactions above the rows.
     pub reactions: bool,
     /// The place whose menu it is (`places.rs`), and whether it's a
@@ -63,6 +64,9 @@ pub struct Menu {
     /// The row whose submenu shows, and the submenu's row the keys light.
     pub sub: Option<usize>,
     pub sub_lit: Option<usize>,
+    /// How far down its rows are scrolled, when it's taller than the
+    /// window: a submenu opens beside its row where it shows.
+    pub scrolled: f32,
     /// How wide its rows need it, and each row's submenu, measured once
     /// as it first shows: the words don't change while it's open.
     pub fits: std::cell::OnceCell<Vec<f32>>,
@@ -76,7 +80,7 @@ impl Menu {
             rows,
             lit: None,
             item: None,
-            row: None,
+            apps_due: false,
             reactions: false,
             place: None,
             header: false,
@@ -87,6 +91,7 @@ impl Menu {
             volumes: None,
             sub: None,
             sub_lit: None,
+            scrolled: 0.0,
             fits: Default::default(),
         }
     }
@@ -333,25 +338,10 @@ impl App {
         }
         // The apps' message commands, beside it as Discord's are; not in
         // the thread beside, whose room the index isn't for.
-        let apps: Vec<MenuRow> = match state.selected.as_deref() {
-            Some(room) if index < crate::timeline::ASIDE && sent => self
-                .client
-                .app
-                .commands_for_target(room, yapfast_core::application::CommandTarget::Message)
-                .into_iter()
-                .map(|command| MenuRow {
-                    subtitle: Some(command.app_name.into()),
-                    ..MenuRow::plain(MenuAct::App, command.name).key(command.command)
-                })
-                .collect(),
-            _ => Vec::new(),
-        };
-        if !apps.is_empty() {
-            rows.push(MenuRow {
-                submenu: apps,
-                ..row(MenuAct::App, "Apps", Icon::Slash)
-            });
-        }
+        let takes_apps = index < crate::timeline::ASIDE && sent;
+        let apps = takes_apps.then(|| self.apps_row()).flatten();
+        let apps_due = takes_apps && apps.is_none();
+        rows.extend(apps);
         // After Apps, as in Discord's menu.
         if self.client.app.marks_unread(&message.item) {
             rows.push(row(MenuAct::MarkUnread, "Mark Unread", Icon::MessageCircle));
@@ -379,7 +369,7 @@ impl App {
         }
         self.menu = Some(Menu {
             item: Some(message.item.clone()),
-            row: Some(index),
+            apps_due,
             reactions: message.can_react,
             ..Menu::new(at, rows)
         });
@@ -388,28 +378,58 @@ impl App {
         operation::focus(NOBODY)
     }
 
-    /// A message's menu opened before its room's apps' commands came: it's
-    /// built again with its Apps once they have.
-    pub fn menu_apps_sync(&mut self) -> Task<Message> {
-        let Some(menu) = &self.menu else {
-            return Task::none();
-        };
-        let (Some(row), Some(room)) = (menu.row, self.client.state().selected.as_deref()) else {
-            return Task::none();
-        };
-        let has_apps = menu.rows.iter().any(|row| row.act == MenuAct::App);
-        if has_apps || row >= crate::timeline::ASIDE || menu.sub.is_some() {
-            return Task::none();
-        }
-        let commands = self
+    /// The open room's apps' message commands as a menu's Apps row; none
+    /// while there are none, or its index hasn't come.
+    fn apps_row(&self) -> Option<MenuRow> {
+        let room = self.client.state().selected.as_deref()?;
+        let apps: Vec<MenuRow> = self
             .client
             .app
-            .commands_for_target(room, yapfast_core::application::CommandTarget::Message);
-        if commands.is_empty() {
+            .commands_for_target(room, yapfast_core::application::CommandTarget::Message)
+            .into_iter()
+            .map(|command| MenuRow {
+                subtitle: Some(command.app_name.into()),
+                ..MenuRow::plain(MenuAct::App, command.name).key(command.command)
+            })
+            .collect();
+        (!apps.is_empty()).then(|| MenuRow {
+            submenu: apps,
+            ..MenuRow::new(MenuAct::App, "Apps", Icon::Slash)
+        })
+    }
+
+    /// A message's menu opened before its room's apps' commands came: its
+    /// Apps row goes in where it would have been, once they have, and the
+    /// rest of the menu (a picture's rows, the light, an open submenu)
+    /// stays as it is.
+    pub fn menu_apps_sync(&mut self) -> Task<Message> {
+        if !self.menu.as_ref().is_some_and(|menu| menu.apps_due) {
             return Task::none();
         }
-        let at = menu.at;
-        self.open_menu(row, at)
+        let Some(apps) = self.apps_row() else {
+            return Task::none();
+        };
+        let Some(menu) = &mut self.menu else {
+            return Task::none();
+        };
+        // Before Mark Unread, Copy Message Link and what's set apart.
+        let at = menu
+            .rows
+            .iter()
+            .position(|row| {
+                row.separated || matches!(row.act, MenuAct::MarkUnread | MenuAct::CopyLink)
+            })
+            .unwrap_or(menu.rows.len());
+        menu.rows.insert(at, apps);
+        menu.apps_due = false;
+        // Rows after it moved down one.
+        for index in [&mut menu.lit, &mut menu.sub].into_iter().flatten() {
+            if *index >= at {
+                *index += 1;
+            }
+        }
+        menu.fits = Default::default();
+        Task::none()
     }
 
     /// The pointer came onto a row: it's lit, and its submenu opens, or
@@ -818,6 +838,7 @@ impl App {
         let panel = container(
             scrollable(panel)
                 .height(Length::Shrink)
+                .on_scroll(|viewport| Message::MenuScrolled(viewport.absolute_offset().y))
                 .style(crate::style::scrollbar(theme)),
         )
         .max_height(self.window.height - 2.0 * MENU_MARGIN);
@@ -830,7 +851,9 @@ impl App {
                 vec![0, 0, 0]
             };
             path.push(child);
-            place = place.beside(opaque(self.submenu_view(menu, sub)), path, PAD, SUB_GAP);
+            // The layout's places are the rows' unscrolled ones.
+            let lift = PAD + menu.scrolled;
+            place = place.beside(opaque(self.submenu_view(menu, sub)), path, lift, SUB_GAP);
         }
         Some(place.into())
     }

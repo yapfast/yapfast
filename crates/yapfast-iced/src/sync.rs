@@ -287,10 +287,7 @@ impl App {
         }
         tasks.push(self.follow_jumps());
         // Images of pictures the core let go of go too.
-        self.previews.borrow_mut().prune(1);
-        for converted in self.scaled.borrow_mut().values_mut() {
-            converted.prune(0);
-        }
+        self.pictures.prune();
         self.call_sync();
         self.viewer_sync();
         tasks.push(self.thread_sync());
@@ -616,7 +613,7 @@ impl App {
             if let Some(url) = url
                 && !url.is_empty()
                 && !state.pictures.contains_key(url)
-                && !self.asked.contains(url)
+                && !self.client.app.picture_requested(url)
                 && !urls.iter().any(|wanted| wanted == url)
             {
                 urls.push(url.to_owned());
@@ -822,10 +819,7 @@ impl App {
     /// The batch fell due: asks for what the rows want now.
     pub fn ask_now(&mut self) -> Task<Message> {
         self.asking = false;
-        let pictures = &self.client.state().pictures;
-        self.asked.retain(|url| !pictures.contains_key(url));
         let urls = self.wanted();
-        self.asked.extend(urls.iter().cloned());
         self.client.want_pictures(urls);
         self.sync()
     }

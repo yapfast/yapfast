@@ -5,7 +5,7 @@
 //! it or below it, as wide as it or at its own width, its left or right edge
 //! level with the widget's), and kept inside the window. While it's open
 //! it takes the pointer over it; a press outside both says so, for a popup
-//! that closes then.
+//! that closes then, and goes no further.
 
 use iced::{
     Element, Length, Point, Rectangle, Size, Theme, Vector,
@@ -326,7 +326,12 @@ impl overlay::Overlay<Message, Theme, Renderer> for Open<'_, '_> {
             && !cursor.is_over(bounds)
             && !cursor.is_over(self.base)
         {
+            // The press closes the popup and goes no further, as Slint's
+            // popups take it: a dialog under the list stays, a switch
+            // under it doesn't flip.
             shell.publish(outside.clone());
+            shell.capture_event();
+            return;
         }
         self.popup.as_widget_mut().update(
             self.tree, event, layout, cursor, renderer, clipboard, shell, &bounds,

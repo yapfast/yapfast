@@ -33,13 +33,16 @@ use crate::{
 
 type Renderer = iced::Renderer;
 
+/// Which piece of a row's text a mark is in: 0 its author, 1 its time,
+/// then its body's parts from [`FIRST_PART`], then its embeds'.
+pub type PartNo = u16;
 /// A place in the timeline's text: the message (by its place in the
 /// timeline), the piece of it (0 author, 1 time, 2 text), and the line and
 /// byte in that piece.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Mark {
     pub row: usize,
-    pub part: u8,
+    pub part: PartNo,
     pub line: usize,
     pub index: usize,
 }
@@ -64,7 +67,7 @@ pub enum Part {
 
 impl Part {
     /// The part of `from..to` (in order) in the piece `row`, `part`.
-    pub fn of(from: Mark, to: Mark, row: usize, part: u8) -> Self {
+    pub fn of(from: Mark, to: Mark, row: usize, part: PartNo) -> Self {
         let here = (row, part);
         let (start, end) = ((from.row, from.part), (to.row, to.part));
         if here < start || here > end {
@@ -96,7 +99,7 @@ pub struct Piece<'a> {
     /// What the text is, so it's shaped again only when it changes.
     stamp: u64,
     row: usize,
-    part: u8,
+    part: PartNo,
     size: f32,
     line_height: f32,
     color: Color,
@@ -116,7 +119,7 @@ pub struct Piece<'a> {
 }
 
 impl<'a> Piece<'a> {
-    pub fn new(spans: Vec<Span<'a, &'a str, Font>>, row: usize, part: u8) -> Self {
+    pub fn new(spans: Vec<Span<'a, &'a str, Font>>, row: usize, part: PartNo) -> Self {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         for span in &spans {
             span.text.hash(&mut hasher);
@@ -614,7 +617,7 @@ pub struct Sel {
     /// In the thread beside the channel.
     aside: bool,
     item: String,
-    part: u8,
+    part: PartNo,
     line: usize,
     index: usize,
 }
@@ -692,7 +695,7 @@ impl App {
     }
 
     /// The part of the selection in a message's piece.
-    pub fn selected(&self, row: usize, part: u8) -> Part {
+    pub fn selected(&self, row: usize, part: PartNo) -> Part {
         self.marks()
             .map_or(Part::None, |(from, to)| Part::of(from, to, row, part))
     }
@@ -728,7 +731,7 @@ fn copied_message(
     row: usize,
 ) -> String {
     let mut line = String::new();
-    let parts = u8::try_from(look.body.parts.len()).unwrap_or(u8::MAX - FIRST_PART);
+    let parts = PartNo::try_from(look.body.parts.len()).unwrap_or(PartNo::MAX - FIRST_PART);
     for part in 0..FIRST_PART + parts {
         let shown = Part::of(from, to, row, part);
         if shown == Part::None {
@@ -782,4 +785,59 @@ fn copied_message(
         line.push_str(&piece);
     }
     line
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use yapfast_core::chat::ChatMessage;
+
+    use super::{Mark, PartNo, copied_message};
+    use crate::timeline::{RowLook, body_of};
+
+    #[test]
+    fn a_message_of_hundreds_of_parts_copies_whole() {
+        // Alternating quoted and plain lines, each a part of its own.
+        let body: Vec<String> = (0..600)
+            .map(|line| {
+                if line % 2 == 0 {
+                    format!("> quoted {line}")
+                } else {
+                    format!("plain {line}")
+                }
+            })
+            .collect();
+        let message = ChatMessage {
+            author: "Sam".into(),
+            body: body.join("\n"),
+            formatted: true,
+            ..Default::default()
+        };
+        let look = RowLook {
+            first: true,
+            day: None,
+            unread_start: false,
+            highlighted: false,
+            last: true,
+            body: Arc::new(body_of(&message, 0, 0, 0, |_| false)),
+            date: None,
+            time: String::new(),
+        };
+        assert!(look.body.parts.len() > 300, "{}", look.body.parts.len());
+        let start = Mark {
+            row: 0,
+            part: 0,
+            line: 0,
+            index: 0,
+        };
+        let end = Mark {
+            row: 0,
+            part: PartNo::MAX,
+            line: usize::MAX,
+            index: usize::MAX,
+        };
+        let copied = copied_message(&message, &look, start, end, 0);
+        assert!(copied.contains("plain 599"), "{} bytes", copied.len());
+    }
 }

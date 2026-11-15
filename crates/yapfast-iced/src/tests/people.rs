@@ -516,3 +516,82 @@ fn a_cards_effect_plays_only_under_the_pointer_and_its_frame_shows() {
     assert!(!wanted(&app, "effect-still"));
     assert!(!wanted(&app, "frame-staple"));
 }
+
+#[test]
+fn a_cards_frame_that_came_and_went_is_asked_for_again_as_it_shows() {
+    use yapfast_core::chat::{Event, Picture, ProfileFrameLayer};
+    const FRAME: &str = "https://cdn.discordapp.com/assets/collectibles-shop/1/2/static";
+    let (mut app, _folder) = preview();
+    let user = app
+        .client
+        .state()
+        .members
+        .iter()
+        .flatten()
+        .flat_map(|members| members.iter())
+        .find(|member| member.name == "Riley")
+        .map(|member| member.id.clone())
+        .expect("Riley in the preview");
+    let framed = |state: &mut yapfast_core::application::AppState| {
+        state.profile.as_mut().expect("open").profile.frame = Arc::from(vec![ProfileFrameLayer {
+            src: FRAME.into(),
+            kind: "staple".into(),
+            anchor: "top".into(),
+            front: true,
+        }]);
+    };
+    let _ = app.open_card(user.clone(), Point::new(400.0, 200.0));
+    change(&mut app, framed);
+    let _ = app.ask_now();
+    assert!(app.client.app.picture_requested(FRAME), "asked for");
+    // It comes, and goes with the card, before the window next asks.
+    app.client.apply(Event::Picture {
+        url: FRAME.into(),
+        picture: Arc::new(Picture::default()),
+    });
+    let _ = app.update(Message::Profile(profile::Event::Close));
+    assert!(
+        !app.client.state().pictures.contains_key(FRAME),
+        "let go of"
+    );
+    let _ = app.open_card(user, Point::new(400.0, 200.0));
+    change(&mut app, framed);
+    let _ = app.ask_now();
+    assert!(app.client.app.picture_requested(FRAME), "asked for again");
+}
+
+#[test]
+fn a_boosters_gem_in_the_member_list_says_since_when() {
+    let (mut app, _folder) = preview();
+    change(&mut app, |state| {
+        for members in state.members.iter_mut().flatten() {
+            for member in Arc::make_mut(members).iter_mut() {
+                if member.name == "Riley" {
+                    member.boosting_since = Some(1_700_000_000_000);
+                }
+            }
+        }
+    });
+    app.show_roster(false);
+    let mut ui = iced_test::Simulator::with_size(Default::default(), app.shell.frame, app.view());
+    // The last "Riley" is the member list's; the gem follows the name.
+    let name = ui
+        .find(
+            |candidate: iced_test::selector::Candidate<'_>| match candidate {
+                iced_test::selector::Candidate::Text {
+                    content: "Riley",
+                    visible_bounds: Some(bounds),
+                    ..
+                } if bounds.x > app.window.width - 300.0 => Some(bounds),
+                _ => None,
+            },
+        )
+        .expect("Riley in the member list");
+    let gem = Point::new(name.x + name.width + 11.0, name.center_y());
+    // Its tooltip shows over the row.
+    let over = iced::Rectangle::new(
+        Point::new(name.x, name.y - 40.0),
+        iced::Size::new(200.0, 36.0),
+    );
+    assert!(super::hover_draws(&mut ui, gem, over), "the gem's tooltip");
+}

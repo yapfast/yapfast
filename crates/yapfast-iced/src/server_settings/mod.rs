@@ -427,16 +427,17 @@ impl App {
             page = page.push(text(error.as_str()).size(14).color(theme.danger));
         }
         let bar = ((core.changed() || core.saving) && !core.immediate()).then(|| {
-            form::unsaved_bar(
-                theme,
-                12.0,
-                core.saving,
-                true,
-                core.ready(),
-                screen.shake,
-                message(Event::Undo),
-                message(Event::Save),
-            )
+            form::Unsaved {
+                pad: 12.0,
+                radius: crate::sheet::BAR_RADIUS,
+                saving: core.saving,
+                may_reset: true,
+                may_save: core.ready(),
+                shake: screen.shake,
+                undo: message(Event::Undo),
+                save: message(Event::Save),
+            }
+            .view(theme)
         });
         let frame = sheet(
             self.server_nav(core),

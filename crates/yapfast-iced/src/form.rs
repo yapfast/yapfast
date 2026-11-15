@@ -823,62 +823,77 @@ pub fn card<'a>(theme: &Theme, body: impl Into<Element<'a, Message>>) -> Element
 /// The bar an editor shows once something changed, as the Slint client's
 /// `UnsavedBar`: what it says, Reset and Save Changes ("Saving..." while
 /// it saves), `pad` in from its left. While `shake` says, it shakes red,
-/// as after leaving was refused for the changes.
-#[allow(clippy::too_many_arguments)]
-pub fn unsaved_bar<'a>(
-    theme: &Theme,
-    pad: f32,
-    saving: bool,
-    may_reset: bool,
-    may_save: bool,
-    shake: Shake,
-    undo: Message,
-    save: Message,
-) -> Element<'a, Message> {
-    let red = shake.red;
-    let (raised, edge, danger) = (theme.raised, theme.edge, theme.danger);
-    let offset = shake.offset();
-    let bar = row![
-        text("Careful — you have unsaved changes!")
-            .size(14)
-            .font(SEMIBOLD)
-            .color(if red { theme.on_danger } else { theme.text })
-            .width(Length::Fill),
-        controls::action(
-            theme,
-            "Reset",
-            controls::Kind::Ghost,
-            (may_reset && !saving).then_some(undo),
-        ),
-        controls::action(
-            theme,
-            if saving { "Saving..." } else { "Save Changes" },
-            controls::Kind::Primary,
-            (may_save && !saving).then_some(save),
-        ),
-    ]
-    .spacing(TIGHT)
-    .align_y(Alignment::Center)
-    .padding(iced::Padding {
-        top: 12.0,
-        right: 12.0 - offset,
-        bottom: 12.0,
-        left: pad + offset,
-    });
-    container(bar)
-        .width(Length::Fill)
-        .height(60)
+/// as after leaving was refused for the changes. Its corners are `radius`
+/// round, as it floats over a settings page.
+pub struct Unsaved {
+    pub pad: f32,
+    pub radius: f32,
+    pub saving: bool,
+    pub may_reset: bool,
+    pub may_save: bool,
+    pub shake: Shake,
+    pub undo: Message,
+    pub save: Message,
+}
+
+impl Unsaved {
+    pub fn view<'a>(self, theme: &Theme) -> Element<'a, Message> {
+        let Self {
+            pad,
+            radius,
+            saving,
+            may_reset,
+            may_save,
+            shake,
+            undo,
+            save,
+        } = self;
+        let red = shake.red;
+        let (raised, edge, danger) = (theme.raised, theme.edge, theme.danger);
+        let offset = shake.offset();
+        let bar = row![
+            text("Careful — you have unsaved changes!")
+                .size(14)
+                .font(SEMIBOLD)
+                .color(if red { theme.on_danger } else { theme.text })
+                .width(Length::Fill),
+            controls::action(
+                theme,
+                "Reset",
+                controls::Kind::Ghost,
+                (may_reset && !saving).then_some(undo),
+            ),
+            controls::action(
+                theme,
+                if saving { "Saving..." } else { "Save Changes" },
+                controls::Kind::Primary,
+                (may_save && !saving).then_some(save),
+            ),
+        ]
+        .spacing(TIGHT)
         .align_y(Alignment::Center)
-        .style(move |_| container::Style {
-            background: Some(if red { danger } else { raised }.into()),
-            shadow: iced::Shadow {
-                color: edge,
-                offset: iced::Vector::new(0.0, -1.0),
-                blur_radius: 0.0,
-            },
-            ..Default::default()
-        })
-        .into()
+        .padding(iced::Padding {
+            top: 12.0,
+            right: 12.0 - offset,
+            bottom: 12.0,
+            left: pad + offset,
+        });
+        container(bar)
+            .width(Length::Fill)
+            .height(60)
+            .align_y(Alignment::Center)
+            .style(move |_| container::Style {
+                background: Some(if red { danger } else { raised }.into()),
+                border: iced::Border::default().rounded(radius),
+                shadow: iced::Shadow {
+                    color: edge,
+                    offset: iced::Vector::new(0.0, -1.0),
+                    blur_radius: 0.0,
+                },
+                ..Default::default()
+            })
+            .into()
+    }
 }
 
 /// How the unsaved bar shakes, as the Slint client's: each time leaving is
@@ -929,6 +944,12 @@ impl Shake {
     }
 }
 
+/// An area's lines: four, 20 px each, in its 96 px with 8 px over and under.
+const AREA_LINE: f32 = 20.0;
+const AREA_LINES: f32 = 4.0;
+const AREA_HEIGHT: f32 = 96.0;
+const AREA_RADIUS: f32 = 6.0;
+
 /// A text of a form several lines high, as the Slint client's
 /// `SettingsArea`: 96 px of the sunken ground, ringed while it has the
 /// keys, with how many characters are `left` under it ("Too long by" in
@@ -957,8 +978,11 @@ pub fn area<'a>(
     )
     .enabled(enabled)
     .size(14.0)
-    .lines(4.0)
-    .padding(iced::Padding::from([8.0, 10.0]));
+    .line_height(AREA_LINE)
+    .lines(AREA_LINES)
+    .padding(iced::Padding::from([8.0, 10.0]))
+    .radius(AREA_RADIUS)
+    .ring(crate::style::faded(theme.accent, 0.8));
     let sunken = theme.sunken;
     let count = if left < 0 {
         text(format!("Too long by {}", -left))
@@ -969,10 +993,10 @@ pub fn area<'a>(
     };
     column![
         container(field)
-            .height(96)
+            .height(AREA_HEIGHT)
             .width(Length::Fill)
             .clip(true)
-            .style(move |_| rounded(sunken, 6)),
+            .style(move |_| rounded(sunken, AREA_RADIUS)),
         container(count).align_right(Length::Fill)
     ]
     .spacing(4)

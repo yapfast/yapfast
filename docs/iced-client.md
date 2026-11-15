@@ -59,8 +59,9 @@ the core as the Slint client sends them.
 ## The window and the desktop
 
 The client runs as an iced daemon (`lib.rs`, `shell.rs`): it lives without
-a window, so closing to the tray drops the window, its renderer and its
-widgets, and the tray's Open Yapfast makes a new one at the size it had.
+a window, so closing to the tray drops the window, its renderer, its
+widgets and every picture made to draw (`pictures::Pictures`), and the
+tray's Open Yapfast makes a new one at the size it had.
 What iced doesn't do, the root crate's shared desktop modules do, the same
 copy the Slint client uses: `src/iced_desktop.rs` fills in the iced
 crate's `Desktop` (`desktop.rs`) with the tray, notifications, the single
@@ -369,7 +370,7 @@ holds, what this account may do there and what saving sends are the
 core's (`ServerSettings`); the screen keeps only its own (an open
 dropdown, the description's field, the bar's shake) and lets go of it,
 and of the pages' pictures, when they close. Once a page's draft differs
-from what Discord has, the form kit's `unsaved_bar` floats over its foot
+from what Discord has, the form kit's `Unsaved` bar floats over its foot
 with Reset and Save Changes; leaving the page or the settings then shakes
 it red instead, as Discord's does. Escape closes an open dropdown, then a
 dialog over the page, then the settings.
@@ -463,7 +464,7 @@ menu offers it, which closes them and asks. What they hold and may change
 is the core's (`ChannelSettingsScreen`); the screen keeps only the bar's
 shake and whether Add's search has had the keys, takes the keys from the
 composer as it opens and gives them back when it closes. The form kit's
-`unsaved_bar` saves the page's draft, and leaving the page or the
+`Unsaved` bar saves the page's draft, and leaving the page or the
 settings with changes shakes it. Escape closes Add, then the question,
 then the settings.
 
@@ -931,7 +932,7 @@ member list, the DMs, and the lists still to come build on it.
   and its Board, Activity and Wishlist tabs where the card is 880 px or
   wider. A server's has what it edits over its banner and Nitro's offer
   over what takes it. Once something changed the form kit's
-  `unsaved_bar` offers Reset and Save Changes, which waits while a text is
+  `Unsaved` bar offers Reset and Save Changes, which waits while a text is
   too long or a picture is read. Escape ends the editing, closes what's
   open, then the editor.
 - The friends list (`friends.rs`), from Friends on the DM home: the
@@ -1075,7 +1076,9 @@ in view or in the corner, at the size it shows.
 
 Over the dimmed window, in the frame `dialogs::dialog` draws, each as the
 Slint client's in `ui/dialogs.slint`; Escape or a click outside closes
-each, and what each lists or makes is the core's.
+each, and what each lists or makes is the core's. The frame stays 24 px
+inside the window each way, and a dialog built of parts (`App::framed`)
+scrolls them when the window is shorter than they are.
 
 - The account's popover (`status.rs`, the Slint client's
   `AccountPopover`), from the account card's picture or name: the account
@@ -1198,6 +1201,8 @@ When a second screen needs what a first one built, it moves here:
 - `controls::action`: the button of dialogs and forms (the Slint client's
   `ActionButton`), by kind: primary, plain, ghost, danger.
 - `controls::field`: the single-line field (`TextField`).
+- `controls::edged`: an edge drawn over what it holds, so a card whose
+  parts round their own grounds to its corners keeps its outline.
 - `controls::lit_style`: a button with no face, or a fixed one, lit under
   the pointer: icon buttons, list rows; `controls::ink_style` a button that
   is only its text, brightening under the pointer.
@@ -1319,7 +1324,7 @@ When a second screen needs what a first one built, it moves here:
 - `popover::Popover`: a widget with something that opens from it, above
   or below, in iced's overlay layer, placed by the widget's own bounds
   and kept in the window: suggestions over a field, a dropdown under its
-  button. A press outside both can close it.
+  button. A press outside both can close it, and then goes no further.
 - `picker::kit`: what a picker is built of: the tabs, the search field,
   the rail of sections, `Grid` (tiles placed at their own boxes, which
   `Rows::place` builds only near the viewport, with the sections the rail
@@ -1368,7 +1373,7 @@ When a second screen needs what a first one built, it moves here:
   `ColourPopover`) and `card`. Rows of choices
   are `controls::choices` (`choices_within` for a wider row), sliders
   `controls::Slider` with `step`, `shown` (the value in other words) and
-  `mark`. `unsaved_bar` is an editor's bar once something changed, which
+  `mark`. The `Unsaved` bar is an editor's bar once something changed, which
   `Shake` shakes red after leaving was refused; `Dropdown::enabled`
   greys a dropdown and `Dropdown::height` sets its box's. `options` is a
   list of radio choices (`Choice`: a title in its own colour, what it

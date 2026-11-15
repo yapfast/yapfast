@@ -2909,6 +2909,13 @@ fn shelved(messages: &[Arc<ChatMessage>]) -> Vec<Arc<ChatMessage>> {
 }
 
 impl Application {
+    /// Whether the picture at `url` was asked for and hasn't been let go
+    /// of: a UI asks only for what this says no to, and what came and went
+    /// since is asked for again as it shows.
+    pub fn picture_requested(&self, url: &str) -> bool {
+        self.requested_pictures.contains(url)
+    }
+
     pub fn dispatch(&mut self, action: Action) -> Vec<Effect> {
         // A keystroke in the composer shows no picture that wasn't on screen.
         let composing = matches!(

@@ -12,7 +12,8 @@
 //! redraw clock (`widgets::Animated`).
 
 use std::{
-    collections::HashMap,
+    cell::RefCell,
+    collections::{HashMap, HashSet},
     sync::{Arc, Weak},
     time::{Duration, Instant},
 };
@@ -29,7 +30,7 @@ use crate::{
     looks,
     paint::{self, fitted},
     style::{faded, hex, rounded},
-    widgets::{Animated, Pic},
+    widgets::{Animated, Pic, PlayKey, Playing},
 };
 
 /// A picture's pixels as tiny-skia draws them, premultiplied BGRA.
@@ -97,6 +98,12 @@ pub struct Converted<T> {
     held: HashMap<usize, (Weak<Picture>, T)>,
 }
 
+impl<T> Converted<T> {
+    pub fn is_empty(&self) -> bool {
+        self.held.is_empty()
+    }
+}
+
 impl<T> Default for Converted<T> {
     fn default() -> Self {
         Self {
@@ -126,6 +133,114 @@ impl<T: Clone> Converted<T> {
     }
 }
 
+/// Every picture the window keeps to draw, besides the core's own: the
+/// images over the core's pixels, the copies made at other sizes, the
+/// marks drawn once, and the moving pictures playing. One place lets go of
+/// them all ([`Pictures::forget`]), and one guard keeps a view's
+/// let-go of what it no longer shows ([`Pictures::view`]).
+pub struct Pictures {
+    /// Previews, and avatars that come at the size they're drawn at,
+    /// sharing the core's pixels.
+    pub previews: RefCell<Converted<Handle>>,
+    /// Copies of other pictures, at each size they're drawn at (width,
+    /// height, cut to cover).
+    pub scaled: RefCell<HashMap<(u32, u32, bool), Converted<Handle>>>,
+    /// Dots and icons, by what they are, their size and colour.
+    pub marks: RefCell<HashMap<Mark, Handle>>,
+    /// Emoji for the menu's quick reactions and the reactions' tooltips.
+    pub emoji: RefCell<HashMap<(&'static str, u32), Option<Handle>>>,
+    /// Moving pictures playing, and those the view being built shows: the
+    /// others' decoders go after each view.
+    playing: RefCell<HashMap<PlayKey, Playing>>,
+    moving: RefCell<HashSet<PlayKey>>,
+    /// Copies of pictures at the sizes messages show them at.
+    pub fitter: RefCell<Fitter>,
+}
+
+impl Pictures {
+    pub fn new(fitter: Fitter) -> Self {
+        Self {
+            previews: Default::default(),
+            scaled: Default::default(),
+            marks: Default::default(),
+            emoji: Default::default(),
+            playing: Default::default(),
+            moving: Default::default(),
+            fitter: RefCell::new(fitter),
+        }
+    }
+
+    /// A view is being built until the guard drops: what it shows is noted
+    /// afresh, and then the moving pictures' decoders and the copies it
+    /// didn't show go, whatever the view returned.
+    pub fn view(&self) -> Viewing<'_> {
+        self.moving.borrow_mut().clear();
+        self.fitter.borrow_mut().begin();
+        Viewing(self)
+    }
+
+    /// `picture` playing in the view being built, drawn at `at` within a
+    /// layout of `size`.
+    pub fn animated(
+        &self,
+        picture: &Arc<Picture>,
+        size: Size,
+        at: Rectangle,
+        cover: bool,
+    ) -> Animated<'_> {
+        let animated = Animated::new(picture.clone(), size, at, cover, &self.playing);
+        self.moving.borrow_mut().insert(animated.key());
+        animated
+    }
+
+    /// After the core's state changed: images of pictures it let go of go
+    /// too, and the sizes no picture is drawn at any more.
+    pub fn prune(&self) {
+        self.previews.borrow_mut().prune(1);
+        self.scaled.borrow_mut().retain(|_, converted| {
+            converted.prune(0);
+            !converted.is_empty()
+        });
+    }
+
+    /// The window went: every picture made for it goes.
+    pub fn forget(&self) {
+        *self.previews.borrow_mut() = Default::default();
+        self.scaled.borrow_mut().clear();
+        self.marks.borrow_mut().clear();
+        self.emoji.borrow_mut().clear();
+        self.playing.borrow_mut().clear();
+        self.moving.borrow_mut().clear();
+        self.fitter.borrow_mut().forget();
+    }
+
+    /// Whether nothing is kept: no image, copy, mark or player.
+    #[cfg(test)]
+    pub fn is_empty(&self) -> bool {
+        self.previews.borrow().is_empty()
+            && self.scaled.borrow().is_empty()
+            && self.marks.borrow().is_empty()
+            && self.emoji.borrow().is_empty()
+            && self.playing.borrow().is_empty()
+            && self.fitter.borrow().is_empty()
+    }
+}
+
+/// A view being built ([`Pictures::view`]).
+pub struct Viewing<'a>(&'a Pictures);
+
+impl Drop for Viewing<'_> {
+    fn drop(&mut self) {
+        let pictures = self.0;
+        pictures.fitter.borrow_mut().end();
+        let moving = pictures.moving.borrow();
+        pictures
+            .playing
+            .borrow_mut()
+            .retain(|key, _| moving.contains(key));
+    }
+}
+
 /// Plays a moving picture as the Slint client does: frames decoded one at a
 /// time as they fall due, from the core's picture, at its own delays, with
 /// nothing kept but the frame showing.
@@ -135,6 +250,10 @@ pub struct Player {
     index: usize,
     due: Instant,
     played: u32,
+    /// A pass that gave no frame (its file gone, or one that doesn't
+    /// decode): it plays no more, rather than asking for a frame at once,
+    /// again, for ever.
+    spent: bool,
 }
 
 impl Player {
@@ -147,6 +266,7 @@ impl Player {
             index: 0,
             due: Instant::now(),
             played: 0,
+            spent: false,
         })
     }
 
@@ -154,7 +274,7 @@ impl Player {
     /// number of times has finished.
     pub fn due(&self) -> Option<Instant> {
         let animation = self.picture.animation.as_ref()?;
-        (animation.plays == 0 || self.played < animation.plays).then_some(self.due)
+        (!self.spent && (animation.plays == 0 || self.played < animation.plays)).then_some(self.due)
     }
 
     /// The next frame's straight RGBA, if it's due by `now`.
@@ -173,7 +293,11 @@ impl Player {
                 }
                 self.frames = self.picture.frames();
                 self.index = 0;
-                self.frames.next()?
+                let Some(frame) = self.frames.next() else {
+                    self.spent = true;
+                    return None;
+                };
+                frame
             }
         };
         let delay = animation
@@ -532,10 +656,11 @@ impl App {
             return None;
         }
         if picture.width == width && picture.height == height {
-            return Some(self.previews.borrow_mut().get(picture, shared));
+            return Some(self.pictures.previews.borrow_mut().get(picture, shared));
         }
         Some(
-            self.scaled
+            self.pictures
+                .scaled
                 .borrow_mut()
                 .entry((width, height, cover))
                 .or_default()
@@ -583,14 +708,12 @@ impl App {
         }
         let picture = self.client.state().pictures.get(url)?;
         picture.animation.as_ref()?;
-        let animated = Animated::new(picture.clone(), size, at, cover, &self.playing);
-        self.moving.borrow_mut().insert(animated.key());
-        Some(animated)
+        Some(self.pictures.animated(picture, size, at, cover))
     }
 
     /// A presence dot or an icon, drawn once.
     pub fn mark(&self, mark: Mark) -> Option<Handle> {
-        if let Some(handle) = self.marks.borrow().get(&mark) {
+        if let Some(handle) = self.pictures.marks.borrow().get(&mark) {
             return Some(handle.clone());
         }
         let canvas = match mark {
@@ -606,7 +729,10 @@ impl App {
             Mark::Drawn(icon, size) => paint::svg_drawn(icon.svg(), size),
         };
         let handle = handle(canvas);
-        self.marks.borrow_mut().insert(mark, handle.clone());
+        self.pictures
+            .marks
+            .borrow_mut()
+            .insert(mark, handle.clone());
         Some(handle)
     }
 
@@ -639,7 +765,7 @@ impl App {
     /// An emoji's picture at `size`, for the menu's quick reactions and
     /// tooltips: made once, kept with the client's marks.
     pub fn emoji_picture(&self, key: &'static str, size: u32) -> Option<Handle> {
-        if let Some(handle) = self.emoji.borrow().get(&(key, size)) {
+        if let Some(handle) = self.pictures.emoji.borrow().get(&(key, size)) {
             return handle.clone();
         }
         let canvas = {
@@ -647,7 +773,10 @@ impl App {
             paint::emoji(system.raw(), key, size)
         };
         let handle = canvas.map(handle);
-        self.emoji.borrow_mut().insert((key, size), handle.clone());
+        self.pictures
+            .emoji
+            .borrow_mut()
+            .insert((key, size), handle.clone());
         handle
     }
 
@@ -881,6 +1010,46 @@ impl Fitter {
             .insert(fitted.key, (fitted.picture, fitted.handle));
     }
 
+    /// The window went: every copy goes, and those asked for go as they
+    /// come, at the next view's end.
+    pub fn forget(&mut self) {
+        self.done.clear();
+        self.asked.clear();
+        self.shown.clear();
+    }
+
+    #[cfg(test)]
+    pub fn is_empty(&self) -> bool {
+        self.done.is_empty()
+    }
+
+    /// The copies of `picture` asked for, made here and now, as the thread
+    /// would.
+    #[cfg(test)]
+    pub fn make_asked(&mut self, picture: &Arc<Picture>) {
+        let at = Arc::as_ptr(picture) as usize;
+        let asked: Vec<FitKey> = self
+            .asked
+            .iter()
+            .copied()
+            .filter(|key| key.0 == at)
+            .collect();
+        for key in asked {
+            let (_, width, height, cover) = key;
+            let pixels = fitted(
+                &picture.rgba,
+                (picture.width, picture.height),
+                (width, height),
+                cover,
+            );
+            self.made(Fitted {
+                key,
+                picture: Arc::downgrade(picture),
+                handle: Handle::from_rgba(width, height, pixels),
+            });
+        }
+    }
+
     /// A view begins: what it shows is noted afresh.
     pub fn begin(&mut self) {
         self.shown.clear();
@@ -892,5 +1061,32 @@ impl Fitter {
         let shown = &self.shown;
         self.done
             .retain(|key, (picture, _)| shown.contains(key) && picture.strong_count() > 0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{sync::Arc, time::Instant};
+
+    use super::Player;
+
+    #[test]
+    fn a_moving_picture_whose_file_went_stops_asking_for_frames() {
+        let folder = tempfile::tempdir().expect("a folder");
+        let gif = folder.path().join("hello.gif");
+        std::fs::copy(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../testing/fixtures/gifs/hello.gif"
+            ),
+            &gif,
+        )
+        .expect("the fixture");
+        let picture = yapfast_core::chat::decode_picture_at(&gif, 220, 165).expect("decoded");
+        std::fs::remove_file(&gif).expect("gone");
+        let mut player = Player::new(&Arc::new(picture)).expect("it moves");
+        assert!(player.due().is_some());
+        assert!(player.next(Instant::now()).is_none(), "no frame to give");
+        assert!(player.due().is_none(), "and none due");
     }
 }

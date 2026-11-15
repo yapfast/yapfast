@@ -258,6 +258,35 @@ fn a_submenu_opens_beside_its_row_and_follows_the_keys() {
     let _ = app.update(Message::MenuLight(4));
     assert_eq!(app.menu.as_ref().and_then(|menu| menu.sub), None);
 
+    // In a window too short for it the menu scrolls, and says how far...
+    let frame = app.shell.frame;
+    app.shell.frame = iced::Size::new(frame.width, 200.0);
+    app.window = app.shell.frame;
+    let _ = app.open_place_menu(SERVER, Point::new(100.0, 20.0), false);
+    let mut ui = Simulator::with_size(Settings::default(), app.shell.frame, app.view());
+    ui.point_at(Point::new(150.0, 100.0));
+    ui.simulate([iced::Event::Mouse(iced::mouse::Event::WheelScrolled {
+        delta: iced::mouse::ScrollDelta::Pixels { x: 0.0, y: -40.0 },
+    })]);
+    let scrolled: Vec<f32> = ui
+        .into_messages()
+        .filter_map(|message| match message {
+            Message::MenuScrolled(down) => Some(down),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(scrolled.last(), Some(&40.0), "{scrolled:?}");
+    app.shell.frame = frame;
+    app.window = frame;
+    // ...and a submenu opens beside its row where the row shows, that
+    // far up from its unscrolled place.
+    let _ = app.open_place_menu(SERVER, Point::new(100.0, 100.0), false);
+    let _ = app.update(Message::MenuLight(2));
+    let unscrolled = bounds(&app, "All messages");
+    let _ = app.update(Message::MenuScrolled(40.0));
+    let first = bounds(&app, "All messages");
+    assert!((unscrolled.y - 40.0 - first.y).abs() < 1.0, "{first:?}");
+
     // Without room on the right, it opens on the left.
     let right = app.window.width - 10.0;
     let _ = app.open_place_menu(SERVER, Point::new(right, 100.0), false);
@@ -403,4 +432,77 @@ fn the_window_size_follows_a_resize() {
     let size = iced::Size::new(700.0, 500.0);
     let _ = app.update(Message::Resized(size));
     assert_eq!(app.window, size);
+}
+
+#[test]
+fn a_messages_menu_takes_its_apps_in_place_once_they_come() {
+    use std::sync::Arc;
+    use yapfast_core::chat::{ChatMessage, CommandIndex, Event};
+    let (mut app, _folder) = discord_server(0, |_, _| {});
+    app.client
+        .dispatch(Action::Navigate(Navigation::Server(SERVER.into())));
+    app.client.dispatch(Action::SelectRoom(GENERAL.into()));
+    assert_eq!(app.client.state().selected.as_deref(), Some(GENERAL));
+    let said = |item: &str, body: &str| {
+        Arc::new(ChatMessage {
+            item: item.into(),
+            author: "Sam".into(),
+            body: body.into(),
+            timestamp: 1,
+            can_react: true,
+            can_reply: true,
+            ..Default::default()
+        })
+    };
+    super::change(&mut app, |state| {
+        state.messages = Arc::new(vec![said("m0", "first"), said("m1", "second")]);
+    });
+    let _ = app.open_menu(1, Point::new(400.0, 300.0));
+    assert_eq!(
+        app.menu.as_ref().and_then(|menu| menu.item.as_deref()),
+        Some("m1")
+    );
+    let before = rows(&app);
+    assert!(
+        !before.iter().any(|(label, ..)| label == "Apps"),
+        "no index yet"
+    );
+
+    let _ = app.menu_light(0);
+    // Earlier history comes in above while the menu is open, then the
+    // room's commands.
+    super::change(&mut app, |state| {
+        let mut messages = vec![said("m-1", "earlier")];
+        messages.extend(state.messages.iter().cloned());
+        state.messages = Arc::new(messages);
+    });
+    let notes = CommandIndex::parse(
+        &serde_json::json!({
+            "applications": [{"id": "8", "name": "Notes", "flags": "0"}],
+            "application_commands": [
+                {"id": "4", "type": 3, "application_id": "8", "name": "Save note",
+                 "description": "", "integration_types": [1], "contexts": [0, 1, 2],
+                 "version": "1"}],
+        }),
+        true,
+    );
+    app.client.apply(Event::CommandIndex {
+        room: GENERAL.into(),
+        index: Ok(Arc::new(notes)),
+    });
+    let _ = app.sync();
+    let menu = app.menu.as_ref().expect("still open");
+    assert_eq!(menu.item.as_deref(), Some("m1"), "the same message's");
+    assert_eq!(menu.lit, Some(0), "its light kept");
+    let after = rows(&app);
+    assert_eq!(after.len(), before.len() + 1);
+    let apps = after
+        .iter()
+        .position(|(label, ..)| label == "Apps")
+        .expect("Apps");
+    assert_eq!(menu.rows[apps].submenu[0].label, "Save note");
+    // Once in, it isn't built again on the next batch.
+    let _ = app.menu_light(apps);
+    let _ = app.sync();
+    assert_eq!(app.menu.as_ref().expect("open").sub, Some(apps));
 }

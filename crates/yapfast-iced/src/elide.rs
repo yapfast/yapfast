@@ -43,10 +43,10 @@ pub struct Elide<'a> {
     centred: bool,
 }
 
-/// One line of `content`, cut to its room.
+/// One line of `content`, cut to its room: its line breaks show as spaces.
 pub fn elide<'a>(content: impl Into<Cow<'a, str>>) -> Elide<'a> {
     Elide {
-        content: content.into(),
+        content: one_line(content.into()),
         size: 14.0,
         font: REGULAR,
         color: Color::WHITE,
@@ -97,6 +97,7 @@ impl<'a> Elide<'a> {
 struct State {
     content: String,
     size: f32,
+    line_height: LineHeight,
     font: Font,
     room: f32,
     version: iced::advanced::graphics::text::Version,
@@ -122,6 +123,16 @@ impl State {
             shaping: Shaping::Advanced,
             wrapping: Wrapping::None,
         }
+    }
+}
+
+/// `content` on one line: what shapes as several lines can't be cut by
+/// glyph, whose ends count from their own line's start.
+fn one_line(content: Cow<'_, str>) -> Cow<'_, str> {
+    if content.contains(['\n', '\r']) {
+        Cow::Owned(content.replace(['\n', '\r'], " "))
+    } else {
+        content
     }
 }
 
@@ -153,6 +164,7 @@ impl Widget<Message, Theme, Renderer> for Elide<'_> {
         tree::State::new(State {
             content: String::new(),
             size: 0.0,
+            line_height: LineHeight::default(),
             font: REGULAR,
             room: -1.0,
             version: Default::default(),
@@ -183,6 +195,7 @@ impl Widget<Message, Theme, Renderer> for Elide<'_> {
             .version();
         let changed = state.content != *self.content
             || state.size != self.size
+            || state.line_height != line_height
             || state.font != self.font
             || state.version != version;
         if changed || state.room != room {
@@ -190,6 +203,7 @@ impl Widget<Message, Theme, Renderer> for Elide<'_> {
                 state.content.clear();
                 state.content.push_str(&self.content);
                 state.size = self.size;
+                state.line_height = line_height;
                 state.font = self.font;
                 state.version = version;
             }
@@ -202,7 +216,7 @@ impl Widget<Message, Theme, Renderer> for Elide<'_> {
             } else {
                 let tail =
                     Paragraph::with_text(state.text(ELLIPSIS, unbounded, line_height)).min_width();
-                let end = cut_at(&whole, room, tail);
+                let end = self.content.floor_char_boundary(cut_at(&whole, room, tail));
                 let kept = self.content[..end].trim_end();
                 let cut = format!("{kept}{ELLIPSIS}");
                 Paragraph::with_text(state.text(&cut, unbounded, line_height))
@@ -258,5 +272,27 @@ impl Widget<Message, Theme, Renderer> for Elide<'_> {
 impl<'a> From<Elide<'a>> for Element<'a, Message> {
     fn from(elide: Elide<'a>) -> Self {
         Element::new(elide)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use iced::{Settings, Size, widget::container};
+    use iced_test::Simulator;
+
+    use super::elide;
+    use crate::app::Message;
+
+    #[test]
+    fn text_with_line_breaks_is_cut_on_one_line_at_any_room() {
+        // A code block's snippet: a short line, then a long one in CJK.
+        let content = "first line\n日本語の二行目がとても長いです";
+        for room in (10..200).step_by(3) {
+            let line: iced::Element<'_, Message> =
+                container(elide(content)).width(room as f32).into();
+            let mut ui = Simulator::with_size(Settings::default(), Size::new(400.0, 100.0), line);
+            let shown = ui.find(content.replace('\n', " ").as_str());
+            assert!(shown.is_ok(), "one line at {room} px");
+        }
     }
 }

@@ -300,3 +300,35 @@ fn a_voice_messages_volume_opens_over_its_mute_and_the_wheel_turns_it() {
     let _ = app.voice_event(Event::VolumeHover("v".into(), false));
     assert!(app.voice_volume.is_none());
 }
+
+#[test]
+fn show_more_under_a_long_message_unfolds_it() {
+    let (mut app, _folder) = preview();
+    app.layout.collapse_long = true;
+    interact(&mut app, |ui| {
+        ui.click(Id::new(COMPOSER)).expect("the composer");
+        for line in 1..=20 {
+            ui.typewrite(&format!("line {line}"));
+            chord(ui, key::Named::Enter, keyboard::Modifiers::SHIFT);
+        }
+        ui.typewrite("the end");
+        ui.tap_key(keyboard::Key::Named(key::Named::Enter));
+    });
+    let item = app
+        .client
+        .state()
+        .messages
+        .last()
+        .expect("sent")
+        .item
+        .clone();
+    // The body's cut-off lines lie under Show more: the press is its.
+    interact(&mut app, |ui| {
+        ui.click("Show more").expect("Show more");
+    });
+    assert!(
+        app.revealed.contains(&crate::message::fold_key(&item)),
+        "unfolded"
+    );
+    assert!(shows(&app, "Show less"));
+}

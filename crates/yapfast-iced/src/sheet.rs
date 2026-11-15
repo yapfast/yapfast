@@ -19,13 +19,16 @@ use crate::{
     fonts::{BOLD, MEDIUM},
     form,
     pictures::Icon,
-    style::{fill, scrollbar},
+    style::{corners, fill, rounded, scrollbar},
 };
 
 /// How far the card sits in from the window's edges each side, as the
 /// Slint client's `settings-margin` (96 px in all), and its widest.
 pub const MARGIN: f32 = 48.0;
 pub const WIDEST: f32 = 1400.0;
+/// The card's corners, and the editor's bar's.
+pub const RADIUS: f32 = 12.0;
+pub const BAR_RADIUS: f32 = 8.0;
 /// How dark the window goes under a card.
 pub const DIM: Color = Color {
     r: 0.0,
@@ -171,11 +174,10 @@ impl<'a> Sheet<'a> {
                 .max_width(BAR)
                 .width(Length::Fill)
                 .style(|_| container::Style {
-                    border: Border::default().rounded(8),
+                    border: Border::default().rounded(BAR_RADIUS),
                     shadow: crate::style::card_shadow(),
                     ..Default::default()
-                })
-                .clip(true);
+                });
             content = content.push(
                 container(opaque(bar))
                     .padding(Padding {
@@ -210,7 +212,7 @@ impl<'a> Sheet<'a> {
         )
         .width(NAV)
         .height(Length::Fill)
-        .style(move |_| fill(sidebar));
+        .style(move |_| rounded(sidebar, corners([RADIUS, 0.0, 0.0, RADIUS])));
         let chat = theme.chat;
         let card = container(row![
             nav,
@@ -218,7 +220,7 @@ impl<'a> Sheet<'a> {
         ])
         .width(Length::Fill)
         .height(Length::Fill)
-        .style(move |_| fill(chat));
+        .style(move |_| rounded(chat, RADIUS));
         backdrop(theme, card, MARGIN, self.close)
     }
 }
@@ -379,19 +381,13 @@ pub fn backdrop<'a>(
     // No shadow: over the window dimmed by 70% it hardly shows, and the
     // renderer works a card this large's out pixel by pixel each time
     // anything on it is drawn again.
-    let card = container(card)
+    // Its parts round their own grounds to its corners; its edge goes over
+    // them.
+    let card = container(controls::edged(card, edge, RADIUS))
         .width(Length::Fill)
         .max_width(WIDEST)
         .height(Length::Fill)
-        .clip(true)
-        .style(move |_| container::Style {
-            border: Border {
-                color: edge,
-                width: 1.0,
-                radius: 12.0.into(),
-            },
-            ..Default::default()
-        });
+        .clip(true);
     let dim = mouse_area(
         container(Space::new())
             .width(Length::Fill)

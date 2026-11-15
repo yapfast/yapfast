@@ -63,8 +63,10 @@ fn closing_with_a_tray_drops_the_window_and_the_tray_brings_it_back() {
     let (mut app, _folder) = preview();
     with_tray(&mut app, true);
     let first = app.shell.window.expect("the window");
+    let _picture = super::a_picture_shown(&mut app);
     let _ = app.update(Message::Shell(Event::CloseRequested(first)));
     assert!(app.shell.window.is_none(), "closed to the tray");
+    assert!(app.pictures.is_empty(), "every picture made for it went");
     assert!(app.shell.tray.is_some(), "still running");
     assert_eq!(app.shell.size, Some(app.shell.frame), "its size kept");
     heard(&mut app, Heard::Tray(TrayChoice::Open));
@@ -273,4 +275,62 @@ fn nobody_using_yapfast_holds_pictures_still_until_they_are_back() {
     let _ = app.update(Message::Away(Away::Used));
     assert!(!app.away.inactive);
     assert!(app.plays());
+}
+
+#[test]
+fn a_middle_click_under_the_own_title_bar_scrolls_only_as_the_pointer_moves() {
+    use iced::mouse::{Button, Event as Mouse};
+    use iced_test::selector::Candidate;
+    let (mut app, _folder) = preview();
+    own_bar(&mut app);
+    // A history long enough to scroll.
+    interact(&mut app, |ui| {
+        ui.click(iced::widget::Id::new(crate::composer::COMPOSER))
+            .expect("the composer");
+        for line in 0..40 {
+            ui.typewrite(&format!("message {line}"));
+            ui.tap_key(Key::Named(key::Named::Enter));
+        }
+    });
+    let at = Point::new(600.0, 400.0);
+    let start = std::time::Instant::now();
+    let frame = |ms: u64| {
+        iced::Event::Window(window::Event::RedrawRequested(
+            start + std::time::Duration::from_millis(ms),
+        ))
+    };
+    let offset = |ui: &mut iced_test::Simulator<'_, Message>| {
+        ui.find(|candidate: Candidate<'_>| match candidate {
+            Candidate::Scrollable {
+                id: Some(id),
+                translation,
+                ..
+            } if *id == iced::widget::Id::new(crate::timeline::TIMELINE) => Some(translation.y),
+            _ => None,
+        })
+        .expect("the timeline")
+    };
+    let mut ui = iced_test::Simulator::with_size(Default::default(), app.shell.frame, app.view());
+    let end = offset(&mut ui);
+    ui.point_at(at);
+    // A pointer that hasn't moved scrolls nothing...
+    ui.simulate([
+        iced::Event::Mouse(Mouse::ButtonPressed(Button::Middle)),
+        iced::Event::Mouse(Mouse::CursorMoved { position: at }),
+        frame(0),
+        frame(100),
+    ]);
+    assert_eq!(offset(&mut ui), end, "still");
+    // ...and letting go of a press that didn't drag leaves it running, so
+    // the pointer moved up scrolls up.
+    ui.simulate([iced::Event::Mouse(Mouse::ButtonReleased(Button::Middle))]);
+    let up = at - iced::Vector::new(0.0, 100.0);
+    ui.point_at(up);
+    ui.simulate([
+        iced::Event::Mouse(Mouse::CursorMoved { position: up }),
+        frame(116),
+        frame(132),
+    ]);
+    let now = offset(&mut ui);
+    assert!(now < end, "scrolled up from {end} to {now}");
 }
