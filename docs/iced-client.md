@@ -256,7 +256,10 @@ row opens their card at the pointer, and a right click their voice menu.
 
 Open folders, folded categories and Developer Mode (which shows Copy ID)
 are kept in the data folder's `layout.json`, which the Slint client keeps
-them in too (`layout.rs`); each change writes its one key back.
+them in too (`layout.rs`); each change writes its one key back, through
+a file beside it renamed over it (`yapfast_core::layout_file`, which the
+Slint client writes through too), and a key that doesn't read loses only
+itself.
 
 Browse Channels (`browse_channels.rs`, the Slint client's `BrowseScreen`),
 from the top of a Community server's list, takes the conversation's place:

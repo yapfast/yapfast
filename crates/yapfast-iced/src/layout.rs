@@ -11,10 +11,10 @@ use std::{
     path::Path,
 };
 
+use serde::Deserialize;
 use yapfast_core::theme::Custom;
 
-/// The file, in the data folder.
-pub const LAYOUT: &str = "layout.json";
+pub use yapfast_core::layout_file::LAYOUT;
 
 /// What this client reads of `layout.json`.
 #[derive(Default, serde::Deserialize)]
@@ -301,12 +301,43 @@ impl Layout {
 }
 
 impl Layout {
-    /// Reads `layout.json`; a missing or unreadable file keeps nothing.
+    /// Reads `layout.json`; a missing or unreadable file keeps nothing. A
+    /// key this client can't read (of the wrong type, from another version
+    /// or the other client) loses only itself, not every other setting.
     pub fn read(root: &Path) -> Self {
-        std::fs::read(root.join(LAYOUT))
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default()
+        let Ok(bytes) = std::fs::read(root.join(LAYOUT)) else {
+            return Self::default();
+        };
+        let value = match serde_json::from_slice::<serde_json::Value>(&bytes) {
+            Ok(value) => value,
+            Err(error) => {
+                tracing::warn!(%error, "layout.json isn't JSON; starting from nothing");
+                return Self::default();
+            }
+        };
+        match Self::deserialize(&value) {
+            Ok(layout) => layout,
+            Err(error) => {
+                tracing::warn!(%error, "layout.json has keys this window can't read");
+                Self::lenient(value)
+            }
+        }
+    }
+
+    /// The layout of every key of `value` that reads, one at a time.
+    fn lenient(value: serde_json::Value) -> Self {
+        let serde_json::Value::Object(keys) = value else {
+            return Self::default();
+        };
+        let mut kept = serde_json::Map::new();
+        for (key, value) in keys {
+            kept.insert(key.clone(), value);
+            if Self::deserialize(&serde_json::Value::Object(kept.clone())).is_err() {
+                tracing::warn!(key, "a layout.json key this window can't read is left out");
+                kept.remove(&key);
+            }
+        }
+        Self::deserialize(&serde_json::Value::Object(kept)).unwrap_or_default()
     }
 
     /// Reads `layout.json` as the window opens: a fresh install keeps the
@@ -335,12 +366,10 @@ pub fn store(root: &Path, key: &str, value: impl serde::Serialize) {
         .filter(serde_json::Value::is_object)
         .unwrap_or_else(|| serde_json::Value::Object(Default::default()));
     layout[key] = serde_json::to_value(value).expect("layout values serialize");
-    let result = std::fs::create_dir_all(root).and_then(|()| {
-        std::fs::write(
-            &path,
-            serde_json::to_vec(&layout).expect("layout serializes"),
-        )
-    });
+    let result = yapfast_core::layout_file::write(
+        root,
+        &serde_json::to_vec(&layout).expect("layout serializes"),
+    );
     if let Err(error) = result {
         tracing::warn!(%error, key, "could not keep the window's layout");
     }

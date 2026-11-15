@@ -342,6 +342,20 @@ fn a_custom_theme_in_the_layout_shows_from_the_start() {
 }
 
 #[test]
+fn a_layout_key_of_the_wrong_kind_loses_only_itself() {
+    let folder = tempfile::tempdir_in(local()).expect("test folder");
+    std::fs::write(
+        folder.path().join("layout.json"),
+        r#"{"theme": "sakura", "collapse_long": "yes", "members_hidden": true}"#,
+    )
+    .expect("the layout");
+    let app = start(&folder, true);
+    assert_eq!(app.theme.id, "sakura");
+    assert!(app.layout.members_hidden);
+    assert!(!app.layout.collapse_long);
+}
+
+#[test]
 fn without_an_account_the_sign_in_screen_shows_and_the_preview_leaves_it() {
     let folder = tempfile::tempdir_in(local()).expect("test folder");
     let mut app = start(&folder, false);
