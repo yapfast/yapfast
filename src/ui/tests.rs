@@ -1839,7 +1839,7 @@ fn stream_audio_changes_without_starting_or_switching_video() {
 }
 
 #[test]
-fn stream_window_pickers_expand_independently_and_scroll_within_sections() {
+fn stream_window_pickers_share_one_scroll_area_in_a_fixed_height_menu() {
     use i_slint_core::{
         accessibility::{AccessibilityAction, AccessibleStringProperty},
         item_tree::ItemRc,
@@ -1894,8 +1894,20 @@ fn stream_window_pickers_expand_independently_and_scroll_within_sections() {
     find("Other windows")
         .unwrap()
         .accessible_action(&AccessibilityAction::Default);
+    let popup_height = || {
+        let inner = i_slint_core::window::WindowInner::from_pub(window.window());
+        let popups = inner.active_popups();
+        ItemRc::new_root(popups.last().unwrap().component.clone())
+            .geometry()
+            .size
+            .height
+    };
+    assert_eq!(popup_height(), 560.);
     let video = find("Video windows").unwrap();
-    assert_eq!(video.geometry().size.height, 128.);
+    assert!(
+        video.geometry().size.height > popup_height(),
+        "the expanded list has its full content height"
+    );
     assert!(
         find("Audio windows").is_none(),
         "video expansion leaves audio collapsed"
@@ -1915,7 +1927,8 @@ fn stream_window_pickers_expand_independently_and_scroll_within_sections() {
         let i_slint_core::window::PopupWindowLocation::ChildWindow(place) = popup.location else {
             panic!("not a child window");
         };
-        let at = video.map_to_item_tree(video.geometry().center(), &popup.component);
+        let target = find("Video app 0").unwrap();
+        let at = target.map_to_item_tree(target.geometry().center(), &popup.component);
         slint::LogicalPosition::new(place.x + at.x, place.y + at.y)
     };
     window
@@ -1933,14 +1946,15 @@ fn stream_window_pickers_expand_independently_and_scroll_within_sections() {
             .y
             < before
     );
-    assert_eq!(
+    assert!(
         find("No audio")
             .unwrap()
             .map_to_window(Default::default())
-            .y,
-        audio_before,
-        "other sections stay in place"
+            .y
+            < audio_before,
+        "the same scroll moves the other sections too"
     );
+    assert_eq!(popup_height(), 560., "scrolling does not resize the menu");
     find("Video app 5")
         .unwrap()
         .accessible_action(&AccessibilityAction::Default);
@@ -1948,10 +1962,15 @@ fn stream_window_pickers_expand_independently_and_scroll_within_sections() {
         .unwrap()
         .accessible_action(&AccessibilityAction::Default);
     assert!(find("Video windows").is_none());
-    find("Select window")
+    find("Select audio from window")
         .unwrap()
         .accessible_action(&AccessibilityAction::Default);
-    assert_eq!(find("Audio windows").unwrap().geometry().size.height, 128.);
+    assert!(find("Audio windows").unwrap().geometry().size.height > popup_height());
+    assert_eq!(
+        popup_height(),
+        560.,
+        "expanding audio does not resize the menu"
+    );
     assert!(find("Video windows").is_none());
     find("Audio app 0")
         .unwrap()
@@ -1961,7 +1980,7 @@ fn stream_window_pickers_expand_independently_and_scroll_within_sections() {
         Some(2),
         "audio application indices are preserved"
     );
-    find("Select window")
+    find("Select audio from window")
         .unwrap()
         .accessible_action(&AccessibilityAction::Default);
     assert!(find("Audio windows").is_none());
@@ -1972,7 +1991,7 @@ fn stream_window_pickers_expand_independently_and_scroll_within_sections() {
     find("Other windows")
         .unwrap()
         .accessible_action(&AccessibilityAction::Default);
-    find("Select window")
+    find("Select audio from window")
         .unwrap()
         .accessible_action(&AccessibilityAction::Default);
     find("Go Live")

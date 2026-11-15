@@ -1269,17 +1269,6 @@ component ScreenCard inherits Rectangle {
     }
 }
 
-// Long source lists keep their own fixed viewport.
-component ShareChoices inherits ScrollView {
-    in property <length> section-height: 128px;
-    in property <string> label;
-    accessible-role: groupbox; accessible-label: root.label;
-    min-height: root.section-height;
-    max-height: root.section-height;
-    content-width: self.width;
-    @children
-}
-
 // Going live, or choosing a different source while the stream keeps running.
 export component ShareMenu inherits Rectangle {
     in property <[ShareScreen]> screens;
@@ -1305,9 +1294,7 @@ export component ShareMenu inherits Rectangle {
         root.audio-windows-open = false;
         menu-scroll.content-y = 0px;
     }
-    // The outer scroll is only needed when the window cannot fit all sections.
-    // The action button stays outside it.
-    out property <length> full-height: choices.preferred-height + start.preferred-height + 12px;
+    // All choices share one scroll area; the action button stays visible.
     background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
     drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
     VerticalLayout {
@@ -1320,21 +1307,17 @@ export component ShareMenu inherits Rectangle {
                     padding-left: 8px; padding-top: 4px; padding-bottom: 4px;
                     Text { text: "SCREENS"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
                 }
-                if root.screens.length > 0: ShareChoices {
-                    label: "Screen sources"; section-height: 144px;
-                    Rectangle {
-                        width: parent.width;
-                        property <length> gap: 4px;
-                        property <length> card: (self.width - self.gap) / 2;
-                        property <length> card-height: self.card * 9 / 16 + 30px;
-                        height: ceil(root.screens.length / 2) * (self.card-height + self.gap) - self.gap;
-                        for screen[index] in root.screens: ScreenCard {
-                            x: root.screens.length == 1 ? (parent.width - parent.card) / 2 : mod(index, 2) * (parent.card + parent.gap);
-                            y: floor(index / 2) * (parent.card-height + parent.gap);
-                            width: parent.card; height: parent.card-height;
-                            text: screen.title; picture: screen.picture; checked: index == root.pick-source;
-                            clicked => { root.pick-source = index; }
-                        }
+                if root.screens.length > 0: Rectangle {
+                    property <length> gap: 4px;
+                    property <length> card: (self.width - self.gap) / 2;
+                    property <length> card-height: self.card * 9 / 16 + 30px;
+                    height: ceil(root.screens.length / 2) * (self.card-height + self.gap) - self.gap;
+                    for screen[index] in root.screens: ScreenCard {
+                        x: root.screens.length == 1 ? (parent.width - parent.card) / 2 : mod(index, 2) * (parent.card + parent.gap);
+                        y: floor(index / 2) * (parent.card-height + parent.gap);
+                        width: parent.card; height: parent.card-height;
+                        text: screen.title; picture: screen.picture; checked: index == root.pick-source;
+                        clicked => { root.pick-source = index; }
                     }
                 }
                 if root.windows.length > 0: MenuItem {
@@ -1344,9 +1327,10 @@ export component ShareMenu inherits Rectangle {
                     icon: root.windows-open ? @image-url("icons/chevron-down.svg") : @image-url("icons/chevron-right.svg");
                     clicked => { root.windows-open = !root.windows-open; }
                 }
-                if root.windows-open && root.windows.length > 0: ShareChoices {
-                    label: "Video windows";
-                    VerticalLayout {
+                if root.windows-open && root.windows.length > 0: Rectangle {
+                    accessible-role: groupbox; accessible-label: "Video windows";
+                    height: video-windows.preferred-height;
+                    video-windows := VerticalLayout {
                         for window[index] in root.windows: MenuItem {
                             text: window; checked: root.screens.length + index == root.pick-source;
                             clicked => { root.pick-source = root.screens.length + index; }
@@ -1362,9 +1346,9 @@ export component ShareMenu inherits Rectangle {
                     padding-left: 8px; padding-top: 8px; padding-bottom: 4px;
                     Text { text: "CAMERAS"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
                 }
-                if root.cameras.length > 0: ShareChoices {
-                    label: "Camera sources"; section-height: 96px;
-                    VerticalLayout {
+                if root.cameras.length > 0: Rectangle {
+                    height: camera-choices.preferred-height;
+                    camera-choices := VerticalLayout {
                         for camera[index] in root.cameras: MenuItem {
                             text: camera; checked: root.first-camera + index == root.pick-source;
                             clicked => { root.pick-source = root.first-camera + index; }
@@ -1384,14 +1368,15 @@ export component ShareMenu inherits Rectangle {
                     clicked => { root.pick-audio = index; root.audio-changed(index); }
                 }
                 if root.audio-options.length > 2: MenuItem {
-                    text: "Select window";
+                    text: "Select audio from window";
                     subtitle: root.pick-audio > 1 ? root.audio-options[root.pick-audio] : "";
                     icon: root.audio-windows-open ? @image-url("icons/chevron-down.svg") : @image-url("icons/chevron-right.svg");
                     clicked => { root.audio-windows-open = !root.audio-windows-open; }
                 }
-                if root.audio-windows-open && root.audio-options.length > 2: ShareChoices {
-                    label: "Audio windows";
-                    VerticalLayout {
+                if root.audio-windows-open && root.audio-options.length > 2: Rectangle {
+                    accessible-role: groupbox; accessible-label: "Audio windows";
+                    height: audio-windows.preferred-height;
+                    audio-windows := VerticalLayout {
                         for index in max(0, root.audio-options.length - 2): MenuItem {
                             text: root.audio-options[index + 2]; checked: index + 2 == root.pick-audio;
                             clicked => { root.pick-audio = index + 2; root.audio-changed(index + 2); }
@@ -1402,9 +1387,9 @@ export component ShareMenu inherits Rectangle {
                     padding-left: 8px; padding-top: 8px; padding-bottom: 4px;
                     Text { text: "RESOLUTION"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
                 }
-                if !root.switching: ShareChoices {
-                    label: "Stream resolution"; section-height: 100px;
-                    VerticalLayout {
+                if !root.switching: Rectangle {
+                    height: resolution-choices.preferred-height;
+                    resolution-choices := VerticalLayout {
                         spacing: 2px;
                         for choice[index] in ["720p", "1080p", "Source"]: MenuItem {
                             text: choice; checked: index == root.pick-resolution;
@@ -1416,9 +1401,9 @@ export component ShareMenu inherits Rectangle {
                     padding-left: 8px; padding-top: 8px; padding-bottom: 4px;
                     Text { text: "FRAME RATE"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
                 }
-                if !root.switching: ShareChoices {
-                    label: "Stream frame rate"; section-height: 100px;
-                    VerticalLayout {
+                if !root.switching: Rectangle {
+                    height: fps-choices.preferred-height;
+                    fps-choices := VerticalLayout {
                         spacing: 2px;
                         for fps in [15, 30, 60]: MenuItem {
                             text: fps + " fps"; checked: fps == root.pick-fps;

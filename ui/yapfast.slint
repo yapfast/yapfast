@@ -2001,9 +2001,8 @@ export component YapfastWindow inherits Window {
         y: max(8px, root.menu-y - self.height - 6px);
         // Wider for the screens' pictures.
         width: root.share-screens.length > 0 ? 336px : 240px;
-        // No taller than the window has room for: with many windows and
-        // cameras listed, or the window short or zoomed, its choices scroll.
-        height: min(share-content.full-height, root.height - 16px);
+        // Expanding source lists scrolls the content without resizing the menu.
+        height: min(560px, root.height - 16px);
         close-policy: PopupClosePolicy.close-on-click-outside;
         share-content := ShareMenu {
             picker-session: root.share-menu-session;
