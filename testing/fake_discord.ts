@@ -33,7 +33,10 @@
 // `--members N` adds N people, online, to Server's member list, as a busy
 // server's first hundred rows are. POST /_control/churn-start takes one of
 // them offline or back online ten times a second, each a member list update,
-// and /_control/churn-stop stops it.
+// and /_control/churn-stop stops it. `--member-looks` dresses them, and the
+// crowd's posters, as a busy server's people are: name styles, decorations,
+// nameplates, server tags, mixed statuses with custom statuses and games,
+// every eighth in Mods (with a role icon), and banners on their profiles.
 // POST /_control/crowd-start makes someone new post in the last of them, or
 // in #general, 50 times a second, and /_control/crowd-stop stops them.
 // POST /_control/burst?count=N posts N messages, 150 every 10 ms, for
@@ -396,6 +399,7 @@ const { values: args } = parseArgs({
     authors: { type: "string", default: "0" },
     members: { type: "string", default: "0" },
     "name-styles": { type: "boolean", default: false },
+    "member-looks": { type: "boolean", default: false },
     nitro: { type: "boolean", default: false },
     folders: { type: "boolean", default: false },
     "cdn-delay": { type: "string", default: "0" },
@@ -422,6 +426,8 @@ const CHAT_INTERVAL = 2_000;
 
 // Fixed ids, so runs compare.
 const GUILD = "1400000000000000100";
+/** A server Alice isn't in, which shows its profile only to its members. */
+const PRIVATE_GUILD = "1400000000000000990";
 const CATEGORY = "1400000000000000101";
 const GENERAL = "1400000000000000102";
 const LOUNGE = "1400000000000000103";
@@ -1036,7 +1042,7 @@ function wireProfile(user: User, guild: string | null, origin: string) {
   const inServer = (Object.values(users).includes(user) && user.id !== ALICE) || user.id === statusBot.id;
   const isMember = Object.values(users).includes(user);
   const dave = user.id === users.dave.id;
-  const profile = user.id === ALICE ? aliceProfile : {
+  const profile = user.id === ALICE ? aliceProfile : lookProfiles.get(user.id) ?? {
     bio: bob ? "Plays bass in a **ska** band. Ask me about https://example.com/gigs" : "",
     pronouns: bob ? "he/him" : "",
     banner: bob ? "bob-banner" : dave ? "a_davebanner" : null,
@@ -2456,8 +2462,11 @@ function guildChannels(): GuildChannel[] {
 }
 
 // Server Settings. GET /guilds/{id}/profile gives "Server"'s profile as
-// Server Profile shows it, and PATCH changes its name, icon (a data URI,
-// served back from the CDN as it came, or null) and description, as
+// Server Profile and the card of Bob's tag, "BOB", show it, with its tag and
+// badge. PRIVATE_GUILD, a server Alice isn't in that shows its profile only
+// to its members, answers 403 Missing Access, as Discord does, and any other
+// server 404. PATCH changes its name, icon (a data URI, served back from the
+// CDN as it came, or null) and description, as
 // Manage Server allows, answering with the profile and GUILD_UPDATE. POST
 // /_control/guild-reset puts "Server" back as it started.
 // Two-factor authentication: POST /_control/mfa, with an optional JSON body
@@ -2643,11 +2652,21 @@ function guildProfile() {
     member_count: Object.keys(users).length,
     online_count: 1,
     brand_color_primary: null,
+    banner_hash: null,
+    game_application_ids: [],
+    game_activity: {},
+    // The tag Bob wears; see wireUser.
+    tag: "BOB",
+    badge: 0,
+    badge_color_primary: "#ff0000",
+    badge_color_secondary: "#800000",
+    badge_hash: "bobtag",
     traits: [],
     features: serverSettings.features,
     visibility: 1,
     premium_tier: serverSettings.premium_tier,
     premium_subscription_count: 0,
+    custom_banner_hash: null,
   };
 }
 
@@ -3025,17 +3044,64 @@ const presences: Record<string, { status: string; activities: unknown[]; client_
   [users.dave.id]: { status: "offline", activities: [] },
 };
 
+/** With `--member-looks`, what the nth person of `--members` or the crowd
+ *  wears: every second a name style, every third a decoration, every fourth
+ *  a nameplate, every fifth a server tag. */
+function memberLook(n: number): Pick<User, "style" | "decoration" | "nameplate"> & { clan?: unknown } {
+  if (!args["member-looks"]) return {};
+  const palettes = ["bubble_gum", "sky", "violet", "teal", "forest", "sunset"];
+  const decorations = ["1500000000000000001", "1500000000000000003", "1500000000000000005"];
+  const nameplate = n % 4 === 1 ? { sku: String(1_500_000_000_000_000_100n + BigInt(n % 6)), palette: palettes[n % 6]! } : undefined;
+  if (nameplate) nameplateSkus.add(nameplate.sku);
+  return {
+    ...(n % 2 === 0 ? { style: nameStyleSample(n / 2).style } : {}),
+    ...(n % 3 === 0 ? { decoration: decorations[(n / 3) % 3] } : {}),
+    ...(nameplate ? { nameplate } : {}),
+    ...(n % 5 === 2
+      ? { clan: { identity_guild_id: GUILD, identity_enabled: true, tag: ["GG", "ZAP", "MOON", "404"][n % 4], badge: "bobtag" } }
+      : {}),
+  };
+}
+
+/** With `--member-looks`, the nth listed person's presence: online, idle,
+ *  do not disturb or on a phone in turn, with a custom status or a game. */
+function lookPresence(n: number): any {
+  if (!args["member-looks"]) return { status: "online", activities: [] };
+  const status = ["online", "idle", "dnd", "online"][n % 4]!;
+  const activities =
+    n % 3 === 1
+      ? [{ type: 4, name: "Custom Status", state: `status line ${n}`, emoji: { name: "🌙", id: null } }]
+      : n % 3 === 2
+        ? [{ type: 0, name: ["Factorio", "Celeste", "Hades", "Balatro"][n % 4] }]
+        : [];
+  return { status, activities, ...(n % 4 === 3 ? { client_status: { mobile: status } } : {}) };
+}
+
+/** With `--member-looks`, the listed people's profiles: every tenth a moving
+ *  banner, the other even ones a banner picture, the odd ones a colour. */
+const lookProfiles = new Map<string, { bio: string; pronouns: string; banner: string | null; accent_color: number | null }>();
+
 // The people of `--members`, in Server's member list alone.
 const listed: User[] = Array.from({ length: Number(args.members) }, (_, n) => ({
   id: (1_750_000_000_000_000_000n + BigInt(n)).toString(),
   username: `member${n}`,
   global_name: `Member ${n}`,
   avatar: `m${n}`,
+  ...memberLook(n),
 }));
-for (const person of listed) {
+for (const [n, person] of listed.entries()) {
   userById.set(person.id, person);
-  presences[person.id] = { status: "online", activities: [] };
+  presences[person.id] = lookPresence(n);
+  if (!args["member-looks"]) continue;
+  if (n % 8 === 0) memberRoles.set(person.id, [MODS]);
+  lookProfiles.set(person.id, {
+    bio: `Member ${n} of a busy server. Likes **bold** things and \`code\`.`,
+    pronouns: ["they/them", "she/her", "he/him"][n % 3]!,
+    banner: n % 10 === 0 ? "a_memberbanner" : n % 2 === 0 ? `mbanner${n}` : null,
+    accent_color: n % 2 === 1 ? 0x5865f2 + n * 997 : null,
+  });
 }
+if (args["member-looks"]) serverRoles.find((role) => role.id === MODS)!.icon = "modsicon";
 
 // The member list's Activity feed, as /content-inventory/users/@me answers:
 // Bob and Carol now, Dave's game earlier, this week's top ones, then what no
@@ -5641,6 +5707,7 @@ async function api(req: Request, path: string, origin: string): Promise<Response
 
   // "Server"'s profile in Server Settings; see "Server Settings" above.
   if ((m = path.match(/^\/guilds\/(\d+)\/profile$/))) {
+    if (m[1] === PRIVATE_GUILD && method === "GET") return json({ message: "Missing Access", code: 50001 }, 403);
     if (m[1] !== GUILD) return notFound("Unknown Guild", 10004);
     if (method === "GET") return json(guildProfile());
     if (method === "PATCH") {
@@ -7862,7 +7929,7 @@ function unknown(req: Request, path: string): Response {
   return notFound();
 }
 
-function serveFile(path: string, url: URL): Response {
+function serveFile(path: string, url: URL, range: string | null): Response {
   const file = files.get(decodeURIComponent(path));
   if (!file) return notFound();
   let data = file.data;
@@ -7873,7 +7940,25 @@ function serveFile(path: string, url: URL): Response {
     data = scaled.get(key) ?? file.draw(width, height);
     scaled.set(key, data);
   }
-  return new Response(data, { headers: { "content-type": file.contentType } });
+  return servePart(data, file.contentType, range);
+}
+
+// A file, or the part a Range header asks for, as Discord's CDN answers it:
+// 206 with Content-Range for `bytes=FROM-` or `bytes=FROM-TO`, 416 past
+// the end.
+function servePart(data: Uint8Array, contentType: string, range: string | null): Response {
+  const headers = { "content-type": contentType, "accept-ranges": "bytes" };
+  const asked = range?.match(/^bytes=(\d+)-(\d*)$/);
+  if (!asked) return new Response(data, { headers });
+  const from = Number(asked[1]);
+  const to = Math.min(asked[2] ? Number(asked[2]) : data.length - 1, data.length - 1);
+  if (from >= data.length || to < from) {
+    return new Response(null, { status: 416, headers: { "content-range": `bytes */${data.length}` } });
+  }
+  return new Response(data.subarray(from, to + 1), {
+    status: 206,
+    headers: { ...headers, "content-range": `bytes ${from}-${to}/${data.length}` },
+  });
 }
 
 // --- Embeds -----------------------------------------------------------------
@@ -7900,7 +7985,7 @@ const gifVideo = readFileSync(new URL("gif-mandelbrot.mp4", fixtures));
 // at /external/{name}/video.mp4, the linked post's clip at
 // /external/post/video.mp4, and a GIF provider's file linked directly at
 // /external/klipy/https/static.klipy.com/ii/{name}.{webp,gif}.
-function serveExternal(path: string, url: URL): Response | undefined {
+function serveExternal(path: string, url: URL, range: string | null): Response | undefined {
   const linked = path.match(/^\/external\/klipy\/https\/static\.klipy\.com\/ii\/([a-z]+)\.(webp|gif)$/);
   if (linked) {
     try {
@@ -7912,7 +7997,7 @@ function serveExternal(path: string, url: URL): Response | undefined {
   }
   if (/^\/external\/[\w-]+\/video\.mp4$/.test(path)) {
     const data = path === "/external/post/video.mp4" ? clip : gifVideo;
-    return new Response(data, { headers: { "content-type": "video/mp4" } });
+    return servePart(data, "video/mp4", range);
   }
   const m = path.match(/^\/external\/([\w-]+)\/(\d+)x(\d+)\.png$/);
   if (!m) return undefined;
@@ -8781,7 +8866,7 @@ const server = Bun.serve<SocketData>({
       return withDeviceCookie(req, response);
     }
     if (req.method === "GET" && path.startsWith("/attachments/")) {
-      return serveFile(path.slice("/attachments/".length), url);
+      return serveFile(path.slice("/attachments/".length), url, req.headers.get("range"));
     }
     // The games Discord detects, from its CDN as the desktop client asks:
     // with the version it has, the answer is that it's unchanged.
@@ -8804,7 +8889,7 @@ const server = Bun.serve<SocketData>({
     }
     if (path === "/_control/gif-selects") return Response.json(gifSelects);
     if (req.method === "GET" && path.startsWith("/media/attachments/")) {
-      return serveFile(path.slice("/media/attachments/".length), url);
+      return serveFile(path.slice("/media/attachments/".length), url, req.headers.get("range"));
     }
     // Discord's CDN: server icons, avatars and banners, and those uploaded
     // as they came.
@@ -8917,8 +9002,9 @@ const server = Bun.serve<SocketData>({
       churn = setInterval(() => {
         const person = listed[(turn++ * 7) % listed.length]!;
         changeMembers(() => {
-          const status = presences[person.id]!.status === "offline" ? "online" : "offline";
-          presences[person.id] = { status, activities: [] };
+          presences[person.id] = presences[person.id]!.status === "offline"
+            ? lookPresence(listed.indexOf(person))
+            : { status: "offline", activities: [] };
           dispatch("PRESENCE_UPDATE", { user: { id: person.id }, client_status: {}, ...presences[person.id] });
         });
       }, 100);
@@ -9240,7 +9326,7 @@ const server = Bun.serve<SocketData>({
       return new Response("chat started\n");
     }
     if (req.method === "GET" && path.startsWith("/external/")) {
-      return serveExternal(path, url) ?? notFound();
+      return serveExternal(path, url, req.headers.get("range")) ?? notFound();
     }
     // Discord's CDN: soundboard sounds.
     const sound = req.method === "GET" ? path.match(/^\/soundboard-sounds\/(\d+)$/) : null;
@@ -9671,6 +9757,7 @@ const server = Bun.serve<SocketData>({
           username: `crowd${n}`,
           global_name: `Crowd ${n}`,
           avatar: `c${n}`,
+          ...memberLook(n),
         };
         const message = post(rooms.at(-1) ?? GENERAL, person, `Hello from ${person.global_name}`, Date.now());
         dispatch("MESSAGE_CREATE", dispatched(message, origin));

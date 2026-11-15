@@ -49,6 +49,7 @@ mod emoji_animation;
 mod emoji_grid;
 mod games;
 mod gifs;
+mod keybinds;
 mod menus;
 mod messages;
 #[cfg(windows)]
@@ -196,7 +197,7 @@ pub fn run(
     new_tags::start(&adapter);
     watch_window(&window, &adapter);
     adapter.borrow_mut().watch_away();
-    adapter.borrow_mut().watch_talk_key(&window);
+    adapter.borrow_mut().watch_keybinds(&window);
     adapter.borrow().show_protocol(&window);
     if !preview {
         adapter.borrow_mut().pending_link = open_link;
@@ -428,7 +429,7 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                         if std::env::var("SLINT_SCALE_FACTOR").is_err()
                             && let Some(scale) = window
                                 .window()
-                                .with_winit_window(|winit| winit.scale_factor() as f32)
+                                .with_winit_window(zoom::window_display_scale)
                         {
                             base.set(scale);
                         }
@@ -520,8 +521,13 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                     move_loop::moved(&weak);
                     // Once for the events a move or resize sends together.
                     if !placing.replace(true) {
-                        let (weak, adapter, placing) =
-                            (weak.clone(), adapter.clone(), placing.clone());
+                        let (weak, adapter, placing, base, level) = (
+                            weak.clone(),
+                            adapter.clone(),
+                            placing.clone(),
+                            base.clone(),
+                            level.clone(),
+                        );
                         slint::Timer::single_shot(Duration::ZERO, move || {
                             placing.set(false);
                             if let (Some(adapter), Some(window)) =
@@ -529,6 +535,22 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                             {
                                 window.set_window_maximized(window.window().is_maximized());
                                 placement::moved(&mut adapter.borrow_mut(), &window);
+                            }
+                            // A window held to one display's density, as by
+                            // Windows' HIGHDPIAWARE compatibility setting, is
+                            // sent no ScaleFactorChanged on the others. The
+                            // monitor it has come to still names its own
+                            // scale, so a move can already mean another one.
+                            if cfg!(windows)
+                                && let Some(window) = weak.upgrade()
+                                && std::env::var("SLINT_SCALE_FACTOR").is_err()
+                                && let Some(scale) = window
+                                    .window()
+                                    .with_winit_window(zoom::window_display_scale)
+                                && (scale - base.get()).abs() >= f32::EPSILON
+                            {
+                                base.set(scale);
+                                zoom::apply(window.window(), base.get(), level.get());
                             }
                         });
                     }
@@ -546,45 +568,11 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                         }
                     });
                 }
-                crate::push_to_talk::window_event(event);
-                // Windows' two side buttons are recordable shortcuts too.
-                #[cfg(windows)]
+                crate::keybinds::window_event(event);
+                // While a keybind records, only the recorder sees its keys.
                 if let Some(window) = weak.upgrade()
-                    && window.get_talk_recording()
-                    && let Some(recorded) = crate::push_to_talk::Keybind::recorded_mouse(event)
+                    && keybinds::record(&window, &adapter, event)
                 {
-                    window.set_talk_recording(false);
-                    let (adapter, weak) = (adapter.clone(), weak.clone());
-                    slint::Timer::single_shot(Duration::ZERO, move || {
-                        if let (Some(adapter), Some(window)) = (adapter.upgrade(), weak.upgrade()) {
-                            adapter.borrow_mut().set_talk_key(&window, recorded);
-                        }
-                    });
-                    return EventResult::PreventDefault;
-                }
-                // While recording the push-to-talk key, the next key becomes
-                // it, and Escape stops; either way only the recorder sees it.
-                if let WindowEvent::KeyboardInput { event: key, .. } = event
-                    && key.state == ElementState::Pressed
-                    && let Some(window) = weak.upgrade()
-                    && window.get_talk_recording()
-                {
-                    if !key.repeat {
-                        window.set_talk_recording(false);
-                        let recorded = (key.logical_key != Key::Named(NamedKey::Escape))
-                            .then(|| crate::push_to_talk::Keybind::recorded(key))
-                            .flatten();
-                        if let Some(recorded) = recorded {
-                            let (adapter, weak) = (adapter.clone(), weak.clone());
-                            slint::Timer::single_shot(Duration::ZERO, move || {
-                                if let (Some(adapter), Some(window)) =
-                                    (adapter.upgrade(), weak.upgrade())
-                                {
-                                    adapter.borrow_mut().set_talk_key(&window, recorded);
-                                }
-                            });
-                        }
-                    }
                     return EventResult::PreventDefault;
                 }
                 // Escape lets go of someone dragged from a voice channel,
@@ -830,10 +818,7 @@ fn type_anywhere(window: &YapfastWindow) {
             return false;
         }
         // Holding the key to talk shouldn't also write it.
-        if window.get_voice_active()
-            && !window.get_muted()
-            && crate::push_to_talk::pressed_talk_key()
-        {
+        if window.get_voice_active() && !window.get_muted() && crate::keybinds::pressed_talk_key() {
             return false;
         }
         window.invoke_type_into_composer()
@@ -1318,12 +1303,14 @@ struct Layout {
     windows_microphone_effects: bool,
     /// The quietest speech Discord calls send, in dBFS; -60 unless changed.
     input_sensitivity: Option<i32>,
-    /// Whether calls send the voice the gate hears or only while a key is
-    /// held, the key, and how long the microphone sends after it comes up,
+    /// Whether calls send the voice the gate hears or only while keys are
+    /// held, the keys, and how long the microphone sends after they come up,
     /// in ms; Discord's 20 unless changed.
     input_mode: InputMode,
-    push_to_talk_key: Option<crate::push_to_talk::Keybind>,
+    push_to_talk_key: Option<crate::keybinds::Shortcut>,
     push_to_talk_release_delay: Option<u32>,
+    /// The Keybinds page's keybinds, in its order.
+    keybinds: Vec<crate::keybinds::Binding>,
     /// How loud every call sends the microphone and plays, as sliders'
     /// percentages from 0% to 200%; 100% unless changed.
     microphone_volume: Option<u8>,
@@ -1507,6 +1494,35 @@ impl Layout {
             .clamp(-80, 0)
     }
 
+    /// The keybinds to watch: the Voice page's push-to-talk keys and the
+    /// Keybinds page's, each set and doing something. Push to talk's only in
+    /// push to talk, where they do something, as Discord's.
+    fn watched_keybinds(&self) -> Vec<crate::keybinds::Watched> {
+        let talking = self.input_mode == InputMode::PushToTalk;
+        let talk = self
+            .push_to_talk_key
+            .iter()
+            .filter(|_| talking)
+            .map(|keys| crate::keybinds::Watched {
+                id: crate::keybinds::TALK_SHORTCUT.to_owned(),
+                action: crate::keybinds::Action::PushToTalk,
+                keys: keys.clone(),
+            });
+        let others = self.keybinds.iter().filter_map(|binding| {
+            let keys = binding.keys.clone()?;
+            match binding.action {
+                crate::keybinds::Action::Unassigned => None,
+                crate::keybinds::Action::PushToTalk if !talking => None,
+                action => Some(crate::keybinds::Watched {
+                    id: binding.shortcut_id(),
+                    action,
+                    keys,
+                }),
+            }
+        });
+        talk.chain(others).collect()
+    }
+
     /// How long the microphone sends after the push-to-talk key comes up, in ms.
     fn release_delay(&self) -> u32 {
         self.push_to_talk_release_delay
@@ -1674,7 +1690,7 @@ impl Layout {
         window.set_talk_key(
             self.push_to_talk_key
                 .as_ref()
-                .map(|key| key.name.as_str())
+                .map(crate::keybinds::Shortcut::name)
                 .unwrap_or_default()
                 .into(),
         );
@@ -1727,6 +1743,7 @@ impl Layout {
         if !cosmetics.server_tags {
             row.tag = SharedString::default();
             row.tag_badge = SharedString::default();
+            row.tag_server = SharedString::default();
         }
         if message.timestamp != 0 {
             let (twelve_hour, with_seconds) = (self.twelve_hour_clock, self.clock_seconds);
@@ -2144,6 +2161,9 @@ struct Adapter {
     /// The emoji the open card shows, so the card is built again as what
     /// Discord says of its server arrives.
     emoji_card: Option<emoji_text::Target>,
+    /// The server tag the open card shows, so the card is built again as what
+    /// Discord says of its server arrives.
+    tag_card: Option<profile::ShownTag>,
     /// Pictures a picker's tiles draw, shown together once they settle.
     picker_due: slint::Timer,
     /// The sticker whose card is open, by its message's item and its
@@ -2235,9 +2255,8 @@ struct Adapter {
     /// show the voice gate's sensitivity.
     #[cfg(feature = "discord")]
     gate_meter: Option<yapfast_core::discord_audio::GateMeter>,
-    /// Watches the push-to-talk key while push to talk is on and it's set,
-    /// with or without the window.
-    talk_key: Option<crate::push_to_talk::Watcher>,
+    /// Watches the keybinds while any is set, with or without the window.
+    keybinds: Option<crate::keybinds::Watcher>,
     /// Previews of the pictures waiting in the composer, by file; `None` while
     /// one is read, or when it can't be.
     thumbnails: HashMap<PathBuf, Option<pictures::Thumbnail>>,
@@ -2501,6 +2520,7 @@ impl Adapter {
                 video_cell: Cell::new((0, 0)),
                 pictures: HashMap::new(),
                 emoji_card: None,
+                tag_card: None,
                 picker_due: slint::Timer::default(),
                 sticker_card: None,
                 animations: emoji_animation::Animations::new(),
@@ -2544,7 +2564,7 @@ impl Adapter {
                 watched: None,
                 #[cfg(feature = "discord")]
                 gate_meter: None,
-                talk_key: None,
+                keybinds: None,
                 thumbnails: HashMap::new(),
                 pasted: None,
                 drag_over: false,
@@ -2564,42 +2584,70 @@ impl Adapter {
         }))
     }
 
-    /// Starts, changes or stops watching the push-to-talk key as settings
-    /// say, and shows where it works.
-    fn watch_talk_key(&mut self, window: &YapfastWindow) {
-        let wanted = self
-            .layout
-            .push_to_talk_key
+    /// Starts, changes or stops watching the keybinds as settings say, and
+    /// shows where they work.
+    fn watch_keybinds(&mut self, window: &YapfastWindow) {
+        let wanted = self.layout.watched_keybinds();
+        let current = self
+            .keybinds
             .as_ref()
-            .filter(|_| self.layout.input_mode == InputMode::PushToTalk);
-        if self
-            .talk_key
-            .as_ref()
-            .map(crate::push_to_talk::Watcher::key)
-            != wanted
-        {
+            .map(crate::keybinds::Watcher::watched)
+            .unwrap_or_default();
+        if current != wanted.as_slice() {
             // The old one goes first, ending its portal session.
-            self.talk_key = None;
-            self.talk_key = wanted.cloned().map(|key| {
+            self.keybinds = None;
+            if !wanted.is_empty() {
                 let weak = window.as_weak();
-                crate::push_to_talk::Watcher::start(key, &self.runtime, move |reach| {
+                let toggled: crate::keybinds::Toggled = Arc::new(move |action| {
                     let _ = weak.upgrade_in_event_loop(move |window| {
-                        window.set_talk_note(reach.note().into());
+                        keybinds::toggled(&window, action);
                     });
-                })
-            });
+                });
+                let weak = window.as_weak();
+                self.keybinds = Some(crate::keybinds::Watcher::start(
+                    wanted,
+                    &self.runtime,
+                    toggled,
+                    move |_| {
+                        let _ = weak.upgrade_in_event_loop(|window| {
+                            window.invoke_keybind_status_changed();
+                        });
+                    },
+                ));
+            }
         }
-        let note = self.talk_key.as_ref().map(|watcher| watcher.reach().note());
-        window.set_talk_note(note.unwrap_or_default().into());
+        self.show_keybinds(window);
     }
 
-    /// Makes a recorded key the push-to-talk key.
-    fn set_talk_key(&mut self, window: &YapfastWindow, key: crate::push_to_talk::Keybind) {
-        tracing::info!(key = key.name, "push-to-talk key recorded");
-        window.set_talk_key(key.name.as_str().into());
-        self.layout.push_to_talk_key = Some(key);
+    /// Shows the keybinds, and where they work.
+    fn show_keybinds(&self, window: &YapfastWindow) {
+        let watched = self
+            .keybinds
+            .as_ref()
+            .map(crate::keybinds::Watcher::watched)
+            .unwrap_or_default();
+        let status = self.keybinds.as_ref().map(crate::keybinds::Watcher::status);
+        let talk = watched
+            .iter()
+            .any(|watched| watched.id == crate::keybinds::TALK_SHORTCUT);
+        window.set_talk_note(
+            status
+                .as_ref()
+                .filter(|_| talk)
+                .map(crate::keybinds::Status::talk_note)
+                .unwrap_or_default()
+                .into(),
+        );
+        keybinds::show(window, &self.layout.keybinds, watched, status.as_ref());
+    }
+
+    /// Makes recorded keys the push-to-talk keybind.
+    fn set_talk_key(&mut self, window: &YapfastWindow, keys: crate::keybinds::Shortcut) {
+        tracing::info!(keys = keys.name(), "push-to-talk keybind recorded");
+        window.set_talk_key(keys.name().into());
+        self.layout.push_to_talk_key = Some(keys);
         self.layout.write(&self.root);
-        self.watch_talk_key(window);
+        self.watch_keybinds(window);
     }
 
     /// Shows whether Discord protocol links open here, as the desktop
@@ -2615,7 +2663,7 @@ impl Adapter {
         self.models.attach(window);
         self.layout.apply(window);
         updates::show(window, &self.layout, &self.updates);
-        self.watch_talk_key(window);
+        self.watch_keybinds(window);
         self.show_protocol(window);
         // The theme being edited goes unsaved with the old window, and rows
         // may carry its mention colour; the refresh after attaching builds

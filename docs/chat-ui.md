@@ -138,7 +138,7 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   focused. Enter doesn't send from there, unlike Discord. Not while the settings,
   a profile, a card, a dialog, a panel such as the pins, the image viewer, a
   ringing call or the call in full screen is open, nor on the friends list or a
-  call, nor with Ctrl, Alt or Super held, nor for the push-to-talk key while
+  call, nor with Ctrl, Alt or Super held, nor for a push-to-talk key while
   unmuted in a call. Stepping through the messages, only letters and digits go.
 - Clicking a mention, a link to a Matrix user, opens their profile card.
 - Emoji in message text are drawn by Twemoji's picture of them, as the picker's
@@ -354,7 +354,8 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   field there, tinted as the row is while edited, with "escape to cancel •
   enter to save" under it, and the cursor after the text. Enter saves, Shift+Enter
   breaks the line, and Escape or the hint's cancel closes it, changing nothing.
-  The field takes `@` and `:name` suggestions and the emoji button's picker. It
+  The field takes `@` and `:name` suggestions and the emoji button's picker;
+  while suggestions show, Enter and Escape choose and close them instead. It
   is its own text, apart from the composer's draft and a reply being written,
   which stay as they were; one message is edited at a time. Saving text that
   is empty asks whether to delete the message, as Delete does, unless the
@@ -466,7 +467,12 @@ returns to 100%. The level shows
 for a moment at the top and is kept in `layout.json`. Yapfast multiplies the
 display's scale factor by it, so the window lays out in fewer logical pixels,
 and zooming in stops before those would fall below the window's 800×560
-minimum, which would make it grow.
+minimum, which would make it grow. On Windows that scale is the one of the
+monitor the window is on, taken again when a move or resize settles: the
+HIGHDPIAWARE compatibility setting holds the window's own scale to the
+primary display's and sends no change on the others. Elsewhere it is the
+window's, as a Wayland monitor names only a whole scale where the window
+has its fractional one.
 
 The window starts at the size it had when Yapfast last ran, maximized if it
 was, and on Windows in the same place (`window` in `layout.json`,

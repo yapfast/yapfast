@@ -2701,6 +2701,11 @@ async fn shows_profiles() {
     // Bob wears the server's tag; Carol has none.
     let tag = in_server.tag.as_ref().expect("Bob has a server tag");
     assert_eq!(&*tag.text, "BOB");
+    assert_eq!(
+        tag.guild.map(|id| id.to_string()),
+        Some(guild.clone()),
+        "the server it's from"
+    );
     assert!(
         tag.badge
             .as_deref()
@@ -2871,16 +2876,27 @@ async fn shows_embeds_and_media() {
     assert!(!clip.image && clip.dimensions == Some((480, 270)));
     let poster = clip.preview_url.as_deref().unwrap();
     assert!(!discord.download(poster, 1 << 20).await.unwrap().is_empty());
-    let path = std::env::temp_dir().join(format!("yapfast-clip-{}.mp4", std::process::id()));
-    let mut file = std::fs::File::create(&path).unwrap();
-    let size = discord
-        .download_into(clip.video_url.as_deref().unwrap(), &mut file, 1 << 20)
-        .await
-        .unwrap();
-    assert_eq!(Some(size), clip.size);
-    let downloaded = std::fs::read(&path).unwrap();
-    let _ = std::fs::remove_file(&path);
+    // It downloads in parts, as a browser asks for a video's: the whole
+    // file from its start, or its last bytes alone, where an MP4's index
+    // may be.
+    let video_url = clip.video_url.as_deref().unwrap();
+    let (start, size, downloaded) = download_part(&discord, video_url, 0, None).await;
+    assert_eq!((start, size), (0, clip.size));
+    assert_eq!(Some(downloaded.len() as u64), clip.size);
     assert_eq!(&downloaded[4..8], b"ftyp");
+    let end = downloaded.len() as u64;
+    let (start, size, tail) = download_part(&discord, video_url, end - 100, None).await;
+    assert_eq!((start, size), (end - 100, clip.size));
+    assert_eq!(tail, downloaded[downloaded.len() - 100..]);
+    let (start, _, middle) = download_part(&discord, video_url, 10, Some(20)).await;
+    assert_eq!((start, middle.as_slice()), (10, &downloaded[10..20]));
+    assert!(
+        discord
+            .download_part(video_url, 0, None, end - 1)
+            .await
+            .is_err(),
+        "too large"
+    );
     // A forward of it shows the clip it carries.
     let forward = live_where(&mut live, |event| match event {
         Live::Created(message) if message.forwarded => Some(message),
@@ -2900,12 +2916,26 @@ async fn shows_embeds_and_media() {
     assert!(linked.embeds[0].video);
     let poster = &linked.attachments[0];
     assert_eq!(poster.shown, Shown::Poster(0));
-    let mut file = std::fs::File::create(&path).unwrap();
-    discord
-        .download_into(poster.video_url.as_deref().unwrap(), &mut file, 1 << 20)
-        .await
-        .unwrap();
-    let _ = std::fs::remove_file(&path);
+    let (_, _, linked) =
+        download_part(&discord, poster.video_url.as_deref().unwrap(), 0, None).await;
+    assert_eq!(&linked[4..8], b"ftyp");
+}
+
+/// A part of a file, as [`Discord::download_part`] gives it: where it
+/// starts, the file's size, and its bytes.
+async fn download_part(
+    discord: &Discord,
+    url: &str,
+    from: u64,
+    to: Option<u64>,
+) -> (u64, Option<u64>, Vec<u8>) {
+    use futures_util::StreamExt;
+    let mut part = discord.download_part(url, from, to, 1 << 20).await.unwrap();
+    let mut data = Vec::new();
+    while let Some(chunk) = part.chunks.next().await {
+        data.extend_from_slice(&chunk.unwrap());
+    }
+    (part.start, part.size, data)
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -5678,6 +5708,20 @@ async fn changes_server_settings_as_discords_client_does() {
         ("Server", "")
     );
     assert!(profile.icon.is_some());
+    // The card of Bob's tag shows the same profile, with its counts. A
+    // server that shows its profile only to its members is private, and one
+    // Discord doesn't know is a failure, which isn't kept.
+    let card = discord
+        .tag_server(guild)
+        .await
+        .unwrap()
+        .expect("its profile");
+    assert_eq!(card.name, "Server");
+    assert!(card.members.is_some_and(|members| members > 1));
+    assert_eq!(card.online, Some(1));
+    let private = discord.tag_server("1400000000000000990").await.unwrap();
+    assert_eq!(private, None, "a private server");
+    assert!(discord.tag_server("1400000000000000999").await.is_err());
 
     // Discord's own words for a field it refuses.
     let refused = discord
@@ -5706,6 +5750,15 @@ async fn changes_server_settings_as_discords_client_does() {
             .any(|known| known.id == guild && known.name == "Crew" && known.icon.is_none())
     })
     .await;
+    // The tag's card asked a moment ago, and shows what it was told then.
+    assert_eq!(
+        discord
+            .tag_server(guild)
+            .await
+            .unwrap()
+            .map(|card| card.name),
+        Some("Server".into())
+    );
 
     // Once "Server" requires 2FA for moderation, a kick waits for her to
     // confirm, and goes again with the token; a wrong code leaves the
