@@ -19,13 +19,13 @@ reuse prepared environments, and avoid running separate programs for overlapping
 
 | Tool                                                         | Reason                                                                                                                                                                                       |
 | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [prek](https://prek.j178.dev/)                               | Rust hook runner distributed as a single binary. Built-in text and syntax checks avoid separate Python hook processes. Cached tool environments avoid repeated installation.                 |
-| [Ruff](https://docs.astral.sh/ruff/)                         | Native Rust implementation with caching. One tool provides Python lint, import sorting and formatting, replacing separate Flake8, isort and Black installations for the configured checks.   |
+| [prek](https://github.com/j178/prek)                         | Rust hook runner distributed as a single binary. Built-in text and syntax checks avoid separate Python hook processes. Cached tool environments avoid repeated installation.                 |
+| [ruff](https://github.com/astral-sh/ruff)                    | Native Rust implementation with caching. One tool provides Python lint, import sorting and formatting, replacing separate Flake8, isort and Black installations for the configured checks.   |
 | [clang-format](https://clang.llvm.org/docs/ClangFormat.html) | Native C/C++ formatter with configurable style. Formatting does not require compiling the application or resolving its native build dependencies.                                            |
-| [Taplo](https://taplo.tamasfe.dev/)                          | Dedicated Rust TOML formatter. Handles manifests directly without adding a TOML plugin to the JavaScript toolchain.                                                                          |
-| [Prettier](https://prettier.io/docs/)                        | One formatter covers documentation, data and web files; the XML plugin covers XML. Chosen for format coverage and consistent output, with the cost of a Node.js environment managed by prek. |
-| rustfmt                                                      | Standard Rust formatter supplied by the pinned toolchain. No additional Rust formatting dependency.                                                                                          |
-| EditorConfig                                                 | Applies shared defaults in supporting editors. No additional hook command.                                                                                                                   |
+| [taplo](https://github.com/tamasfe/taplo)                    | Dedicated Rust TOML formatter. Handles manifests directly without adding a TOML plugin to the JavaScript toolchain.                                                                          |
+| [prettier](https://github.com/prettier/prettier)             | One formatter covers documentation, data and web files; the XML plugin covers XML. Chosen for format coverage and consistent output, with the cost of a Node.js environment managed by prek. |
+| [rustfmt](https://github.com/rust-lang/rustfmt)              | Standard Rust formatter supplied by the pinned toolchain. No additional Rust formatting dependency.                                                                                          |
+| [editor-config](https://editorconfig.org/)                   | Applies shared defaults in supporting editors. No additional hook command.                                                                                                                   |
 
 ## Text files
 
