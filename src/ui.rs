@@ -419,14 +419,9 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                     slint::Timer::single_shot(Duration::ZERO, move || {
                         let Some(window) = weak.upgrade() else { return };
                         if std::env::var("SLINT_SCALE_FACTOR").is_err()
-                            && let Some(scale) = window.window().with_winit_window(|winit| {
-                                zoom::display_scale(
-                                    winit
-                                        .current_monitor()
-                                        .map(|monitor| monitor.scale_factor() as f32),
-                                    winit.scale_factor() as f32,
-                                )
-                            })
+                            && let Some(scale) = window
+                                .window()
+                                .with_winit_window(zoom::window_display_scale)
                         {
                             base.set(scale);
                         }
@@ -538,16 +533,12 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                             // sent no ScaleFactorChanged on the others. The
                             // monitor it has come to still names its own
                             // scale, so a move can already mean another one.
-                            if let Some(window) = weak.upgrade()
+                            if cfg!(windows)
+                                && let Some(window) = weak.upgrade()
                                 && std::env::var("SLINT_SCALE_FACTOR").is_err()
                                 && let Some(scale) = window
                                     .window()
-                                    .with_winit_window(|winit| {
-                                        winit
-                                            .current_monitor()
-                                            .map(|monitor| monitor.scale_factor() as f32)
-                                    })
-                                    .flatten()
+                                    .with_winit_window(zoom::window_display_scale)
                                 && (scale - base.get()).abs() >= f32::EPSILON
                             {
                                 base.set(scale);
