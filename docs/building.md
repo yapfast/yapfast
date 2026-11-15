@@ -296,12 +296,15 @@ files named here are in `crates/yapfast-core/native/`.
   with libvpx, `picture.c` scales with libyuv, and `camera.cc` captures
   through libwebrtc's capture module.
 - `vendor/ffmpeg-src` holds only the GPU encoders, which `hwenc.c` drives,
-  and the HEVC decoder for watched H265 streams, in `hevc.c`.
+  and the HEVC decoder for watched H265 streams, in `hevc.c`, and video
+  attachments, in `video_hevc.c`. HEVC file playback is enabled on targets
+  where this library is built (currently Windows and Linux x86-64).
 - `vendor/x264-src` encodes H264 on the CPU, in `h264.c`, for Go Live and
   the camera.
 
-Playing a file never touches `vendor/ffmpeg-src`, so what plays is what
-libwebrtc's FFmpeg was built with. Check a symbol in the archive:
+File demuxing and audio use libwebrtc's FFmpeg; HEVC pictures use the
+separate decoder. Only plain values cross between the two FFmpeg builds,
+whose structs and symbols must stay separate. Check a symbol in the archive:
 
 ```sh
 nm $LK_CUSTOM_WEBRTC/lib/libwebrtc.a | grep ' T avformat_open_input'

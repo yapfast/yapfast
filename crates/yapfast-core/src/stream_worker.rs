@@ -42,6 +42,7 @@ use crate::{
     decode::Decoder,
     encode::{self, Effort, Encoder},
     frames::{Frames, Writer},
+    picture::{I420, Turn},
     stream_audio,
     voice::{Resolution, StreamQuality, StreamStats},
 };
@@ -817,6 +818,26 @@ struct Sound {
     controls: channel::Receiver<Control>,
 }
 
+fn show_stream_picture(
+    writer: &mut Writer,
+    picture: I420<'_>,
+    turn: Turn,
+    maximum: (u32, u32),
+    scratch: &mut Vec<u8>,
+    turned: &mut Vec<u8>,
+) -> (u32, u32) {
+    let (width, height) = turn.upright(picture.width, picture.height);
+    let size = if writer.fits(width, height) && width <= maximum.0 && height <= maximum.1 {
+        (width, height)
+    } else {
+        fit(width, height, maximum.0, maximum.1)
+    };
+    writer.write(size.0, size.1, |pixels| {
+        picture.to_rgba_turned(scratch, turned, pixels, size, turn);
+    });
+    size
+}
+
 /// Shows someone's stream: whole frames from the connection, decoded, then
 /// scaled down if they don't fit, and plays its sound.
 fn watch(
@@ -841,7 +862,7 @@ fn watch(
     let mut decoder: Option<Decoder> = None;
     // A frame that doesn't fit scales through this, a picture of the size
     // shown; one that does goes straight into the shared frame.
-    let mut scratch = vec![];
+    let (mut scratch, mut turned) = (vec![], vec![]);
     let mut shown = false;
     let mut failures = 0u64;
     while !stop.load(Ordering::Relaxed) {
@@ -886,15 +907,17 @@ fn watch(
                 continue;
             }
         };
-        let (width, height) = (picture.width, picture.height);
-        if writer.fits(width, height) && width <= max_width && height <= max_height {
-            writer.write(width, height, |pixels| picture.to_rgba(pixels));
-        } else {
-            let (width, height) = fit(width, height, max_width, max_height);
-            writer.write(width, height, |pixels| {
-                picture.i420().to_rgba(&mut scratch, pixels, width, height)
-            });
-        }
+        let (width, height) = show_stream_picture(
+            &mut writer,
+            picture.i420(),
+            Turn {
+                turns: frame.orientation.turns,
+                flip: frame.orientation.flip,
+            },
+            (max_width, max_height),
+            &mut scratch,
+            &mut turned,
+        );
         if !shown {
             shown = true;
             tracing::info!(width, height, codec = ?frame.codec, "showing the stream");
@@ -1769,6 +1792,51 @@ impl Drop for Worker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shows_mobile_streams_upright_when_the_phone_turns() {
+        // Left half dark, right half light, sent as landscape pixels.
+        let y: Vec<_> = (0..32)
+            .map(|index| if index % 8 < 4 { 16 } else { 235 })
+            .collect();
+        let (u, v) = ([128; 8], [128; 8]);
+        let picture = I420 {
+            width: 8,
+            height: 4,
+            y: &y,
+            u: &u,
+            v: &v,
+            strides: [8, 4, 4],
+        };
+        for maximum in [(8, 8), (8, 4)] {
+            let frames = Frames::create(maximum.0, maximum.1).unwrap();
+            let mut writer = Writer::open(&frames.path().unwrap()).unwrap();
+            let (mut scratch, mut turned) = (vec![], vec![]);
+            // Landscape, both portrait directions, upside down, then back.
+            for turns in [0, 1, 3, 2, 0] {
+                let size = show_stream_picture(
+                    &mut writer,
+                    picture,
+                    Turn { turns, flip: false },
+                    maximum,
+                    &mut scratch,
+                    &mut turned,
+                );
+                let expected = if turns % 2 == 1 {
+                    if maximum.1 == 4 { (2, 4) } else { (4, 8) }
+                } else {
+                    (8, 4)
+                };
+                assert_eq!(size, expected);
+                let shown = frames
+                    .take(|width, height, rgba| {
+                        ((width, height), rgba[0] > 128, rgba[rgba.len() - 4] > 128)
+                    })
+                    .unwrap();
+                assert_eq!(shown, (expected, turns >= 2, turns < 2));
+            }
+        }
+    }
 
     /// A worker that dies without a [`Report::Ended`] logs a warning with
     /// how it ended and the job it had, and the UI still gets the popup's

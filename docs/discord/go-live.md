@@ -27,6 +27,9 @@ the voice panel; a click on it returns to the call. This account's
 own stream has a tile of its own, which opens large as others' do, without
 watching it through Discord: it shows the worker's preview.
 
+A stream from a phone says how its picture is turned (the video orientation
+RTP extension), and Yapfast shows it upright, as it does a camera.
+
 Capture runs in a worker process, `yapfast --stream-worker`, so its buffers take
 memory only while sharing; the process exits when sharing stops. Playing a
 video file runs there too (`Job::Play`, `video_player`), which also keeps
