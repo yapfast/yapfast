@@ -120,6 +120,9 @@ impl Fetched {
                 .map(|manifest| manifest.limits.memory_pages)
                 .unwrap_or_default(),
             dependencies: dependencies(manifest.as_ref()),
+            blocks: manifest
+                .as_ref()
+                .is_some_and(|manifest| manifest.on_failure.blocks()),
             replaces: None,
         }
     }

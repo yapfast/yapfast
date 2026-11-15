@@ -367,6 +367,9 @@ pub struct Review {
     pub memory_pages: u32,
     pub dependencies: Vec<Dependency>,
     /// The installed version this replaces, when it's an update.
+    /// Its manifest says `on_failure: "block"`: a message it can't check is
+    /// held back rather than sent, which the review says in its own line.
+    pub blocks: bool,
     pub replaces: Option<String>,
 }
 
@@ -594,6 +597,9 @@ pub fn capability(name: &str) -> (String, Tone) {
 /// What a plugin would be able to do, a line each, as the review shows it:
 /// its capabilities, the hosts it connects to, and the sentence for a risky
 /// combination.
+/// The review's line for a plugin whose manifest says `on_failure: "block"`.
+pub const HOLDS_MESSAGES: &str = "Holds a message back when it can't check it: if it fails or runs late, the message isn't sent";
+
 pub fn permission_lines(capabilities: &[String], hosts: &[String]) -> Vec<Line> {
     let mut lines = capability_lines(capabilities);
     lines.extend(hosts.iter().map(|host| Line {
@@ -1085,6 +1091,7 @@ impl Fixture {
             network: listing.network.clone(),
             memory_pages: DEFAULT_PAGES,
             dependencies: Vec::new(),
+            blocks: false,
             replaces: None,
         }
     }
@@ -1149,6 +1156,7 @@ impl Fixture {
                 version: "^1.4".into(),
                 installed: true,
             }],
+            blocks: false,
             replaces: None,
         })
     }
