@@ -429,3 +429,9 @@ A module is at most 8 MiB, and each plugin with a compiled module in the helper
 costs about 0.56 MiB before it has done anything, which is why size is worth
 working on: build with `opt-level` for size and run `wasm-opt` over the result
 before checking it in.
+
+The helper holds a plugin to its page limit, and two things in a module would
+live outside it, so a module that has either is refused when it loads: a table
+with no maximum, or one past 131,072 elements (rustc and wasm-ld write each
+table at its exact size unless asked for `--growable-table`), and a
+garbage-collected type (wasm-gc structs and arrays).

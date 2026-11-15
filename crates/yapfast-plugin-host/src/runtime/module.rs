@@ -137,7 +137,9 @@ pub fn check(bytes: &[u8], wasi: bool) -> Result<Shape, Fault> {
             .take(size as usize)
             .ok_or_else(|| truncated("section"))?;
         match id {
+            SECTION_TYPE => check_types(body)?,
             SECTION_IMPORT => check_imports(body, wasi)?,
+            SECTION_TABLE => check_tables(body)?,
             SECTION_EXPORT => check_exports(body, &mut shape)?,
             _ => {}
         }
@@ -145,8 +147,135 @@ pub fn check(bytes: &[u8], wasi: bool) -> Result<Shape, Fault> {
     Ok(shape)
 }
 
+const SECTION_TYPE: u8 = 1;
 const SECTION_IMPORT: u8 = 2;
+const SECTION_TABLE: u8 = 4;
 const SECTION_EXPORT: u8 = 7;
+
+/// The most elements a table may declare. The page limit bounds a guest's
+/// linear memory only: Extism's limiter lets a table with no maximum grow
+/// without one, in the helper's own memory, so a module must say how large
+/// its tables get, and this is the most it may say. A Rust plugin's one table
+/// holds a slot per indirectly called function, a few hundred.
+pub const MAX_TABLE_ELEMENTS: u32 = 1 << 17;
+
+/// Reads the type section: function types only. Extism turns on wasm-gc,
+/// whose structs and arrays live outside linear memory and so outside the
+/// page limit, so a module that declares one is refused here.
+fn check_types(body: &[u8]) -> Result<(), Fault> {
+    let mut reader = Reader::new(body);
+    let count = reader.u32().ok_or_else(|| truncated("type count"))?;
+    for _ in 0..count {
+        match reader.byte().ok_or_else(|| truncated("type"))? {
+            0x60 => {
+                for _ in 0..2 {
+                    let values = reader.u32().ok_or_else(|| truncated("function type"))?;
+                    for _ in 0..values {
+                        skip_value_type(&mut reader)?;
+                    }
+                }
+            }
+            _ => {
+                return Err(bad(
+                    "it declares a garbage-collected type (wasm-gc), whose objects live                      outside the memory limit a plugin is held to"
+                        .to_owned(),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Skips one value type: a number or vector type is a byte, and a typed
+/// reference is a byte and the heap type it points at.
+fn skip_value_type(reader: &mut Reader<'_>) -> Result<(), Fault> {
+    match reader.byte().ok_or_else(|| truncated("value type"))? {
+        0x63 | 0x64 => {
+            reader.s33().ok_or_else(|| truncated("heap type"))?;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+/// Reads the table section: each table names a maximum no larger than
+/// [`MAX_TABLE_ELEMENTS`].
+fn check_tables(body: &[u8]) -> Result<(), Fault> {
+    let mut reader = Reader::new(body);
+    let count = reader.u32().ok_or_else(|| truncated("table count"))?;
+    for _ in 0..count {
+        let mut first = reader.byte().ok_or_else(|| truncated("table"))?;
+        // The form with an initialiser: `0x40 0x00`, then the table type,
+        // then a constant expression, skipped below.
+        let with_init = first == 0x40;
+        if with_init {
+            reader.byte().ok_or_else(|| truncated("table"))?;
+            first = reader.byte().ok_or_else(|| truncated("table"))?;
+        }
+        if first == 0x63 || first == 0x64 {
+            reader.s33().ok_or_else(|| truncated("table type"))?;
+        }
+        let flags = reader.byte().ok_or_else(|| truncated("table limits"))?;
+        if flags & 0x04 != 0 {
+            return Err(bad("it declares a 64-bit table, which this helper doesn't run".to_owned()));
+        }
+        let _minimum = reader.u32().ok_or_else(|| truncated("table limits"))?;
+        let maximum = if flags & 0x01 != 0 {
+            Some(reader.u32().ok_or_else(|| truncated("table limits"))?)
+        } else {
+            None
+        };
+        match maximum {
+            Some(maximum) if maximum <= MAX_TABLE_ELEMENTS => {}
+            Some(maximum) => {
+                return Err(bad(format!(
+                    "it declares a table of up to {maximum} elements, and a plugin's tables hold                      at most {MAX_TABLE_ELEMENTS}"
+                )));
+            }
+            None => {
+                return Err(bad(
+                    "it declares a table with no maximum, which could grow outside the memory                      limit a plugin is held to; build it without a growable table"
+                        .to_owned(),
+                ));
+            }
+        }
+        if with_init {
+            skip_constant(&mut reader)?;
+        }
+    }
+    Ok(())
+}
+
+/// Skips a constant expression, up to and including its `end`.
+fn skip_constant(reader: &mut Reader<'_>) -> Result<(), Fault> {
+    let short = || truncated("table initialiser");
+    loop {
+        match reader.byte().ok_or_else(short)? {
+            0x0b => return Ok(()),
+            // ref.null, i32.const: a signed LEB.
+            0xd0 | 0x41 => {
+                reader.s33().ok_or_else(short)?;
+            }
+            // ref.func, global.get: an index.
+            0xd2 | 0x23 => {
+                reader.u32().ok_or_else(short)?;
+            }
+            // i64.const: a signed LEB of up to ten bytes.
+            0x42 => {
+                for _ in 0..10 {
+                    if reader.byte().ok_or_else(short)? & 0x80 == 0 {
+                        break;
+                    }
+                }
+            }
+            other => {
+                return Err(bad(format!(
+                    "its table initialiser uses opcode {other:#04x}, which a constant can't"
+                )));
+            }
+        }
+    }
+}
 
 /// Reads the import section: every import must be one something provides.
 fn check_imports(body: &[u8], wasi: bool) -> Result<(), Fault> {
@@ -311,6 +440,16 @@ impl<'a> Reader<'a> {
             value |= u32::from(byte & 0x7f) << shift;
             if byte & 0x80 == 0 {
                 return Some(value);
+            }
+        }
+        None
+    }
+
+    /// A signed LEB128 of at most five bytes, as a heap type is written.
+    fn s33(&mut self) -> Option<()> {
+        for _ in 0..5 {
+            if self.byte()? & 0x80 == 0 {
+                return Some(());
             }
         }
         None
@@ -521,5 +660,44 @@ mod tests {
             "{}",
             fault.reason
         );
+    }
+
+    /// The module [`module`] writes, with one more section after its types.
+    fn with_section(id: u8, body: &[u8]) -> Vec<u8> {
+        let mut bytes = module(&[], &REQUIRED_EXPORTS);
+        section(id, body, &mut bytes);
+        bytes
+    }
+
+    #[test]
+    fn a_table_must_say_how_large_it_gets() {
+        // One funcref table of 4, up to 4: what rustc writes.
+        let bounded = with_section(SECTION_TABLE, &[1, 0x70, 0x01, 4, 4]);
+        assert!(check(&bounded, false).is_ok());
+        // No maximum: it could grow in the helper's memory, outside the page limit.
+        let open = with_section(SECTION_TABLE, &[1, 0x70, 0x00, 4]);
+        let fault = check(&open, false).expect_err("an unbounded table is refused");
+        assert!(fault.reason.contains("no maximum"), "{}", fault.reason);
+        // A maximum past the cap.
+        let mut huge = vec![1, 0x70, 0x01, 1];
+        leb(MAX_TABLE_ELEMENTS + 1, &mut huge);
+        let fault = check(&with_section(SECTION_TABLE, &huge), false).expect_err("too large");
+        assert!(fault.reason.contains("at most"), "{}", fault.reason);
+        // An initialised table is read past its constant, so the one after it
+        // is checked too.
+        let after_init = [2, 0x40, 0x00, 0x70, 0x01, 1, 1, 0xd0, 0x70, 0x0b, 0x70, 0x00, 1];
+        let fault = check(&with_section(SECTION_TABLE, &after_init), false)
+            .expect_err("the second table has no maximum");
+        assert!(fault.reason.contains("no maximum"), "{}", fault.reason);
+    }
+
+    #[test]
+    fn a_garbage_collected_type_is_refused() {
+        // A struct with one i32 field: `0x5f`, one field, i32, immutable.
+        let mut bytes = MAGIC.to_vec();
+        bytes.extend_from_slice(&[1, 0, 0, 0]);
+        section(SECTION_TYPE, &[1, 0x5f, 1, 0x7f, 0x00], &mut bytes);
+        let fault = check(&bytes, false).expect_err("wasm-gc is refused");
+        assert!(fault.reason.contains("garbage-collected"), "{}", fault.reason);
     }
 }
