@@ -235,13 +235,13 @@ export component BoxFrame inherits Rectangle {
         x: 0px; y: root.line / 2; width: root.cell; height: max(0px, root.height - root.line); clip: true;
         // A face's down line may stop short of its line's height: three
         // runs a third of a line apart close the gaps.
-        for shift in 3: Text { x: 0px; y: root.line * shift / 3; text: Chrome.box-down; wrap: no-wrap; color: Chrome.box-ink; font-family: Look.mono; font-size: Chrome.box-size; accessible-role: none; }
+        for shift in 3: Text { x: 0px; y: root.line * shift / 3; width: root.cell; text: Chrome.box-down; wrap: char-wrap; color: Chrome.box-ink; font-family: Look.mono; font-size: Chrome.box-size; accessible-role: none; }
     }
     Rectangle {
         x: root.width - root.cell; y: root.line / 2; width: root.cell; height: max(0px, root.height - root.line); clip: true;
         // A face's down line may stop short of its line's height: three
         // runs a third of a line apart close the gaps.
-        for shift in 3: Text { x: 0px; y: root.line * shift / 3; text: Chrome.box-down; wrap: no-wrap; color: Chrome.box-ink; font-family: Look.mono; font-size: Chrome.box-size; accessible-role: none; }
+        for shift in 3: Text { x: 0px; y: root.line * shift / 3; width: root.cell; text: Chrome.box-down; wrap: char-wrap; color: Chrome.box-ink; font-family: Look.mono; font-size: Chrome.box-size; accessible-role: none; }
     }
     // The bottom edge.
     Text { x: 0px; y: root.height - root.line; text: Chrome.box-bl; color: Chrome.box-ink; font-family: Look.mono; font-size: Chrome.box-size; accessible-role: none; }

@@ -537,7 +537,9 @@ fn set_box(ui: &Chrome<'_>, frame: Option<&BoxFrame>) {
         return;
     };
     ui.set_box_across(chars[4].to_string().repeat(BOX_ACROSS).into());
-    ui.set_box_down(vec![chars[5].to_string(); BOX_DOWN].join("\n").into());
+    // One run the side wraps a letter to a line: shaped once, not as as
+    // many lines as it has.
+    ui.set_box_down(chars[5].to_string().repeat(BOX_DOWN).into());
     let title = |pane| SharedString::from(super::theme_trim::kept(frame.title_for(pane)));
     ui.set_box_title_chat(title(Pane::Chat));
     ui.set_box_title_sidebar(title(Pane::Sidebar));
@@ -743,7 +745,7 @@ mod tests {
         assert_eq!(ui.get_box_title_members(), "[ who: {n} ]");
         assert_eq!(ui.get_box_across().chars().count(), BOX_ACROSS);
         assert!(ui.get_box_across().chars().all(|c| c == '─'));
-        assert_eq!(ui.get_box_down().lines().count(), BOX_DOWN);
+        assert_eq!(ui.get_box_down().chars().count(), BOX_DOWN);
         assert_eq!(ui.get_box_token(), 1);
         assert_eq!(ui.get_count_mentions(), "[{n}!]");
         assert_eq!(ui.get_count_token(), 1);
