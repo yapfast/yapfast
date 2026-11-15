@@ -73,7 +73,9 @@ pub(super) fn app_capability(call: &AppCall) -> Option<Capability> {
 /// edit and writing into the composer need no capability, and they do need a click of the person's
 /// behind them: a plugin must not move the window or put text in front of
 /// someone who is not there. So does handing a URL to the system, because that
-/// is the one call that can start another program.
+/// is the one call that can start another program, and writing the clipboard,
+/// which §9.1 gives `clipboard.write` "on a user gesture": a plugin must not
+/// swap what the person copied while they weren't looking.
 pub(super) fn needs_gesture(call: &AppCall) -> bool {
     matches!(
         call,
@@ -83,6 +85,7 @@ pub(super) fn needs_gesture(call: &AppCall) -> bool {
             | AppCall::StartEdit { .. }
             | AppCall::Insert { .. }
             | AppCall::SetDraft { .. }
+            | AppCall::Copy { .. }
             | AppCall::Open { .. }
     )
 }

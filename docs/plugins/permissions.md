@@ -130,7 +130,7 @@ using another plugin's button, is no gesture for this one.
 | `composer.get_draft` | none: the person's own composer |
 | `messages.jump_to`, `composer.set_draft`, `composer.insert` | none, and a recent user gesture: without one they answer `denied` |
 | `notify.send` | `notifications` |
-| `clipboard.write` | `clipboard.write` |
+| `clipboard.write` | `clipboard.write`, and a recent user gesture |
 | `open.url` | `open.app` |
 | `discord.set_status`, `set_custom_status`, `set_activity`, `clear_activity` | `presence.write` |
 | `discord.mark_read`, `set_mute` | `notifications.manage` |
