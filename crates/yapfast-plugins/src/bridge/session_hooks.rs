@@ -10,7 +10,7 @@ impl Session {
         failures: Vec<(PluginId, Fault)>,
         by: Option<PluginId>,
     ) {
-        for (plugin, fault) in failures {
+        for (plugin, fault) in &failures {
             tracing::warn!(%plugin, reason = %fault.reason, kind = ?fault.kind, "a plugin failed in a hook chain");
         }
         let Some(pending) = self.pending.remove(&id) else {
@@ -22,6 +22,15 @@ impl Session {
         let Purpose::Hook(held) = pending.purpose else {
             return;
         };
+        // A plugin that must see every message (`on_failure: "block"`, one
+        // that encrypts what leaves) and failed, ran late or never got its
+        // turn holds the message back: going on without it would send what
+        // it guards as the person wrote it.
+        let failed: Vec<PluginId> = failures.into_iter().map(|(plugin, _)| plugin).collect();
+        if !matches!(outcome, HookOutcome::Block { .. }) && held.blocker(shared, &failed).is_some() {
+            held.fail(shared, &failed, "it failed or ran late");
+            return;
+        }
         // A plugin may stop what is going only where the person granted it.
         // For a message that is `on_failure: "block"`, which needs
         // `messages.intercept` and shows in the review dialog; anyone else's is

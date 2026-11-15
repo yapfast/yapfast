@@ -129,14 +129,24 @@ impl Session {
                 hook = %held.hook,
                 "a hook chain was already out of time when the helper had it; the message goes unchanged"
             );
-            held.let_go(shared);
+            let chain = held.chain.clone();
+            held.fail(shared, &chain, "it ran out of time");
             return;
         }
         // Frames are handled in order, so loading each plugin in the chain first
         // means the chain arrives at instances that are already up. A plugin
         // that can't be loaded leaves the chain rather than holding the send.
+        let asked = held.chain.clone();
         held.chain
             .retain(|plugin| self.activate(shared, plugin).runs());
+        let left: Vec<PluginId> = asked
+            .into_iter()
+            .filter(|plugin| !held.chain.contains(plugin))
+            .collect();
+        if !left.is_empty() && held.blocker(shared, &left).is_some() {
+            held.fail(shared, &left, "it couldn't be started");
+            return;
+        }
         if held.chain.is_empty() {
             held.let_go(shared);
             return;

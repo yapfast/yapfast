@@ -89,7 +89,8 @@ impl Session {
         self.queued.push_back(command);
     }
 
-    /// Lets every send this session was holding go out unchanged.
+    /// Lets every send this session was holding go out unchanged, or holds it
+    /// back where a plugin in its chain says a message doesn't go without it.
     ///
     /// Called when the process ends, whatever the reason: a chain that can no
     /// longer answer must not keep the composer waiting for it.
@@ -97,7 +98,10 @@ impl Session {
         let pending = std::mem::take(&mut self.pending);
         for pending in pending.into_values() {
             match pending.purpose {
-                Purpose::Hook(held) => held.let_go(shared),
+                Purpose::Hook(held) => {
+                    let chain = held.chain.clone();
+                    held.fail(shared, &chain, "the plugin helper stopped");
+                }
                 // The two that answer a guest are dropped with the process:
                 // there is no instance left to be told.
                 Purpose::Agent { .. } | Purpose::Invocation { .. } | Purpose::Swap { .. } => {}

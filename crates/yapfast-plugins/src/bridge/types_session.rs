@@ -16,6 +16,27 @@ pub(super) struct HeldSend {
 }
 
 impl HeldSend {
+    /// The name of a plugin among `plugins` whose manifest says a message
+    /// doesn't go without it (`on_failure: "block"`), when this is a message.
+    pub(super) fn blocker(&self, shared: &Shared, plugins: &[PluginId]) -> Option<String> {
+        blocker(shared, self.hook, plugins)
+    }
+
+    /// What a chain that failed does with its subject: a message one of whose
+    /// plugins must see it (one that encrypts, say) is held back with a reason,
+    /// since sending it anyway would put what it guards on the wire; anything
+    /// else fails open, as [`HeldSend::let_go`] does.
+    pub(super) fn fail(self, shared: &Shared, failed: &[PluginId], why: &str) {
+        if let Some(name) = self.blocker(shared, failed) {
+            shared.announce(Notice::SendBlocked {
+                id: self.id,
+                reason: blocked_reason(&name, why),
+            });
+            return;
+        }
+        self.let_go(shared);
+    }
+
     /// What the application does with a chain that let its subject go as it
     /// was, or that answered nothing at all: a held send goes out, a typing
     /// indicator goes, a file stages as it was read. It is the fail-open answer
@@ -258,4 +279,24 @@ impl Started {
     pub(super) fn runs(self) -> bool {
         !matches!(self, Started::Refused)
     }
+}
+
+/// The name of a plugin among `plugins` whose manifest says a message doesn't
+/// go without it (`on_failure: "block"`), when `hook` is about a message.
+pub(super) fn blocker(shared: &Shared, hook: HookKind, plugins: &[PluginId]) -> Option<String> {
+    if !matches!(hook, HookKind::MessagePreSend | HookKind::MessagePreEdit) {
+        return None;
+    }
+    let registry = shared.registry();
+    plugins.iter().find_map(|plugin| {
+        registry
+            .entry(plugin)
+            .filter(|entry| entry.manifest.on_failure.blocks())
+            .map(|entry| entry.manifest.name.clone())
+    })
+}
+
+/// The reason a message held back by [`blocker`]'s plugin is shown with.
+pub(super) fn blocked_reason(name: &str, why: &str) -> String {
+    format!("{name} couldn't check this message ({why}), and it doesn't let one go unchecked")
 }

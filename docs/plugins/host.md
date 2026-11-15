@@ -137,7 +137,11 @@ asks for it without the capability is refused outright, so an update can't
 quietly turn a filter into something that stops messages. With it, the plugin's
 `block` outcome holds the send back and its reason is shown where the person
 typed; from a plugin whose manifest doesn't say it, a `block` is the fail-open
-answer and the message goes as it was.
+answer and the message goes as it was. Such a plugin failing holds the message
+back too: a trap, a missed deadline, a chain that ran out before its turn, an
+instance that couldn't start or a helper that stopped is shown as "*Name*
+couldn't check this message", because going on without it would send what it
+guards as the person wrote it.
 
 ## Faults and strikes
 

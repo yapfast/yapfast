@@ -1006,7 +1006,7 @@ impl<B: Backend + 'static> Shared<B> {
             .map(|ms| Instant::now() + Duration::from_millis(ms));
         let mut asked = request.clone();
         let mut run = HookRun::unchanged();
-        for (slot, plugin) in &chain {
+        for (index, (slot, plugin)) in chain.iter().enumerate() {
             // This plugin's own budget, and no more than what is left of the
             // chain's: the last plugin of a chain that has nearly spent it gets
             // the rest, and one that is out of time doesn't run at all.
@@ -1015,6 +1015,18 @@ impl<B: Backend + 'static> Shared<B> {
             });
             if step.is_zero() {
                 debug!(%plugin, "a hook chain ran out of time before this plugin's turn");
+                // The plugins whose turn never came are reported too: one whose
+                // manifest says `on_failure: "block"` must not have the message
+                // go out unchecked because the chain ran out before it.
+                for (_, unreached) in &chain[index..] {
+                    run.failures.push((
+                        (**unreached).clone(),
+                        Fault {
+                            kind: FaultKind::Deadline,
+                            reason: "the chain ran out of time before its turn".to_owned(),
+                        },
+                    ));
+                }
                 break;
             }
             let (answer, late) = self.call(&[*slot], step, |backend| backend.hook(plugin, &asked));

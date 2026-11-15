@@ -215,6 +215,62 @@ fn a_blocked_send_says_why_and_a_failed_chain_lets_it_through() {
     );
 }
 
+/// A plugin whose manifest says a message doesn't go without it, and that
+/// trapped: the message is held back with a reason rather than sent as the
+/// person wrote it, which for a plugin that encrypts would be plain text.
+#[test]
+fn a_blocking_plugin_that_fails_holds_the_message_back() {
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    let plugin = installed(
+        directory.path(),
+        BLOCKING_HOOK_MANIFEST,
+        b"not a real module",
+    );
+    let (wake, notices) = notice_channel();
+    let shared = shared(directory.path(), wake);
+    let (_session_directory, mut session, written, _inbound) = session_stub();
+
+    let held = HeldSend {
+        id: 10,
+        draft: draft("secret"),
+        hook: HookKind::MessagePreSend,
+        chain: vec![plugin.clone()],
+        deadline: Instant::now() + Duration::from_millis(100),
+    };
+    let request = HookRequest {
+        hook: HookKind::MessagePreSend,
+        subject: HookSubject::Draft(draft("secret")),
+    };
+    runtime().block_on(session.on_command(&shared, Request::Hook { held, request }));
+    let _activate = next_frame(&written);
+    let hook = next_frame(&written);
+    let failed = Frame::new(
+        FrameKind::Report,
+        hook.id,
+        serde_json::to_vec(&FromHelper::HookDone {
+            outcome: HookOutcome::Unchanged,
+            failures: vec![(
+                plugin.clone(),
+                Fault {
+                    kind: yapfast_plugin_api::message::FaultKind::Trap,
+                    reason: "unreachable".to_owned(),
+                },
+            )],
+            by: None,
+        })
+        .expect("it serializes"),
+    );
+    assert!(session.on_frame(&shared, failed).is_none());
+    let notice = notices
+        .recv_timeout(Duration::from_secs(2))
+        .expect("a notice");
+    let Notice::SendBlocked { id, reason } = notice else {
+        panic!("the message doesn't go out unchecked: {notice:?}");
+    };
+    assert_eq!(id, 10);
+    assert!(reason.contains("Block"), "{reason}");
+}
+
 /// A plugin that answers `block` without `on_failure: "block"` in its
 /// manifest can't stop the send: the message goes as the person wrote it.
 /// The capability puts a plugin in the chain; only the manifest says its

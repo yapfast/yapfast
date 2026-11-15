@@ -105,7 +105,15 @@ impl Bridge {
         if !self.send(Request::Hook { held, request }) {
             // Nothing can run the chain, so the send goes as it was: the same
             // answer a plugin that traps gets, and the person isn't left with a
-            // message that will never leave.
+            // message that will never leave. Unless a plugin in it says a
+            // message doesn't go without it, which holds this one back.
+            if let Some(name) = super::types_session::blocker(&self.shared, hook, &chain) {
+                self.shared.announce(Notice::SendBlocked {
+                    id,
+                    reason: super::types_session::blocked_reason(&name, "plugins aren't running"),
+                });
+                return PreSend::Held { id };
+            }
             return PreSend::Send(draft);
         }
         PreSend::Held { id }

@@ -42,7 +42,8 @@ impl Session {
                     hook = %held.hook,
                     "a hook chain ran out of time; the subject goes as it was"
                 );
-                held.let_go(shared);
+                let chain = held.chain.clone();
+                held.fail(shared, &chain, "it ran out of time");
             }
             Purpose::Agent {
                 what,

@@ -14,7 +14,8 @@ pub(super) async fn stand_down(
 ) {
     while let Some(command) = commands.recv().await {
         if let Request::Hook { held, .. } = command {
-            held.let_go(shared);
+            let chain = held.chain.clone();
+            held.fail(shared, &chain, "plugins are off");
         }
     }
 }
