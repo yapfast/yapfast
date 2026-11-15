@@ -638,6 +638,14 @@ impl NetworkGate {
         self.grants.forget(plugin);
     }
 
+    /// Forgets a plugin that was uninstalled, its stored grants with it.
+    pub fn uninstalled(&self, plugin: &PluginId) {
+        self.forget(plugin);
+        if let Err(error) = self.grants.remove(plugin) {
+            tracing::warn!(%error, %plugin, "could not forget an uninstalled plugin's grants");
+        }
+    }
+
     /// Performs one request for `plugin`, or refuses it.
     ///
     /// `response_cap` is the manifest's `http_response_bytes`, clamped to what

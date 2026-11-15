@@ -363,6 +363,21 @@ impl Grants {
         state.runtime.remove(plugin);
     }
 
+    /// Forgets everything about a plugin that was removed, stored answers
+    /// included, and writes the file. A host allowed for one install would
+    /// otherwise be allowed again, without a question, for whatever is next
+    /// installed under that id.
+    pub fn remove(&self, plugin: &PluginId) -> Result<()> {
+        {
+            let mut state = self.state.write().unwrap_or_else(PoisonError::into_inner);
+            state.runtime.remove(plugin);
+            if state.stored.plugins.remove(plugin).is_none() {
+                return Ok(());
+            }
+        }
+        self.save()
+    }
+
     /// Writes the file, replacing it whole.
     pub fn save(&self) -> Result<()> {
         let mut state = self.state.write().unwrap_or_else(PoisonError::into_inner);
@@ -468,6 +483,25 @@ mod tests {
             reopened.ask(&plugin, &session),
             Ask::Asked,
             "a session answer is gone with the process"
+        );
+    }
+
+    #[test]
+    fn removing_a_plugin_forgets_its_stored_answers() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let path = directory.path().join("grants.json");
+        let plugin = id("com.example.weather");
+        let grants = Grants::load(&path).expect("a fresh file");
+        grants
+            .answer(&plugin, &host("api.example.com"), true, Lasts::Stored)
+            .expect("stored");
+        grants.remove(&plugin).expect("removed");
+        assert_eq!(grants.ask(&plugin, &host("api.example.com")), Ask::Asked);
+        let reopened = Grants::load(&path).expect("the file it wrote");
+        assert_eq!(
+            reopened.ask(&plugin, &host("api.example.com")),
+            Ask::Asked,
+            "a plugin installed again under the id is asked again"
         );
     }
 

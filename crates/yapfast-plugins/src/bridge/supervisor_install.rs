@@ -158,6 +158,11 @@ impl Bridge {
             }
             store.uninstall(plugin, delete_data)?;
         }
+        // What the person allowed it goes with it: the next plugin installed
+        // under this id is asked again.
+        if let Some(gate) = self.shared.gate() {
+            gate.uninstalled(plugin);
+        }
         for dependent in &stopping {
             self.announce(dependent);
         }

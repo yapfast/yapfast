@@ -278,6 +278,8 @@ request and not on the next start: the gate asks on every request rather than
 remembering an answer, a request already in flight finds nothing that would let
 it through, and a request waiting on a dialog about that host is refused at
 once. Turning a plugin off forgets its session answers and closes its dialog.
+Removing a plugin forgets its stored answers too, so whatever is installed under
+that id next is asked again.
 
 Disabling a plugin, or turning the plugin system off, stops all of this: no
 helper, no request, no dialog.
