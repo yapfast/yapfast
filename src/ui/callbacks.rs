@@ -3533,10 +3533,13 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 if adapter.meter.is_some() {
                     adapter.meter = Some(InputMeter::start(Some(&id)));
                 }
-                adapter.action(&window, Action::Voice(voice::Command::Microphone(id)));
+                adapter.action(
+                    &window,
+                    Action::Voice(voice::Command::Microphone(id.clone())),
+                );
                 #[cfg(feature = "discord")]
                 if adapter.gate_meter.is_some() {
-                    restart_gate_meter(&mut adapter, &window);
+                    restart_gate_meter(&mut adapter, &window, Some(&id), None);
                 }
             }
         }
@@ -3557,10 +3560,10 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             });
             if let Some(id) = id {
                 let mut adapter = state.borrow_mut();
-                adapter.action(&window, Action::Voice(voice::Command::Speaker(id)));
+                adapter.action(&window, Action::Voice(voice::Command::Speaker(id.clone())));
                 #[cfg(feature = "discord")]
                 if adapter.gate_meter.is_some() {
-                    restart_gate_meter(&mut adapter, &window);
+                    restart_gate_meter(&mut adapter, &window, None, Some(&id));
                 }
             }
         }
@@ -3776,7 +3779,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             if mode != 0
                 && let Some(window) = weak.upgrade()
             {
-                restart_gate_meter(&mut adapter, &window);
+                restart_gate_meter(&mut adapter, &window, None, None);
             }
         });
         let state = adapter.clone();
@@ -3802,12 +3805,17 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
 }
 
 #[cfg(feature = "discord")]
-fn restart_gate_meter(adapter: &mut Adapter, window: &YapfastWindow) {
+fn restart_gate_meter(
+    adapter: &mut Adapter,
+    window: &YapfastWindow,
+    microphone: Option<&str>,
+    speaker: Option<&str>,
+) {
     adapter.gate_meter = None;
     let voice = &adapter.app.state.voice;
     adapter.gate_meter = Some(yapfast_core::discord_audio::GateMeter::start(
-        voice.microphone.as_deref(),
-        voice.speaker.as_deref(),
+        microphone.or(voice.microphone.as_deref()),
+        speaker.or(voice.speaker.as_deref()),
         window.get_microphone_testing(),
     ));
 }

@@ -46,9 +46,12 @@ The test uses Discord voice's microphone processing, including the selected
 DeepFilterNet, RNNoise or Off setting, suppression strength, dereverberation,
 voice leveling and microphone volume. Changes take effect during the test;
 speaker volume applies to playback too. The preview is before the transmission
-gate and works without holding push to talk. It does not publish audio or change
-a running call's mute state. Stop testing, leave Voice & video, or close settings
-to stop playback. Changing either selected audio device restarts the test there.
+gate and works without holding push to talk. A segmented meter shows the
+processed microphone level beside the test button.
+The test temporarily mutes and deafens a running call, while its own playback
+stays audible. Stopping the test restores the call's previous mute and deafen
+state; closing the window does too. The test does not publish audio. Stop
+testing, leave Voice & video, or close settings to stop playback. Changing either selected audio device restarts the test there.
 
 ## Cameras
 

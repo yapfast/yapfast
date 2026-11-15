@@ -821,7 +821,9 @@ fn measure(
     shared: &MeterShared,
     playback: Option<SyncSender<[i16; BLOCK]>>,
 ) -> Result<()> {
-    crate::audio_io::raise_capture_priority();
+    if playback.is_some() {
+        crate::audio_io::raise_capture_priority();
+    }
     let mut stream = open_microphone(microphone)?;
     let mut processing = Processing::new(None);
     processing.preview = playback.is_some();

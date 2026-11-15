@@ -3089,10 +3089,18 @@ impl Adapter {
             {
                 return;
             }
+            // Moving an ongoing call to another channel keeps the original
+            // flags, rather than saving the temporary deafen as the baseline.
+            let (muted, deafened) = self
+                .microphone_test_mute
+                .as_ref()
+                .filter(|saved| saved.room.is_some() && voice.room.is_some())
+                .map(|saved| (saved.muted, saved.deafened))
+                .unwrap_or((voice.muted, voice.deafened));
             self.microphone_test_mute = Some(MicrophoneTestMute {
                 room: voice.room.clone(),
-                muted: voice.muted,
-                deafened: voice.deafened,
+                muted,
+                deafened,
             });
             if voice.active() {
                 let effects = self
