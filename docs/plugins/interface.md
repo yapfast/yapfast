@@ -238,7 +238,9 @@ until the answer comes: a decoration is worth a frame and not a wait, which is
 why the plugin has 16 ms.
 
 What the plugin is told is the row's own summary — the room, the message's id,
-who wrote it, what it says and whether this account wrote it. A plugin that
+who wrote it, what it says and whether this account wrote it. What it says is
+message content, so a plugin without `messages.read` is told the rest with the
+body empty. A plugin that
 wants the whole message reads it with `messages.get`, which is what
 `messages.read` is for. Nothing a plugin answers here changes the message: it is
 display only, and the plugin's name is above what it draws.

@@ -92,6 +92,7 @@ A read is the same: what it answers is what the capability names.
 | Keeping a deleted row on screen | `messages.retain`, declared and nothing more: the parent merges the row |
 | `identity.decorate`, the `identity` activation trigger | `people.read` |
 | `code_block.render`, the `code` activation trigger | `messages.read`: a block is message content |
+| The `body` of a `decorate` request | `messages.read`: without it the body is empty |
 
 `media.get` answers bytes of what the picture store already keeps: an
 attachment, an avatar or an emoji a conversation, a member list or a profile has

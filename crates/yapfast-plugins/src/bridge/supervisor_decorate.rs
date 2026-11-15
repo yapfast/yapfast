@@ -8,17 +8,41 @@ impl Bridge {
     /// long channel from costing one call per message, and a request that
     /// arrives while the helper has none is answered by the row staying plain.
     pub fn decorate(&mut self, rows: &[yapfast_plugin_api::message::DecorateRequest]) {
-        let plugins = self.shared.registry().decorators();
+        // What a message says is `messages.read`'s, here as for code blocks
+        // and events (PLAN.md §14: a plugin without it receives no message):
+        // a plugin that decorates without it is asked with the body left out,
+        // or one that also holds a network host could send every row on
+        // screen away.
+        let plugins: Vec<(PluginId, bool)> = {
+            let registry = self.shared.registry();
+            registry
+                .decorators()
+                .into_iter()
+                .map(|plugin| {
+                    let reads = registry.entry(&plugin).is_some_and(|entry| {
+                        entry
+                            .manifest
+                            .permissions
+                            .allows(yapfast_plugin_api::capability::Capability::MessagesRead)
+                    });
+                    (plugin, reads)
+                })
+                .collect()
+        };
         if plugins.is_empty() || rows.is_empty() {
             return;
         }
         // One pass asks about a screenful, and a screenful is the most a person
         // can see: more than this is a report the interface got wrong.
         for row in rows.iter().take(MAX_DECORATE_ROWS) {
-            for plugin in &plugins {
+            for (plugin, reads) in &plugins {
+                let mut request = row.clone();
+                if !reads {
+                    request.body.clear();
+                }
                 self.send(Request::Decorate {
                     plugin: plugin.clone(),
-                    request: row.clone(),
+                    request,
                 });
             }
         }
