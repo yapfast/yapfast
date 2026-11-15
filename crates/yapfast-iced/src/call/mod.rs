@@ -65,8 +65,12 @@ pub struct Call {
     pub spot: Cell<Rectangle>,
     /// The device list open in a device menu.
     pub listing: bool,
-    /// The share menu's choices, once its sources are listed.
+    /// The share menu's choices, once its sources are listed; while
+    /// they're being listed, which listing the menu waits for, by its
+    /// count (`listings`), so one answering after a cancel opens nothing.
     pub share: Option<popups::Share>,
+    pub share_listing: Option<u64>,
+    pub listings: u64,
     /// The corner picture's corner, and how far it's dragged from it.
     pub left: bool,
     pub bottom: bool,
@@ -368,10 +372,17 @@ impl App {
             }
         }
         self.call.ready = ready;
+        // The signal goes as the call stops measuring, its touch telling
+        // nothing of the pointer leaving it.
+        if !self.link_measured() {
+            self.call.details.pointed = false;
+        }
         let voice = &self.client.state().voice;
         if !voice.active() {
             self.call.full = false;
-            if matches!(self.call.popup, Some(Popup::Share | Popup::Soundboard)) {
+            if matches!(self.call.popup, Some(Popup::Share | Popup::Soundboard))
+                || self.call.share_listing.is_some()
+            {
                 self.close_popup();
             }
         }

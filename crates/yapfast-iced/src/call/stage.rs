@@ -329,10 +329,11 @@ pub fn tiles(
     (rects, content)
 }
 
-/// The pixels a tile of `bounds` shows at, while any of it is in the
-/// stage's `height` scrolled `scrolled` down.
-pub fn shown_at(bounds: Rectangle, scrolled: f32, height: f32) -> Option<(u32, u32)> {
-    let pixels = |side: f32| (side.round() as u32).max(2);
+/// The pixels a tile of `bounds` shows at in a window of `scale` pixels
+/// to the unit, while any of it is in the stage's `height` scrolled
+/// `scrolled` down.
+pub fn shown_at(bounds: Rectangle, scrolled: f32, height: f32, scale: f32) -> Option<(u32, u32)> {
+    let pixels = |side: f32| ((side * scale).round() as u32).max(2);
     let top = bounds.y - scrolled;
     (bounds.width > 0.0 && top < height && top + bounds.height > 0.0)
         .then(|| (pixels(bounds.width), pixels(bounds.height)))
@@ -394,9 +395,11 @@ impl App {
     }
 
     /// The stage shows: its call is open, here or above a DM's messages,
-    /// or full screen.
+    /// or full screen, in a window (closed to the tray, nothing shows).
     pub fn stage_shown(&self) -> bool {
-        self.voice_here() && (self.voice_panel() || self.dm_call().is_some()) || self.full_shown()
+        self.shell.window.is_some()
+            && (self.voice_here() && (self.voice_panel() || self.dm_call().is_some())
+                || self.full_shown())
     }
 
     /// The large tile is over the whole window.
@@ -435,7 +438,8 @@ impl App {
     /// What the corner picture shows while the call is off screen.
     pub fn corner(&self) -> Pip {
         let voice = &self.client.state().voice;
-        if !self.workspace() || !voice.active() || self.stage_shown() {
+        if self.shell.window.is_none() || !self.workspace() || !voice.active() || self.stage_shown()
+        {
             return Pip::None;
         }
         let watching = voice
@@ -490,7 +494,12 @@ impl App {
                 .feeds
                 .push((crate::settings::voice::CAMERA_TEST.to_owned(), feed.clone()));
         }
-        let corner_pixels = (CORNER.width as u32, CORNER.height as u32);
+        // In the window's pixels, as the Slint client asks (`tiles.rs`).
+        let scale = self.device_scale();
+        let corner_pixels = (
+            (CORNER.width * scale).round() as u32,
+            (CORNER.height * scale).round() as u32,
+        );
         for (place, slot) in slots.iter().enumerate() {
             let Slot::Person(index) = *slot else {
                 continue;
@@ -504,7 +513,7 @@ impl App {
                 Some(corner_pixels)
             } else {
                 shown
-                    .then(|| shown_at(tiles[place], self.call.scrolled, height))
+                    .then(|| shown_at(tiles[place], self.call.scrolled, height, scale))
                     .flatten()
             };
             feed.show_at(at);
@@ -578,7 +587,7 @@ impl App {
     /// on `behind` (none full screen).
     pub fn frame(&self, key: &str, corners: Option<(u32, u32)>) -> Option<Element<'_, Message>> {
         self.frames.get(key).map(|(handle, size)| {
-            let video = Video::new(handle.clone(), *size, Color::BLACK);
+            let video = Video::new(handle.clone(), *size, Color::BLACK).scale(self.device_scale());
             let video = match corners {
                 Some((radius, behind)) => video.corners(radius, behind),
                 None => video,
@@ -1162,7 +1171,7 @@ mod tests {
         assert!(focused[0].y > focused[1].y + focused[1].height);
         let (full, _) = tiles(2, Some(1), stage, true);
         assert_eq!(full[1], Rectangle::new(Point::ORIGIN, stage));
-        assert_eq!(shown_at(full[0], 0.0, stage.height), None, "alone");
+        assert_eq!(shown_at(full[0], 0.0, stage.height, 1.0), None, "alone");
     }
 
     #[test]
@@ -1171,10 +1180,10 @@ mod tests {
         let (grid, content) = tiles(12, None, stage, false);
         assert!(content > stage.height, "taller than the stage");
         let last = *grid.last().unwrap();
-        assert_eq!(shown_at(last, 0.0, stage.height), None, "below");
-        assert!(shown_at(last, content - stage.height, stage.height).is_some());
+        assert_eq!(shown_at(last, 0.0, stage.height, 1.0), None, "below");
+        assert!(shown_at(last, content - stage.height, stage.height, 1.0).is_some());
         assert_eq!(
-            shown_at(grid[0], content - stage.height, stage.height),
+            shown_at(grid[0], content - stage.height, stage.height, 1.0),
             None,
             "scrolled away"
         );
@@ -1183,9 +1192,11 @@ mod tests {
     #[test]
     fn a_tile_below_the_stage_has_no_frames_made() {
         let below = Rectangle::new(Point::new(0.0, 600.0), Size::new(300.0, 168.0));
-        assert_eq!(shown_at(below, 0.0, 598.0), None);
+        assert_eq!(shown_at(below, 0.0, 598.0, 1.0), None);
         let half = Rectangle::new(Point::new(0.0, 500.0), Size::new(300.4, 168.6));
-        assert_eq!(shown_at(half, 0.0, 598.0), Some((300, 169)));
+        assert_eq!(shown_at(half, 0.0, 598.0, 1.0), Some((300, 169)));
+        // In the window's pixels: twice as many on a display at 200%.
+        assert_eq!(shown_at(half, 0.0, 598.0, 2.0), Some((601, 337)));
     }
 
     fn person(id: &str, local: bool, streaming: bool, filming: bool) -> Participant {

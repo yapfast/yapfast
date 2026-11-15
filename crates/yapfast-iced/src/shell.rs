@@ -64,6 +64,11 @@ pub struct Shell {
     /// level's note while it shows, by its count.
     pub zoom: f32,
     pub zoom_note: Option<u64>,
+    /// The level was held to the first window's room, as it opened.
+    pub zoom_fitted: bool,
+    /// The display's own scale factor, as the window last said, which
+    /// the zoom multiplies.
+    pub display_scale: Option<f32>,
     /// The window's own title bar is drawn (`window_bar.rs`), its frame left
     /// out.
     pub own_title_bar: bool,
@@ -83,6 +88,9 @@ pub enum Event {
     Release,
     /// The zoom level's note is due to go.
     ZoomNoted(u64),
+    /// The display's scale factor, as the window opened or moved to
+    /// another display.
+    Scaled(window::Id, f32),
 }
 
 impl App {
@@ -145,7 +153,7 @@ impl App {
                 // Closed by the desktop rather than by Yapfast.
                 if self.shell.window == Some(id) {
                     self.shell.window = None;
-                    self.forget_window();
+                    return self.forget_window();
                 }
                 Task::none()
             }
@@ -159,7 +167,21 @@ impl App {
                 }
                 Task::none()
             }
+            Event::Scaled(id, scale) => {
+                if self.shell.window == Some(id) && self.shell.display_scale != Some(scale) {
+                    self.shell.display_scale = Some(scale);
+                    // Frames are made at the window's pixels.
+                    self.place_videos();
+                }
+                Task::none()
+            }
         }
+    }
+
+    /// The window's pixels to the app's units: the display's scale times
+    /// the zoom, which iced draws at.
+    pub fn device_scale(&self) -> f32 {
+        self.shell.display_scale.unwrap_or(1.0) * self.shell.zoom
     }
 
     fn heard(&mut self, heard: Heard) -> Task<Message> {
@@ -192,11 +214,9 @@ impl App {
                 if room == ABOUT {
                     return Task::batch([open, self.open_about()]);
                 }
-                if self.settings.is_some() {
-                    self.settings = None;
-                }
+                let closed = self.close_settings();
                 self.client.dispatch(Action::OpenChat(room));
-                Task::batch([open, self.sync()])
+                Task::batch([open, closed, self.sync()])
             }
             Heard::Launched { token, link } => {
                 tracing::info!("Yapfast started again; showing the window");
@@ -276,6 +296,7 @@ impl App {
             self.activate(id, token),
             self.open_pending_link(),
             self.read_window_state(),
+            window::scale_factor(id).map(move |scale| Message::Shell(Event::Scaled(id, scale))),
         ];
         if self.shell.maximized {
             tasks.push(window::maximize(id, true));
@@ -283,6 +304,8 @@ impl App {
         if self.workspace() && self.client.state().shows_text() {
             tasks.push(iced::widget::operation::focus(crate::composer::COMPOSER));
         }
+        // The call's videos show again.
+        self.place_videos();
         Task::batch(tasks)
     }
 
@@ -345,22 +368,27 @@ impl App {
             return Task::none();
         };
         self.shell.size = Some(self.shell.frame);
-        self.forget_window();
+        let forgot = self.forget_window();
         tracing::info!("window closed");
-        window::close(id)
+        Task::batch([forgot, window::close(id)])
     }
 
     /// What only the window used goes with it; the core's state stays, so
-    /// the next window shows it without asking again.
-    fn forget_window(&mut self) {
+    /// the next window shows it without asking again. Settings close as
+    /// their own button closes them, letting go of what they ran; the
+    /// call's popup goes with the microphone it may have open; the call's
+    /// videos stop being made for tiles nobody sees.
+    fn forget_window(&mut self) -> Task<Message> {
         self.shell.focused = false;
-        self.pictures.forget();
+        self.close_popup();
+        self.call.details.pointed = false;
         self.menu = None;
         self.picker = None;
         self.card = None;
-        if self.settings.is_some() {
-            self.settings = None;
-        }
+        let settings = self.close_settings();
+        self.place_videos();
+        self.pictures.forget();
+        settings
     }
 
     /// Ends Yapfast: the icon goes first, rather than when the desktop next
@@ -541,10 +569,33 @@ impl App {
         // so exactly.
         self.shell.frame = self.shell.frame * (level / next);
         self.fit_window();
+        self.place_videos();
         crate::layout::store(self.client.root(), "zoom", next);
         let count = self.shell.zoom_note.map_or(0, |count| count + 1);
         self.shell.zoom_note = Some(count);
         after(ZOOM_NOTE, Message::Shell(Event::ZoomNoted(count)))
+    }
+
+    /// The first window's size is known: a level kept from a larger
+    /// screen comes down to what its room allows, as the Slint client
+    /// starts at the saved level or less. Not kept: the next start on the
+    /// larger screen zooms as before.
+    pub fn fit_zoom(&mut self) {
+        if std::mem::replace(&mut self.shell.zoom_fitted, true) {
+            return;
+        }
+        let level = self.shell.zoom;
+        let width = (self.shell.frame.width * level) as u32;
+        let height = (self.shell.frame.height * level) as u32;
+        let fitted = level
+            .min(zoom::most(width, height, 1.0))
+            .max(zoom::LEVELS[0]);
+        if fitted < level {
+            tracing::info!(level, fitted, "the saved zoom doesn't fit the window");
+            self.shell.zoom = fitted;
+            self.shell.frame = self.shell.frame * (level / fitted);
+            self.fit_window();
+        }
     }
 
     /// What the window's frame says: its close button, its focus, gone.
@@ -560,6 +611,9 @@ impl App {
                 Some(Message::Shell(Event::Focused(id, false)))
             }
             iced::Event::Window(window::Event::Closed) => Some(Message::Shell(Event::Closed(id))),
+            iced::Event::Window(window::Event::Rescaled(scale)) => {
+                Some(Message::Shell(Event::Scaled(id, scale)))
+            }
             _ => None,
         })
     }

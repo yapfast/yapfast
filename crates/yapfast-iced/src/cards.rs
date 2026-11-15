@@ -344,10 +344,7 @@ impl App {
             container(
                 row![
                     self.glyph(Icon::TriangleAlert, 16, theme.danger),
-                    text(why.as_str())
-                        .size(14)
-                        .color(theme.danger)
-                        .width(Length::Fill)
+                    crate::form::error(theme, why.as_str()).width(Length::Fill)
                 ]
                 .spacing(6),
             )

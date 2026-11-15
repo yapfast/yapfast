@@ -8,7 +8,7 @@
 //! camera being tried, the Discord gate's meter (only while the gate's
 //! slider shows) and the push-to-talk key's recording.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use iced::{
     Alignment, Color, Element, Length, Task,
@@ -60,6 +60,8 @@ pub struct Voice {
     pub gate: Option<yapfast_core::discord_audio::GateMeter>,
     pub level: f32,
     pub sending: bool,
+    /// The soundboard's volume while its slider is dragged.
+    pub soundboard: Option<u32>,
     /// Entrance sounds: the server chosen ("All servers" first), and the
     /// sounds to choose from while that list is open.
     pub entrance_server: usize,
@@ -88,6 +90,9 @@ pub enum Event {
     EntranceServer(usize),
     Entrance(Option<String>),
     Meter,
+    /// Push to talk's watcher told where its key works, by the watch's
+    /// count.
+    Told(u64, String),
 }
 
 impl App {
@@ -257,8 +262,9 @@ impl App {
                 };
                 yapfast_core::push_to_talk::set_on(voice.input_mode == InputMode::PushToTalk);
                 crate::layout::store(&root, "input_mode", voice.input_mode);
-                self.watch_talk_key();
+                let watch = self.watch_talk_key();
                 self.meter_gate();
+                return Task::batch([watch, self.sync()]);
             }
             Event::Sensitivity(value, done) => {
                 let decibels = value as i32 - 80;
@@ -292,17 +298,22 @@ impl App {
                     tracing::info!(key = %key, "push-to-talk key recorded");
                     crate::layout::store(&root, "push_to_talk_key", &key);
                     self.layout.voice.push_to_talk_key = Some(key);
-                    self.watch_talk_key();
+                    return self.watch_talk_key();
                 }
                 return Task::none();
             }
             Event::SoundboardVolume(value, done) => {
-                if done {
-                    self.client
-                        .dispatch(Action::SoundboardVolume(value.min(100) as f32));
-                } else if let Some(settings) = &mut self.settings {
-                    settings.voice.level = value as f32;
+                let Some(settings) = &mut self.settings else {
+                    return Task::none();
+                };
+                if !done {
+                    settings.voice.soundboard = Some(value.min(100));
+                    return Task::none();
                 }
+                // Where the drag or the keys left it; the core puts it on
+                // the slider's curve.
+                let value = settings.voice.soundboard.take().unwrap_or(value).min(100);
+                self.client.dispatch(Action::SoundboardVolume(value as f32));
             }
             Event::EntranceServer(index) => {
                 if let Some(settings) = &mut self.settings {
@@ -335,6 +346,12 @@ impl App {
                 }
                 return Task::none();
             }
+            Event::Told(count, words) => {
+                if count == self.talk.count {
+                    self.talk.note = words;
+                }
+                return Task::none();
+            }
         }
         self.sync()
     }
@@ -342,11 +359,16 @@ impl App {
     /// Starts trying the camera chosen, or says why it can't.
     fn test_camera(&mut self) {
         let camera = self.client.state().voice.camera.clone();
+        // In the window's pixels.
+        let scale = self.device_scale();
         let Some(settings) = &mut self.settings else {
             return;
         };
         let feed = Feed::new();
-        feed.show_at(Some(PREVIEW));
+        feed.show_at(Some((
+            (PREVIEW.0 as f32 * scale).round() as u32,
+            (PREVIEW.1 as f32 * scale).round() as u32,
+        )));
         match yapfast_core::camera::Camera::open(camera.as_deref(), Box::new(feed.sink())) {
             Ok(camera) => settings.voice.camera = Some((camera, feed)),
             Err(error) => settings.voice.camera_note = error.to_string(),
@@ -356,25 +378,32 @@ impl App {
 
     /// Watches push to talk's key while it's the input mode, as the root
     /// crate's watcher does it; the old watcher goes first, ending its
-    /// portal session.
-    pub fn watch_talk_key(&mut self) {
+    /// portal session. What it tells of where the key works, from its own
+    /// thread, comes as a message ([`Event::Told`]) for the page's note.
+    pub fn watch_talk_key(&mut self) -> Task<Message> {
         self.talk.watcher = None;
-        let note = self.talk.note.clone();
-        if let Ok(mut note) = note.lock() {
-            note.clear();
-        }
+        self.talk.note.clear();
+        self.talk.count += 1;
         let Some(watch) = crate::talk_key_watcher() else {
-            return;
+            return Task::none();
         };
         let Some(key) = self.layout.voice.talk_key() else {
-            return;
+            return Task::none();
         };
-        let told = Box::new(move |words: String| {
-            if let Ok(mut note) = note.lock() {
-                *note = words;
-            }
+        let (sender, told) = tokio::sync::mpsc::unbounded_channel();
+        let tell = Box::new(move |words: String| {
+            let _ = sender.send(words);
         });
-        self.talk.watcher = watch(key, self.client.runtime(), told);
+        self.talk.watcher = watch(key, self.client.runtime(), tell);
+        // Ends as the watcher, which holds the sender, goes.
+        let count = self.talk.count;
+        Task::run(
+            iced::futures::stream::unfold(told, |mut told| async move {
+                let words = told.recv().await?;
+                Some((words, told))
+            }),
+            move |words| voice_message(Event::Told(count, words)),
+        )
     }
 
     pub(super) fn voice_page<'a>(&'a self, settings: &'a Settings) -> Element<'a, Message> {
@@ -526,7 +555,10 @@ impl App {
                     .then(|| self.frames.get(CAMERA_TEST))
                     .flatten()
                     .map(|(handle, size)| {
-                        Element::from(Video::new(handle.clone(), *size, Color::BLACK))
+                        Element::from(
+                            Video::new(handle.clone(), *size, Color::BLACK)
+                                .scale(self.device_scale()),
+                        )
                     });
             let grey = crate::style::hex(0xb5b8c1);
             let body = frame.unwrap_or_else(|| {
@@ -598,9 +630,11 @@ impl App {
             ]));
         }
         let state = self.client.state();
-        let board = yapfast_core::volume::to_slider(state.soundboard_volume / 100.0)
-            .round()
-            .clamp(0.0, 100.0) as u32;
+        let board = settings.voice.soundboard.unwrap_or_else(|| {
+            yapfast_core::volume::to_slider(state.soundboard_volume / 100.0)
+                .round()
+                .clamp(0.0, 100.0) as u32
+        });
         parts.push(form::group([
             form::heading(theme, "SOUNDBOARD VOLUME"),
             slider("Soundboard volume", board, 100, |value| {
@@ -761,11 +795,7 @@ impl App {
             "Push to talk is on, but no keybind is set, so your microphone sends nothing."
                 .to_owned()
         } else {
-            self.talk
-                .note
-                .lock()
-                .map(|note| note.clone())
-                .unwrap_or_default()
+            self.talk.note.clone()
         };
         let button = action(
             theme,
@@ -954,7 +984,7 @@ pub fn recorded(
 }
 
 /// The scan code winit gives the key: iced's codes are winit's by name.
-fn scancode(physical: key::Physical) -> Option<u32> {
+pub(crate) fn scancode(physical: key::Physical) -> Option<u32> {
     use winit::platform::scancode::PhysicalKeyExtScancode;
     let key::Physical::Code(code) = physical else {
         return None;
@@ -1122,11 +1152,30 @@ fn known_scancode(physical: key::Physical) -> Option<u32> {
     code
 }
 
-/// Push to talk's watcher and what it said of where the key works.
+impl App {
+    /// Whether a key, by where it is on the keyboard, is push to talk's,
+    /// while that's the input mode.
+    pub fn is_talk_key(&self, physical: key::Physical) -> bool {
+        let Some(kept) = self
+            .layout
+            .voice
+            .talk_key()
+            .and_then(|key| key.get("scancode"))
+            .and_then(serde_json::Value::as_u64)
+        else {
+            return false;
+        };
+        known_scancode(physical).is_some_and(|code| u64::from(code) == kept)
+    }
+}
+
+/// Push to talk's watcher and what it said of where the key works, and
+/// how many watches there have been, so a word from an old one is let go.
 #[derive(Default)]
 pub struct Talk {
     pub watcher: Option<Box<dyn std::any::Any>>,
-    pub note: Arc<Mutex<String>>,
+    pub note: String,
+    pub count: u64,
 }
 
 impl App {

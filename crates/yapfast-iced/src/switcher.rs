@@ -602,7 +602,7 @@ impl App {
             ..Padding::ZERO
         });
         if let Some(problem) = draft.error.as_deref().or(draft.problem()) {
-            foot = foot.push(text(problem).size(14).color(theme.danger));
+            foot = foot.push(form::error(theme, problem));
         }
         foot = foot.push(
             row![

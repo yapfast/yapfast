@@ -24,7 +24,7 @@ use crate::{
     menus::{Menu, MenuAct, MenuRow},
     pictures::Icon,
     style::rounded,
-    viewer::Viewer,
+    viewer::{GROUND, Viewer},
     widgets::RightPress,
 };
 
@@ -35,8 +35,6 @@ const ENDS: f32 = 128.0;
 /// window's edge.
 const STEP: f32 = 48.0;
 const STEP_GAP: f32 = 20.0;
-/// The viewer's ground.
-const GROUND: Color = Color::from_rgba(0.0, 0.0, 0.0, 0xe6 as f32 / 255.0);
 /// A step button's ground, and under the pointer.
 const STEP_GROUND: Color = Color::from_rgba(1.0, 1.0, 1.0, 0x1a as f32 / 255.0);
 const STEP_LIT: Color = Color::from_rgba(1.0, 1.0, 1.0, 0x33 as f32 / 255.0);

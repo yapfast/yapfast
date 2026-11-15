@@ -102,7 +102,7 @@ impl App {
             );
         }
         if let Some(error) = &core.error {
-            body = body.push(text(error.as_str()).size(14).color(theme.danger));
+            body = body.push(form::error(theme, error.as_str()));
         }
         let scroll = scrollable(column![self.editor_top(editor, core, inks, pad), body])
             .height(Length::Fill)

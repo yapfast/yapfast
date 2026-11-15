@@ -335,6 +335,11 @@ impl yapfast_iced::Updates for Shell {
         self.tell(Heard::Updates);
     }
 
+    fn installing(&self) -> bool {
+        let updating = self.lock_updates();
+        updating.installing.is_some() || updating.prepared.is_some()
+    }
+
     fn shown(&self, choices: &UpdateChoices) -> UpdatesShown {
         let updating = self.lock_updates();
         let mut shown = UpdatesShown {

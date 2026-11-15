@@ -355,7 +355,7 @@ impl App {
             ));
         }
         if let Some(error) = &dialog.error {
-            body = body.push(text(error.as_str()).size(14).color(theme.danger));
+            body = body.push(crate::form::error(theme, error.as_str()));
         }
         let kind = if prompt.danger {
             Kind::Danger

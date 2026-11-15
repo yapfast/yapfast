@@ -231,6 +231,8 @@ impl App {
     pub fn open_settings(&mut self, section: Section) -> Task<Message> {
         self.menu = None;
         self.close_popup();
+        // They cover the signal, whose touch says nothing as it's covered.
+        self.call.details.pointed = false;
         let settings = self.settings.get_or_insert_with(Default::default);
         settings.blocked_shown = 5;
         self.read_platform_choices();
@@ -286,7 +288,12 @@ impl App {
     }
 
     pub fn settings_event(&mut self, event: Event) -> Task<Message> {
-        if self.settings.is_none() && !matches!(event, Event::Open(_) | Event::Updates(_)) {
+        // What the push-to-talk watcher tells is kept for when they open.
+        let kept = matches!(
+            event,
+            Event::Open(_) | Event::Updates(_) | Event::Voice(voice::Event::Told(..))
+        );
+        if self.settings.is_none() && !kept {
             return Task::none();
         }
         match event {

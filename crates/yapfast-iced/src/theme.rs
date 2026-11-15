@@ -296,6 +296,7 @@ mod tests {
         assert!(!plum.dark, "Sakura's");
         assert_eq!(plum.chat, crate::style::hex(0x2a1a3a));
         themes.choose(folder.path(), "custom:1");
+        crate::layout::flush(folder.path());
         let written: serde_json::Value =
             serde_json::from_slice(&std::fs::read(folder.path().join(LAYOUT)).unwrap()).unwrap();
         assert_eq!(written["theme"], "custom:1");

@@ -12,7 +12,7 @@
 use std::borrow::Cow;
 
 use iced::{
-    Alignment, Border, Color, Element, Length,
+    Alignment, Border, Color, Element, Length, Task,
     widget::{Space, button, column, container, row, scrollable, text, text_input},
 };
 
@@ -70,6 +70,11 @@ pub fn note<'a>(theme: &Theme, words: impl text::IntoFragment<'a>) -> Element<'a
 /// A [`note`] in another ink: an error's, the accent's.
 pub fn note_in<'a>(words: impl text::IntoFragment<'a>, ink: Color) -> Element<'a, Message> {
     text(words).size(13).color(ink).width(Length::Fill).into()
+}
+
+/// What went wrong, on a form or a dialog: 14 px in the danger's ink.
+pub fn error<'a>(theme: &Theme, words: impl text::IntoFragment<'a>) -> iced::widget::Text<'a> {
+    text(words).size(14).color(theme.danger)
 }
 
 /// The line between a page's parts.
@@ -883,9 +888,9 @@ impl Unsaved {
 /// How the unsaved bar shakes, as the Slint client's: each time leaving is
 /// refused for the changes (the core's nudge goes up) it goes red for a
 /// little over a second and jumps side to side six times. Its owner keeps
-/// it and calls [`Shake::follow`] with each nudge, then [`Shake::tick`]
-/// every [`SHAKE_STEP`] while it says, and [`Shake::calm`] after
-/// [`SHAKE_RED`].
+/// it, hands [`Shake::start`] each nudge and [`Shake::step`] each step the
+/// tasks send back, through one event of its own that carries a
+/// [`ShakeStep`].
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Shake {
     seen: u32,
@@ -893,29 +898,44 @@ pub struct Shake {
     pub red: bool,
 }
 
-pub const SHAKE_STEP: std::time::Duration = std::time::Duration::from_millis(60);
-pub const SHAKE_RED: std::time::Duration = std::time::Duration::from_millis(1200);
+/// What a shake's timer says: move again, or the red is over.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShakeStep {
+    Move,
+    Calm,
+}
+
+const SHAKE_STEP: std::time::Duration = std::time::Duration::from_millis(60);
+const SHAKE_RED: std::time::Duration = std::time::Duration::from_millis(1200);
 
 impl Shake {
-    /// Takes the core's nudge: whether it went up, so the shake starts.
-    pub fn follow(&mut self, nudge: u32) -> bool {
+    /// Takes the core's nudge; when it went up the shake starts, its
+    /// steps coming back as `send` makes them.
+    pub fn start(&mut self, nudge: u32, send: impl Fn(ShakeStep) -> Message) -> Task<Message> {
         if nudge == self.seen {
-            return false;
+            return Task::none();
         }
         self.seen = nudge;
         self.left = 6;
         self.red = true;
-        true
+        Task::batch([
+            crate::after(SHAKE_STEP, send(ShakeStep::Move)),
+            crate::after(SHAKE_RED, send(ShakeStep::Calm)),
+        ])
     }
 
-    /// One step of the shake: whether another is due.
-    pub fn tick(&mut self) -> bool {
-        self.left = self.left.saturating_sub(1);
-        self.left > 0
-    }
-
-    pub fn calm(&mut self) {
-        self.red = false;
+    /// One of its steps: the next move, if another is due.
+    pub fn step(&mut self, step: ShakeStep, send: impl Fn(ShakeStep) -> Message) -> Task<Message> {
+        match step {
+            ShakeStep::Move => {
+                self.left = self.left.saturating_sub(1);
+                if self.left > 0 {
+                    return crate::after(SHAKE_STEP, send(ShakeStep::Move));
+                }
+            }
+            ShakeStep::Calm => self.red = false,
+        }
+        Task::none()
     }
 
     /// How far the bar's contents stand from their place.
@@ -985,4 +1005,27 @@ pub fn area<'a>(
     ]
     .spacing(4)
     .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Shake, ShakeStep};
+    use crate::app::Message;
+
+    #[test]
+    fn a_shake_starts_on_a_new_nudge_moves_six_times_and_calms() {
+        let send = |_| Message::Nothing;
+        let mut shake = Shake::default();
+        assert_eq!(shake.start(0, send).units(), 0, "no nudge yet");
+        assert!(shake.start(1, send).units() > 0);
+        assert!(shake.red);
+        assert_eq!(shake.start(1, send).units(), 0, "the same nudge again");
+        let moves = (0..10)
+            .take_while(|_| shake.step(ShakeStep::Move, send).units() > 0)
+            .count();
+        assert_eq!(moves, 5, "six places, the last at rest");
+        assert_eq!(shake.offset(), 0.0);
+        let _ = shake.step(ShakeStep::Calm, send);
+        assert!(!shake.red);
+    }
 }

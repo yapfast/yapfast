@@ -429,6 +429,8 @@ fn a_community_without_events_says_so_and_a_server_without_a_bar_shows_none() {
 #[test]
 fn the_window_size_follows_a_resize() {
     let (mut app, _folder) = discord_server(0, |_, _| {});
+    // As it opens, then resized smaller than it lays out in.
+    let _ = app.update(Message::Resized(app.shell.frame));
     let size = iced::Size::new(700.0, 500.0);
     let _ = app.update(Message::Resized(size));
     assert_eq!(app.window, size);

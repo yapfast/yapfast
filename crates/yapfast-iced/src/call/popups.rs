@@ -78,7 +78,8 @@ impl std::fmt::Debug for Listing {
 /// What's done in the share menu.
 #[derive(Clone, Debug)]
 pub enum ShareEvent {
-    Listed(Arc<Listing>),
+    /// The sources listed, by the listing's count.
+    Listed(u64, Arc<Listing>),
     /// A screen's picture, by the screen's id.
     Picture(u64, Handle),
     Pick(usize),
@@ -102,7 +103,9 @@ pub struct Volumes {
 
 impl App {
     pub(super) fn open_popup(&mut self, popup: Popup) -> Task<Message> {
-        if self.call.popup == Some(popup) {
+        // A second click closes it, or cancels the share menu's listing.
+        let listing = popup == Popup::Share && self.call.share_listing.is_some();
+        if self.call.popup == Some(popup) || listing {
             self.close_popup();
             return Task::none();
         }
@@ -134,8 +137,14 @@ impl App {
                 }
                 self.call.popup = Some(popup);
             }
-            // Shown once its sources are listed, so it opens at its height.
-            Popup::Share => return list_sources(),
+            // Shown once its sources are listed, so it opens at its height;
+            // meanwhile it's as good as open (Escape or a click elsewhere
+            // cancels it).
+            Popup::Share => {
+                self.call.listings += 1;
+                self.call.share_listing = Some(self.call.listings);
+                return Task::batch([list_sources(self.call.listings), operation::focus(NOBODY)]);
+            }
             Popup::Link => {
                 self.call.popup = Some(popup);
                 self.read_link();
@@ -153,6 +162,7 @@ impl App {
             self.read_link();
         }
         self.call.share = None;
+        self.call.share_listing = None;
         self.call.listing = false;
         self.call.meter = None;
         self.call.level = 0.0;
@@ -160,8 +170,13 @@ impl App {
 
     pub(super) fn share_event(&mut self, event: ShareEvent) -> Task<Message> {
         match event {
-            ShareEvent::Listed(listing) => {
+            ShareEvent::Listed(count, listing) => {
                 use yapfast_core::stream_worker::Source;
+                // Only the listing the menu waits for, in a call.
+                if self.call.share_listing != Some(count) || !self.client.state().voice.active() {
+                    return Task::none();
+                }
+                self.call.share_listing = None;
                 let (mut screens, mut windows, mut cameras) = (vec![], vec![], vec![]);
                 for listed in &listing.0 {
                     match listed.source {
@@ -1242,16 +1257,17 @@ fn device_label(name: &str) -> String {
 /// Lists what can be shared beside the window, as listing starts a
 /// capturer for screens and one for windows and looks at each camera; the
 /// menu opens when it's done.
-fn list_sources() -> Task<Message> {
-    Task::done(()).then(|()| {
+fn list_sources(count: u64) -> Task<Message> {
+    Task::done(()).then(move |()| {
         let (sender, receiver) = iced::futures::channel::oneshot::channel();
         std::thread::spawn(move || {
             let _ = sender.send(yapfast_core::stream_worker::shareable());
         });
-        Task::perform(receiver, |listed| {
-            Message::Call(Event::Share(ShareEvent::Listed(Arc::new(Listing(
-                listed.unwrap_or_default(),
-            )))))
+        Task::perform(receiver, move |listed| {
+            Message::Call(Event::Share(ShareEvent::Listed(
+                count,
+                Arc::new(Listing(listed.unwrap_or_default())),
+            )))
         })
     })
 }

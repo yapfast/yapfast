@@ -24,7 +24,7 @@ use std::path::PathBuf;
 
 use iced::{
     Element, Length, Task,
-    widget::{column, operation, text},
+    widget::{column, operation},
 };
 use yapfast_core::{
     application::{
@@ -100,8 +100,7 @@ pub enum Event {
     Undo,
     Save,
     /// The bar's shake steps and its red ending.
-    Shake,
-    Calm,
+    Shake(form::ShakeStep),
     Role(RoleInput),
     RoleLocal(roles::Event),
     Member(MemberInput),
@@ -171,10 +170,11 @@ impl App {
             screen.focused = field;
             tasks.extend(field.map(|id| operation::focus(iced::widget::Id::new(id))));
         }
-        if screen.shake.follow(nudge) {
-            tasks.push(crate::after(form::SHAKE_STEP, message(Event::Shake)));
-            tasks.push(crate::after(form::SHAKE_RED, message(Event::Calm)));
-        }
+        tasks.push(
+            screen
+                .shake
+                .start(nudge, |step| message(Event::Shake(step))),
+        );
         Task::batch(tasks)
     }
 
@@ -275,21 +275,13 @@ impl App {
             Event::Remove(kind) => Action::RemoveServerPicture(kind),
             Event::Undo => Action::UndoServerSettings,
             Event::Save => Action::SaveServerSettings,
-            Event::Shake => {
-                let Some(screen) = self.server_screen.as_mut() else {
-                    return Task::none();
-                };
-                return if screen.shake.tick() {
-                    crate::after(form::SHAKE_STEP, message(Event::Shake))
-                } else {
-                    Task::none()
-                };
-            }
-            Event::Calm => {
-                if let Some(screen) = self.server_screen.as_mut() {
-                    screen.shake.calm();
-                }
-                return Task::none();
+            Event::Shake(step) => {
+                return self
+                    .server_screen
+                    .as_mut()
+                    .map_or_else(Task::none, |screen| {
+                        screen.shake.step(step, |step| message(Event::Shake(step)))
+                    });
             }
             Event::Role(input) => {
                 // Add members' search takes the keys as it opens.
@@ -421,10 +413,10 @@ impl App {
             page = page.push(view);
         }
         if let Some(problem) = core.problem() {
-            page = page.push(text(problem).size(14).color(theme.danger));
+            page = page.push(form::error(theme, problem));
         }
         if let Some(error) = &core.error {
-            page = page.push(text(error.as_str()).size(14).color(theme.danger));
+            page = page.push(form::error(theme, error.as_str()));
         }
         let bar = ((core.changed() || core.saving) && !core.immediate()).then(|| {
             form::Unsaved {

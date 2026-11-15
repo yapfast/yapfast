@@ -120,6 +120,62 @@ fn call_volumes_play_while_dragged_and_are_remembered() {
     crate::layout::Voice::default().play_volumes();
 }
 
+/// What a listing of the screens and windows says, as it comes.
+fn listed(count: u64) -> Event {
+    use crate::call::{Listing, ShareEvent};
+    let listed = vec![Shareable {
+        source: Source::Display(1),
+        title: "Entire screen".into(),
+    }];
+    Event::Share(ShareEvent::Listed(
+        count,
+        std::sync::Arc::new(Listing(listed)),
+    ))
+}
+
+#[test]
+fn the_share_menu_waits_for_its_own_listing_and_a_cancel_drops_it() {
+    use iced::keyboard::{Key, key};
+    let (mut app, _folder, _) = in_call();
+    // Escape while it's listed cancels it: what's listed after opens nothing.
+    let _ = app.call_event(Event::Open(Popup::Share));
+    let first = app.call.share_listing.expect("listing");
+    let _ = app.update(crate::app::Message::Key(
+        Key::Named(key::Named::Escape),
+        Default::default(),
+    ));
+    assert_eq!(app.call.share_listing, None, "Escape cancels it");
+    let _ = app.call_event(listed(first));
+    assert_eq!(app.call.popup, None, "nothing opens after the cancel");
+    // A second click on Go Live cancels it too, and a third lists anew,
+    // which the first listing's late answer doesn't open.
+    let _ = app.call_event(Event::Open(Popup::Share));
+    let _ = app.call_event(Event::Open(Popup::Share));
+    assert_eq!(app.call.share_listing, None);
+    let _ = app.call_event(Event::Open(Popup::Share));
+    let third = app.call.share_listing.expect("listing again");
+    let _ = app.call_event(listed(first));
+    assert_eq!(app.call.popup, None, "an older listing's answer");
+    // The input menu opened meanwhile stays.
+    let _ = app.call_event(Event::Open(Popup::Input));
+    let _ = app.call_event(listed(third));
+    assert_eq!(app.call.popup, Some(Popup::Input));
+    // Out of the call, its listing opens nothing.
+    let _ = app.call_event(Event::Open(Popup::Share));
+    let fourth = app.call.share_listing.expect("listing");
+    app.client
+        .dispatch(Action::Voice(yapfast_core::voice::Command::Leave));
+    let _ = app.sync();
+    let _ = app.call_event(listed(fourth));
+    assert_eq!(app.call.popup, None, "left the call meanwhile");
+    // Its own answer, in the call, opens it.
+    let (mut app, _folder, _) = in_call();
+    let _ = app.call_event(Event::Open(Popup::Share));
+    let count = app.call.share_listing.expect("listing");
+    let _ = app.call_event(listed(count));
+    assert_eq!(app.call.popup, Some(Popup::Share));
+}
+
 #[test]
 fn the_share_menu_fits_a_short_window_and_keeps_its_button() {
     use crate::call::{Listing, ShareEvent};
@@ -144,9 +200,12 @@ fn the_share_menu_fits_a_short_window_and_keeps_its_button() {
         Point::new(500.0, 500.0),
         Size::new(52.0, 52.0),
     ));
-    let _ = app.call_event(Event::Share(ShareEvent::Listed(std::sync::Arc::new(
-        Listing(listed),
-    ))));
+    let _ = app.call_event(Event::Open(Popup::Share));
+    let count = app.call.share_listing.expect("listing");
+    let _ = app.call_event(Event::Share(ShareEvent::Listed(
+        count,
+        std::sync::Arc::new(Listing(listed)),
+    )));
     assert_eq!(app.call.popup, Some(Popup::Share));
     let mut go = None;
     interact(&mut app, |ui| {
@@ -320,4 +379,24 @@ fn the_banners_show_over_a_voice_channels_call_too() {
     });
     assert!(app.voice_panel(), "the call's view");
     assert!(shows(&app, "Discord asked Yapfast to slow down."));
+}
+
+#[test]
+fn cameras_are_made_at_the_windows_pixels_on_a_scaled_display() {
+    let (mut app, _folder, _) = in_call();
+    let feed = yapfast_core::picture::Feed::new();
+    let camera = feed.clone();
+    super::change(&mut app, move |state| {
+        state.voice.participants[0].video = Some(camera);
+    });
+    let (width, height) = feed.shown_at().expect("made for its tile");
+    let id = app.shell.window.expect("the window");
+    let _ = app.update(crate::app::Message::Shell(crate::shell::Event::Scaled(
+        id, 2.0,
+    )));
+    let (wide, tall) = feed.shown_at().expect("made for its tile");
+    assert!(
+        wide.abs_diff(width * 2) <= 1 && tall.abs_diff(height * 2) <= 1,
+        "{width}x{height} at 100%, {wide}x{tall} at 200%"
+    );
 }

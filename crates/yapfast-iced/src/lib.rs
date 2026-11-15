@@ -297,7 +297,7 @@ pub fn run(
         (app, Task::batch([task, shell]))
     };
     tracing::info!(background = options.background, "starting the iced window");
-    iced::daemon(boot, App::update, App::view_of)
+    let ran = iced::daemon(boot, App::update, App::view_of)
         .executor::<Exec>()
         .subscription(App::subscription)
         .title(App::title)
@@ -306,7 +306,10 @@ pub fn run(
         .theme(|app: &App, _| app.theme())
         .scale_factor(App::scale_factor)
         .run()
-        .map_err(|error| anyhow::anyhow!("the iced window failed: {error}"))?;
+        .map_err(|error| anyhow::anyhow!("the iced window failed: {error}"));
+    // What the window changed last is written before Yapfast ends.
+    layout::flush_all();
+    ran?;
     Ok(*EXIT
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner))

@@ -376,3 +376,38 @@ fn an_at_words_suggestions_follow_the_members_as_they_change() {
     assert!(app.suggesting(crate::composer::Writing::Draft));
     assert!(shows(&app, "Zoe"), "suggested once she's a member");
 }
+
+#[test]
+fn push_to_talks_own_key_types_nothing_in_a_call_and_the_others_do() {
+    use yapfast_core::application::Action;
+    let (mut app, _folder) = preview();
+    // In the preview's call, a channel open to write in.
+    for room in ["lounge", "general"] {
+        app.client.dispatch(Action::SelectRoom(room.into()));
+        let _ = app.sync();
+    }
+    assert!(app.client.state().voice.active(), "the preview joins");
+    super::change(&mut app, |state| state.voice.muted = false);
+    let v = key::Physical::Code(key::Code::KeyV);
+    app.layout.voice.input_mode = crate::layout::InputMode::PushToTalk;
+    app.layout.voice.push_to_talk_key = Some(serde_json::json!({
+        "scancode": crate::settings::voice::scancode(v).expect("V's scan code"),
+        "name": "V",
+    }));
+    let press = |app: &mut crate::app::App, text: &str, code: key::Code| {
+        let _ = app.update(Message::Pressed(
+            keyboard::Key::Character(text.into()),
+            keyboard::Modifiers::default(),
+            key::Physical::Code(code),
+        ));
+    };
+    // Other keys type while it's held; its own press doesn't.
+    press(&mut app, "h", key::Code::KeyH);
+    press(&mut app, "v", key::Code::KeyV);
+    press(&mut app, "i", key::Code::KeyI);
+    assert_eq!(app.draft.text(), "hi");
+    // Muted, it sends nothing, so it types.
+    super::change(&mut app, |state| state.voice.muted = true);
+    press(&mut app, "v", key::Code::KeyV);
+    assert_eq!(app.draft.text(), "hiv");
+}

@@ -82,7 +82,8 @@ const CLIP_BUTTON: f32 = 28.0;
 const TRACK: f32 = 4.0;
 /// The ground of the play mark, a pill's and the bar's foot.
 const CLIP_DIM: Color = Color::from_rgba8(0, 0, 0, 0xb3 as f32 / 255.0);
-const CLIP_SHADE: Color = Color::from_rgba8(0, 0, 0, 0.8);
+/// A note's and the volume slider's ground over a video.
+pub const CLIP_SHADE: Color = Color::from_rgba8(0, 0, 0, 0.8);
 const TRACK_REST: Color = Color::from_rgba8(255, 255, 255, 0.3);
 /// How far the volume's slider rises over its button.
 const VOLUME_RISE: f32 = 112.0;
@@ -452,7 +453,9 @@ impl App {
         if failed.is_none()
             && let Some((handle, frame_size)) = frame
         {
-            layers = layers.push(Video::new(handle.clone(), *frame_size, Color::BLACK));
+            layers = layers.push(
+                Video::new(handle.clone(), *frame_size, Color::BLACK).scale(self.device_scale()),
+            );
         }
         let ended = playing.is_some_and(|video| video.ended);
         if playing.is_none() || failed.is_some() || (ended && !pointed) {
@@ -671,7 +674,7 @@ impl App {
                 .padding([14, 0])
                 .width(CLIP_BUTTON)
                 .height(VOLUME_RISE - 4.0)
-                .style(|_| rounded(Color::from_rgba8(0, 0, 0, 0.8), 6)),
+                .style(|_| rounded(CLIP_SHADE, 6)),
         )
         .on_enter(Message::Clip(Clip::VolumeHover(true)))
         .on_exit(Message::Clip(Clip::VolumeHover(false)))
@@ -683,7 +686,9 @@ impl App {
         let video = self.client.state().video.as_ref();
         match clip {
             Clip::Play(item, index, size) => {
-                let pixels = |side: f32| (side.round() as u32).max(1);
+                // In the window's pixels, as the Slint client asks.
+                let scale = self.device_scale();
+                let pixels = |side: f32| ((side * scale).round() as u32).max(1);
                 self.clip_time = None;
                 self.clip_cell = (pixels(size.width), pixels(size.height));
                 self.client.dispatch(Action::PlayVideo {
@@ -730,7 +735,8 @@ impl App {
                 let (width, height) = if self.clip_full {
                     let size =
                         crate::viewer::fitted(self.window, video.and_then(|video| video.size));
-                    (size.width as u32, size.height as u32)
+                    let scale = self.device_scale();
+                    ((size.width * scale) as u32, (size.height * scale) as u32)
                 } else {
                     self.clip_cell
                 };

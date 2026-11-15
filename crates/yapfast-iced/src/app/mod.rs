@@ -266,8 +266,10 @@ pub struct App {
     /// The quick switcher's places and the one Enter goes to.
     pub quick: crate::switcher::Quick,
     pub build: crate::settings::Build,
-    /// Push to talk's watcher while it's the input mode.
+    /// Push to talk's watcher while it's the input mode, and whether the
+    /// key being handled is its key, which types nothing during a call.
     pub talk: crate::settings::voice::Talk,
+    pub talk_pressed: bool,
     /// A message's video full screen; the size its cell asked for its
     /// frames at; the pointer on its volume's button or slider.
     pub clip_full: bool,
@@ -320,10 +322,13 @@ impl App {
         layout.prefs.apply_clock();
         yapfast_core::discord::set_custom_games(&layout.prefs.game_executables);
         client.share_typing = layout.prefs.share_typing.unwrap_or(true);
+        // The window opens at its size in the desktop's pixels whatever
+        // the zoom, as the Slint client's, and its layout gets fewer.
+        let zoom = crate::zoom::saved(layout.zoom);
         let shell = crate::shell::Shell {
-            zoom: crate::zoom::saved(layout.zoom),
+            zoom,
             own_title_bar: crate::window_bar::own(layout.system_title_bar),
-            frame: Size::new(width, height),
+            frame: Size::new(width / zoom, height / zoom),
             ..Default::default()
         };
         let mut app = Self {
@@ -433,6 +438,7 @@ impl App {
             quick: Default::default(),
             build: crate::build(),
             talk: Default::default(),
+            talk_pressed: false,
             clip_full: false,
             clip_cell: (0, 0),
             clip_volume: 0,
@@ -454,7 +460,7 @@ impl App {
             wait: mfa::Wait::default(),
         };
         app.fit_window();
-        app.watch_talk_key();
+        let talk = app.watch_talk_key();
         if app.layout.voice.noise_suppression != yapfast_core::noise::Suppressor::Off {
             app.call.noise_last = app.layout.voice.noise_suppression;
         }
@@ -474,7 +480,7 @@ impl App {
             Task::none()
         };
         let away = app.watch_away();
-        (app, Task::batch([sync, frames, focus, away]))
+        (app, Task::batch([sync, frames, focus, away, talk]))
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
@@ -600,6 +606,12 @@ impl App {
                 Task::batch([self.sync(), self.refocus()])
             }
             Message::Key(key, modifiers) => self.key(key, modifiers),
+            Message::Pressed(key, modifiers, physical) => {
+                self.talk_pressed = self.is_talk_key(physical);
+                let task = self.key(key, modifiers);
+                self.talk_pressed = false;
+                task
+            }
             Message::Modifiers(modifiers) => {
                 self.modifiers = modifiers;
                 Task::none()
@@ -705,6 +717,7 @@ impl App {
             Message::ServerSettings(event) => self.server_settings_event(event),
             Message::Resized(size) => {
                 self.shell.frame = size;
+                self.fit_zoom();
                 let fitted = self.active_now_fits();
                 self.fit_window();
                 if self.active_now_fits() == fitted {

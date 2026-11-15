@@ -32,7 +32,6 @@ pub const TOKEN: &str = "sign-in-token";
 pub const RECOVERY: &str = "sign-in-recovery";
 
 /// What the sign-in screen holds as it's filled in.
-#[derive(Debug)]
 pub struct SignIn {
     pub homeserver: String,
     pub username: String,
@@ -72,8 +71,29 @@ impl Default for SignIn {
     }
 }
 
+impl std::fmt::Debug for SignIn {
+    /// Without the password, token or recovery key a log line could keep.
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("SignIn")
+            .field("homeserver", &self.homeserver)
+            .field("username", &self.username)
+            .field("token_open", &self.token_open)
+            .field("restore_available", &self.restore_available)
+            .field("starting", &self.starting)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Lets go of a secret typed in, its bytes overwritten first so the freed
+/// memory doesn't keep it.
+pub fn forget(secret: &mut String) {
+    let mut bytes = std::mem::take(secret).into_bytes();
+    bytes.fill(0);
+}
+
 /// What's done on the sign-in screen and the verify banner.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum Event {
     Homeserver(String),
     Username(String),
@@ -92,6 +112,29 @@ pub enum Event {
     Recovery(String),
     Recover,
     RefreshTrust,
+}
+
+impl std::fmt::Debug for Event {
+    /// The secrets typed in show as their kind only.
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            Event::Homeserver(text) => return write!(formatter, "Homeserver({text:?})"),
+            Event::Username(text) => return write!(formatter, "Username({text:?})"),
+            Event::Password(_) => "Password(..)",
+            Event::Login => "Login",
+            Event::Restore => "Restore",
+            Event::Preview => "Preview",
+            Event::ShowCode => "ShowCode",
+            Event::OpenToken => "OpenToken",
+            Event::Token(_) => "Token(..)",
+            Event::LinkToken => "LinkToken",
+            Event::OpenCaptcha => "OpenCaptcha",
+            Event::Recovery(_) => "Recovery(..)",
+            Event::Recover => "Recover",
+            Event::RefreshTrust => "RefreshTrust",
+        };
+        formatter.write_str(name)
+    }
 }
 
 /// Whether this build signs in with Matrix; one without links Discord.
@@ -119,7 +162,7 @@ impl App {
                 });
                 // As the Slint client: the password goes once it's on its way.
                 if !busy && self.client.state().busy {
-                    self.sign_in.password.clear();
+                    forget(&mut self.sign_in.password);
                 }
                 return self.sync();
             }
@@ -156,7 +199,7 @@ impl App {
                 self.client
                     .dispatch(Action::Recover(self.sign_in.recovery.clone()));
                 if !busy && self.client.state().busy {
-                    self.sign_in.recovery.clear();
+                    forget(&mut self.sign_in.recovery);
                 }
                 return self.sync();
             }
@@ -178,6 +221,12 @@ impl App {
         if state.preview || state.account.is_some() {
             self.sign_in.code = None;
             self.sign_in.starting = false;
+            // Linked: the token pasted, kept until now to fix a refused
+            // one, goes with its field.
+            if state.account.is_some() && !self.sign_in.token.is_empty() {
+                forget(&mut self.sign_in.token);
+                self.sign_in.token_open = false;
+            }
             return;
         }
         match &state.discord_link {
@@ -366,12 +415,7 @@ impl App {
                 });
                 let mut panel = column![warning].spacing(12).width(Length::Fill);
                 if let Some(DiscordLink::Failed(note)) = link {
-                    panel = panel.push(
-                        text(note.clone())
-                            .size(14)
-                            .color(theme.danger)
-                            .width(Length::Fill),
-                    );
+                    panel = panel.push(crate::form::error(theme, note.clone()).width(Length::Fill));
                 }
                 let again = link.is_some() && !form.token_open;
                 let mut buttons = row![action(

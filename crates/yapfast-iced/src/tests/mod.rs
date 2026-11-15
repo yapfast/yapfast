@@ -47,7 +47,10 @@ fn start(folder: &tempfile::TempDir, preview: bool) -> App {
     if preview {
         client.dispatch(Action::Preview);
     }
-    App::new(client, (1120, 760)).0
+    let mut app = App::new(client, (1120, 760)).0;
+    // As the window opens.
+    app.shell.window = Some(iced::window::Id::unique());
+    app
 }
 
 /// The Twemoji font for the tests that draw or offer emoji, made from
@@ -354,9 +357,10 @@ fn the_theme_command_switches_the_colours_and_keeps_the_choice() {
     assert_eq!(app.theme.id, "sakura");
     assert!(!app.theme.dark);
     assert_eq!(app.theme().palette().background, app.theme.chat);
-    let layout: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(folder.path().join("layout.json")).expect("the layout"),
-    )
+    let layout: serde_json::Value = serde_json::from_slice(&{
+        crate::layout::flush(folder.path());
+        std::fs::read(folder.path().join("layout.json")).expect("the layout")
+    })
     .expect("JSON");
     assert_eq!(layout["theme"], "sakura");
     // A theme Yapfast doesn't have changes nothing.
@@ -415,6 +419,10 @@ fn without_an_account_the_sign_in_screen_shows_and_the_preview_leaves_it() {
         });
         assert_eq!(app.sign_in.token, "a-token");
         assert!(shows(&app, "Link"));
+        // Neither a log line of what's typed nor of the screen tells it.
+        let typed = signin::Event::Token("a-token".into());
+        assert!(!format!("{typed:?}").contains("a-token"));
+        assert!(!format!("{:?}", app.sign_in).contains("a-token"));
     }
     interact(&mut app, |ui| {
         ui.click("Explore local preview").expect("the preview");
@@ -424,10 +432,25 @@ fn without_an_account_the_sign_in_screen_shows_and_the_preview_leaves_it() {
 }
 
 #[test]
+#[cfg(not(feature = "matrix"))]
+fn a_pasted_token_goes_once_the_account_is_linked() {
+    let folder = tempfile::tempdir_in(local()).expect("test folder");
+    let mut app = start(&folder, false);
+    let _ = app.update(Message::SignIn(signin::Event::OpenToken));
+    let _ = app.update(Message::SignIn(signin::Event::Token("a-token".into())));
+    // Refused, it stays to fix.
+    let _ = app.sync();
+    assert_eq!(app.sign_in.token, "a-token");
+    // Linked, it goes, and its field with it.
+    app.client.app.state.account = Some("1".into());
+    let _ = app.sync();
+    assert!(app.sign_in.token.is_empty());
+    assert!(!app.sign_in.token_open);
+}
+
+#[test]
+#[cfg(not(feature = "matrix"))]
 fn linking_shows_the_code_then_who_scanned_it() {
-    if signin::MATRIX {
-        return;
-    }
     let folder = tempfile::tempdir_in(local()).expect("test folder");
     let mut app = start(&folder, false);
     // As "Show the code" starts it, without reaching Discord.

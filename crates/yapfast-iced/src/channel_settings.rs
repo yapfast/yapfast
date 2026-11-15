@@ -82,8 +82,11 @@ pub struct Screen {
 pub enum Event {
     Input(ChannelInput),
     /// The bar's shake steps and its red ending.
-    Shake,
-    Calm,
+    Shake(form::ShakeStep),
+}
+
+fn shake(step: form::ShakeStep) -> Message {
+    Message::ChannelSettings(Event::Shake(step))
 }
 
 fn input(input: ChannelInput) -> Message {
@@ -144,16 +147,7 @@ impl App {
                 tasks.push(operation::focus(iced::widget::Id::new(ADD_SEARCH)));
             }
         }
-        if screen.shake.follow(nudge) {
-            tasks.push(crate::after(
-                form::SHAKE_STEP,
-                Message::ChannelSettings(Event::Shake),
-            ));
-            tasks.push(crate::after(
-                form::SHAKE_RED,
-                Message::ChannelSettings(Event::Calm),
-            ));
-        }
+        tasks.push(screen.shake.start(nudge, shake));
         Task::batch(tasks)
     }
 
@@ -188,23 +182,10 @@ impl App {
                 }
                 Task::batch(tasks)
             }
-            Event::Shake => {
-                if self
-                    .channel_screen
-                    .as_mut()
-                    .is_some_and(|screen| screen.shake.tick())
-                {
-                    crate::after(form::SHAKE_STEP, Message::ChannelSettings(Event::Shake))
-                } else {
-                    Task::none()
-                }
-            }
-            Event::Calm => {
-                if let Some(screen) = self.channel_screen.as_mut() {
-                    screen.shake.calm();
-                }
-                Task::none()
-            }
+            Event::Shake(step) => self
+                .channel_screen
+                .as_mut()
+                .map_or_else(Task::none, |screen| screen.shake.step(step, shake)),
         }
     }
 
@@ -284,10 +265,10 @@ impl App {
             page = page.push(self.channel_overview(core));
         }
         if let Some(problem) = core.problem() {
-            page = page.push(text(problem).size(14).color(theme.danger));
+            page = page.push(form::error(theme, problem));
         }
         if let Some(error) = &core.error {
-            page = page.push(text(error.as_str()).size(14).color(theme.danger));
+            page = page.push(form::error(theme, error.as_str()));
         }
         let bar = (core.changed() || core.saving).then(|| {
             form::Unsaved {

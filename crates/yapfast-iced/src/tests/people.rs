@@ -282,9 +282,10 @@ fn the_header_shows_and_hides_the_profile_beside_a_dm_and_remembers_it() {
     let _ = app.update(Message::Profile(profile::Event::TogglePanel));
     assert!(!app.panel_shown());
     assert!(!shows(&app, "View Full Profile"));
-    let layout: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(folder.path().join("layout.json")).expect("the layout"),
-    )
+    let layout: serde_json::Value = serde_json::from_slice(&{
+        crate::layout::flush(folder.path());
+        std::fs::read(folder.path().join("layout.json")).expect("the layout")
+    })
     .expect("JSON");
     assert_eq!(layout["profile_panel_hidden"], true);
 }

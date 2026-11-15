@@ -144,7 +144,7 @@ impl App {
             body.push(name.into());
         }
         if let Some(error) = &ask.error {
-            body.push(text(error.as_str()).size(14).color(theme.danger).into());
+            body.push(form::error(theme, error.as_str()).into());
         }
         body.push(answers(
             theme,
@@ -286,7 +286,7 @@ impl App {
                     .into(),
             );
             if let Some(error) = &ask.error {
-                body.push(text(error.as_str()).size(14).color(theme.danger).into());
+                body.push(form::error(theme, error.as_str()).into());
             }
         }
         body.push(answers(

@@ -1174,7 +1174,7 @@ impl App {
         match &draft.members {
             None => parts = parts.push(form::note(theme, "Loading...")),
             Some(Err(error)) => {
-                parts = parts.push(text(error.as_str()).size(14).color(theme.danger));
+                parts = parts.push(form::error(theme, error.as_str()));
             }
             Some(Ok(_)) if shown.is_empty() => {
                 parts = parts.push(form::note(theme, "No members were found."));

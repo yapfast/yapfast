@@ -869,7 +869,7 @@ impl App {
         .spacing(14)
         .padding(16);
         if let Some(error) = &draft.error {
-            body = body.push(text(error.as_str()).size(14).color(theme.danger));
+            body = body.push(form::error(theme, error.as_str()));
         }
         body = body.push(
             row![

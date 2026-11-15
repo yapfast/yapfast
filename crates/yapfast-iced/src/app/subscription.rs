@@ -17,9 +17,12 @@ impl App {
     /// test display's commands.
     pub fn subscription(&self) -> Subscription<Message> {
         let keys = keyboard::listen().filter_map(|event| match event {
-            keyboard::Event::KeyPressed { key, modifiers, .. } => {
-                Some(Message::Key(key, modifiers))
-            }
+            keyboard::Event::KeyPressed {
+                key,
+                modifiers,
+                physical_key,
+                ..
+            } => Some(Message::Pressed(key, modifiers, physical_key)),
             keyboard::Event::ModifiersChanged(modifiers) => Some(Message::Modifiers(modifiers)),
             _ => None,
         });
@@ -100,8 +103,10 @@ impl App {
                 _ => None,
             }));
         }
-        // A shown activity's time, each second.
-        if self.profile_ticks() || self.active_now_ticks() || self.invites_ticking() {
+        // A shown activity's time, each second; with the window closed to
+        // the tray, no clock shows.
+        let shown = self.shell.window.is_some();
+        if shown && (self.profile_ticks() || self.active_now_ticks() || self.invites_ticking()) {
             subscriptions.push(iced::time::every(Duration::from_secs(1)).map(|_| Message::Second));
         }
         // The microphone's level while the input menu shows it, the call's
@@ -126,7 +131,7 @@ impl App {
         if self.recording_talk_key() {
             subscriptions.push(crate::settings::voice::record_keys());
         }
-        if self.call.since.is_some() {
+        if shown && self.call.since.is_some() {
             subscriptions.push(
                 iced::time::every(Duration::from_secs(1))
                     .map(|_| Message::Call(crate::call::Event::Second)),

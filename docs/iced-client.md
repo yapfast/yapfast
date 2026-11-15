@@ -75,6 +75,9 @@ build.
 - The tray (`shell.rs`): its icon, with the unread dot for a mention or an
   unread DM, and Disconnect in its menu during a call; Open Yapfast, and a
   click on it, brings the window back with the click's activation token.
+  Closing to it closes Settings as their own button does, and the call's
+  popup with the microphone its level reads; the call's cameras make no
+  frames and its clocks don't tick until the window is back.
   Closing the window goes to the tray when Close to tray is on and a tray
   shows the icon, and quits otherwise; with the tray gone, a closed window
   opens again. The window's memory is given back half a second after it
@@ -83,7 +86,7 @@ build.
 - New messages, as the Slint client tells of them: a sound unless it's
   the conversation in front; while Yapfast isn't in front the taskbar
   flashes and a notification shows, as the settings allow. A click on the
-  notification opens its conversation, over Settings, and brings the
+  notification opens its conversation, closing Settings, and brings the
   window back.
 - A later start of Yapfast on the same data folder hands over to the
   running one and ends: the window comes forward with that start's token,
@@ -112,7 +115,10 @@ build.
   round the whole window (`widgets::CtrlWheel`) so nothing under the
   pointer scrolls;
   the level is kept in `layout.json` and shows a moment at the top. iced
-  scales the whole window by it.
+  scales the whole window by it. The window opens at its size in the
+  desktop's pixels whatever the level, and a level kept on a larger screen
+  starts no further in than the first window's room allows, as the Slint
+  client's, the kept level staying for the larger screen.
 - Autoscroll (`widgets::Autoscroll`, round the whole window, as Slint's
   `yapfast_autoscroll`): a middle click on a list that has more than
   fits scrolls it towards the pointer, still within 10 px of the click and
@@ -263,10 +269,13 @@ row opens their card at the pointer, and a right click their voice menu.
 
 Open folders, folded categories and Developer Mode (which shows Copy ID)
 are kept in the data folder's `layout.json`, which the Slint client keeps
-them in too (`layout.rs`); each change writes its one key back, through
-a file beside it renamed over it (`yapfast_core::layout_file`, which the
-Slint client writes through too), and a key that doesn't read loses only
-itself.
+them in too (`layout.rs`); each change sets its one key in the file as
+it's kept in memory, and a thread of its own writes it a second after the
+changes stop (reading it, and the window ending, write what waits first),
+through a file beside it renamed over it (`yapfast_core::layout_file`,
+which the Slint client writes through too). A key that doesn't read loses
+only itself, and a file that isn't a layout is kept aside as
+`layout.json.unread` rather than overwritten.
 
 Browse Channels (`browse_channels.rs`, the Slint client's `BrowseScreen`),
 from the top of a Community server's list, takes the conversation's place:
@@ -307,15 +316,17 @@ round.
   is on (`camera:settings` among the window's video sources, at 400 by
   225); then joining unmuted, evening out the voice, and in Discord calls
   noise suppression and its strength, the soundboard's volume (Discord
-  keeps it), the entrance sound for every server or one (Choose, with
+  keeps it; the slider follows a drag and what it's left at is sent), the entrance sound for every server or one (Choose, with
   Nitro, opens the sounds Discord has as the call's soundboard does,
   `App::sound_board`, a click choosing one), the room's echo and, on Windows,
   Windows' own effects; the input mode, and either the gate's sensitivity
   over the microphone's level as the gate hears it (read twenty times a
   second only while it shows) or push to talk's key and release delay. Where no global key works
-(the root crate's `push_to_talk` says why), the window's own key events
-hold it while the window has the focus, as the Slint client's: an event
-filter hands each key's scan code to the root crate with no message.
+  (the root crate's `push_to_talk` says why), the window's own key events
+  hold it while the window has the focus, as the Slint client's: an event
+  filter hands each key's scan code to the root crate with no message.
+  What the watcher tells of where the key works comes from its thread as
+  a message, kept for the note under the key whether Settings show or not.
   Record keybind takes the next key pressed, wherever the keys are: its
   scan code as winit gives it (iced's key codes are winit's by name), its
   name and its keysym, as the root crate's `Keybind` keeps it; Escape
@@ -994,8 +1005,11 @@ glyph cache. The card shows if the restore fails.
   hands each step to the core, and the screen shows the QR code (drawn once
   per code, whole pixels per module), who scanned it, the captcha's notice
   with "Open it again", or the error with "Try again". "Use a token" opens
-  the field instead; Link checks it with Discord. A linked account starts
-  the workspace.
+  the field instead; Link checks it with Discord. A refused token stays
+  to fix; once the account is linked it's let go, its field closed. A
+  linked account starts the workspace. The screen's secrets (token,
+  password, recovery key) are overwritten as they go and never show in a
+  log line of the screen or what's typed.
 - Matrix, with `matrix`: the homeserver, Matrix ID and password go to the
   core's `Login`; the password is let go once it's sent. "Retry saved
   session" shows when there's one to retry. Until this device is verified,
@@ -1042,7 +1056,9 @@ parts of `ui/yapfast.slint`, with the adapter's logic beside them.
   worker started for them and gone once they're in), the windows, the
   system's own dialog where the portal picks, and the cameras, then the
   resolution, frame rate and encoding; it fits a short window by
-  scrolling, keeping its button in view. While live, the same menu
+  scrolling, keeping its button in view. It opens once they're listed (on
+  a thread of their own); meanwhile Escape, a second click, another popup
+  or leaving the call cancels it, and a listing cancelled opens nothing. While live, the same menu
   switches what's shared.
 - The soundboard lists the server's sounds and the defaults in rows of
   three, each played on a click, previewed from its speaker under the
@@ -1088,10 +1104,16 @@ parts of `ui/yapfast.slint`, with the adapter's logic beside them.
   streaming), and a DM's call rings while it's incoming.
 - Push to talk (the root `src/push_to_talk.rs`) runs in this build too: the
   key kept in `layout.json` is watched through the desktop portal's global
-  shortcuts or X11, beside the window.
+  shortcuts or X11, beside the window. In a call, unmuted, the key's own
+  press (told by its scan code) types nothing into the composer it would
+  go to; every other key types as ever, held or not.
 
 Only what shows takes frames: a tile's video is mapped while its tile is
-in view or in the corner, at the size it shows.
+in view or in the corner, at the size it shows in the window's pixels
+(the display's scale, as the window says it as it opens and moves, times
+the zoom), as a message's video and the camera's preview in Settings
+are; `Video` lays a frame out in those pixels, so one made at its tile's
+size is copied one to one.
 
 ## Dialogs
 
@@ -1416,7 +1438,10 @@ When a second screen needs what a first one built, it moves here:
   are `controls::choices` (`choices_within` for a wider row), sliders
   `controls::Slider` with `step`, `shown` (the value in other words) and
   `mark`. The `Unsaved` bar is an editor's bar once something changed, which
-  `Shake` shakes red after leaving was refused; `Dropdown::enabled`
+  `Shake` shakes red after leaving was refused (`Shake::start` takes the
+  core's nudge and `Shake::step` its timer's steps, which the owner
+  forwards as one event carrying a `ShakeStep`); `error` is what went
+  wrong on a form or a dialog, in the danger's ink; `Dropdown::enabled`
   greys a dropdown and `Dropdown::height` sets its box's. `options` is a
   list of radio choices (`Choice`: a title in its own colour, what it
   means, greyed when not offered), one chosen. `tri_state` is Discord's
@@ -1464,10 +1489,12 @@ a text only inside the window and the lists it's in and not under a
 dimmed layer (`controls::DIMMED`); `present` counts any in the tree; a
 tooltip, which iced's operations don't reach, is told by what hovering
 draws (`hover_draws`). The tasks `update` returns (focus, the
-clipboard, timers) don't run in them, and the simulator keeps widget state
+clipboard, timers) don't run in them, the core's meters open no microphone
+in them (its `test-fixtures`), and each starts as the window opens, and the simulator keeps widget state
 only while it lives, so a field is clicked in the same simulator it's typed
 into. They cover the theme's switch and what it keeps, the sign-in screen
-on a data folder without an account, linking's steps and the two-factor
+on a data folder without an account, a pasted token let go once linked,
+linking's steps and the two-factor
 prompt, the rail's unread DMs and folders, categories folding, unread
 marks and the DMs' search, switching channels with their headers and
 topics, the preview's line and a notice until dismissed, the history's
@@ -1478,7 +1505,8 @@ sending from there going to the newest; and in `tests/writing.rs` the
 composer's line breaks, the reply's mention toggle and Escape, editing in
 place, `:name` suggestions, the emoji picker's search, Forward from a
 message's menu, the keyboard's steps through messages, and keys typed
-with nothing focused going on the end of the draft, and a voice
+with nothing focused going on the end of the draft (push to talk's own
+key not, in a call), and a voice
 message's volume over its mute; and in
 `tests/menus.rs` a server's notification choices and what each sends,
 the bell's and a channel's alike, a submenu beside its row (on the left
@@ -1493,14 +1521,15 @@ person's message folded until asked, View Reactions, and the full
 profile's tabs, labels and theme inks, and a card's effect asked for
 under the pointer only and its frame shown; and in `tests/calls.rs` the dock's
 noise toggle, a device gone away, the device volumes played and kept,
-the share menu in a short window, the input level only while its menu
+the share menu in a short window and waiting for its own listing, the input level only while its menu
 shows, the dock's channel line, a voice channel's Join, and someone's
-volume from their menu, the signal's details with their tabs, and the
-banners over a voice channel's call; and in `tests/settings.rs` a theme chosen in
+volume from their menu, the signal's details with their tabs, the
+banners over a voice channel's call, and cameras made at the window's
+pixels on a scaled display; and in `tests/settings.rs` a theme chosen in
 Appearance shown at once and kept, a custom theme made, edited, cancelled
 and deleted, preferences kept across a restart (and message times
 following the clock), a device chosen in Voice & video, push to talk's key
-recorded and kept, and closing Settings letting go of an edited theme;
+recorded and kept with its watcher's note, and closing Settings letting go of an edited theme;
 in `tests/server.rs`, on a Discord server `discord_server` builds, server
 settings opening from the server's menu and holding their changes until
 saved, Roles locking what ranks above this account and the permissions it
@@ -1551,11 +1580,13 @@ rail and a clicked invite link, and Browse Channels opening from a
 Community server's list and searching; in `tests/link_dialogs.rs` an
 authorization saying what it asks for in red and where it goes, a gift
 redeemed on the click, and an event marking interest; in `tests/shell.rs` closing to the
-tray and back, quitting without one, the tray's dot, a notification's
+tray and back, what closing lets go of (the input menu's microphone,
+Settings with a theme being edited, a camera's frames, made again as the
+window comes back), quitting without one, the tray's dot, a notification's
 click and the release's, a later start's link, the own title bar's place
 and inbox, clicks under it landing, Back and Forward, and the zoom by keys and by
-Ctrl and the wheel. `call/stage.rs` tests the tiles' layout, the
-stage's slots and the corner, `call/dock.rs` the call's time and
+Ctrl and the wheel, a saved one held to the window's room at start. `call/stage.rs` tests the tiles' layout (and the pixels a tile's frames are
+made at), the stage's slots and the corner, `call/dock.rs` the call's time and
 `viewer.rs` the fit. The tests
 make the Twemoji font from `vendor/twemoji` with the root crate's own
 font tables (`src/emoji_font_tables.rs`), as its `build.rs` packs it but

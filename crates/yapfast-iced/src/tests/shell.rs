@@ -76,6 +76,61 @@ fn closing_with_a_tray_drops_the_window_and_the_tray_brings_it_back() {
     );
 }
 
+/// A theme being edited in Appearance, a colour changed: what the window
+/// shows until it's saved or cancelled; and the colour it had.
+fn editing_a_theme(app: &mut App) -> iced::Color {
+    use crate::settings::{ThemeEvent, appearance_event};
+    let before = app.theme.chat;
+    let _ = app.open_settings(Section::Appearance);
+    let _ = app.update(appearance_event(ThemeEvent::New));
+    let chat = yapfast_core::theme::Theme::NAMES
+        .iter()
+        .position(|name| *name == "chat")
+        .expect("chat");
+    let _ = app.update(appearance_event(ThemeEvent::Colour(chat, "#102030".into())));
+    assert_eq!(app.theme.chat, crate::style::hex(0x102030), "shown at once");
+    before
+}
+
+#[test]
+fn closing_to_the_tray_lets_go_of_the_microphone_settings_and_the_videos() {
+    use crate::call::{Event as Call, Popup};
+    let (mut app, _folder) = preview();
+    with_tray(&mut app, true);
+    // In the preview's call, its stage shown, someone's camera on it.
+    for _ in 0..2 {
+        app.client
+            .dispatch(yapfast_core::application::Action::SelectRoom(
+                "lounge".into(),
+            ));
+        let _ = app.sync();
+    }
+    let feed = yapfast_core::picture::Feed::new();
+    let camera = feed.clone();
+    change(&mut app, move |state| {
+        state.voice.participants[0].video = Some(camera);
+    });
+    assert!(feed.shown_at().is_some(), "made for its tile");
+    let before = editing_a_theme(&mut app);
+    // The input menu over Settings, its level measured.
+    let _ = app.update(Message::Call(Call::Open(Popup::Input)));
+    assert!(app.metering());
+    let id = app.shell.window.expect("the window");
+    let _ = app.update(Message::Shell(Event::CloseRequested(id)));
+    assert!(app.shell.window.is_none(), "closed to the tray");
+    assert!(!app.metering(), "the microphone let go");
+    assert_eq!(app.call.popup, None);
+    assert!(app.settings.is_none());
+    assert_eq!(app.theme.chat, before, "the edited theme cancelled");
+    assert_eq!(feed.shown_at(), None, "no frames made for nobody");
+    assert!(!app.stage_shown());
+    // Back from the tray, the call's stage shows again.
+    heard(&mut app, Heard::Tray(TrayChoice::Open));
+    let id = app.shell.window.expect("a new window");
+    let _ = app.update(Message::Shell(Event::Opened(id)));
+    assert!(feed.shown_at().is_some(), "made again");
+}
+
 #[test]
 fn closing_without_a_tray_or_with_close_to_tray_off_quits() {
     let (mut app, _folder) = preview();
@@ -116,10 +171,10 @@ fn the_tray_shows_the_dot_for_a_mention_or_an_unread_dm_not_a_channel() {
 #[test]
 fn a_notification_click_opens_its_conversation_over_settings() {
     let (mut app, _folder) = preview();
-    let _ = app.open_settings(Section::Appearance);
-    assert!(app.settings.is_some());
+    let before = editing_a_theme(&mut app);
     heard(&mut app, Heard::Opened("riley".into()));
     assert!(app.settings.is_none());
+    assert_eq!(app.theme.chat, before, "closed as their own button would");
     let state = app.client.state();
     assert_eq!(state.navigation, Navigation::DirectMessages);
     assert_eq!(state.selected.as_deref(), Some("riley"));
@@ -234,6 +289,30 @@ fn ctrl_and_plus_zoom_in_ctrl_and_zero_back_and_the_room_shrinks() {
     let _ = app.update(Message::Zoom(zero, key::Physical::Code(key::Code::Digit0)));
     assert!((app.shell.zoom - 1.0).abs() < 0.001);
     assert!((app.window.width - width).abs() < 0.5);
+}
+
+#[test]
+fn a_saved_zoom_too_large_for_the_window_comes_down_to_its_room() {
+    let folder = tempfile::tempdir_in(super::local()).expect("test folder");
+    std::fs::write(folder.path().join("layout.json"), r#"{"zoom": 1.8}"#).expect("the layout");
+    let mut app = super::start(&folder, true);
+    // The window opens at its size in the desktop's pixels.
+    assert!((app.shell.zoom - 1.8).abs() < 0.001);
+    let opened = app.shell.frame;
+    assert!((opened.width * 1.8 - 1120.0).abs() < 0.5, "{opened:?}");
+    let _ = app.update(Message::Resized(opened));
+    // 1120 by 760 pixels hold the 800 by 560 layout at most 1.357 times.
+    assert!(
+        (app.shell.zoom - 760.0 / 560.0).abs() < 0.001,
+        "{}",
+        app.shell.zoom
+    );
+    assert!(app.shell.frame.width >= 800.0 && app.shell.frame.height >= 559.9);
+    // Only at the start: a level stepped to later is the window's own.
+    let _ = app.update(Message::Resized(iced::Size::new(830.0, 560.0)));
+    assert!((app.shell.zoom - 760.0 / 560.0).abs() < 0.001);
+    let kept = crate::layout::Layout::read(folder.path()).zoom;
+    assert_eq!(kept, Some(1.8), "the saved level stays for a larger screen");
 }
 
 #[test]

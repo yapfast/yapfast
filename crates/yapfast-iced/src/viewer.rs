@@ -22,6 +22,9 @@ const SIDES: f32 = 80.0;
 const ENDS: f32 = 128.0;
 /// The least width of what goes under it.
 const FOOT: f32 = 360.0;
+/// The dark glass over the window under a picture or a video shown on
+/// its own.
+pub const GROUND: Color = Color::from_rgba(0.0, 0.0, 0.0, 0xe6 as f32 / 255.0);
 
 /// A viewer being built.
 pub struct Viewer<'a> {

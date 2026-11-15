@@ -132,6 +132,10 @@ pub trait Updates {
     /// [`Heard::Updates`] when it's done.
     fn look(&self);
     fn shown(&self, choices: &UpdateChoices) -> UpdatesShown;
+    /// An update is downloading or ready, which About shows the progress
+    /// of: what [`Updates::shown`] says as `installing`, without working
+    /// out the rest.
+    fn installing(&self) -> bool;
     /// The newest release the choices let through.
     fn offered(&self, choices: &UpdateChoices) -> Option<Offered>;
     /// Downloads the offered release and checks it; tells [`Heard::Updates`]

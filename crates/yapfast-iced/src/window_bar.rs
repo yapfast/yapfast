@@ -313,15 +313,12 @@ impl App {
         // iced could take the frame off the window as it is, but where the
         // desktop draws none winit draws its own, and a maximized window
         // taking it or losing it grows or shrinks past the screen.
-        let settings_open = self.settings.as_ref().map(|settings| settings.section());
+        // Settings, which the switch is in, stay open as they are.
+        let settings = self.settings.take();
         let closed = self.drop_window();
-        self.shell.window = None;
+        self.settings = settings;
         let opened = self.open_window();
-        let back = match settings_open {
-            Some(section) => self.open_settings(section),
-            None => Task::none(),
-        };
-        Task::batch([closed, opened, back])
+        Task::batch([closed, opened])
     }
 
     /// The inbox's rows for its tab, from what the client already knows:

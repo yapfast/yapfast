@@ -148,7 +148,10 @@ impl App {
 
     /// An update downloads: About shows how far, a few times a second.
     pub fn updates_installing(&self) -> bool {
-        self.settings.is_some() && self.updates_shown().is_some_and(|shown| shown.installing)
+        self.settings.is_some()
+            && desktop::desktop()
+                .updates()
+                .is_some_and(|updates| updates.installing())
     }
 
     /// Settings on About, as the release's notification opens it.

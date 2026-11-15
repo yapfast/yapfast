@@ -182,11 +182,10 @@ impl App {
             fields = fields.push(self.modal_field(index, field, saving));
         }
         if !modal.supported {
-            fields = fields.push(
-                text("This form has a part Yapfast can't fill yet. Use it in Discord.")
-                    .size(14)
-                    .color(theme.danger),
-            );
+            fields = fields.push(crate::form::error(
+                theme,
+                "This form has a part Yapfast can't fill yet. Use it in Discord.",
+            ));
         }
         let mut body = column![
             head,
@@ -197,7 +196,7 @@ impl App {
         .spacing(20)
         .padding(20);
         if let Some(error) = &modal.error {
-            body = body.push(text(error.as_str()).size(14).color(theme.danger));
+            body = body.push(crate::form::error(theme, error.as_str()));
         }
         let label = if saving { "Submitting…" } else { "Submit" };
         body = body.push(

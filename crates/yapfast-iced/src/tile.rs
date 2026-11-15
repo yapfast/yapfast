@@ -26,6 +26,13 @@ pub const GLASS: Color = Color {
     b: 0.0,
     a: 0xa6 as f32 / 255.0,
 };
+/// The foot of the shade under a corner picture's title.
+pub const SHADE: Color = Color {
+    r: 0.0,
+    g: 0.0,
+    b: 0.0,
+    a: 0xb0 as f32 / 255.0,
+};
 /// What a tile says over the black of a stream not yet showing, in every
 /// theme: the stage is black in all of them.
 pub const NOTE: Color = Color::from_rgb8(0xb5, 0xb8, 0xc1);

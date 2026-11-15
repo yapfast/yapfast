@@ -20,8 +20,11 @@ fn open(app: &mut App, section: Section) {
 }
 
 fn stored(folder: &tempfile::TempDir) -> serde_json::Value {
-    serde_json::from_slice(&std::fs::read(folder.path().join("layout.json")).expect("the layout"))
-        .expect("JSON")
+    serde_json::from_slice(&{
+        crate::layout::flush(folder.path());
+        std::fs::read(folder.path().join("layout.json")).expect("the layout")
+    })
+    .expect("JSON")
 }
 
 #[test]
@@ -198,6 +201,27 @@ fn a_device_chosen_in_voice_settings_is_the_one_used() {
 }
 
 #[test]
+fn the_soundboard_volume_moves_with_its_drag() {
+    let (mut app, _folder) = preview();
+    change(&mut app, |state| state.discord_linked = true);
+    open(&mut app, Section::Voice);
+    assert!(shows(&app, "Soundboard volume"));
+    assert!(!shows(&app, "37%"));
+    let voice = |event| Message::Settings(Event::Voice(event));
+    let _ = app.update(voice(VoiceEvent::SoundboardVolume(37, false)));
+    assert!(shows(&app, "37%"), "the slider follows the drag");
+    // Let go, what the drag left is sent, not what the slider was built
+    // with, and the slider shows the core's volume again.
+    let _ = app.update(voice(VoiceEvent::SoundboardVolume(80, true)));
+    assert!(
+        app.settings
+            .as_ref()
+            .is_some_and(|settings| settings.voice.soundboard.is_none())
+    );
+    assert!(!shows(&app, "37%"));
+}
+
+#[test]
 fn a_recorded_push_to_talk_key_is_named_and_kept() {
     use crate::settings::voice::recorded;
     use iced::keyboard::key::{Code, Physical};
@@ -249,6 +273,25 @@ fn a_recorded_push_to_talk_key_is_named_and_kept() {
     let layout = stored(&folder);
     assert_eq!(layout["input_mode"], "push_to_talk");
     assert_eq!(layout["push_to_talk_key"]["name"], "V");
+    // Where the key works, as its watcher tells from its own thread,
+    // shows without anything else happening; a word from a watcher gone
+    // since doesn't.
+    let told = app.talk.count;
+    let _ = app.update(voice(VoiceEvent::Told(
+        told,
+        "It works in every app.".into(),
+    )));
+    assert!(shows(&app, "It works in every app."));
+    let _ = app.update(voice(VoiceEvent::Told(
+        told - 1,
+        "Only while focused.".into(),
+    )));
+    assert!(!shows(&app, "Only while focused."));
+    // Kept while Settings are closed, for when they open.
+    let _ = app.close_settings();
+    let _ = app.update(voice(VoiceEvent::Told(told, "Only while focused.".into())));
+    open(&mut app, Section::Voice);
+    assert!(shows(&app, "Only while focused."));
     let again = start(&folder, true);
     assert_eq!(
         again
@@ -290,9 +333,10 @@ fn a_new_setting_is_tagged_until_its_page_is_left() {
     // Leaving About sees them, and the layout keeps it.
     let _ = app.update(Message::Settings(Settings::Open(Section::Account)));
     assert!(!shows(&app, "NEW"));
-    let layout: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(folder.path().join("layout.json")).expect("the layout"),
-    )
+    let layout: serde_json::Value = serde_json::from_slice(&{
+        crate::layout::flush(folder.path());
+        std::fs::read(folder.path().join("layout.json")).expect("the layout")
+    })
     .expect("JSON");
     let seen: Vec<&str> = layout["seen_new"]
         .as_array()

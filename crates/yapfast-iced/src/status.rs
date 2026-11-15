@@ -571,7 +571,7 @@ impl App {
         .spacing(12)
         .padding(20);
         if let Some(error) = &editor.error {
-            body = body.push(text(error.as_str()).size(14).color(theme.danger));
+            body = body.push(form::error(theme, error.as_str()));
         }
         let mut foot = row![].spacing(8).align_y(Alignment::Center);
         if self.client.state().custom_status.is_some() {

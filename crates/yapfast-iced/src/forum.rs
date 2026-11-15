@@ -640,7 +640,7 @@ impl App {
         }
         fields = fields.push(composer.view(self));
         if let Some(error) = &post.error {
-            fields = fields.push(text(error.as_str()).size(14).color(theme.danger));
+            fields = fields.push(crate::form::error(theme, error.as_str()));
         }
         let label = if posting { "Posting..." } else { "Post" };
         fields = fields.push(

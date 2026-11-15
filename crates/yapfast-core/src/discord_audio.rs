@@ -436,6 +436,7 @@ struct MeterShared {
 impl GateMeter {
     /// Starts measuring `microphone`, a device id from
     /// [`crate::voice::State`], or the system default for `None`.
+    /// Tests (`test-fixtures`) open no device: it reads silence.
     pub fn start(microphone: Option<&str>) -> Self {
         let shared = Arc::new(MeterShared {
             level: AtomicU32::new(f32::NEG_INFINITY.to_bits()),
@@ -443,6 +444,9 @@ impl GateMeter {
             stop: AtomicBool::new(false),
             failed: AtomicBool::new(!AVAILABLE),
         });
+        if cfg!(feature = "test-fixtures") {
+            return Self { shared };
+        }
         let microphone = microphone.map(str::to_owned);
         let worker = shared.clone();
         let spawned = std::thread::Builder::new()

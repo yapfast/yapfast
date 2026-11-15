@@ -63,13 +63,44 @@ impl Target {
     }
 }
 
-/// The release's file for this install. The reason it has none is the text
-/// About shows beside Update and restart's absence.
+/// What this build's release files are named with after the version: the
+/// iced preview's, the Matrix (full) preview's, or nothing for the release.
+/// An update installs its own flavour's file and never another's.
+pub const FLAVOUR: &str = if cfg!(any(feature = "iced", feature = "iced-gpu")) {
+    "-iced-preview"
+} else if cfg!(feature = "matrix") {
+    "-full-preview"
+} else {
+    ""
+};
+
+/// Every flavour's suffix but the release's, which has none.
+const FLAVOURS: [&str; 2] = ["-iced-preview", "-full-preview"];
+
+/// Whether a release file `name` is `flavour`'s file for this platform,
+/// whose names end in `platform`: `Yapfast-0.5.0-x86_64.AppImage` is the
+/// release's and `Yapfast-0.5.0-iced-preview-x86_64.AppImage` the iced
+/// preview's, though both end the same.
+fn of_flavour(name: &str, platform: &str, flavour: &str) -> bool {
+    let Some(stem) = name.strip_suffix(platform) else {
+        return false;
+    };
+    let named = FLAVOURS
+        .into_iter()
+        .find(|known| stem.ends_with(known))
+        .unwrap_or("");
+    named == flavour
+}
+
+/// The release's file for this install, of this build's `flavour`. The
+/// reason it has none is the text About shows beside Update and restart's
+/// absence.
 pub fn target_for(
     release: &Release,
     source: Source,
     program: &Path,
     appimage: Option<&Path>,
+    flavour: &str,
 ) -> Result<Target, String> {
     let suffix = match source {
         Source::AppImage if cfg!(target_arch = "x86_64") => "-x86_64.AppImage",
@@ -87,7 +118,7 @@ pub fn target_for(
     let asset = release
         .assets
         .iter()
-        .find(|asset| asset.name.ends_with(suffix))
+        .find(|asset| of_flavour(&asset.name, suffix, flavour))
         .ok_or_else(|| match source {
             Source::Installer => "There's no Windows installer for this version yet.".to_owned(),
             _ => "There's no AppImage for this version yet.".to_owned(),
@@ -141,7 +172,7 @@ pub fn target(release: &Release) -> Result<Target, String> {
     {
         source = Source::Installer;
     }
-    target_for(release, source, &program, appimage.as_deref())
+    target_for(release, source, &program, appimage.as_deref(), FLAVOUR)
 }
 
 /// Whether a file can be made in `folder`.
@@ -502,7 +533,7 @@ mod tests {
         let program = folder.path().join("yapfast.exe");
         let release = release();
         let reason = |source| {
-            target_for(&release, source, &program, Some(&app)).expect_err("not updated here")
+            target_for(&release, source, &program, Some(&app), "").expect_err("not updated here")
         };
         assert!(reason(Source::Manager("Scoop")).contains("Scoop"));
         assert!(reason(Source::Other).contains("can't update itself"));
@@ -510,11 +541,11 @@ mod tests {
             return;
         }
         // An AppImage in a folder that can be written to.
-        let target = target_for(&release, Source::AppImage, &program, Some(&app)).unwrap();
+        let target = target_for(&release, Source::AppImage, &program, Some(&app), "").unwrap();
         assert_eq!(target.asset().name, "Yapfast-0.4.1-x86_64.AppImage");
         assert_eq!(target.part(), folder.path().join(".yapfast-update.part"));
         assert!(
-            target_for(&release, Source::AppImage, &program, None)
+            target_for(&release, Source::AppImage, &program, None, "")
                 .unwrap_err()
                 .contains("path")
         );
@@ -524,7 +555,7 @@ mod tests {
             "no uninstaller"
         );
         std::fs::write(folder.path().join("unins000.exe"), b"").unwrap();
-        let target = target_for(&release, Source::Installer, &program, None).unwrap();
+        let target = target_for(&release, Source::Installer, &program, None, "").unwrap();
         assert_eq!(target.asset().name, "Yapfast-0.4.1-windows-x64-setup.exe");
         assert!(
             target
@@ -533,6 +564,75 @@ mod tests {
                 || target
                     .part()
                     .ends_with(r"yapfast-update\Yapfast-0.4.1-windows-x64-setup.exe")
+        );
+    }
+
+    #[test]
+    fn each_flavour_installs_its_own_file_whatever_the_order() {
+        let folder = tempfile::tempdir().unwrap();
+        let app = folder.path().join("Yapfast.AppImage");
+        let program = folder.path().join("yapfast.exe");
+        std::fs::write(folder.path().join("unins000.exe"), b"").unwrap();
+        if !cfg!(target_arch = "x86_64") {
+            return;
+        }
+        let names = [
+            "Yapfast-0.4.1-iced-preview-x86_64.AppImage",
+            "Yapfast-0.4.1-x86_64.AppImage",
+            "Yapfast-0.4.1-full-preview-windows-x64-setup.exe",
+            "Yapfast-0.4.1-iced-preview-windows-x64-setup.exe",
+            "Yapfast-0.4.1-windows-x64-setup.exe",
+            "SHA256SUMS.txt",
+        ];
+        for reversed in [false, true] {
+            let mut release = release();
+            release.assets = names.iter().map(|name| asset(name)).collect();
+            if reversed {
+                release.assets.reverse();
+            }
+            let file = |source, flavour| {
+                target_for(&release, source, &program, Some(&app), flavour)
+                    .map(|target| target.asset().name.clone())
+            };
+            assert_eq!(
+                file(Source::AppImage, "").unwrap(),
+                "Yapfast-0.4.1-x86_64.AppImage"
+            );
+            assert_eq!(
+                file(Source::AppImage, "-iced-preview").unwrap(),
+                "Yapfast-0.4.1-iced-preview-x86_64.AppImage"
+            );
+            assert_eq!(
+                file(Source::Installer, "").unwrap(),
+                "Yapfast-0.4.1-windows-x64-setup.exe"
+            );
+            assert_eq!(
+                file(Source::Installer, "-full-preview").unwrap(),
+                "Yapfast-0.4.1-full-preview-windows-x64-setup.exe"
+            );
+            assert_eq!(
+                file(Source::Installer, "-iced-preview").unwrap(),
+                "Yapfast-0.4.1-iced-preview-windows-x64-setup.exe"
+            );
+            // A flavour the release lacks gets none rather than another's.
+            assert!(
+                file(Source::AppImage, "-full-preview")
+                    .unwrap_err()
+                    .contains("no AppImage")
+            );
+        }
+        // The release alone, as every release before the previews.
+        let release = release();
+        assert!(
+            target_for(
+                &release,
+                Source::AppImage,
+                &program,
+                Some(&app),
+                "-iced-preview"
+            )
+            .is_err(),
+            "the preview never takes the release's AppImage"
         );
     }
 
@@ -550,7 +650,7 @@ mod tests {
             .assets
             .retain(|asset| !asset.name.ends_with("-setup.exe"));
         assert!(
-            target_for(&release, Source::Installer, &program, None)
+            target_for(&release, Source::Installer, &program, None, "")
                 .unwrap_err()
                 .contains("no Windows installer")
         );
@@ -558,7 +658,7 @@ mod tests {
             .assets
             .retain(|asset| asset.name != "SHA256SUMS.txt");
         assert!(
-            target_for(&release, Source::AppImage, &program, Some(&app))
+            target_for(&release, Source::AppImage, &program, Some(&app), "")
                 .unwrap_err()
                 .contains("SHA256SUMS")
         );

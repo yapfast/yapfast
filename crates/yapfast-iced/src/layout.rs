@@ -3,12 +3,18 @@
 //! theme and the person's own themes (`theme.rs`), the rail's open folders,
 //! each server's collapsed channel categories, whether the member list
 //! is hidden, whether long messages fold, pinned DMs, and the people
-//! settings the core is told of as the window opens ([`Layout::actions`]). Each change writes its one key back, leaving the rest of the
-//! file as it was.
+//! settings the core is told of as the window opens ([`Layout::actions`]).
+//! Each change ([`store`]) sets its one key in the file as it's kept in
+//! memory, leaving the rest as it was; a thread of its own writes the file
+//! once changes have stopped for a second, as the Slint client's
+//! `LAYOUT_WRITE`, and reading it, or the window ending, writes what's
+//! waiting first.
 
 use std::{
-    collections::{BTreeSet, HashMap},
-    path::Path,
+    collections::{BTreeMap, BTreeSet, HashMap},
+    path::{Path, PathBuf},
+    sync::{Mutex, MutexGuard, OnceLock, PoisonError, mpsc},
+    time::Duration,
 };
 
 use serde::Deserialize;
@@ -305,6 +311,7 @@ impl Layout {
     /// key this client can't read (of the wrong type, from another version
     /// or the other client) loses only itself, not every other setting.
     pub fn read(root: &Path) -> Self {
+        flush(root);
         let Ok(bytes) = std::fs::read(root.join(LAYOUT)) else {
             return Self::default();
         };
@@ -357,21 +364,154 @@ impl Layout {
     }
 }
 
-/// Keeps `value` under `key` in `layout.json`, leaving the rest as it is.
+/// How long a change waits for the next before `layout.json` is written,
+/// so changes that come together (a theme's colours, a drag's end, a
+/// toggle's two keys) write it once.
+const WRITE_AFTER: Duration = Duration::from_millis(1000);
+
+/// Where a `layout.json` that wasn't one is kept, rather than lost under
+/// the one key written next.
+const SET_ASIDE: &str = "layout.json.unread";
+
+/// Each data folder's layout with changes not yet written: the whole file
+/// as it will be, and whether the folder was there (one gone since, as a
+/// test's, isn't made again for it).
+static PENDING: Mutex<BTreeMap<PathBuf, Waiting>> = Mutex::new(BTreeMap::new());
+
+struct Waiting {
+    layout: serde_json::Value,
+    folder: bool,
+}
+
+fn pending() -> MutexGuard<'static, BTreeMap<PathBuf, Waiting>> {
+    PENDING.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Keeps `value` under `key` in `layout.json`, leaving the rest as it is:
+/// written a second after the changes stop.
 pub fn store(root: &Path, key: &str, value: impl serde::Serialize) {
+    let value = serde_json::to_value(value).expect("layout values serialize");
+    pending()
+        .entry(root.to_owned())
+        .or_insert_with(|| Waiting {
+            layout: on_disk(root),
+            folder: root.is_dir(),
+        })
+        .layout[key] = value;
+    let _ = writer().send(());
+}
+
+/// The file as it is: nothing for a missing one, and one that isn't a
+/// layout set aside.
+fn on_disk(root: &Path) -> serde_json::Value {
     let path = root.join(LAYOUT);
-    let mut layout = std::fs::read(&path)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-        .filter(serde_json::Value::is_object)
-        .unwrap_or_else(|| serde_json::Value::Object(Default::default()));
-    layout[key] = serde_json::to_value(value).expect("layout values serialize");
-    let result = yapfast_core::layout_file::write(
-        root,
-        &serde_json::to_vec(&layout).expect("layout serializes"),
-    );
-    if let Err(error) = result {
-        tracing::warn!(%error, key, "could not keep the window's layout");
+    let empty = || serde_json::Value::Object(Default::default());
+    let Ok(bytes) = std::fs::read(&path) else {
+        return empty();
+    };
+    match serde_json::from_slice::<serde_json::Value>(&bytes) {
+        Ok(layout) if layout.is_object() => layout,
+        _ => {
+            tracing::warn!("layout.json isn't a layout; keeping it as {SET_ASIDE}");
+            if let Err(error) = std::fs::rename(&path, root.join(SET_ASIDE)) {
+                tracing::warn!(%error, "could not set layout.json aside");
+            }
+            empty()
+        }
+    }
+}
+
+/// The thread that writes the layouts a while after their last change.
+fn writer() -> &'static mpsc::Sender<()> {
+    static WRITER: OnceLock<mpsc::Sender<()>> = OnceLock::new();
+    WRITER.get_or_init(|| {
+        let (sender, changes) = mpsc::channel();
+        let spawned = std::thread::Builder::new()
+            .name("yapfast-layout".into())
+            .spawn(move || {
+                while changes.recv().is_ok() {
+                    // Each change waits out the next.
+                    while changes.recv_timeout(WRITE_AFTER).is_ok() {}
+                    flush_all();
+                }
+            });
+        if let Err(error) = spawned {
+            tracing::warn!(%error, "no layout writer; changes are written as they're read");
+        }
+        sender
+    })
+}
+
+/// Writes `root`'s waiting changes now.
+pub fn flush(root: &Path) {
+    let mut pending = pending();
+    if let Some(waiting) = pending.remove(root) {
+        write(root, &waiting);
+    }
+}
+
+/// Writes every waiting change now, as the window ends.
+pub fn flush_all() {
+    // Held while writing, so a change meanwhile waits for the file it
+    // goes on rather than reading the one being replaced.
+    let mut pending = pending();
+    for (root, waiting) in std::mem::take(&mut *pending) {
+        write(&root, &waiting);
+    }
+}
+
+fn write(root: &Path, waiting: &Waiting) {
+    if waiting.folder && !root.is_dir() {
+        return;
+    }
+    let bytes = serde_json::to_vec(&waiting.layout).expect("layout serializes");
+    if let Err(error) = yapfast_core::layout_file::write(root, &bytes) {
+        tracing::warn!(%error, "could not keep the window's layout");
+    }
+}
+
+#[cfg(test)]
+mod writing {
+    use super::*;
+
+    #[test]
+    fn changes_together_write_once_and_reading_writes_them_first() {
+        let folder = tempfile::tempdir().expect("a folder");
+        let root = folder.path();
+        std::fs::write(root.join(LAYOUT), r#"{"theme": "sakura"}"#).expect("the layout");
+        store(root, "members_hidden", true);
+        store(root, "zoom", 1.25);
+        let on_disk = std::fs::read_to_string(root.join(LAYOUT)).expect("the file");
+        assert_eq!(on_disk, r#"{"theme": "sakura"}"#, "not yet written");
+        let layout = Layout::read(root);
+        assert!(layout.members_hidden);
+        assert_eq!(layout.zoom, Some(1.25));
+        assert_eq!(layout.theme.as_deref(), Some("sakura"), "the rest kept");
+    }
+
+    #[test]
+    fn a_file_that_isnt_a_layout_is_set_aside_not_overwritten() {
+        let folder = tempfile::tempdir().expect("a folder");
+        let root = folder.path();
+        std::fs::write(root.join(LAYOUT), b"{\"theme\": \"sak").expect("the layout");
+        store(root, "zoom", 1.25);
+        flush(root);
+        let aside = std::fs::read(root.join(SET_ASIDE)).expect("set aside");
+        assert_eq!(aside, b"{\"theme\": \"sak");
+        assert_eq!(Layout::read(root).zoom, Some(1.25));
+    }
+
+    #[test]
+    fn the_writer_writes_a_while_after_the_last_change() {
+        let folder = tempfile::tempdir().expect("a folder");
+        let root = folder.path();
+        store(root, "zoom", 1.25);
+        // Other tests' changes wait out theirs too.
+        let written = (0..300).any(|_| {
+            std::thread::sleep(WRITE_AFTER / 10);
+            std::fs::read_to_string(root.join(LAYOUT)).is_ok_and(|file| file.contains("1.25"))
+        });
+        assert!(written);
     }
 }
 

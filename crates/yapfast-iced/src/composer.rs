@@ -654,8 +654,8 @@ impl App {
     /// one that writes goes on the end of the composer written in last
     /// (the thread beside's or the channel's), which takes the keys, as
     /// Discord's window sends typing anywhere to its composer; Tab only
-    /// gives it the keys. Not under a card or a popup, nor while the
-    /// talk key is held; stepping through the messages, only letters and
+    /// gives it the keys. Not under a card or a popup, nor push to talk's
+    /// own key in a call; stepping through the messages, only letters and
     /// digits leave them.
     pub fn type_anywhere(
         &mut self,
@@ -677,10 +677,10 @@ impl App {
             }
             self.leave_messages();
         }
-        if self.call.since.is_some()
-            && yapfast_core::push_to_talk::on()
-            && yapfast_core::push_to_talk::held()
-        {
+        // Holding the key to talk shouldn't also write it, as the Slint
+        // client's: only that key, by where it is, while it sends.
+        let voice = &self.client.state().voice;
+        if self.talk_pressed && voice.active() && !voice.muted {
             return Task::none();
         }
         let (which, field) = if self.writing_aside() {

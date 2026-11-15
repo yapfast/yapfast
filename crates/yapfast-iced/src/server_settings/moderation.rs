@@ -408,7 +408,7 @@ impl App {
         .spacing(12)
         .padding(16);
         if let Some(error) = &page.open_error {
-            body = body.push(text(error.as_str()).size(14).color(theme.danger));
+            body = body.push(form::error(theme, error.as_str()));
         }
         if self.client.app.may(&core.server, Permission::Ban) {
             body = body.push(

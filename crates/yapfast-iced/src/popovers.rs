@@ -947,7 +947,7 @@ impl App {
         .spacing(8)
         .padding(12);
         if let Some(error) = &picker.error {
-            body = body.push(text(error.as_str()).size(14).color(theme.danger));
+            body = body.push(crate::form::error(theme, error.as_str()));
         }
         let label = if picker.adding {
             "Adding..."

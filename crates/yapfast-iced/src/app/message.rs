@@ -98,8 +98,10 @@ pub enum Message {
     /// The delete confirmation's answers.
     ConfirmDelete,
     CancelDelete,
-    /// A key nothing in the window took.
+    /// A key nothing in the window took; as the window hands it on, with
+    /// where it is on the keyboard, which tells push to talk's key.
     Key(keyboard::Key, keyboard::Modifiers),
+    Pressed(keyboard::Key, keyboard::Modifiers, keyboard::key::Physical),
     /// Shift, Ctrl, Alt or the logo key went down or up.
     Modifiers(keyboard::Modifiers),
     /// Scripts are waiting for a fallback font (`fonts::load_wanted`).

@@ -197,7 +197,7 @@ fn slots(free: usize) -> String {
 
 /// An error under a dialog's fields.
 fn error_text<'a>(theme: &crate::theme::Theme, error: &'a str) -> Element<'a, Message> {
-    text(error).size(14).color(theme.danger).into()
+    form::error(theme, error).into()
 }
 
 /// A dialog's foot: Cancel, then what it does in `kind`.

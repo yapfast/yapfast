@@ -201,7 +201,7 @@ impl App {
             Layer::AddFriend => state.add_friend.is_some(),
             Layer::Leaving => self.leaving.is_some(),
             Layer::Menu => self.menu.is_some(),
-            Layer::CallPopup => self.call.popup.is_some(),
+            Layer::CallPopup => self.call.popup.is_some() || self.call.share_listing.is_some(),
             Layer::ClipFull => self.clip_full,
             Layer::FullCall => self.full_shown(),
             Layer::Picker => self.picker.is_some(),

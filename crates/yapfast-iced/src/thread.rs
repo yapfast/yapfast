@@ -837,7 +837,7 @@ impl App {
             );
         }
         if let Some(error) = &form.error {
-            fields = fields.push(text(error.as_str()).size(14).color(theme.danger));
+            fields = fields.push(form::error(theme, error.as_str()));
         }
         let composer = SideComposer::new(
             Writing::NewThread,

@@ -251,12 +251,7 @@ impl App {
             }
         }
         if let Some(error) = &prompt.error {
-            body = body.push(
-                text(error.clone())
-                    .size(14)
-                    .color(theme.danger)
-                    .width(Length::Fill),
-            );
+            body = body.push(crate::form::error(theme, error.clone()).width(Length::Fill));
         }
         let open = !prompt.busy;
         let mut buttons = row![].spacing(8).align_y(Alignment::Center);

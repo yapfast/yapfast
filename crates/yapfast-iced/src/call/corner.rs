@@ -122,7 +122,7 @@ impl App {
         let shade = Background::Gradient(
             gradient::Linear::new(std::f32::consts::PI)
                 .add_stop(0.55, Color::TRANSPARENT)
-                .add_stop(1.0, Color::from_rgba8(0, 0, 0, 0xb0 as f32 / 255.0))
+                .add_stop(1.0, tile::SHADE)
                 .into(),
         );
         let mut over = stack![
@@ -234,7 +234,7 @@ impl App {
                         .padding([0, 10])
                         .height(28)
                         .align_y(Alignment::Center)
-                        .style(|_| crate::style::rounded(Color::from_rgba8(0, 0, 0, 0.8), 6)),
+                        .style(|_| crate::style::rounded(crate::playback::CLIP_SHADE, 6)),
                 )
                 .center(Length::Fill),
             );
@@ -270,7 +270,7 @@ impl App {
         let width = size.width.max(360.0);
         Some(
             Viewer::new(
-                Color::from_rgba8(0, 0, 0, 0xe6 as f32 / 255.0),
+                crate::viewer::GROUND,
                 screen,
                 Size::new(size.width, size.height),
                 Message::Clip(crate::playback::Clip::Full(false)),

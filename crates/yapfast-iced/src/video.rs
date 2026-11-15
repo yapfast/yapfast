@@ -494,6 +494,9 @@ pub struct Video {
     /// The tile's round corners, cut by drawing what's behind the tile over
     /// them: the radius and the colour behind.
     corners: Option<(u32, u32)>,
+    /// The window's pixels to the app's units (the display's scale times
+    /// the zoom), which frames are made in.
+    scale: f32,
 }
 
 impl Video {
@@ -503,7 +506,15 @@ impl Video {
             size,
             ground,
             corners: None,
+            scale: 1.0,
         }
+    }
+
+    /// Drawn in a window of `scale` pixels to the unit, which its frame
+    /// was made for.
+    pub fn scale(mut self, scale: f32) -> Self {
+        self.scale = scale.max(0.01);
+        self
     }
 
     pub fn corners(mut self, radius: u32, behind: u32) -> Self {
@@ -584,20 +595,26 @@ impl Widget<Message, Theme, Renderer> for Video {
     ) {
         use iced::advanced::{Renderer as _, image::Renderer as _};
         let tile = layout.bounds();
+        // In the window's pixels, which the frame was made in.
+        let pixels = self.scale;
+        let (tile_width, tile_height) = (tile.width * pixels, tile.height * pixels);
         let (width, height) = (self.size.0.max(1) as f32, self.size.1.max(1) as f32);
-        let mut scale = (tile.width / width).min(tile.height / height);
+        let mut scale = (tile_width / width).min(tile_height / height);
         // The core makes a camera's frame at the tile's size, rounded down
         // to even sides: up to two pixels short, it's drawn one to one, in
         // the middle, not stretched by a fraction.
-        if scale > 1.0 && tile.width - width <= 2.0 && tile.height - height <= 2.0 {
+        if scale > 1.0 && tile_width - width <= 2.0 && tile_height - height <= 2.0 {
             scale = 1.0;
         }
         // Whole pixels: the frame was made at a whole size, so one to one
         // stays one to one.
         let (drawn_width, drawn_height) = ((width * scale).round(), (height * scale).round());
-        let x = (tile.x + (tile.width - drawn_width) / 2.0).round();
-        let y = (tile.y + (tile.height - drawn_height) / 2.0).round();
-        let picture = Rectangle::new(iced::Point::new(x, y), Size::new(drawn_width, drawn_height));
+        let x = (tile.x * pixels + (tile_width - drawn_width) / 2.0).round() / pixels;
+        let y = (tile.y * pixels + (tile_height - drawn_height) / 2.0).round() / pixels;
+        let picture = Rectangle::new(
+            iced::Point::new(x, y),
+            Size::new(drawn_width / pixels, drawn_height / pixels),
+        );
         // The bars only, so the frame's pixels are written once.
         let bars = [
             Rectangle::new(tile.position(), Size::new(tile.width, picture.y - tile.y)),

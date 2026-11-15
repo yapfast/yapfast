@@ -189,7 +189,7 @@ impl App {
             body = body.push(text(words).size(14).color(theme.secondary));
         }
         if let Some(error) = &forwarding.error {
-            body = body.push(text(error.clone()).size(14).color(theme.danger));
+            body = body.push(crate::form::error(theme, error.clone()));
         }
         // Up to FORWARD_LIMIT, as Discord's button counts them.
         let label = match chosen {
