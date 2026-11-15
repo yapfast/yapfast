@@ -44,12 +44,14 @@ use crate::{
     frames::{Frames, Writer},
     picture::{I420, Turn},
     stream_audio,
-    voice::{Resolution, StreamQuality, StreamStats},
+    voice::{Resolution, StreamAudio, StreamQuality, StreamStats},
 };
 use yapfast_lang::tr;
 
 /// The argument that starts Yapfast as a stream worker.
 pub const ARGUMENT: &str = "--stream-worker";
+/// The variable that tells a stream worker the language Yapfast chose.
+const LANGUAGE: &str = "YAPFAST_WORKER_LANGUAGE";
 
 /// The largest frame shared at 1080p. Discord's own client trials 1080p at
 /// 30 fps for accounts without Nitro, up to 5 Mbit/s (its "frontier tuning"
@@ -81,6 +83,9 @@ pub enum Job {
     /// frames file at `frames`.
     Share {
         source: Source,
+        /// The sound shared with it; never any with the test pattern.
+        #[serde(default)]
+        audio: StreamAudio,
         frames: PathBuf,
         width: u32,
         height: u32,
@@ -292,6 +297,8 @@ pub enum Control {
     /// stream goes on with the one shared until then, and when the dialog is
     /// cancelled.
     Switch(Source),
+    /// Share this sound from now on, keeping the picture and the stream.
+    Audio(StreamAudio),
     /// Play a watched stream's sound, or not, as being deafened changes.
     Hear(bool),
     /// Play a watched stream's or a video's sound this loud.
@@ -331,6 +338,9 @@ pub enum Report {
     Ready,
     /// Frames are flowing, at this size after scaling.
     Sharing { width: u32, height: u32 },
+    /// Sharing: the sound asked for couldn't be heard, and the stream goes
+    /// on without it.
+    AudioError(String),
     /// Sharing: the video reaches the stream server. Watching: the first
     /// picture is on screen.
     Streaming,
@@ -369,6 +379,11 @@ pub enum Report {
 pub fn run() -> Result<()> {
     // The stream connection uses TLS; nothing else here has started it.
     let _ = crate::init_tls();
+    // What it reports, such as why the stream's sound can't be heard, shows
+    // in Yapfast's language.
+    if let Some(code) = std::env::var_os(LANGUAGE) {
+        yapfast_lang::choose(&code.to_string_lossy());
+    }
     let mut output = std::io::stdout();
     serve(Box::new(BufReader::new(std::io::stdin())), &mut |report| {
         // Yapfast is gone if this fails; the job ends when its input closes.
@@ -412,6 +427,7 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
     let result = job.and_then(|job| match job {
         Job::Share {
             source,
+            audio,
             frames,
             width,
             height,
@@ -424,7 +440,8 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
                 writer: Writer::open(&frames)?,
                 controls: received,
                 server: None,
-                sound: source != Source::TestPattern,
+                sound: (source != Source::TestPattern).then_some(audio),
+                sound_failed: None,
                 video: None,
                 fps,
                 effort,
@@ -505,9 +522,11 @@ struct Sink {
     controls: channel::Receiver<Control>,
     /// The server to send to from the next frame, which gives the stream its size.
     server: Option<StreamServer>,
-    /// Whether to share other applications' sound too: not for the test
-    /// pattern.
-    sound: bool,
+    /// The sound shared with the picture, which [`Control::Audio`] changes;
+    /// none for the test pattern, which shares only its bars.
+    sound: Option<StreamAudio>,
+    /// Why the stream's sound couldn't start, to report.
+    sound_failed: Option<String>,
     video: Option<Video>,
     fps: u32,
     effort: Effort,
@@ -526,8 +545,8 @@ struct Sink {
 struct Video {
     sender: StreamSender,
     encoder: Encoder,
-    /// Other applications' sound, while sharing a screen.
-    _sound: Option<stream_audio::Capture>,
+    /// The stream's sound, from the first time there's any to share.
+    sound: Option<stream_audio::Capture>,
     /// When the stream last reported how it goes out, and the bytes it had
     /// sent then.
     measured: (Instant, u64),
@@ -597,19 +616,16 @@ impl Sink {
         if let Some(server) = self.server.take() {
             let (offers, encoder) = self.offers(width, height)?;
             let sender = StreamSender::start(server, width, height, self.fps, offers)?;
-            let sound = if self.sound {
-                stream_audio::Capture::start(sender.sound())
-                    .inspect_err(|error| {
-                        tracing::warn!(error = format!("{error:#}"), "sharing without sound")
-                    })
-                    .ok()
-            } else {
-                None
+            let sound = match self.sound {
+                Some(audio) if audio != StreamAudio::Off => {
+                    share_sound(&sender, audio, &mut self.sound_failed)
+                }
+                _ => None,
             };
             self.video = Some(Video {
                 sender,
                 encoder,
-                _sound: sound,
+                sound,
                 measured: (Instant::now(), 0),
             });
         }
@@ -739,8 +755,32 @@ impl Sink {
             match control {
                 Control::Send(server) => self.server = Some(server),
                 Control::Switch(source) => switch = Some(source),
+                // The sound's thread makes the change, so the picture never
+                // waits for it.
+                Control::Audio(audio) if self.sound.is_some() => {
+                    self.sound = Some(audio);
+                    if let Some(video) = self.video.as_mut() {
+                        match &video.sound {
+                            Some(sound) => sound.hear(audio),
+                            None if audio != StreamAudio::Off => {
+                                video.sound =
+                                    share_sound(&video.sender, audio, &mut self.sound_failed);
+                            }
+                            None => {}
+                        }
+                    }
+                }
                 _ => {}
             }
+        }
+        let failed = self.sound_failed.take().or_else(|| {
+            self.video
+                .as_ref()
+                .and_then(|video| video.sound.as_ref())
+                .and_then(stream_audio::Capture::failure)
+        });
+        if let Some(error) = failed {
+            report(Report::AudioError(error));
         }
         match self.video.as_ref().map(|video| video.sender.link()) {
             Some(Link::Connected) if !self.streaming => {
@@ -769,6 +809,20 @@ impl Sink {
         }
         Ok(switch)
     }
+}
+
+/// Starts the stream's sound on `sender`, or keeps why it couldn't start.
+fn share_sound(
+    sender: &StreamSender,
+    audio: StreamAudio,
+    failed: &mut Option<String>,
+) -> Option<stream_audio::Capture> {
+    stream_audio::Capture::start(sender.sound(), audio)
+        .inspect_err(|error| {
+            tracing::warn!(error = format!("{error:#}"), "sharing without sound");
+            *failed = Some(format!("{error:#}"));
+        })
+        .ok()
 }
 
 /// Whether a picture is black, as a screen is before what's shared draws:
@@ -1451,12 +1505,14 @@ impl Worker {
     pub fn share(
         source: Source,
         quality: StreamQuality,
+        audio: StreamAudio,
     ) -> Result<(Self, Frames, mpsc::UnboundedReceiver<Report>)> {
         let source = picked(source);
         let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT)?;
         let (width, height) = bounds(quality.resolution);
         let job = Job::Share {
             source,
+            audio,
             frames: frames.path().context("the video frames file has no name")?,
             width,
             height,
@@ -1576,6 +1632,7 @@ impl Worker {
         };
         let mut child = Command::new(program)
             .arg(ARGUMENT)
+            .env(LANGUAGE, yapfast_lang::chosen().code)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(crate::logging::for_worker())
@@ -1951,7 +2008,8 @@ mod tests {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
             controls: received,
             server: None,
-            sound: false,
+            sound: None,
+            sound_failed: None,
             video: None,
             fps: 30,
             effort: Effort::Light,
@@ -1984,7 +2042,8 @@ mod tests {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
             controls: received,
             server: None,
-            sound: false,
+            sound: None,
+            sound_failed: None,
             video: None,
             fps: 30,
             effort: Effort::Light,
@@ -2021,7 +2080,8 @@ mod tests {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
             controls: received,
             server: None,
-            sound: false,
+            sound: None,
+            sound_failed: None,
             video: None,
             fps: 30,
             effort: Effort::Light,
@@ -2040,6 +2100,47 @@ mod tests {
         assert_eq!(sink.check(&mut report).unwrap(), None);
     }
 
+    /// The sound changes alone, before the stream connects too, and the
+    /// test pattern never takes any.
+    #[test]
+    fn changes_the_sound_without_switching_the_picture() {
+        let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT).unwrap();
+        let (controls, received) = channel::channel();
+        let mut sink = Sink {
+            writer: Writer::open(&frames.path().unwrap()).unwrap(),
+            controls: received,
+            server: None,
+            sound: Some(StreamAudio::All),
+            sound_failed: None,
+            video: None,
+            fps: 30,
+            effort: Effort::Light,
+            hardware: false,
+            started: Instant::now(),
+            streaming: false,
+            preview_due: None,
+            thumbnail: None,
+            lost: None,
+        };
+        let mut reported = vec![];
+        for audio in [StreamAudio::Off, StreamAudio::Window(42), StreamAudio::All] {
+            controls.send(Control::Audio(audio)).unwrap();
+            assert_eq!(
+                sink.check(&mut |report| reported.push(report)).unwrap(),
+                None
+            );
+            assert_eq!(sink.sound, Some(audio));
+            let mut picture = I420Buffer::new(320, 180);
+            sink.frame(&mut picture).unwrap();
+            assert!(frames.take(|width, height, _| (width, height)).is_some());
+        }
+        assert!(reported.is_empty(), "{reported:?}");
+        sink.sound = None;
+        controls.send(Control::Audio(StreamAudio::All)).unwrap();
+        sink.check(&mut |_| {}).unwrap();
+        assert_eq!(sink.sound, None, "the test pattern stays silent");
+    }
+
     #[test]
     fn previews_a_stream_once_its_picture_shows() {
         let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT).unwrap();
@@ -2048,7 +2149,8 @@ mod tests {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
             controls: received,
             server: None,
-            sound: false,
+            sound: None,
+            sound_failed: None,
             video: None,
             fps: 30,
             effort: Effort::Light,
@@ -2088,6 +2190,7 @@ mod tests {
     fn serves_a_test_pattern_until_stopped() {
         let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT).unwrap();
         let job = Job::Share {
+            audio: StreamAudio::All,
             source: Source::TestPattern,
             frames: frames.path().unwrap(),
             width: PREVIEW_WIDTH,
@@ -2137,6 +2240,7 @@ mod tests {
             .expect("the test pattern camera is listed");
         let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT).unwrap();
         let job = Job::Share {
+            audio: StreamAudio::All,
             source: camera.source.clone(),
             frames: frames.path().unwrap(),
             width: PREVIEW_WIDTH,
@@ -2272,6 +2376,7 @@ mod tests {
         for source in sources.clone() {
             let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT).unwrap();
             let job = Job::Share {
+                audio: StreamAudio::All,
                 source: source.clone(),
                 frames: frames.path().unwrap(),
                 width: PREVIEW_WIDTH,
@@ -2325,6 +2430,7 @@ mod tests {
         let [screen, window] = sources;
         let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT).unwrap();
         let job = Job::Share {
+            audio: StreamAudio::All,
             source: screen,
             frames: frames.path().unwrap(),
             width: PREVIEW_WIDTH,
@@ -2360,6 +2466,7 @@ mod tests {
         // A window closed since it was listed.
         let frames = Frames::create(16, 16).unwrap();
         let gone = Job::Share {
+            audio: StreamAudio::All,
             source: Source::Window(u64::MAX),
             frames: frames.path().unwrap(),
             width: 16,

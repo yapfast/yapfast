@@ -346,6 +346,32 @@ pub fn others(
     platform::others(skip, Box::new(heard), stop)
 }
 
+/// Hears only the application that owns `window`, by the id
+/// [`crate::stream_worker::shareable`] lists it with, and the processes it
+/// started, as [`others`] hears. An application `skip` picks by its program,
+/// such as a Discord client, isn't heard, nor is Yapfast. Windows only: a
+/// window gone, or anywhere else, fails rather than hearing every
+/// application in its place.
+#[cfg(feature = "discord")]
+pub fn window_audio(
+    window: u64,
+    skip: fn(&str) -> bool,
+    heard: impl FnMut(Heard<'_>) + Send + 'static,
+    stop: Arc<AtomicBool>,
+) -> Result<JoinHandle<()>> {
+    #[cfg(windows)]
+    {
+        platform::window_audio(window, skip, Box::new(heard), stop)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (window, skip, heard, stop);
+        anyhow::bail!(yapfast_lang::tr!(
+            "Sharing one application's sound works on Windows only."
+        ))
+    }
+}
+
 #[cfg(feature = "discord")]
 type Hear = Box<dyn FnMut(Heard<'_>) + Send>;
 

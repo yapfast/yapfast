@@ -407,6 +407,9 @@ export component VoiceDock inherits Rectangle {
     in property <string> share-status;
     /// How many watch this account's stream.
     in property <int> share-watchers;
+    /// The stream carries sound, which its row turns off and on.
+    in property <bool> share-sound-on: true;
+    callback toggle-stream-sound;
     in property <bool> can-film;
     in property <bool> camera-on;
     /// The camera is on its way, until its first picture.
@@ -535,6 +538,11 @@ export component VoiceDock inherits Rectangle {
                         : @tr("Streaming to {}", root.voice-name);
                     color: Theme.muted; font-size: 13px; overflow: elide;
                 }
+            }
+            IconButton {
+                icon: root.share-sound-on ? @image-url("icons/volume-2.svg") : @image-url("icons/volume-x.svg");
+                label: root.share-sound-on ? @tr("Turn off stream sound") : @tr("Turn on stream sound");
+                clicked => { root.toggle-stream-sound(); }
             }
             IconButton {
                 icon: @image-url("icons/screen-share-off.svg"); label: @tr("Stop sharing"); danger: true;
@@ -1379,8 +1387,9 @@ component ScreenCard inherits Rectangle {
     }
 }
 
-// Going live: what to share, where Yapfast lists it, and the resolution, frame
-// rate and quality to share it at; or while sharing, what to share instead.
+// Going live: what to share, where Yapfast lists it, its sound, and the
+// resolution, frame rate and quality to share it at; or while sharing, what to
+// share instead, and its sound.
 export component ShareMenu inherits Rectangle {
     /// The screens, then the windows, then the cameras, to share; a pick
     /// counts the screens first.
@@ -1401,6 +1410,22 @@ export component ShareMenu inherits Rectangle {
     in-out property <int> pick-fps;
     /// The encoder's slower preset: a sharper picture for more CPU.
     in-out property <bool> pick-high-quality;
+    /// The sound shared, which a choice changes at once, live or not: 0
+    /// every application's, 1 none, from 2 the application whose window
+    /// sound-apps lists 2 before.
+    in-out property <int> pick-sound;
+    /// On Windows, the windows whose application's sound alone can be
+    /// shared; elsewhere none, and no such choice.
+    in property <[string]> sound-apps;
+    callback sound-changed(int);
+    // The windows that choose one application, opened from its row.
+    property <bool> apps-open;
+    function choose-sound(index: int) {
+        if index != root.pick-sound {
+            root.pick-sound = index;
+            root.sound-changed(index);
+        }
+    }
     callback go-live(int, int, int, bool);
     /// The menu's height with every choice showing. In a window too short for
     /// it, the menu is as tall as it gets and the choices scroll, above the
@@ -1468,8 +1493,36 @@ export component ShareMenu inherits Rectangle {
                         clicked => { root.pick-source = root.first-camera + index; }
                     }
                 }
+                // Apart from the picture, so it shows while live too.
+                HorizontalLayout {
+                    padding-left: 8px; padding-top: root.lists || root.asks-dialog ? 8px : 4px; padding-bottom: 4px;
+                    Text { text: @tr("SOUND"); color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; overflow: elide; }
+                }
+                MenuItem {
+                    text: @tr("All applications"); subtitle: @tr("Except Yapfast's own sound"); wraps: true;
+                    checked: root.pick-sound == 0;
+                    clicked => { root.choose-sound(0); }
+                }
+                MenuItem {
+                    text: @tr("No sound"); checked: root.pick-sound == 1;
+                    clicked => { root.choose-sound(1); }
+                }
+                if root.sound-apps.length > 0: MenuItem {
+                    text: @tr("One application");
+                    subtitle: root.pick-sound >= 2 ? root.sound-apps[root.pick-sound - 2] : @tr("Chosen by its window");
+                    checked: root.pick-sound >= 2; submenu: true; expanded: root.apps-open;
+                    clicked => { root.apps-open = !root.apps-open; }
+                }
+                // Under the row that opens them, their checks under its text.
+                if root.apps-open: VerticalLayout {
+                    padding-left: 24px;
+                    for app[index] in root.sound-apps: MenuItem {
+                        text: app; checked: index + 2 == root.pick-sound;
+                        clicked => { root.choose-sound(index + 2); }
+                    }
+                }
                 if !root.switching: HorizontalLayout {
-                    padding-left: 8px; padding-top: root.lists ? 8px : 4px; padding-bottom: 4px;
+                    padding-left: 8px; padding-top: 8px; padding-bottom: 4px;
                     Text { text: @tr("RESOLUTION"); color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; overflow: elide; }
                 }
                 if !root.switching: VerticalLayout {
@@ -1504,8 +1557,11 @@ export component ShareMenu inherits Rectangle {
         }
         start := HorizontalLayout {
             padding: 4px; padding-top: 10px;
+            // While live, it waits for something to switch to: the sound
+            // alone has changed already.
             ActionButton {
                 text: root.switching ? @tr("Switch") : @tr("Go Live"); icon: @image-url("icons/screen-share.svg"); primary: true; horizontal-stretch: 1;
+                enabled: !root.switching || root.pick-source >= 0;
                 clicked => { root.go-live(root.pick-source, root.pick-resolution, root.pick-fps, root.pick-high-quality); }
             }
         }

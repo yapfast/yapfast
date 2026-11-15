@@ -1514,6 +1514,18 @@ export component YapfastWindow inherits Window {
     in property <[ShareScreen]> share-screens;
     in property <[string]> share-windows;
     in property <[string]> share-cameras;
+    /// The sound a shared screen carries, as the share menu chooses it: 0
+    /// every application's, 1 none, from 2 the application whose window
+    /// share-sound-apps lists 2 before. A choice changes it at once, live
+    /// or not, with stream-sound-changed.
+    in-out property <int> share-sound;
+    /// On Windows, the windows whose application's sound alone can be
+    /// shared, listed as the share menu opens.
+    in property <[string]> share-sound-apps;
+    callback stream-sound-changed(int);
+    /// The stream carries sound, which the call dock turns off and on.
+    in property <bool> share-sound-on: true;
+    callback toggle-stream-sound;
     callback list-share-sources();
     /// Opens the share menu once its lists are in. Switching where the
     /// system's dialog picks and there's no camera goes straight to the dialog.
@@ -2009,6 +2021,10 @@ export component YapfastWindow inherits Window {
         x: 0px; y: 0px; width: 0px; height: 0px; visible: false;
         text: @tr("Sharper, at twice the CPU"); font-size: 12px;
     }
+    sound-measure := Text {
+        x: 0px; y: 0px; width: 0px; height: 0px; visible: false;
+        text: @tr("Except Yapfast's own sound"); font-size: 12px;
+    }
     // The choices on one line: each label with 10px either side, 4px apart
     // and inside the well, the row's 8px and the menu's 6px either side.
     input-menu := PopupWindow {
@@ -2063,7 +2079,8 @@ export component YapfastWindow inherits Window {
     property <bool> pick-switch;
     function open-share-menu(x: length, y: length) {
         root.menu-x = x; root.menu-y = y;
-        root.pick-source = 0;
+        // While live nothing is picked, so changing the sound alone switches nothing.
+        root.pick-source = root.sharing ? -1 : 0;
         root.pick-resolution = root.share-resolution;
         root.pick-fps = root.share-fps;
         root.pick-high-quality = root.share-high-quality;
@@ -2093,9 +2110,10 @@ export component YapfastWindow inherits Window {
         x: max(8px, min(root.width - self.width - 8px, root.menu-x - 6px));
         y: max(8px, root.menu-y - self.height - 6px);
         // Wider for the screens' pictures; otherwise wide enough for the
-        // quality's note on one line, beside its row's icon and checkbox,
-        // up to as wide.
-        width: min(root.width - 16px, root.share-screens.length > 0 ? 336px : max(280px, min(336px, quality-measure.preferred-width + 80px)));
+        // quality's and the sound's notes on one line, beside their rows'
+        // icons and the checkbox, up to as wide.
+        width: min(root.width - 16px, root.share-screens.length > 0 ? 336px
+            : max(280px, min(336px, max(quality-measure.preferred-width, sound-measure.preferred-width) + 80px)));
         // No taller than the window has room for: with many windows and
         // cameras listed, or the window short or zoomed, its choices scroll.
         height: min(share-content.full-height, root.height - 16px);
@@ -2105,6 +2123,8 @@ export component YapfastWindow inherits Window {
             dialog: !root.share-lists; switching: root.pick-switch;
             pick-source <=> root.pick-source; pick-resolution <=> root.pick-resolution; pick-fps <=> root.pick-fps;
             pick-high-quality <=> root.pick-high-quality;
+            pick-sound <=> root.share-sound; sound-apps: root.share-sound-apps;
+            sound-changed(index) => { root.stream-sound-changed(index); }
             go-live(source, resolution, fps, high-quality) => {
                 if root.pick-switch {
                     root.switch-live(source);
@@ -2933,6 +2953,7 @@ export component YapfastWindow inherits Window {
                                 voice-warning: root.voice-warning; voice-error: root.voice-error;
                                 can-share: root.can-share; sharing: root.sharing; share-live: root.share-live; share-status: root.share-status;
                                 share-watchers: root.share-viewers.length;
+                                share-sound-on: root.share-sound-on; toggle-stream-sound => { root.toggle-stream-sound(); }
                                 can-film: root.can-film; camera-on: root.camera-on; camera-starting: root.camera-starting;
                                 can-soundboard: root.can-soundboard;
                                 noise-on: root.noise-suppression != 2; can-noise: root.voice-discord;

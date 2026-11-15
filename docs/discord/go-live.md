@@ -82,7 +82,7 @@ Linux, its DirectShow filter on Windows). The share menu lists the cameras
 [the call's camera](voice.md#camera-video) lists, under CAMERAS, after the
 screens and windows; on Wayland, where the portal picks a screen or window, a
 "Screen or window" choice comes first, and switching with no camera listed
-goes straight to the dialog. The worker films the camera through the same
+goes straight to the dialog, without the menu. The worker films the camera through the same
 capture module (`camera::Camera::open_at`), asking for the stream's
 resolution and frame rate rather than the call camera's 720p at 30, and
 copies each picture into one buffer it keeps for the next before the encoder
@@ -233,9 +233,53 @@ reports, and op 5 marks them as shared sound (speaking flag 2). Nothing is
 sent while no application plays. On Windows, WASAPI's process loopback hears
 everything but Yapfast's own process tree as one stream, from Windows 10's 2004
 update on; it can't leave other Discord clients out. Other systems share
-video only for now, and so does the test pattern. Two ignored tests check the capture against the
+video only, and the test pattern shares its bars alone, whatever sound is
+chosen. Two ignored tests check the capture against the
 machine's sound server with a quiet tone: another process's is heard, and
 Yapfast's own is not.
+
+The share menu's SOUND chooses what the stream carries (`voice::StreamAudio`):
+all applications, as above, or no sound, and on Windows one application, picked
+by one of its windows in a list that opens under its row. A choice applies at
+once, before going live or while live, apart from the picture: while live the
+menu opens with no screen or window picked, so its Switch button waits for one,
+and the voice dock's row for your screen has a button that turns the sound off
+and back to what it was. On Wayland with no camera listed, where switching goes
+straight to the dialog, that button is how the sound changes while live.
+Whether a stream has sound is kept in `devices.json` beside the stream's
+quality; an application chosen by its window isn't, as window ids last only
+while Yapfast runs, and the next run starts with all applications.
+
+The worker's sound has a thread of its own (`stream_audio::Capture`), started
+with the stream's connection, or when sound is first turned on, so a stream
+without sound starts no thread. A change (`stream_worker::Control::Audio`)
+goes to that thread, which stops what it hears, drops what it heard, and starts
+hearing the new choice, while the picture goes on: the capture thread sending
+frames never waits for it. The thread keeps its Opus encoder and the sound's
+RTP clock, which counts 48 kHz from when the sound started whether anything is
+heard or not, so after a change, or a while without sound, a frame's time is
+when it was mixed, and stays in step with the picture's on the same SSRC. With
+no sound chosen, the thread sleeps until it's told otherwise, and nothing
+else wakes it. A sound that can't be heard, such as a window closed since the
+menu listed it, is reported (`Report::AudioError`) and shown as the call's
+error, and the stream goes on without sound: Yapfast never hears every
+application in place of the one chosen. `keeps_the_sounds_clock_while_what_it_hears_changes` checks this with a
+listener of its own.
+
+One application's sound on Windows is process loopback's include mode for the
+process that owns the window (`GetWindowThreadProcessId`) and the processes it
+started, so a browser's sound comes from all its tabs, and an application's
+windows all share one sound. Yapfast refuses its own process, a Discord
+client's, whose sound would echo the call, and a Store app's window, which the
+system's frame host draws, since that process plays nothing. The ignored
+`captures_and_encodes_selected_application_audio_on_windows` plays two quiet
+tones in processes of their own and checks that all applications, then each
+one alone, are heard and survive an Opus round trip; it needs a Windows desktop
+with working speakers:
+
+```sh
+cargo test -p yapfast-core captures_and_encodes_selected_application_audio_on_windows -- --ignored --nocapture --test-threads=1
+```
 
 Each video packet carries the one-byte extensions a Discord client sends: a
 transport-wide sequence number (id 5), playout delay (6), screen content

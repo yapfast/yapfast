@@ -1,8 +1,10 @@
-//! Go Live's sound. Sharing: what every other application plays, mixed
-//! into 20 ms Opus frames for the stream. Yapfast's own sound is left out, so
-//! viewers never hear the call echoed back, as Discord's client and Vesktop
-//! do, and so are other Discord clients': their sound is a call too, which a
-//! stream would echo back. [`crate::audio_io::others`] hears the applications.
+//! Go Live's sound. Sharing: what every other application plays, or on
+//! Windows one application, or nothing, as [`StreamAudio`] chooses, mixed
+//! into 20 ms Opus frames for the stream ([`Capture`]). Yapfast's own sound is
+//! left out, so viewers never hear the call echoed back, as Discord's client
+//! and Vesktop do, and so are other Discord clients': their sound is a call
+//! too, which a stream would echo back. [`crate::audio_io::others`] hears the
+//! applications, and [`crate::audio_io::window_audio`] one of them.
 //! Watching: the streamer's Opus, decoded and played ([`Player`]).
 
 use std::{
@@ -10,6 +12,7 @@ use std::{
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
+        mpsc,
     },
     thread::JoinHandle,
     time::{Duration, Instant},
@@ -21,7 +24,10 @@ use yapfast_discord::{
     stream_connection::{Sound, SoundSender},
 };
 
-use crate::audio_io::{Heard, LastingOutput, RATE};
+use crate::{
+    audio_io::{Heard, LastingOutput, RATE},
+    voice::StreamAudio,
+};
 
 const CHANNELS: usize = 2;
 /// Samples of every channel in one 20 ms frame.
@@ -34,6 +40,10 @@ const PRIMED: usize = FRAME * 2;
 const BACKLOG: usize = FRAME * 10;
 /// What Discord's client gives a stream's sound.
 const BITRATE: i32 = 64_000;
+
+#[cfg(all(test, windows))]
+#[path = "stream_audio/windows_tests.rs"]
+mod windows_tests;
 
 /// Whether an application, by its name or program, is Yapfast or a Discord
 /// client, whose sound is a call or a stream: Yapfast's other workers, such as
@@ -95,105 +105,240 @@ fn mix(inputs: &mut HashMap<u32, Input>, out: &mut [f32]) -> bool {
     heard
 }
 
-/// Hears the other applications into `inputs` until `stop`.
-fn listen(inputs: Inputs, stop: Arc<AtomicBool>) -> Result<JoinHandle<()>> {
-    crate::audio_io::others(
-        is_discord_client,
-        move |heard| {
-            let mut inputs = inputs
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            match heard {
-                Heard::Started { source, process } => {
-                    inputs.insert(
-                        source,
-                        Input {
-                            process,
-                            ..Input::default()
-                        },
-                    );
-                }
-                Heard::Samples { source, samples } => {
-                    if let Some(input) = inputs.get_mut(&source) {
-                        input.push(samples.iter().copied());
-                    }
-                }
-                Heard::Stopped { source } => {
-                    if let Some(forgotten) = inputs.remove(&source) {
-                        tracing::debug!(
-                            process = ?forgotten.process,
-                            "stopped capturing an application's sound"
-                        );
-                    }
+/// Hears what `audio` names into `inputs` until `stop`: every other
+/// application, or on Windows the one that owns a window. Off hears nothing.
+fn listen(inputs: Inputs, stop: Arc<AtomicBool>, audio: StreamAudio) -> Result<JoinHandle<()>> {
+    let heard = move |heard: Heard<'_>| {
+        let mut inputs = lock(&inputs);
+        match heard {
+            Heard::Started { source, process } => {
+                inputs.insert(
+                    source,
+                    Input {
+                        process,
+                        ..Input::default()
+                    },
+                );
+            }
+            Heard::Samples { source, samples } => {
+                if let Some(input) = inputs.get_mut(&source) {
+                    input.push(samples.iter().copied());
                 }
             }
-        },
-        stop,
-    )
+            Heard::Stopped { source } => {
+                if let Some(forgotten) = inputs.remove(&source) {
+                    tracing::debug!(
+                        process = ?forgotten.process,
+                        "stopped capturing an application's sound"
+                    );
+                }
+            }
+        }
+    };
+    match audio {
+        StreamAudio::All => crate::audio_io::others(is_discord_client, heard, stop),
+        StreamAudio::Window(window) => {
+            crate::audio_io::window_audio(window, is_discord_client, heard, stop)
+        }
+        StreamAudio::Off => anyhow::bail!("no sound to hear"),
+    }
 }
 
-/// Captures and sends the stream's sound until dropped.
+fn lock(inputs: &Inputs) -> std::sync::MutexGuard<'_, HashMap<u32, Input>> {
+    inputs
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// What starts hearing for the sound's thread: [`listen`], or a test's own.
+type Listen = fn(Inputs, Arc<AtomicBool>, StreamAudio) -> Result<JoinHandle<()>>;
+
+/// The stream's sound: what a [`StreamAudio`] names, mixed into 20 ms Opus
+/// frames and sent, from a thread of its own until dropped. Hearing
+/// something else keeps the thread, its encoder and its clock, so the sound
+/// goes on in step with the picture; with nothing to hear, the thread
+/// sleeps until it's told what to hear.
 pub struct Capture {
-    stop: Arc<AtomicBool>,
-    threads: Vec<JoinHandle<()>>,
+    told: Option<mpsc::Sender<StreamAudio>>,
+    failures: mpsc::Receiver<String>,
+    thread: Option<JoinHandle<()>>,
 }
 
 impl Capture {
-    /// Starts capturing other applications' sound and sending it as Opus.
-    pub fn start(sound: SoundSender) -> Result<Self> {
-        let inputs = Inputs::default();
-        let stop = Arc::new(AtomicBool::new(false));
-        let capture = listen(inputs.clone(), stop.clone())?;
-        let mut encoder = opus::Encoder::new(2, opus::Application::Audio, BITRATE)?;
-        let stopping = stop.clone();
-        let mixer = std::thread::Builder::new()
+    /// Starts sending what `audio` names to `sound`, as Opus.
+    pub fn start(sound: SoundSender, audio: StreamAudio) -> Result<Self> {
+        Self::start_with(listen, move |frame| sound.send(frame), audio)
+    }
+
+    fn start_with(
+        listen: Listen,
+        send: impl FnMut(Sound) + Send + 'static,
+        audio: StreamAudio,
+    ) -> Result<Self> {
+        let encoder = opus::Encoder::new(2, opus::Application::Audio, BITRATE)?;
+        let (told, orders) = mpsc::channel();
+        let (failed, failures) = mpsc::channel();
+        let thread = std::thread::Builder::new()
             .name("yapfast-stream-sound".into())
-            .spawn(move || {
-                let mut frame = vec![0.0; FRAME];
-                let mut opus = vec![0; 4000];
-                let mut timestamp: u32 = rand::random();
-                let started = Instant::now();
-                let mut tick = 0u32;
-                while !stopping.load(Ordering::Relaxed) {
-                    tick += 1;
-                    let due = started + Duration::from_millis(20) * tick;
-                    if let Some(wait) = due.checked_duration_since(Instant::now()) {
-                        std::thread::sleep(wait);
-                    }
-                    let heard = mix(
-                        &mut inputs
-                            .lock()
-                            .unwrap_or_else(|poisoned| poisoned.into_inner()),
-                        &mut frame,
-                    );
-                    if heard {
-                        match encoder.encode_float(&frame, &mut opus) {
-                            Ok(size) => sound.send(Sound {
-                                opus: opus[..size].to_vec(),
-                                timestamp,
-                            }),
-                            Err(error) => {
-                                tracing::warn!(%error, "could not encode the stream's sound")
-                            }
-                        }
-                    }
-                    timestamp = timestamp.wrapping_add((FRAME / CHANNELS) as u32);
-                }
-            })
+            .spawn(move || mix_and_send(listen, send, encoder, audio, &orders, &failed))
             .context("could not start mixing the stream's sound")?;
         Ok(Self {
-            stop,
-            threads: vec![capture, mixer],
+            told: Some(told),
+            failures,
+            thread: Some(thread),
         })
+    }
+
+    /// Hears `audio` from the next frame on, in place of what it heard,
+    /// without waiting for the change: the thread makes it.
+    pub fn hear(&self, audio: StreamAudio) {
+        if let Some(told) = &self.told {
+            let _ = told.send(audio);
+        }
+    }
+
+    /// Why a sound it was told to hear can't be heard, once each time.
+    pub fn failure(&self) -> Option<String> {
+        self.failures.try_recv().ok()
     }
 }
 
 impl Drop for Capture {
     fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-        for thread in self.threads.drain(..) {
+        // The thread stops once nothing can tell it more.
+        self.told = None;
+        if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
+    }
+}
+
+/// How long a frame of sound lasts, and its samples of each channel.
+const FRAME_TIME: Duration = Duration::from_millis(20);
+const FRAME_SAMPLES: u32 = (FRAME / CHANNELS) as u32;
+
+/// The stream sound's RTP clock: 48 kHz from a random start, running from
+/// when the sound started whether anything is heard or not. A frame's time
+/// is when it's mixed, so after silence, or a change of what's heard, the
+/// sound stays in step with the picture, as one clock on one SSRC must.
+struct Clock {
+    origin: Instant,
+    start: u32,
+}
+
+impl Clock {
+    fn new() -> Self {
+        Self {
+            origin: Instant::now(),
+            start: rand::random(),
+        }
+    }
+
+    /// The frame whose time came last by `at`.
+    fn frame_at(&self, at: Instant) -> u32 {
+        (at.saturating_duration_since(self.origin).as_nanos() / FRAME_TIME.as_nanos()) as u32
+    }
+
+    fn due(&self, frame: u32) -> Instant {
+        self.origin + FRAME_TIME * frame
+    }
+
+    fn timestamp(&self, frame: u32) -> u32 {
+        self.start.wrapping_add(frame.wrapping_mul(FRAME_SAMPLES))
+    }
+}
+
+/// The applications heard, until stopped.
+struct Hearing {
+    audio: StreamAudio,
+    stop: Arc<AtomicBool>,
+    thread: JoinHandle<()>,
+}
+
+impl Hearing {
+    fn stop(self) {
+        self.stop.store(true, Ordering::Relaxed);
+        let _ = self.thread.join();
+    }
+}
+
+/// The stream sound's thread: hears what it's told, and while it hears
+/// anything, mixes, encodes and sends a frame every 20 ms. A change stops
+/// the old hearing and drops what it heard before the new one starts, so
+/// two never mix.
+fn mix_and_send(
+    listen: Listen,
+    mut send: impl FnMut(Sound),
+    mut encoder: opus::Encoder,
+    first: StreamAudio,
+    orders: &mpsc::Receiver<StreamAudio>,
+    failed: &mpsc::Sender<String>,
+) {
+    let clock = Clock::new();
+    let inputs = Inputs::default();
+    let mut frame = vec![0.0; FRAME];
+    let mut opus = vec![0; 4000];
+    let mut hearing: Option<Hearing> = None;
+    let mut told = Some(first);
+    let mut at = 0u32;
+    loop {
+        if let Some(audio) = told.take()
+            && audio
+                != hearing
+                    .as_ref()
+                    .map_or(StreamAudio::Off, |heard| heard.audio)
+        {
+            if let Some(heard) = hearing.take() {
+                heard.stop();
+            }
+            lock(&inputs).clear();
+            if audio != StreamAudio::Off {
+                let stop = Arc::new(AtomicBool::new(false));
+                match listen(inputs.clone(), stop.clone(), audio) {
+                    Ok(thread) => {
+                        hearing = Some(Hearing {
+                            audio,
+                            stop,
+                            thread,
+                        })
+                    }
+                    Err(error) => {
+                        tracing::warn!(error = format!("{error:#}"), "sharing without sound");
+                        let _ = failed.send(format!("{error:#}"));
+                    }
+                }
+            }
+            // From now on, rather than catching up on the time it took.
+            at = clock.frame_at(Instant::now());
+        }
+        if hearing.is_none() {
+            match orders.recv() {
+                Ok(audio) => told = Some(audio),
+                Err(_) => break,
+            }
+            continue;
+        }
+        let next = at.wrapping_add(1);
+        match orders.recv_timeout(clock.due(next).saturating_duration_since(Instant::now())) {
+            Ok(audio) => {
+                told = Some(audio);
+                continue;
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => at = next,
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+        if mix(&mut lock(&inputs), &mut frame) {
+            match encoder.encode_float(&frame, &mut opus) {
+                Ok(size) => send(Sound {
+                    opus: opus[..size].to_vec(),
+                    timestamp: clock.timestamp(at),
+                }),
+                Err(error) => tracing::warn!(%error, "could not encode the stream's sound"),
+            }
+        }
+    }
+    if let Some(heard) = hearing {
+        heard.stop();
     }
 }
 
@@ -374,7 +519,7 @@ mod tests {
         let tone = std::env::var("YAPFAST_TONE").expect("YAPFAST_TONE names a WAV file");
         let inputs = Inputs::default();
         let stop = Arc::new(AtomicBool::new(false));
-        let capture = listen(inputs.clone(), stop.clone()).unwrap();
+        let capture = listen(inputs.clone(), stop.clone(), StreamAudio::All).unwrap();
         let mut player = std::process::Command::new("paplay")
             .args(["--volume=100", &tone])
             .spawn()
@@ -406,7 +551,7 @@ mod tests {
     fn leaves_out_yapfasts_own_sound() {
         let inputs = Inputs::default();
         let stop = Arc::new(AtomicBool::new(false));
-        let capture = listen(inputs.clone(), stop.clone()).unwrap();
+        let capture = listen(inputs.clone(), stop.clone(), StreamAudio::All).unwrap();
         let mut player =
             crate::audio_io::Output::<f32>::open(None, "Discord voice", RATE, 2, None).unwrap();
         // A second of a 440 Hz tone at about -56 dB.
@@ -496,6 +641,87 @@ mod tests {
         .unwrap();
         player.thread.take().unwrap().join().unwrap();
         assert!(started.elapsed() < Duration::from_secs(3));
+    }
+
+    #[test]
+    fn unavailable_audio_window_never_captures_all_applications() {
+        let inputs = Inputs::default();
+        let stop = Arc::new(AtomicBool::new(false));
+        let result = listen(inputs.clone(), stop, StreamAudio::Window(0));
+        assert!(
+            result.is_err(),
+            "a closed window must fail instead of falling back"
+        );
+        assert!(inputs.lock().unwrap().is_empty());
+    }
+
+    /// Hears a steady tone for every application, as one playing would,
+    /// and fails for a window, as a closed one does.
+    fn tone(inputs: Inputs, stop: Arc<AtomicBool>, audio: StreamAudio) -> Result<JoinHandle<()>> {
+        anyhow::ensure!(audio == StreamAudio::All, "that window is gone");
+        lock(&inputs).insert(1, Input::default());
+        Ok(std::thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                if let Some(input) = lock(&inputs).get_mut(&1) {
+                    input.push(std::iter::repeat_n(0.1, FRAME));
+                }
+                std::thread::sleep(FRAME_TIME);
+            }
+        }))
+    }
+
+    #[test]
+    fn keeps_the_sounds_clock_while_what_it_hears_changes() {
+        let (sent, sounds) = mpsc::channel();
+        let capture = Capture::start_with(
+            tone,
+            move |sound: Sound| {
+                let _ = sent.send((Instant::now(), sound.timestamp));
+            },
+            StreamAudio::All,
+        )
+        .unwrap();
+        let next = || {
+            sounds
+                .recv_timeout(Duration::from_secs(2))
+                .expect("a frame of sound")
+        };
+        let (began, first) = next();
+        let (_, second) = next();
+        assert_eq!(second.wrapping_sub(first), FRAME_SAMPLES);
+        capture.hear(StreamAudio::Off);
+        std::thread::sleep(Duration::from_millis(100));
+        while sounds.try_recv().is_ok() {}
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(sounds.try_recv().is_err(), "nothing is sent while off");
+        capture.hear(StreamAudio::All);
+        let (resumed_at, resumed) = next();
+        // The clock ran on while nothing was heard: the frame's time is
+        // when it was mixed, counted from the first.
+        let counted = resumed.wrapping_sub(first);
+        assert_eq!(counted % FRAME_SAMPLES, 0, "the same clock");
+        let passed = (resumed_at - began).as_micros() as i64 * 48 / 1000;
+        assert!(
+            (i64::from(counted) - passed).abs() < 4800,
+            "{counted} samples counted, {passed} passed"
+        );
+        // A window that's gone fails, and isn't replaced by everything.
+        capture.hear(StreamAudio::Window(7));
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let failure = loop {
+            if let Some(failure) = capture.failure() {
+                break failure;
+            }
+            assert!(Instant::now() < deadline, "the failure is told");
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        assert!(failure.contains("that window is gone"), "{failure}");
+        while sounds.try_recv().is_ok() {}
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(sounds.try_recv().is_err(), "nothing heard in its place");
+        let dropped = Instant::now();
+        drop(capture);
+        assert!(dropped.elapsed() < Duration::from_secs(1));
     }
 
     #[test]

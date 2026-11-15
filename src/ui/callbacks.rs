@@ -3058,8 +3058,11 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     #[cfg(feature = "discord")]
     let weak = window.as_weak();
     #[cfg(feature = "discord")]
+    let state = adapter.clone();
+    #[cfg(feature = "discord")]
     window.on_list_share_sources(move || {
         use yapfast_core::stream_worker::{Report, Source, Worker};
+        let sound = state.borrow().app.state.voice.stream_audio;
         // A picture fills a card in the share menu, in pixels.
         let scale = weak
             .upgrade()
@@ -3105,6 +3108,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 window.set_share_screens(Rc::new(VecModel::from(rows)).into());
                 window.set_share_windows(titles(&windows));
                 window.set_share_cameras(titles(&cameras));
+                show_sound_choices(&window, sound, &windows);
                 // Where the system's dialog picks a screen or window, the
                 // menu's first choice asks it, before the cameras.
                 let dialog = yapfast_core::stream_worker::portal_picks().then_some(Source::Screen);
@@ -3177,6 +3181,46 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     window.on_list_share_sources(move || {
         if let Some(window) = weak.upgrade() {
             window.invoke_show_share_menu();
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_stream_sound_changed(move |index| {
+        if let Some(window) = weak.upgrade() {
+            let sound = match index {
+                0 => voice::StreamAudio::All,
+                1 => voice::StreamAudio::Off,
+                #[cfg(feature = "discord")]
+                app => match SOUND_APPS.with_borrow(|apps| apps.get(app as usize - 2).copied()) {
+                    Some(id) => voice::StreamAudio::Window(id),
+                    None => return,
+                },
+                #[cfg(not(feature = "discord"))]
+                _ => return,
+            };
+            if sound != voice::StreamAudio::Off {
+                SOUND_HEARD.set(sound);
+            }
+            state
+                .borrow_mut()
+                .action(&window, Action::Voice(voice::Command::StreamAudio(sound)));
+        }
+    });
+    // Off, then back to what it heard.
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_toggle_stream_sound(move || {
+        if let Some(window) = weak.upgrade() {
+            let now = state.borrow().app.state.voice.stream_audio;
+            let sound = if now == voice::StreamAudio::Off {
+                SOUND_HEARD.get()
+            } else {
+                SOUND_HEARD.set(now);
+                voice::StreamAudio::Off
+            };
+            state
+                .borrow_mut()
+                .action(&window, Action::Voice(voice::Command::StreamAudio(sound)));
         }
     });
     let state = adapter.clone();
@@ -3821,6 +3865,55 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
 thread_local! {
     /// What the share menu lists to share, in its order.
     static SHAREABLE: RefCell<Vec<yapfast_core::stream_worker::Source>> = const { RefCell::new(Vec::new()) };
+    /// The windows whose application's sound the share menu lists, in its
+    /// order, by their ids.
+    static SOUND_APPS: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
+}
+
+thread_local! {
+    /// The sound a stream carried last, which the call dock turns back on.
+    static SOUND_HEARD: Cell<voice::StreamAudio> = const { Cell::new(voice::StreamAudio::All) };
+}
+
+/// The share menu's sound: every application's, none, or on Windows the
+/// application that owns one of `windows`. An application chosen earlier
+/// whose window has closed stays chosen, as closed, rather than every
+/// application's being heard in its place.
+#[cfg(feature = "discord")]
+fn show_sound_choices(
+    window: &YapfastWindow,
+    sound: voice::StreamAudio,
+    windows: &[yapfast_core::stream_worker::Shareable],
+) {
+    use yapfast_core::stream_worker::Source;
+    let mut ids = vec![];
+    let mut titles: Vec<SharedString> = vec![];
+    if cfg!(windows) {
+        for listed in windows {
+            if let Source::Window(id) = listed.source {
+                ids.push(id);
+                titles.push(listed.title.as_str().into());
+            }
+        }
+    }
+    let chosen = match sound {
+        voice::StreamAudio::All => 0,
+        voice::StreamAudio::Off => 1,
+        voice::StreamAudio::Window(id) => {
+            let at = ids
+                .iter()
+                .position(|listed| *listed == id)
+                .unwrap_or_else(|| {
+                    ids.push(id);
+                    titles.push(yapfast_lang::tr!("A closed window").into());
+                    ids.len() - 1
+                });
+            at as i32 + 2
+        }
+    };
+    SOUND_APPS.set(ids);
+    window.set_share_sound_apps(ModelRc::new(VecModel::from(titles)));
+    window.set_share_sound(chosen);
 }
 
 /// What the field of the message being edited, in its row, asks of the

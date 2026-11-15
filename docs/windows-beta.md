@@ -136,8 +136,12 @@ Windows plays except Yapfast's own process tree, the Yapfast window and its
 workers. It needs Windows 10's 2004 update or later. Unlike Linux, where
 each application is heard on its own and Discord's own client is left out,
 Windows mixes every other application into one stream and can leave out only
-Yapfast. Where Windows refuses process loopback, Yapfast shares without sound and
-logs why, as it does on Linux without a PulseAudio server.
+Yapfast. The share menu's SOUND also offers no sound, and one application:
+its windows are listed under that row, and process loopback then hears only
+the process that owns the window picked and the processes it started, never a
+Discord client or Yapfast; see [Go Live](discord/go-live.md). Where Windows
+refuses process loopback, or the window has closed, Yapfast shares without
+sound and shows why, as it does on Linux without a PulseAudio server.
 
 The stream's H264 goes to NVIDIA's NVENC, then AMD's AMF, through FFmpeg in
 `crates/yapfast-core/native/hwenc.c`, while "Encode streams with the GPU" is

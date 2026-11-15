@@ -100,6 +100,22 @@ pub enum Resolution {
     Source,
 }
 
+/// The sound a shared screen carries, chosen apart from the picture and
+/// changed at once while live. Whether there's any is remembered; the
+/// application chosen by its window lasts while Yapfast runs, as its id does.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StreamAudio {
+    Off,
+    /// Every other application's, but other Discord clients' on Linux.
+    #[default]
+    All,
+    /// On Windows, the application that owns the window with this id, as
+    /// [`crate::stream_worker::shareable`] lists it, and the processes it
+    /// started.
+    Window(u64),
+}
+
 /// How a screen is shared: chosen before going live, and remembered.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct StreamQuality {
@@ -242,6 +258,8 @@ pub struct State {
     pub watching: Option<Box<Watching>>,
     /// How the next screen share is sent.
     pub quality: StreamQuality,
+    /// The sound a screen share carries, now and from the next.
+    pub stream_audio: StreamAudio,
     /// This account's camera, turned on or starting.
     pub camera_phase: CameraPhase,
     /// The call carries camera video, so the camera can be turned on.
@@ -311,6 +329,7 @@ impl Default for State {
             sharing: None,
             watching: None,
             quality: StreamQuality::default(),
+            stream_audio: StreamAudio::default(),
             camera_phase: CameraPhase::Off,
             can_film: false,
             link: None,
@@ -359,6 +378,9 @@ pub enum Command {
     /// Share a screen or window with Discord's Go Live, at this quality,
     /// which is remembered for next time.
     GoLive(StreamQuality),
+    /// Share this sound with the screen, from now on if it's shared, and
+    /// remember whether there's any.
+    StreamAudio(StreamAudio),
     /// Share the screen or window picked last in place of the one shared,
     /// keeping the stream; in a Wayland session, what the system's dialog picks.
     SwitchLive,
@@ -426,6 +448,9 @@ impl Controller {
             initial.speaker = chosen.speaker;
             initial.camera = chosen.camera;
             initial.quality = chosen.quality;
+            if chosen.silent_stream {
+                initial.stream_audio = StreamAudio::Off;
+            }
         }
         let (states, snapshots) = watch::channel(initial.clone());
         let worker = thread::Builder::new()
@@ -542,6 +567,10 @@ async fn worker(
                 state.speaker = Some(id);
                 Chosen::write(remembered.as_deref(), &state);
             }
+            Command::StreamAudio(audio) => {
+                state.stream_audio = audio;
+                Chosen::write(remembered.as_deref(), &state);
+            }
             Command::Camera(id) => {
                 state.camera = Some(id);
                 Chosen::write(remembered.as_deref(), &state);
@@ -617,6 +646,10 @@ pub(crate) struct Chosen {
     camera: Option<String>,
     #[serde(default)]
     quality: StreamQuality,
+    /// A shared screen goes without sound. Otherwise it carries every
+    /// application's: one chosen by its window isn't kept for the next run.
+    #[serde(default)]
+    silent_stream: bool,
 }
 
 impl Chosen {
@@ -634,6 +667,7 @@ impl Chosen {
             speaker: state.speaker.clone(),
             camera: state.camera.clone(),
             quality: state.quality,
+            silent_stream: state.stream_audio == StreamAudio::Off,
         };
         let result = serde_json::to_vec_pretty(&chosen)
             .map_err(std::io::Error::other)
@@ -730,6 +764,7 @@ mod tests {
                 fps: 60,
                 high_quality: true,
             },
+            stream_audio: StreamAudio::Off,
             ..Default::default()
         };
         Chosen::write(Some(&path), &state);
@@ -738,13 +773,23 @@ mod tests {
         assert_eq!(chosen.speaker.as_deref(), Some("name:Null Output"));
         assert_eq!(chosen.camera.as_deref(), Some("usb-0000:00:14.0-1"));
         assert_eq!(chosen.quality, state.quality);
-        // Choices saved before there was a quality to choose still load.
+        assert!(chosen.silent_stream);
+        // An application chosen by its window is sound, but not kept.
+        let state = State {
+            stream_audio: StreamAudio::Window(7),
+            ..state
+        };
+        Chosen::write(Some(&path), &state);
+        assert!(!Chosen::read(&path).silent_stream);
+        // Choices saved before there was a quality to choose still load,
+        // and share sound.
         std::fs::write(
             &path,
             br#"{"microphone": null, "speaker": "name:Null Output"}"#,
         )
         .unwrap();
         assert_eq!(Chosen::read(&path).quality, StreamQuality::default());
+        assert!(!Chosen::read(&path).silent_stream);
         std::fs::write(&path, b"not json").unwrap();
         assert!(Chosen::read(&path).speaker.is_none());
     }

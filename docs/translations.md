@@ -30,7 +30,9 @@ that place, `{n}` the count, and `{{` is a brace.
 Rust's text is translated when it's made. Choosing a language shows the
 window again, so what the adapter makes on each refresh follows at once; text
 the application or a network made earlier, such as a loaded audit log, stays
-as it was until it's made again.
+as it was until it's made again. A stream worker, a process of its own, is
+told the language chosen as it starts (`YAPFAST_WORKER_LANGUAGE`), so what it
+reports, such as why a stream's sound can't be heard, is in it too.
 
 The file is read the first time its language is chosen, into sorted lists
 that borrow the file's text, and stays for the life of the process. Text

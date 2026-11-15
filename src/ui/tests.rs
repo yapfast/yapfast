@@ -2007,6 +2007,131 @@ fn the_share_menu_fits_a_short_window_and_keeps_its_button() {
     window.hide().unwrap();
 }
 
+/// The share menu's sound changes at once, before going live and while
+/// live, and never starts or switches the picture: while live nothing is
+/// picked, so Switch waits for a source. On Windows one application's
+/// sound is chosen by its window, from a list under its row.
+#[test]
+fn the_stream_sound_changes_without_touching_the_picture() {
+    use i_slint_core::{
+        accessibility::{AccessibilityAction, AccessibleStringProperty},
+        item_tree::ItemRc,
+        items::AccessibleRole,
+    };
+    use std::ops::ControlFlow;
+    i_slint_backend_testing::init_no_event_loop();
+    for live in [false, true] {
+        let window = classic_window();
+        window.set_voice_visible(live);
+        window.set_voice_active(live);
+        window.set_voice_ready(live);
+        window.set_sharing(live);
+        window.set_share_live(live);
+        window.show().unwrap();
+        window
+            .window()
+            .set_size(slint::LogicalSize::new(800., 900.));
+        // Where the system's dialog picks, with a camera listed, so the
+        // menu opens while live too.
+        window.set_share_lists(false);
+        window.set_share_cameras(ModelRc::new(VecModel::from(vec![SharedString::from(
+            "Camera",
+        )])));
+        window.set_share_sound_apps(ModelRc::new(VecModel::from(vec![
+            SharedString::from("Player"),
+            SharedString::from("Game"),
+        ])));
+        let sounds = Rc::new(RefCell::new(vec![]));
+        let heard = sounds.clone();
+        window.on_stream_sound_changed(move |index| heard.borrow_mut().push(index));
+        let went = Rc::new(Cell::new(false));
+        let gone = went.clone();
+        window.on_go_live(move |_, _, _, _| gone.set(true));
+        let switched = Rc::new(Cell::new(None));
+        let to = switched.clone();
+        window.on_switch_live(move |source| to.set(Some(source)));
+        let weak = window.as_weak();
+        window.on_list_share_sources(move || weak.upgrade().unwrap().invoke_show_share_menu());
+        // While live, as the dock's button opens it, with its starting choices.
+        let inner = i_slint_core::window::WindowInner::from_pub(window.window());
+        if live {
+            ItemRc::new_root(inner.component())
+                .visit_descendants(|item| {
+                    let named = item.accessible_string_property(AccessibleStringProperty::Label);
+                    if named.as_deref() == Some("Switch screen or window") {
+                        ControlFlow::Break(item.clone())
+                    } else {
+                        ControlFlow::Continue(())
+                    }
+                })
+                .expect("the dock switches what's shared")
+                .accessible_action(&AccessibilityAction::Default);
+        } else {
+            window.invoke_show_share_menu();
+        }
+        i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(50));
+        // A choice, not a row's second line of the same text.
+        let find = |label: &str| {
+            let popups = inner.active_popups();
+            let popup = popups.last().expect("the share menu is open");
+            ItemRc::new_root(popup.component.clone()).visit_descendants(|item| {
+                let named = item.accessible_string_property(AccessibleStringProperty::Label);
+                if named.as_deref() == Some(label)
+                    && item.accessible_role() == AccessibleRole::Button
+                {
+                    ControlFlow::Break(item.clone())
+                } else {
+                    ControlFlow::Continue(())
+                }
+            })
+        };
+        let press = |label: &str| {
+            find(label)
+                .unwrap_or_else(|| panic!("the menu offers {label}"))
+                .accessible_action(&AccessibilityAction::Default)
+        };
+        let checked = |label: &str| {
+            find(label)
+                .unwrap()
+                .accessible_string_property(AccessibleStringProperty::Checked)
+                .as_deref()
+                == Some("true")
+        };
+        assert!(checked("All applications"));
+        press("No sound");
+        assert_eq!(*sounds.borrow(), [1], "it changes at once");
+        assert_eq!(window.get_share_sound(), 1);
+        press("No sound");
+        assert_eq!(*sounds.borrow(), [1], "choosing it again changes nothing");
+        assert!(find("Game").is_none(), "the windows wait under their row");
+        press("One application");
+        press("Game");
+        assert_eq!(*sounds.borrow(), [1, 3]);
+        assert!(checked("One application") && checked("Game"));
+        assert!(!inner.active_popups().is_empty(), "the menu stays open");
+        assert!(!went.get() && switched.get().is_none());
+        if live {
+            let enabled = find("Switch")
+                .unwrap()
+                .accessible_string_property(AccessibleStringProperty::Enabled);
+            assert_eq!(
+                enabled.as_deref(),
+                Some("false"),
+                "nothing to switch to yet"
+            );
+            press("Switch");
+            assert!(switched.get().is_none());
+            press("Camera");
+            press("Switch");
+            assert_eq!(switched.get(), Some(1), "after the system's dialog");
+        } else {
+            press("Go Live");
+            assert!(went.get());
+        }
+        window.hide().unwrap();
+    }
+}
+
 #[test]
 fn sound_settings_are_remembered() {
     i_slint_backend_testing::init_no_event_loop();

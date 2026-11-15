@@ -584,12 +584,12 @@ impl Input {
 }
 
 #[cfg(feature = "discord")]
-pub use others::others;
+pub use others::{others, window_audio};
 
 /// Other applications' sound, through process loopback: one stream of
-/// everything the system plays but Yapfast's own processes, from Windows 10's
-/// 2004 update on. It can't leave out other applications, so `skip` has no
-/// effect here.
+/// everything the system plays but Yapfast's own processes, or of one
+/// application's processes, from Windows 10's 2004 update on. Hearing them
+/// all, it can't leave out other applications, so `skip` has no effect there.
 #[cfg(feature = "discord")]
 mod others {
     use std::{
@@ -611,6 +611,7 @@ mod others {
                 IActivateAudioInterfaceAsyncOperation, IActivateAudioInterfaceCompletionHandler,
                 IActivateAudioInterfaceCompletionHandler_Impl,
                 PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE,
+                PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE,
                 VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
             },
             System::{
@@ -640,6 +641,79 @@ mod others {
 
     pub fn others(
         _skip: fn(&str) -> bool,
+        heard: Hear,
+        stop: Arc<AtomicBool>,
+    ) -> Result<JoinHandle<()>> {
+        capture(None, heard, stop)
+    }
+
+    /// The application that owns `window`, a window handle as libwebrtc
+    /// lists it, with the processes it started, through process loopback in
+    /// its include mode.
+    pub fn window_audio(
+        window: u64,
+        skip: fn(&str) -> bool,
+        heard: Hear,
+        stop: Arc<AtomicBool>,
+    ) -> Result<JoinHandle<()>> {
+        use windows::Win32::{Foundation::HWND, UI::WindowsAndMessaging::GetWindowThreadProcessId};
+        let mut process = 0;
+        // SAFETY: only asks whose the window is; a window that's gone gives 0.
+        let thread = unsafe {
+            GetWindowThreadProcessId(HWND(window as usize as *mut _), Some(&mut process))
+        };
+        ensure!(
+            thread != 0 && process != 0,
+            yapfast_lang::tr!("That application's window is closed.")
+        );
+        ensure!(
+            process != yapfast_process() && process != std::process::id(),
+            yapfast_lang::tr!("Yapfast doesn't share its own sound.")
+        );
+        let program = program(process).unwrap_or_default();
+        // A Discord client's sound is its call, which viewers would hear twice.
+        ensure!(
+            !skip(&program),
+            yapfast_lang::tr!(
+                "Yapfast doesn't share a Discord app's sound, which carries its call."
+            )
+        );
+        // A Store app's window is drawn by the system's frame host, whose
+        // own sound is silence.
+        ensure!(
+            program != "applicationframehost",
+            yapfast_lang::tr!("Yapfast can't tell which application this window belongs to.")
+        );
+        capture(Some(process), heard, stop)
+    }
+
+    /// The program `process` runs, lowercased and without ".exe".
+    fn program(process: u32) -> Option<String> {
+        // SAFETY: a snapshot this function owns, and an entry sized as asked.
+        unsafe {
+            let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0).ok()?;
+            let mut entry = PROCESSENTRY32W {
+                dwSize: size_of::<PROCESSENTRY32W>() as u32,
+                ..Default::default()
+            };
+            let mut found = Process32FirstW(snapshot, &mut entry).is_ok();
+            while found && entry.th32ProcessID != process {
+                found = Process32NextW(snapshot, &mut entry).is_ok();
+            }
+            let _ = CloseHandle(snapshot);
+            found.then(|| {
+                let length = entry.szExeFile.iter().position(|&unit| unit == 0);
+                let name = String::from_utf16_lossy(&entry.szExeFile[..length.unwrap_or(260)])
+                    .to_lowercase();
+                name.strip_suffix(".exe")
+                    .unwrap_or(name.as_str())
+                    .to_owned()
+            })
+        }
+    }
+
+    fn capture(
+        process: Option<u32>,
         mut heard: Hear,
         stop: Arc<AtomicBool>,
     ) -> Result<JoinHandle<()>> {
@@ -653,7 +727,7 @@ mod others {
                     channels: 2,
                     float: true,
                 };
-                let stream = activate(yapfast_process())
+                let stream = activate(process.unwrap_or_else(yapfast_process), process.is_some())
                     .and_then(|client| {
                         Stream::initialize(client, format, LISTENING, AUDCLNT_STREAMFLAGS_LOOPBACK)
                     })
@@ -673,10 +747,7 @@ mod others {
                         return;
                     }
                 };
-                heard(Heard::Started {
-                    source: 0,
-                    process: None,
-                });
+                heard(Heard::Started { source: 0, process });
                 if let Err(error) = hear(&stream, &capture, &mut *heard, &stop) {
                     tracing::warn!(
                         error = format!("{error:#}"),
@@ -766,15 +837,18 @@ mod others {
         }
     }
 
-    /// A loopback stream of everything but `process` and the processes it
-    /// started.
-    fn activate(process: u32) -> Result<IAudioClient> {
+    /// Includes or excludes `process` and its child processes.
+    fn activate(process: u32, include: bool) -> Result<IAudioClient> {
         let mut parameters = AUDIOCLIENT_ACTIVATION_PARAMS {
             ActivationType: AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK,
             Anonymous: AUDIOCLIENT_ACTIVATION_PARAMS_0 {
                 ProcessLoopbackParams: AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS {
                     TargetProcessId: process,
-                    ProcessLoopbackMode: PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE,
+                    ProcessLoopbackMode: if include {
+                        PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE
+                    } else {
+                        PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE
+                    },
                 },
             },
         };

@@ -51,7 +51,7 @@ impl Share {
         } else {
             stream_worker::Source::Screen
         };
-        let (worker, frames, reports) = Worker::share(source, quality)?;
+        let (worker, frames, reports) = Worker::share(source, quality, state.stream_audio)?;
         state.sharing = Some(Sharing {
             phase: SharePhase::Choosing,
             frames: Arc::new(frames),
@@ -648,6 +648,17 @@ pub(crate) async fn call(
                             }
                             state.camera_phase = CameraPhase::Off;
                         }
+                        // The worker reports a sound it can't hear.
+                        Some(Command::StreamAudio(audio)) => {
+                            state.stream_audio = audio;
+                            Chosen::write(remembered, state);
+                            if let Some(going) = share.as_mut() {
+                                state.error = None;
+                                if let Err(error) = going.worker.tell(&stream_worker::Control::Audio(audio)) {
+                                    state.error = Some(tr!("Couldn't change the stream's sound: {}", format!("{error:#}")));
+                                }
+                            }
+                        }
                         Some(Command::GoLive(quality)) => {
                             if share.is_none() {
                                 state.quality = quality;
@@ -756,6 +767,9 @@ pub(crate) async fn call(
                 }
                 report = next_report(&mut share) => {
                     match report {
+                        Some(Report::AudioError(error)) => {
+                            state.error = Some(tr!("Couldn't share the stream's sound: {}", error));
+                        }
                         Some(Report::Ready) => {
                             if let Some(sharing) = &state.sharing {
                                 sharing.frames.unlink();
@@ -900,7 +914,8 @@ pub(crate) async fn call(
                         }
                         WatchEvent::Report(Some(Report::Ended { error })) => stop = Some(error),
                         WatchEvent::Report(Some(
-                            Report::Sharing { .. }
+                            Report::AudioError(_)
+                            | Report::Sharing { .. }
                             | Report::Sending(_)
                             | Report::Preview { .. }
                             | Report::Opened { .. }

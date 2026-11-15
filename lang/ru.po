@@ -9991,3 +9991,51 @@ msgstr "Послушайте, как звучит ваш микрофон в з�
 
 msgid "Yapfast can't play your microphone. Check your speakers, or choose others."
 msgstr "Yapfast не может воспроизвести микрофон. Проверьте динамики или выберите другие."
+
+msgid "SOUND"
+msgstr "ЗВУК"
+
+msgid "All applications"
+msgstr "Все приложения"
+
+msgid "Except Yapfast's own sound"
+msgstr "Кроме звука самого Yapfast"
+
+msgid "No sound"
+msgstr "Без звука"
+
+msgid "One application"
+msgstr "Одно приложение"
+
+msgid "Chosen by its window"
+msgstr "Выбирается по его окну"
+
+msgid "A closed window"
+msgstr "Закрытое окно"
+
+msgid "Turn off stream sound"
+msgstr "Выключить звук трансляции"
+
+msgid "Turn on stream sound"
+msgstr "Включить звук трансляции"
+
+msgid "Couldn't share the stream's sound: {}"
+msgstr "Не удалось передать звук трансляции: {}"
+
+msgid "Couldn't change the stream's sound: {}"
+msgstr "Не удалось сменить звук трансляции: {}"
+
+msgid "Sharing one application's sound works on Windows only."
+msgstr "Звук одного приложения можно передавать только в Windows."
+
+msgid "That application's window is closed."
+msgstr "Окно этого приложения закрыто."
+
+msgid "Yapfast doesn't share its own sound."
+msgstr "Yapfast не передаёт собственный звук."
+
+msgid "Yapfast doesn't share a Discord app's sound, which carries its call."
+msgstr "Yapfast не передаёт звук приложения Discord: в нём слышен звонок."
+
+msgid "Yapfast can't tell which application this window belongs to."
+msgstr "Yapfast не может определить, какому приложению принадлежит это окно."
