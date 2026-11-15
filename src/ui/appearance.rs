@@ -327,6 +327,7 @@ impl Adapter {
         let id = theme_look::applied_id().unwrap_or_default();
         let applied = theme_look::applied_content();
         let on = self.layout.theme_content.contains(&id);
+        theme_look::set_content_shown(self.layout.theme_content.iter().cloned());
         let page = window.global::<ThemesPage>();
         page.set_content(
             applied

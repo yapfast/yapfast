@@ -614,28 +614,49 @@ const SPRITE: (u32, u32) = (256, 256);
 /// Bakes a theme's pictures, as [`apply`] would ask for them in a window of
 /// `window` pixels, where nothing waits on it: decoding a theme's art is
 /// most of what showing it costs.
-pub fn bake(resolved: &Resolved, folder: &Path, window: (u32, u32)) -> Baked {
+pub fn bake<'r>(
+    resolved: &'r Resolved,
+    folder: &Path,
+    window: (u32, u32),
+    kept: &mut Kept,
+    stop: &(dyn Fn() -> bool + Sync),
+) -> Baked {
+    /// One picture to make.
+    enum Job<'a> {
+        Layer(&'a Layer, u32),
+        Pattern(&'a Overlay),
+        Glass(f32),
+        Sprite(&'a Path),
+        Card(Layer, u32, (u32, u32)),
+    }
     let art = &resolved.art;
-    let mut decoder = Decoder::new(folder);
-    let mut made: HashMap<String, Pixels> = HashMap::new();
     let ground = |surface: ArtSurface| {
         surface
             .fixed_ground()
             .or_else(|| shown(resolved, surface.ground()))
             .unwrap_or(0xff00_0000)
     };
-    let mut add = |key: String, make: &mut dyn FnMut() -> Option<Pixels>| {
-        if !made.contains_key(&key)
-            && let Some(pixels) = make()
-        {
-            made.insert(key, pixels);
+    let mut made: HashMap<String, Pixels> = HashMap::new();
+    let mut jobs: Vec<(String, Job<'r>)> = Vec::new();
+    // A picture an earlier bake of this folder made by the same key (the
+    // same file, fit and ground) is taken as it is.
+    let mut add = |key: String, job: Job<'r>| {
+        if made.contains_key(&key) || jobs.iter().any(|(queued, _)| *queued == key) {
+            return;
+        }
+        match kept.made.get(&key) {
+            Some(pixels) => {
+                made.insert(key, pixels.clone());
+            }
+            None => jobs.push((key, job)),
         }
     };
     for (surface, layers) in &art.surfaces {
         for layer in layers {
-            add(layer_key(layer, ground(*surface)), &mut || {
-                baked(&mut decoder, layer, ground(*surface)).map(|picture| pixels(&picture))
-            });
+            add(
+                layer_key(layer, ground(*surface)),
+                Job::Layer(layer, ground(*surface)),
+            );
         }
     }
     for overlay in &art.overlays {
@@ -643,31 +664,28 @@ pub fn bake(resolved: &Resolved, folder: &Path, window: (u32, u32)) -> Baked {
             OverlayKind::Image => {
                 if let Some(layer) = &overlay.layer {
                     let under = ground(ArtSurface::Window);
-                    add(layer_key(layer, under), &mut || {
-                        baked(&mut decoder, layer, under).map(|picture| pixels(&picture))
-                    });
+                    add(layer_key(layer, under), Job::Layer(layer, under));
                 }
             }
             OverlayKind::Scanlines | OverlayKind::Lcd | OverlayKind::Grain => {
-                add(pattern_key(overlay), &mut || Some(pattern(overlay)));
+                add(pattern_key(overlay), Job::Pattern(overlay));
             }
             _ => {}
         }
     }
     if let Some(glass) = &art.glass {
         let under = ground(ArtSurface::Window);
-        add(glass_key(art, glass.blur, window, under), &mut || {
-            Some(blurred_pixels(&mut decoder, art, glass.blur, window, under))
-        });
+        add(
+            glass_key(art, glass.blur, window, under),
+            Job::Glass(glass.blur),
+        );
     }
     for sprite in art
         .particles
         .iter()
         .filter_map(|particles| particles.sprite.as_ref())
     {
-        add(sprite_key(sprite), &mut || {
-            decoder.get(sprite, SPRITE).map(|picture| pixels(&picture))
-        });
+        add(sprite_key(sprite), Job::Sprite(sprite));
     }
     let layout = &resolved.layout;
     let card_ground = layout
@@ -682,9 +700,10 @@ pub fn bake(resolved: &Resolved, folder: &Path, window: (u32, u32)) -> Baked {
             ..card.layer.clone()
         });
         for layer in std::iter::once(card.layer.clone()).chain(choices) {
-            add(card_key(&layer, card_ground, cap), &mut || {
-                baked_at(&mut decoder, &layer, card_ground, cap).map(|picture| pixels(&picture))
-            });
+            add(
+                card_key(&layer, card_ground, cap),
+                Job::Card(layer, card_ground, cap),
+            );
         }
     }
     let (own_ground, other_ground) = bubble_grounds(resolved);
@@ -694,12 +713,88 @@ pub fn bake(resolved: &Resolved, folder: &Path, window: (u32, u32)) -> Baked {
         (&bubbles.other_art, other_ground),
     ] {
         for layer in layers {
-            add(layer_key(layer, under), &mut || {
-                baked(&mut decoder, layer, under).map(|picture| pixels(&picture))
-            });
+            add(layer_key(layer, under), Job::Layer(layer, under));
         }
     }
+    // Each picture decodes on its own, so they're made on a few threads at
+    // once: a theme's art takes the time of its largest pictures, not of
+    // all of them one after another. A superseded bake makes nothing more.
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let threads = std::thread::available_parallelism()
+        .map_or(2, std::num::NonZero::get)
+        .clamp(1, 6)
+        .min(jobs.len());
+    let make = |decoder: &mut Decoder, job: &Job<'_>| match job {
+        Job::Layer(layer, under) => baked(decoder, layer, *under).map(|picture| pixels(&picture)),
+        Job::Pattern(overlay) => Some(pattern(overlay)),
+        Job::Glass(blur) => Some(blurred_pixels(
+            decoder,
+            art,
+            *blur,
+            window,
+            ground(ArtSurface::Window),
+        )),
+        Job::Sprite(sprite) => decoder.get(sprite, SPRITE).map(|picture| pixels(&picture)),
+        Job::Card(layer, under, cap) => {
+            baked_at(decoder, layer, *under, *cap).map(|picture| pixels(&picture))
+        }
+    };
+    let work = || {
+        let mut decoder = Decoder::new(folder);
+        let mut out = Vec::new();
+        loop {
+            let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let Some((key, job)) = jobs.get(index) else {
+                break;
+            };
+            if stop() {
+                break;
+            }
+            let started = std::time::Instant::now();
+            if let Some(pixels) = make(&mut decoder, job) {
+                out.push((key.clone(), pixels));
+            }
+            tracing::debug!(
+                key,
+                ms = started.elapsed().as_millis() as u64,
+                "a theme picture baked"
+            );
+        }
+        out
+    };
+    let results: Vec<Vec<(String, Pixels)>> = std::thread::scope(|scope| {
+        let others: Vec<_> = (1..threads).map(|_| scope.spawn(work)).collect();
+        let mut results = vec![work()];
+        results.extend(others.into_iter().filter_map(|thread| thread.join().ok()));
+        results
+    });
+    made.extend(results.into_iter().flatten());
+    kept.keep(&made);
     Baked(made)
+}
+
+/// What [`bake`] made for a theme's folder, kept for its next bake: an
+/// option or variant changes a few grounds, and the pictures under the
+/// rest are the same. The last two bakes' pictures are kept, so going back
+/// and forth between two choices makes nothing again.
+#[derive(Default)]
+pub struct Kept {
+    made: HashMap<String, Pixels>,
+    last: HashSet<String>,
+}
+
+impl Kept {
+    fn keep(&mut self, made: &HashMap<String, Pixels>) {
+        let last = std::mem::take(&mut self.last);
+        self.made
+            .retain(|key, _| last.contains(key) || made.contains_key(key));
+        for (key, pixels) in made {
+            self.made
+                .entry(key.clone())
+                .or_insert_with(|| pixels.clone());
+        }
+        self.last = made.keys().cloned().collect();
+    }
 }
 
 /// The pictures on each message card: decoded once at no more than twice

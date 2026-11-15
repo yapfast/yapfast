@@ -1096,10 +1096,19 @@ sweeping across every `period` milliseconds.
 a picture of the window for it, held only while it plays.
 
 Showing a theme never waits on its files: choosing one in Settings, Apply
-and Try check its folder, read its fonts, decode its sounds and bake its
-pictures on another thread while the window keeps the theme it shows, then
-set the new one's values in one go. Starting, `--theme-dev` reloads and a
-change between light and dark do the same work where they are.
+and Try read its fonts, decode its sounds and bake its pictures on another
+thread, several pictures at once, while the window keeps the theme it shows,
+then set the new one's values in one go. An installed theme isn't checked
+again: it was checked when installed, into a store that names its files by
+their digest, and its `theme.json` is matched to the digest kept then each
+time the store is read; it reads only the files it uses, as it uses them. A
+creator package or `--theme-dev` folder, which can change under it, is
+read and checked whole. An option, a preset or a change between
+light and dark bakes again only the pictures whose grounds it changed, and
+sets the window's values as one change: only what ends up different is
+drawn again, so text keeps its shaping and lists keep their rows. Starting,
+`--theme-dev` reloads and a change between light and dark the system makes
+do the same work where they are.
 
 Performance: Full runs all of it at up to 60 frames a second (15 while
 Yapfast isn't focused, unless the theme's `motion.unfocused` says

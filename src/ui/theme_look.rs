@@ -11,7 +11,8 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime};
 
 use slint::{Brush, Color, ComponentHandle, Image, Model, ModelRc, SharedString, VecModel};
@@ -247,6 +248,9 @@ struct State {
     /// `layout.json` (`installed:<id>`, or `dev`); see [`set_choices`].
     choices: HashMap<String, Choices>,
     plain_names: bool,
+    /// The themes the person lets style people's profiles and media: only
+    /// theirs have emoji recoloured while they're made ready.
+    content_shown: std::collections::HashSet<String>,
 }
 
 /// What to do once [`prepare`] has made a theme ready.
@@ -370,13 +374,9 @@ pub fn show(window: &YapfastWindow, id: &str) -> Result<theme::Theme, String> {
                 .map(|theme| (theme.package.clone(), theme.folder.clone()))
         })
         .ok_or_else(|| refused_reason(installed_id))?;
-    // An installed theme was checked when installed; its files are checked
-    // again here, since the store is on disk where anything could change it.
-    let files = Files::read(&folder)?;
-    let report = check::check(&files, Strictness::Install);
-    if let Some(reason) = report.reason() {
-        return Err(reason.to_owned());
-    }
+    // An installed theme was checked when installed, into a store that
+    // names its files by their digest, and its `theme.json` matched to it
+    // when the store was read: it shows as it is.
     apply_package(window, id, &package, &folder, None)
 }
 
@@ -405,6 +405,12 @@ pub fn set_choices(id: &str, choices: Choices) {
             state.choices.insert(id.to_owned(), choices);
         }
     });
+}
+
+/// The themes whose `content` the person lets show, by their id in
+/// `layout.json`.
+pub fn set_content_shown(ids: impl IntoIterator<Item = String>) {
+    STATE.with_borrow_mut(|state| state.content_shown = ids.into_iter().collect());
 }
 
 /// Whether the person had Settings' old "Plain names" on, which every
@@ -495,9 +501,95 @@ pub fn hue_preview(option: &str, hue: f64) -> Option<theme::Theme> {
 pub fn cancel_prepare() {
     STATE.with_borrow_mut(|state| {
         state.preparing += 1;
+        LATEST.store(state.preparing, Ordering::Relaxed);
         state.when_ready = None;
         state.ready = None;
     });
+}
+
+/// The newest [`prepare`] asked for: one still working on an older one stops
+/// at its next step, and its thread ends.
+static LATEST: AtomicU64 = AtomicU64::new(0);
+
+/// What the last [`prepare`] read, checked and made, for the next one of the
+/// same folder: an option or a variant only re-resolves the tokens and
+/// re-bakes the pictures whose grounds it changed. Its lock also lets one
+/// prepare work at a time.
+static KEPT: Mutex<Option<Kept>> = Mutex::new(None);
+
+struct Kept {
+    folder: PathBuf,
+    /// Each file's path, size and time, as they were read: anything changed
+    /// reads and checks the folder again. None for an installed theme, whose
+    /// store address names its files.
+    print: Option<Vec<(PathBuf, u64, Option<SystemTime>)>>,
+    package: Package,
+    /// The files read so far, by their path in the folder: all of them for a
+    /// folder that was checked here, and for an installed theme only those
+    /// a prepare needed.
+    bytes: HashMap<PathBuf, Arc<Vec<u8>>>,
+    /// Whether `bytes` holds every file the theme names.
+    whole: bool,
+    sounds: HashMap<u64, Arc<[i16]>>,
+    art: super::theme_art::Kept,
+}
+
+impl Kept {
+    /// A file of the theme's, read now if it wasn't: an installed theme's
+    /// files are read as they're needed, a font parsed before it's kept.
+    fn file(&mut self, path: &Path) -> Option<Arc<Vec<u8>>> {
+        if let Some(bytes) = self.bytes.get(path) {
+            return Some(Arc::clone(bytes));
+        }
+        if self.whole {
+            return None;
+        }
+        let full = self.folder.join(path);
+        // A theme's files are its own: never a link, never past the limits
+        // its check holds them to.
+        let metadata = std::fs::symlink_metadata(&full).ok()?;
+        if !metadata.is_file() || metadata.len() > check::MAX_FONT_BYTES.max(check::MAX_IMAGE_BYTES)
+        {
+            return None;
+        }
+        let bytes = std::fs::read(&full).ok()?;
+        let font = path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| {
+                extension.eq_ignore_ascii_case("ttf") || extension.eq_ignore_ascii_case("otf")
+            });
+        if font && let Err(error) = check::check_font(&bytes) {
+            tracing::warn!(path = %full.display(), error, "a theme's font was refused");
+            return None;
+        }
+        let bytes = Arc::new(bytes);
+        self.bytes.insert(path.to_owned(), Arc::clone(&bytes));
+        Some(bytes)
+    }
+}
+
+/// Every file under a folder, with its size and time, in order.
+fn fingerprint(folder: &Path) -> Vec<(PathBuf, u64, Option<SystemTime>)> {
+    let mut print = Vec::new();
+    let mut folders = vec![folder.to_owned()];
+    while let Some(next) = folders.pop() {
+        let Ok(entries) = std::fs::read_dir(&next) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let Ok(meta) = entry.metadata() else {
+                continue;
+            };
+            if meta.is_dir() {
+                folders.push(entry.path());
+            } else {
+                print.push((entry.path(), meta.len(), meta.modified().ok()));
+            }
+        }
+    }
+    print.sort();
+    print
 }
 
 /// Whether [`prepare`] has made `id` ready, or found why it can't be.
@@ -526,44 +618,74 @@ fn take_ready(window: &YapfastWindow, id: &str) -> Option<Result<Ready, String>>
 /// [`show`] at no more cost than setting its values. A later call
 /// supersedes this one.
 pub fn prepare(window: &YapfastWindow, id: &str, then: impl FnOnce(&YapfastWindow) + 'static) {
-    let folder = if id == "dev" {
-        DEV.get()
-            .cloned()
-            .ok_or_else(|| "no --theme-dev folder".to_owned())
+    // An installed theme's package was read when the store was, its
+    // `theme.json` matched to the digest kept at install.
+    let (folder, installed) = if id == "dev" {
+        (
+            DEV.get()
+                .cloned()
+                .ok_or_else(|| "no --theme-dev folder".to_owned()),
+            None,
+        )
     } else if let Some(folder) = created_folder(id) {
-        Ok(folder)
+        (Ok(folder), None)
     } else {
         let installed_id = id.strip_prefix(INSTALLED).unwrap_or(id);
-        STATE
-            .with_borrow(|state| {
-                state
-                    .installed
-                    .iter()
-                    .find(|theme| theme.id == installed_id)
-                    .map(|theme| theme.folder.clone())
-            })
-            .ok_or_else(|| refused_reason(installed_id))
+        let found = STATE.with_borrow(|state| {
+            state
+                .installed
+                .iter()
+                .find(|theme| theme.id == installed_id)
+                .map(|theme| (theme.folder.clone(), theme.package.clone()))
+        });
+        match found {
+            Some((folder, package)) => (Ok(folder), Some(package)),
+            None => (Err(refused_reason(installed_id)), None),
+        }
     };
     let wanted = wanted_for(window, id);
     let choices = choices_of(id);
+    let content = STATE.with_borrow(|state| state.content_shown.contains(id));
     let size = window.window().size();
     let generation = STATE.with_borrow_mut(|state| {
         state.preparing += 1;
         state.when_ready = Some(Box::new(then));
         state.preparing
     });
+    LATEST.store(generation, Ordering::Relaxed);
     let weak = window.as_weak();
     let id = id.to_owned();
+    super::theme_timing::step("prepare asked");
     let work = move || {
+        super::theme_timing::step("prepare thread started");
         let started = Instant::now();
-        let ready = folder
-            .and_then(|folder| make_ready(folder, wanted, choices, (size.width, size.height)));
+        let ready = folder.and_then(|folder| {
+            make_ready(
+                folder,
+                installed,
+                wanted,
+                choices,
+                content,
+                (size.width, size.height),
+                generation,
+            )
+        });
+        if LATEST.load(Ordering::Relaxed) != generation {
+            tracing::info!(
+                id,
+                ms = started.elapsed().as_millis() as u64,
+                "a theme's prepare was superseded and stopped"
+            );
+            return;
+        }
         tracing::info!(
             id,
             ms = started.elapsed().as_millis() as u64,
             "a theme was made ready off the UI thread"
         );
+        super::theme_timing::step("prepared");
         let _ = slint::invoke_from_event_loop(move || {
+            super::theme_timing::step("prepared, back on the UI thread");
             let Some(window) = weak.upgrade() else { return };
             let then = STATE.with_borrow_mut(|state| {
                 if state.preparing != generation {
@@ -589,21 +711,68 @@ pub fn prepare(window: &YapfastWindow, id: &str, then: impl FnOnce(&YapfastWindo
 /// [`prepare`]'s work: everything [`show`] would do before setting values.
 fn make_ready(
     folder: PathBuf,
+    installed: Option<Package>,
     wanted: Mode,
     choices: Choices,
+    content: bool,
     window: (u32, u32),
+    generation: u64,
 ) -> Result<Ready, String> {
-    // An installed theme was checked when installed; its files are checked
-    // again here, since the store is on disk where anything could change it.
-    let files = Files::read(&folder)?;
-    let report = check::check(&files, Strictness::Install);
-    for warning in &report.warnings {
-        tracing::info!(warning, "theme");
+    const SUPERSEDED: &str = "superseded";
+    let stop = || LATEST.load(Ordering::Relaxed) != generation;
+    // One at a time: a newer prepare waits here while an older one stops.
+    let mut kept = KEPT.lock().unwrap_or_else(PoisonError::into_inner);
+    if stop() {
+        return Err(SUPERSEDED.to_owned());
     }
-    if let Some(reason) = report.reason() {
-        return Err(reason.to_owned());
+    let started = Instant::now();
+    // An installed theme was checked when it was installed, into a store
+    // that names each version's files by their digest: it's read as it is,
+    // a file at a time as it's needed. A folder of the person's own can
+    // change under it, so it's read and checked whole, again when it does.
+    let print = installed.is_none().then(|| fingerprint(&folder));
+    let same = kept
+        .as_ref()
+        .is_some_and(|kept| kept.folder == folder && kept.print == print);
+    if !same {
+        let (package, bytes, whole) = match installed {
+            Some(package) => (package, HashMap::new(), false),
+            None => {
+                let files = Files::read(&folder)?;
+                let report = check::check(&files, Strictness::Install);
+                for warning in &report.warnings {
+                    tracing::info!(warning, "theme");
+                }
+                if let Some(reason) = report.reason() {
+                    return Err(reason.to_owned());
+                }
+                let package = report.package.ok_or("the theme has no package")?;
+                let bytes = files
+                    .files
+                    .into_iter()
+                    .map(|(path, bytes)| (path, Arc::new(bytes)))
+                    .collect();
+                (package, bytes, true)
+            }
+        };
+        *kept = Some(Kept {
+            folder: folder.clone(),
+            print,
+            package,
+            bytes,
+            whole,
+            sounds: HashMap::new(),
+            art: super::theme_art::Kept::default(),
+        });
     }
-    let package = report.package.ok_or("the theme has no package")?;
+    let read_ms = started.elapsed().as_millis() as u64;
+    let Some(kept) = kept.as_mut() else {
+        return Err("the theme has no package".to_owned());
+    };
+    if stop() {
+        return Err(SUPERSEDED.to_owned());
+    }
+    let package = kept.package.clone();
     let mode = package.mode_for(wanted);
     let resolved = package
         .resolve_with(mode, &choices)
@@ -615,23 +784,43 @@ fn make_ready(
         .filter_map(|kind| kind.font.as_ref())
         .chain(resolved.layout.names.iter().flat_map(|names| &names.fonts));
     for font in named {
-        if let Some(bytes) = files.files.get(font) {
-            fonts.insert(font.clone(), Arc::new(bytes.clone()));
+        if let Some(bytes) = kept.file(font) {
+            fonts.insert(font.clone(), bytes);
         }
     }
     let mut sounds = HashMap::new();
     for file in resolved.sounds.values().flat_map(|choice| &choice.files) {
-        if let Some(bytes) = files.files.get(file) {
-            let key = super::theme_media::digest(bytes);
-            if !sounds.contains_key(&key)
-                && let Ok(samples) = yapfast_core::themes::media::decode_sound(file, bytes)
-            {
-                sounds.insert(key, Arc::from(samples));
+        if let Some(bytes) = kept.file(file) {
+            let key = super::theme_media::digest(&bytes);
+            if sounds.contains_key(&key) {
+                continue;
+            }
+            if let Some(samples) = kept.sounds.get(&key) {
+                sounds.insert(key, Arc::clone(samples));
+            } else if let Ok(samples) = yapfast_core::themes::media::decode_sound(file, &bytes) {
+                let samples: Arc<[i16]> = Arc::from(samples);
+                kept.sounds.insert(key, Arc::clone(&samples));
+                sounds.insert(key, samples);
             }
         }
     }
-    let art = super::theme_art::bake(&resolved, &folder, window);
-    let emoji = crate::emoji_text::prepare(resolved.content.media);
+    if stop() {
+        return Err(SUPERSEDED.to_owned());
+    }
+    let baking = Instant::now();
+    let art = super::theme_art::bake(&resolved, &folder, window, &mut kept.art, &stop);
+    let art_ms = baking.elapsed().as_millis() as u64;
+    // Emoji take the theme's media look only where its content shows.
+    let emoji = content
+        .then(|| crate::emoji_text::prepare(resolved.content.media))
+        .flatten();
+    tracing::info!(
+        reused = same,
+        read_ms,
+        art_ms,
+        emoji_ms = baking.elapsed().as_millis() as u64 - art_ms,
+        "a theme's prepare steps"
+    );
     Ok(Ready {
         package,
         folder,
