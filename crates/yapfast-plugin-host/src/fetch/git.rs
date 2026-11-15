@@ -240,8 +240,12 @@ fn clone(source: &Source, destination: &Path) -> anyhow::Result<()> {
     let interrupt = AtomicBool::new(false);
     let tripped = AtomicU8::new(Trip::None as u8);
     let stop = AtomicBool::new(false);
+    let caps = Caps {
+        bytes: limits::MAX_FETCH_BYTES,
+        time: Duration::from_secs(limits::MAX_FETCH_SECONDS),
+    };
     let outcome = thread::scope(|scope| {
-        let watch = scope.spawn(|| watch(destination, &interrupt, &tripped, &stop));
+        let watch = scope.spawn(|| watch(destination, caps, &interrupt, &tripped, &stop));
         let outcome = prepare.fetch_only(gix::progress::Discard, &interrupt);
         stop.store(true, Ordering::Relaxed);
         let _ = watch.join();
@@ -368,14 +372,27 @@ impl Trip {
     }
 }
 
+/// What a fetch may take, as the watcher holds it to.
+#[derive(Clone, Copy)]
+struct Caps {
+    bytes: u64,
+    time: Duration,
+}
+
 /// Stops a clone that runs too long or grows too large, while it runs.
-fn watch(directory: &Path, interrupt: &AtomicBool, tripped: &AtomicU8, stop: &AtomicBool) {
+fn watch(
+    directory: &Path,
+    caps: Caps,
+    interrupt: &AtomicBool,
+    tripped: &AtomicU8,
+    stop: &AtomicBool,
+) {
     let started = Instant::now();
     while !stop.load(Ordering::Relaxed) {
         thread::sleep(WATCH_INTERVAL);
-        let reason = if started.elapsed() > Duration::from_secs(limits::MAX_FETCH_SECONDS) {
+        let reason = if started.elapsed() > caps.time {
             Trip::Time
-        } else if directory_size(directory) > limits::MAX_FETCH_BYTES {
+        } else if directory_size(directory) > caps.bytes {
             Trip::Size
         } else {
             continue;
@@ -428,6 +445,30 @@ fn file_scheme_hint(source: &Source) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// PLAN.md 14: an oversized repository is killed at its cap. The watcher
+    /// is what does it, while gix is still writing: past the cap it trips and
+    /// raises gix's interrupt, which makes gix stop and delete what it wrote.
+    #[test]
+    fn a_fetch_that_grows_past_its_cap_is_interrupted() {
+        let directory = tempfile::tempdir().expect("a directory");
+        let interrupt = AtomicBool::new(false);
+        let tripped = AtomicU8::new(Trip::None as u8);
+        let stop = AtomicBool::new(false);
+        let caps = Caps {
+            bytes: 1 << 20,
+            time: Duration::from_secs(60),
+        };
+        thread::scope(|scope| {
+            let watcher = scope.spawn(|| watch(directory.path(), caps, &interrupt, &tripped, &stop));
+            // A pack arriving in two pieces, the second past the cap.
+            std::fs::write(directory.path().join("pack-1"), vec![0u8; 600 << 10]).unwrap();
+            std::fs::write(directory.path().join("pack-2"), vec![0u8; 600 << 10]).unwrap();
+            watcher.join().expect("the watcher returns once it trips");
+        });
+        assert!(interrupt.load(Ordering::Relaxed), "gix is told to stop");
+        assert!(matches!(Trip::of(tripped.load(Ordering::Relaxed)), Trip::Size));
+    }
 
     #[test]
     fn reads_a_pointer_as_a_pointer() {
