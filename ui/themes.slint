@@ -98,6 +98,9 @@ export global ThemesPage {
     in property <int> seconds;
     callback opened();
     callback closed();
+    /// Settings opened or closed over the window: a theme's motion behind
+    /// it slows while it's open.
+    callback settings-shown(bool);
     callback tab-chosen(int);
     callback search(string);
     callback revert-theme();

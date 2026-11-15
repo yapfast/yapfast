@@ -46,6 +46,8 @@ struct Seen {
     platform_minimized: bool,
     /// The platform says nothing of it shows (winit's `Occluded`).
     occluded: bool,
+    /// Settings shows over most of it.
+    covered: bool,
 }
 
 impl Default for Seen {
@@ -56,6 +58,7 @@ impl Default for Seen {
             minimized: false,
             platform_minimized: false,
             occluded: false,
+            covered: false,
         }
     }
 }
@@ -76,6 +79,11 @@ thread_local! {
 fn pace_of(seen: Seen, performance: Performance, unfocused: Unfocused) -> Pace {
     if seen.hidden() {
         return Pace::Still;
+    }
+    // What shows around Settings, over most of the window, moves at most
+    // slowly: drawing it means drawing the whole page above it each frame.
+    if seen.focused && seen.covered {
+        return Pace::Slow;
     }
     if seen.focused {
         return Pace::Full;
@@ -163,6 +171,11 @@ pub fn occluded(window: &YapfastWindow, occluded: bool) {
             seen.minimized = false;
         }
     });
+}
+
+/// Settings opened or closed over the window.
+pub fn covered(window: &YapfastWindow, covered: bool) {
+    update(Some(window), |seen| seen.covered = covered);
 }
 
 /// Yapfast asked for the window to be minimised. Not every platform says
@@ -300,6 +313,21 @@ mod tests {
         Seen {
             focused,
             ..Seen::default()
+        }
+    }
+
+    #[test]
+    fn settings_over_the_window_slows_what_moves() {
+        let covered = Seen {
+            covered: true,
+            ..seen(true)
+        };
+        assert_eq!(
+            pace_of(seen(true), Performance::Full, Unfocused::Full),
+            Pace::Full
+        );
+        for unfocused in Unfocused::ALL {
+            assert_eq!(pace_of(covered, Performance::Full, unfocused), Pace::Slow);
         }
     }
 

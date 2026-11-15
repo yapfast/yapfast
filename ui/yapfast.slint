@@ -1293,6 +1293,7 @@ export component YapfastWindow inherits Window {
     // Closing settings stops linking Discord there.
     changed settings-open => {
         root.track-new();
+        ThemesPage.settings-shown(root.settings-open);
         if !root.settings-open { ThemesPage.closed(); }
         if !self.settings-open && self.link-phase != 0 { self.cancel-discord-link(); }
         if !self.settings-open { self.camera-testing = false; }

@@ -802,6 +802,14 @@ pub(super) fn bind_themes(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>
         .global::<IconPack>()
         .on_paint(|source, stock, _| theme_media::paint(&source, stock));
     let page = window.global::<ThemesPage>();
+    {
+        let weak = window.as_weak();
+        page.on_settings_shown(move |open| {
+            if let Some(window) = weak.upgrade() {
+                theme_pace::covered(&window, open);
+            }
+        });
+    }
     on!(page, on_opened() => |adapter, window| {
         adapter.show_previous_theme(&window);
         let page = window.global::<ThemesPage>();

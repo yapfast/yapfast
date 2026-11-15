@@ -381,6 +381,8 @@ cursors and the trail — runs only while someone can see it.
   so nothing is drawn, though the clocks still tick. A window Yapfast
   minimised itself counts as hidden until it has the focus or the pointer
   again.
+- **Settings open** — Settings covers most of the window, so what shows
+  around it runs at no more than 15 frames a second, focused or not.
 - **Shown, not focused** — what the theme's `motion.unfocused` asks:
   `slow` (the default) runs every clock at no more than 15 frames a second
   (a stepped animation slower than that keeps its rate; the cursor's frames
