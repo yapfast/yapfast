@@ -234,6 +234,8 @@ impl Adapter {
     ) {
         forget(window);
         self.begin_creator(window, spec, from, recolour);
+        // Once an opening, not again for each Start from.
+        suggest_pictures(window);
     }
 
     /// Keeps the editor as it stands, for Undo, before a change to it.
@@ -333,7 +335,6 @@ impl Adapter {
             editor.creator = Some(spec);
         }
         self.creator_fonts(window);
-        suggest_pictures(window);
         self.creator_changed(window, recolour);
     }
 
@@ -868,6 +869,11 @@ fn show_readable(window: &YapfastWindow, derived: &creator::Derived, moved: bool
 
 /// Offers up to five of the newest pictures in the person's Pictures folder
 /// (and its Wallpapers), read on another thread.
+/// Suggested pictures made small, by their file and its time, for the run.
+type Smalls = std::collections::HashMap<(PathBuf, std::time::SystemTime), image::RgbaImage>;
+static SMALL: std::sync::LazyLock<std::sync::Mutex<Smalls>> =
+    std::sync::LazyLock::new(Default::default);
+
 fn suggest_pictures(window: &YapfastWindow) {
     SUGGESTED.set(Vec::new());
     window
@@ -909,9 +915,19 @@ fn suggest_pictures(window: &YapfastWindow) {
         }
         found.sort_by_key(|item| std::cmp::Reverse(item.0));
         let mut thumbnails = Vec::new();
-        for (_, path) in found {
+        for (modified, path) in found {
             if thumbnails.len() == 5 {
                 break;
+            }
+            // A picture made small once is kept for the run, by its time.
+            let key = (path.clone(), modified);
+            if let Some(small) = SMALL
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .get(&key)
+            {
+                thumbnails.push((path, small.clone()));
+                continue;
             }
             let Ok(reader) =
                 image::ImageReader::open(&path).and_then(|reader| reader.with_guessed_format())
@@ -924,6 +940,10 @@ fn suggest_pictures(window: &YapfastWindow) {
             reader.limits(limits);
             if let Ok(picture) = reader.decode() {
                 let small = picture.thumbnail(168, 104).to_rgba8();
+                SMALL
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .insert(key, small.clone());
                 thumbnails.push((path, small));
             }
         }
