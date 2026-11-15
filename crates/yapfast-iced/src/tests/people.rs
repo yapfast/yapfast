@@ -416,3 +416,45 @@ fn the_full_profiles_tabs_and_dates_are_discords() {
     assert_eq!(own.tabs, [Tab::Board, Tab::Activity, Tab::Wishlist]);
     assert_eq!(own.friends_since, "");
 }
+
+#[test]
+fn a_discord_dm_offers_add_friend_or_accept_in_its_header() {
+    let (mut app, _folder) = super::preview();
+    let _ = app.update(crate::app::Message::Rail(crate::rail::Event::Dm(
+        "riley".into(),
+    )));
+    let person = |app: &crate::app::App| {
+        app.client
+            .state()
+            .selected_room()
+            .and_then(|room| room.person.clone())
+            .expect("a DM's person")
+    };
+    super::change(&mut app, |state| {
+        let room = state
+            .rooms
+            .iter_mut()
+            .map(std::sync::Arc::make_mut)
+            .find(|room| room.id == "riley")
+            .expect("Riley's DM");
+        room.capabilities.dm_calls = true;
+        state.discord_friends = Arc::from(Vec::<String>::new());
+    });
+    assert!(super::shows(&app, "Add Friend"));
+    let riley = person(&app);
+    super::change(&mut app, |state| {
+        state.friend_requests = vec![yapfast_core::chat::FriendRequest {
+            id: riley.clone(),
+            name: "Riley".into(),
+            avatar: None,
+            incoming: true,
+            spam: false,
+        }];
+    });
+    assert!(super::shows(&app, "Accept Friend Request"));
+    super::change(&mut app, |state| {
+        state.discord_friends = Arc::from(vec![riley.clone()])
+    });
+    assert!(!super::shows(&app, "Add Friend"));
+    assert!(!super::shows(&app, "Accept Friend Request"));
+}

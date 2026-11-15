@@ -109,11 +109,13 @@ pub fn lists_key(state: &yapfast_core::application::AppState, theme: &str) -> u6
             state.detached,
             state.loading_later,
             state.later_failed,
+            state.voice_chat,
         ),
     )
         .hash(&mut hasher);
     (
         &state.friends,
+        &state.discord_friends,
         &state.friend_requests,
         &state.discord_blocked,
         &state.pinned,

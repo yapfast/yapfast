@@ -461,14 +461,15 @@ mod windows {
             .chunks_exact(4)
             .flat_map(|pixel| [pixel[2], pixel[1], pixel[0], pixel[3]])
             .collect();
+        let (width, height) = (pixels.width, pixels.height);
         // Rows of the 1-bit mask are padded to 16 bits.
-        let mask = vec![0u8; size.div_ceil(16) as usize * 2 * size as usize];
-        // SAFETY: both buffers hold `size` rows of `size` pixels.
+        let mask = vec![0u8; width.div_ceil(16) as usize * 2 * height as usize];
+        // SAFETY: both buffers hold `height` rows of `width` pixels.
         unsafe {
             CreateIcon(
                 GetModuleHandleW(std::ptr::null()),
-                size as i32,
-                size as i32,
+                width as i32,
+                height as i32,
                 1,
                 32,
                 mask.as_ptr(),

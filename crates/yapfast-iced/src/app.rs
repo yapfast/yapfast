@@ -83,6 +83,8 @@ pub enum Message {
     Earlier,
     /// Newer messages after a window of older ones.
     Later,
+    /// The core's notice over the conversation, dismissed.
+    DismissNotice,
     JumpUnread,
     JumpPresent,
     JumpFaded(String),
@@ -656,6 +658,7 @@ impl App {
                 self.client.dispatch(Action::Later);
                 self.sync()
             }
+            Message::DismissNotice => self.dismiss_notice(),
             Message::JumpUnread => {
                 self.client.dispatch(Action::JumpToUnread);
                 self.sync()

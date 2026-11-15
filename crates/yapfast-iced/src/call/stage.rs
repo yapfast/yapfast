@@ -383,6 +383,11 @@ impl App {
         })
     }
 
+    /// A voice channel is open on its call, not on its chat.
+    pub fn voice_panel(&self) -> bool {
+        self.voice_selected() && !self.client.state().voice_chat
+    }
+
     /// The open room's call is the one this account is in.
     pub fn voice_here(&self) -> bool {
         let state = self.client.state();
@@ -392,8 +397,7 @@ impl App {
     /// The stage shows: its call is open, here or above a DM's messages,
     /// or full screen.
     pub fn stage_shown(&self) -> bool {
-        self.voice_here() && (self.voice_selected() || self.dm_call().is_some())
-            || self.full_shown()
+        self.voice_here() && (self.voice_panel() || self.dm_call().is_some()) || self.full_shown()
     }
 
     /// The large tile is over the whole window.
@@ -408,7 +412,7 @@ impl App {
             return self.window;
         }
         let below_header = self.window.height - header::HEIGHT - 1.0;
-        let (right, height) = if self.voice_selected() {
+        let (right, height) = if self.voice_panel() {
             (self.window.width, below_header)
         } else {
             // Above a DM's messages, beside its profile panel.

@@ -14,7 +14,7 @@ use iced::{
     widget::{Space, button, container, row, text, tooltip},
 };
 use yapfast_core::{
-    application::AppState,
+    application::{AppState, Relation},
     chat::{Presence, Topic},
 };
 
@@ -61,6 +61,12 @@ pub struct Header {
     pub activity: Status,
     pub can_call: bool,
     pub call_going: bool,
+    /// A Discord DM's person who isn't a friend: their id, and whether
+    /// they asked to be one (Accept) or not yet (Add Friend). None once
+    /// this account asked, which the profile card says.
+    pub befriend: Option<(String, bool)>,
+    /// A voice channel with a chat: whether the chat shows.
+    pub voice_chat: Option<bool>,
     pub can_threads: bool,
     pub can_notify: bool,
     pub muted: bool,
@@ -113,6 +119,16 @@ pub fn header(state: &AppState, was: &Header, link: u32) -> Header {
         },
         can_call: dm_call && !voice_here,
         call_going: !room.people.is_empty(),
+        voice_chat: (!room.direct && room.voice_chat()).then_some(state.voice_chat),
+        befriend: room
+            .person
+            .as_deref()
+            .filter(|_| room.direct && room.capabilities.dm_calls)
+            .and_then(|person| match state.relation(person) {
+                Relation::Stranger if !state.is_blocked(person) => Some((person.to_owned(), false)),
+                Relation::Incoming => Some((person.to_owned(), true)),
+                _ => None,
+            }),
         can_threads: state.threads_channel().is_some(),
         can_notify: state.menu_choices(&room.id).contains(&notify),
         muted: room.muted,
@@ -215,11 +231,16 @@ impl App {
             name
         });
         if let Some((_, topic)) = &header.topic {
-            head = head.push(dot(theme)).push(
+            // A click shows it in full under the line, as Discord does;
+            // its links open from there.
+            let line = iced::widget::mouse_area(
                 container(self.topic_line(topic))
                     .width(Length::Fill)
                     .clip(true),
-            );
+            )
+            .on_press(Message::Popover(crate::popovers::Event::Topic))
+            .interaction(iced::mouse::Interaction::Pointer);
+            head = head.push(dot(theme)).push(self.spot(line));
         } else if !header.activity.is_empty() {
             head = head.push(
                 container(
@@ -268,6 +289,47 @@ impl App {
             "Show member list"
         };
         let mut buttons = Vec::new();
+        // Add Friend, or Accept Friend Request in the accent, first.
+        if let Some((person, incoming)) = &header.befriend {
+            let (words, kind) = if *incoming {
+                ("Accept Friend Request", controls::Kind::Primary)
+            } else {
+                ("Add Friend", controls::Kind::Plain)
+            };
+            let ink = if *incoming {
+                rgb(theme.on_accent)
+            } else {
+                rgb(theme.faint)
+            };
+            buttons.push(
+                controls::action(
+                    theme,
+                    words,
+                    kind,
+                    Some(Message::Friends(crate::friends::Event::Accept(
+                        person.clone(),
+                    ))),
+                )
+                .small()
+                .icon(self.icon(Icon::UserPlus, 16, ink))
+                .into(),
+            );
+        }
+        // A voice channel's chat, or its call again.
+        if let Some(chat) = header.voice_chat {
+            let (icon, label) = if chat {
+                (Icon::Volume, "Show voice channel")
+            } else {
+                (Icon::Forum, "Open chat")
+            };
+            buttons.push(self.icon_face_button(
+                self.glyph(icon, GLYPH, theme.secondary),
+                label,
+                BUTTON,
+                Message::Side(crate::sidebar::Event::VoiceChat(!chat)),
+                true,
+            ));
+        }
         let mut push = |icon, label, message, lit: bool| {
             let ink = if lit { theme.text } else { theme.secondary };
             buttons.push(self.icon_face_button(

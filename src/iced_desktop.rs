@@ -11,9 +11,7 @@ use std::{
 };
 
 use yapfast_core::{chat::Alert, runtime::BackgroundRuntime};
-use yapfast_iced::{
-    Drag, Heard, Offered, Tell, TrayChoice, UpdateChoices, UpdateStatus, UpdatesShown,
-};
+use yapfast_iced::{Heard, Offered, Tell, TrayChoice, UpdateChoices, UpdateStatus, UpdatesShown};
 
 use crate::update::{
     self, Outcome, Release, Version,
@@ -230,6 +228,7 @@ fn watch_wayland_drops(window: &dyn yapfast_iced::Window, tell: Tell) {
     // which is as long as Yapfast does.
     unsafe {
         crate::drop::wayland::watch(display.display, move |drag| {
+            use yapfast_iced::Drag;
             let drag = match drag {
                 crate::drop::Drag::Entered => Drag::Entered,
                 crate::drop::Drag::Left => Drag::Left,

@@ -649,6 +649,24 @@ fn the_history_edge_offers_earlier_messages_then_shows_them_loading() {
 }
 
 #[test]
+fn the_preview_says_so_and_a_notice_shows_until_dismissed() {
+    let (mut app, _folder) = preview();
+    assert!(shows(
+        &app,
+        "Local preview: sample data. Nothing leaves this computer."
+    ));
+    change(&mut app, |state| {
+        state.notice = Some("Discord asked Yapfast to slow down.".into());
+    });
+    assert!(shows(&app, "Discord asked Yapfast to slow down."));
+    interact(&mut app, |ui| {
+        ui.click("Dismiss").expect("Dismiss");
+    });
+    assert!(app.client.state().notice.is_none());
+    assert!(!shows(&app, "Discord asked Yapfast to slow down."));
+}
+
+#[test]
 fn a_window_of_older_messages_ends_with_newer_messages_loading_or_failed() {
     let (mut app, _folder) = preview();
     let height = *app.heights.last().expect("rows");

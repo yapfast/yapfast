@@ -140,6 +140,8 @@ pub enum Event {
     Point(bool),
     Mute,
     Deafen,
+    /// Offline: connect again now, not when the backend next tries.
+    Reconnect,
 }
 
 impl App {
@@ -167,6 +169,10 @@ impl App {
                 self.toggle_on_join(matches!(event, Event::Deafen));
                 return iced::Task::none();
             }
+            Event::Reconnect if self.client.state().busy => return iced::Task::none(),
+            Event::Reconnect => self
+                .client
+                .dispatch(yapfast_core::application::Action::RetrySync),
         }
         self.sync()
     }
@@ -301,18 +307,31 @@ impl App {
                 ),
                 caret("Output options", crate::call::Popup::Output),
             ],
-            self.tinted_button(
-                Icon::Settings,
-                "Settings",
-                theme.text,
-                24,
-                Message::Settings(crate::settings::Event::Open(
-                    crate::settings::Section::Account
-                )),
-            ),
         ]
         .spacing(5)
         .align_y(Alignment::Center);
+        // Offline, Reconnect before Settings, as the Slint client's.
+        let state = self.client.state();
+        let controls = if !state.preview && !state.online {
+            controls.push(self.tinted_button(
+                Icon::Refresh,
+                "Reconnect",
+                theme.secondary,
+                20,
+                Message::Account(Event::Reconnect),
+            ))
+        } else {
+            controls
+        };
+        let controls = controls.push(self.tinted_button(
+            Icon::Settings,
+            "Settings",
+            theme.text,
+            24,
+            Message::Settings(crate::settings::Event::Open(
+                crate::settings::Section::Account,
+            )),
+        ));
         let ground = theme.panel;
         let face = mouse_area(face)
             .on_press(Message::Status(crate::status::Event::Toggle))

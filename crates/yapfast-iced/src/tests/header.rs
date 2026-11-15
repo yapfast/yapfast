@@ -131,3 +131,33 @@ fn add_people_counts_the_room_left_in_the_group() {
     escape(&mut app);
     assert!(app.client.state().add_people.is_none());
 }
+
+#[test]
+fn a_click_on_the_topic_shows_it_in_full_until_escape_or_another_room() {
+    let (mut app, _folder) = preview();
+    change(&mut app, |state| {
+        state.topic = Some(std::sync::Arc::new(yapfast_core::chat::Topic {
+            body: "Plans for game night.\nBring snacks.".into(),
+            mentions: Vec::new(),
+            emoji: Vec::new(),
+        }));
+    });
+    assert!(shows(&app, "Plans for game night. Bring snacks."));
+    interact(&mut app, |ui| {
+        ui.click("Plans for game night. Bring snacks.")
+            .expect("the topic's line");
+    });
+    assert!(app.popover_open());
+    assert!(
+        shows(&app, "Plans for game night.\nBring snacks."),
+        "its own lines"
+    );
+    escape(&mut app);
+    assert!(!app.popover_open());
+    let _ = app.update(Message::Popover(crate::popovers::Event::Topic));
+    assert!(app.popover_open());
+    interact(&mut app, |ui| {
+        ui.click("games").expect("the games channel");
+    });
+    assert!(!app.popover_open(), "it goes with its room");
+}

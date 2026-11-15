@@ -1,6 +1,6 @@
 //! The header's popovers, as the Slint client's (`ui/header.slint`): the
-//! open conversation's Pinned Messages, a channel's Threads, and Select
-//! Friends to add to a DM. Each opens under its button, its right edge
+//! open conversation's Pinned Messages, a channel's Threads, Select
+//! Friends to add to a DM, and a channel's topic in full under its line. Each opens under its button, its right edge
 //! level with the button's, and closes on Escape, a click outside, or what
 //! it was for (a pin jumped to, a thread opened). The core says which is
 //! open; the window keeps only where it opens from and the rows it built,
@@ -23,8 +23,10 @@ use crate::{
     elide::elide,
     fonts::{BOLD, MEDIUM, SEMIBOLD},
     found::Found,
+    markdown::{self, Body},
     pictures::{Face, Icon},
     style::{fill, hex, raised_shadow, scrollbar},
+    theme::rgb,
 };
 
 /// A popover's head, taller with a line under its heading.
@@ -37,6 +39,11 @@ const PINS_WIDTH: f32 = 420.0;
 const PINS_MOST: f32 = 560.0;
 const PEOPLE_WIDTH: f32 = 440.0;
 const PEOPLE_MOST: f32 = 520.0;
+const TOPIC_WIDTH: f32 = 440.0;
+const TOPIC_MOST: f32 = 400.0;
+/// The topic's text, as the Slint client's `TopicPopover` sets it.
+const TOPIC_TEXT: f32 = 15.0;
+const TOPIC_LINE: f32 = 20.0;
 /// A thread's card in its slot, and a section's heading over its first.
 const THREAD_SLOT: f32 = 80.0;
 const THREAD_CARD: f32 = 72.0;
@@ -59,6 +66,15 @@ pub struct Popovers {
     people: Vec<PickRow>,
     people_shown: Option<u64>,
     pub people_query: String,
+    topic: Option<TopicShown>,
+}
+
+/// The topic in full, while it shows: whose, where its line was, and its
+/// Markdown with its line breaks, laid out once as it opens.
+struct TopicShown {
+    room: String,
+    under: iced::Rectangle,
+    body: Body,
 }
 
 /// A thread as its list shows it: an active one with its newest message,
@@ -92,6 +108,8 @@ pub enum Event {
     Pins,
     Threads,
     AddPeople,
+    /// The header's line of a channel's topic was clicked.
+    Topic,
     Close,
     Jump(String),
     /// A listed thread: in its place, or with Shift beside the channel.
@@ -135,6 +153,28 @@ impl App {
                     self.popovers.right = right;
                     self.popovers.people_query.clear();
                     self.client.dispatch(Action::OpenAddPeople);
+                }
+            }
+            Event::Topic => {
+                let open = self.popovers.topic.is_some();
+                self.close_popovers();
+                let state = self.client.state();
+                if !open
+                    && let (Some(room), Some(topic)) =
+                        (state.selected.clone(), state.topic.as_ref())
+                {
+                    let body = markdown::parse(
+                        &topic.body,
+                        &topic.mentions,
+                        rgb(self.theme.mention),
+                        "topic",
+                        |_| true,
+                    );
+                    self.popovers.topic = Some(TopicShown {
+                        room,
+                        under: self.call.spot.get(),
+                        body,
+                    });
                 }
             }
             Event::Close => self.close_popovers(),
@@ -198,6 +238,7 @@ impl App {
 
     /// Closes whichever popover is open.
     pub fn close_popovers(&mut self) {
+        self.popovers.topic = None;
         if self.pins_open() {
             self.client.dispatch(Action::ShowPins(false));
         }
@@ -211,7 +252,10 @@ impl App {
 
     /// Whether a popover is open, for Escape.
     pub fn popover_open(&self) -> bool {
-        self.pins_open() || self.people_open() || self.client.state().thread_list().is_some()
+        self.pins_open()
+            || self.people_open()
+            || self.client.state().thread_list().is_some()
+            || self.popovers.topic.is_some()
     }
 
     fn pins_open(&self) -> bool {
@@ -262,6 +306,13 @@ impl App {
         }
         self.threads_sync();
         self.people_sync();
+        // The topic goes with its room, or with the topic.
+        let state = self.client.state();
+        if self.popovers.topic.as_ref().is_some_and(|topic| {
+            state.selected.as_deref() != Some(topic.room.as_str()) || state.topic.is_none()
+        }) {
+            self.popovers.topic = None;
+        }
     }
 
     fn threads_sync(&mut self) {
@@ -364,6 +415,9 @@ impl App {
 
     /// The open popover, placed under its button.
     pub fn popover_layer(&self) -> Option<Element<'_, Message>> {
+        if let Some(topic) = &self.popovers.topic {
+            return Some(self.topic_layer(topic));
+        }
         let (panel, width, most) = if self.pins_open() {
             (self.pins_view(), PINS_WIDTH, PINS_MOST)
         } else if self.client.state().thread_list().is_some() {
@@ -526,6 +580,43 @@ impl App {
             None,
             body,
         )
+    }
+
+    /// The topic in full, under its line, its left edge level with the
+    /// line's, as the Slint client's `TopicPopover`; its text scrolls past
+    /// 400 px or the window's room.
+    fn topic_layer<'a>(&'a self, topic: &'a TopicShown) -> Element<'a, Message> {
+        let theme = &self.theme;
+        let width = TOPIC_WIDTH.min(self.window.width - 2.0 * MARGIN);
+        let x = topic
+            .under
+            .x
+            .min(self.window.width - width - MARGIN)
+            .max(MARGIN);
+        let top = topic.under.y + topic.under.height + GAP;
+        let most = TOPIC_MOST.min(self.window.height - top - 16.0);
+        let look = crate::markdown::Look {
+            size: TOPIC_TEXT,
+            line_height: TOPIC_LINE,
+            ink: theme.text,
+        };
+        let body =
+            scrollable(container(self.body_view(&topic.body, usize::MAX, 0, look)).padding(16))
+                .style(scrollbar(theme));
+        let name = self.header.name.as_str();
+        let panel = self.popover_frame(
+            false,
+            Icon::Hash,
+            self.popover_heading(name),
+            None,
+            None,
+            body.into(),
+        );
+        stack![
+            controls::outside(Message::Popover(Event::Close), false),
+            placed(container(panel).width(width).max_height(most), x, top),
+        ]
+        .into()
     }
 
     fn threads_view(&self) -> Element<'_, Message> {

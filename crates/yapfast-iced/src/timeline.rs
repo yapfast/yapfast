@@ -564,7 +564,7 @@ impl App {
     /// The conversation column: the header, the timeline and the composer,
     /// with a server's member list beside them; or a voice channel's call.
     pub fn conversation(&self) -> Element<'_, Message> {
-        if self.voice_selected() {
+        if self.voice_panel() {
             return self.call_view();
         }
         let outline = self.theme.outline_chat;
@@ -584,7 +584,16 @@ impl App {
             return screen;
         }
         let mut chat = column![].width(Length::Fill).height(Length::Fill);
-        if let Some(banner) = self.verify_banner() {
+        // The preview's note, Matrix's verification and the core's notice,
+        // as the Slint client stacks them.
+        for banner in [
+            self.preview_banner(),
+            self.verify_banner(),
+            self.notice_banner(),
+        ]
+        .into_iter()
+        .flatten()
+        {
             chat = chat.push(banner);
         }
         // A DM's call shows above its messages.

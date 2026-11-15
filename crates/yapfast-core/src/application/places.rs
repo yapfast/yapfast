@@ -914,10 +914,21 @@ impl Application {
         } else {
             MenuChoice::CreateChannel
         };
-        if !self.menu_choices(&place).contains(&choice) {
+        // A category's "+" makes a channel in it, as Discord's does; its
+        // menu doesn't offer it.
+        let in_category = kind != ChannelKind::Category && self.state.is_category(&place);
+        let allowed = if in_category {
+            self.may_create_channel(&place)
+        } else {
+            self.menu_choices(&place).contains(&choice)
+        };
+        if !allowed {
             return vec![];
         }
-        let parent = self.category_of(&place);
+        // In the category it's in, or the category itself.
+        let parent = self
+            .category_of(&place)
+            .or_else(|| in_category.then(|| place.clone()));
         let name = parent
             .as_deref()
             .and_then(|category| {

@@ -52,6 +52,8 @@ pub const HEADER: f32 = 50.0;
 pub const ROW: f32 = 32.0;
 const DM_ROW: f32 = 42.0;
 const HEADING: f32 = 38.0;
+/// A row's own small button: a voice channel's Open chat, a category's "+".
+const CHAT_BUTTON: f32 = 24.0;
 const PERSON: f32 = 30.0;
 const GAP: f32 = 2.0;
 /// The space the list leaves after its last row.
@@ -111,6 +113,12 @@ pub enum Event {
     Menu(String, Point),
     /// Wave, in an empty DM, by its person.
     Wave(String),
+    /// A voice channel's chat, without joining its call.
+    OpenChat(String),
+    /// The voice channel open shows its chat (true) or its call.
+    VoiceChat(bool),
+    /// A category's "+": a channel made in it.
+    CreateIn(String),
 }
 
 /// A conversation's row, as the Slint client's `RoomRow` has it.
@@ -152,6 +160,8 @@ pub struct Room {
     /// Who is in a voice channel, and since when (Unix seconds).
     pub people: Vec<VoicePerson>,
     pub started: Option<u64>,
+    /// A voice channel with a chat of its own, which a button opens.
+    pub chat: bool,
 }
 
 impl Room {
@@ -538,6 +548,7 @@ pub fn sidebar(
                 Vec::new()
             },
             started: room.voice_started.filter(|_| room.voice && !room.direct),
+            chat: !room.direct && room.voice_chat(),
         })));
     }
     if !direct && query.is_empty() {
@@ -652,6 +663,14 @@ impl App {
                 user,
                 text: "\u{1F44B}".to_owned(),
             }),
+            Event::OpenChat(room) => self.client.dispatch(Action::OpenChat(room)),
+            Event::VoiceChat(chat) => self.client.dispatch(Action::ShowVoiceChat(chat)),
+            Event::CreateIn(category) => {
+                return self.choose_place(
+                    category,
+                    yapfast_core::application::MenuChoice::CreateChannel,
+                );
+            }
         }
         self.sync()
     }
@@ -1135,6 +1154,19 @@ impl App {
         ]
         .spacing(4)
         .align_y(Alignment::Center);
+        let mut face = row![face, Space::new().width(Length::Fill)].align_y(Alignment::Center);
+        // Discord's "+", while the pointer is over a category this account
+        // may make channels in.
+        if pointed && self.client.app.may_create_channel(fold) {
+            face = face.push(self.icon_button(
+                Icon::Add,
+                "Create Channel",
+                CHAT_BUTTON,
+                16,
+                Message::Side(Event::CreateIn(fold.to_owned())),
+                false,
+            ));
+        }
         let area = mouse_area(
             container(face)
                 .padding(Padding {
@@ -1329,6 +1361,18 @@ impl App {
         }
         if !room.badge.is_empty() {
             face = face.push(count_pill(theme, &room.badge, ROW_COUNT, None));
+        }
+        // A voice channel's chat opens without joining it, from a button
+        // shown under the pointer or while it's selected, as in Discord.
+        if room.chat && (pointed || room.selected) {
+            face = face.push(self.icon_button(
+                Icon::Forum,
+                "Open chat",
+                CHAT_BUTTON,
+                16,
+                Message::Side(Event::OpenChat(room.id.clone())),
+                false,
+            ));
         }
         let message = if room.voice {
             Message::Side(Event::Voice(room.id.clone()))

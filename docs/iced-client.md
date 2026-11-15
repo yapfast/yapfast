@@ -158,10 +158,14 @@ presence, the voice channel they're in and what they're up to; in a
 server its name, which opens the server's menu, then its pinned channels,
 then each category's heading and channels. A category folds on a click,
 keeping the open channel, unread ones and busy voice channels, as
-Discord's does. A channel's row shows its kind's icon, its unread mark at
-the sidebar's edge, its mentions, and muted or locked faint; a busy voice
-channel lists who is in it and how long the call has gone on, which a
-timer brings up to date each minute only while one shows. A right click on
+Discord's does; under the pointer its heading offers a "+" that makes a
+channel in it, where this account may. A channel's row shows its kind's
+icon, its unread mark at the sidebar's edge, its mentions, and muted or
+locked faint; a busy voice channel lists who is in it and how long the
+call has gone on, which a timer brings up to date each minute only while
+one shows. A voice channel with a chat offers Open chat on its row under
+the pointer or while selected, which shows the chat without joining; the
+header's button goes back to the call's view, or to the chat again. A right click on
 a row opens its menu (`places.rs`), built from the core's
 `menu_choices` in the Slint client's wording, at the pointer. A server's
 menu mutes it (for a time, in a submenu, or until it's turned back on
@@ -193,7 +197,9 @@ The account's card (`account.rs`) spans the foot of both: the avatar with
 its presence, the name and status (the username under the pointer), and
 the mic, headphones and Settings, which mute and deafen in a call; out of
 one they set whether the next call starts unmuted or deafened. The carets
-beside the mic and headphones open the input and output menus. The call's
+beside the mic and headphones open the input and output menus. While
+Yapfast is offline (not in the preview), Reconnect stands before Settings
+and connects again at once (`Action::RetrySync`). The call's
 dock sits above the card while this account is in a call (below).
 
 In a voice channel someone is in, each person's row shows them speaking
@@ -421,13 +427,17 @@ then the settings.
 The header (`header.rs`) is the Slint client's: a DM's avatar and
 presence or a channel's icon, a thread's channel (which leads back to it),
 the name, a channel's topic on one line after a dot, what a DM's person is
-up to; then the room's buttons in Slint's order (calls, threads,
-notifications, pins, add people, the member list, the profile) and the
-search box.
+up to; then the room's buttons in Slint's order (in a Discord DM with
+someone who isn't a friend, Add Friend, or Accept Friend Request in the
+accent when they asked; calls, threads, notifications, pins, add people,
+the member list, the profile) and the search box.
 
 The header's popovers (`popovers.rs`, the Slint client's) open under
 their button, its right edge level with theirs, and close on Escape, a
-click outside or what they're for; the core says which is open, and the
+click outside or what they're for; a click on a channel's topic shows it
+in full under its line, its left edge level with the line's, with its
+own line breaks, mentions and links, until Escape, a click outside or
+another room; the core says which is open, and the
 window keeps only the rows it built while one shows. Pinned Messages lists
 the conversation's pins as found cards (`found::Found`), a click or Jump
 showing one, or says why it can't. Threads lists a channel's threads as
@@ -446,6 +456,11 @@ member list's place (`SearchPanel`), 420 px wide: how many, the newest
 first as found cards, a server's under their channels' names, Show more
 for the next page, a click jumping to the message in its room. Close,
 Escape or clearing the box ends the search and lets go of the cards.
+
+Over the timeline (`banners.rs`), as the Slint client stacks them: the
+preview's "Local preview: sample data" line, Matrix's verification while
+the device isn't trusted, and the core's notice (`AppState::notice`) with
+Dismiss.
 
 The timeline (`timeline.rs`, one message's content in `message.rs`) groups
 messages as Discord does: the same person within seven minutes, unless
@@ -982,7 +997,7 @@ what costs is kept out of the view:
   frames on a timer.
 
 Each part of the window has its module: `signin`, `mfa`, `rail`,
-`sidebar`, `account`, `header`, `timeline`, `message`, `cards`, `bot_select`, `browse`, `browse_channels`, `found`, `popovers`, `search`, `thread`, `image_viewer`, `composer`, `edit`, `suggest`, `commands`, `typing`, `uploads`, `forward`, `members`,
+`sidebar`, `account`, `header`, `banners`, `timeline`, `message`, `cards`, `bot_select`, `browse`, `browse_channels`, `found`, `popovers`, `search`, `thread`, `image_viewer`, `composer`, `edit`, `suggest`, `commands`, `typing`, `uploads`, `forward`, `members`,
 `people`, `person`, `profile` (with `editor`), `friends`, `active_now`, `reactions`, `picker` (with its tabs `emoji`, `gifs`, `stickers`), `menus`, `places`, `dialogs`, `call` (with `stage`, `dock`, `popups`, `dm`, `corner`), `settings` (with `pages`, `voice`, `appearance`, `updates`), `shell` and `window_bar` (with `desktop`, the desktop's parts), `server_settings` (with `profile`, `roles`, `people`, `moderation`, `expressions`, `ownership`), `channel_settings`, `server_dialogs`, `status`, `switcher`; `form` and `sheet` are the settings' kit; `theme` holds
 the colours and `layout` what's kept in `layout.json`.
 `sync.rs` takes in what changed in the core's state after each message.
@@ -1186,7 +1201,8 @@ into. They cover the theme's switch and what it keeps, the sign-in screen
 on a data folder without an account, linking's steps and the two-factor
 prompt, the rail's unread DMs and folders, categories folding, unread
 marks and the DMs' search, switching channels with their headers and
-topics, the history's edge as earlier messages load, a window of older
+topics, the preview's line and a notice until dismissed, the history's
+edge as earlier messages load, a window of older
 messages ending with newer ones loading or failed, the unread bar's
 jump, the view staying put on earlier messages as new ones come, and
 sending from there going to the newest; and in `tests/writing.rs` the
@@ -1233,11 +1249,13 @@ starting from the one set and saving what's written, and the quick
 switcher finding a place and going there with the keys; in
 `tests/header.rs` pins under their button closing as one is jumped to or
 on Escape, a server search's results beside the channel ending on Escape,
-and Select Friends counting the room left; in
+Select Friends counting the room left, and the topic shown in full until
+Escape or another room; in
 `forum.rs` a post's card; in
 `tests/threads.rs` the thread beside writing its own draft and letting go
 of its rows as it closes, and the viewer letting go of its picture; in
-`tests/server_dialogs.rs`, on the same server, the invite dialog's link,
+`tests/server_dialogs.rs`, on the same server, a category's "+", a voice
+channel's chat and back, the invite dialog's link,
 how long it lasts and its choices for a new one, Create channel and
 category, Duplicate and Delete from the menus, leaving a server or group
 in red (a group's without telling anyone), and Join a Server from the
@@ -1267,14 +1285,15 @@ Ctrl and the wheel (iced's lists would scroll with it too), and the
 inbox's avatars tinted by the room's id rather than its name, as Slint's
 are. On the rail
 and in the sidebar: dragging servers, channels and people, the voice
-card beside a busy channel and a voice channel's chat, a server's
+card beside a busy channel, a server's
 verified badge and its events' own cards, and the dialog that asks whether a
 dragged channel takes its category's permissions (there's no dragging
 yet). An app's authorization, a gift's and an event's dialogs: their
-links open the browser. In the header:
-a channel's topic in full on a click. Dragging the thread beside's edge to widen it. In the timeline: keys typed in the timeline going to the composer. In the composer: dragging the expression
+links open the browser. Dragging the thread beside's edge to widen it. In the timeline: keys typed in the timeline going to the composer. In the composer: dragging the expression
 picker's left edge to widen it, and Nitro's offer on a locked emoji or
-sticker. In calls: push to talk's fallback while the
+sticker. In calls: the details the signal opens (the ping's
+graph, packet loss, the voice privacy code and the stream's encoding) and
+the ping as its tooltip, push to talk's fallback while the
 window has focus where no global shortcut is had, the ringing card's
 pulse, and the video over the switch dialog's dim (the renderer draws
 video after the layers above it).

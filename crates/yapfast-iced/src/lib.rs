@@ -30,6 +30,7 @@ compile_error!("yapfast-iced needs a renderer: `cpu` or `gpu`");
 mod account;
 mod active_now;
 mod app;
+mod banners;
 mod bot_select;
 mod browse;
 mod browse_channels;

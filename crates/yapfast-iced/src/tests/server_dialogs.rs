@@ -314,3 +314,34 @@ fn browse_channels_opens_from_a_community_servers_list_and_searches() {
     assert!(!shows(&app, "Say hi"));
     assert!(shows(&app, "Join"));
 }
+
+#[test]
+fn a_categorys_plus_makes_a_channel_in_it() {
+    let (mut app, _folder) = discord_server(permission::MANAGE_CHANNELS, |_, _| {});
+    let category = "discord:10:4";
+    assert!(app.client.app.may_create_channel(category));
+    let _ = app.update(Message::Side(crate::sidebar::Event::CreateIn(
+        category.into(),
+    )));
+    let dialog = app.client.state().channel_dialog.clone().expect("open");
+    assert_eq!(dialog.kind, ChannelKind::Text);
+    assert!(shows(&app, "In Talk"));
+}
+
+#[test]
+fn a_voice_channels_chat_opens_from_its_row_and_its_header_goes_back() {
+    let (mut app, _folder) = discord_server(0, |_, _| {});
+    let lounge = "discord:10:14";
+    let _ = app.update(Message::Side(crate::sidebar::Event::OpenChat(
+        lounge.into(),
+    )));
+    let state = app.client.state();
+    assert_eq!(state.selected.as_deref(), Some(lounge));
+    assert!(state.voice_chat, "its chat, not its call");
+    assert_eq!(app.header.voice_chat, Some(true));
+    assert!(!shows(&app, "Join voice"));
+    let _ = app.update(Message::Side(crate::sidebar::Event::VoiceChat(false)));
+    assert!(!app.client.state().voice_chat);
+    assert_eq!(app.header.voice_chat, Some(false));
+    assert!(shows(&app, "Join voice"), "the call's view again");
+}
