@@ -1644,6 +1644,10 @@ export component ServerTree inherits VerticalLayout {
 }
 
 export component RoomList inherits Rectangle {
+    /// Every row laid out, as tall as they are, for a list that scrolls
+    /// with what's around it: a theme's tree.
+    in property <bool> whole;
+    property <length> whole-height;
     /// Room on the left of every row, as a theme's tree nests the list.
     in property <length> indent;
     in property <[RoomRow]> rooms;
@@ -1851,6 +1855,10 @@ export component RoomList inherits Rectangle {
         list := ListView {
             changed content-y => { VoiceCard.people = []; }
             vertical-stretch: 1;
+            // Whole, it's as tall as its rows: set as they're laid out, not
+            // bound, as a list view's rows depend on its height.
+            changed content-height => { root.whole-height = self.content-height; }
+            min-height: root.whole ? root.whole-height : 0px;
             for room[index] in root.rooms: VerticalLayout {
                 padding-left: 8px + root.indent; padding-right: 8px;
                 padding-bottom: index == root.rooms.length - 1 ? 12px : ChannelLists.on && !room.direct ? ChannelLists.gap : 2px;

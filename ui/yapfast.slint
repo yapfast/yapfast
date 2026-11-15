@@ -3,7 +3,7 @@ import { AccountPopover } from "yapfast/account-popover.slint";
 import { ClientStyle } from "yapfast/style.slint";
 import { WindowBar } from "yapfast/window-bar.slint";
 import { Palette } from "std-widgets.slint";
-import { ListView, Autoscroll, AutoscrollMarker } from "scrollview.slint";
+import { ListView, ScrollView, Autoscroll, AutoscrollMarker } from "scrollview.slint";
 // The UI's typeface, Atkinson Hyperlegible Next; ExtraBold serves weight 900.
 import "fonts/DMSans[opsz,wght].ttf";
 import "fonts/DMSans-Italic[opsz,wght].ttf";
@@ -2864,71 +2864,84 @@ export component YapfastWindow inherits Window {
                                     edited => { root.filter-edited(); }
                                 }
                             }
-                            // A theme's tree: the rows down to the open server, its
-                            // channels, then the rows after it.
-                            if Arrange.rail == 3: ServerTree {
-                                head: true; servers: root.servers; matrix-build: root.matrix-build; folded: root.tree-folded;
-                                dms-selected: root.dms-selected; dms-unread: root.dms-unread; dms-badge: root.dms-badge;
-                                navigate-dms => { root.tree-folded = false; root.navigate-dms(); }
-                                navigate-server(id) => { root.tree-folded = false; root.navigate-server(id); }
-                                toggle-folder(id) => { root.toggle-folder(id); }
-                                open-dm(id) => { root.open-conversation(id); }
-                                open-server-menu(id, x, y) => { root.open-context-menu(id, false, x, y); }
-                                fold => { root.tree-folded = !root.tree-folded; }
-                            }
-                            RoomList {
-                                indent: Arrange.rail == 3 ? 16px : 0px;
-                                visible: !(Arrange.rail == 3 && root.tree-folded);
-                                max-height: Arrange.rail == 3 && root.tree-folded ? 0px : 100000px;
-                                open-add-friend => { root.open-add-friend(); }
-                                open-new-dm => { root.open-new-dm(); }
-                                server-name: root.sidebar-title;
-                                rooms: root.rooms; dms-selected: root.dms-selected; discord-linked: root.discord-linked; preview: root.preview;
-                                friends-open: root.friends-open; requests-current: root.requests-current; requests-badge: root.requests-badge;
-                                browse-offered: root.browse-offered && !ClientStyle.enabled; browsing: root.browse-open;
-                                open-browse => { root.open-browse(); }
-                                voice-channel: root.voice-channel; participants: root.participants; sidebar-empty: root.sidebar-empty;
-                                select-room(id) => { root.select-room(id); }
-                                open-voice(id) => { root.open-conversation(id); }
-                                wave(user) => { root.message-from-profile(user, "\u{1F44B}"); }
-                                open-chat(id) => { root.open-chat(id); }
-                                open-friends => { root.open-friends(); }
-                                open-requests => { root.open-requests(); }
-                                open-room-menu(id, x, y) => { root.open-context-menu(id, false, x, y); }
-                                open-voice-menu(room, person, x, y) => { root.open-voice-menu(room, person, x, y); }
-                                show-voice-person(room, id) => { root.show-voice-person(room, id); }
-                                open-voice-profile(person, x, y, width, height) => {
-                                    if person.person != "" {
-                                        root.anchor(x, y, width, height, false);
-                                        root.profile-at-pointer = true;
-                                        root.show-profile(person.person);
+                            // The channels: the list scrolls itself, or in a theme's tree
+                            // the whole tree scrolls as one.
+                            side-scroll := ScrollView {
+                                vertical-stretch: 1;
+                                content-height: Arrange.rail == 3 ? side-column.preferred-height : self.visible-height;
+                                side-column := VerticalLayout {
+                                    width: side-scroll.visible-width;
+                                    height: Arrange.rail == 3 ? self.preferred-height : side-scroll.visible-height;
+                                // A theme's tree: the rows down to the open server, its
+                                // channels, then the rows after it.
+                                if Arrange.rail == 3: ServerTree {
+                                    head: true; servers: root.servers; matrix-build: root.matrix-build; folded: root.tree-folded;
+                                    dms-selected: root.dms-selected; dms-unread: root.dms-unread; dms-badge: root.dms-badge;
+                                    navigate-dms => { root.tree-folded = false; root.navigate-dms(); }
+                                    navigate-server(id) => { root.tree-folded = false; root.navigate-server(id); }
+                                    toggle-folder(id) => { root.toggle-folder(id); }
+                                    open-dm(id) => { root.open-conversation(id); }
+                                    open-server-menu(id, x, y) => { root.open-context-menu(id, false, x, y); }
+                                    fold => { root.tree-folded = !root.tree-folded; }
+                                }
+                                RoomList {
+                                    // In a theme's tree the channels lay out whole, and the tree
+                                    // scrolls as one, the servers after them right below.
+                                    whole: Arrange.rail == 3;
+                                    indent: Arrange.rail == 3 ? 16px : 0px;
+                                    visible: !(Arrange.rail == 3 && root.tree-folded);
+                                    max-height: Arrange.rail == 3 && root.tree-folded ? 0px : 100000px;
+                                    open-add-friend => { root.open-add-friend(); }
+                                    open-new-dm => { root.open-new-dm(); }
+                                    server-name: root.sidebar-title;
+                                    rooms: root.rooms; dms-selected: root.dms-selected; discord-linked: root.discord-linked; preview: root.preview;
+                                    friends-open: root.friends-open; requests-current: root.requests-current; requests-badge: root.requests-badge;
+                                    browse-offered: root.browse-offered && !ClientStyle.enabled; browsing: root.browse-open;
+                                    open-browse => { root.open-browse(); }
+                                    voice-channel: root.voice-channel; participants: root.participants; sidebar-empty: root.sidebar-empty;
+                                    select-room(id) => { root.select-room(id); }
+                                    open-voice(id) => { root.open-conversation(id); }
+                                    wave(user) => { root.message-from-profile(user, "\u{1F44B}"); }
+                                    open-chat(id) => { root.open-chat(id); }
+                                    open-friends => { root.open-friends(); }
+                                    open-requests => { root.open-requests(); }
+                                    open-room-menu(id, x, y) => { root.open-context-menu(id, false, x, y); }
+                                    open-voice-menu(room, person, x, y) => { root.open-voice-menu(room, person, x, y); }
+                                    show-voice-person(room, id) => { root.show-voice-person(room, id); }
+                                    open-voice-profile(person, x, y, width, height) => {
+                                        if person.person != "" {
+                                            root.anchor(x, y, width, height, false);
+                                            root.profile-at-pointer = true;
+                                            root.show-profile(person.person);
+                                        }
+                                    }
+                                    arranging: root.room-arranging; droppable: root.room-droppable;
+                                    start-arranging(place) => { return root.start-arranging(place); }
+                                    arrange(place) => { root.arrange-room(place); }
+                                    stop-arranging => { root.stop-arranging(); }
+                                    moving: root.person-moving; move-droppable: root.person-droppable;
+                                    start-moving(room, user) => { return root.start-moving-person(room, user); }
+                                    move-person(room) => { root.move-person(room); }
+                                    stop-moving => { root.stop-moving-person(); }
+                                    toggle-category(category) => { root.toggle-category(category); }
+                                    may-create(id) => { return root.may-create-channel(root.category-of(id)); }
+                                    create-channel(id) => {
+                                        if root.category-of(id) != "" { root.choose-menu(root.category-of(id), false, "create-channel"); }
+                                    }
+                                    open-category-menu(id, x, y) => {
+                                        if root.category-of(id) != "" { root.open-context-menu(root.category-of(id), false, x, y); }
                                     }
                                 }
-                                arranging: root.room-arranging; droppable: root.room-droppable;
-                                start-arranging(place) => { return root.start-arranging(place); }
-                                arrange(place) => { root.arrange-room(place); }
-                                stop-arranging => { root.stop-arranging(); }
-                                moving: root.person-moving; move-droppable: root.person-droppable;
-                                start-moving(room, user) => { return root.start-moving-person(room, user); }
-                                move-person(room) => { root.move-person(room); }
-                                stop-moving => { root.stop-moving-person(); }
-                                toggle-category(category) => { root.toggle-category(category); }
-                                may-create(id) => { return root.may-create-channel(root.category-of(id)); }
-                                create-channel(id) => {
-                                    if root.category-of(id) != "" { root.choose-menu(root.category-of(id), false, "create-channel"); }
+                                if Arrange.rail == 3: ServerTree {
+                                    head: false; servers: root.servers; matrix-build: root.matrix-build; folded: root.tree-folded;
+                                    dms-selected: root.dms-selected;
+                                    navigate-server(id) => { root.tree-folded = false; root.navigate-server(id); }
+                                    toggle-folder(id) => { root.toggle-folder(id); }
+                                    open-dm(id) => { root.open-conversation(id); }
+                                    open-server-menu(id, x, y) => { root.open-context-menu(id, false, x, y); }
+                                    fold => { root.tree-folded = !root.tree-folded; }
                                 }
-                                open-category-menu(id, x, y) => {
-                                    if root.category-of(id) != "" { root.open-context-menu(root.category-of(id), false, x, y); }
                                 }
-                            }
-                            if Arrange.rail == 3: ServerTree {
-                                head: false; servers: root.servers; matrix-build: root.matrix-build; folded: root.tree-folded;
-                                dms-selected: root.dms-selected;
-                                navigate-server(id) => { root.tree-folded = false; root.navigate-server(id); }
-                                toggle-folder(id) => { root.toggle-folder(id); }
-                                open-dm(id) => { root.open-conversation(id); }
-                                open-server-menu(id, x, y) => { root.open-context-menu(id, false, x, y); }
-                                fold => { root.tree-folded = !root.tree-folded; }
                             }
                         }
                         // A theme's box frame around the sidebar.
