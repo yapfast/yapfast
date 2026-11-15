@@ -585,9 +585,11 @@ microphone opens it sooner.
 "Input sensitivity in Discord calls" sets it from -80 to 0 dBFS
 (`input_sensitivity`); behind its handle, the microphone's level goes from
 green through orange at -18 dBFS to red at -6, with whether the gate is open.
-While the setting shows, Yapfast runs the chosen microphone through a call's
-processing on a thread of its own, `yapfast-gate-meter`, and sends nothing; in
-a call that's a second copy of the processing. DeepFilterNet takes a block for
+While the setting shows with the window in front, and while the
+[microphone test](../voice.md#microphone-test) plays, Yapfast runs the chosen
+microphone through a call's processing on a thread of its own,
+`yapfast-gate-meter`, and sends nothing; in a call that's a second copy of the
+processing. DeepFilterNet takes a block for
 speech when its own estimate of the block's SNR is at least 5 dB, RNNoise when
 its speech probability is at least 0.6. A 0 dB threshold let typing open the
 gate in pauses, and 10 dB missed quiet speech. RNNoise's probability beside
@@ -665,9 +667,9 @@ the microphone sends only while a push-to-talk keybind is held, and for a
 release delay after it comes up: 20 ms unless changed, from 0 to 2 s, Discord's
 default and its slider's range (`push_to_talk_release_delay`). As in Discord's
 client, the voice gate and its sensitivity don't apply then, so the
-sensitivity setting hides, and its meter doesn't run; the rest of the
-processing still does, though with the key up DeepFilterNet runs only its
-encoder (see [Microphone](#microphone)). With the key up nothing is sent and
+sensitivity setting hides, and its meter runs only for the microphone test;
+the rest of the processing still does, though with the key up DeepFilterNet
+runs only its encoder (see [Microphone](#microphone)). With the key up nothing is sent and
 the track pauses, as when the gate shuts, so Discord, the call's speaking ring
 and the account panel's show the account not speaking. Muting still wins, and
 so does a Push to Mute keybind held, in either mode: it sends nothing while

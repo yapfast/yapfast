@@ -9970,3 +9970,24 @@ msgstr[2] "{} участников"
 msgctxt "Month"
 msgid "{0} {1}"
 msgstr "{0} {1} г."
+
+msgid "MICROPHONE TEST"
+msgstr "ПРОВЕРКА МИКРОФОНА"
+
+msgid "Test microphone"
+msgstr "Проверить микрофон"
+
+msgid "Stop testing"
+msgstr "Остановить проверку"
+
+msgid "Microphone level"
+msgstr "Уровень микрофона"
+
+msgid "Leave the call to test your microphone."
+msgstr "Чтобы проверить микрофон, выйдите из звонка."
+
+msgid "Hear how your microphone sounds in Discord calls, with its noise suppression and volume, without holding a key. Use headphones: through speakers, the microphone hears itself."
+msgstr "Послушайте, как звучит ваш микрофон в звонках Discord: с шумоподавлением и громкостью, без удержания клавиши. Используйте наушники: через динамики микрофон слышит сам себя."
+
+msgid "Yapfast can't play your microphone. Check your speakers, or choose others."
+msgstr "Yapfast не может воспроизвести микрофон. Проверьте динамики или выберите другие."

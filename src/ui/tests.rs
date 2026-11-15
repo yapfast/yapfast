@@ -1655,6 +1655,98 @@ fn push_to_talk_keeps_its_mode_key_and_release_delay() {
     assert_eq!(window.get_talk_key(), "");
 }
 
+/// The microphone test plays back on the voice page until stopped, the page
+/// is left or a call starts; in a call it stays off. The gate's meter runs for
+/// the sensitivity only in voice activity with the window in front, and the
+/// test plays behind other windows too.
+#[test]
+fn the_microphone_test_plays_on_the_voice_page_outside_calls() {
+    use i_slint_core::{
+        accessibility::{AccessibilityAction, AccessibleStringProperty},
+        item_tree::ItemRc,
+        items::AccessibleRole,
+    };
+    use std::ops::ControlFlow;
+    i_slint_backend_testing::init_no_event_loop();
+    let window = classic_window();
+    let modes = Rc::new(RefCell::new(Vec::new()));
+    let seen = modes.clone();
+    window.on_gate_metering(move |mode| seen.borrow_mut().push(mode));
+    let mode = || {
+        slint::platform::update_timers_and_animations();
+        slint::platform::update_timers_and_animations();
+        modes.borrow().last().copied().unwrap_or(0)
+    };
+    // The button labelled `label`, and whether it's enabled.
+    let button = |label: &str| {
+        let inner = i_slint_core::window::WindowInner::from_pub(window.window());
+        let found = ItemRc::new_root(inner.component()).visit_descendants(|item| {
+            let named = item.accessible_string_property(AccessibleStringProperty::Label);
+            if named.as_deref() == Some(label)
+                && item.is_visible()
+                && item.accessible_role() == AccessibleRole::Button
+            {
+                ControlFlow::Break(item.clone())
+            } else {
+                ControlFlow::Continue(())
+            }
+        });
+        let found = found.unwrap_or_else(|| panic!("no {label} button"));
+        let enabled = found.accessible_string_property(AccessibleStringProperty::Enabled);
+        (found, enabled.as_deref() == Some("true"))
+    };
+    let press = |label: &str| {
+        button(label)
+            .0
+            .accessible_action(&AccessibilityAction::Default)
+    };
+    window.set_discord_linked(true);
+    window.set_microphones(ModelRc::new(VecModel::from(vec![SharedString::from(
+        "Microphone",
+    )])));
+    window.set_settings_open(true);
+    window.set_settings_section(1);
+    window.show().unwrap();
+    window.set_window_focused(true);
+    assert_eq!(mode(), 1, "the sensitivity's meter runs");
+    window.set_window_focused(false);
+    assert_eq!(mode(), 0, "and stops behind other windows");
+    press("Test microphone");
+    assert!(window.get_microphone_testing());
+    assert_eq!(mode(), 2, "the test plays behind other windows");
+    press("Stop testing");
+    assert_eq!(mode(), 0);
+    // A call stops the test, and keeps it off while it goes on.
+    press("Test microphone");
+    assert_eq!(mode(), 2);
+    window.set_voice_active(true);
+    assert_eq!(mode(), 0);
+    assert!(!window.get_microphone_testing());
+    assert!(!button("Test microphone").1, "a call leaves the test off");
+    press("Test microphone");
+    assert_eq!(mode(), 0);
+    assert!(!window.get_microphone_testing());
+    window.set_voice_active(false);
+    // Leaving the page stops it, and coming back doesn't start it again.
+    press("Test microphone");
+    assert_eq!(mode(), 2);
+    window.set_settings_section(0);
+    assert_eq!(mode(), 0);
+    assert!(!window.get_microphone_testing());
+    window.set_settings_section(1);
+    window.set_window_focused(true);
+    assert_eq!(mode(), 1);
+    // In push to talk only the test runs the meter.
+    window.set_input_mode(1);
+    assert_eq!(mode(), 0);
+    press("Test microphone");
+    assert_eq!(mode(), 2);
+    window.set_settings_open(false);
+    assert_eq!(mode(), 0);
+    assert!(!window.get_microphone_testing());
+    window.hide().unwrap();
+}
+
 #[test]
 fn each_sounds_own_volume_counts_only_while_adjusting_each() {
     i_slint_backend_testing::init_no_event_loop();

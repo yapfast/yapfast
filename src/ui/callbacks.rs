@@ -3530,10 +3530,14 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 if adapter.meter.is_some() {
                     adapter.meter = Some(InputMeter::start(Some(&id)));
                 }
+                // The test goes on playing, from the new microphone.
                 #[cfg(feature = "discord")]
-                if adapter.gate_meter.is_some() {
-                    adapter.gate_meter =
-                        Some(yapfast_core::discord_audio::GateMeter::start(Some(&id)));
+                if let Some(playing) = adapter.gate_meter.as_ref().map(|meter| meter.playing()) {
+                    let mut meter = yapfast_core::discord_audio::GateMeter::start(Some(&id));
+                    if playing {
+                        meter.play(adapter.app.state.voice.speaker.as_deref());
+                    }
+                    adapter.gate_meter = Some(meter);
                 }
                 adapter.action(&window, Action::Voice(voice::Command::Microphone(id)));
             }
@@ -3554,9 +3558,14 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                     .map(|device| device.id.clone())
             });
             if let Some(id) = id {
-                state
-                    .borrow_mut()
-                    .action(&window, Action::Voice(voice::Command::Speaker(id)));
+                let mut adapter = state.borrow_mut();
+                // The microphone test moves to the new speakers; the
+                // microphone stays open.
+                #[cfg(feature = "discord")]
+                if let Some(meter) = adapter.gate_meter.as_mut().filter(|meter| meter.playing()) {
+                    meter.play(Some(&id));
+                }
+                adapter.action(&window, Action::Voice(voice::Command::Speaker(id)));
             }
         }
     });
@@ -3760,11 +3769,23 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     #[cfg(feature = "discord")]
     {
         let state = adapter.clone();
-        window.on_gate_metering(move |on| {
+        window.on_gate_metering(move |mode| {
             let mut adapter = state.borrow_mut();
-            let microphone = adapter.app.state.voice.microphone.clone();
-            adapter.gate_meter =
-                on.then(|| yapfast_core::discord_audio::GateMeter::start(microphone.as_deref()));
+            let adapter = &mut *adapter;
+            if mode == 0 {
+                adapter.gate_meter = None;
+                return;
+            }
+            // Starting or stopping the test leaves the microphone open.
+            let voice = &adapter.app.state.voice;
+            let meter = adapter.gate_meter.get_or_insert_with(|| {
+                yapfast_core::discord_audio::GateMeter::start(voice.microphone.as_deref())
+            });
+            match (mode == 2, meter.playing()) {
+                (true, false) => meter.play(voice.speaker.as_deref()),
+                (false, true) => meter.silence(),
+                _ => {}
+            }
         });
         let state = adapter.clone();
         let weak = window.as_weak();
@@ -3772,15 +3793,25 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             if let (Some(window), Some(meter)) = (weak.upgrade(), &state.borrow().gate_meter) {
                 window.set_gate_level(meter.level().max(-100.0));
                 window.set_gate_sending(meter.sending());
-                window.set_gate_meter_note(SharedString::from(
-                    if !yapfast_core::discord_audio::AVAILABLE {
-                        tr!("Discord voice and its level aren't available on this system yet.")
-                    } else if meter.failed() {
-                        tr!("Yapfast can't read this microphone. Check that it's connected, or choose another.")
-                    } else {
-                        ""
-                    },
-                ));
+                let note = if !yapfast_core::discord_audio::AVAILABLE {
+                    tr!("Discord voice and its level aren't available on this system yet.")
+                } else if meter.failed() {
+                    tr!("Yapfast can't read this microphone. Check that it's connected, or choose another.")
+                } else {
+                    ""
+                };
+                // Twenty times a second: a note is made only when it changes.
+                if window.get_gate_meter_note() != note {
+                    window.set_gate_meter_note(note.into());
+                }
+                let note = if meter.playback_failed() {
+                    tr!("Yapfast can't play your microphone. Check your speakers, or choose others.")
+                } else {
+                    ""
+                };
+                if window.get_microphone_test_note() != note {
+                    window.set_microphone_test_note(note.into());
+                }
             }
         });
     }

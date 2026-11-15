@@ -421,9 +421,12 @@ impl Drop for Capture {
 /// The Discord microphone's level as the voice gate hears it, after all the
 /// processing, and whether the gate would be open: for setting the
 /// sensitivity. It opens the microphone itself and sends nothing, so it works
-/// outside calls and beside one. Stops when dropped.
+/// outside calls and beside one. To test the microphone, it plays what it
+/// hears back too ([`GateMeter::play`]). Stops when dropped.
 pub struct GateMeter {
     shared: Arc<MeterShared>,
+    /// While the microphone plays back: whether its speakers failed.
+    playback: Option<Arc<AtomicBool>>,
 }
 
 struct MeterShared {
@@ -432,7 +435,17 @@ struct MeterShared {
     open: AtomicBool,
     stop: AtomicBool,
     failed: AtomicBool,
+    /// Where the processed microphone goes to be played back, while it is.
+    /// Taking it away ends the playback.
+    playback: Mutex<Option<SyncSender<[i16; BLOCK]>>>,
 }
+
+/// Blocks of the microphone test waiting for its speakers; more than this
+/// and new ones are dropped, so the speakers' clock running slower than the
+/// microphone's can't make the test later and later.
+const PLAYBACK_QUEUE: usize = 4;
+/// What the microphone test's speakers keep queued.
+const PLAYBACK_SPEAKER_QUEUE: Duration = Duration::from_millis(30);
 
 impl GateMeter {
     /// Starts measuring `microphone`, a device id from
@@ -443,6 +456,7 @@ impl GateMeter {
             open: AtomicBool::new(false),
             stop: AtomicBool::new(false),
             failed: AtomicBool::new(!AVAILABLE),
+            playback: Mutex::new(None),
         });
         let microphone = microphone.map(str::to_owned);
         let worker = shared.clone();
@@ -457,7 +471,47 @@ impl GateMeter {
         if spawned.is_err() {
             shared.failed.store(true, Ordering::Relaxed);
         }
-        Self { shared }
+        Self {
+            shared,
+            playback: None,
+        }
+    }
+
+    /// Plays the processed microphone through `speaker`, or the system
+    /// default for `None`, at the speakers' volume, until [`Self::silence`]
+    /// or the meter stops. It plays before the voice gate and push to talk,
+    /// so it plays without a key held. Playing already, it moves to
+    /// `speaker`; the microphone stays open.
+    pub fn play(&mut self, speaker: Option<&str>) {
+        let (blocks, queue) = mpsc::sync_channel(PLAYBACK_QUEUE);
+        let failed = Arc::new(AtomicBool::new(false));
+        let failing = failed.clone();
+        let speaker = speaker.map(str::to_owned);
+        let spawned = thread::Builder::new()
+            .name("yapfast-mic-test".into())
+            .spawn(move || {
+                if let Err(error) = play_back(speaker.as_deref(), queue) {
+                    tracing::warn!(%error, "could not play the microphone test");
+                    failing.store(true, Ordering::Relaxed);
+                }
+            });
+        if spawned.is_err() {
+            failed.store(true, Ordering::Relaxed);
+        }
+        // The queue it replaces closes, which ends the playback before.
+        *self.shared.playback.lock().unwrap() = Some(blocks);
+        self.playback = Some(failed);
+    }
+
+    /// Stops playing the microphone back; it goes on measuring.
+    pub fn silence(&mut self) {
+        *self.shared.playback.lock().unwrap() = None;
+        self.playback = None;
+    }
+
+    /// Whether the microphone plays back.
+    pub fn playing(&self) -> bool {
+        self.playback.is_some()
     }
 
     /// In RMS dBFS; minus infinity before the first block.
@@ -474,12 +528,43 @@ impl GateMeter {
     pub fn failed(&self) -> bool {
         self.shared.failed.load(Ordering::Relaxed)
     }
+
+    /// Playing back, neither the speakers chosen nor the default ones open.
+    pub fn playback_failed(&self) -> bool {
+        self.playback
+            .as_ref()
+            .is_some_and(|failed| failed.load(Ordering::Relaxed))
+    }
 }
 
 impl Drop for GateMeter {
     fn drop(&mut self) {
         self.shared.stop.store(true, Ordering::Relaxed);
+        self.silence();
     }
+}
+
+/// Plays the microphone test's blocks through `speaker`, at the speakers'
+/// volume, until their queue closes. Speakers that go away open again when
+/// they come back, and ones that won't open give way to the default, as a
+/// call's do.
+fn play_back(speaker: Option<&str>, queue: Receiver<[i16; BLOCK]>) -> Result<()> {
+    crate::audio_io::raise_thread_priority("speakers");
+    let mut output = LastingOutput::<i16>::open(
+        speaker,
+        "Microphone test",
+        SAMPLE_RATE,
+        1,
+        Some(PLAYBACK_SPEAKER_QUEUE),
+    )?;
+    for mut block in queue {
+        let volume = crate::volume::speakers();
+        for sample in &mut block {
+            *sample = (f32::from(*sample) * volume).clamp(-32768.0, 32767.0) as i16;
+        }
+        output.write(&block);
+    }
+    Ok(())
 }
 
 /// Frames waiting for the speakers; more than this and new ones are dropped.
@@ -648,6 +733,9 @@ struct Processing {
     gate: Gate,
     /// Sends instead of the gate in push-to-talk.
     talk: crate::push_to_talk::Talk,
+    /// The microphone plays back to test it, which push-to-talk's key up
+    /// and push to mute held don't turn down.
+    tested: bool,
     /// The last block's level as the gate heard it, in RMS dBFS.
     level: f32,
     samples: [f32; BLOCK],
@@ -669,6 +757,7 @@ impl Processing {
             leveler: crate::leveling::Leveler::default(),
             gate: Gate::default(),
             talk: crate::push_to_talk::Talk::default(),
+            tested: false,
             level: f32::NEG_INFINITY,
             samples: [0.0; BLOCK],
         }
@@ -716,7 +805,10 @@ impl Processing {
         };
         let sent = match talking {
             None => Sent::Gated,
+            // Not sent, DeepFilterNet puts out the microphone barely
+            // touched; a test plays it as it sounds while talking.
             Some(true) => Sent::Always,
+            Some(false) if self.tested => Sent::Always,
             Some(false) => Sent::Never,
         };
         let speech = self.denoiser.block(&mut self.samples, sent, lightly);
@@ -753,16 +845,31 @@ impl Processing {
 }
 
 /// Runs the microphone through a call's processing for [`GateMeter`]
-/// until it stops. The level falls 90 dB a second, as the input menu's
-/// does, and rises at once.
+/// until it stops, and hands each block on to be played back while asked.
+/// The level falls 90 dB a second, as the input menu's does, and rises at
+/// once.
 fn measure(microphone: Option<&str>, shared: &MeterShared) -> Result<()> {
     let mut stream = open_microphone(microphone)?;
     let mut processing = Processing::new(None);
     let mut block = [0i16; BLOCK];
     let mut shown = f32::NEG_INFINITY;
+    let mut raised = false;
     while !shared.stop.load(Ordering::Relaxed) {
         stream.read(&mut block);
+        let playback = shared.playback.lock().unwrap().clone();
+        // Heard, a block held up past the microphone's buffer is a gap, as
+        // in a call.
+        if playback.is_some() && !raised {
+            crate::audio_io::raise_capture_priority();
+            raised = true;
+        }
+        processing.tested = playback.is_some();
         processing.block(&mut block, false);
+        // A full queue drops the block: the microphone never waits for the
+        // speakers.
+        if let Some(playback) = playback {
+            let _ = playback.try_send(block);
+        }
         shown = processing.level.max(shown - 0.9);
         shared.level.store(shown.to_bits(), Ordering::Relaxed);
         shared

@@ -1333,6 +1333,10 @@ export component YapfastWindow inherits Window {
     in-out property <float> gate-level: -100;
     in-out property <bool> gate-sending;
     in-out property <string> gate-meter-note;
+    /// Testing the microphone in voice settings: it plays back until stopped,
+    /// the page is left or a call starts; and why it can't play, if it can't.
+    in-out property <bool> microphone-testing;
+    in-out property <string> microphone-test-note;
     /// Push to talk: see VoiceSettings.
     in-out property <int> input-mode;
     in-out property <string> talk-key;
@@ -1588,7 +1592,9 @@ export component YapfastWindow inherits Window {
     /// Whether the input menu wants the microphone level measured.
     callback metering(bool);
     callback meter-tick;
-    callback gate-metering(bool);
+    /// Runs the Discord microphone's processing for voice settings: 0 not,
+    /// 1 for its level, 2 playing it back as well, to test it.
+    callback gate-metering(int);
     callback select-camera(int);
     /// Film to try the camera, or stop.
     callback test-camera(bool);
@@ -1969,8 +1975,15 @@ export component YapfastWindow inherits Window {
     property <bool> output-open: output-menu.is-open;
     changed input-open => { root.input-level = 0; root.meter-note = ""; root.metering(root.input-open); }
     Timer { interval: 50ms; running: root.input-open; triggered => { root.meter-tick(); } }
-    // The Discord gate's meter runs while voice settings show it.
-    property <bool> gate-metered: root.settings-open && root.settings-section == 1 && root.discord-linked && root.input-mode == 0;
+    // The Discord gate's meter runs while voice settings show it: for the
+    // sensitivity, in voice activity with the window in front, and for the
+    // microphone test, which plays the microphone back, outside calls.
+    property <bool> discord-voice-settings: root.settings-open && root.settings-section == 1 && root.discord-linked;
+    property <bool> microphone-tested: root.discord-voice-settings && root.microphone-testing && !root.voice-active;
+    changed microphone-tested => { if !self.microphone-tested { root.microphone-testing = false; } }
+    property <int> gate-mode: root.microphone-tested ? 2
+        : root.discord-voice-settings && root.input-mode == 0 && root.window-focused ? 1 : 0;
+    property <bool> gate-metered: root.gate-mode != 0;
     // Cameras stop making pictures for a grid that left the screen, and one
     // starts in the corner.
     changed grid-shown => { root.stream-tick(); }
@@ -1978,7 +1991,8 @@ export component YapfastWindow inherits Window {
     // The camera films for the preview only while the voice settings show it.
     property <bool> camera-filming: root.settings-open && root.settings-section == 1 && root.camera-testing;
     changed camera-filming => { root.camera-preview = @image-url(""); root.test-camera(self.camera-filming); }
-    changed gate-metered => { root.gate-level = -100; root.gate-sending = false; root.gate-meter-note = ""; root.gate-metering(self.gate-metered); }
+    changed gate-metered => { root.gate-level = -100; root.gate-sending = false; root.gate-meter-note = ""; root.microphone-test-note = ""; }
+    changed gate-mode => { root.gate-metering(self.gate-mode); }
     Timer { interval: 50ms; running: root.gate-metered; triggered => { root.gate-meter-tick(); } }
     Timer { interval: 33ms; running: root.sharing || root.watching || root.video-active || root.camera-filming || (root.call-video && (root.grid-shown || root.pip-shown)); triggered => { root.stream-tick(); } }
     // What the widest rows of the input and share menus need, measured as
@@ -4577,6 +4591,7 @@ export component YapfastWindow inherits Window {
             noise-suppression <=> root.noise-suppression; noise-strength <=> root.noise-strength; dereverb <=> root.dereverb; discord: root.discord-linked;
             windows-effects <=> root.windows-effects; windows-effects-choice: root.windows-effects-choice;
             sensitivity <=> root.sensitivity; gate-level: root.gate-level; gate-sending: root.gate-sending; gate-meter-note: root.gate-meter-note;
+            microphone-testing <=> root.microphone-testing; microphone-test-note: root.microphone-test-note; calling: root.voice-active;
             input-mode <=> root.input-mode; talk-key: root.talk-key; talk-recording <=> root.talk-recording; recorded-keys: root.recorded-keys;
             talk-delay <=> root.talk-delay; talk-note: root.talk-note;
             microphone-volume <=> root.microphone-volume; speaker-volume <=> root.speaker-volume;

@@ -1782,6 +1782,24 @@ export component UprightVolumeSlider inherits Rectangle {
     }
 }
 
+// A microphone's level along a bar from -80 to 0 dBFS: green, orange from
+// -18 dBFS and red from -6, as the input sensitivity's.
+export component LevelBar inherits Rectangle {
+    /// dBFS; below -80 shows nothing.
+    in property <float> level: -100;
+    function at(decibels: float) -> float { return max(0, min(1, (decibels + 80) / 80)); }
+    property <float> filled: root.at(root.level);
+    property <float> orange: root.at(-18);
+    property <float> red: root.at(-6);
+    height: 8px; border-radius: 4px; background: Theme.button-default; clip: true;
+    Rectangle { x: 0; width: parent.width * min(root.filled, root.orange); background: Theme.live; }
+    Rectangle {
+        x: parent.width * root.orange; width: parent.width * max(0, min(root.filled, root.red) - root.orange);
+        background: Theme.loud;
+    }
+    Rectangle { x: parent.width * root.red; width: parent.width * max(0, root.filled - root.red); background: Theme.danger; }
+}
+
 // The Discord voice gate's sensitivity, in dBFS from -80 to 0, over the
 // microphone's level as the gate hears it: green up to -18 dBFS, orange to -6,
 // red above. A handle marks the sensitivity. Dragging reports each step through
@@ -1831,18 +1849,7 @@ export component SensitivitySlider inherits Rectangle {
         }
         track := Rectangle {
             height: 18px;
-            property <float> level: root.at(root.level);
-            property <float> orange: root.at(-18);
-            property <float> red: root.at(-6);
-            Rectangle {
-                y: (parent.height - self.height) / 2; height: 8px; border-radius: 4px; background: Theme.button-default; clip: true;
-                Rectangle { x: 0; width: parent.width * min(track.level, track.orange); background: Theme.live; }
-                Rectangle {
-                    x: parent.width * track.orange; width: parent.width * max(0, min(track.level, track.red) - track.orange);
-                    background: Theme.loud;
-                }
-                Rectangle { x: parent.width * track.red; width: parent.width * max(0, track.level - track.red); background: Theme.danger; }
-            }
+            LevelBar { y: (parent.height - self.height) / 2; level: root.level; }
             Rectangle {
                 x: parent.width * root.at(root.value) - self.width / 2; y: (parent.height - self.height) / 2;
                 width: 14px; height: 14px; border-radius: 7px; background: Theme.text;

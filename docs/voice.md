@@ -34,6 +34,39 @@ audio handle, and restarting Yapfast requires joining again. Preview calls are
 simulated, but the preview lists and chooses real devices without remembering
 them.
 
+## Microphone test
+
+With Discord linked, Settings › Voice & video has a microphone test, as
+Discord's Mic Test has: "Test microphone" plays the chosen microphone back
+through the chosen speakers, and the bar beside the button shows its level, as
+the input sensitivity's does. It plays the microphone as Discord calls process
+it, with the noise suppression chosen and its strength, taking out the room's
+echo, evening out the voice and the microphone's volume, at the speakers'
+volume, and a change to any of them is heard at once. It plays before the voice
+gate and push to talk, so no key needs holding, and push-to-talk's key up
+doesn't turn DeepFilterNet down to its encoder as it does in a call. Nothing
+is sent. Through speakers the microphone hears itself, so the page says to use
+headphones.
+
+The test runs on the sensitivity's meter (`GateMeter` in
+`crates/yapfast-core/src/discord_audio.rs`): its thread, `yapfast-gate-meter`,
+hands each processed 10 ms block to a thread that plays it,
+`yapfast-mic-test`, through a queue of four blocks. A full queue drops the
+block, so the microphone never waits for the speakers, and speakers whose clock
+runs slower than the microphone's can't make the test later and later. The
+speakers keep 30 ms queued, give way to the default ones when they won't open,
+and open again when they come back, as a call's do; the system lists the stream
+as "Microphone test". With the sensitivity's meter running, starting and
+stopping the test leave the microphone and its processing as they are, as
+choosing other speakers during it does; choosing another microphone opens that
+one and goes on playing.
+
+A call leaves the test off, with the button disabled and "Leave the call to
+test your microphone.", and one starting stops it, so the test never touches
+the call's microphone, mute or deafen. Leaving Voice & video, closing settings
+or closing the window stops it too, and coming back doesn't start it again.
+Started, it goes on playing with the window behind another.
+
 ## Cameras
 
 Settings › Voice & video chooses the camera, beside the microphone and

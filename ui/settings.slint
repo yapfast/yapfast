@@ -4,7 +4,7 @@ import { ClientStyle } from "yapfast/style.slint";
 import { ComboBox } from "std-widgets.slint";
 import { ScrollView } from "scrollview.slint";
 import { Theme, Middle, Label, Tip, Popup, PopupEntry, Looks } from "theme.slint";
-import { ActionButton, IconButton, Avatar, SensitivitySlider, VolumeSlider, TextField, StatusText, AccountLook } from "controls.slint";
+import { ActionButton, IconButton, Avatar, LevelBar, SensitivitySlider, VolumeSlider, TextField, StatusText, AccountLook } from "controls.slint";
 import { DiscordLinkPanel } from "discord.slint";
 import { ChannelRow } from "rail.slint";
 import { Soundboard, SoundRow } from "voice.slint";
@@ -857,6 +857,12 @@ export component VoiceSettings inherits VerticalLayout {
     in property <bool> gate-sending;
     /// Why the gate's level can't be shown, if it can't.
     in property <string> gate-meter-note;
+    /// Testing the microphone: it plays back, and its level shows beside the
+    /// button; why it can't play, if it can't; and a call going on, which
+    /// leaves the test off.
+    in-out property <bool> microphone-testing;
+    in property <string> microphone-test-note;
+    in property <bool> calling;
     /// How calls send the microphone: 0 voice activity, 1 push to talk.
     in-out property <int> input-mode;
     /// The push-to-talk keybind's name, empty while there's none, and
@@ -930,6 +936,42 @@ export component VoiceSettings inherits VerticalLayout {
         }
     }
     if root.microphones.length == 0 && root.speakers.length == 0: Label { text: @tr("No audio devices found. Connect one, then refresh."); }
+    // Plays the microphone back as Discord calls process it, as Discord's Mic
+    // Test does, with its level beside the button.
+    if root.discord: VerticalLayout {
+        spacing: 8px;
+        SettingsHeading { text: @tr("MICROPHONE TEST"); }
+        HorizontalLayout {
+            spacing: 16px;
+            // As wide as the wider of its labels, so the bar holds still as
+            // it turns.
+            Rectangle {
+                width: max(start-label.preferred-width, stop-label.preferred-width) + 20px; height: 28px;
+                ActionButton {
+                    width: parent.width; height: parent.height; small: true;
+                    text: root.microphone-testing ? @tr("Stop testing") : @tr("Test microphone");
+                    enabled: !root.calling && root.microphones.length > 0;
+                    clicked => { root.microphone-testing = !root.microphone-testing; }
+                }
+                start-label := Text { width: 0px; height: 0px; visible: false; accessible-role: none; text: @tr("Test microphone"); font-size: 14px; font-weight: 700; }
+                stop-label := Text { width: 0px; height: 0px; visible: false; accessible-role: none; text: @tr("Stop testing"); font-size: 14px; font-weight: 700; }
+            }
+            VerticalLayout {
+                alignment: center; horizontal-stretch: 1; min-width: 0;
+                LevelBar {
+                    level: root.microphone-testing ? root.gate-level : -100;
+                    accessible-role: progress-indicator; accessible-label: @tr("Microphone level");
+                    accessible-value: root.microphone-testing ? @tr("{} dB", round(max(-80, root.gate-level))) : "";
+                }
+            }
+        }
+        Label {
+            text: root.calling ? @tr("Leave the call to test your microphone.")
+                : root.microphone-testing && root.gate-meter-note != "" ? root.gate-meter-note
+                : root.microphone-testing && root.microphone-test-note != "" ? root.microphone-test-note
+                : @tr("Hear how your microphone sounds in Discord calls, with its noise suppression and volume, without holding a key. Use headphones: through speakers, the microphone hears itself.");
+        }
+    }
     HorizontalLayout {
         spacing: 16px;
         VerticalLayout {
