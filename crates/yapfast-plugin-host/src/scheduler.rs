@@ -93,6 +93,19 @@ const START_BUDGET: Duration = Duration::from_secs(2);
 /// budgets a person waits on and far inside the 30 s backstop.
 const RE_FIRE: Duration = Duration::from_millis(1);
 
+/// The slowest the watchdog re-fires a deadline that is long past.
+///
+/// A call that ignores its cancel for good, such as a compile, which wasmtime
+/// can't interrupt, would otherwise wake the watchdog a thousand times a second
+/// for as long as it runs. The pace backs off with how late the call is: a
+/// quarter of the lateness, from [`RE_FIRE`] up to this.
+const RE_FIRE_MAX: Duration = Duration::from_millis(50);
+
+/// How long loading a module may take: a cold compile of a large module on a
+/// slow machine, which no cancel can stop, so this only decides when a load
+/// that is still going counts as a fault.
+const LOAD_BUDGET: Duration = Duration::from_secs(20);
+
 /// Bytes in a page of guest memory, for the helper's own budget.
 const PAGE_BYTES: u64 = 64 << 10;
 
@@ -399,6 +412,7 @@ fn watch<B: Backend + 'static>(shared: Arc<Shared<B>>) {
         let mut overdue: Vec<u64> = Vec::new();
         let mut idle: Vec<usize> = Vec::new();
         let mut next: Option<Instant> = None;
+        let mut latest_overdue: Option<Instant> = None;
         for running in &state.running {
             let Some(deadline) = running.deadline else {
                 continue;
@@ -408,6 +422,7 @@ fn watch<B: Backend + 'static>(shared: Arc<Shared<B>>) {
             // worker's call comes back and takes it away.
             if deadline <= now {
                 overdue.push(running.serial);
+                latest_overdue = Some(latest_overdue.map_or(deadline, |at: Instant| at.max(deadline)));
             } else {
                 next = earliest(next, deadline);
             }
@@ -429,10 +444,13 @@ fn watch<B: Backend + 'static>(shared: Arc<Shared<B>>) {
                 next = earliest(next, at);
             }
         }
-        if !overdue.is_empty() {
-            // The call is still out, so the watchdog comes back for it at this
-            // pace: one fire may have been swallowed, and the next one lands.
-            next = earliest(next, now + RE_FIRE);
+        if let Some(latest) = latest_overdue {
+            // The call is still out, so the watchdog comes back for it: one
+            // fire may have been swallowed, and the next one lands. The most
+            // recently missed deadline sets the pace, so a fresh miss is
+            // re-fired within a millisecond however late an older one is.
+            let pace = ((now - latest) / 4).clamp(RE_FIRE, RE_FIRE_MAX);
+            next = earliest(next, now + pace);
         }
         if !overdue.is_empty() || !idle.is_empty() {
             drop(state);
@@ -771,7 +789,7 @@ impl<B: Backend + 'static> Shared<B> {
     /// isn't a status the page shows; a module that won't load is a fault.
     fn load(&self, spec: &LoadSpec) {
         let slot = self.slot(&spec.plugin);
-        let (result, late) = self.call(&[slot], START_BUDGET, |backend| backend.load(spec.clone()));
+        let (result, late) = self.call(&[slot], LOAD_BUDGET, |backend| backend.load(spec.clone()));
         {
             let mut state = lock(&self.state);
             let entry = &mut state.slots[slot];

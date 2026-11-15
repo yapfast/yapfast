@@ -82,7 +82,8 @@ now rather than from the last look.
 | `activity_pre_publish` | Background | 25 ms per plugin, 100 ms for the chain |
 | A batch of events | Background | 250 ms |
 | A command | Interactive | 2 s |
-| Loading, `yf_activate`, `yf_deactivate` | Interactive | 2 s |
+| Loading a module | Interactive | 20 s |
+| `yf_activate`, `yf_deactivate` | Interactive | 2 s |
 
 A hook's chain is run one plugin at a time, and each plugin has its own
 deadline as well as the chain having one: the plugin gets the smaller of its own
@@ -102,6 +103,12 @@ person pressed send rather than when the helper had the frame: the helper's
 start, the hello and a module's first compile all come out of the same 100 ms,
 so a slow start can't hold a message either. A chain whose budget is spent
 before the helper sees it is answered unchanged rather than given a fresh one.
+
+A cancel only lands while the runtime holds the call, so the watchdog fires a
+missed deadline again until the call comes back: within a millisecond at first,
+then at a quarter of how late it is, up to every 50 ms. A compile can't be
+interrupted at all, which is why loading has its own, longer budget rather than
+an activation's.
 
 A missed deadline cancels the call at whatever point it reached, and the
 instance is therefore thrown away rather than reused: it stopped in the middle of
