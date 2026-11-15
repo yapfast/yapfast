@@ -94,6 +94,8 @@ impl Adapter {
         }
         self.layout.theme = Some(id);
         self.layout.write(&self.root);
+        // Chosen after Turn off: it's what shows from now on.
+        theme_look::end_default_for_session();
         self.show_previous_theme(window);
         super::theme_timing::values_set();
         true

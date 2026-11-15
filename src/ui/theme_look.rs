@@ -217,9 +217,23 @@ struct Applied {
 struct Trial {
     back_to: Option<String>,
     until: Instant,
-    /// The installed theme it is, or the reviewed one to install on Keep.
-    installed: Option<String>,
+    /// What's tried, which Keep installs or chooses: it's the trial's own,
+    /// so a review opened meanwhile can't take its place.
+    what: Tried,
     timer: slint::Timer,
+}
+
+/// The theme a trial shows.
+enum Tried {
+    /// An installed theme, by its layout id.
+    Installed(String),
+    /// A reviewed theme, not installed, read from its files in a folder of
+    /// its own that goes when the trial ends: animated cursors and pictures
+    /// not drawn yet are read from it while it shows.
+    Reviewed {
+        fetched: Box<Fetched>,
+        _folder: tempfile::TempDir,
+    },
 }
 
 /// The text a slot's effect started on, and when.
@@ -916,7 +930,13 @@ fn apply_package(
     for path in resolved.layout.names.iter().flat_map(|names| &names.fonts) {
         ransom.push(font(path)?);
     }
-    let colours = colours_of(&resolved);
+    // While a protected dialog is open the theme is kept, not shown: its
+    // colours come when the dialog closes.
+    let colours = if STATE.with_borrow(|state| state.protected) {
+        stock_colours()
+    } else {
+        colours_of(&resolved)
+    };
     super::theme::set_mention_chip(resolved.paint("mention-chip").map(Paint::solid));
     STATE.with_borrow_mut(|state| {
         state.applied = Some(Applied {
@@ -2756,20 +2776,9 @@ pub fn find(window: &YapfastWindow, runtime: Arc<BackgroundRuntime>, url: String
     }
 }
 
-fn show_review(window: &YapfastWindow, fetched: Fetched) {
+fn show_review(window: &YapfastWindow, fetched: Fetched, previews: super::theme_remote::Previews) {
     let package = fetched.package().clone();
-    let previews: Vec<Image> = package
-        .preview
-        .iter()
-        .filter_map(|path| {
-            let bytes = fetched.files.files.get(path)?;
-            let decoded = image::load_from_memory(bytes).ok()?.into_rgba8();
-            let (width, height) = decoded.dimensions();
-            Some(Image::from_rgba8(
-                slint::SharedPixelBuffer::clone_from_slice(decoded.as_raw(), width, height),
-            ))
-        })
-        .collect();
+    let previews: Vec<Image> = previews.into_iter().map(Image::from_rgba8).collect();
     let slots: Vec<_> = package
         .modes()
         .into_iter()
@@ -2871,33 +2880,31 @@ pub fn close_review(window: &YapfastWindow) {
 /// Shows the reviewed theme for 30 seconds without installing it, from its
 /// fetched files in a temporary folder.
 pub fn try_review(window: &YapfastWindow, back_to: Option<String>) -> Result<theme::Theme, String> {
-    let (package, files) = STATE
-        .with_borrow(|state| {
-            state
-                .review
-                .as_ref()
-                .map(|fetched| (fetched.package().clone(), fetched.files.clone()))
-        })
+    let fetched = STATE
+        .with_borrow_mut(|state| state.review.take())
         .ok_or("nothing to try")?;
-    window
-        .global::<ThemesPage>()
-        .set_review(ThemeReview::default());
-    theme::protect_for(window, theme::Protected::ThemeReview, false);
-    // Its fonts are registered from bytes on disk, as an installed theme's
-    // are, in a folder that goes when the trial ends.
-    let folder = std::env::temp_dir().join(format!(".yapfast-theme-trial-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&folder);
-    for (path, bytes) in &files.files {
-        let target = folder.join(path);
+    let package = fetched.package().clone();
+    close_review(window);
+    // Its files are on disk while it shows, as an installed theme's are, in
+    // a folder of its own with a name nobody else can guess, which goes when
+    // the trial ends.
+    let folder = tempfile::Builder::new()
+        .prefix(".yapfast-theme-trial-")
+        .tempdir()
+        .map_err(|error| error.to_string())?;
+    for (path, bytes) in &fetched.files.files {
+        let target = folder.path().join(path);
         if let Some(parent) = target.parent() {
             std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
         }
         std::fs::write(&target, bytes).map_err(|error| error.to_string())?;
     }
-    let colours = apply_package(window, "trial", &package, &folder, None);
-    let _ = std::fs::remove_dir_all(&folder);
-    let colours = colours?;
-    begin_trial(window, back_to, None, &package.name);
+    let colours = apply_package(window, "trial", &package, folder.path(), None)?;
+    let what = Tried::Reviewed {
+        fetched: Box::new(fetched),
+        _folder: folder,
+    };
+    begin_trial(window, back_to, what, &package.name);
     Ok(colours)
 }
 
@@ -2910,16 +2917,11 @@ pub fn try_installed(
     let layout_id = format!("{INSTALLED}{id}");
     let colours = show(window, &layout_id)?;
     let name = applied_name().unwrap_or_default();
-    begin_trial(window, back_to, Some(layout_id), &name);
+    begin_trial(window, back_to, Tried::Installed(layout_id), &name);
     Ok(colours)
 }
 
-fn begin_trial(
-    window: &YapfastWindow,
-    back_to: Option<String>,
-    installed: Option<String>,
-    name: &str,
-) {
+fn begin_trial(window: &YapfastWindow, back_to: Option<String>, what: Tried, name: &str) {
     let page = window.global::<ThemesPage>();
     page.set_trying(name.into());
     page.set_seconds(TRIAL as i32);
@@ -2945,7 +2947,7 @@ fn begin_trial(
         state.trial = Some(Trial {
             back_to,
             until,
-            installed,
+            what,
             timer,
         })
     });
@@ -2961,27 +2963,45 @@ pub fn end_trial(window: &YapfastWindow, keep: bool) -> Option<Result<String, Op
         .global::<ThemesPage>()
         .set_trying(SharedString::new());
     if keep {
-        let id = match trial.installed {
-            Some(id) => Ok(id),
-            None => install_review(window).map_err(|error| {
+        let id = match &trial.what {
+            Tried::Installed(id) => Ok(id.clone()),
+            Tried::Reviewed { fetched, .. } => install_fetched(fetched).map_err(|error| {
                 tracing::warn!(error, "the theme tried couldn't be installed");
                 trial.back_to.clone()
             }),
         };
         return Some(id);
     }
-    STATE.with_borrow_mut(|state| state.review = None);
     Some(Err(trial.back_to))
+}
+
+/// The installed theme on trial, by its layout id, if one is.
+pub fn trying_installed() -> Option<String> {
+    STATE.with_borrow(|state| match &state.trial.as_ref()?.what {
+        Tried::Installed(id) => Some(id.clone()),
+        Tried::Reviewed { .. } => None,
+    })
 }
 
 /// Ctrl+Shift+T: the default theme for the rest of this run.
 pub fn default_for_session(window: &YapfastWindow) {
     DEFAULT_THEME.set(true);
+    // A theme still being made ready would show again once it is.
+    cancel_prepare();
     STATE.with_borrow_mut(|state| {
         state.trial = None;
         state.dev_timer = None;
     });
+    window
+        .global::<ThemesPage>()
+        .set_trying(SharedString::new());
     clear(window);
+}
+
+/// A theme is chosen again after Turn off: it shows from now on, at start
+/// and when the window is made again.
+pub fn end_default_for_session() {
+    DEFAULT_THEME.set(false);
 }
 
 #[cfg(test)]
@@ -3353,6 +3373,11 @@ mod tests {
         let stock = protect(&window, true).unwrap();
         assert_eq!(stock, theme::find("bonfire").unwrap().theme);
         assert_eq!(window.global::<Look>().get_button(), stock_shape());
+        // Shown again while it's open, as when the system's light or dark
+        // changes: still stock until it closes.
+        let shown = show(&window, "installed:dev.example.tide").unwrap();
+        assert_eq!(shown, stock);
+        assert_eq!(window.global::<Look>().get_button(), stock_shape());
         let back = protect(&window, false).unwrap();
         assert_eq!(back.chat, Color::from_argb_encoded(0xff16_262f));
         assert_eq!(window.global::<Look>().get_button().radius, 999.);
@@ -3475,6 +3500,63 @@ mod tests {
         let kept = end_trial(&window, true).unwrap();
         assert_eq!(kept, Ok("installed:dev.example.tide".into()));
         assert!(end_trial(&window, false).is_none(), "one trial at a time");
+        clear(&window);
+    }
+
+    fn fetched(id: &str, name: &str) -> Fetched {
+        Fetched::new(
+            format!("https://github.com/ada/{id}"),
+            String::new(),
+            "main".into(),
+            "0123456789abcdef".into(),
+            Files {
+                manifest: TIDE
+                    .replace("dev.example.tide", &format!("dev.example.{id}"))
+                    .replace("\"Tide\"", &format!("\"{name}\"")),
+                ..Files::default()
+            },
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn keep_installs_the_theme_tried_not_one_reviewed_since() {
+        let _data = installed();
+        let window = window();
+        show_review(&window, fetched("reef", "Reef"), Vec::new());
+        try_review(&window, None).unwrap();
+        assert_eq!(window.global::<ThemesPage>().get_trying(), "Reef");
+        show_review(&window, fetched("kelp", "Kelp"), Vec::new());
+        let kept = end_trial(&window, true).unwrap();
+        assert_eq!(kept, Ok("installed:dev.example.reef".into()));
+        assert_eq!(
+            review_id().as_deref(),
+            Some("dev.example.kelp"),
+            "the review stays"
+        );
+        // Running out doesn't take the review either.
+        try_installed(&window, "dev.example.tide", None).unwrap();
+        assert!(end_trial(&window, false).is_some());
+        assert_eq!(review_id().as_deref(), Some("dev.example.kelp"));
+        close_review(&window);
+        clear(&window);
+    }
+
+    #[test]
+    fn turn_off_ends_a_trial_and_a_prepare_and_choosing_ends_it() {
+        let _data = installed();
+        let window = window();
+        try_installed(&window, "dev.example.tide", None).unwrap();
+        prepare(&window, "installed:dev.example.tide", |_| {
+            panic!("a prepare after Turn off")
+        });
+        default_for_session(&window);
+        assert_eq!(window.global::<ThemesPage>().get_trying(), "");
+        assert!(end_trial(&window, false).is_none());
+        assert!(STATE.with_borrow(|state| state.when_ready.is_none()));
+        assert!(startup(&window, Some("installed:dev.example.tide")).is_none());
+        end_default_for_session();
+        assert!(startup(&window, Some("installed:dev.example.tide")).is_some());
         clear(&window);
     }
 
