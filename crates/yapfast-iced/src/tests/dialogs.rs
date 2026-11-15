@@ -101,3 +101,37 @@ fn the_quick_switcher_finds_a_place_and_goes_there() {
     press(&mut app, key::Named::Escape);
     assert!(app.client.state().switcher.is_none());
 }
+
+#[test]
+fn the_account_popover_shows_the_accounts_own_card_while_open() {
+    use std::sync::Arc;
+    use yapfast_core::chat::{Playing, Profile, ServerTag};
+    let (mut app, _folder) = preview();
+    change(&mut app, |state| {
+        state.discord_user = Some("42".into());
+        state.account_profile = Some(Arc::new(Profile {
+            id: "42".into(),
+            name: "Alice".into(),
+            tag: Some(ServerTag {
+                text: "YAP".into(),
+                badge: None,
+            }),
+            ..Default::default()
+        }));
+        state.discord_playing = Some(Playing {
+            name: "Factorio".into(),
+            started_ms: Some(yapfast_core::clock::now_ms() - 125 * 60_000),
+        });
+    });
+    assert!(app.profiles.account.is_none(), "made only while it shows");
+    let _ = app.update(Message::Status(StatusEvent::Toggle));
+    assert!(app.profiles.account.is_some());
+    // The server tag beside the name, and the game played, as Discord's.
+    assert!(shows(&app, "YAP"));
+    assert!(shows(&app, "Playing") && shows(&app, "Factorio"));
+    assert!(shows(&app, "2 hr 5 min") || shows(&app, "2 hr 4 min"));
+    assert!(app.popover_playing(), "its time kept up to the minute");
+    press(&mut app, key::Named::Escape);
+    assert!(app.popover.is_none());
+    assert!(app.profiles.account.is_none(), "let go as it closes");
+}

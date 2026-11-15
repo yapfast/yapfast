@@ -2800,281 +2800,79 @@ impl Adapter {
 
     /// The scheduled event a clicked event link opened.
     fn show_event(&self, window: &YapfastWindow) {
-        let state = &self.app.state;
-        let dialog = state.scheduled_event.as_ref();
-        window.set_event_open(dialog.is_some());
-        let Some(dialog) = dialog else {
+        let prompt = self.app.state.event_prompt(self.layout.twelve_hour_clock);
+        window.set_event_open(prompt.is_some());
+        let Some(prompt) = prompt else {
             return;
         };
-        let preview = dialog.preview.as_ref();
-        let when = preview
-            .filter(|preview| preview.starts_at > 0)
-            .map(|preview| {
-                yapfast_core::clock::event(
-                    preview.starts_at,
-                    preview.ends_at,
-                    yapfast_core::clock::now_ms() / 1000,
-                    self.layout.twelve_hour_clock,
-                )
-            });
-        let detail = preview.map(|preview| {
-            let mut parts = Vec::new();
-            if let Some(location) = &preview.location {
-                parts.push(location.clone());
-            } else if let Some(room) = &preview.room
-                && let Some(found) = state.rooms.iter().find(|known| &known.id == room)
-            {
-                parts.push(format!("#{}", found.name));
-            }
-            if let Some(creator) = &preview.creator {
-                parts.push(format!("by {creator}"));
-            }
-            if let Some(count) = preview.interested_count {
-                parts.push(format!("{count} interested"));
-            }
-            parts.join(" · ")
-        });
-        let confirm = match preview {
-            Some(preview) if !preview.over && preview.interested => "Remove interest",
-            Some(preview) if !preview.over => "Interested",
-            _ => "",
-        };
-        let status = if dialog.resolving {
-            "Looking up the event..."
-        } else if dialog.marking {
-            "Saving..."
-        } else if preview.is_some_and(|preview| preview.over) {
-            "This event has ended."
-        } else if preview.is_some_and(|preview| preview.active) {
-            "This event is going on now."
-        } else if preview.is_some_and(|preview| preview.interested) {
-            "You're interested in this event."
-        } else {
-            ""
-        };
         window.set_event_prompt(EventPrompt {
-            title: "Event".into(),
-            found: preview.is_some(),
-            name: preview
-                .map(|preview| preview.name.as_str())
-                .unwrap_or_default()
-                .into(),
-            when: when.unwrap_or_default().into(),
-            detail: detail.unwrap_or_default().into(),
-            description: preview
-                .and_then(|preview| preview.description.as_deref())
-                .unwrap_or_default()
-                .into(),
-            confirm: confirm.into(),
-            busy: dialog.resolving || dialog.marking,
-            status: status.into(),
-            error: dialog.error.as_deref().unwrap_or_default().into(),
+            title: prompt.title.into(),
+            found: prompt.found,
+            name: prompt.name.into(),
+            when: prompt.when.into(),
+            detail: prompt.detail.into(),
+            description: prompt.description.into(),
+            confirm: prompt.confirm.into(),
+            busy: prompt.busy,
+            status: prompt.status.into(),
+            error: prompt.error.into(),
         });
     }
 
     /// The gift a clicked gift link opened.
     fn show_gift(&self, window: &YapfastWindow) {
-        let gift = self.app.state.gift.as_ref();
-        window.set_gift_open(gift.is_some());
-        let Some(gift) = gift else {
+        let prompt = self.app.state.gift_prompt();
+        window.set_gift_open(prompt.is_some());
+        let Some(prompt) = prompt else {
             return;
         };
-        let preview = gift.preview.as_ref();
-        let detail = preview.map(|preview| {
-            let mut parts = Vec::new();
-            if let Some(plan) = &preview.plan {
-                parts.push(plan.clone());
-            }
-            if let Some(gifter) = &preview.gifter {
-                parts.push(format!("from {gifter}"));
-            }
-            parts.join(" · ")
-        });
-        let redeeming = self.app.state.redeeming_gifts.contains(&gift.code);
-        let redeemable =
-            !gift.redeemed && preview.is_some_and(yapfast_core::chat::GiftPreview::redeemable);
-        let in_discord = !gift.redeemed && preview.is_some_and(|preview| preview.in_discord);
-        let status = if gift.redeemed {
-            "Redeemed. Enjoy!"
-        } else if redeeming {
-            "Redeeming..."
-        } else if gift.resolving {
-            "Looking up the gift..."
-        } else if preview.is_some_and(|preview| preview.redeemed) {
-            "You've already redeemed this gift."
-        } else if preview.is_some_and(|preview| preview.spent) {
-            "This gift has already been redeemed."
-        } else if in_discord {
-            "This gift can only be redeemed in Discord. Open it in the browser to redeem it there."
-        } else {
-            ""
-        };
         window.set_gift_prompt(GiftPrompt {
-            title: "You've been sent a gift".into(),
-            found: preview.is_some(),
-            name: preview
-                .map(|preview| preview.name.as_str())
-                .unwrap_or_default()
-                .into(),
-            detail: detail.unwrap_or_default().into(),
-            confirm: if redeemable {
-                "Redeem Gift"
-            } else if in_discord {
-                "Open in Browser"
-            } else {
-                ""
-            }
-            .into(),
-            browser: in_discord,
-            busy: gift.resolving || redeeming,
-            status: status.into(),
-            error: gift.error.as_deref().unwrap_or_default().into(),
+            title: prompt.title.into(),
+            found: prompt.found,
+            name: prompt.name.into(),
+            detail: prompt.detail.into(),
+            confirm: prompt.confirm.into(),
+            browser: prompt.browser,
+            busy: prompt.busy,
+            status: prompt.status.into(),
+            error: prompt.error.into(),
         });
     }
 
     /// The application a clicked authorization link opened.
     fn show_oauth(&self, window: &YapfastWindow) {
-        let dialog = self.app.state.oauth.as_ref();
-        window.set_oauth_open(dialog.is_some());
-        let Some(dialog) = dialog else {
+        let prompt = self.app.state.oauth_prompt();
+        window.set_oauth_open(prompt.is_some());
+        let Some(prompt) = prompt else {
             return;
         };
-        let preview = dialog.preview.as_ref();
-        let addable: Vec<&yapfast_core::chat::OAuthGuild> = preview
-            .map(|preview| {
-                preview
-                    .guilds
-                    .iter()
-                    .filter(|guild| guild.can_add)
-                    .collect()
-            })
-            .unwrap_or_default();
         window.set_oauth_guilds(
             Rc::new(VecModel::from(
-                addable
+                prompt
+                    .guilds
                     .iter()
-                    .map(|guild| SharedString::from(guild.name.as_str()))
+                    .map(|(_, name)| SharedString::from(name.as_str()))
                     .collect::<Vec<_>>(),
             ))
             .into(),
         );
-        window.set_oauth_guild_chosen(
-            addable
-                .iter()
-                .position(|guild| Some(&guild.id) == dialog.guild.as_ref())
-                .map(|index| i32::try_from(index).unwrap_or_default())
-                .unwrap_or_default(),
-        );
-        let detail = preview.and_then(|preview| {
-            preview
-                .about
-                .clone()
-                .filter(|about| !about.is_empty())
-                .or_else(|| preview.bot.clone())
-        });
-        let wants = preview.map(|preview| {
-            let mut lines: Vec<String> = preview
-                .wants
-                .iter()
-                .map(|wants| format!("- {wants}"))
-                .collect();
-            if let Some(bits) = preview.permissions.filter(|bits| *bits != 0) {
-                lines.push(format!("- Bot permissions: {}", permission_names(bits)));
-            }
-            match preview.redirect.as_deref() {
-                Some(url) if links::openable(url) => {
-                    let host = url
-                        .split_once("://")
-                        .map(|(_, rest)| rest)
-                        .and_then(|rest| rest.split(['/', '?', '#']).next())
-                        .unwrap_or_default();
-                    lines.push(format!("Afterward, Discord sends you to {host}."));
-                }
-                Some(url) => lines.push(format!(
-                    "Afterward, Discord hands its answer to {url}, which Yapfast won't open."
-                )),
-                None => {}
-            }
-            lines.join("\n")
-        });
-        let mut warnings = Vec::new();
-        if preview.is_some_and(|preview| preview.controls_client) {
-            warnings.push(
-                "It asks to control your Discord client, which can do nearly anything \
-                 your account can. Authorize it only if you trust it with your account.",
-            );
-        }
-        if preview
-            .and_then(|preview| preview.permissions)
-            .is_some_and(|bits| bits & ADMINISTRATOR != 0)
-        {
-            warnings.push(
-                "Its bot asks for Administrator: every permission in the server, \
-                 in every channel, whatever its roles allow.",
-            );
-        }
-        let locked = preview.is_some_and(|preview| preview.guild_install && preview.guild_locked);
-        let picker =
-            preview.is_some_and(|preview| preview.guild_install && !locked && !addable.is_empty());
-        // A link that names its one server shows it, as it can't be changed.
-        let locked_to = preview
-            .filter(|_| locked)
-            .zip(dialog.guild.as_ref())
-            .and_then(|(preview, chosen)| preview.guilds.iter().find(|guild| &guild.id == chosen))
-            .map(|guild| guild.name.as_str());
-        let blocked =
-            preview.is_some_and(|preview| preview.guild_install && dialog.guild.is_none());
-        let status = if dialog.resolving {
-            "Looking up the application..."
-        } else if dialog.authorizing {
-            "Authorizing..."
-        } else if dialog.done && dialog.next.is_some() {
-            "Authorized. Discord sends you on to this address, which isn't a web page, \
-             so Yapfast doesn't open it. Copy it if the app asks for it."
-        } else if dialog.done {
-            "Authorized."
-        } else if !locked
-            && preview.is_some_and(|preview| preview.guild_install && addable.is_empty())
-        {
-            "You don't manage any server it can be added to."
-        } else if preview.is_some_and(|preview| preview.authorized) {
-            "You've authorized this before. Authorizing again is fine."
-        } else {
-            ""
-        };
+        window.set_oauth_guild_chosen(i32::try_from(prompt.guild_chosen).unwrap_or_default());
         window.set_oauth_prompt(OAuthPrompt {
-            title: match preview {
-                Some(preview) => format!("Authorize {}", preview.name),
-                None => "Authorize".to_owned(),
-            }
-            .into(),
-            found: preview.is_some(),
-            name: preview
-                .map(|preview| preview.name.as_str())
-                .unwrap_or_default()
-                .into(),
-            picture_url: preview
-                .and_then(|preview| preview.icon.as_deref())
-                .unwrap_or_default()
-                .into(),
-            initial: preview
-                .map(|preview| initial(&preview.name))
-                .unwrap_or_default(),
-            detail: detail.unwrap_or_default().into(),
-            wants: wants.unwrap_or_default().into(),
-            warning: warnings.join("\n").into(),
-            guild_picker: picker,
-            guild_name: locked_to.unwrap_or_default().into(),
-            address: dialog.next.as_deref().unwrap_or_default().into(),
-            confirm: if preview.is_some() && !dialog.done && !blocked {
-                "Authorize"
-            } else {
-                ""
-            }
-            .into(),
-            busy: dialog.resolving || dialog.authorizing,
-            status: status.into(),
-            error: dialog.error.as_deref().unwrap_or_default().into(),
+            title: prompt.title.into(),
+            found: prompt.found,
+            initial: initial(&prompt.name),
+            name: prompt.name.into(),
+            picture_url: prompt.icon.unwrap_or_default().into(),
+            detail: prompt.detail.into(),
+            wants: prompt.wants.into(),
+            warning: prompt.warning.into(),
+            guild_picker: prompt.guild_picker,
+            guild_name: prompt.guild_name.into(),
+            address: prompt.address.into(),
+            confirm: prompt.confirm.into(),
+            busy: prompt.busy,
+            status: prompt.status.into(),
+            error: prompt.error.into(),
         });
     }
 
@@ -5578,43 +5376,6 @@ pub(super) fn arrived<'a>(
         emoji.id.as_str(),
         state.pictures.get(&emoji.picture)?.as_ref(),
     ))
-}
-
-/// Discord's Administrator permission, which grants every other.
-const ADMINISTRATOR: u64 = 1 << 3;
-
-/// A bot's asked-for permissions, by the titles of a role's switches,
-/// and how many more it asks for that no switch shows.
-fn permission_names(bits: u64) -> String {
-    let mut named = 0u64;
-    let mut names: Vec<&str> = Vec::new();
-    for permission in yapfast_core::application::ROLE_PERMISSIONS
-        .iter()
-        .flat_map(|group| group.permissions.iter())
-    {
-        let bit = 1u64 << permission.bit;
-        if bits & bit != 0 && named & bit == 0 {
-            named |= bit;
-            names.push(permission.title);
-        }
-    }
-    let more = (bits & !named).count_ones();
-    let more = match (more, names.is_empty()) {
-        (0, _) => None,
-        (1, true) => Some("1 permission Yapfast can't name".to_owned()),
-        (count, true) => Some(format!("{count} permissions Yapfast can't name")),
-        (1, false) => Some("1 more permission".to_owned()),
-        (count, false) => Some(format!("{count} more permissions")),
-    };
-    match (names.pop(), more) {
-        (Some(last), Some(more)) => {
-            names.push(last);
-            format!("{} and {more}", names.join(", "))
-        }
-        (Some(last), None) if names.is_empty() => last.to_owned(),
-        (Some(last), None) => format!("{} and {last}", names.join(", ")),
-        (None, more) => more.unwrap_or_default(),
-    }
 }
 
 /// Shows found messages, building rows only for those not shown already:

@@ -153,6 +153,19 @@ impl App {
         if self.side != side {
             self.side = side;
         }
+        let discord = match &state.navigation {
+            Navigation::Server(server) => state
+                .servers
+                .iter()
+                .any(|known| known.discord && &known.id == server),
+            Navigation::DirectMessages => false,
+        };
+        let places = crate::arrange::places(&self.side, discord, !self.filter.is_empty());
+        if self.side_places != places {
+            self.side_places = places;
+            // What's dragged may have gone, or moved to another place.
+            self.arranging = None;
+        }
         let head = crate::sidebar::side_header(&self.client.app);
         if self.side_header != head {
             self.side_header = head;
@@ -166,6 +179,9 @@ impl App {
             self.edge = edge;
             self.edge_changed = true;
         }
+        // Someone dragged may drop where their menu's Move to offers, of
+        // the channels listed now.
+        self.moving_targets();
     }
 
     /// Takes in what changed in the client's state; returns the work that
@@ -652,6 +668,9 @@ impl App {
             }
             top += height;
         }
+        for url in self.info_card_pictures() {
+            want(Some(&url));
+        }
         for url in self.suggestion_pictures() {
             want(Some(&url));
         }
@@ -667,6 +686,20 @@ impl App {
             }
         }
         want(self.account.avatar.as_deref());
+        // The account card's decoration and nameplate, moving under the
+        // pointer.
+        let decoration = cosmetics.decoration(state.account_decoration.as_deref());
+        let plate = state
+            .account_nameplate
+            .as_ref()
+            .filter(|_| !state.hide_nameplates)
+            .map(|plate| &*plate.picture);
+        want(decoration);
+        want(plate);
+        if self.account_pointed {
+            want(decoration.map(looks::animated_url).as_deref());
+            want(plate.map(looks::animated_url).as_deref());
+        }
         // The open server's banner, over its channels.
         if self.side_header.server.is_some() {
             want(self.side_header.banner.as_deref());
@@ -759,10 +792,18 @@ impl App {
         for url in self.server_settings_pictures() {
             want(Some(&url));
         }
-        for url in self.server_dialog_pictures() {
+        for url in self
+            .server_dialog_pictures()
+            .into_iter()
+            .chain(self.link_dialog_pictures())
+        {
             want(Some(&url));
         }
-        for url in self.channel_settings_pictures() {
+        for url in self
+            .channel_settings_pictures()
+            .into_iter()
+            .chain(self.entrance_pictures())
+        {
             want(Some(&url));
         }
         urls

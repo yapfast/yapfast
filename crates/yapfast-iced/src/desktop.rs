@@ -42,12 +42,21 @@ pub enum Heard {
 #[derive(Clone, Debug)]
 pub enum Drag {
     Entered,
+    /// Where in the window it is, in the desktop's logical pixels.
+    Moved(f64, f64),
     Left,
     Dropped(Vec<std::path::PathBuf>),
 }
 
 /// Hands what the desktop heard to the window's event loop.
 pub type Tell = Arc<dyn Fn(Heard) + Send + Sync>;
+
+/// Where the pointer is over the window, asked of the platform while files
+/// hover over it where winit says nothing of where (X11 and Windows): in
+/// the desktop's logical pixels, as [`Drag::Moved`].
+pub trait PointerAt: Send + Sync {
+    fn at(&self) -> Option<(f64, f64)>;
+}
 
 /// The "conversation" of the notification of a newer release: opening it
 /// shows About, as the Slint client's does.
@@ -158,6 +167,16 @@ pub trait Desktop: Send + Sync {
     /// Gives a window just made what iced can't: its icon on Windows; and
     /// on Wayland follows files dragged over it.
     fn decorate(&self, _window: &dyn iced::window::Window, _tell: Tell) {}
+    /// Asks where the pointer is over `window`, whose physical pixels are
+    /// `scale` of its logical ones; none where the platform says itself
+    /// (Wayland) or won't.
+    fn pointer(
+        &self,
+        _window: &dyn iced::window::Window,
+        _scale: f64,
+    ) -> Option<Box<dyn PointerAt>> {
+        None
+    }
     /// The window's icon where the window carries one (X11), as RGBA.
     fn window_icon(&self) -> Option<(Vec<u8>, u32, u32)> {
         None

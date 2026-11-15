@@ -286,6 +286,7 @@ pub fn body_of(
             &revealed,
         );
         markdown::with_emoji(&mut body, &message.emoji);
+        markdown::link_emoji(&mut body, &message.emoji, crate::picker::drawn);
         body
     };
     let laid = |markdown: &str| markdown::parse(markdown, &[], mention, &message.item, |_| true);
@@ -561,6 +562,18 @@ impl App {
         }
     }
 
+    /// The preview's note, Matrix's verification and the core's notice,
+    /// as the Slint client stacks them over the conversation or the call.
+    pub fn banners(&self) -> impl Iterator<Item = Element<'_, Message>> {
+        [
+            self.preview_banner(),
+            self.verify_banner(),
+            self.notice_banner(),
+        ]
+        .into_iter()
+        .flatten()
+    }
+
     /// The conversation column: the header, the timeline and the composer,
     /// with a server's member list beside them; or a voice channel's call.
     pub fn conversation(&self) -> Element<'_, Message> {
@@ -583,19 +596,9 @@ impl App {
         if let Some(screen) = self.browse_channels() {
             return screen;
         }
-        let mut chat = column![].width(Length::Fill).height(Length::Fill);
-        // The preview's note, Matrix's verification and the core's notice,
-        // as the Slint client stacks them.
-        for banner in [
-            self.preview_banner(),
-            self.verify_banner(),
-            self.notice_banner(),
-        ]
-        .into_iter()
-        .flatten()
-        {
-            chat = chat.push(banner);
-        }
+        let mut chat = column(self.banners())
+            .width(Length::Fill)
+            .height(Length::Fill);
         // A DM's call shows above its messages.
         if let Some(call) = self.dm_call_view() {
             chat = chat.push(call);
@@ -1016,6 +1019,7 @@ impl App {
                 start = start.push(self.face(Face {
                     url: self.header.avatar.as_deref(),
                     name: &self.header.name,
+                    key: None,
                     size: 72.0,
                     opacity: 1.0,
                     decoration: None,
@@ -1346,6 +1350,10 @@ impl App {
             }
             return Task::none();
         }
+        // An emoji opens its card under it.
+        if let Some(target) = yapfast_core::emoji::card::target(link) {
+            return self.show_expression(crate::info_cards::Expression::Emoji(target));
+        }
         if let Some(item) = link.strip_prefix(JUMP_LINK) {
             self.client.dispatch(Action::Jump(item.to_owned()));
             return self.sync();
@@ -1363,6 +1371,10 @@ impl App {
             });
         if let Some(user) = user {
             return self.open_card(user, iced::Point::new(at.x + 8.0, at.y));
+        }
+        if let Some(yapfast_core::mention::Target::Role(role)) = yapfast_core::mention::target(link)
+        {
+            return self.show_role(role, at);
         }
         if let Some(yapfast_core::mention::Target::Channel(room)) =
             yapfast_core::mention::target(link)
@@ -1396,9 +1408,8 @@ impl App {
     }
 
     /// What one of Discord's own links does here: an action for the core,
-    /// or a profile's card at the words clicked; none for a link this
-    /// client can't show yet (an app's authorization, a gift, an event),
-    /// which opens in the browser.
+    /// or a profile's card at the words clicked; none for a link the core
+    /// can't open now, which opens in the browser.
     fn discord_link(
         &mut self,
         link: &str,
@@ -1429,11 +1440,9 @@ impl App {
             DiscordRoute::User { user } => {
                 return Some(Err(self.open_card(user, iced::Point::new(at.x + 8.0, at.y))));
             }
-            DiscordRoute::Authorize { .. }
-            | DiscordRoute::Gift { .. }
-            | DiscordRoute::Event { .. } => {
-                return None;
-            }
+            DiscordRoute::Authorize { query } => Action::OpenOAuthLink(query),
+            DiscordRoute::Gift { code } => Action::OpenGiftLink(code),
+            DiscordRoute::Event { guild, event } => Action::OpenEventLink { guild, event },
         }))
     }
 

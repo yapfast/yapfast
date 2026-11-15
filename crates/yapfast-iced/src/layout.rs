@@ -20,6 +20,10 @@ pub const LAYOUT: &str = "layout.json";
 #[derive(Default, serde::Deserialize)]
 #[serde(default)]
 pub struct Layout {
+    /// The version whose settings this person counts as having met, and
+    /// the NEW settings they have looked at; see `yapfast_core::new_tags`.
+    pub first_version: Option<String>,
+    pub seen_new: Vec<String>,
     pub theme: Option<String>,
     pub custom_themes: Vec<Custom>,
     /// The rail's open folders, by folder id.
@@ -47,6 +51,9 @@ pub struct Layout {
     pub activity_cards_hidden: bool,
     /// How wide the thread beside the channel was dragged.
     pub aside_width: Option<f32>,
+    /// How wide the expression picker's edge was dragged.
+    #[serde(alias = "gif_picker_width")]
+    pub picker_width: Option<f32>,
     /// How far the window is zoomed (`zoom::LEVELS`), and whether the
     /// desktop draws its title bar, as Appearance chose; unset, the
     /// desktop's way decides.
@@ -241,6 +248,10 @@ impl Voice {
 
     /// Calls send the microphone and play at the volume sliders' values.
     pub fn play_volumes(&self) {
+        // The tests make many windows at once, and each plays its volumes
+        // as it opens: one checking them holds them meanwhile.
+        #[cfg(test)]
+        let _held = (!tests::HOLDING.get()).then(tests::lock);
         let gain = |value: Option<u8>| {
             yapfast_core::volume::from_slider(f32::from(value.unwrap_or(100).min(200)))
         };
@@ -297,6 +308,22 @@ impl Layout {
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default()
     }
+
+    /// Reads `layout.json` as the window opens: a fresh install keeps the
+    /// version it has met, so no setting there now is NEW to it, and an
+    /// older layout without one has met the release before NEW tags.
+    pub fn open(root: &Path, running: &str) -> Self {
+        let fresh = !root.join(LAYOUT).exists();
+        let mut layout = Self::read(root);
+        if layout.first_version.is_none() {
+            let first = yapfast_core::new_tags::first_version(fresh, running);
+            if fresh {
+                store(root, "first_version", &first);
+            }
+            layout.first_version = Some(first);
+        }
+        layout
+    }
 }
 
 /// Keeps `value` under `key` in `layout.json`, leaving the rest as it is.
@@ -316,5 +343,41 @@ pub fn store(root: &Path, key: &str, value: impl serde::Serialize) {
     });
     if let Err(error) = result {
         tracing::warn!(%error, key, "could not keep the window's layout");
+    }
+}
+
+/// The process's volumes are one for every window; see [`hold_volumes`].
+#[cfg(test)]
+pub(crate) mod tests {
+    use std::{
+        cell::Cell,
+        sync::{Mutex, MutexGuard, PoisonError},
+    };
+
+    static VOLUMES: Mutex<()> = Mutex::new(());
+
+    thread_local! {
+        /// This thread holds [`VOLUMES`].
+        pub static HOLDING: Cell<bool> = const { Cell::new(false) };
+    }
+
+    pub fn lock() -> MutexGuard<'static, ()> {
+        VOLUMES.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Held by a test that sets the volumes and reads them back: until it
+    /// drops, no other window plays its own.
+    pub struct Held(#[allow(dead_code)] MutexGuard<'static, ()>);
+
+    impl Drop for Held {
+        fn drop(&mut self) {
+            HOLDING.set(false);
+        }
+    }
+
+    pub fn hold_volumes() -> Held {
+        let held = Held(lock());
+        HOLDING.set(true);
+        held
     }
 }

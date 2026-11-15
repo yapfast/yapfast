@@ -3343,19 +3343,6 @@ fn count_of(count: u64, one: &str, many: &str) -> String {
     format!("{count} {}", if count == 1 { one } else { many })
 }
 
-/// `count` with its thousands marked, as Discord writes "3,999".
-fn grouped(count: u64) -> String {
-    let digits = count.to_string();
-    let mut grouped = String::with_capacity(digits.len() + digits.len() / 3);
-    for (at, digit) in digits.char_indices() {
-        if at > 0 && (digits.len() - at).is_multiple_of(3) {
-            grouped.push(',');
-        }
-        grouped.push(digit);
-    }
-    grouped
-}
-
 /// A status on one line, as Discord shows it under a name; the profile keeps
 /// its own line breaks.
 fn one_line(text: &str) -> String {

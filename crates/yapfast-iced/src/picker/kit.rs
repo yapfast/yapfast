@@ -181,6 +181,8 @@ pub fn search_field<'a>(
             selection: theme.selection,
         },
     )
+    // Slint's `TextField` ring while it has the keys.
+    .ring(crate::style::faded(theme.accent, 0.8))
     .single()
     .size(15.0)
     .padding(Padding::from([5, 10]))

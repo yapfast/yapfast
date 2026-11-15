@@ -40,7 +40,7 @@ use crate::{
     style::{corners, faded, rounded, scrollbar},
     sync::Scroll,
     timeline::MARGIN,
-    widgets::{Pic, RightPress, Rows},
+    widgets::{Drags, Pic, RightPress, Rows},
 };
 
 /// The sidebar's width, as the Slint client's Discord look sets it.
@@ -66,8 +66,9 @@ const ROW_COUNT: Count = Count {
     size: 11.0,
     pad: 5.0,
 };
-/// The search field's id.
+/// The search field's id, and the list's.
 pub const FILTER: &str = "sidebar-filter";
+pub const LIST: &str = "sidebar-list";
 /// How much taller the header is with the server's banner behind it, and
 /// how far down the banner's shade reaches.
 const BANNER: f32 = 81.0;
@@ -85,6 +86,12 @@ const BOOST_PINK: Color = Color {
 };
 /// The events row.
 const EVENTS_ROW: f32 = 60.0;
+/// A busy voice channel's card beside its row: its width, how far from
+/// the row, and the people it names before "and N more".
+const VOICE_CARD_WIDTH: f32 = 232.0;
+const VOICE_CARD_GAP: f32 = 8.0;
+const VOICE_CARD_PEOPLE: usize = 8;
+
 /// The header's button that invites people, and the icon in it.
 const INVITE: f32 = 32.0;
 
@@ -245,6 +252,8 @@ pub struct SideHeader {
     pub server: Option<String>,
     pub name: String,
     pub community: bool,
+    /// Verified or partnered: Discord's green badge before its name.
+    pub verified: bool,
     /// Its banner's address, which the header sits over.
     pub banner: Option<String>,
     /// This account may invite people to it, from the header's button.
@@ -268,6 +277,7 @@ pub fn side_header(app: &Application) -> SideHeader {
                 server: Some(server.id.clone()),
                 name: server.name.clone(),
                 community: server.community,
+                verified: server.verified,
                 banner: server.banner.clone(),
                 invite: app.header_choices(id).contains(&MenuChoice::Invite),
                 boosts: server.boosts,
@@ -595,6 +605,9 @@ impl App {
                 return self.ask();
             }
             Event::Point(id, entered) => {
+                if !entered {
+                    self.voice_card_off = false;
+                }
                 crate::app::point(&mut self.pointed_side, id, entered);
                 // A DM's nameplate and moving decoration come as it's
                 // pointed at.
@@ -603,7 +616,10 @@ impl App {
             Event::Select(id) => self.client.dispatch(Action::SelectRoom(id)),
             // As the Slint client: the core's `SelectRoom` joins a voice
             // channel's call first, and shows it once in it.
-            Event::Voice(id) => self.client.dispatch(Action::SelectRoom(id)),
+            Event::Voice(id) => {
+                self.voice_card_off = true;
+                self.client.dispatch(Action::SelectRoom(id));
+            }
             Event::Toggle(fold) => {
                 self.lists_shown = None;
                 let Navigation::Server(server) = self.client.state().navigation.clone() else {
@@ -658,7 +674,10 @@ impl App {
                 let at = Point::new(crate::rail::WIDTH + INSET, top + EVENTS_ROW - INSET);
                 return self.open_events_menu(&server, at);
             }
-            Event::Menu(id, at) => return self.open_place_menu(&id, at, false),
+            Event::Menu(id, at) => {
+                self.voice_card_off = true;
+                return self.open_place_menu(&id, at, false);
+            }
             Event::Wave(user) => self.client.dispatch(Action::MessageFromProfile {
                 user,
                 text: "\u{1F44B}".to_owned(),
@@ -681,7 +700,7 @@ impl App {
         let viewport = self.side_scroll;
         let mut rows = Rows::new(total);
         let mut top = 0.0;
-        for row in &self.side {
+        for (index, row) in self.side.iter().enumerate() {
             let height = row.height();
             let at = top;
             top += height;
@@ -690,12 +709,32 @@ impl App {
             {
                 continue;
             }
-            rows.push(key(&row.key()), at, height, self.side_row(row));
+            let place = self.side_places.of_row.get(index).copied().flatten();
+            rows.push(key(&row.key()), at, height, self.side_row(row, place));
         }
         let list = scrollable(rows)
+            .id(LIST)
             .on_scroll(|viewport| Message::Side(Event::Scrolled(viewport)))
             .height(Length::Fill)
             .style(scrollbar(theme));
+        // What's dragged follows the pointer, faint, over the list;
+        // someone dragged from a voice channel, below it.
+        let list: Element<'_, Message> = match self.moving_view() {
+            Some((ghost, y)) => stack![list, controls::placed(ghost, 40.0, y)].into(),
+            None => list.into(),
+        };
+        let list: Element<'_, Message> = match self.arranged_view() {
+            Some((ghost, y)) => stack![
+                list,
+                controls::placed(
+                    container(ghost).padding([0.0, INSET]),
+                    0.0,
+                    y.clamp(0.0, (viewport.height - ROW).max(0.0))
+                )
+            ]
+            .into(),
+            None => list,
+        };
         let ground = theme.sidebar;
         let mut top = column![self.side_header_view()];
         if let Some(boosts) = self
@@ -963,7 +1002,11 @@ impl App {
             (theme.text, theme.secondary)
         };
         let mut face = row![].spacing(10).align_y(Alignment::Center);
-        if head.community {
+        // Discord marks a verified server with its green badge, and one
+        // that is only a Community server with the Community badge.
+        if head.verified {
+            face = face.push(self.drawn(Icon::Verified, 16));
+        } else if head.community {
             face = face.push(self.glyph(Icon::Community, 16, ink));
         }
         face = face.push(
@@ -988,7 +1031,11 @@ impl App {
                 .align_y(Alignment::Center),
         )
         .padding(Padding {
-            left: if head.community { 10.0 } else { 8.0 },
+            left: if head.community || head.verified {
+                10.0
+            } else {
+                8.0
+            },
             right: 8.0,
             ..Padding::ZERO
         })
@@ -999,7 +1046,7 @@ impl App {
         .into()
     }
 
-    fn side_row<'a>(&'a self, row: &'a SideRow) -> Element<'a, Message> {
+    fn side_row<'a>(&'a self, row: &'a SideRow, place: Option<usize>) -> Element<'a, Message> {
         let theme = &self.theme;
         let inner: Element<'a, Message> = match row {
             SideRow::Screens {
@@ -1089,8 +1136,8 @@ impl App {
                 name,
                 fold,
                 collapsed,
-            } => self.heading(name, fold, *collapsed),
-            SideRow::Room(room) => self.room_rows(room),
+            } => self.heading(name, fold, *collapsed, place),
+            SideRow::Room(room) => self.room_rows(room, place),
             SideRow::Empty(words) => container(text(*words).size(14).color(theme.muted))
                 .padding(8)
                 .into(),
@@ -1103,6 +1150,96 @@ impl App {
                 top: 0.0,
             })
             .width(Length::Fill);
+        // A row that may be dragged: where it would land marked by a line
+        // across its top (dragged up) or its foot (dragged down).
+        let inset: Element<'a, Message> = match self.drop_line(place) {
+            Some(below) => {
+                // From 8 px into the row to its end, as Slint's.
+                let line = container(self.drop_line_view()).padding(Padding {
+                    left: 2.0 * INSET,
+                    right: INSET,
+                    ..Padding::ZERO
+                });
+                let y = if below {
+                    row.height() - crate::arrange::LINE
+                } else {
+                    0.0
+                };
+                stack![inset, controls::placed(line, 0.0, y)].into()
+            }
+            None => inset.into(),
+        };
+        // Where someone dragged from a voice channel would drop: outlined
+        // in the drop line's green.
+        let inset: Element<'a, Message> = match row {
+            SideRow::Room(room) if self.move_aimed(&room.id) => {
+                let live = theme.live;
+                let outline = container(Space::new())
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .style(move |_| iced::widget::container::Style {
+                        border: iced::Border {
+                            color: live,
+                            width: 2.0,
+                            radius: 6.0.into(),
+                        },
+                        ..Default::default()
+                    });
+                stack![
+                    inset,
+                    container(outline).padding(Padding {
+                        left: INSET,
+                        right: INSET,
+                        bottom: GAP,
+                        top: 0.0,
+                    })
+                ]
+                .into()
+            }
+            _ => inset,
+        };
+        // While someone is dragged, a voice channel's row says when the
+        // pointer comes onto it, a folded category's busy one too.
+        let onto = match row {
+            SideRow::Room(room) if room.voice => Some(room.id.as_str()),
+            _ => None,
+        };
+        let moving = self.moving_person.is_some();
+        let over = move |place: Option<usize>, over: bool| match (onto, place) {
+            (Some(room), _) if moving => {
+                Message::Arrange(crate::arrange::Event::Onto(room.to_owned(), over))
+            }
+            (_, Some(place)) if !moving => {
+                Message::Arrange(crate::arrange::Event::Over(place, over))
+            }
+            _ => Message::Nothing,
+        };
+        let inset: Element<'a, Message> = match place {
+            Some(place) => {
+                let click = match row {
+                    SideRow::Heading { fold, .. } => Message::Side(Event::Toggle(fold.clone())),
+                    SideRow::Room(room) if room.voice => {
+                        Message::Side(Event::Voice(room.id.clone()))
+                    }
+                    SideRow::Room(room) => Message::Side(Event::Select(room.id.clone())),
+                    _ => return inset,
+                };
+                let head = match row {
+                    SideRow::Room(room) => room.row_height(),
+                    _ => HEADING,
+                };
+                Drags::new(inset)
+                    .click(click)
+                    .head(head)
+                    .drag(move |grab| Message::Arrange(crate::arrange::Event::Start(place, grab)))
+                    .tracking(self.dragging(), move |on| over(Some(place), on))
+                    .into()
+            }
+            None if onto.is_some() => Drags::new(inset)
+                .tracking(moving, move |on| over(None, on))
+                .into(),
+            None => inset,
+        };
         match row {
             // Unread activity is marked at the sidebar's edge, as on the
             // rail, a thread's too.
@@ -1118,7 +1255,7 @@ impl App {
                 ]
                 .into()
             }
-            _ => inset.into(),
+            _ => inset,
         }
     }
 
@@ -1131,6 +1268,7 @@ impl App {
         name: &'a str,
         fold: &'a str,
         collapsed: bool,
+        place: Option<usize>,
     ) -> Element<'a, Message> {
         let theme = &self.theme;
         let id = format!("heading:{fold}");
@@ -1139,6 +1277,12 @@ impl App {
             theme.secondary
         } else {
             theme.muted
+        };
+        // While a drag is on, as a text channel's row.
+        let ink = if self.arrange_dimmed(None, false) {
+            faded(ink, crate::arrange::DIM)
+        } else {
+            ink
         };
         let face = row![
             elide(name).size(14).font(SEMIBOLD).color(ink),
@@ -1181,8 +1325,13 @@ impl App {
         )
         .interaction(iced::mouse::Interaction::Pointer)
         .on_enter(Message::Side(Event::Point(id.clone(), true)))
-        .on_exit(Message::Side(Event::Point(id, false)))
-        .on_press(Message::Side(Event::Toggle(fold.to_owned())));
+        .on_exit(Message::Side(Event::Point(id, false)));
+        // One that may be dragged folds on a click, not a press (`Drags`).
+        let area = if place.is_none() {
+            area.on_press(Message::Side(Event::Toggle(fold.to_owned())))
+        } else {
+            area
+        };
         if !self.client.state().is_category(fold) {
             return area.into();
         }
@@ -1228,18 +1377,18 @@ impl App {
         if !badge.is_empty() {
             face = face.push(count_pill(theme, badge, ROW_COUNT, None));
         }
-        self.row_face(id.into(), face.into(), ROW, selected, message, None)
+        self.row_face(id.into(), face.into(), ROW, selected, Some(message), None)
     }
 
-    /// A row's face: lit while selected or pointed at, a click and a right
-    /// click on it.
+    /// A row's face: lit while selected or pointed at, a press (unless a
+    /// click is the row's `Drags`) and a right click on it.
     fn row_face<'a>(
         &'a self,
         id: String,
         face: Element<'a, Message>,
         height: f32,
         selected: bool,
-        message: Message,
+        message: Option<Message>,
         menu: Option<String>,
     ) -> Element<'a, Message> {
         let theme = &self.theme;
@@ -1261,8 +1410,11 @@ impl App {
         let area = mouse_area(body)
             .interaction(iced::mouse::Interaction::Pointer)
             .on_enter(Message::Side(Event::Point(id.clone(), true)))
-            .on_exit(Message::Side(Event::Point(id, false)))
-            .on_press(message);
+            .on_exit(Message::Side(Event::Point(id, false)));
+        let area = match message {
+            Some(message) => area.on_press(message),
+            None => area,
+        };
         match menu {
             Some(room) => {
                 let spot = &self.pressed;
@@ -1277,8 +1429,8 @@ impl App {
 
     /// A conversation's row, with its thread line, and who is in it for a
     /// busy voice channel.
-    fn room_rows<'a>(&'a self, room: &'a Room) -> Element<'a, Message> {
-        let line = self.room_row(room);
+    fn room_rows<'a>(&'a self, room: &'a Room, place: Option<usize>) -> Element<'a, Message> {
+        let line = self.room_row(room, place.is_some());
         let line: Element<'a, Message> = if room.thread {
             row![self.thread_line(room.thread_continues), line].into()
         } else {
@@ -1334,14 +1486,24 @@ impl App {
         .into()
     }
 
-    /// A conversation's row, as the Slint client's `ChannelRow`.
-    fn room_row<'a>(&'a self, room: &'a Room) -> Element<'a, Message> {
+    /// A conversation's row, as the Slint client's `ChannelRow`; one that
+    /// may be `dragged` is clicked through its `Drags`.
+    fn room_row<'a>(&'a self, room: &'a Room, dragged: bool) -> Element<'a, Message> {
         if room.direct {
             return self.dm_row(room);
         }
         let theme = &self.theme;
         let pointed = self.pointed_side.as_deref() == Some(room.id.as_str());
         let (ink, opacity) = self.row_ink(room, pointed);
+        // While a drag is on, rows it can't land among dim.
+        let (ink, opacity) = if self.arrange_dimmed(Some(&room.id), room.voice) {
+            (
+                faded(ink, crate::arrange::DIM),
+                opacity * crate::arrange::DIM,
+            )
+        } else {
+            (ink, opacity)
+        };
         let mut face = row![].spacing(8).align_y(Alignment::Center);
         if !room.thread {
             let icon_ink = if room.selected {
@@ -1379,14 +1541,69 @@ impl App {
         } else {
             Message::Side(Event::Select(room.id.clone()))
         };
-        self.row_face(
+        let row = self.row_face(
             room.id.clone(),
             face.into(),
             room.row_height(),
             room.selected,
-            message,
+            (!dragged).then_some(message),
             Some(room.id.clone()),
-        )
+        );
+        // A busy voice channel's card beside it, under the pointer.
+        if pointed && room.voice && !room.people.is_empty() && !self.voice_card_off {
+            return iced::widget::tooltip(
+                row,
+                self.voice_channel_card(&room.people),
+                iced::widget::tooltip::Position::Right,
+            )
+            .gap(VOICE_CARD_GAP)
+            .snap_within_viewport(true)
+            .into();
+        }
+        row
+    }
+
+    /// Who is in a busy voice channel, as the Slint client's
+    /// `VoiceCardView` beside its row: a line summing them up, then each
+    /// person with their camera and LIVE, the first eight and how many
+    /// more. This account on another client is dimmed, without its marks.
+    fn voice_channel_card<'a>(&'a self, people: &'a [VoicePerson]) -> Element<'a, Message> {
+        let theme = &self.theme;
+        let summary = yapfast_core::voice_roster::Roster::of(people).summary();
+        let mut card = column![elide(summary).size(12).font(BOLD).color(theme.secondary)]
+            .spacing(4)
+            .padding(Padding {
+                top: 10.0,
+                ..Padding::new(12.0)
+            })
+            .width(VOICE_CARD_WIDTH);
+        for person in people.iter().take(VOICE_CARD_PEOPLE) {
+            let opacity = if person.elsewhere { 0.5 } else { 1.0 };
+            let mut line = row![
+                self.avatar(person.avatar.as_deref(), &person.name, 20.0, 10.0, opacity),
+                elide(person.name.as_str())
+                    .size(14)
+                    .font(MEDIUM)
+                    .color(faded(theme.text, opacity)),
+            ]
+            .spacing(8)
+            .height(26)
+            .align_y(Alignment::Center);
+            if !person.elsewhere {
+                if person.video {
+                    line = line.push(self.glyph(Icon::Video, 16, theme.muted));
+                }
+                if person.streaming {
+                    line = line.push(controls::live_pill(theme, None));
+                }
+            }
+            card = card.push(line);
+        }
+        let more = people.len().saturating_sub(VOICE_CARD_PEOPLE);
+        if more > 0 {
+            card = card.push(text(format!("and {more} more")).size(12).color(theme.muted));
+        }
+        container(card).style(controls::tip_style(theme)).into()
     }
 
     /// A row's ink, and its opacity: a muted one is faint until it's
@@ -1433,6 +1650,7 @@ impl App {
         let face = Face {
             url: room.avatar.as_deref(),
             name: &room.name,
+            key: Some(&room.id),
             size: 32.0,
             opacity,
             decoration: room.decoration.as_deref(),
@@ -1527,7 +1745,7 @@ impl App {
             plated,
             room.row_height(),
             room.selected,
-            Message::Side(Event::Select(room.id.clone())),
+            Some(Message::Side(Event::Select(room.id.clone()))),
             Some(room.id.clone()),
         )
     }
@@ -1627,12 +1845,16 @@ impl App {
             } else {
                 avatar
             };
+        // The name takes the room, its marks at the row's end.
         let mut face = row![
             avatar,
-            elide(person.name.as_str())
-                .size(15)
-                .font(if speaking { BOLD } else { MEDIUM })
-                .color(faded(ink, opacity)),
+            column![
+                elide(person.name.as_str())
+                    .size(15)
+                    .font(if speaking { BOLD } else { MEDIUM })
+                    .color(faded(ink, opacity))
+            ]
+            .width(Length::Fill),
         ]
         .spacing(8)
         .align_y(Alignment::Center);
@@ -1684,20 +1906,28 @@ impl App {
                 .align_y(Alignment::Center)
                 .style(move |_| rounded(ground, 4)),
         )
-        .on_press(Message::Call(crate::call::Event::Profile(
-            person.id.clone(),
-        )))
         .on_enter(Message::Side(Event::Point(id.clone(), true)))
         .on_exit(Message::Side(Event::Point(id, false)));
         let (room, user) = (room.to_owned(), person.id.clone());
         let spot = &self.pressed;
-        RightPress::new(area, move |_| {
-            Message::Call(crate::call::Event::Person(
-                room.clone(),
-                user.clone(),
-                spot.get(),
-            ))
-        })
-        .into()
+        let menu = {
+            let (room, user) = (room.clone(), user.clone());
+            RightPress::new(area, move |_| {
+                Message::Call(crate::call::Event::Person(
+                    room.clone(),
+                    user.clone(),
+                    spot.get(),
+                ))
+            })
+        };
+        // A click opens their card; pressed and moved, they're dragged
+        // toward another voice channel, where their menu's Move to offers
+        // one.
+        Drags::new(menu)
+            .click(Message::Call(crate::call::Event::Profile(user.clone())))
+            .drag(move |_| {
+                Message::Arrange(crate::arrange::Event::Take(room.clone(), user.clone()))
+            })
+            .into()
     }
 }

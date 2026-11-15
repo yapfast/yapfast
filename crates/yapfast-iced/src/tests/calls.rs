@@ -96,6 +96,8 @@ fn a_chosen_device_that_went_away_shows_as_not_connected() {
 #[test]
 fn call_volumes_play_while_dragged_and_are_remembered() {
     let (mut app, folder) = preview();
+    // Other tests' windows play their volumes as they open.
+    let _volumes = crate::layout::tests::hold_volumes();
     let stored = || crate::layout::Layout::read(folder.path()).voice;
     let _ = app.call_event(Event::DeviceVolume(true, 200, false));
     let _ = app.call_event(Event::DeviceVolume(false, 50, false));
@@ -233,4 +235,89 @@ fn someones_tile_right_clicked_sets_their_volume_and_keeps_it() {
     let default = yapfast_core::volume::to_slider(yapfast_core::volume::Kind::Voice.default_gain());
     let _ = app.call_event(Event::Volume(false, default.round() as u32, true));
     assert!(stored().is_empty());
+}
+
+#[test]
+fn the_signal_opens_the_connections_details_with_their_tabs() {
+    use crate::call::{LinkEvent, LinkTab};
+    let (mut app, _folder, _) = in_call();
+    assert!(!app.link_measured(), "the preview doesn't measure");
+    let stats = voice::LinkStats {
+        pings: vec![40, 80],
+        loss: Some(1.5),
+        privacy_code: Some("123456789012345678901234567890".into()),
+        stream: Some(voice::StreamStats {
+            engine: "h264_nvenc".into(),
+            codec: "H264".into(),
+            width: 1920,
+            height: 1080,
+            fps: 60,
+            target_kbps: 4000,
+            sent_kbps: 3812,
+            keyframe_requests: 2,
+            resent: 5,
+        }),
+    };
+    app.client.app.state.voice.link = Some(voice::Link::new(move || stats.clone()));
+    let _ = app.sync();
+    assert!(app.link_measured());
+    // The pointer on the signal reads the ping for its tooltip.
+    let _ = app.call_event(Event::Link(LinkEvent::Pointed(true)));
+    assert!(app.call.details.stats.is_some());
+    let _ = app.call_event(Event::Open(Popup::Link));
+    for words in [
+        "Average ping:",
+        "60 ms",
+        "Last ping:",
+        "80 ms",
+        "1.5%",
+        "100 ms",
+        "50 ms",
+        "Connection",
+        "Secure connection",
+    ] {
+        assert!(shows(&app, words), "{words}");
+    }
+    assert!(!shows(&app, "Privacy"), "alone, no code to compare");
+    // Someone else joins to compare it with.
+    let voice = &mut app.client.app.state.voice;
+    let mut other = voice.participants[0].clone();
+    other.id = "other".into();
+    voice.participants.push(other);
+    let _ = app.sync();
+    interact(&mut app, |ui| {
+        ui.click("Privacy").expect("the privacy tab");
+    });
+    assert_eq!(app.call.details.tab, LinkTab::Privacy);
+    assert!(shows(&app, "Voice Privacy Code"));
+    assert!(shows(&app, "67890"));
+    let _ = app.call_event(Event::Link(LinkEvent::Copy));
+    assert!(shows(&app, "Copied"));
+    let _ = app.call_event(Event::Link(LinkEvent::CopiedDone));
+    assert!(shows(&app, "Copy"));
+    let _ = app.call_event(Event::Link(LinkEvent::Tab(LinkTab::Stream)));
+    for words in [
+        "NVENC on the GPU",
+        "H264",
+        "1920×1080 at 60 fps",
+        "3.8 Mbit/s",
+        "4.0 Mbit/s",
+    ] {
+        assert!(shows(&app, words), "{words}");
+    }
+    // Closed with the pointer gone, nothing is copied out of the call.
+    let _ = app.call_event(Event::Link(LinkEvent::Pointed(false)));
+    let _ = app.call_event(Event::Close);
+    assert!(app.call.details.stats.is_none());
+    assert_eq!(app.call.details.tab, LinkTab::Connection);
+}
+
+#[test]
+fn the_banners_show_over_a_voice_channels_call_too() {
+    let (mut app, _folder, _) = in_call();
+    super::change(&mut app, |state| {
+        state.notice = Some("Discord asked Yapfast to slow down.".into());
+    });
+    assert!(app.voice_panel(), "the call's view");
+    assert!(shows(&app, "Discord asked Yapfast to slow down."));
 }

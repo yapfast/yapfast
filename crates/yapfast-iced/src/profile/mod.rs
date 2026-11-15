@@ -6,13 +6,16 @@
 //! [`look`] works out what a profile shows once each time the core's view
 //! of it changes; `body` draws the card in each of its three places;
 //! `full` the full profile's tabs; `activity` an activity's card;
-//! [`editor`] the profile editor, drawn with the card's parts.
+//! [`editor`] the profile editor, drawn with the card's parts, and
+//! [`name_style`] its Display Name Style window.
 
 mod activity;
 mod body;
+mod cosmetic;
 pub mod editor;
 mod full;
 pub mod look;
+pub mod name_style;
 
 use std::{cell::RefCell, collections::HashMap, sync::Arc};
 
@@ -22,15 +25,14 @@ use iced::{
     widget::{Space, column, container, mouse_area, opaque, scrollable, stack},
 };
 use yapfast_core::{
-    application::{Action, Navigation, ProfileTab, ProfileView},
+    application::{Action, ProfileTab, ProfileView},
     chat,
 };
 
 use crate::{
     app::{App, Message},
     controls::{Kind, action},
-    looks,
-    paint::{self, StyledPicture},
+    looks, paint,
     pictures::shared,
     style::{card_shadow, fill, scrollbar},
     widgets::Place,
@@ -92,11 +94,20 @@ pub enum Event {
     /// A mutual friend's profile: in full from the full profile.
     Friend(String),
     Server(String),
+    /// An activity's more menu on the card, with Manage Privacy for one's
+    /// own game.
+    ActivityMenu(bool),
+    /// Its View All Activity and Manage Privacy.
+    AllActivity,
+    ActivityPrivacy,
     /// The pointer on the card (its decoration plays), on the docked one,
     /// and on the status's bubble (it shows whole).
     Pointed(bool),
     PanelPointed(bool),
     Bubble(bool),
+    /// A layer of a playing effect shows or goes, by the clock's
+    /// generation it was asked in.
+    EffectTick(u64),
     /// The header's profile button: the panel beside a DM shows or goes.
     TogglePanel,
     /// Edit Profile on one's own: the card or full profile goes and the
@@ -104,6 +115,9 @@ pub enum Event {
     EditProfile,
     Editor(editor::Event),
 }
+
+/// An activity's more menu's width, as the Slint client's.
+const ACTIVITY_MENU: f32 = 170.0;
 
 /// The floating card: whose, where.
 pub struct Card {
@@ -122,6 +136,8 @@ pub struct Shown {
     /// Pictures chosen in the editor and not yet sent, by the names its
     /// card gives them.
     picked: RefCell<HashMap<String, Arc<yapfast_core::chat::Picture>>>,
+    /// The avatar's colour, by its address, once it has arrived.
+    avatar_colour: RefCell<Option<(String, u32)>>,
 }
 
 impl Shown {
@@ -131,6 +147,7 @@ impl Shown {
             pictures: Default::default(),
             name: Default::default(),
             picked: Default::default(),
+            avatar_colour: Default::default(),
         }
     }
 }
@@ -142,8 +159,7 @@ struct StyledName {
     /// again), and whether the theme is dark, which its colours are made
     /// readable on.
     key: (usize, u32, Version, bool),
-    image: Handle,
-    picture: StyledPicture,
+    picture: paint::NamePicture,
 }
 
 /// What the profiles on screen keep beyond the core's state.
@@ -164,8 +180,12 @@ pub struct Profiles {
     pub pointed: bool,
     pub panel_pointed: bool,
     pub bubble: bool,
+    /// When the cards' effects began to play.
+    effect: cosmetic::EffectClock,
     /// The profile editor, while the core has one open.
     pub editor: Option<editor::Editor>,
+    /// The account's own profile as its popover shows it, while it's open.
+    pub account: Option<(Arc<chat::Profile>, Shown)>,
 }
 
 impl App {
@@ -176,6 +196,7 @@ impl App {
         });
         self.card = Some(Card { user, at });
         self.profiles.field.clear();
+        self.unpoint_card();
         self.sync()
     }
 
@@ -203,6 +224,7 @@ impl App {
             });
         self.profiles.panel = make_shown(app, panel, panel_view, live, link);
         self.editor_sync();
+        self.account_card_sync(link);
         // The note follows the profile's while it isn't being written.
         if let Some(profile) = self
             .profiles
@@ -272,6 +294,7 @@ impl App {
                     self.client.dispatch(Action::EnlargeProfile);
                 }
                 self.card = None;
+                self.unpoint_card();
             }
             Event::Close => {
                 self.client.dispatch(Action::CloseProfile);
@@ -341,20 +364,46 @@ impl App {
                 self.client
                     .dispatch(Action::ShowFriendProfile { user, large });
             }
-            Event::Server(server) => {
+            Event::ActivityMenu(privacy) => {
+                let mut rows = vec![crate::menus::MenuRow::plain(
+                    crate::menus::MenuAct::AllActivity,
+                    "View All Activity",
+                )];
+                if privacy {
+                    rows.push(crate::menus::MenuRow::plain(
+                        crate::menus::MenuAct::ActivityPrivacy,
+                        "Manage Privacy",
+                    ));
+                }
+                let at = self.pressed.get();
+                self.menu = Some(
+                    crate::menus::Menu::new(Point::new(at.x + 4.0, at.y - 8.0), rows)
+                        .width(ACTIVITY_MENU),
+                );
+                return iced::widget::operation::focus(crate::app::NOBODY);
+            }
+            // The card's person's full profile, on its Activity tab.
+            Event::AllActivity => {
+                return self.profile_event(Event::Enlarge(Some(Tab::Activity), false));
+            }
+            Event::ActivityPrivacy => {
                 self.client.dispatch(Action::CloseProfile);
                 self.card = None;
-                self.client
-                    .dispatch(Action::Navigate(Navigation::Server(server)));
+                return self.open_settings(crate::settings::Section::Games);
+            }
+            // Its card over the profile, which goes there.
+            Event::Server(server) => {
+                return self.info_event(crate::info_cards::Event::Server(server));
             }
             Event::Pointed(pointed) => {
                 self.profiles.pointed = pointed;
-                return self.ask();
+                return Task::batch([self.point_effect(false, pointed), self.ask()]);
             }
             Event::PanelPointed(pointed) => {
                 self.profiles.panel_pointed = pointed;
-                return self.ask();
+                return Task::batch([self.point_effect(true, pointed), self.ask()]);
             }
+            Event::EffectTick(generation) => return self.effect_tick(generation),
             Event::Bubble(pointed) => {
                 self.profiles.bubble = pointed;
                 return Task::none();
@@ -388,6 +437,7 @@ impl App {
         let content = container(scrollable(body).style(scrollbar(&self.theme)))
             .width(WIDTH)
             .max_height(limit);
+        let content = self.dressed(shown, Mode::Card, WIDTH, content.into());
         let pointer = mouse_area(content)
             .on_enter(Message::Profile(Event::Pointed(true)))
             .on_exit(Message::Profile(Event::Pointed(false)));
@@ -449,6 +499,12 @@ impl App {
             .height(Length::Fill)
             .clip(true)
             .style(frame_style(inks, theme.edge, 8.0, false));
+        let card = self.dressed(
+            shown,
+            Mode::Docked,
+            PANEL_WIDTH - 2.0 * PANEL_INSET,
+            card.into(),
+        );
         let card = mouse_area(card)
             .on_enter(Message::Profile(Event::PanelPointed(true)))
             .on_exit(Message::Profile(Event::PanelPointed(false)));
@@ -461,13 +517,59 @@ impl App {
         )
     }
 
+    /// The account's own card while its popover shows: made again only
+    /// when the core's profile of it changes, and let go as it closes.
+    fn account_card_sync(&mut self, link: u32) {
+        let state = self.client.state();
+        let Some(profile) = state
+            .account_profile
+            .as_ref()
+            .filter(|_| self.popover.is_some())
+        else {
+            self.profiles.account = None;
+            return;
+        };
+        if let Some((kept, _)) = &self.profiles.account
+            && Arc::ptr_eq(kept, profile)
+        {
+            return;
+        }
+        let view = ProfileView {
+            profile: chat::Profile::clone(profile),
+            ..Default::default()
+        };
+        let look = Look::new(state, &view, None, &[], link);
+        self.profiles.account = Some((profile.clone(), Shown::new(look)));
+    }
+
     /// Whether the profile panel shows beside the open DM.
     pub fn panel_shown(&self) -> bool {
         self.header.profile_available && self.profiles.panel.is_some()
     }
 
     /// A picture for a profile at its size, made once while it's shown.
-    fn profile_picture(
+    /// The colour behind a banner: the accent, else, with no banner and
+    /// no theme, the avatar's dominant colour once it has arrived, as
+    /// Discord tints it.
+    pub(crate) fn banner_ground(&self, shown: &Shown) -> Option<u32> {
+        let profile = shown.look.profile();
+        if shown.look.accent.is_some() || profile.banner.is_some() || profile.theme.is_some() {
+            return shown.look.accent;
+        }
+        let url = profile.avatar.as_deref()?;
+        if let Some((known, colour)) = &*shown.avatar_colour.borrow()
+            && known == url
+        {
+            return Some(*colour);
+        }
+        let picture = self.client.state().pictures.get(url)?;
+        let order = crate::pictures::byte_order(picture);
+        let colour = crate::dominant_colour::dominant(&picture.rgba, order)?;
+        *shown.avatar_colour.borrow_mut() = Some((url.to_owned(), colour));
+        Some(colour)
+    }
+
+    pub(crate) fn profile_picture(
         &self,
         shown: &Shown,
         url: &str,
@@ -508,6 +610,17 @@ impl App {
         let state = self.client.state();
         let cosmetics = state.cosmetics;
         let mut urls = self.editor_pictures();
+        if let Some((_, shown)) = &self.profiles.account {
+            let profile = shown.look.profile();
+            urls.extend(profile.banner.clone());
+            urls.extend(
+                cosmetics
+                    .tag(profile.tag.as_ref())
+                    .and_then(|tag| tag.badge.as_deref())
+                    .map(str::to_owned),
+            );
+            urls.extend(profile.badges.iter().map(|badge| badge.icon.clone()));
+        }
         for (shown, pointed) in [
             (&self.profiles.shown, self.profiles.pointed),
             (&self.profiles.panel, self.profiles.panel_pointed),
@@ -522,6 +635,8 @@ impl App {
             if pointed || shown.look.view.large {
                 urls.extend(decoration.map(looks::animated_url));
             }
+            urls.extend(self.effect_pictures(shown, pointed));
+            urls.extend(self.frame_pictures(shown));
             urls.extend(profile.banner.clone());
             urls.extend(profile.banner.as_deref().and_then(chat::moving_banner));
             urls.extend(
@@ -532,6 +647,15 @@ impl App {
             );
             urls.extend(shown.look.thought.emoji.clone());
             urls.extend(profile.badges.iter().map(|badge| badge.icon.clone()));
+            // A levelled badge's large picture, for its tooltip.
+            urls.extend(
+                profile
+                    .badges
+                    .iter()
+                    .filter_map(|badge| badge.level.as_ref())
+                    .map(|level| level.picture.clone())
+                    .filter(|picture| !picture.is_empty()),
+            );
             urls.extend(profile.server_icon.clone());
             for activity in &shown.look.activities {
                 urls.extend(activity.large.clone());

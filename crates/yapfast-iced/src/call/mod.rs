@@ -7,6 +7,8 @@
 //!   channel, sharing, and the soundboard, camera and share buttons;
 //! - `popups.rs`, what opens from the controls: the device menus with the
 //!   microphone's level, the share menu, the soundboard, someone's volumes;
+//! - `details.rs`, the connection in detail from the signal: the ping, its
+//!   graph, the loss, the privacy code and the stream's encoding;
 //! - `dm.rs`, a DM's call: its invitation above the messages, a call
 //!   ringing elsewhere, and the question before switching calls;
 //! - `corner.rs`, the stream or camera kept in a corner while the call is
@@ -16,9 +18,10 @@
 //! [`crate::video`].
 
 mod corner;
+mod details;
 mod dm;
 mod dock;
-mod popups;
+pub(crate) mod popups;
 mod stage;
 
 use std::{cell::Cell, sync::Arc};
@@ -32,6 +35,9 @@ use yapfast_core::{
     voice::{self, Command, Phase},
 };
 
+#[cfg(test)]
+pub use details::LinkEvent;
+pub use details::Tab as LinkTab;
 pub use popups::Volumes;
 pub use popups::device_rows;
 #[cfg(test)]
@@ -81,6 +87,8 @@ pub struct Call {
     pub detail_lit: bool,
     /// The noise suppression the dock's toggle turns back on.
     pub noise_last: yapfast_core::noise::Suppressor,
+    /// The connection's details, while they or the signal's tooltip show.
+    pub details: details::Details,
 }
 
 /// What opens from a control, above it.
@@ -90,6 +98,8 @@ pub enum Popup {
     Output,
     Share,
     Soundboard,
+    /// The connection's details, from the signal.
+    Link,
 }
 
 /// What's done to the call, or in it.
@@ -145,6 +155,8 @@ pub enum Event {
     DetailLit(bool),
     /// A second of the call's clock.
     Second,
+    /// In the connection's details, or on the signal.
+    Link(details::LinkEvent),
     DismissError,
     /// A DM's call answered, or declined.
     Answer(String, bool),
@@ -270,7 +282,11 @@ impl App {
                 self.call.detail_lit = lit;
                 return Task::none();
             }
-            Event::Second => return Task::none(),
+            Event::Second => {
+                self.read_link();
+                return Task::none();
+            }
+            Event::Link(event) => return self.link_event(event),
             Event::DismissError => Action::DismissVoiceError,
             Event::Answer(room, true) => Action::AcceptCall(room),
             Event::Answer(room, false) => Action::DeclineCall(room),
@@ -476,5 +492,25 @@ pub fn who_is_here(people: &[VoicePerson]) -> String {
         [first, second, third] => format!("{first}, {second} and {third} are"),
         [first, second, rest @ ..] => format!("{first}, {second} and {} others are", rest.len()),
         [] => String::new(),
+    }
+}
+
+/// The signal's bars by how good the connection is, as Discord grades it.
+pub fn signal_icon(quality: voice::Quality) -> crate::pictures::Icon {
+    use crate::pictures::Icon;
+    match quality {
+        voice::Quality::Bad => Icon::SignalLow,
+        voice::Quality::Average => Icon::SignalMedium,
+        voice::Quality::Fine | voice::Quality::Unknown => Icon::SignalHigh,
+    }
+}
+
+/// The signal's colour: grey while unknown.
+pub fn signal_ink(theme: &crate::theme::Theme, quality: voice::Quality) -> iced::Color {
+    match quality {
+        voice::Quality::Bad => theme.danger,
+        voice::Quality::Average => theme.accent,
+        voice::Quality::Fine => theme.live,
+        voice::Quality::Unknown => theme.muted,
     }
 }

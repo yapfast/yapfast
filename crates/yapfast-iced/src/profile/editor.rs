@@ -13,7 +13,7 @@
 use std::{path::PathBuf, sync::Arc};
 
 use iced::{
-    Alignment, Border, Color, Element, Length, Padding, Point, Size, Task,
+    Alignment, Border, Color, Element, Length, Padding, Point, Rectangle, Size, Task,
     widget::{
         Id, Space, button, column, container, mouse_area, opaque, operation, row, scrollable,
         stack, text, text_input,
@@ -36,9 +36,9 @@ use crate::{
     form,
     pictures::Icon,
     popover::{Popover, Side, Width},
-    style::{card_shadow, corners, faded, hex, rounded, scrollbar},
+    style::{corners, faded, hex, rounded, scrollbar},
     theme::rgb,
-    widgets::{Hover, Pic},
+    widgets::{ColourPad, Hover, Hsv, Pic, PlateRow, hsv_rgb, rgb_hsv},
 };
 
 /// The text fields' ids.
@@ -50,6 +50,8 @@ const THEME_COLOUR: &str = "profile-edit-theme";
 const TAG_SEARCH: &str = "profile-edit-tag";
 /// The styles column beside the main profile, and the avatar's size.
 const SIDE: f32 = 241.0;
+/// A tile's width, two to a row of the styles column.
+const TILE: f32 = (SIDE - 32.0 - 8.0) / 2.0;
 const AVATAR: f32 = 120.0;
 /// Where Discord's client sends someone for what only its shop sets.
 const SHOP: &str = "https://discord.com/shop";
@@ -92,6 +94,8 @@ pub enum Event {
     Picked(ProfilePicture, PathBuf),
     Reset(ProfilePicture),
     Pop(Option<Pop>),
+    /// A theme colour chosen on its pad.
+    Hsv(Hsv),
     Tag(String),
     TagQuery(String),
     Tab(Tab),
@@ -103,6 +107,8 @@ pub enum Event {
     Status,
     Note,
     Close,
+    /// In the Display Name Style window.
+    Style(super::name_style::Event),
 }
 
 fn message(event: Event) -> Message {
@@ -115,10 +121,14 @@ pub struct Editor {
     editing: Option<Text>,
     colour_open: bool,
     pop: Option<Pop>,
+    /// The open theme colour's, as its pad shows it.
+    hsv: Hsv,
     tab: Option<Tab>,
     side: bool,
     tag_query: String,
     bio: Draft,
+    /// The Display Name Style window, while it's open.
+    pub(crate) style: Option<super::name_style::Window>,
 }
 
 impl Editor {
@@ -128,11 +138,20 @@ impl Editor {
             editing: None,
             colour_open: false,
             pop: None,
+            hsv: [0.0; 3],
             tab: None,
             side: true,
             tag_query: String::new(),
             bio: Draft::default(),
+            style: None,
         }
+    }
+
+    /// Ends what's being edited or open on the card.
+    pub(super) fn stop_editing(&mut self) {
+        self.editing = None;
+        self.colour_open = false;
+        self.pop = None;
     }
 }
 
@@ -286,11 +305,15 @@ impl App {
         };
         let profile = editor.shown.look.profile();
         let cosmetics = self.client.state().cosmetics;
-        let mut urls: Vec<String> = [profile.avatar.clone(), profile.banner.clone()]
-            .into_iter()
-            .flatten()
-            .filter(|url| !url.starts_with("picked:"))
-            .collect();
+        let mut urls: Vec<String> = [
+            profile.avatar.clone(),
+            profile.banner.clone(),
+            profile.banner.as_deref().and_then(chat::moving_banner),
+        ]
+        .into_iter()
+        .flatten()
+        .filter(|url| !url.starts_with("picked:"))
+        .collect();
         urls.extend(
             cosmetics
                 .decoration(profile.decoration.as_deref())
@@ -304,6 +327,8 @@ impl App {
                 .and_then(|tag| tag.badge.as_deref())
                 .map(str::to_owned),
         );
+        // The effect's still, on its tile.
+        urls.extend(self.effect_pictures(&editor.shown, false));
         urls
     }
 
@@ -313,6 +338,7 @@ impl App {
             return Task::none();
         };
         match event {
+            Event::Style(event) => return self.name_style_event(event),
             Event::Edit(field) => {
                 editor.editing = field;
                 editor.colour_open = false;
@@ -326,7 +352,25 @@ impl App {
                 return operation::focus(Id::new(id));
             }
             Event::Write(field, text) => {
+                // A theme colour's code typed moves its pad there.
+                if matches!(field, ProfileText::ThemeTop | ProfileText::ThemeBottom)
+                    && let Some(rgb) = parse_colour(&text)
+                {
+                    editor.hsv = rgb_hsv(rgb);
+                }
                 self.client.dispatch(Action::WriteProfile { field, text });
+            }
+            Event::Hsv(hsv) => {
+                let field = match editor.pop {
+                    Some(Pop::Top) => ProfileText::ThemeTop,
+                    Some(Pop::Bottom) => ProfileText::ThemeBottom,
+                    _ => return Task::none(),
+                };
+                editor.hsv = hsv;
+                self.client.dispatch(Action::WriteProfile {
+                    field,
+                    text: format!("#{:06x}", hsv_rgb(hsv)),
+                });
             }
             Event::Bio(event) => match event {
                 field::Event::Edited(text, _) => {
@@ -401,7 +445,13 @@ impl App {
                 editor.tag_query.clear();
                 match editor.pop {
                     Some(Pop::Tag) => return operation::focus(Id::new(TAG_SEARCH)),
-                    Some(Pop::Top | Pop::Bottom) => {
+                    Some(pop @ (Pop::Top | Pop::Bottom)) => {
+                        let core = self.client.state().profile_editor.as_ref();
+                        let code = core.map_or("", |core| match pop {
+                            Pop::Top => core.theme_top.as_str(),
+                            _ => core.theme_bottom.as_str(),
+                        });
+                        editor.hsv = rgb_hsv(parse_colour(code).unwrap_or(0x5865f2));
                         return operation::focus(Id::new(THEME_COLOUR));
                     }
                     _ => return Task::none(),
@@ -460,6 +510,9 @@ impl App {
     /// Escape in the editor: what's being edited or open first, then the
     /// editor.
     pub fn editor_escape(&mut self) -> Task<Message> {
+        if self.name_style_escape() {
+            return Task::none();
+        }
         let Some(editor) = self.profiles.editor.as_mut() else {
             return Task::none();
         };
@@ -548,10 +601,14 @@ impl App {
                 .style(move |_| crate::style::fill(dim)),
         )
         .on_press(message(Event::Close));
-        Some(opaque(stack![
+        let mut layers = stack![
             opaque(backdrop),
-            container(opaque(card)).center(Length::Fill),
-        ]))
+            container(opaque(card)).center(Length::Fill)
+        ];
+        if let Some(window) = &editor.style {
+            layers = layers.push(self.name_style_view(window, &editor.shown));
+        }
+        Some(opaque(layers))
     }
 
     /// The card's middle: the banner and avatar, then each text, then the
@@ -670,8 +727,9 @@ impl App {
             && (core.may_picture(ProfilePicture::Banner) || core.may_write(ProfileText::Colour))
             && reading.is_none();
         let banner_locked = (!main || core.nitro()) && !core.may_picture(ProfilePicture::Banner);
-        // The banner: the picture, else its colour, else the card's own.
-        let ground = shown.look.accent.map(hex).unwrap_or(if main {
+        // The banner: the picture (moving ones play), else its colour, else
+        // with no theme the avatar's, as the card's, else the card's own.
+        let ground = self.banner_ground(shown).map(hex).unwrap_or(if main {
             Color::TRANSPARENT
         } else {
             self.theme.raised
@@ -687,10 +745,21 @@ impl App {
                 ))
         ];
         let width = 560.0;
-        if let Some(still) = profile.banner.as_deref().and_then(|url| {
+        let banner_size = Size::new(width, banner_height);
+        let still = profile.banner.as_deref().and_then(|url| {
             self.profile_picture(shown, url, width as u32, banner_height as u32, true)
-        }) {
-            banner = banner.push(Pic::new(still, Size::new(width, banner_height)));
+        });
+        let moving = profile
+            .banner
+            .as_deref()
+            .and_then(chat::moving_banner)
+            .and_then(|url| {
+                self.moving(&url, banner_size, Rectangle::with_size(banner_size), true)
+            });
+        if let Some(moving) = moving {
+            banner = banner.push(moving.still(still));
+        } else if let Some(still) = still {
+            banner = banner.push(Pic::new(still, banner_size));
         }
         if reading == Some(ProfilePicture::Banner) {
             banner = banner.push(
@@ -1572,8 +1641,34 @@ impl App {
         let group = |title: &'a str, body: Element<'a, Message>| {
             column![text(title).size(13).font(SEMIBOLD).color(theme.text), body].spacing(8)
         };
-        let nameplate = self.cell(
-            row![
+        // The account's nameplate fills its tile, still and as strong as
+        // under the pointer, with the avatar and name over it, as the
+        // account card composes it; without one, the empty row and add.
+        let nameplate_face: Element<'a, Message> = match self.account_plate(42.0, true, false) {
+            Some((plate, palette)) => PlateRow::new(
+                row![
+                    self.avatar(profile.avatar.as_deref(), &profile.name, 35.0, 17.5, 1.0),
+                    text(profile.name.as_str())
+                        .size(15)
+                        .font(BOLD)
+                        .color(theme.text)
+                        .wrapping(text::Wrapping::None)
+                        .width(65),
+                    Space::new().width(Length::Fill),
+                ]
+                .spacing(7)
+                .padding([0, 6])
+                .height(42)
+                .align_y(Alignment::Center),
+                Some(plate),
+                palette,
+                theme.raised,
+                0.0,
+                1.0,
+            )
+            .account()
+            .into(),
+            None => row![
                 self.avatar(profile.avatar.as_deref(), &profile.name, 26.0, 13.0, 1.0),
                 container(Space::new())
                     .width(Length::Fill)
@@ -1588,10 +1683,8 @@ impl App {
             .padding([0, 8])
             .align_y(Alignment::Center)
             .into(),
-            42.0,
-            None,
-            shop(),
-        );
+        };
+        let nameplate = self.cell(nameplate_face, 42.0, None, shop());
         let avatar = self.cell(
             self.avatar(profile.avatar.as_deref(), &profile.name, 72.0, 36.0, 1.0),
             100.0,
@@ -1608,23 +1701,34 @@ impl App {
             None,
             shop(),
         );
-        let style = self.cell(self.profile_name(shown, 24.0, theme.text), 42.0, None, None);
-        let accent = shown.look.accent.map(hex);
+        let style = self.cell(
+            self.profile_name(shown, 24.0, theme.text),
+            42.0,
+            None,
+            look_enabled.then(|| message(Event::Style(super::name_style::Event::Open))),
+        );
+        // The accent, or with no banner or theme the avatar's colour, as
+        // the card's banner and Slint's tile have it.
+        let accent = self.banner_ground(shown).map(hex);
         let theme_fill = profile.theme.map(|[top, bottom]| (hex(top), hex(bottom)));
         let mut theme_cell = stack![self.cell(Space::new().into(), 100.0, theme_fill, None)];
         if look_enabled {
-            let [top, bottom] = profile.theme.unwrap_or([0x5865f2, 0x5865f2]);
+            // Without a theme, empty handles, as Slint's.
+            let [top, bottom] = profile
+                .theme
+                .map_or([Color::TRANSPARENT; 2], |colours| colours.map(hex));
             theme_cell = theme_cell.push(
                 container(
                     column![
-                        self.theme_handle(editor, core, Pop::Top, hex(top)),
+                        self.theme_handle(editor, core, Pop::Top, top),
                         Space::new().height(Length::Fill),
-                        self.theme_handle(editor, core, Pop::Bottom, hex(bottom)),
+                        self.theme_handle(editor, core, Pop::Bottom, bottom),
                     ]
                     .align_x(Alignment::Center),
                 )
                 .width(Length::Fill)
                 .height(100)
+                .align_x(Alignment::Center)
                 .padding(4),
             );
         }
@@ -1644,10 +1748,12 @@ impl App {
             banner_enabled.then(|| message(Event::Pick(ProfilePicture::Banner))),
         );
         let effect = self.cell(
-            if profile.effect.is_some() {
-                text("Effect on").size(13).color(theme.text).into()
-            } else {
-                plus()
+            match self.effect_tile(shown, Size::new(TILE, 100.0)) {
+                Some(tile) => tile,
+                None if profile.effect.is_some() => {
+                    text("Effect on").size(13).color(theme.text).into()
+                }
+                None => plus(),
             },
             100.0,
             None,
@@ -1774,37 +1880,16 @@ impl App {
         };
         let theme = &self.theme;
         let code = open.then(|| {
-            let raised = theme.raised;
-            let edge = theme.edge;
-            opaque(
-                container(
-                    column![
-                        text("Colour code")
-                            .size(12)
-                            .font(SEMIBOLD)
-                            .color(theme.secondary),
-                        form::field(theme, THEME_COLOUR, "#rrggbb", label)
-                            .size(14)
-                            .on_input(move |text| message(Event::Write(field, text)))
-                            .on_submit(message(Event::Pop(None))),
-                    ]
-                    .spacing(6),
-                )
-                .padding(10)
-                .width(Length::Fill)
-                .style(move |_| container::Style {
-                    border: Border {
-                        color: edge,
-                        width: 1.0,
-                        radius: 12.0.into(),
-                    },
-                    shadow: card_shadow(),
-                    ..rounded(raised, 12)
-                }),
+            form::colour_card(
+                theme,
+                ColourPad::new(editor.hsv, |hsv| message(Event::Hsv(hsv))),
+                form::field(theme, THEME_COLOUR, "#rrggbb", label)
+                    .on_input(move |text| message(Event::Write(field, text)))
+                    .on_submit(message(Event::Pop(None))),
             )
         });
         Popover::new(handle, code, Side::Below)
-            .width(Width::Own(240.0))
+            .width(Width::Own(form::COLOUR_CARD))
             .gap(6.0)
             .outside(message(Event::Pop(None)))
             .into()
@@ -1904,4 +1989,9 @@ fn hover_edit<'a>(
             ..Default::default()
         })
         .into()
+}
+
+/// A colour's code as 0xRRGGBB, if it's one.
+fn parse_colour(code: &str) -> Option<u32> {
+    yapfast_core::application::parse_colour(code).ok().flatten()
 }

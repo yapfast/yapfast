@@ -168,6 +168,7 @@ impl App {
         let face = self.face(Face {
             url: message.avatar.as_deref(),
             name: &message.author,
+            key: None,
             size: AVATAR,
             opacity: 1.0,
             decoration: None,

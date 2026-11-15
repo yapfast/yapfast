@@ -30,12 +30,19 @@ compile_error!("yapfast-iced needs a renderer: `cpu` or `gpu`");
 mod account;
 mod active_now;
 mod app;
+mod arrange;
+mod away;
 mod banners;
 mod bot_select;
 mod browse;
 mod browse_channels;
 mod browser;
 mod call;
+// The voice details' words and graph, which the Slint client shows too:
+// one file, compiled into both; `path` is the Slint client's alone.
+#[path = "../../../src/call_details.rs"]
+#[allow(dead_code)]
+mod call_details;
 mod cards;
 mod channel_settings;
 mod client;
@@ -45,6 +52,14 @@ mod control;
 mod controls;
 mod desktop;
 mod dialogs;
+// The avatar's colour behind a profile's banner, as the Slint client works
+// it out: one file, compiled into both.
+#[path = "../../../src/dominant_colour.rs"]
+#[cfg_attr(
+    not(feature = "cpu"),
+    allow(dead_code, reason = "tiny-skia's order is the CPU build's")
+)]
+mod dominant_colour;
 mod edit;
 mod elide;
 mod field;
@@ -56,7 +71,9 @@ mod found;
 mod friends;
 mod header;
 mod image_viewer;
+mod info_cards;
 mod layout;
+mod link_dialogs;
 mod looks;
 mod markdown;
 mod media;
@@ -125,8 +142,8 @@ use yapfast_core::{application::Action, runtime::BackgroundRuntime};
 
 use crate::{app::App, client::Client};
 pub use desktop::{
-    Desktop, Drag, Heard, Notifier, Offered, Tell, Tray, TrayChoice, UpdateChoices, UpdateStatus,
-    Updates, UpdatesShown,
+    Desktop, Drag, Heard, Notifier, Offered, PointerAt, Tell, Tray, TrayChoice, UpdateChoices,
+    UpdateStatus, Updates, UpdatesShown,
 };
 /// The window the desktop's parts act on, by its handles.
 pub use iced::window::Window;
@@ -148,6 +165,10 @@ pub struct Options {
     /// Watches the push-to-talk key the layout keeps (as the Slint client
     /// wrote it) in every app it can, until what it returns is dropped.
     pub push_to_talk: Option<TalkKey>,
+    /// The window's own keys, while no global key works: a key's scan
+    /// code going down or up, and none as the window loses the focus,
+    /// which lets the key go.
+    pub window_talk: Option<fn(Option<u32>, bool)>,
     /// Which build this is, as Settings shows it.
     pub build: settings::Build,
     /// `--background`: start in the tray with a saved session, as starting
@@ -193,6 +214,9 @@ static PASTE: OnceLock<fn() -> Option<Vec<PathBuf>>> = OnceLock::new();
 /// opens.
 static TALK_KEY: OnceLock<TalkKey> = OnceLock::new();
 
+/// The root crate's [`Options::window_talk`], set once as the window opens.
+pub(crate) static WINDOW_TALK: OnceLock<fn(Option<u32>, bool)> = OnceLock::new();
+
 /// What watches the push-to-talk key, where the build has one.
 pub(crate) fn talk_key_watcher() -> Option<TalkKey> {
     TALK_KEY.get().copied()
@@ -232,6 +256,9 @@ pub fn run(
     // which Settings changes.
     if let Some(watch) = options.push_to_talk {
         let _ = TALK_KEY.set(watch);
+    }
+    if let Some(window_talk) = options.window_talk {
+        let _ = WINDOW_TALK.set(window_talk);
     }
     let _ = BUILD.set(options.build);
     desktop::install(options.desktop);

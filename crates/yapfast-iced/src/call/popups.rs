@@ -37,7 +37,7 @@ use crate::{
 const DEVICE_WIDTH: f32 = 280.0;
 const SHARE_WIDE: f32 = 336.0;
 const SHARE_NARROW: f32 = 240.0;
-const SOUNDBOARD_WIDTH: f32 = 372.0;
+pub(crate) const SOUNDBOARD_WIDTH: f32 = 372.0;
 const SOUNDBOARD_TALLEST: f32 = 440.0;
 /// A soundboard row, and a sound's button in it.
 const SOUND_ROW: f32 = 42.0;
@@ -136,12 +136,22 @@ impl App {
             }
             // Shown once its sources are listed, so it opens at its height.
             Popup::Share => return list_sources(),
+            Popup::Link => {
+                self.call.popup = Some(popup);
+                self.read_link();
+                return Task::none();
+            }
         }
         Task::batch([self.sync(), operation::focus(NOBODY)])
     }
 
     pub fn close_popup(&mut self) {
+        let link = self.call.popup == Some(Popup::Link);
         self.call.popup = None;
+        if link {
+            self.call.details.tab = super::LinkTab::Connection;
+            self.read_link();
+        }
         self.call.share = None;
         self.call.listing = false;
         self.call.meter = None;
@@ -500,6 +510,16 @@ impl App {
                 (self.share_menu(share, width), width)
             }
             Popup::Soundboard => (self.soundboard(), SOUNDBOARD_WIDTH),
+            // Under its signal, or above it without room, as the Slint
+            // client's `call-link-menu`.
+            Popup::Link => {
+                let spot = self.call.spot.get();
+                return Some(
+                    Place::new(opaque(self.link_card()), spot.position(), 8.0)
+                        .anchor(Anchor::Span(spot.height))
+                        .into(),
+                );
+            }
         };
         let spot = self.call.spot.get();
         let panel = container(panel).width(width).style(menu_panel(&self.theme));
@@ -947,7 +967,6 @@ impl App {
     /// plays one for everyone; the pointer on one offers hearing it first
     /// and starring it. While deafened or server muted, why none plays.
     fn soundboard(&self) -> Element<'_, Message> {
-        let theme = &self.theme;
         let voice = &self.client.state().voice;
         let server_muted = voice
             .participants
@@ -961,7 +980,27 @@ impl App {
             None
         };
         let groups = voice.soundboard.as_deref().unwrap_or(&[]);
-        let mut top = column![text("Soundboard").size(16).font(BOLD).color(theme.text)]
+        self.sound_board("Soundboard", groups, note, true, |sound| {
+            Message::Call(Event::Play(sound.id.clone()))
+        })
+    }
+
+    /// A board of sounds, as the Slint client's `Soundboard`: `title`, a
+    /// note (while there is one, no sound can be chosen), the groups'
+    /// sounds three to a row under their names, `chosen`'s message for a
+    /// click on one, and with `extras` hearing it first and its star under
+    /// the pointer. The call's soundboard, and the entrance sound's choice
+    /// in Settings.
+    pub(crate) fn sound_board<'a>(
+        &'a self,
+        title: &'a str,
+        groups: &'a [voice::SoundGroup],
+        note: Option<&'a str>,
+        extras: bool,
+        chosen: impl Fn(&voice::SoundChoice) -> Message,
+    ) -> Element<'a, Message> {
+        let theme = &self.theme;
+        let mut top = column![text(title).size(16).font(BOLD).color(theme.text)]
             .spacing(4)
             .padding(Padding {
                 top: 14.0,
@@ -998,7 +1037,8 @@ impl App {
             for chunk in group.sounds.chunks(3) {
                 let mut line = row![].spacing(6);
                 for sound in chunk {
-                    line = line.push(self.sound_button(sound, cell, note.is_none()));
+                    let press = note.is_none().then(|| chosen(sound));
+                    line = line.push(self.sound_button(sound, cell, press, extras));
                 }
                 rows = rows.push(container(line).height(SOUND_ROW).align_y(Alignment::Center));
                 count += 1;
@@ -1014,6 +1054,7 @@ impl App {
                 Length::Shrink
             })
         ]
+        .width(SOUNDBOARD_WIDTH)
         .padding(Padding {
             bottom: 10.0,
             ..Padding::ZERO
@@ -1027,9 +1068,11 @@ impl App {
         &'a self,
         sound: &'a voice::SoundChoice,
         width: f32,
-        enabled: bool,
+        press: Option<Message>,
+        extras: bool,
     ) -> Element<'a, Message> {
         let theme = &self.theme;
+        let enabled = press.is_some();
         let picture = match &sound.picture {
             Some(url) => self.picture(url, 18, 18, false),
             None => {
@@ -1051,14 +1094,20 @@ impl App {
         );
         let (rest, lit) = (theme.button_default, theme.button_default_hover);
         let opacity = if enabled { 1.0 } else { 0.5 };
-        let base = button(container(face).clip(true).style(move |_| container::Style {
-            text_color: None,
-            ..Default::default()
-        }))
+        let base = button(
+            container(face)
+                .height(Length::Fill)
+                .align_y(Alignment::Center)
+                .clip(true)
+                .style(move |_| container::Style {
+                    text_color: None,
+                    ..Default::default()
+                }),
+        )
         .padding([0, 10])
         .width(width)
         .height(SOUND)
-        .on_press_maybe(enabled.then(|| Message::Call(Event::Play(sound.id.clone()))))
+        .on_press_maybe(press)
         .style(move |_, status| button::Style {
             background: Some(
                 crate::style::faded(
@@ -1118,6 +1167,9 @@ impl App {
                 .align_x(Alignment::End)
                 .align_y(Alignment::Center)
         };
+        if !extras {
+            return base.into();
+        }
         // A favourite's star stays.
         let base: Element<'a, Message> = if sound.favorite {
             iced::widget::stack![base, corner(star(rest).into())].into()

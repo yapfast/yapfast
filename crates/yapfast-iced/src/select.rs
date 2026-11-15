@@ -110,6 +110,9 @@ pub struct Piece<'a> {
     highlight: Color,
     /// Pictures drawn over spans, by the span's place: custom emoji.
     pictures: Vec<(usize, iced::advanced::image::Handle)>,
+    /// Where the link last pressed is from the press, for a card that
+    /// opens under it.
+    spot: Option<&'a std::cell::Cell<Rectangle>>,
 }
 
 impl<'a> Piece<'a> {
@@ -142,7 +145,15 @@ impl<'a> Piece<'a> {
             selected: Part::None,
             pictures: Vec::new(),
             highlight: Color::TRANSPARENT,
+            spot: None,
         }
+    }
+
+    /// Keeps the place of a link pressed in `spot`, from the press
+    /// (`App::pressed_spot` puts it in the window).
+    pub fn spot(mut self, spot: &'a std::cell::Cell<Rectangle>) -> Self {
+        self.spot = Some(spot);
+        self
     }
 
     /// Pictures drawn over its spans, by the span's place, each square in
@@ -327,6 +338,23 @@ impl Widget<Message, Theme, Renderer> for Piece<'_> {
                     if let Some(link) = self.link_at(&state.paragraph, at - bounds.position()) {
                         // Where the pointer is in the window, for a card to open beside.
                         let window = cursor.land().position().unwrap_or(at);
+                        if let Some(spot) = self.spot {
+                            let local = Point::ORIGIN + (at - bounds.position());
+                            if let Some(region) =
+                                state.paragraph.hit_span(local).and_then(|index| {
+                                    let regions = state.paragraph.span_bounds(index);
+                                    regions
+                                        .iter()
+                                        .find(|region| region.contains(local))
+                                        .or(regions.first())
+                                        .copied()
+                                })
+                            {
+                                // From the press, which the window knows the
+                                // place of: a list scrolled has moved this.
+                                spot.set(region - (local - Point::ORIGIN));
+                            }
+                        }
                         shell.publish(Message::Link(link.to_owned(), window));
                         shell.capture_event();
                         return;
@@ -434,9 +462,10 @@ impl Widget<Message, Theme, Renderer> for Piece<'_> {
             .position_in(bounds)
             .and_then(|at| state.paragraph.hit_span(at))
             .filter(|&index| {
-                self.spans
-                    .get(index)
-                    .is_some_and(|span| span.link.is_some())
+                self.spans.get(index).is_some_and(|span| {
+                    span.link
+                        .is_some_and(|link| !link.starts_with(yapfast_core::emoji::card::LINK))
+                })
             });
         let translation = bounds.position() - Point::ORIGIN;
         for (index, span) in self.spans.iter().enumerate() {

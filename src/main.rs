@@ -15,12 +15,20 @@ compile_error!("build `iced` or `iced-gpu` with --no-default-features, without `
 #[cfg(any(feature = "desktop", feature = "platform"))]
 mod autostart;
 mod build_info;
+#[cfg(feature = "desktop")]
+mod call_details;
 #[cfg(any(feature = "desktop", feature = "platform"))]
 mod copy;
 #[cfg(feature = "desktop")]
 mod custom_emoji;
 #[cfg(all(any(feature = "desktop", feature = "platform"), target_os = "linux"))]
 mod desktop_entry;
+#[cfg(feature = "desktop")]
+#[cfg_attr(
+    not(test),
+    allow(dead_code, reason = "tiny-skia's order is the iced client's")
+)]
+mod dominant_colour;
 #[cfg(any(feature = "desktop", feature = "platform"))]
 #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
 mod drop;
@@ -446,6 +454,7 @@ fn launch(
             twemoji: include_bytes!(concat!(env!("OUT_DIR"), "/twemoji.ttf")),
             paste: Some(pasted_files),
             push_to_talk: Some(watch_talk_key),
+            window_talk: Some(push_to_talk::window_key),
             desktop: shell.clone(),
             build: {
                 let build = build_info::current();
@@ -455,6 +464,7 @@ fn launch(
                     details: build.details(),
                     tone: build.channel().tone(),
                     summary: build.summary(),
+                    version: build.version().to_owned(),
                 }
             },
         },

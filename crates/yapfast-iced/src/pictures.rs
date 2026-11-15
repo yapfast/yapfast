@@ -55,6 +55,17 @@ pub fn install() {
     });
 }
 
+/// The order of a picture's bytes: tiny-skia's where [`install`] made its
+/// buffer, else the core's own RGBA (the GPU build's, and the tests').
+pub fn byte_order(picture: &Picture) -> crate::dominant_colour::Order {
+    #[cfg(feature = "cpu")]
+    if picture.rgba.buffer::<NativePixels>().is_some() {
+        return crate::dominant_colour::Order::Bgra;
+    }
+    let _ = picture;
+    crate::dominant_colour::Order::Rgba
+}
+
 /// A picture's pixels as a byte slice that keeps the picture alive.
 struct PictureBytes(Arc<Picture>);
 
@@ -185,6 +196,9 @@ pub enum Mark {
     Dot(Presence, u32),
     /// An icon at its size, in its colour.
     Icon(Icon, u32, u32),
+    /// An icon at its size in its own colours, such as the verified
+    /// badge's green and white, as Slint draws one it doesn't colorize.
+    Drawn(Icon, u32),
 }
 
 /// The Slint client's icons the client draws, from `ui/icons`.
@@ -251,6 +265,7 @@ pub enum Icon {
     HeadphoneOff,
     Settings,
     Community,
+    Verified,
     Id,
     History,
     Forward,
@@ -327,6 +342,9 @@ pub enum Icon {
     StickyNote,
     Slash,
     Send,
+    Eyedropper,
+    Moon,
+    Sun,
 }
 
 impl Icon {
@@ -439,6 +457,7 @@ impl Icon {
             Icon::HeadphoneOff => icon!("headphone-off.svg"),
             Icon::Settings => icon!("settings.svg"),
             Icon::Community => icon!("community.svg"),
+            Icon::Verified => icon!("verified.svg"),
             Icon::Id => icon!("id-filled.svg"),
             Icon::PhoneOff => icon!("phone-off.svg"),
             Icon::ScreenShare => icon!("screen-share.svg"),
@@ -465,6 +484,9 @@ impl Icon {
             Icon::StickyNote => icon!("sticky-note.svg"),
             Icon::Slash => icon!("slash.svg"),
             Icon::Send => icon!("send-horizontal.svg"),
+            Icon::Eyedropper => icon!("eyedropper.svg"),
+            Icon::Moon => icon!("moon.svg"),
+            Icon::Sun => icon!("sun.svg"),
             Icon::VideoOff => icon!("video-off.svg"),
             Icon::Maximize => icon!("maximize.svg"),
             Icon::Minimize => icon!("minimize.svg"),
@@ -529,7 +551,24 @@ impl App {
         )
     }
 
-    /// A moving picture at `url`, once it has come, as an `Animated` drawn
+    /// Whether moving pictures play, as Messages' Animate choice and the
+    /// window's focus say (the Slint client's `Motion.playing`), and not
+    /// while nobody is using Yapfast, whatever Animate says
+    /// (`crate::away`); while they don't, each shows its first frame and
+    /// nothing asks for frames.
+    pub fn plays(&self) -> bool {
+        if self.away.inactive {
+            return false;
+        }
+        match self.layout.prefs.animate {
+            crate::layout::Animate::Focused => self.shell.focused,
+            crate::layout::Animate::Always => true,
+            crate::layout::Animate::Never => false,
+        }
+    }
+
+    /// A moving picture at `url`, once it has come and while pictures play
+    /// ([`App::plays`]), as an `Animated` drawn
     /// at `at` within a layout of `size`; it shows nothing until its first
     /// frame unless given a still.
     pub fn moving(
@@ -539,6 +578,9 @@ impl App {
         at: Rectangle,
         cover: bool,
     ) -> Option<Animated<'_>> {
+        if !self.plays() {
+            return None;
+        }
         let picture = self.client.state().pictures.get(url)?;
         picture.animation.as_ref()?;
         let animated = Animated::new(picture.clone(), size, at, cover, &self.playing);
@@ -552,12 +594,16 @@ impl App {
             return Some(handle.clone());
         }
         let canvas = match mark {
-            // The theme's live green for online; the marks go when the
-            // theme changes.
-            Mark::Dot(presence, ring) => {
-                paint::status_dot(presence, ring, crate::theme::rgb(self.theme.live))?
-            }
+            // The theme's live green for online and faint for offline; the
+            // marks go when the theme changes.
+            Mark::Dot(presence, ring) => paint::status_dot(
+                presence,
+                ring,
+                crate::theme::rgb(self.theme.live),
+                crate::theme::rgb(self.theme.faint),
+            )?,
             Mark::Icon(icon, size, color) => paint::svg_icon(icon.svg(), size, color),
+            Mark::Drawn(icon, size) => paint::svg_drawn(icon.svg(), size),
         };
         let handle = handle(canvas);
         self.marks.borrow_mut().insert(mark, handle.clone());
@@ -572,7 +618,22 @@ impl App {
 
     /// One of `ui/icons` as a picture, `size` square, in `color`.
     pub fn glyph(&self, icon: Icon, size: u32, color: Color) -> Pic {
-        Pic::square(self.icon(icon, size, crate::theme::rgb(color)), size as f32)
+        let glyph = Pic::square(self.icon(icon, size, crate::theme::rgb(color)), size as f32);
+        // Drawn once in the colour's own; its alpha fades the picture, as
+        // Slint's `colorize` with a faint colour does.
+        if color.a < 1.0 {
+            glyph.opacity(color.a)
+        } else {
+            glyph
+        }
+    }
+
+    /// One of `ui/icons` in its own colours, `size` square, drawn once.
+    pub fn drawn(&self, icon: Icon, size: u32) -> Pic {
+        let handle = self
+            .mark(Mark::Drawn(icon, size))
+            .expect("icons are always drawn");
+        Pic::square(handle, size as f32)
     }
 
     /// An emoji's picture at `size`, for the menu's quick reactions and
@@ -600,6 +661,20 @@ impl App {
         radius: f32,
         opacity: f32,
     ) -> Element<'_, Message> {
+        self.avatar_tinted(url, name, name, size, radius, opacity)
+    }
+
+    /// [`App::avatar`], its tint picked by `key` rather than the name, as
+    /// the Slint client's inbox tints a room's by its id.
+    pub fn avatar_tinted(
+        &self,
+        url: Option<&str>,
+        name: &str,
+        key: &str,
+        size: f32,
+        radius: f32,
+        opacity: f32,
+    ) -> Element<'_, Message> {
         let pixels = size as u32;
         if let Some(handle) = url.and_then(|url| self.picture(url, pixels, pixels, true)) {
             return Pic::square(handle, size)
@@ -607,7 +682,7 @@ impl App {
                 .opacity(opacity)
                 .into();
         }
-        let tint = faded(hex(tint(name)), opacity);
+        let tint = faded(hex(tint(key)), opacity);
         container(
             text(initials(name))
                 .size(size * 0.4)
@@ -625,13 +700,15 @@ impl App {
         let Face {
             url,
             name,
+            key,
             size,
             opacity,
             decoration,
             play,
             dot,
         } = face;
-        let mut layers = stack![self.avatar(url, name, size, size / 2.0, opacity)];
+        let mut layers =
+            stack![self.avatar_tinted(url, name, key.unwrap_or(name), size, size / 2.0, opacity)];
         let square = Size::new(size, size);
         if let Some(decoration) = decoration {
             let side = (size * 1.2).round();
@@ -666,6 +743,9 @@ impl App {
 pub struct Face<'a> {
     pub url: Option<&'a str>,
     pub name: &'a str,
+    /// What picks the tint without a picture, when not the name: a group
+    /// DM's by its room id, as the Slint client's.
+    pub key: Option<&'a str>,
     pub size: f32,
     pub opacity: f32,
     pub decoration: Option<&'a str>,

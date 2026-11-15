@@ -337,6 +337,7 @@ impl App {
         let face = Face {
             url: friend.avatar.as_deref(),
             name: &friend.name,
+            key: None,
             size: 32.0,
             opacity: 1.0,
             decoration: None,

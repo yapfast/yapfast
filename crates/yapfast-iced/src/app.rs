@@ -65,6 +65,8 @@ const ZOOM_NOTE_TOP: f32 = 12.0;
 #[derive(Clone)]
 pub enum Message {
     Events(Batch),
+    /// Whether someone is using the window.
+    Away(crate::away::Event),
     Stopped,
     /// Linking a Discord account went a step further.
     Linking(yapfast_core::discord_link::Progress),
@@ -96,6 +98,8 @@ pub enum Message {
     /// The server rail, the sidebar, the account's card.
     Rail(crate::rail::Event),
     Side(crate::sidebar::Event),
+    /// A channel or category dragged in the sidebar.
+    Arrange(crate::arrange::Event),
     Account(crate::account::Event),
     /// The minute turned, for the clocks of busy voice channels.
     Minute,
@@ -180,6 +184,8 @@ pub enum Message {
     /// A message's avatar or author was clicked, by its place.
     OpenAuthor(usize),
     CloseProfile,
+    /// Something done on a role's or a mutual server's card (`info_cards.rs`).
+    Info(crate::info_cards::Event),
     /// Something done on a profile: the card, the full one, the DM's panel.
     Profile(crate::profile::Event),
     /// Something done on the friends list, the requests or Add Friend.
@@ -199,6 +205,7 @@ pub enum Message {
     /// Something done in the invite, join, channel or leave dialog
     /// (`server_dialogs.rs`).
     ServerDialog(crate::server_dialogs::Event),
+    LinkDialog(crate::link_dialogs::Event),
     ChannelSettings(crate::channel_settings::Event),
     Status(crate::status::Event),
     Switcher(crate::switcher::Event),
@@ -221,6 +228,8 @@ pub enum Message {
     Shell(crate::shell::Event),
     /// A key pressed with Ctrl, which may zoom.
     Zoom(keyboard::Key, keyboard::key::Physical),
+    /// Ctrl and the wheel.
+    ZoomStep(crate::zoom::Step),
     /// The window's own title bar (`window_bar.rs`).
     Bar(crate::window_bar::Event),
 }
@@ -267,6 +276,19 @@ pub struct App {
     pub side_header: crate::sidebar::SideHeader,
     pub side: Vec<SideRow>,
     pub pointed_side: Option<String>,
+    /// The busy voice channel's card under the pointer was put away by a
+    /// click or its menu, until the pointer leaves the row.
+    pub voice_card_off: bool,
+    /// The sidebar rows' places to drag a channel or category among, and
+    /// the drag going on.
+    pub side_places: crate::arrange::Places,
+    pub arranging: Option<crate::arrange::Arranging>,
+    /// Someone being dragged from a voice channel to another.
+    pub moving_person: Option<crate::arrange::Moving>,
+    /// The thread beside's width as its edge was pressed, while it's dragged.
+    pub aside_drag: Option<f32>,
+    /// The composer written in last, the channel's or the thread's.
+    pub writing_last: crate::composer::Writing,
     pub filter: String,
     pub minute: u64,
     /// What the conversation's header shows of the open room.
@@ -366,6 +388,10 @@ pub struct App {
     /// The voice message whose card the pointer is on, and the one paused
     /// while its waveform is held.
     pub pointed_voice: Option<String>,
+    /// A voice message's volume is open over its mute, by its item, while
+    /// the pointer is on the button or the slider (counted, as they
+    /// overlap).
+    pub voice_volume: Option<(String, u8)>,
     /// The video cell under the pointer, by `{item}/{index}`, and how far
     /// into the message's video playing its last frame is, in milliseconds.
     pub pointed_clip: Option<String>,
@@ -378,6 +404,15 @@ pub struct App {
     pub profiles: crate::profile::Profiles,
     /// Where in the window the last press was, for a menu its button opens.
     pub pressed: std::cell::Cell<Point>,
+    /// The header's button last pressed, where it is: what it opens opens
+    /// from it.
+    pub header_spot: std::cell::Cell<iced::Rectangle>,
+    /// Where the link last pressed in text is, or the sticker, from the
+    /// press (`App::pressed_spot`): an emoji's or sticker's card opens
+    /// under it.
+    pub link_spot: std::cell::Cell<iced::Rectangle>,
+    /// A role's or a mutual server's card, open where it was clicked.
+    pub cards: crate::info_cards::Cards,
     /// The friends list's and the requests' own state, and Active Now's
     /// cards while the friends list shows.
     pub friends: crate::friends::Friends,
@@ -401,6 +436,10 @@ pub struct App {
     /// What's chosen or typed in the invite, join and channel dialogs, and
     /// whether the leave dialog showed at the last sync.
     pub server_dialogs: crate::server_dialogs::Dialogs,
+    /// What's chosen in an event's, gift's or authorization's dialog.
+    pub link_dialogs: crate::link_dialogs::LinkDialogs,
+    /// Whether Discord heard nobody is using Yapfast.
+    pub away: crate::away::Away,
     pub leave_shown: bool,
     pub channel_screen: Option<Box<crate::channel_settings::Screen>>,
     /// The account's popover, and the custom status's dialog's draft.
@@ -449,7 +488,7 @@ pub struct App {
 impl App {
     pub fn new(client: Client, size: (u32, u32)) -> (Self, Task<Message>) {
         let (width, height) = (size.0 as f32, size.1 as f32);
-        let layout = crate::layout::Layout::read(client.root());
+        let layout = crate::layout::Layout::open(client.root(), &crate::build().version);
         let themes = Themes::read(&layout);
         let theme = themes.shown();
         let (fitter, fitted) = crate::pictures::Fitter::new();
@@ -491,6 +530,12 @@ impl App {
             side_header: Default::default(),
             side: Vec::new(),
             pointed_side: None,
+            voice_card_off: false,
+            side_places: Default::default(),
+            arranging: None,
+            moving_person: None,
+            aside_drag: None,
+            writing_last: Default::default(),
             filter: String::new(),
             minute: yapfast_core::clock::now_ms() / 1000 / 60 * 60,
             header: Default::default(),
@@ -550,6 +595,7 @@ impl App {
             pointed_message: None,
             keyed: None,
             pointed_voice: None,
+            voice_volume: None,
             pointed_clip: None,
             clip_time: None,
             voice_held: None,
@@ -557,6 +603,9 @@ impl App {
             card: None,
             profiles: Default::default(),
             pressed: Default::default(),
+            link_spot: Default::default(),
+            header_spot: Default::default(),
+            cards: Default::default(),
             friends: Default::default(),
             active_now: Vec::new(),
             reactions: Default::default(),
@@ -567,6 +616,8 @@ impl App {
             settings: None,
             server_screen: None,
             server_dialogs: Default::default(),
+            link_dialogs: Default::default(),
+            away: Default::default(),
             leave_shown: false,
             channel_screen: None,
             popover: None,
@@ -614,7 +665,8 @@ impl App {
         } else {
             Task::none()
         };
-        (app, Task::batch([sync, frames, focus]))
+        let away = app.watch_away();
+        (app, Task::batch([sync, frames, focus, away]))
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
@@ -682,6 +734,7 @@ impl App {
             Message::MemberActivity(event) => self.member_activity(event),
             Message::Rail(event) => self.rail_event(event),
             Message::Side(event) => self.sidebar_event(event),
+            Message::Arrange(event) => self.arrange_event(event),
             Message::Account(event) => self.account_event(event),
             Message::Minute => {
                 self.minute = yapfast_core::clock::now_ms() / 1000 / 60 * 60;
@@ -759,7 +812,13 @@ impl App {
                 Task::none()
             }
             Message::Nothing => Task::none(),
-            Message::Bell => self.open_bell(self.pressed.get()),
+            Message::Bell => {
+                // Under the bell, 6 px down, as the Slint client's.
+                let at = self.header_button().map_or(self.pressed.get(), |bell| {
+                    Point::new(bell.x, bell.y + bell.height + 6.0)
+                });
+                self.open_bell(at)
+            }
             Message::React(item, key) => {
                 self.menu = None;
                 self.client.dispatch(Action::React { item, key });
@@ -816,6 +875,7 @@ impl App {
             Message::OpenMember(index) => self.open_member(index),
             Message::OpenAuthor(index) => self.open_author(index),
             Message::CloseProfile => self.profile_event(crate::profile::Event::Close),
+            Message::Info(event) => self.info_event(event),
             Message::Profile(event) => self.profile_event(event),
             Message::Friends(event) => self.friends_event(event),
             Message::Reactions(event) => self.reactions_event(event),
@@ -833,6 +893,8 @@ impl App {
                 self.read_window_state()
             }
             Message::ServerDialog(event) => self.server_dialog_event(event),
+            Message::LinkDialog(event) => self.link_dialog_event(event),
+            Message::Away(event) => self.away_event(event),
             Message::ChannelSettings(event) => self.channel_settings_event(event),
             Message::Status(event) => self.status_event(event),
             Message::Switcher(event) => self.switcher_event(event),
@@ -840,6 +902,7 @@ impl App {
             Message::Zoom(key, physical) => {
                 self.zoom_key(&key, physical).unwrap_or_else(Task::none)
             }
+            Message::ZoomStep(step) => self.zoom_step(step),
             Message::Bar(event) => self.bar_event(event),
         }
     }
@@ -925,6 +988,9 @@ impl App {
                 Some(key::Named::Escape) => self.switcher_event(crate::switcher::Event::ClosePoll),
                 _ => Task::none(),
             };
+        }
+        if self.link_dialog_open() {
+            return self.link_dialog_key(named);
         }
         if self.server_dialog_open() {
             return self.server_dialog_key(named);
@@ -1018,7 +1084,7 @@ impl App {
         if named == Some(key::Named::Escape) {
             return self.escape();
         }
-        Task::none()
+        self.type_anywhere(&key, modifiers)
     }
 
     /// Escape where nothing else took it: the topmost thing open closes.
@@ -1053,8 +1119,17 @@ impl App {
         if self.picker.is_some() {
             return self.picker_event(picker::Event::Field(field::Event::Escape));
         }
+        if self.cards.server.is_some() {
+            return self.info_event(crate::info_cards::Event::CloseServer);
+        }
+        if self.cards.expression.is_some() {
+            return self.info_event(crate::info_cards::Event::CloseExpression);
+        }
         if self.card.is_some() || self.profiles.shown.is_some() {
             return self.update(Message::CloseProfile);
+        }
+        if self.client.state().role.is_some() {
+            return self.info_event(crate::info_cards::Event::CloseRole);
         }
         if self.selection.is_some() {
             self.selection = None;
@@ -1074,6 +1149,16 @@ impl App {
         if self.client.state().compose().is_some() {
             self.client.dispatch(Action::CancelCompose);
             return self.sync();
+        }
+        // Then the thread beside's, as the Slint client's
+        // `escape-composing`: its reply, or the New Thread form.
+        if self.aside_shown() {
+            if self.client.state().new_thread().is_some() {
+                return self.thread_event(crate::thread::Event::CloseForm);
+            }
+            if self.client.state().aside_compose().is_some() {
+                return self.thread_event(crate::thread::Event::CancelReply);
+            }
         }
         Task::none()
     }
@@ -1188,6 +1273,7 @@ impl App {
             || state.poll_draft.is_some()
             || state.switcher.is_some()
             || self.server_dialog_open()
+            || self.link_dialog_open()
             || self.popover_open()
             || self.search_shown()
             || self.forum_post.tags_menu
@@ -1212,6 +1298,7 @@ impl App {
             || crate::polls::open_poll(&self.messages, self.minute)
             || !self.activity_cards.is_empty()
             || self.active_now_minutes()
+            || self.popover_playing()
         {
             subscriptions.push(iced::time::every(Duration::from_secs(15)).map(|_| Message::Minute));
         }
@@ -1247,6 +1334,10 @@ impl App {
                     .map(|_| Message::Call(crate::call::Event::Second)),
             );
         }
+        subscriptions.extend(self.arrange_subscription());
+        subscriptions.extend(self.follow_subscription());
+        subscriptions.push(self.away_subscription());
+        subscriptions.extend(crate::settings::voice::window_talk_keys());
         if self.call.grab.is_some() {
             subscriptions.push(iced::event::listen_with(|event, _, _| match event {
                 iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
@@ -1296,6 +1387,10 @@ impl App {
         // come and go: the card, the suggestions, the picker, a menu, the
         // modal, each over the last.
         let mut layers = stack![base];
+        // A role's card, under the card of someone on it.
+        if let Some(role) = self.role_card_layers() {
+            layers = layers.extend(role);
+        }
         if let Some(card) = self.card_view() {
             layers = layers
                 .push(outside(Message::CloseProfile, false))
@@ -1361,6 +1456,13 @@ impl App {
         if let Some(editor) = self.profile_editor_view() {
             layers = layers.push(editor);
         }
+        // A mutual server's, over the profile that lists it.
+        if let Some(server) = self.server_card_layers() {
+            layers = layers.extend(server);
+        }
+        if let Some(expression) = self.expression_card_layers() {
+            layers = layers.extend(expression);
+        }
         if let Some(popover) = self.popover_view() {
             layers = layers
                 .push(outside(Message::Status(crate::status::Event::Close), false))
@@ -1374,6 +1476,7 @@ impl App {
             self.poll_draft_view(),
             self.switcher_view(),
             self.server_dialog_view(),
+            self.link_dialog_view(),
         ]
         .into_iter()
         .flatten()
@@ -1431,6 +1534,21 @@ impl App {
         let content = crate::widgets::RightPress::spot(
             layers.width(Length::Fill).height(Length::Fill),
             &self.pressed,
+        );
+        let content = crate::widgets::CtrlWheel::new(content, Message::ZoomStep);
+        // A middle click scrolls the list under it towards the pointer.
+        let theme = &self.theme;
+        let arrow = |icon| self.icon(icon, 10, crate::theme::rgb(theme.secondary));
+        let content = crate::widgets::Autoscroll::new(
+            content,
+            &[crate::timeline::TIMELINE, crate::thread::LIST],
+            crate::widgets::AutoscrollLook {
+                ground: theme.raised,
+                edge: theme.line,
+                dot: theme.secondary,
+                up: arrow(crate::pictures::Icon::ChevronUp),
+                down: arrow(crate::pictures::Icon::ChevronDown),
+            },
         );
         self.frame_layers(content).into()
     }

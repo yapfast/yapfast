@@ -40,6 +40,8 @@ pub const HEAD: f32 = 48.0;
 pub const WIDTH: f32 = 420.0;
 const LEAST: f32 = 320.0;
 const MOST: f32 = 800.0;
+/// The room the conversation keeps beside it.
+const CHAT_KEPT: f32 = 420.0;
 /// The thread's list and composer, for the app's scroll and focus tasks.
 pub const LIST: &str = "aside";
 pub const COMPOSER: &str = "aside-composer";
@@ -173,6 +175,11 @@ pub enum Event {
     Leave,
     Stay,
     Jump(String),
+    /// Its edge dragged this far since the press, let go, or double
+    /// clicked back to the width it opens at.
+    Resize(f32),
+    Resized,
+    ResetWidth,
 }
 
 impl App {
@@ -274,7 +281,31 @@ impl App {
                 self.client.dispatch(Action::Jump(item));
                 self.sync()
             }
+            Event::Resize(by) => {
+                let from = *self.aside_drag.get_or_insert(self.aside_width());
+                self.layout.aside_width = Some(self.aside_room(from - by));
+                Task::none()
+            }
+            Event::Resized => {
+                self.aside_drag = None;
+                crate::layout::store(self.client.root(), "aside_width", self.aside_width());
+                Task::none()
+            }
+            Event::ResetWidth => {
+                self.aside_drag = None;
+                self.layout.aside_width = Some(WIDTH);
+                crate::layout::store(self.client.root(), "aside_width", WIDTH);
+                Task::none()
+            }
         }
+    }
+
+    /// `width` within what the panel may take: 320 to 800 px, and no more
+    /// than leaves the conversation 420 px, as the Slint client's.
+    fn aside_room(&self, width: f32) -> f32 {
+        let most = (self.window.width - CHAT_KEPT - crate::rail::WIDTH - crate::sidebar::WIDTH)
+            .clamp(LEAST, MOST);
+        width.clamp(LEAST, most)
     }
 
     /// Takes in the core's thread beside the channel and New Thread form:
@@ -287,13 +318,15 @@ impl App {
             self.drafts.aside_known.clear();
             return self.new_thread_sync();
         };
-        let width = self.layout.aside_width.unwrap_or(WIDTH).clamp(LEAST, MOST);
+        let width = self.aside_width();
         if self
             .aside
             .as_ref()
             .is_none_or(|aside| aside.room != core.room)
         {
             self.aside = Some(Box::new(Aside::new(core.room.clone(), width)));
+            // Keys typed anywhere go to it from when it opens.
+            self.writing_last = Writing::Aside;
             let draft = state.aside_draft().to_owned();
             self.drafts.aside.reset(&draft);
             self.drafts.aside_known = draft;
@@ -545,10 +578,7 @@ impl App {
 
     /// The panel's width, as dragged and kept.
     pub fn aside_width(&self) -> f32 {
-        self.aside.as_ref().map_or_else(
-            || self.layout.aside_width.unwrap_or(WIDTH).clamp(LEAST, MOST),
-            |aside| aside.width,
-        )
+        self.aside_room(self.layout.aside_width.unwrap_or(WIDTH))
     }
 
     /// The thread beside the channel, or the New Thread form.
@@ -603,8 +633,18 @@ impl App {
     /// The panel's frame: the edge on its left, its ground.
     fn panel<'a>(&'a self, body: Element<'a, Message>) -> Element<'a, Message> {
         let ground = self.theme.chat;
+        let theme = &self.theme;
+        // Its edge drags it wider or narrower, as the Slint client's.
+        let edge = crate::widgets::Splitter::new(
+            theme.edge,
+            theme.line,
+            theme.faint,
+            |by| Message::Thread(Event::Resize(by)),
+            Message::Thread(Event::Resized),
+            Message::Thread(Event::ResetWidth),
+        );
         row![
-            bar(self.theme.edge, 1, Length::Fill),
+            edge,
             container(body)
                 .width(Length::Fill)
                 .height(Length::Fill)

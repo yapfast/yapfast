@@ -93,6 +93,8 @@ pub struct ActivityLook {
     /// A stream's address, and what the title opens.
     pub url: Option<String>,
     pub link: Option<String>,
+    /// A game played, whose menu on one's own card offers its privacy.
+    pub game: bool,
 }
 
 impl Look {
@@ -325,6 +327,7 @@ fn activity_look(activity: &Activity) -> ActivityLook {
     };
     ActivityLook {
         heading: activity.heading().to_uppercase(),
+        game: activity.kind == yapfast_core::chat::ActivityKind::Playing,
         name,
         name_emoji,
         details,

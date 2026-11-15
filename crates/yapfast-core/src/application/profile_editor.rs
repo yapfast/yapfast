@@ -340,7 +340,9 @@ impl ProfileEditor {
 }
 
 /// A colour as written, as `#rgb` or `#rrggbb`: none when empty.
-fn parse_colour(text: &str) -> Result<Option<u32>, NotAColour> {
+/// A colour as written, `#rrggbb`, `#rgb` or either without the `#`;
+/// none for nothing written.
+pub fn parse_colour(text: &str) -> Result<Option<u32>, NotAColour> {
     let colour = text.trim();
     if colour.is_empty() {
         return Ok(None);

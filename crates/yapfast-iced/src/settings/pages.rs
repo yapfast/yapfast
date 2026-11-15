@@ -275,6 +275,7 @@ impl App {
             Pref::ShowIdle(on) => {
                 prefs.show_idle = Some(on);
                 self.keep("show_idle", on);
+                self.idle_setting_changed();
             }
             Pref::HideBlocked(on) => {
                 self.layout.hide_blocked = on;
@@ -443,6 +444,7 @@ impl App {
                 self.face(crate::pictures::Face {
                     url: account.avatar.as_deref(),
                     name: &account.name,
+                    key: None,
                     size: 64.0,
                     opacity: 1.0,
                     decoration: state.account_decoration.as_deref(),
@@ -926,6 +928,7 @@ impl App {
                 Some(pref(Pref::CheckUpdates(!prefs.check_for_updates))),
             )
             .description("Checks for new versions every 6 hours.")
+            .fresh(self.fresh("check-updates"))
             .view(self),
         );
         parts.push(
@@ -937,6 +940,7 @@ impl App {
                     .then(|| pref(Pref::Nightlies(!prefs.update_nightlies))),
             )
             .description("Get the newest features before release. Expect some bugs.")
+            .fresh(self.fresh("update-nightlies"))
             .view(self),
         );
         parts.push(

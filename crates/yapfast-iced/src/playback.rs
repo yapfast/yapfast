@@ -48,6 +48,12 @@ pub enum Event {
     Mute(bool),
     /// The pointer came onto a card or left it.
     Point(String, bool),
+    /// Play them this loud, from 0 to 1; a wheel's step on the slider,
+    /// up or down; the pointer came onto a card's mute or its slider
+    /// over it, or left.
+    Volume(f32),
+    Turn(f32),
+    VolumeHover(String, bool),
 }
 
 /// What a video's cell asks for.
@@ -80,6 +86,14 @@ const CLIP_SHADE: Color = Color::from_rgba8(0, 0, 0, 0.8);
 const TRACK_REST: Color = Color::from_rgba8(255, 255, 255, 0.3);
 /// How far the volume's slider rises over its button.
 const VOLUME_RISE: f32 = 112.0;
+/// A voice message's volume over its mute, as Slint's popup: the slider's
+/// box and its gap to the button; a wheel's step turns it 5 %.
+const VOICE_SLIDER: f32 = 120.0;
+const VOICE_SLOT: f32 = 40.0;
+/// The mute's button.
+const MUTE: f32 = 28.0;
+const VOICE_GAP: f32 = 6.0;
+const VOICE_TURN: f32 = 0.05;
 
 /// A video's time, as the Slint client's: where it is and how long it
 /// plays, such as "0:12 / 1:30".
@@ -224,8 +238,12 @@ impl App {
         ]
         .spacing(12)
         .align_y(Alignment::Center);
-        // Speed and mute, while the pointer is on it.
-        if self.pointed_voice.as_ref() == Some(item) {
+        // Speed and mute, while the pointer is on it or its volume.
+        let volume_open = self
+            .voice_volume
+            .as_ref()
+            .is_some_and(|(open, count)| open == item && *count > 0);
+        if self.pointed_voice.as_ref() == Some(item) || volume_open {
             let tuning = state.voice_tuning;
             let (rest, lit, text_ink) = (theme.raised, theme.hover, theme.text);
             let speed = button(
@@ -242,25 +260,44 @@ impl App {
                 border: iced::Border::default().rounded(11),
                 ..button::Style::default()
             });
-            card = card.push(
-                row![
-                    speed,
-                    self.icon_button(
-                        if tuning.muted {
-                            Icon::VolumeOff
-                        } else {
-                            Icon::Volume
-                        },
-                        if tuning.muted { "Unmute" } else { "Mute" },
-                        28.0,
-                        18,
-                        Message::Voice(Event::Mute(!tuning.muted)),
-                        false,
-                    )
-                ]
-                .spacing(4)
-                .align_y(Alignment::Center),
+            let mute = self.icon_button(
+                if tuning.muted {
+                    Icon::VolumeOff
+                } else {
+                    Icon::Volume
+                },
+                match (volume_open, tuning.muted) {
+                    (true, _) => "",
+                    (false, true) => "Unmute",
+                    (false, false) => "Mute",
+                },
+                28.0,
+                18,
+                Message::Voice(Event::Mute(!tuning.muted)),
+                false,
             );
+            // The pointer on the mute opens the volume over it, upright as
+            // Discord's desktop player has it, centred on the button.
+            let slot = container(mute).center_x(MUTE);
+            let slot: Element<'a, Message> = if volume_open {
+                container(iced::widget::stack![
+                    slot,
+                    crate::widgets::Corner::new(
+                        self.voice_volume_slider(item, tuning),
+                        (MUTE - VOICE_SLOT) / 2.0,
+                        -(VOICE_SLIDER + VOICE_GAP)
+                    )
+                    .free(),
+                ])
+                .width(MUTE)
+                .into()
+            } else {
+                slot.into()
+            };
+            let mute = mouse_area(slot)
+                .on_enter(Message::Voice(Event::VolumeHover(item.clone(), true)))
+                .on_exit(Message::Voice(Event::VolumeHover(item.clone(), false)));
+            card = card.push(row![speed, mute].spacing(4).align_y(Alignment::Center));
         }
         let ground = theme.sidebar;
         let pill = container(card)
@@ -278,6 +315,64 @@ impl App {
         )
         .padding(Padding::ZERO.top(4))
         .into()
+    }
+
+    /// A voice message's volume, as the Slint client's popup over its
+    /// mute: an upright slider on the raised ground with its edge and
+    /// shadow; the wheel on it turns it 5 % a step.
+    fn voice_volume_slider<'a>(
+        &'a self,
+        item: &str,
+        tuning: yapfast_core::chat::VoiceTuning,
+    ) -> Element<'a, Message> {
+        let theme = &self.theme;
+        let shown = if tuning.muted { 0.0 } else { tuning.volume };
+        let (fill, rest, knob) = (theme.accent, theme.line, theme.text);
+        let slider = iced::widget::vertical_slider(0.0..=1.0, shown, |volume| {
+            Message::Voice(Event::Volume(volume))
+        })
+        .step(0.01)
+        .width(VOICE_SLOT)
+        .style(move |_, _| iced::widget::slider::Style {
+            rail: iced::widget::slider::Rail {
+                backgrounds: (fill.into(), rest.into()),
+                width: TRACK,
+                border: iced::Border::default().rounded(TRACK / 2.0),
+            },
+            handle: iced::widget::slider::Handle {
+                shape: iced::widget::slider::HandleShape::Circle { radius: 6.0 },
+                background: knob.into(),
+                border_width: 0.0,
+                border_color: Color::TRANSPARENT,
+            },
+        });
+        let (ground, edge) = (theme.raised, theme.edge);
+        let boxed = container(slider)
+            .padding([6, 0])
+            .width(VOICE_SLOT)
+            .height(VOICE_SLIDER)
+            .style(move |_| iced::widget::container::Style {
+                border: iced::Border {
+                    color: edge,
+                    width: 1.0,
+                    radius: 8.0.into(),
+                },
+                shadow: crate::style::raised_shadow(),
+                ..rounded(ground, 8)
+            });
+        // Down to the button, so the pointer stays on it on the way.
+        let reach = container(boxed).padding(Padding::ZERO.bottom(VOICE_GAP));
+        mouse_area(reach)
+            .on_enter(Message::Voice(Event::VolumeHover(item.to_owned(), true)))
+            .on_exit(Message::Voice(Event::VolumeHover(item.to_owned(), false)))
+            .on_scroll(|delta| {
+                let up = match delta {
+                    iced::mouse::ScrollDelta::Lines { y, .. }
+                    | iced::mouse::ScrollDelta::Pixels { y, .. } => y,
+                };
+                Message::Voice(Event::Turn(up))
+            })
+            .into()
     }
 
     /// What a voice message's card asked for.
@@ -306,6 +401,29 @@ impl App {
             }
             Event::Speed => self.client.dispatch(Action::CycleVoiceMessageSpeed),
             Event::Mute(muted) => self.client.dispatch(Action::MuteVoiceMessages(muted)),
+            Event::Volume(volume) => self
+                .client
+                .dispatch(Action::VoiceMessageVolume(volume.clamp(0.0, 1.0))),
+            Event::Turn(up) => {
+                let tuning = self.client.state().voice_tuning;
+                let shown = if tuning.muted { 0.0 } else { tuning.volume };
+                let turned = shown + if up > 0.0 { VOICE_TURN } else { -VOICE_TURN };
+                self.client
+                    .dispatch(Action::VoiceMessageVolume(turned.clamp(0.0, 1.0)));
+            }
+            Event::VolumeHover(item, entered) => {
+                let count = match &self.voice_volume {
+                    Some((open, count)) if *open == item => *count,
+                    _ => 0,
+                };
+                let count = if entered {
+                    count.saturating_add(1)
+                } else {
+                    count.saturating_sub(1)
+                };
+                self.voice_volume = (count > 0).then_some((item, count));
+                return Task::none();
+            }
             Event::Point(item, entered) => {
                 crate::app::point(&mut self.pointed_voice, item, entered);
                 return Task::none();
@@ -474,10 +592,20 @@ impl App {
             |at| Message::Clip(Clip::Seek(at)),
         ));
         if show_mute {
+            // Its tip would cover the slider over it while that's open.
+            let open = self.clip_volume > 0;
             let mute = if video.muted {
-                button(Icon::VolumeOff, "Unmute", Message::Clip(Clip::Mute(false)))
+                button(
+                    Icon::VolumeOff,
+                    if open { "" } else { "Unmute" },
+                    Message::Clip(Clip::Mute(false)),
+                )
             } else {
-                button(Icon::Volume, "Mute", Message::Clip(Clip::Mute(true)))
+                button(
+                    Icon::Volume,
+                    if open { "" } else { "Mute" },
+                    Message::Clip(Clip::Mute(true)),
+                )
             };
             let mute: Element<'a, Message> = if self.clip_volume > 0 {
                 iced::widget::stack![

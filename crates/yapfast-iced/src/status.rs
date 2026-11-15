@@ -29,8 +29,12 @@ use crate::{
     widgets::{Anchor, Pic, Place},
 };
 
-/// The popover's width, the dialog's, and its field's id.
+/// The popover's width, its banner's height, its rows' and its status
+/// dot's, the dialog's width, and its field's id.
 const POPOVER: f32 = 300.0;
+const BANNER: f32 = 80.0;
+const ROW: f32 = 40.0;
+const DOT: f32 = 20.0;
 const DIALOG: f32 = 460.0;
 pub const FIELD: &str = "status-text";
 /// What Clear After offers, as minutes where it's a time.
@@ -222,43 +226,14 @@ impl App {
             profile.and_then(|profile| profile.theme),
             theme.panel,
         );
-        let ink = inks.ink;
-        // The banner: its colour, the theme's, or the sunken grey.
-        let banner = profile
-            .and_then(|profile| profile.accent)
-            .map(hex)
-            .or(inks.themed.then_some(inks.primary))
-            .unwrap_or(theme.sunken);
-        let ring = inks.ground;
-        let mut face = stack![
-            container(Space::new())
-                .width(88)
-                .height(88)
-                .style(move |_| rounded(ring, 44)),
-            container(self.avatar(account.avatar.as_deref(), &account.name, 80.0, 40.0, 1.0))
-                .padding(4),
-        ];
+        let card = self.profiles.account.as_ref().map(|(_, shown)| shown);
+        let header = self.popover_header(card, &inks);
         let status = state.discord_presence.as_deref().unwrap_or("online");
-        if let Some(dot) = self.mark(Mark::Dot(presence(status), rgb(ring))) {
-            face = face.push(placed(Pic::square(dot, 16.0), 66.0, 66.0));
+        let mut header = column![header];
+        // Its badges, in Discord's pills.
+        if let Some(shown) = card.filter(|shown| !shown.look.profile().badges.is_empty()) {
+            header = header.push(container(self.badge_rows(shown)).padding(Padding::ZERO.left(16)));
         }
-        let header = stack![
-            Space::new().width(Length::Fill).height(156),
-            container(Space::new())
-                .width(Length::Fill)
-                .height(80)
-                .style(move |_| rounded(banner, corners([8.0, 8.0, 0.0, 0.0]))),
-            placed(face, 12.0, 36.0),
-            placed(
-                text(account.name.as_str())
-                    .size(20)
-                    .font(BOLD)
-                    .color(ink)
-                    .wrapping(text::Wrapping::None),
-                16.0,
-                128.0,
-            ),
-        ];
         let mut body = column![].spacing(12).padding(Padding {
             top: 8.0,
             right: 16.0,
@@ -268,6 +243,9 @@ impl App {
         let custom = state.custom_status.is_some();
         if custom {
             body = body.push(self.status_line(&account.status, 1.0));
+        }
+        if let Some(playing) = &state.discord_playing {
+            body = body.push(self.playing_card(playing));
         }
         let mut first =
             column![self.popover_row("Edit Profile", Icon::Pencil, message(Event::EditProfile))]
@@ -319,6 +297,146 @@ impl App {
         )
     }
 
+    /// The popover's top, as Discord's card: the banner (its picture, else
+    /// its colour, the theme's, the avatar's or the sunken grey), the
+    /// avatar with its decoration and status on a ring of the card's
+    /// ground, and the name in its style with the server tag.
+    fn popover_header<'a>(
+        &'a self,
+        card: Option<&'a crate::profile::Shown>,
+        inks: &crate::profile::look::Inks,
+    ) -> Element<'a, Message> {
+        let theme = &self.theme;
+        let state = self.client.state();
+        let account = &self.account;
+        let profile = card.map(|shown| shown.look.profile());
+        let ground = card
+            .and_then(|shown| self.banner_ground(shown))
+            .map(hex)
+            .or(inks.themed.then_some(inks.primary))
+            .unwrap_or(theme.sunken);
+        let top = corners([8.0, 8.0, 0.0, 0.0]);
+        let mut banner = stack![
+            container(Space::new())
+                .width(Length::Fill)
+                .height(BANNER)
+                .style(move |_| rounded(ground, top))
+        ];
+        if let Some(picture) = card
+            .zip(profile.and_then(|profile| profile.banner.as_deref()))
+            .and_then(|(shown, url)| {
+                self.profile_picture(shown, url, POPOVER as u32, BANNER as u32, true)
+            })
+        {
+            banner = banner.push(
+                Pic::new(picture, iced::Size::new(POPOVER, BANNER))
+                    .radius_each([8.0, 8.0, 0.0, 0.0]),
+            );
+        }
+        let ring = inks.ground;
+        let mut face = stack![
+            container(Space::new())
+                .width(88)
+                .height(88)
+                .style(move |_| rounded(ring, 44)),
+            container(self.face(crate::pictures::Face {
+                url: account.avatar.as_deref(),
+                name: &account.name,
+                key: None,
+                size: 80.0,
+                opacity: 1.0,
+                decoration: state.account_decoration.as_deref(),
+                play: true,
+                dot: None,
+            }))
+            .padding(4),
+        ];
+        let status = state.discord_presence.as_deref().unwrap_or("online");
+        if let Some(dot) = self.mark(Mark::Dot(presence(status), rgb(ring))) {
+            face = face.push(placed(Pic::square(dot, DOT), 66.0, 65.0));
+        }
+        let mut name = row![match card {
+            Some(shown) => self.profile_name(shown, 20.0, inks.ink),
+            None => text(account.name.as_str())
+                .size(20)
+                .font(BOLD)
+                .color(inks.ink)
+                .wrapping(text::Wrapping::None)
+                .into(),
+        }]
+        .spacing(6)
+        .align_y(Alignment::Center);
+        if let Some(tag) = profile.and_then(|profile| state.cosmetics.tag(profile.tag.as_ref())) {
+            name = name.push(self.tag_chip(
+                &tag.text,
+                tag.badge.as_deref(),
+                crate::looks::Chip {
+                    size: 12.0,
+                    font: crate::fonts::SEMIBOLD,
+                    height: 16.0,
+                    pad: 4.0,
+                    radius: 4.0,
+                    fill: if inks.light {
+                        crate::style::faded(iced::Color::WHITE, 0.24)
+                    } else {
+                        crate::style::MEMBER_HOVER
+                    },
+                    ink: if inks.themed { inks.ink } else { theme.text },
+                },
+                1.0,
+            ));
+        }
+        stack![
+            Space::new().width(Length::Fill).height(156),
+            banner,
+            placed(face, 12.0, 36.0),
+            placed(
+                container(name).height(24).align_y(Alignment::Center),
+                16.0,
+                128.0
+            ),
+        ]
+        .into()
+    }
+
+    /// The game this account plays, as Discord's popover shows it: what,
+    /// and for how long when the game says when it started.
+    fn playing_card<'a>(&self, playing: &'a yapfast_core::chat::Playing) -> Element<'a, Message> {
+        let theme = &self.theme;
+        let mut lines = column![
+            text("Playing").size(12).font(BOLD).color(theme.secondary),
+            crate::elide::elide(playing.name.as_str())
+                .size(15)
+                .font(crate::fonts::SEMIBOLD)
+                .color(theme.text),
+        ]
+        .spacing(4);
+        if let Some(started) = playing.started_ms {
+            let lasted = played_for(self.minute.saturating_mul(1000).saturating_sub(started));
+            lines = lines.push(text(lasted).size(12).color(theme.live));
+        }
+        let raised = theme.raised;
+        container(lines)
+            .padding(12)
+            .height(80)
+            .width(Length::Fill)
+            .align_y(Alignment::Center)
+            .style(move |_| rounded(raised, 8))
+            .into()
+    }
+
+    /// Whether the popover shows how long a game has run, which the
+    /// minute's clock keeps up to date.
+    pub fn popover_playing(&self) -> bool {
+        self.popover.is_some()
+            && self
+                .client
+                .state()
+                .discord_playing
+                .as_ref()
+                .is_some_and(|playing| playing.started_ms.is_some())
+    }
+
     /// A row of the popover's: its icon, its words.
     fn popover_row<'a>(
         &self,
@@ -326,7 +444,7 @@ impl App {
         icon: Icon,
         pressed: Message,
     ) -> Element<'a, Message> {
-        self.menu_item(
+        self.menu_item_sized(
             Item {
                 label: label.into(),
                 icon: Some(icon),
@@ -338,6 +456,7 @@ impl App {
             },
             Light::Pointer,
             pressed,
+            ROW,
         )
     }
 
@@ -369,17 +488,21 @@ impl App {
                 theme.muted,
             ));
         let active = theme.active;
-        button(line)
-            .padding([0, 8])
-            .height(40)
-            .width(Length::Fill)
-            .on_press(message(Event::Expand))
-            .style(move |_, status| button::Style {
-                background: lights(status).then(|| active.into()),
-                border: Border::default().rounded(4),
-                ..Default::default()
-            })
-            .into()
+        button(
+            container(line)
+                .height(Length::Fill)
+                .align_y(Alignment::Center),
+        )
+        .padding([0, 8])
+        .height(ROW)
+        .width(Length::Fill)
+        .on_press(message(Event::Expand))
+        .style(move |_, status| button::Style {
+            background: lights(status).then(|| active.into()),
+            border: Border::default().rounded(4),
+            ..Default::default()
+        })
+        .into()
     }
 
     /// One of Discord's statuses: its dot, its name and what it means, a
@@ -539,4 +662,15 @@ fn group(rows: iced::widget::Column<'_, Message>, raised: iced::Color) -> Elemen
         .width(Length::Fill)
         .style(move |_| rounded(raised, 8))
         .into()
+}
+
+/// How long a game has run, in Discord's words.
+fn played_for(elapsed_ms: u64) -> String {
+    let minutes = elapsed_ms / 60_000;
+    match (minutes / 60, minutes % 60) {
+        (0, 0) => "less than a minute".into(),
+        (0, minutes) => format!("{minutes} min"),
+        (hours, 0) => format!("{hours} hr"),
+        (hours, minutes) => format!("{hours} hr {minutes} min"),
+    }
 }

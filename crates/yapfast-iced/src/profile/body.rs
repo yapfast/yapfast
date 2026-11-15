@@ -10,7 +10,6 @@ use std::sync::Arc;
 use iced::{
     Alignment, Border, Color, Element, Length, Padding, Point, Rectangle, Size,
     advanced::graphics::text::font_system,
-    advanced::image::Handle,
     widget::{Space, button, column, container, mouse_area, row, stack, text, text_input, tooltip},
 };
 use yapfast_core::chat::{self, Presence};
@@ -23,7 +22,7 @@ use super::{
 use crate::{
     app::{App, Message},
     controls::{self, Kind, action, lit_style, placed},
-    fonts::{BOLD, MEDIUM, REGULAR, SEMIBOLD, shown_name, style_font},
+    fonts::{BOLD, MEDIUM, REGULAR, SEMIBOLD},
     looks::{self, Chip},
     markdown, paint,
     pictures::{Icon, Mark},
@@ -35,6 +34,19 @@ use crate::{
 /// The selection row the bio's pieces say they're in: none of the
 /// timeline's.
 const BIO_ROW: usize = usize::MAX - 2;
+
+/// A badge's tooltip waits for the pointer to rest on it, as Discord's;
+/// a levelled one's card is this wide, its picture this high, its edge
+/// Discord's.
+const BADGE_TIP_DELAY: std::time::Duration = std::time::Duration::from_millis(500);
+const BADGE_TIP_WIDTH: f32 = 200.0;
+const BADGE_TIP_PICTURE: f32 = 64.0;
+const BADGE_TIP_EDGE: Color = Color {
+    r: 0x97 as f32 / 255.0,
+    g: 0x97 as f32 / 255.0,
+    b: 0x9f as f32 / 255.0,
+    a: 0x1f as f32 / 255.0,
+};
 
 /// A mode's banner, avatar and padding, as the Slint client sizes them.
 struct Metrics {
@@ -94,7 +106,9 @@ impl App {
             let now = yapfast_core::clock::now_ms() / 1000;
             let mut activities = column![].spacing(12);
             for activity in &look.activities {
-                activities = activities.push(self.activity_card_view(activity, &inks, now));
+                let menu = (mode == Mode::Card && !look.bot && !self.client.state().preview)
+                    .then_some(look.own);
+                activities = activities.push(self.activity_card_view(activity, &inks, now, menu));
             }
             body = body.push(activities);
         }
@@ -205,8 +219,8 @@ impl App {
         let still = profile.banner.as_deref().and_then(|url| {
             self.profile_picture(shown, url, width as u32, banner_height as u32, true)
         });
-        let banner_ground = look
-            .accent
+        let banner_ground = self
+            .banner_ground(shown)
             .map(hex)
             .or(inks.themed.then_some(inks.primary))
             .unwrap_or(self.theme.raised);
@@ -416,7 +430,10 @@ impl App {
         let bubble_box = mouse_area(bubble_box)
             .on_enter(Message::Profile(Event::Bubble(true)))
             .on_exit(Message::Profile(Event::Bubble(false)));
+        // A stack is the size of its first child, which lays out the rest:
+        // the whole top, so the second dot and the bubble have room.
         stack![
+            Space::new().width(Length::Fill).height(Length::Fill),
             placed(dot(dots[0].2), dots[0].0, dots[0].1),
             placed(dot(dots[1].2), dots[1].0, dots[1].1),
             placed(bubble_box, at.x, at.y),
@@ -505,7 +522,7 @@ impl App {
 
     /// The name, with its whole style drawn once while the profile shows,
     /// or in plain bold.
-    pub(super) fn profile_name(
+    pub(crate) fn profile_name(
         &self,
         shown: &Shown,
         size: f32,
@@ -536,40 +553,13 @@ impl App {
             .as_ref()
             .is_none_or(|made| made.name != profile.name || made.key != key)
         {
-            // Its font first, so the font system has it.
-            let _ = style_font(Some(&style), 700);
-            let mut system = font_system().write().expect("font system");
-            let mut picture = paint::styled_name(
-                system.raw(),
-                &shown_name(&profile.name, Some(&style)),
-                &style,
-                size,
-                700,
-            );
-            let mut pixels = std::mem::take(&mut picture.canvas.pixels);
-            paint::finish(&mut pixels);
-            let image = Handle::from_rgba(picture.canvas.width, picture.canvas.height, pixels);
             *cached = Some(StyledName {
                 name: profile.name.clone(),
                 key,
-                image,
-                picture,
+                picture: paint::NamePicture::new(&style, &profile.name, size, 700),
             });
         }
-        let made = cached.as_ref().expect("made above");
-        let margin = made.picture.margin as f32;
-        Pic::new(
-            made.image.clone(),
-            Size::new(made.picture.width, made.picture.height),
-        )
-        .at(Rectangle::new(
-            Point::new(-margin, -margin),
-            Size::new(
-                made.picture.canvas.width as f32,
-                made.picture.canvas.height as f32,
-            ),
-        ))
-        .into()
+        cached.as_ref().expect("made above").picture.view()
     }
 
     /// The username and pronouns, and the server tag's chip.
@@ -734,7 +724,7 @@ impl App {
     /// Someone's badges as Discord's profile sets them: twelve to a row,
     /// 20 px icons 2 px apart, each row a pill of its own; a badge's name
     /// shows over it, and a click opens its page when it has one.
-    pub(super) fn badge_rows<'a>(&'a self, shown: &'a Shown) -> Element<'a, Message> {
+    pub(crate) fn badge_rows<'a>(&'a self, shown: &'a Shown) -> Element<'a, Message> {
         let profile = shown.look.profile();
         let mut rows = column![].spacing(4);
         for chunk in profile.badges.chunks(12) {
@@ -753,21 +743,16 @@ impl App {
                         .into(),
                     None => picture,
                 };
-                let label = badge
-                    .level
-                    .as_ref()
-                    .map_or(badge.description.clone(), |level| {
-                        format!("{} {}", level.title, level.progress)
-                            .trim()
-                            .to_owned()
-                    });
+                // A badge that levels up has Discord's card for a tooltip,
+                // after the pointer rests on it, as Discord's waits.
+                let tip = match &badge.level {
+                    Some(level) => self.badge_level_tip(shown, level),
+                    None => controls::tip(&self.theme, badge.description.as_str()),
+                };
                 pill = pill.push(
-                    tooltip(
-                        face,
-                        controls::tip(&self.theme, label),
-                        tooltip::Position::Top,
-                    )
-                    .gap(6),
+                    tooltip(face, tip, tooltip::Position::Top)
+                        .gap(6)
+                        .delay(BADGE_TIP_DELAY),
                 );
             }
             let (ground, edge) = (
@@ -790,6 +775,79 @@ impl App {
             );
         }
         rows.into()
+    }
+
+    /// The tooltip of a badge that levels up, set by Discord's own values
+    /// (the Slint client's `BadgeTipCard`): 200 px wide on the tooltip's
+    /// ground, the level's picture 64 px high, then the kind, the level in
+    /// capitals and the progress.
+    fn badge_level_tip<'a>(
+        &'a self,
+        shown: &'a Shown,
+        level: &'a chat::ProfileBadgeLevel,
+    ) -> Element<'a, Message> {
+        let theme = &self.theme;
+        let mut card = column![].spacing(16).padding(Padding {
+            left: 12.0,
+            right: 12.0,
+            top: 16.0,
+            bottom: if level.progress.is_empty() {
+                24.0
+            } else {
+                16.0
+            },
+        });
+        // As wide as the picture's shape makes it at its height.
+        let picture = self
+            .client
+            .state()
+            .pictures
+            .get(&level.picture)
+            .filter(|picture| picture.height > 0)
+            .and_then(|picture| {
+                let width = (BADGE_TIP_PICTURE * picture.width as f32 / picture.height as f32)
+                    .round()
+                    .max(1.0);
+                let height = BADGE_TIP_PICTURE as u32;
+                self.profile_picture(shown, &level.picture, width as u32, height, false)
+                    .map(|handle| Pic::new(handle, Size::new(width, BADGE_TIP_PICTURE)))
+            });
+        card = card.push(match picture {
+            Some(picture) => container(picture)
+                .center_x(Length::Fill)
+                .height(BADGE_TIP_PICTURE),
+            None => container(Space::new()).height(BADGE_TIP_PICTURE),
+        });
+        let line = |words: String, size: u32, font, ink| {
+            text(words)
+                .size(size)
+                .font(font)
+                .color(ink)
+                .width(Length::Fill)
+                .align_x(Alignment::Center)
+        };
+        let mut words = column![].spacing(4);
+        if let Some(kind) = &level.kind {
+            words = words.push(line(kind.clone(), 14, MEDIUM, theme.secondary));
+        }
+        words = words.push(line(level.title.to_uppercase(), 16, BOLD, theme.text));
+        if !level.progress.is_empty() {
+            words = words.push(line(level.progress.clone(), 14, MEDIUM, theme.secondary));
+        }
+        let ground = theme.tooltip;
+        container(card.push(words))
+            .width(BADGE_TIP_WIDTH)
+            .style(move |_| container::Style {
+                background: Some(ground.into()),
+                border: Border {
+                    color: BADGE_TIP_EDGE,
+                    width: 1.0,
+                    radius: 8.0.into(),
+                },
+                shadow: crate::style::raised_shadow(),
+                ..Default::default()
+            })
+            .into()
     }
 
     /// What is shared, with a few of the faces: "5 Mutual Friends", a

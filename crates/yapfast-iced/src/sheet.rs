@@ -265,8 +265,27 @@ fn nav_entry<'a>(app: &'a App, row: Nav<'a>, first: bool) -> Element<'a, Message
             selected,
             danger,
             press,
-        } => nav_row(app, icon, label, selected, danger, ROW, press),
+        } => nav_row(
+            app,
+            icon,
+            label,
+            NavState {
+                selected,
+                danger,
+                fresh: false,
+            },
+            ROW,
+            press,
+        ),
     }
+}
+
+/// A [`nav_row`]'s state: chosen, dangerous (red), and with a NEW tag.
+#[derive(Clone, Copy, Default)]
+pub struct NavState {
+    pub selected: bool,
+    pub danger: bool,
+    pub fresh: bool,
 }
 
 /// A section's or page's row in a settings column, as the Slint client's
@@ -276,11 +295,15 @@ pub fn nav_row<'a>(
     app: &App,
     icon: Icon,
     label: impl text::IntoFragment<'a>,
-    selected: bool,
-    danger: bool,
+    state: NavState,
     height: f32,
     press: Message,
 ) -> Element<'a, Message> {
+    let NavState {
+        selected,
+        danger,
+        fresh,
+    } = state;
     let theme = &app.theme;
     let icon_ink = if danger {
         theme.danger
@@ -306,6 +329,7 @@ pub fn nav_row<'a>(
                     .font(MEDIUM)
                     .wrapping(text::Wrapping::None)
             ]
+            .push(fresh.then(|| crate::form::new_tag(theme)))
             .spacing(8)
             .align_y(Alignment::Center),
         )

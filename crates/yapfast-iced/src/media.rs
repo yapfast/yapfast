@@ -257,7 +257,7 @@ impl App {
                     None => Space::new().width(size.width).height(size.height).into(),
                 }
             }
-            Some(picture) if picture.animation.is_some() => {
+            Some(picture) if picture.animation.is_some() && self.plays() => {
                 let animated =
                     Animated::new(picture.clone(), size, at, fit == Fit::Cover, &self.playing)
                         .radius(radius);

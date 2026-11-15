@@ -2,9 +2,10 @@
 //! the Slint client's in `ui/server.slint`: the invite link
 //! (`InviteDialog`), Join a Server and a clicked invite's (`JoinDialog`),
 //! and making, copying or deleting a channel or category, which asks before
-//! leaving a server or group too (`ChannelDialog`). What each shows and does
+//! leaving a server or group too (`ChannelDialog`), and whether a channel
+//! dragged into a category takes its permissions. What each shows and does
 //! is the core's (`state.invite`, `state.join`, `state.channel_dialog`,
-//! `state.leave`); the dialogs keep only what's being chosen or typed in
+//! `state.leave`, `state.move_sync`); the dialogs keep only what's being chosen or typed in
 //! them ([`Dialogs`]), from when the core opens one to when it closes it.
 //! Each is drawn in `dialogs::dialog`'s frame; Escape or a click outside
 //! closes it.
@@ -12,7 +13,7 @@
 use iced::{
     Alignment, Element, Length, Task,
     keyboard::key,
-    widget::{Id, Space, button, column, container, operation, row, text},
+    widget::{Id, button, container, operation, row, text},
 };
 use yapfast_core::{
     application::{Action, ChannelAsk, INVITE_AGES, INVITE_USES},
@@ -22,10 +23,8 @@ use yapfast_core::{
 use crate::{
     app::{App, Message, NOBODY},
     controls::{self, Kind, action},
-    dialogs::dialog,
-    fonts::BOLD,
+    dialogs::buttons,
     form,
-    pictures::Icon,
     style::rounded,
 };
 
@@ -33,8 +32,6 @@ use crate::{
 /// Join a Server's.
 const WIDE: f32 = 460.0;
 const NARROW: f32 = 440.0;
-/// How far a dialog stays in from the window's edges, in all.
-const ROOM: f32 = 48.0;
 /// The invite link's box.
 const LINK: f32 = 44.0;
 /// The fields' ids.
@@ -91,6 +88,9 @@ pub enum Event {
     Leave,
     ToggleSilent,
     CloseLeave,
+    /// The moved channel takes its category's permissions (true), keeps
+    /// its own (false), or stays where it was (none).
+    MoveSync(Option<bool>),
 }
 
 fn message(event: Event) -> Message {
@@ -105,6 +105,7 @@ impl App {
             || state.join.is_some()
             || state.channel_dialog.is_some()
             || state.leave.is_some()
+            || state.move_sync.is_some()
     }
 
     /// Takes in the core's dialogs: what's typed in one starts as it opens
@@ -278,6 +279,7 @@ impl App {
             Event::Leave => Action::Leave,
             Event::ToggleSilent => Action::ToggleSilentLeave,
             Event::CloseLeave => Action::CloseLeave,
+            Event::MoveSync(sync) => Action::AnswerMoveSync(sync),
         };
         self.client.dispatch(action);
         let task = self.sync();
@@ -292,7 +294,9 @@ impl App {
     /// a channel dialog or a leave without a field.
     pub fn server_dialog_key(&mut self, named: Option<key::Named>) -> Task<Message> {
         let state = self.client.state();
-        let (close, enter) = if state.leave.is_some() {
+        let (close, enter) = if state.move_sync.is_some() {
+            (Event::MoveSync(None), Some(Event::MoveSync(Some(true))))
+        } else if state.leave.is_some() {
             (Event::CloseLeave, Some(Event::Leave))
         } else if state.channel_dialog.is_some() {
             (Event::CloseChannel, Some(Event::SaveChannel))
@@ -314,6 +318,9 @@ impl App {
     /// The open one of these dialogs, if any.
     pub fn server_dialog_view(&self) -> Option<Element<'_, Message>> {
         let state = self.client.state();
+        if state.move_sync.is_some() {
+            return self.move_sync_view();
+        }
         if state.leave.is_some() {
             return self.leave_view();
         }
@@ -324,37 +331,6 @@ impl App {
             return self.join_server_view();
         }
         self.invite_view()
-    }
-
-    /// A dialog's title with its close button.
-    fn dialog_head<'a>(&'a self, title: String, close: Event) -> Element<'a, Message> {
-        row![
-            text(title)
-                .size(18)
-                .font(BOLD)
-                .color(self.theme.text)
-                .wrapping(text::Wrapping::None)
-                .width(Length::Fill),
-            self.icon_button(Icon::X, "Close", 28.0, 18, message(close), true),
-        ]
-        .align_y(Alignment::Center)
-        .into()
-    }
-
-    /// A dialog's frame at `width`, kept inside the window.
-    fn framed<'a>(
-        &'a self,
-        body: impl IntoIterator<Item = Element<'a, Message>>,
-        width: f32,
-        close: Event,
-    ) -> Element<'a, Message> {
-        let body = column(body).spacing(12).padding(20);
-        dialog(
-            &self.theme,
-            body.into(),
-            width.min(self.window.width - ROOM),
-            message(close),
-        )
     }
 
     /// The invite link to a server or channel: the link with Copy, how long
@@ -403,7 +379,7 @@ impl App {
         let mut body = vec![
             self.dialog_head(
                 format!("Invite friends to {}", invite.server),
-                Event::CloseInvite,
+                message(Event::CloseInvite),
             ),
             form::note(theme, format!("They'll land in {place}.")),
             form::heading(theme, "INVITE LINK"),
@@ -448,7 +424,7 @@ impl App {
                 .into(),
             ]),
         ]);
-        Some(self.framed(body, WIDE, Event::CloseInvite))
+        Some(self.framed(body, WIDE, message(Event::CloseInvite)))
     }
 
     /// Join a Server, or the dialog a clicked invite link opens: the field
@@ -465,7 +441,7 @@ impl App {
         } else {
             "Join a Server"
         };
-        let mut body = vec![self.dialog_head(title.to_owned(), Event::CloseJoin)];
+        let mut body = vec![self.dialog_head(title.to_owned(), message(Event::CloseJoin))];
         if !join.from_link {
             body.extend([
                 form::note(
@@ -488,31 +464,11 @@ impl App {
                 _ if preview.voice => preview.channel.clone(),
                 _ => format!("#{}", preview.channel),
             };
-            let sunken = theme.sunken;
-            body.push(
-                container(
-                    row![
-                        self.avatar(preview.icon.as_deref(), &preview.name, 48.0, 24.0, 1.0),
-                        column![
-                            text(preview.name.as_str())
-                                .size(16)
-                                .font(BOLD)
-                                .color(theme.text)
-                                .wrapping(text::Wrapping::None),
-                            form::note(theme, detail),
-                        ]
-                        .spacing(2)
-                        .width(Length::Fill)
-                    ]
-                    .spacing(12)
-                    .align_y(Alignment::Center),
-                )
-                .padding(12)
-                .width(Length::Fill)
-                .clip(true)
-                .style(move |_| rounded(sunken, 8))
-                .into(),
-            );
+            body.push(self.found_card(
+                Some(self.avatar(preview.icon.as_deref(), &preview.name, 48.0, 24.0, 1.0)),
+                preview.name.clone(),
+                [detail],
+            ));
         }
         let status = if join.form.is_some() {
             "You joined. This server asks new members to fill in a form before they can talk, which Yapfast can't show yet. Finish it in Discord's web app."
@@ -580,7 +536,7 @@ impl App {
             );
         }
         body.push(buttons(row_));
-        Some(self.framed(body, NARROW, Event::CloseJoin))
+        Some(self.framed(body, NARROW, message(Event::CloseJoin)))
     }
 
     /// Making, copying or deleting a channel or category: where it goes or
@@ -628,7 +584,7 @@ impl App {
         let deleting = matches!(asked.ask, ChannelAsk::Delete(_));
         let ready = !asked.saving;
         let mut body = vec![
-            self.dialog_head(title, Event::CloseChannel),
+            self.dialog_head(title, message(Event::CloseChannel)),
             form::note(theme, detail),
         ];
         if matches!(asked.ask, ChannelAsk::Create { .. }) && !category {
@@ -680,7 +636,7 @@ impl App {
             )
             .into(),
         ]));
-        Some(self.framed(body, WIDE, Event::CloseChannel))
+        Some(self.framed(body, WIDE, message(Event::CloseChannel)))
     }
 
     /// Asks before leaving a server or group DM, in red; a group's offers
@@ -691,7 +647,10 @@ impl App {
         let what = if leave.group { "group" } else { "server" };
         let ready = !leave.leaving;
         let mut body = vec![
-            self.dialog_head(format!("Leave '{}'", leave.name), Event::CloseLeave),
+            self.dialog_head(
+                format!("Leave '{}'", leave.name),
+                message(Event::CloseLeave),
+            ),
             form::note(
                 theme,
                 format!(
@@ -741,24 +700,49 @@ impl App {
             )
             .into(),
         ]));
-        Some(self.framed(body, WIDE, Event::CloseLeave))
+        Some(self.framed(body, WIDE, message(Event::CloseLeave)))
     }
 }
 
-/// A dialog's buttons, at its end, a little below the rest.
-fn buttons<'a>(parts: impl IntoIterator<Item = Element<'a, Message>>) -> Element<'a, Message> {
-    let mut line = row![Space::new().width(Length::Fill)]
-        .spacing(8)
-        .align_y(Alignment::Center);
-    for part in parts {
-        line = line.push(part);
+impl App {
+    /// Asks whether a channel dragged into a category takes its
+    /// permissions, as Discord's client does (the Slint client's
+    /// `ChannelDialog` with the core's `MoveSync`): Sync Permissions, or
+    /// Keep Current Permissions; closing it leaves the channel where it was.
+    fn move_sync_view(&self) -> Option<Element<'_, Message>> {
+        let asked = self.client.state().move_sync.as_ref()?;
+        let theme = &self.theme;
+        let body = vec![
+            self.dialog_head(
+                "Sync permissions?".to_owned(),
+                message(Event::MoveSync(None)),
+            ),
+            form::note(
+                theme,
+                format!(
+                    "Would you like to sync {} permissions with {}?",
+                    asked.channel, asked.category
+                ),
+            ),
+            buttons([
+                action(
+                    theme,
+                    "Keep Current Permissions",
+                    Kind::Ghost,
+                    Some(message(Event::MoveSync(Some(false)))),
+                )
+                .into(),
+                action(
+                    theme,
+                    "Sync Permissions",
+                    Kind::Primary,
+                    Some(message(Event::MoveSync(Some(true)))),
+                )
+                .into(),
+            ]),
+        ];
+        Some(self.framed(body, WIDE, message(Event::MoveSync(None))))
     }
-    container(line)
-        .padding(iced::Padding {
-            top: 4.0,
-            ..iced::Padding::ZERO
-        })
-        .into()
 }
 
 /// How long an invite link lasts, as the dialog says it.

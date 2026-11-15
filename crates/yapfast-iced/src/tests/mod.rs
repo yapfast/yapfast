@@ -41,7 +41,7 @@ fn preview() -> (App, tempfile::TempDir) {
 /// of a Yapfast that has no account yet.
 fn start(folder: &tempfile::TempDir, preview: bool) -> App {
     static FONTS: Once = Once::new();
-    FONTS.call_once(|| fonts::install(twemoji().unwrap_or_default()));
+    FONTS.call_once(|| fonts::install(twemoji()));
     let runtime = Arc::new(BackgroundRuntime::new().expect("runtime"));
     let mut client = Client::new(runtime, folder.path().into());
     if preview {
@@ -50,29 +50,61 @@ fn start(folder: &tempfile::TempDir, preview: bool) -> App {
     App::new(client, (1120, 760)).0
 }
 
-/// The Twemoji font the root crate's `build.rs` packs, the newest any
-/// build of it left, for the tests that draw or offer emoji; none before
-/// the root crate was built.
-pub(crate) fn twemoji() -> Option<&'static [u8]> {
-    static FONT: std::sync::OnceLock<Option<&'static [u8]>> = std::sync::OnceLock::new();
-    *FONT.get_or_init(|| {
-        let target = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target");
-        let newest = std::fs::read_dir(&target)
-            .ok()?
+/// The Twemoji font for the tests that draw or offer emoji, made from
+/// `vendor/twemoji`'s pictures with the root crate's own font tables, as
+/// its `build.rs` packs them, so a test never runs without it. It skips
+/// what only the look needs: the pictures' margins and the joined
+/// sequences, which the tests don't type.
+pub(crate) fn twemoji() -> &'static [u8] {
+    static FONT: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+    FONT.get_or_init(|| {
+        let folder = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../vendor/twemoji/72x72");
+        let mut pictures: Vec<(String, Vec<u8>)> = std::fs::read_dir(&folder)
+            .expect("vendor/twemoji/72x72")
             .flatten()
-            .flat_map(|profile| {
-                std::fs::read_dir(profile.path().join("build"))
-                    .into_iter()
-                    .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().is_some_and(|extension| extension == "png"))
+            .map(|path| {
+                let name = path
+                    .file_stem()
+                    .expect("a name")
+                    .to_string_lossy()
+                    .to_ascii_lowercase();
+                (name, std::fs::read(&path).expect("a picture"))
             })
-            .flatten()
-            .map(|build| build.path().join("out/twemoji.ttf"))
-            .filter_map(|font| Some((font.metadata().ok()?.modified().ok()?, font)))
-            .max()?;
-        let bytes = std::fs::read(newest.1).ok()?;
-        Some(&*Box::leak(bytes.into_boxed_slice()))
+            .collect();
+        assert!(!pictures.is_empty(), "Twemoji's pictures");
+        pictures.sort_by(|left, right| left.0.cmp(&right.0));
+        let glyph = |index: usize| {
+            char::from_u32(emoji_font_tables::TWEMOJI_LAST - index as u32).expect("a code point")
+        };
+        let also: Vec<(u32, char)> = pictures
+            .iter()
+            .enumerate()
+            .filter_map(|(index, (name, _))| {
+                let point = u32::from_str_radix(name, 16).ok()?;
+                char::from_u32(point).map(|_| (point, glyph(index)))
+            })
+            .collect();
+        let glyphs: Vec<(char, Vec<u8>)> = pictures
+            .into_iter()
+            .enumerate()
+            .map(|(index, (_, bytes))| (glyph(index), bytes))
+            .collect();
+        emoji_font_tables::build_joined(
+            &emoji_font_tables::TWEMOJI,
+            crate::fonts::TWEMOJI,
+            &glyphs,
+            &also,
+            &emoji_font_tables::Joins::default(),
+        )
     })
 }
+
+/// The root crate's font tables, which its `build.rs` packs Twemoji with.
+#[path = "../../../../src/emoji_font_tables.rs"]
+#[allow(dead_code)]
+mod emoji_font_tables;
 
 /// The workspace's ignored `.local`, where tests keep their fixtures.
 fn local() -> PathBuf {
@@ -912,11 +944,14 @@ fn messages_the_core_makes_anew_keep_their_text_laid_out() {
     assert!(shows(&app, "Other words"));
 }
 
+mod arrange;
 mod calls;
+mod cards;
 mod channel_settings;
 mod dialogs;
 mod editor;
 mod header;
+mod link_dialogs;
 mod menus;
 mod people;
 mod server;
@@ -925,3 +960,10 @@ mod settings;
 mod shell;
 mod threads;
 mod writing;
+
+/// The time now, in Unix milliseconds.
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_millis() as u64)
+}

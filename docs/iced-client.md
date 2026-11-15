@@ -107,8 +107,21 @@ build.
   forward buttons, go back and forward too, whichever bar there is.
 - Zoom: Ctrl with + or - steps through the shared `zoom.rs` levels, no
   further in than the window's room allows, and Ctrl+0 goes back to 100%;
+  Ctrl and the wheel step too (a notch, or 60 px of a touchpad), taken
+  round the whole window (`widgets::CtrlWheel`) so nothing under the
+  pointer scrolls;
   the level is kept in `layout.json` and shows a moment at the top. iced
   scales the whole window by it.
+- Autoscroll (`widgets::Autoscroll`, round the whole window, as Slint's
+  `yapfast_autoscroll`): a middle click on a list that has more than
+  fits scrolls it towards the pointer, still within 10 px of the click and
+  faster the farther (8 px a second for each px past, more by 0.05 for
+  each px squared, at most 12000), until the next press, a key or the
+  wheel; held and moved away, until it's let go. The pointer's events go
+  to nothing under it meanwhile, the press that ends it included, and a
+  circle with arrows marks the click. It scrolls on each frame it asks for
+  while it goes on and asks for none after; the timeline and the thread
+  beside, anchored to their foot, scroll the other way round.
 - Updates (`settings/updates.rs`): with the check on, a look at the
   releases at start and every six hours, and Check now on About; a newer
   release shows in About with its notes, Update and restart (which
@@ -163,7 +176,9 @@ channel in it, where this account may. A channel's row shows its kind's
 icon, its unread mark at the sidebar's edge, its mentions, and muted or
 locked faint; a busy voice channel lists who is in it and how long the
 call has gone on, which a timer brings up to date each minute only while
-one shows. A voice channel with a chat offers Open chat on its row under
+one shows; under the pointer, a card beside its row names who is there
+(how many, who is live or filming, the first eight and how many more), put
+away by a click or its menu until the pointer leaves. A voice channel with a chat offers Open chat on its row under
 the pointer or while selected, which shows the chat without joining; the
 header's button goes back to the call's view, or to the chat again. A right click on
 a row opens its menu (`places.rs`), built from the core's
@@ -175,13 +190,40 @@ Notification settings' submenu picks the level and ticks Suppress
 and Show all channels are boxes ticked in place. A channel's or category's
 mutes it the same way and picks its level (or its category's or server's
 default, named under it); the header's bell opens the open channel's
-mute and levels. Pin and Unpin, Add to and Remove from the channel list,
+mute and levels under it, 6 px down from its left edge. Pin and Unpin, Add to and Remove from the channel list,
 Unfollow category, Join and Leave thread, Invite, Create channel and
 category, Duplicate and Delete, and Leave server go to the core, those
 that ask first or need more opening their dialog (see Dialogs). A menu
 taller than the window scrolls, kept inside it. A
 DM's menu mutes it for a time and, for its person, offers what their own
 menu does, with Invite to server and Apps in submenus.
+
+In a Discord server, channels and categories drag to move them
+(`arrange.rs`, the Slint client's `RoomList` arranging): each category and
+each channel showing outside a folded one has a place, as Discord's client
+lists them (pinned channels and threads stay put). A row pressed and moved
+4 px (`widgets::Drags`) starts a drag where the core lets this account
+move it; a press let go sooner is a click. While it's dragged, a faint copy
+follows the pointer, the rows it can't land among dim (all under a
+category, voice and text channels under each other), the green line
+(`DropLine`) marks where it would land, across the top of the row it's
+over when dragged up and the foot when dragged down, and the list scrolls
+8 px each 16 ms while the pointer is within 40 px of its ends. Let go over
+a place it may land on, the core moves it there; a channel moved into a
+category whose permissions it could take asks first, "Sync permissions?",
+Sync Permissions or Keep Current Permissions, closing it leaving the
+channel where it was.
+
+Someone listed under a voice channel drags the same way onto another
+voice channel of the server, which moves them as their menu's Move to
+does (`Application::move_to`: this account joins it, someone else is
+moved there), where Move to offers one. While they're dragged the channels
+it offers stay bright and the rest of the list dims, the one under the
+pointer is outlined in the same green, they follow the pointer just below
+it, and the list scrolls near its ends; let go anywhere else, beside the
+list included, or Escape, and nothing moves. The drag stops once no
+channel listed takes them, as when another list shows. The servers on the
+rail don't drag, as in the Slint client.
 
 A server's top is the Slint client's: with a banner, the picture with a
 shade over its top and the name and chevron in white on it, the banner
@@ -190,11 +232,15 @@ those who may invite; under it, while the server shows its Boost progress
 bar, the Boost Goal pill (its boosts of 33, filled in pink); and on a
 community server or one with events, the "N Events" row, whose menu lists
 each event with "Happening now" or when it starts and where, or "No
-upcoming events" greyed. An event's row does nothing yet. The server's
-verified badge isn't drawn (its icon has two colours).
+upcoming events" greyed; an event's row does nothing, as in the Slint
+client. A verified server's name has Discord's green badge before it
+(`App::drawn`, an icon in its own colours), a Community server's the
+Community badge.
 
 The account's card (`account.rs`) spans the foot of both: the avatar with
-its presence, the name and status (the username under the pointer), and
+its decoration and presence, the name and status (the username under the
+pointer), with the account's nameplate filling the card (`PlateRow::account`:
+.4 strong, .6 and playing under the pointer, its palette from .1 to .4), and
 the mic, headphones and Settings, which mute and deafen in a call; out of
 one they set whether the next call starts unmuted or deafened. The carets
 beside the mic and headphones open the input and output menus. While
@@ -251,10 +297,14 @@ round.
   225); then joining unmuted, evening out the voice, and in Discord calls
   noise suppression and its strength, the soundboard's volume (Discord
   keeps it), the entrance sound for every server or one (Choose, with
-  Nitro, lists the sounds Discord has), the room's echo and, on Windows,
+  Nitro, opens the sounds Discord has as the call's soundboard does,
+  `App::sound_board`, a click choosing one), the room's echo and, on Windows,
   Windows' own effects; the input mode, and either the gate's sensitivity
   over the microphone's level as the gate hears it (read twenty times a
-  second only while it shows) or push to talk's key and release delay.
+  second only while it shows) or push to talk's key and release delay. Where no global key works
+(the root crate's `push_to_talk` says why), the window's own key events
+hold it while the window has the focus, as the Slint client's: an event
+filter hands each key's scan code to the root crate with no message.
   Record keybind takes the next key pressed, wherever the keys are: its
   scan code as winit gives it (iced's key codes are winit's by name), its
   name and its keysym, as the root crate's `Keybind` keeps it; Escape
@@ -287,11 +337,23 @@ round.
 - Discord: linking, as the sign-in screen's panel, while none is linked;
   then Unlink in a build with Matrix, hidden channels, reads marked on
   Discord, idle while away, blocked people's messages hidden, and those
-  blocked, five more at a time, each with Unblock.
+  blocked, five more at a time, each with Unblock. Whether someone is
+  using Yapfast (`away.rs`, as the Slint client's): a key, a click or the
+  wheel counts; once nobody has for 15 s, Discord hears since when, with
+  idle while away, and goes AFK and idle on its own clock, and moving
+  pictures hold still until someone is back. Input while someone is using
+  it costs no message, only a time noted; one timer checks it.
 - Game Activity: sharing the game played (Discord keeps it), and the games
   named by hand, added, edited and removed, which detection takes at once.
 - About: the build with Copy version, the update switches, the releases
   (above), and the links.
+
+A setting that came with an update has a NEW tag after its name, and its
+page's row in the list one too, until Settings leaves that page; what was
+seen is kept in `layout.json` (`seen_new`), with the version a fresh
+install has met (`first_version`). Which settings are tagged and when one
+is new is the core's (`yapfast_core::new_tags`), which the Slint client
+asks too; `form::new_tag` draws it.
 
 ## Server settings
 
@@ -433,7 +495,8 @@ accent when they asked; calls, threads, notifications, pins, add people,
 the member list, the profile) and the search box.
 
 The header's popovers (`popovers.rs`, the Slint client's) open under
-their button, its right edge level with theirs, and close on Escape, a
+their button, its right edge level with theirs (each header button's
+place is noted as it's pressed, `App::header_spot`), and close on Escape, a
 click outside or what they're for; a click on a channel's topic shows it
 in full under its line, its left edge level with the line's, with its
 own line breaks, mentions and links, until Escape, a click outside or
@@ -457,7 +520,8 @@ first as found cards, a server's under their channels' names, Show more
 for the next page, a click jumping to the message in its room. Close,
 Escape or clearing the box ends the search and lets go of the cards.
 
-Over the timeline (`banners.rs`), as the Slint client stacks them: the
+Over the timeline, and under the header of a voice channel's call
+(`banners.rs`, `App::banners`), as the Slint client stacks them: the
 preview's "Local preview: sample data" line, Matrix's verification while
 the device isn't trusted, and the core's notice (`AppState::notice`) with
 Dismiss.
@@ -521,7 +585,10 @@ and its words in Discord's wording.
 - A voice message (`playback.rs`) plays and pauses from its button; its
   waveform fills as it plays, and a press or a drag on it moves there
   (pausing while held); its time counts down. While the pointer is on it,
-  its speed and mute show. The core plays it.
+  its speed and mute show; on the mute, the volume opens over it, an
+  upright slider 120 px tall that the wheel turns 5 % a step, staying
+  while the pointer is on either (a `widgets::Corner` made `free` to be
+  wider than the button). The core plays it.
 - An app's components (`cards.rs`): text beside a thumbnail or a button,
   galleries and files, gaps and dividers, rows of buttons and menus, in a
   frame with the colour's bar when they're in a container. A link button
@@ -564,11 +631,24 @@ and its words in Discord's wording.
 the core's blocks (headings, subtext, quotes, fenced code) apart, and in
 each the inline styles as runs, with mentions on pills of their colour,
 links, and spoilers covered until clicked. A web address opens the browser; a
-mention or a notice's name opens the person's card. A Discord link this
+mention or a notice's name opens the person's card, and a role's mention
+the role's card beside it (`info_cards.rs`, the Slint client's `RoleCard`):
+the role in its colour, then who Yapfast has seen with it, each opening
+their card over it, or "Loading..." until Discord answers; Escape or a
+click outside closes their card first, then the role's. An emoji in a
+message's text is a link too (a shortcode sent unexpanded, such as
+`:sob:`, shows as its emoji), and a click on it, or on a message's
+sticker, opens its card 4 px under it, or above it without room (the
+Slint client's `EmojiCardView` and `MessageStickerCardView`, worked out by
+the core's `emoji::card` for both clients): the emoji or sticker at 48 px,
+its name and what it is, and for one of a server's this account can reach
+the server it's from, whose card asks Discord how many are online there
+and what Discover says of it; a click on the server goes there. An emoji
+of a server out of reach says "Invite-Only Server" and no more. A Discord link this
 account can follow stays in the app, as the core's `discord_route` reads
-it: an invite opens its Join dialog, a server, channel or message goes
-there, and a person's opens their card; an app's authorization, a gift
-and an event still open the browser.
+it: an invite opens its Join dialog, an app's authorization, a gift and
+an event their dialogs (see Dialogs), a server, channel or message goes
+there, and a person's opens their card.
 
 ## Writing
 
@@ -589,9 +669,15 @@ File", whose Create Thread shows greyed until threads come; its Create
 Poll opens Create a Poll, below), from Ctrl+V (files copied in a file manager, or a picture, which
 the root crate's `paste.rs` reads and saves as `image.<extension>` in a
 folder removed as Yapfast closes; text otherwise), or dropped on the
-window where winit takes drops (X11 and Windows; Wayland's data device,
-which the Slint client keeps itself, is still to come). A drag shows
-Discord's card, "Upload to #general", and a drop that can't go whole
+window (winit's drops on X11 and Windows, the root crate's `drop.rs` on
+Wayland, whose data device winit doesn't take). Files over the thread
+beside below its head go to the thread instead, as the Slint client's
+`over-aside`: on Wayland the desktop says where the drag is; on X11 and
+Windows, where winit says nothing of where, the root crate's
+`drop::Pointer` asks the platform where the pointer is (`Desktop::pointer`,
+made once as files come over the window) every 40 ms while they hover
+and as they're let go, as the Slint client does. A drag
+shows Discord's card, "Upload to #general", and a drop that can't go whole
 says why until Got It. They wait over the text as the Slint client's
 tiles: a picture's preview (made off the window's thread at 240 px and
 let go with its file) or a file's icon, the name and size, the spoiler
@@ -627,7 +713,10 @@ text, and `Action::Send` runs the command.
 
 The expression picker (`picker/`), as the Slint client's: in a Discord
 room the composer's GIF, sticker and emoji buttons open one panel of three
-tabs over them (498 by 486); elsewhere, and for the edit or a reaction,
+tabs over them (498 by 486; its left edge drags it wider, up to 8 px
+right of the server rail or the window's edge, its grids following, the
+width kept in `layout.json` as `picker_width`, and a double click puts it
+back); elsewhere, and for the edit or a reaction,
 the emoji alone at the reaction popup's size (408 by 432). The emoji tab
 lists the Discord account's Favorites, its Frequently Used (for a
 reaction, the emoji it reacts with most), each server's custom emoji
@@ -664,7 +753,8 @@ back to the newest message.
 
 A Discord forum shows in place of a channel's messages and composer
 (`forum.rs`, the Slint client's `ForumPanel`): a search of its posts'
-titles and New Post, then its posts as cards (tags, title with NEW, who
+titles in the header's search box (`App::search_field`, its Clear
+showing the posts again) and New Post, then its posts as cards (tags, title with NEW, who
 wrote the first message and how it starts, the top reaction or the
 forum's own, replies, how long ago, the first picture), the active ones
 first and older ones a page at a time as the list nears its end. A click
@@ -696,7 +786,10 @@ index as it opens, and is built again with its Apps once the index comes.
 ## Threads
 
 A thread opens beside its channel (`thread.rs`, the Slint client's
-`ThreadPanel`), 420 px wide and never more than the chat leaves: from a
+`ThreadPanel`), 420 px wide until its edge is dragged (`widgets::Splitter`)
+to between 320 and 800 px, never more than leaves the chat 420 px; the
+width is kept in `layout.json` as it's let go, and a double click on the
+edge puts it back. It opens: from a
 message's thread chip (its name, how many messages, a chevron), View
 Thread in its menu, or a listed thread opened with Shift. Its head is the
 thread's icon and name, More (the thread's own menu: Leave thread, Copy
@@ -708,6 +801,16 @@ selecting stays on one side. It loads earlier messages as its top comes
 into view, tells the core which of its messages show, and its composer
 (`thread::SideComposer`) has its own draft, reply bar, files and Send.
 Closing it, or the core letting go of it, drops its rows.
+
+Keys nothing took (`App::type_anywhere`, the Slint client's
+`type-into-composer`) go on the end of the composer written in last, the
+thread's from when it opens or the channel's, which then has the keys:
+text, Space, Backspace and Delete, without Ctrl; Tab only gives it the
+keys, and Enter doesn't send. Not under a card, a popup, the picker or a
+full view, nor while the talk key is held in a call; while stepping
+through the messages only a letter or digit leaves them. Escape that
+nothing took cancels, in Discord's order, the search, an edit, the
+channel's reply, then the thread's reply or the New Thread form.
 
 Create Thread, in a message's menu or the composer's + menu, opens the
 New Thread form beside the channel (the Slint client's
@@ -752,28 +855,49 @@ member list, the DMs, and the lists still to come build on it.
   each time the core's view of it changes (its theme's inks, the status's
   bubble, activities, the bio laid out, the mutual line, the tabs). The
   card (`body.rs`) is the Slint client's `ProfileCard`: the banner (moving
-  ones play), the avatar on its ring with its decoration and presence, the
+  ones play; with no banner, accent or theme, the avatar's dominant colour,
+  as the root's `dominant_colour.rs` works it out for both clients), the avatar on its ring with its decoration and presence, the
   status's bubble, Add Friend or Friends and More over the banner, the
   name drawn once in its style, the username, pronouns and server tag,
-  badges twelve to a row, the activities with their times, the mutual line
+  badges twelve to a row (their tooltips after half a second's rest; a
+  badge that levels up has Discord's card, its level's picture over the
+  kind, the level and the progress), the activities with their times (on the
+  floating card each with Discord's more menu: View All Activity opens the
+  full profile on Activity, and one's own game's Manage Privacy opens Game
+  Activity's settings), the mutual line
   (which opens the full profile on its tab), the bio cut to three lines
   with View full bio, the roles, and a box that messages them. The full
   profile (`full.rs`) has the card down its left, with Friends, Message and
   More under the name, Member Since, Friends Since, the roles, connections
   and the note (saved on Enter or as it closes), and its tabs on the right:
   Board, Activity (with recent activity), Wishlist, Mutual Friends and
-  Mutual Servers, rows the shape of what's coming while Discord hasn't
-  said, and Discord's words while a tab is empty. A one-to-one DM has the
+  Mutual Servers (a server clicked shows its card over the profile, the
+  Slint client's `ServerCard`: its banner and icon, name, members and
+  channels, their nickname there, and Go to server), rows the shape of
+  what's coming while Discord hasn't said, and Discord's words while a tab is empty. A one-to-one DM has the
   card docked beside it, with what the DM list knows of them now, and
   View Full Profile at its foot; the header's profile button shows or
   hides it, kept in `layout.json`. Activities' times move each second
-  while one shows.
+  while one shows. A profile's effect (`cosmetic.rs`, the Slint client's
+  `ProfileEffect`) lies over the card, the docked one and the full
+  profile's left: its still at rest, and while the pointer is on the card
+  and moving pictures play, its layers each from its start for its
+  duration, again after its delay when it loops, until the last that
+  doesn't loop ends. Its clock asks for a tick only when a layer shows or
+  goes, and its layers are only asked for under the pointer. A profile's
+  frame (`widgets::Framed`, the Slint client's `ProfileFrameLayer`) lies
+  round the card, 12 px past its sides, and the full profile's, 16 px past
+  them with its top staple 8 px lower and none at the foot, in a window
+  over 785 px tall; the docked card has none. Settings' cosmetics switches
+  turn each off.
 - The profile editor (`profile/editor.rs`), the Slint client's
   `ProfileEditorDialog`, opens from one's own card and full profile (Edit
   Profile), from Settings over it, and from a server's Edit server
   profile. Its card is a profile view of what's written over what Discord
   has, as the Slint client's adapter makes it, drawn with the card's own
-  parts and made again only when the core's editor changes; a picture
+  parts (a moving banner plays; with no banner, accent or theme, the
+  avatar's colour lies behind it) and made again only when the core's
+  editor changes; a picture
   just chosen shows from the core's preview of it. Each text is edited in
   place: the name and pronouns turn into fields when clicked, the bio into
   a field of its own (Shift+Enter breaks a line) with what's left of
@@ -784,8 +908,26 @@ member list, the DMs, and the lists still to come build on it.
   picker under the name, Message, the shop and More (Copy User ID), the
   custom status's thought (which opens its dialog), Connections and the
   note; down its left what it wears (`Main Profile`), which Hide Styles
-  folds away, with the avatar and banner tiles, the theme's two colours
-  (Nitro) as handles that open their codes, and the shop's for the rest;
+  folds away, with the account's nameplate on its tile (still, the avatar
+  and name over it), the avatar and banner tiles, the theme's two colours
+  (Nitro) as handles that open their pickers (`widgets::ColourPad`, the
+  Slint client's `ColourPopover`: saturation across and brightness down a
+  square of the hue, the hues under it, and the code, each following the
+  others), the effect worn as its still
+  over a little card, and the shop's for the rest; with Nitro the
+  Display Name Style tile opens its window (`profile/name_style.rs`, the
+  Slint client's `NameStyleWindow`): the fonts' tiles (each one's name
+  over it under the pointer), the effects' (each name drawn in the
+  effect), and the colours: the effect's presets (gummy's as stripes),
+  one's own colour on the eyedropper's pad, or for a gradient and a prism
+  a bar with a handle for each colour, each opening the pad (the same
+  `form::colour_card` as a theme colour's) over the row; beside them how
+  it looks on the card, a message (its name plain, in the style's font)
+  and a member row, those two in Discord's light mode or dark, and the
+  note. Surprise Me picks at random; Apply, once something changed, hands
+  the style to the core with the other edits, and a click on the dim
+  closes it. Escape closes the pad, then the window. Its tiles don't grow
+  under the pointer, as Slint's do;
   and its Board, Activity and Wishlist tabs where the card is 880 px or
   wider. A server's has what it edits over its banner and Nitro's offer
   over what takes it. Once something changed the form kit's
@@ -894,10 +1036,26 @@ parts of `ui/yapfast.slint`, with the adapter's logic beside them.
   that shows the call, noise suppression's toggle, which turns back on the
   kind last used, leave, and while sharing its state with a stop; the
   soundboard, camera and Go Live buttons; an error with Dismiss.
+- The connection's details (`call/details.rs`, the Slint client's
+  `CallLinkCard`): once the call measures its connection, its signal (the
+  dock's, and the header's in the call's conversation) shows the last ping
+  as its tooltip, and a click on it or the dock's status opens the details
+  under it, or above without room: Connection, a graph of the last five
+  minutes of pings with its top and middle marked, the average and last
+  ping and the packets lost; Privacy, while the call is end-to-end
+  encrypted with someone else in it, the voice privacy code in groups of
+  five with Copy; Stream, while this account's screen is live, its
+  encoder, codec, size, bitrate sent and aimed for, keyframes asked for and
+  packets resent; and how the call is secured. What they show is copied
+  out of the call only while they or the tooltip show, again each second.
+  Their words and graph are the root's `call_details.rs`, which the Slint
+  client uses too.
 - A DM's call (`call/dm.rs`) shows above its messages, taking more room
   while a tile is large: the stage and controls while in it, else who is
   in it with Join the call, or Accept and Decline while it rings. A call
-  ringing in a DM that isn't open shows a card at the window's top, and
+  ringing in a DM that isn't open shows a card at the window's top, its
+  ring round the caller pulsing once a second (`widgets::Pulse`, drawn
+  anew each frame only while it rings), and
   switching calls asks first (Escape cancels, Enter confirms). The DM's
   header starts a call or a video call.
 - While the call isn't on screen, the stream watched, this account's
@@ -921,10 +1079,15 @@ each, and what each lists or makes is the core's.
 
 - The account's popover (`status.rs`, the Slint client's
   `AccountPopover`), from the account card's picture or name: the account
-  over its banner colour or theme, as Discord's own card shows it (the
-  core's `account_profile`, asked for as it opens), the custom status,
-  Edit Profile, the Discord status (its row shows the four to choose),
-  Set or Change custom status, Copy User ID and User Settings.
+  as Discord's own card shows it (the core's `account_profile`, asked for
+  as it opens, its card made while the popover shows and let go as it
+  closes): the banner's picture, else its colour, the theme's, or with
+  neither the avatar's own colour, the avatar with its decoration and
+  status, the name in its style with the server tag, and the badges; then
+  the custom status, the game played and for how long (to the minute),
+  and its 40 px rows: Edit Profile, the Discord status (its row shows the
+  four to choose), Set or Change custom status, Copy User ID and User
+  Settings.
 - Set a custom status (`status.rs`): an emoji from the picker (opened over
   the dialog, beside its button; its badge takes it off), the words, and
   Clear After; it starts from the status set, and Save, Clear status and
@@ -963,6 +1126,23 @@ Escape closes it.
 - Leave a server or group, in red: a group's offers to leave without
   notifying its other members; Enter leaves.
 
+A clicked event, gift or authorization link opens its dialog
+(`link_dialogs.rs`, the Slint client's `EventDialog`, `GiftDialog` and
+`OAuthDialog`), saying what the core's `event_prompt`, `gift_prompt` and
+`oauth_prompt` say, which the Slint client shows too. Each has its title
+with a close button, what it found on the sunken ground, how it goes, why
+it couldn't, and Close, or Cancel beside its main button.
+
+- An event: its name, when and where it is, who made it and how many are
+  interested, what it says, and Interested or Remove interest.
+- A gift: what it grants, its plan and who sent it, and Redeem Gift, or
+  Open in Browser for one only Discord redeems.
+- An application's authorization: the application with its picture, in
+  red what of it can take over the account or a server, what it asks
+  for, the server it's added to (a list to choose from, or the one its
+  link names), the address Discord sends on to with Copy where Yapfast
+  won't open it, and Authorize.
+
 ## How it's built
 
 iced builds the whole view again after every message and lays it out, so
@@ -982,7 +1162,9 @@ what costs is kept out of the view:
 - Moving pictures (`widgets::Animated`) advance inside their widget on the
   window's redraws, all on one clock, so a frame costs no message and no
   rebuild of the view; decoders of pictures no longer shown go after each
-  view.
+  view. They play as Messages' Animate setting says (`App::plays`):
+  always, never, or while the window has the focus; held still, each
+  shows its first frame.
 - Fonts: DM Sans and its italic, the packed Twemoji (the root `build.rs` makes it for this
   build too), the display-name fonts on first use, and for other scripts a
   system font loaded the first time a script is shaped (`fonts.rs`).
@@ -1021,7 +1203,7 @@ When a second screen needs what a first one built, it moves here:
   is only its text, brightening under the pointer.
 - `App::menu_item` with `controls::Item`: a row of a menu or a list of
   choices (`MenuItem`), lit under the pointer or, in a context menu, where
-  the keys put the light; `controls::menu_panel` and `separator` are the
+  the keys put the light (`menu_item_sized` at a height of its own); `controls::menu_panel` and `separator` are the
   menu's ground and the line between its groups.
 - Submenus (`menus.rs`): a `MenuRow` with a `submenu` shows a chevron and
   opens it beside itself, its first row level with the row, under the
@@ -1051,8 +1233,25 @@ When a second screen needs what a first one built, it moves here:
   dimmed window sending its own message.
 - `reorder::Reorder`: a list of rows that dragging reorders: a row taken
   by the strip at its left (its handle, for those that may move) follows
-  the pointer, lifted on a ground of its own, and where it's let go,
-  rounded to whole rows, is sent as from and to for its owner to move.
+  the pointer, lifted on a ground of its own, the rows between pushing
+  aside for it, and where it's let go, rounded to whole rows, is sent as
+  from and to for its owner to move.
+- `widgets::Autoscroll`: round the whole window, a middle click's
+  autoscroll of the list under it (see the shell's Autoscroll).
+- `widgets::Pulse`: a ring over its child whose opacity pulses once a
+  second, drawn anew each frame while it shows (the ringing card).
+- `widgets::CtrlWheel`: round the whole window, the wheel with Ctrl held
+  zooms and scrolls nothing under it.
+- `widgets::Drags`: a row that a press moved 4 px drags and a press let
+  go sooner clicks; while a drag is on it says when the pointer comes onto
+  it and leaves, a release on it clicks nothing, and it hides the cards of
+  what's under it (the sidebar's channels and categories, and the people
+  under a voice channel, dragged to another).
+- `widgets::Splitter`: the edge between two panels, which a drag moves:
+  a 1 px line taking the pointer 3 px either side, lit 2 px wide under
+  the pointer and while held, with the resize pointer; it sends the
+  distance dragged, the release and a double click (the thread beside's
+  width).
 - `App::filled_icon_button`: an icon button on a round ground of its own
   (the Slint client's `IconButton` with a `fill`), greyed without a
   message, its tip above; an empty label shows no tip.
@@ -1064,6 +1263,13 @@ When a second screen needs what a first one built, it moves here:
   `centred` across the room. Names in the lists, channel rows and table
   cells use it.
 - `controls::tip` and `tip_style`: the tooltip.
+- `info_cards::frame`: a card over the window at what was clicked (the
+  role's, a mutual server's), on its ground with the edge and the raised
+  shadow.
+- `controls::tab`: a tab with a bar under it while chosen (the full
+  profile's, the voice details').
+- `widgets::Steps`: a line of steps stretched across its box, as quads (the
+  ping's graph).
 - `controls::bar`: a box of one colour, for lines between parts of the
   window, bars and dots; `controls::placed` puts a layer of a stack at a
   point.
@@ -1075,7 +1281,9 @@ When a second screen needs what a first one built, it moves here:
   centres it (or any picture) in a square, for a button's face or a badge;
   `App::icon_button` is the header's and composer's icon button.
 - `App::avatar` and `App::face`: an avatar, with its decoration and
-  presence dot.
+  presence dot (`paint::status_dot`, offline's and invisible's a faint
+  dot with a hole; lists that leave it off for offline people leave it
+  out themselves, as Slint's).
 - `people::Person` and `App::person`: a person's row, their face, then
   their name over its line; `App::person_name` draws a name in its style
   (`NameInk`), `App::voice_spot` the voice channel someone is in, and
@@ -1085,14 +1293,21 @@ When a second screen needs what a first one built, it moves here:
 - `members::nameplate`: a nameplate behind a row.
 - `App::status_text`: an emoji and words on one line at a size of their
   own.
+- `paint::NamePicture`: a display name painted whole in its style
+  (gradients, strokes, stacked copies) and handed to the renderer once,
+  its strokes past its text box: the profile's name, the Display Name
+  Style window's tiles and previews.
 - `markdown.rs`: text laid out as Discord's client does (`parse`,
   `plain`, `notice`), and drawn (`App::body_view`, `App::run_span`) as
   selectable pieces (`select::Piece`), which follow their links.
 - `style.rs`: container grounds (`fill`, `rounded`, `corners`), the two
   shadows, the scrollbar.
-- `widgets.rs`: `Pic`, `Animated`, the virtualized `Rows` (rows across
+- `widgets.rs`: `Pic`, `Animated`, `Framed` (a profile frame's layers
+  under and over a child, past its sides), `ColourPad` (a colour's
+  saturation, brightness and hue, kept as `Hsv`), the virtualized `Rows` (rows across
   the list, or with `Rows::place` boxes of their own), the anchored
-  overlays `Place` and `Above`, `PlateRow`, `Watch` and `RightPress`.
+  overlays `Place` (at a corner, the pointer, over a point, or with
+  `Anchor::Span` under a button or above it) and `Above`, `PlateRow`, `Watch` and `RightPress`.
   `Rows::measured` lays rows out at their content's height and hands the
   heights that differ to the app with no message, apart from those below
   the view of someone reading earlier messages. `Corner` holds a bar at a
@@ -1148,7 +1363,9 @@ When a second screen needs what a first one built, it moves here:
   box, "Press a key..." while recording), `field` (a form's text field),
   `entry` (the Slint client's 40 px `TextField`), `area` (a text several
   lines high with what's left of it),
-  `colour_row` (a swatch, its name and its hex) and `card`. Rows of choices
+  `colour_row` (a swatch, its name and its hex), `colour_card` (a
+  colour's `widgets::ColourPad` over its code, the Slint client's
+  `ColourPopover`) and `card`. Rows of choices
   are `controls::choices` (`choices_within` for a wider row), sliders
   `controls::Slider` with `step`, `shown` (the value in other words) and
   `mark`. `unsaved_bar` is an editor's bar once something changed, which
@@ -1208,22 +1425,26 @@ jump, the view staying put on earlier messages as new ones come, and
 sending from there going to the newest; and in `tests/writing.rs` the
 composer's line breaks, the reply's mention toggle and Escape, editing in
 place, `:name` suggestions, the emoji picker's search, Forward from a
-message's menu, and the keyboard's steps through messages; and in
+message's menu, the keyboard's steps through messages, and keys typed
+with nothing focused going on the end of the draft, and a voice
+message's volume over its mute; and in
 `tests/menus.rs` a server's notification choices and what each sends,
 the bell's and a channel's alike, a submenu beside its row (on the left
 without room) that the pointer and keys open and close, roles ticked in
 place, the servers to invite someone to, Delete channel, Invite and
 Leave server asking first, a server's boost goal and events row with the
 events' menu (and "No upcoming events" without any), and the window's size
-following a resize; and in `tests/people.rs` a profile's More menu being the person's own and asking
+following a resize; in `tests/cards.rs` a role mention's card and the card of someone on it over it, a mutual server's card going there, an activity's menu, and the avatar's colour behind a banner, an emoji's card from a click on it in a message, and a sticker's naming its server, which opens; and in `tests/people.rs` a profile's More menu being the person's own and asking
 before a block, the profile beside a DM and the header's button, the
 friends list's tabs and search, requests listing someone once, a blocked
 person's message folded until asked, View Reactions, and the full
-profile's tabs, labels and theme inks; and in `tests/calls.rs` the dock's
+profile's tabs, labels and theme inks, and a card's effect asked for
+under the pointer only and its frame shown; and in `tests/calls.rs` the dock's
 noise toggle, a device gone away, the device volumes played and kept,
 the share menu in a short window, the input level only while its menu
 shows, the dock's channel line, a voice channel's Join, and someone's
-volume from their menu; and in `tests/settings.rs` a theme chosen in
+volume from their menu, the signal's details with their tabs, and the
+banners over a voice channel's call; and in `tests/settings.rs` a theme chosen in
 Appearance shown at once and kept, a custom theme made, edited, cancelled
 and deleted, preferences kept across a restart (and message times
 following the clock), a device chosen in Voice & video, push to talk's key
@@ -1243,8 +1464,11 @@ opening from the channel's menu, Overview holding its draft until Reset
 (another page waiting for it), Permissions' @everyone with its locks,
 and Delete Channel closing them to ask;
 in `tests/editor.rs` the profile editor's card and bar (Escape ending the
-editing, Reset putting it back), a bio too long that can't be saved, and
-a banner colour that isn't one; in `tests/dialogs.rs` the custom status
+editing, Reset putting it back), a bio too long that can't be saved, a
+banner colour that isn't one, and the Display Name Style window (shut
+without Nitro, a gradient's handle written on its pad, Escape, Apply); in `tests/dialogs.rs` the account's popover
+showing its own card (the server tag, the game and how long) only while
+open, the custom status
 starting from the one set and saving what's written, and the quick
 switcher finding a place and going there with the keys; in
 `tests/header.rs` pins under their button closing as one is jumped to or
@@ -1253,47 +1477,45 @@ Select Friends counting the room left, and the topic shown in full until
 Escape or another room; in
 `forum.rs` a post's card; in
 `tests/threads.rs` the thread beside writing its own draft and letting go
-of its rows as it closes, and the viewer letting go of its picture; in
+of its rows as it closes, its edge dragged within its room and kept,
+Escape cancelling the channel's reply and then the thread's, keys going
+to the composer written in last, files dropped over it going to it (and
+where winit says nothing of where, as the platform's pointer says), and
+the viewer letting go of its picture; in
+`tests/arrange.rs`, on the same server, a channel's row clicked open
+and dragged once moved 4 px, one dropped into a category asking to take
+its permissions, and nothing dragging without Manage Channels; and on
+the core's members server, someone pressed and moved under a voice
+channel dragged onto the one Move to offers, nothing moving when let go
+elsewhere, beside the list or on Escape, the drag stopping as another
+list shows, this account joining from another client, and nobody
+dragged without Move Members; in
 `tests/server_dialogs.rs`, on the same server, a category's "+", a voice
 channel's chat and back, the invite dialog's link,
 how long it lasts and its choices for a new one, Create channel and
 category, Duplicate and Delete from the menus, leaving a server or group
 in red (a group's without telling anyone), and Join a Server from the
 rail and a clicked invite link, and Browse Channels opening from a
-Community server's list and searching; in `tests/shell.rs` closing to the
+Community server's list and searching; in `tests/link_dialogs.rs` an
+authorization saying what it asks for in red and where it goes, a gift
+redeemed on the click, and an event marking interest; in `tests/shell.rs` closing to the
 tray and back, quitting without one, the tray's dot, a notification's
 click and the release's, a later start's link, the own title bar's place
-and inbox, clicks under it landing, Back and Forward, and the zoom. `call/stage.rs` tests the tiles' layout, the
+and inbox, clicks under it landing, Back and Forward, and the zoom by keys and by
+Ctrl and the wheel. `call/stage.rs` tests the tiles' layout, the
 stage's slots and the corner, `call/dock.rs` the call's time and
-`viewer.rs` the fit. The emoji
-ones need the Twemoji font the root crate's `build.rs` packs: they take
-the newest any build left under `target/`, and say so and pass without
-it. `markdown.rs` has its own for Discord's Markdown. `scripts/check` lints both renderers' builds, runs the tests, and
+`viewer.rs` the fit. The tests
+make the Twemoji font from `vendor/twemoji` with the root crate's own
+font tables (`src/emoji_font_tables.rs`), as its `build.rs` packs it but
+without the pictures' margins and joined sequences, so the emoji ones
+always run. A test that reads the process's call volumes back holds them
+(`layout::tests::hold_volumes`), as every window plays its own as it
+opens. `markdown.rs` has its own for Discord's Markdown. `scripts/check` lints both renderers' builds, runs the tests, and
 builds and smoke-tests the CPU build; see [building](building.md#checks).
 
 ## Not there yet
 
-In Settings: the NEW tags on settings not yet seen, the entrance sound's
-soundboard (it's a list), and idle while away, which isn't sent yet.
-In the profile editor: Display Name Style's window (its tile does
-nothing), the nameplate's and effect's art on their tiles, the theme
-colours' picker (each is its code alone), a moving banner, and the avatar's
-colour behind a banner without one, which the profile cards lack too.
-Other accounts, profile effects and frames, a mutual server's card, an
-activity's menu, accessibility and Windows' own checks. Zooming with
-Ctrl and the wheel (iced's lists would scroll with it too), and the
-inbox's avatars tinted by the room's id rather than its name, as Slint's
-are. On the rail
-and in the sidebar: dragging servers, channels and people, the voice
-card beside a busy channel, a server's
-verified badge and its events' own cards, and the dialog that asks whether a
-dragged channel takes its category's permissions (there's no dragging
-yet). An app's authorization, a gift's and an event's dialogs: their
-links open the browser. Dragging the thread beside's edge to widen it. In the timeline: keys typed in the timeline going to the composer. In the composer: dragging the expression
-picker's left edge to widen it, and Nitro's offer on a locked emoji or
-sticker. In calls: the details the signal opens (the ping's
-graph, packet loss, the voice privacy code and the stream's encoding) and
-the ping as its tooltip, push to talk's fallback while the
-window has focus where no global shortcut is had, the ringing card's
-pulse, and the video over the switch dialog's dim (the renderer draws
-video after the layers above it).
+Popups and dialogs open at once, without Slint's scale and fade.
+Accessibility and Windows' own checks. The corner's video over a dialog's
+dim was once seen undimmed in the frames after the first (under the
+switch dialog); it hasn't been seen again.

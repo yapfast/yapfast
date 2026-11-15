@@ -131,10 +131,6 @@ fn up_in_an_empty_composer_edits_ones_last_message_in_its_row() {
 #[test]
 fn a_colon_word_suggests_emoji_and_enter_takes_the_first() {
     let (mut app, _folder) = preview();
-    if super::twemoji().is_none() {
-        eprintln!("no Twemoji font built yet: build the root crate first");
-        return;
-    }
     interact(&mut app, |ui| {
         ui.click(Id::new(COMPOSER)).expect("the composer");
         ui.typewrite("nice :thumbsu");
@@ -156,10 +152,6 @@ fn a_colon_word_suggests_emoji_and_enter_takes_the_first() {
 #[test]
 fn the_emoji_pickers_search_puts_its_first_match_in_the_composer() {
     let (mut app, _folder) = preview();
-    if super::twemoji().is_none() {
-        eprintln!("no Twemoji font built yet: build the root crate first");
-        return;
-    }
     let _ = app.update(Message::OpenPicker(Target::Composer, Tab::Emoji));
     assert!(app.picker.is_some());
     interact(&mut app, |ui| {
@@ -227,4 +219,84 @@ fn alt_up_steps_into_the_messages_and_r_replies_to_the_one_stepped_on() {
         _ => panic!("R didn't reply"),
     }
     assert!(app.keyed.is_none(), "replying goes back to the composer");
+}
+
+/// A key nothing took with `modifiers` held, as the window hands it on.
+fn window_chord(app: &mut crate::app::App, key: keyboard::Key, modifiers: keyboard::Modifiers) {
+    let _ = app.update(Message::Key(key, modifiers));
+}
+
+#[test]
+fn typing_with_nothing_focused_goes_to_the_composer() {
+    let (mut app, _folder) = preview();
+    interact(&mut app, |ui| {
+        ui.click(Id::new(COMPOSER)).expect("the composer");
+        ui.typewrite("Hello");
+    });
+    let letter = |text: &str| keyboard::Key::Character(text.into());
+
+    // Not under the settings or a popup.
+    app.settings = Some(Default::default());
+    window_key(&mut app, letter("x"));
+    app.settings = None;
+    app.call.popup = Some(crate::call::Popup::Link);
+    window_key(&mut app, letter("x"));
+    app.call.popup = None;
+    // Nor with Ctrl held, nor keys that write nothing, nor Enter.
+    window_chord(&mut app, letter("x"), keyboard::Modifiers::CTRL);
+    window_key(&mut app, keyboard::Key::Named(key::Named::ArrowDown));
+    window_key(&mut app, keyboard::Key::Named(key::Named::Enter));
+    assert_eq!(app.draft.text(), "Hello");
+    assert!(
+        app.client
+            .state()
+            .messages
+            .iter()
+            .all(|m| m.body != "Hello")
+    );
+
+    // The text goes on the end, and Backspace edits it there.
+    window_key(&mut app, keyboard::Key::Named(key::Named::Space));
+    window_key(&mut app, letter("w"));
+    window_key(&mut app, keyboard::Key::Named(key::Named::Backspace));
+    window_key(&mut app, letter("Y"));
+    assert_eq!(app.draft.text(), "Hello Y");
+    assert_eq!(app.client.state().draft(), "Hello Y");
+    assert_eq!(app.draft.caret(), "Hello Y".len());
+}
+
+#[test]
+fn stepping_through_the_messages_only_letters_and_digits_leave_them() {
+    let (mut app, _folder) = preview();
+    interact(&mut app, |ui| {
+        ui.click(Id::new(COMPOSER)).expect("the composer");
+        chord(ui, key::Named::ArrowUp, keyboard::Modifiers::ALT);
+    });
+    assert!(app.keyed.is_some());
+    window_key(&mut app, keyboard::Key::Character("?".into()));
+    assert!(app.keyed.is_some(), "a sign stays");
+    assert_eq!(app.draft.text(), "");
+    window_key(&mut app, keyboard::Key::Character("x".into()));
+    assert!(app.keyed.is_none(), "a letter leaves");
+    assert_eq!(app.draft.text(), "x");
+}
+
+#[test]
+fn a_voice_messages_volume_opens_over_its_mute_and_the_wheel_turns_it() {
+    use crate::playback::Event;
+    let (mut app, _folder) = preview();
+    let volume = |app: &crate::app::App| app.client.state().voice_tuning.volume;
+    assert!((volume(&app) - 1.0).abs() < 0.001);
+    let _ = app.voice_event(Event::Turn(-1.0));
+    assert!((volume(&app) - 0.95).abs() < 0.001, "{}", volume(&app));
+    let _ = app.voice_event(Event::Volume(0.3));
+    assert!((volume(&app) - 0.3).abs() < 0.001);
+    // The button and the slider over it overlap: it stays open until the
+    // pointer has left both.
+    let _ = app.voice_event(Event::VolumeHover("v".into(), true));
+    let _ = app.voice_event(Event::VolumeHover("v".into(), true));
+    let _ = app.voice_event(Event::VolumeHover("v".into(), false));
+    assert!(app.voice_volume.is_some());
+    let _ = app.voice_event(Event::VolumeHover("v".into(), false));
+    assert!(app.voice_volume.is_none());
 }

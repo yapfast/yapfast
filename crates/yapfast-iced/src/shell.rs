@@ -459,6 +459,13 @@ impl App {
         use crate::uploads::Event;
         match drag {
             desktop::Drag::Entered => self.uploads_event(Event::Hovered),
+            desktop::Drag::Moved(x, y) => {
+                let zoom = self.shell.zoom;
+                self.uploads_event(Event::Moved(iced::Point::new(
+                    (x / f64::from(zoom)) as f32,
+                    (y / f64::from(zoom)) as f32,
+                )))
+            }
             desktop::Drag::Left => self.uploads_event(Event::Left),
             desktop::Drag::Dropped(files) => {
                 let tasks: Vec<_> = files

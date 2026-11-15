@@ -682,6 +682,9 @@ pub struct PlateRow<'a> {
     /// The whole plate's, .5 for someone offline.
     opacity: f32,
     fade_from: f32,
+    /// The account card's plate: no fade under the text, and the palette
+    /// from .1 to .4.
+    account: bool,
 }
 
 impl<'a> PlateRow<'a> {
@@ -701,7 +704,15 @@ impl<'a> PlateRow<'a> {
             end,
             opacity,
             fade_from: 0.0,
+            account: false,
         }
+    }
+
+    /// The account's own plate, on its card or a tile: the picture isn't
+    /// faded under the text, and the palette runs from .1 to .4.
+    pub fn account(mut self) -> Self {
+        self.account = true;
+        self
     }
 
     fn children_mut(&mut self) -> impl Iterator<Item = &mut Element<'a, Message>> {
@@ -874,16 +885,20 @@ impl Widget<Message, Theme, Renderer> for PlateRow<'_> {
                     a: alpha * self.opacity,
                     ..palette
                 };
-                quad(
-                    renderer,
-                    bounds,
-                    &[
-                        (0.0, tint(0.0)),
-                        (0.2, tint(0.08)),
-                        (0.5, tint(0.08)),
-                        (1.0, tint(self.end)),
-                    ],
-                );
+                if self.account {
+                    quad(renderer, bounds, &[(0.0, tint(0.1)), (1.0, tint(0.4))]);
+                } else {
+                    quad(
+                        renderer,
+                        bounds,
+                        &[
+                            (0.0, tint(0.0)),
+                            (0.2, tint(0.08)),
+                            (0.5, tint(0.08)),
+                            (1.0, tint(self.end)),
+                        ],
+                    );
+                }
             }
             self.content.as_widget().draw(
                 &tree.children[0],
@@ -908,7 +923,7 @@ impl Widget<Message, Theme, Renderer> for PlateRow<'_> {
                 );
                 // iced draws a layer's quads, then its pictures, then its
                 // text: what goes over the plate's picture is a layer above.
-                renderer.with_layer(bounds, |renderer| above(renderer, true));
+                renderer.with_layer(bounds, |renderer| above(renderer, !self.account));
             }
             _ => above(renderer, false),
         }
@@ -949,6 +964,9 @@ struct Beside<'a> {
     gap: f32,
 }
 
+/// How far [`Anchor::Span`] keeps its child from the button.
+const SPAN_GAP: f32 = 4.0;
+
 /// How `Place` reads its point.
 #[derive(Clone, Copy, PartialEq)]
 pub enum Anchor {
@@ -958,6 +976,10 @@ pub enum Anchor {
     Pointer,
     /// The child's bottom left corner, as suggestions sit over the composer.
     Bottom,
+    /// Under a button `height` tall whose top left is the point, a gap
+    /// from it, or above it without room there: as a popout from its
+    /// button.
+    Span(f32),
 }
 
 impl<'a> Place<'a> {
@@ -1046,6 +1068,12 @@ impl Widget<Message, Theme, Renderer> for Place<'_> {
             }
             Anchor::Pointer => room.height - size.height - self.margin,
             Anchor::Bottom => self.at.y - size.height,
+            Anchor::Span(height)
+                if self.at.y + height + SPAN_GAP + size.height <= room.height - self.margin =>
+            {
+                self.at.y + height + SPAN_GAP
+            }
+            Anchor::Span(_) => self.at.y - size.height - SPAN_GAP,
         }
         .max(self.margin);
         let mut nodes = vec![node.move_to((x, y))];
@@ -1903,6 +1931,7 @@ pub struct Corner<'a> {
     child: Element<'a, Message>,
     right: f32,
     top: f32,
+    free: bool,
 }
 
 impl<'a> Corner<'a> {
@@ -1911,7 +1940,15 @@ impl<'a> Corner<'a> {
             child: child.into(),
             right,
             top,
+            free: false,
         }
+    }
+
+    /// Wider than its space, and out past its left too: a slider over a
+    /// button narrower than it.
+    pub fn free(mut self) -> Self {
+        self.free = true;
+        self
     }
 }
 
@@ -1935,12 +1972,14 @@ impl Widget<Message, Theme, Renderer> for Corner<'_> {
         limits: &layout::Limits,
     ) -> layout::Node {
         let width = limits.max().width;
+        let room = if self.free { f32::INFINITY } else { width };
         let child = self.child.as_widget_mut().layout(
             &mut tree.children[0],
             renderer,
-            &layout::Limits::new(Size::ZERO, Size::new(width, f32::INFINITY)),
+            &layout::Limits::new(Size::ZERO, Size::new(room, f32::INFINITY)),
         );
-        let x = (width - self.right - child.size().width).max(0.0);
+        let x = width - self.right - child.size().width;
+        let x = if self.free { x } else { x.max(0.0) };
         let child = child.move_to((x, self.top));
         layout::Node::with_children(Size::new(width, 0.0), vec![child])
     }
@@ -2800,6 +2839,7 @@ impl<'a> From<Hover<'a>> for Element<'a, Message> {
 pub struct Spot<'a> {
     child: Element<'a, Message>,
     spot: &'a std::cell::Cell<Rectangle>,
+    from_press: bool,
 }
 
 impl<'a> Spot<'a> {
@@ -2810,7 +2850,16 @@ impl<'a> Spot<'a> {
         Self {
             child: child.into(),
             spot,
+            from_press: false,
         }
+    }
+
+    /// Notes its bounds from the press instead, for a child in a list that
+    /// scrolls, whose bounds aren't the window's: `App::pressed_spot` puts
+    /// them in the window.
+    pub fn by_press(mut self) -> Self {
+        self.from_press = true;
+        self
     }
 }
 
@@ -2862,9 +2911,14 @@ impl Widget<Message, Theme, Renderer> for Spot<'_> {
         viewport: &Rectangle,
     ) {
         if let iced::Event::Mouse(mouse::Event::ButtonPressed(_)) = event
-            && cursor.is_over(layout.bounds())
+            && let Some(at) = cursor.position_over(layout.bounds())
         {
-            self.spot.set(layout.bounds());
+            let bounds = layout.bounds();
+            self.spot.set(if self.from_press {
+                bounds - (at - Point::ORIGIN)
+            } else {
+                bounds
+            });
         }
         self.child.as_widget_mut().update(
             &mut tree.children[0],
@@ -2937,5 +2991,1952 @@ impl Widget<Message, Theme, Renderer> for Spot<'_> {
 impl<'a> From<Spot<'a>> for Element<'a, Message> {
     fn from(spot: Spot<'a>) -> Self {
         Element::new(spot)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// A step graph
+
+/// A line of steps drawn across its box (a graph of the call's pings): each
+/// step's run at its height, joined by risers, in a box of its own units
+/// stretched to the widget's, the line `stroke` px wide whatever the
+/// stretch. Its lines are axis-aligned, so they're quads: no path to fill.
+pub struct Steps {
+    steps: Vec<crate::call_details::Step>,
+    units: Size,
+    ink: Color,
+    stroke: f32,
+    height: f32,
+}
+
+impl Steps {
+    pub fn new(
+        steps: Vec<crate::call_details::Step>,
+        units: Size,
+        ink: Color,
+        height: f32,
+    ) -> Self {
+        Self {
+            steps,
+            units,
+            ink,
+            stroke: 2.0,
+            height,
+        }
+    }
+}
+
+impl Widget<Message, Theme, Renderer> for Steps {
+    fn size(&self) -> Size<Length> {
+        Size::new(Length::Fill, Length::Fixed(self.height))
+    }
+
+    fn layout(&mut self, _: &mut Tree, _: &Renderer, limits: &layout::Limits) -> layout::Node {
+        layout::Node::new(limits.resolve(Length::Fill, self.height, Size::ZERO))
+    }
+
+    fn draw(
+        &self,
+        _tree: &Tree,
+        renderer: &mut Renderer,
+        _theme: &Theme,
+        _style: &renderer::Style,
+        layout: Layout<'_>,
+        _cursor: mouse::Cursor,
+        _viewport: &Rectangle,
+    ) {
+        use iced::advanced::Renderer as _;
+        let bounds = layout.bounds();
+        let (sx, sy) = (
+            bounds.width / self.units.width,
+            bounds.height / self.units.height,
+        );
+        let half = self.stroke / 2.0;
+        let mut line = |x: f32, y: f32, width: f32, height: f32| {
+            renderer.fill_quad(
+                renderer::Quad {
+                    bounds: Rectangle::new(Point::new(x, y), Size::new(width, height)),
+                    ..Default::default()
+                },
+                self.ink,
+            );
+        };
+        let mut last: Option<f32> = None;
+        for step in &self.steps {
+            let x0 = bounds.x + step.x0 * sx;
+            let x1 = bounds.x + step.x1 * sx;
+            let y = bounds.y + step.y * sy;
+            if let Some(was) = last {
+                let (top, bottom) = (was.min(y), was.max(y));
+                line(
+                    x0 - half,
+                    top - half,
+                    self.stroke,
+                    bottom - top + self.stroke,
+                );
+            }
+            line(x0 - half, y - half, x1 - x0 + self.stroke, self.stroke);
+            last = Some(y);
+        }
+    }
+}
+
+impl<'a> From<Steps> for Element<'a, Message> {
+    fn from(steps: Steps) -> Self {
+        Element::new(steps)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// An edge dragged to resize
+
+/// The edge between two panels, which a drag moves: 2 px wide, drawn as a
+/// line of `edge` down its first, it takes the pointer `REACH` px either
+/// side, and fills both under the pointer (`lit`, or `held` while dragged), says how far the
+/// pointer has moved since the press with `dragged`, `released` as it's
+/// let go, and `reset` on a double click: the thread beside's.
+pub struct Splitter<'a> {
+    edge: Color,
+    lit: Color,
+    held: Color,
+    dragged: Box<dyn Fn(f32) -> Message + 'a>,
+    released: Message,
+    reset: Message,
+}
+
+/// How far either side of the edge it takes the pointer, and the most
+/// time between a double click's clicks.
+const REACH: f32 = 3.0;
+/// Its width: the edge's line and the lit line's.
+const EDGE: f32 = 2.0;
+const DOUBLE_CLICK: Duration = Duration::from_millis(400);
+
+#[derive(Default)]
+struct SplitterState {
+    /// Where the button went down, while it's held.
+    from: Option<f32>,
+    pointed: bool,
+    last_click: Option<std::time::Instant>,
+}
+
+impl<'a> Splitter<'a> {
+    pub fn new(
+        edge: Color,
+        lit: Color,
+        held: Color,
+        dragged: impl Fn(f32) -> Message + 'a,
+        released: Message,
+        reset: Message,
+    ) -> Self {
+        Self {
+            edge,
+            lit,
+            held,
+            dragged: Box::new(dragged),
+            released,
+            reset,
+        }
+    }
+
+    fn reach(bounds: Rectangle) -> Rectangle {
+        Rectangle {
+            x: bounds.x - REACH,
+            width: bounds.width + 2.0 * REACH,
+            ..bounds
+        }
+    }
+}
+
+impl Widget<Message, Theme, Renderer> for Splitter<'_> {
+    fn size(&self) -> Size<Length> {
+        Size::new(Length::Fixed(EDGE), Length::Fill)
+    }
+
+    fn tag(&self) -> tree::Tag {
+        tree::Tag::of::<SplitterState>()
+    }
+
+    fn state(&self) -> tree::State {
+        tree::State::new(SplitterState::default())
+    }
+
+    fn layout(&mut self, _: &mut Tree, _: &Renderer, limits: &layout::Limits) -> layout::Node {
+        layout::Node::new(limits.resolve(Length::Fixed(EDGE), Length::Fill, Size::ZERO))
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut Tree,
+        event: &iced::Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        _renderer: &Renderer,
+        _clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, Message>,
+        _viewport: &Rectangle,
+    ) {
+        let state = tree.state.downcast_mut::<SplitterState>();
+        let reach = Self::reach(layout.bounds());
+        match event {
+            iced::Event::Mouse(mouse::Event::CursorMoved { position }) => {
+                let pointed = reach.contains(*position);
+                if pointed != state.pointed {
+                    state.pointed = pointed;
+                    shell.request_redraw();
+                }
+                if let Some(from) = state.from {
+                    shell.publish((self.dragged)(position.x - from));
+                }
+            }
+            iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                let Some(at) = cursor.position_over(reach) else {
+                    return;
+                };
+                let now = std::time::Instant::now();
+                if state
+                    .last_click
+                    .is_some_and(|last| now.duration_since(last) < DOUBLE_CLICK)
+                {
+                    state.last_click = None;
+                    shell.publish(self.reset.clone());
+                } else {
+                    state.last_click = Some(now);
+                    state.from = Some(at.x);
+                }
+                shell.capture_event();
+                shell.request_redraw();
+            }
+            iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
+                if state.from.take().is_some() =>
+            {
+                shell.publish(self.released.clone());
+                shell.request_redraw();
+            }
+            _ => {}
+        }
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &Tree,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        _viewport: &Rectangle,
+        _renderer: &Renderer,
+    ) -> mouse::Interaction {
+        let state = tree.state.downcast_ref::<SplitterState>();
+        if state.from.is_some() || cursor.is_over(Self::reach(layout.bounds())) {
+            mouse::Interaction::ResizingHorizontally
+        } else {
+            mouse::Interaction::None
+        }
+    }
+
+    fn draw(
+        &self,
+        tree: &Tree,
+        renderer: &mut Renderer,
+        _theme: &Theme,
+        _style: &renderer::Style,
+        layout: Layout<'_>,
+        _cursor: mouse::Cursor,
+        _viewport: &Rectangle,
+    ) {
+        use iced::advanced::Renderer as _;
+        let state = tree.state.downcast_ref::<SplitterState>();
+        let bounds = layout.bounds();
+        let held = state.from.is_some();
+        let (ink, width) = if held {
+            (self.held, EDGE)
+        } else if state.pointed {
+            (self.lit, EDGE)
+        } else {
+            (self.edge, 1.0)
+        };
+        renderer.fill_quad(
+            renderer::Quad {
+                bounds: Rectangle { width, ..bounds },
+                ..Default::default()
+            },
+            ink,
+        );
+    }
+}
+
+impl<'a> From<Splitter<'a>> for Element<'a, Message> {
+    fn from(splitter: Splitter<'a>) -> Self {
+        Element::new(splitter)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// A row that dragging moves
+
+/// How far the pointer goes with the button down before a press becomes a
+/// drag, as the Slint client's rows.
+const DRAG_START: f32 = 4.0;
+
+/// Its child, which a press and a move of [`DRAG_START`] px up or down
+/// starts dragging (`drag`, with how far down the row it was pressed),
+/// and a press let go on it without a drag clicks (`click`): a channel's
+/// or a category's row in the sidebar. While a drag is on (`tracking`), it
+/// says when the pointer comes onto it and leaves (`over`), and a release
+/// on it clicks nothing; the drag itself
+/// follows the pointer through the window's events, not through it.
+pub struct Drags<'a> {
+    child: Element<'a, Message>,
+    click: Option<Message>,
+    drag: Option<Box<dyn Fn(f32) -> Message + 'a>>,
+    over: Option<Box<dyn Fn(bool) -> Message + 'a>>,
+    tracking: bool,
+    head: Option<f32>,
+}
+
+impl<'a> Drags<'a> {
+    pub fn new(child: impl Into<Element<'a, Message>>) -> Self {
+        Self {
+            child: child.into(),
+            click: None,
+            drag: None,
+            over: None,
+            tracking: false,
+            head: None,
+        }
+    }
+
+    /// Only a press on its top `height` px clicks or drags: a voice
+    /// channel's own row, not who is listed under it.
+    pub fn head(mut self, height: f32) -> Self {
+        self.head = Some(height);
+        self
+    }
+
+    pub fn click(mut self, click: Message) -> Self {
+        self.click = Some(click);
+        self
+    }
+
+    pub fn drag(mut self, drag: impl Fn(f32) -> Message + 'a) -> Self {
+        self.drag = Some(Box::new(drag));
+        self
+    }
+
+    pub fn tracking(mut self, tracking: bool, over: impl Fn(bool) -> Message + 'a) -> Self {
+        self.tracking = tracking;
+        self.over = Some(Box::new(over));
+        self
+    }
+}
+
+#[derive(Default)]
+struct DragsState {
+    /// Where the button went down on it, while it's down.
+    pressed: Option<Point>,
+    /// The press moved far enough to be a drag.
+    moved: bool,
+    /// The pointer is over it while a drag is on.
+    over: bool,
+}
+
+impl Widget<Message, Theme, Renderer> for Drags<'_> {
+    fn size(&self) -> Size<Length> {
+        self.child.as_widget().size()
+    }
+
+    fn tag(&self) -> tree::Tag {
+        tree::Tag::of::<DragsState>()
+    }
+
+    fn state(&self) -> tree::State {
+        tree::State::new(DragsState::default())
+    }
+
+    fn children(&self) -> Vec<Tree> {
+        vec![Tree::new(&self.child)]
+    }
+
+    fn diff(&self, tree: &mut Tree) {
+        tree.diff_children(std::slice::from_ref(&self.child));
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut Tree,
+        renderer: &Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        self.child
+            .as_widget_mut()
+            .layout(&mut tree.children[0], renderer, limits)
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        renderer: &Renderer,
+        operation: &mut dyn Operation,
+    ) {
+        self.child
+            .as_widget_mut()
+            .operate(&mut tree.children[0], layout, renderer, operation);
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut Tree,
+        event: &iced::Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        let bounds = layout.bounds();
+        let released = matches!(
+            event,
+            iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
+        );
+        // A drag's end isn't the child's: a button under it would click.
+        if !(released && self.tracking) {
+            self.child.as_widget_mut().update(
+                &mut tree.children[0],
+                event,
+                layout,
+                cursor,
+                renderer,
+                clipboard,
+                shell,
+                viewport,
+            );
+        }
+        let state = tree.state.downcast_mut::<DragsState>();
+        match event {
+            iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                // Not a press a button inside took.
+                let head = Rectangle {
+                    height: self.head.unwrap_or(bounds.height),
+                    ..bounds
+                };
+                state.pressed = cursor
+                    .position_over(head)
+                    .filter(|_| !shell.is_event_captured());
+                state.moved = false;
+            }
+            iced::Event::Mouse(mouse::Event::CursorMoved { .. })
+                if let (Some(from), Some(at), Some(drag)) =
+                    (state.pressed, cursor.position(), &self.drag)
+                    && !state.moved
+                    && (at.y - from.y).abs() > DRAG_START =>
+            {
+                state.moved = true;
+                shell.publish(drag(from.y - bounds.y));
+            }
+            iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+                let pressed = state.pressed.take();
+                if pressed.is_some()
+                    && !state.moved
+                    && !self.tracking
+                    && !shell.is_event_captured()
+                    && cursor.is_over(bounds)
+                    && let Some(click) = &self.click
+                {
+                    shell.publish(click.clone());
+                    shell.capture_event();
+                }
+                state.moved = false;
+            }
+            _ => {}
+        }
+        // Over it while a drag is on; checked on each frame too, as the
+        // list scrolling under a still pointer moves it.
+        let over = self.tracking && cursor.is_over(bounds);
+        if over != state.over {
+            state.over = over;
+            if let Some(on) = &self.over {
+                shell.publish(on(over));
+            }
+        }
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &Tree,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &Renderer,
+    ) -> mouse::Interaction {
+        if self.tracking {
+            return mouse::Interaction::Grabbing;
+        }
+        let child = self.child.as_widget().mouse_interaction(
+            &tree.children[0],
+            layout,
+            cursor,
+            viewport,
+            renderer,
+        );
+        if child == mouse::Interaction::default() && cursor.is_over(layout.bounds()) {
+            mouse::Interaction::Pointer
+        } else {
+            child
+        }
+    }
+
+    fn draw(
+        &self,
+        tree: &Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &renderer::Style,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        self.child.as_widget().draw(
+            &tree.children[0],
+            renderer,
+            theme,
+            style,
+            layout,
+            cursor,
+            viewport,
+        );
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut Tree,
+        layout: Layout<'b>,
+        renderer: &Renderer,
+        viewport: &Rectangle,
+        translation: Vector,
+    ) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
+        // No card beside a row while one is dragged.
+        if self.tracking {
+            return None;
+        }
+        self.child.as_widget_mut().overlay(
+            &mut tree.children[0],
+            layout,
+            renderer,
+            viewport,
+            translation,
+        )
+    }
+}
+
+impl<'a> From<Drags<'a>> for Element<'a, Message> {
+    fn from(drags: Drags<'a>) -> Self {
+        Element::new(drags)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Ctrl and the wheel
+
+/// Around the whole window: the wheel with Ctrl held zooms (`on`, with the
+/// step `zoom::Wheel` makes of it, a notch or 60 px of a touchpad), as
+/// Slint's `zoom_keys` takes it, and nothing under it scrolls.
+pub struct CtrlWheel<'a> {
+    child: Element<'a, Message>,
+    on: fn(crate::zoom::Step) -> Message,
+}
+
+impl<'a> CtrlWheel<'a> {
+    pub fn new(
+        child: impl Into<Element<'a, Message>>,
+        on: fn(crate::zoom::Step) -> Message,
+    ) -> Self {
+        Self {
+            child: child.into(),
+            on,
+        }
+    }
+}
+
+#[derive(Default)]
+struct CtrlWheelState {
+    control: bool,
+    wheel: crate::zoom::Wheel,
+}
+
+impl Widget<Message, Theme, Renderer> for CtrlWheel<'_> {
+    fn size(&self) -> Size<Length> {
+        self.child.as_widget().size()
+    }
+
+    fn tag(&self) -> tree::Tag {
+        tree::Tag::of::<CtrlWheelState>()
+    }
+
+    fn state(&self) -> tree::State {
+        tree::State::new(CtrlWheelState::default())
+    }
+
+    fn children(&self) -> Vec<Tree> {
+        vec![Tree::new(&self.child)]
+    }
+
+    fn diff(&self, tree: &mut Tree) {
+        tree.diff_children(std::slice::from_ref(&self.child));
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut Tree,
+        renderer: &Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        self.child
+            .as_widget_mut()
+            .layout(&mut tree.children[0], renderer, limits)
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        renderer: &Renderer,
+        operation: &mut dyn Operation,
+    ) {
+        self.child
+            .as_widget_mut()
+            .operate(&mut tree.children[0], layout, renderer, operation);
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut Tree,
+        event: &iced::Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        let state = tree.state.downcast_mut::<CtrlWheelState>();
+        match event {
+            iced::Event::Keyboard(iced::keyboard::Event::ModifiersChanged(modifiers)) => {
+                state.control = modifiers.control();
+                if !state.control {
+                    state.wheel.reset();
+                }
+            }
+            iced::Event::Window(window::Event::Unfocused) => {
+                // Ctrl may be let go elsewhere.
+                state.control = false;
+                state.wheel.reset();
+            }
+            iced::Event::Mouse(mouse::Event::WheelScrolled { delta }) if state.control => {
+                let step = match delta {
+                    mouse::ScrollDelta::Lines { y, .. } => state.wheel.lines(f64::from(*y)),
+                    mouse::ScrollDelta::Pixels { y, .. } => state.wheel.pixels(f64::from(*y)),
+                };
+                if let Some(step) = step {
+                    shell.publish((self.on)(step));
+                }
+                shell.capture_event();
+                return;
+            }
+            _ => {}
+        }
+        self.child.as_widget_mut().update(
+            &mut tree.children[0],
+            event,
+            layout,
+            cursor,
+            renderer,
+            clipboard,
+            shell,
+            viewport,
+        );
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &Tree,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &Renderer,
+    ) -> mouse::Interaction {
+        self.child.as_widget().mouse_interaction(
+            &tree.children[0],
+            layout,
+            cursor,
+            viewport,
+            renderer,
+        )
+    }
+
+    fn draw(
+        &self,
+        tree: &Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &renderer::Style,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        self.child.as_widget().draw(
+            &tree.children[0],
+            renderer,
+            theme,
+            style,
+            layout,
+            cursor,
+            viewport,
+        );
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut Tree,
+        layout: Layout<'b>,
+        renderer: &Renderer,
+        viewport: &Rectangle,
+        translation: Vector,
+    ) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
+        self.child.as_widget_mut().overlay(
+            &mut tree.children[0],
+            layout,
+            renderer,
+            viewport,
+            translation,
+        )
+    }
+}
+
+impl<'a> From<CtrlWheel<'a>> for Element<'a, Message> {
+    fn from(wheel: CtrlWheel<'a>) -> Self {
+        Element::new(wheel)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Autoscroll
+
+/// How far the pointer can be from where it clicked without scrolling; how
+/// fast it scrolls just past that, in px a second for each px; how much
+/// faster the farther, for each px squared; and the fastest, in px a
+/// second: Slint's `yapfast_autoscroll`.
+const AUTOSCROLL_STILL: f32 = 10.0;
+const AUTOSCROLL_SPEED: f32 = 8.0;
+const AUTOSCROLL_ACCELERATION: f32 = 0.05;
+const AUTOSCROLL_FASTEST: f32 = 12000.0;
+/// The marker at the click.
+const AUTOSCROLL_MARKER: f32 = 30.0;
+
+/// How fast the pointer `distance` px from where it clicked scrolls, in px
+/// a second.
+pub fn autoscroll_speed(distance: f32) -> f32 {
+    let past = distance.abs() - AUTOSCROLL_STILL;
+    if past <= 0.0 {
+        return 0.0;
+    }
+    (past * AUTOSCROLL_SPEED + past * past * AUTOSCROLL_ACCELERATION)
+        .min(AUTOSCROLL_FASTEST)
+        .copysign(distance)
+}
+
+/// The marker's look: its ground, edge and dot, and the arrows' pictures.
+pub struct AutoscrollLook {
+    pub ground: Color,
+    pub edge: Color,
+    pub dot: Color,
+    pub up: Handle,
+    pub down: Handle,
+}
+
+/// Around the whole window, as Slint's `yapfast_autoscroll` and browsers:
+/// a middle click on a list that has more than fits scrolls it towards the
+/// pointer, faster the farther the pointer is from the click, until the
+/// next press, a key or the wheel; held and moved away, until it's let go.
+/// Meanwhile the pointer's events go to nothing under it, the press that
+/// ends it included, and a marker shows at the click. It scrolls on each
+/// frame it asks for while it goes on, and asks for none after. Lists
+/// anchored to their foot (`anchored`, by id) scroll the other way round.
+pub struct Autoscroll<'a> {
+    child: Element<'a, Message>,
+    anchored: &'static [&'static str],
+    look: AutoscrollLook,
+}
+
+impl<'a> Autoscroll<'a> {
+    pub fn new(
+        child: impl Into<Element<'a, Message>>,
+        anchored: &'static [&'static str],
+        look: AutoscrollLook,
+    ) -> Self {
+        Self {
+            child: child.into(),
+            anchored,
+            look,
+        }
+    }
+
+    /// Runs `operation` on the child.
+    fn operate_child(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        renderer: &Renderer,
+        operation: &mut dyn Operation,
+    ) {
+        self.child
+            .as_widget_mut()
+            .operate(&mut tree.children[0], layout, renderer, operation);
+    }
+}
+
+#[derive(Default)]
+struct AutoscrollState {
+    scroll: Option<Scrolling>,
+}
+
+struct Scrolling {
+    origin: Point,
+    pointer: Point,
+    /// The middle button is still down; moved away with it down, letting
+    /// go ends it.
+    held: bool,
+    dragged: bool,
+    /// The button whose press ended it, until it's let go.
+    ending: Option<mouse::Button>,
+    last: Option<std::time::Instant>,
+}
+
+/// Finds the innermost list under a point that has more than fits, by its
+/// place in the traversal, and with `by` set scrolls it.
+struct ScrollAt<'a> {
+    at: Point,
+    anchored: &'a [&'static str],
+    seen: usize,
+    found: Option<usize>,
+    by: Option<(usize, f32)>,
+}
+
+impl Operation for ScrollAt<'_> {
+    fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation)) {
+        operate(self);
+    }
+
+    fn scrollable(
+        &mut self,
+        id: Option<&iced::advanced::widget::Id>,
+        bounds: Rectangle,
+        content_bounds: Rectangle,
+        _translation: Vector,
+        state: &mut dyn iced::advanced::widget::operation::Scrollable,
+    ) {
+        let index = self.seen;
+        self.seen += 1;
+        if bounds.contains(self.at) && content_bounds.height > bounds.height + 1.0 {
+            self.found = Some(index);
+        }
+        if let Some((target, by)) = self.by
+            && target == index
+        {
+            let anchored = id.is_some_and(|id| {
+                self.anchored
+                    .iter()
+                    .any(|name| iced::advanced::widget::Id::new(name) == *id)
+            });
+            let by = if anchored { -by } else { by };
+            state.scroll_by(
+                iced::widget::scrollable::AbsoluteOffset { x: 0.0, y: by },
+                bounds,
+                content_bounds,
+            );
+        }
+    }
+}
+
+impl Widget<Message, Theme, Renderer> for Autoscroll<'_> {
+    fn size(&self) -> Size<Length> {
+        self.child.as_widget().size()
+    }
+
+    fn tag(&self) -> tree::Tag {
+        tree::Tag::of::<AutoscrollState>()
+    }
+
+    fn state(&self) -> tree::State {
+        tree::State::new(AutoscrollState::default())
+    }
+
+    fn children(&self) -> Vec<Tree> {
+        vec![Tree::new(&self.child)]
+    }
+
+    fn diff(&self, tree: &mut Tree) {
+        tree.diff_children(std::slice::from_ref(&self.child));
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut Tree,
+        renderer: &Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        self.child
+            .as_widget_mut()
+            .layout(&mut tree.children[0], renderer, limits)
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        renderer: &Renderer,
+        operation: &mut dyn Operation,
+    ) {
+        self.operate_child(tree, layout, renderer, operation);
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut Tree,
+        event: &iced::Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        let going = tree
+            .state
+            .downcast_ref::<AutoscrollState>()
+            .scroll
+            .is_some();
+        if going {
+            let state = tree.state.downcast_mut::<AutoscrollState>();
+            let scroll = state.scroll.as_mut().expect("going");
+            let mut take = true;
+            match event {
+                iced::Event::Mouse(mouse::Event::CursorMoved { position }) => {
+                    scroll.pointer = *position;
+                    if scroll.held && scroll.pointer.distance(scroll.origin) > AUTOSCROLL_STILL {
+                        scroll.dragged = true;
+                    }
+                    shell.request_redraw();
+                }
+                iced::Event::Mouse(mouse::Event::ButtonPressed(button)) => {
+                    scroll.ending = Some(*button);
+                    shell.request_redraw();
+                }
+                iced::Event::Mouse(mouse::Event::ButtonReleased(button)) => {
+                    if scroll.ending == Some(*button) {
+                        state.scroll = None;
+                    } else if *button == mouse::Button::Middle {
+                        scroll.held = false;
+                        if scroll.dragged {
+                            state.scroll = None;
+                        }
+                    }
+                    shell.request_redraw();
+                }
+                iced::Event::Mouse(mouse::Event::WheelScrolled { .. })
+                | iced::Event::Keyboard(_)
+                | iced::Event::Window(window::Event::Unfocused) => {
+                    state.scroll = None;
+                    take = false;
+                    shell.request_redraw();
+                }
+                iced::Event::Window(window::Event::RedrawRequested(now))
+                    if scroll.ending.is_none() =>
+                {
+                    let elapsed = scroll
+                        .last
+                        .map_or(0.0, |last| now.duration_since(last).as_secs_f32().min(0.05));
+                    scroll.last = Some(*now);
+                    let by = autoscroll_speed(scroll.pointer.y - scroll.origin.y) * elapsed;
+                    let origin = scroll.origin;
+                    if by != 0.0 {
+                        let mut find = ScrollAt {
+                            at: origin,
+                            anchored: self.anchored,
+                            seen: 0,
+                            found: None,
+                            by: None,
+                        };
+                        self.operate_child(tree, layout, renderer, &mut find);
+                        if let Some(found) = find.found {
+                            let mut scroll = ScrollAt {
+                                by: Some((found, by)),
+                                seen: 0,
+                                found: None,
+                                ..find
+                            };
+                            self.operate_child(tree, layout, renderer, &mut scroll);
+                        }
+                    }
+                    shell.request_redraw();
+                    take = false;
+                }
+                _ => take = false,
+            }
+            if take {
+                shell.capture_event();
+                return;
+            }
+        }
+        self.child.as_widget_mut().update(
+            &mut tree.children[0],
+            event,
+            layout,
+            cursor,
+            renderer,
+            clipboard,
+            shell,
+            viewport,
+        );
+        if !going
+            && let iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Middle)) = event
+            && !shell.is_event_captured()
+            && let Some(at) = cursor.position()
+        {
+            let mut find = ScrollAt {
+                at,
+                anchored: self.anchored,
+                seen: 0,
+                found: None,
+                by: None,
+            };
+            self.operate_child(tree, layout, renderer, &mut find);
+            if find.found.is_some() {
+                tree.state.downcast_mut::<AutoscrollState>().scroll = Some(Scrolling {
+                    origin: at,
+                    pointer: at,
+                    held: true,
+                    dragged: false,
+                    ending: None,
+                    last: None,
+                });
+                shell.capture_event();
+                shell.request_redraw();
+            }
+        }
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &Tree,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &Renderer,
+    ) -> mouse::Interaction {
+        if let Some(scroll) = &tree.state.downcast_ref::<AutoscrollState>().scroll {
+            return if scroll.ending.is_some() {
+                mouse::Interaction::default()
+            } else {
+                mouse::Interaction::ResizingVertically
+            };
+        }
+        self.child.as_widget().mouse_interaction(
+            &tree.children[0],
+            layout,
+            cursor,
+            viewport,
+            renderer,
+        )
+    }
+
+    fn draw(
+        &self,
+        tree: &Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &renderer::Style,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        use iced::advanced::Renderer as _;
+        self.child.as_widget().draw(
+            &tree.children[0],
+            renderer,
+            theme,
+            style,
+            layout,
+            cursor,
+            viewport,
+        );
+        let Some(scroll) = tree
+            .state
+            .downcast_ref::<AutoscrollState>()
+            .scroll
+            .as_ref()
+            .filter(|scroll| scroll.ending.is_none())
+        else {
+            return;
+        };
+        // A circle at the click with the arrows the list can go, as Slint's
+        // `AutoscrollMarker`.
+        let side = AUTOSCROLL_MARKER;
+        let marker = Rectangle::new(
+            scroll.origin - Vector::new(side / 2.0, side / 2.0),
+            Size::new(side, side),
+        );
+        let look = &self.look;
+        renderer.with_layer(marker.expand(12.0), |renderer| {
+            renderer.fill_quad(
+                renderer::Quad {
+                    bounds: marker,
+                    border: Border {
+                        color: look.edge,
+                        width: 1.0,
+                        radius: (side / 2.0).into(),
+                    },
+                    shadow: iced::Shadow {
+                        color: Color::from_rgba8(0, 0, 0, 0x60 as f32 / 255.0),
+                        offset: Vector::new(0.0, 2.0),
+                        blur_radius: 8.0,
+                    },
+                    ..Default::default()
+                },
+                look.ground,
+            );
+            let centre = marker.center();
+            renderer.fill_quad(
+                renderer::Quad {
+                    bounds: Rectangle::new(centre - Vector::new(2.0, 2.0), Size::new(4.0, 4.0)),
+                    border: Border::default().rounded(2),
+                    ..Default::default()
+                },
+                look.dot,
+            );
+            for (handle, y) in [
+                (&look.up, marker.y + 3.0),
+                (&look.down, marker.y + side - 13.0),
+            ] {
+                let at = Rectangle::new(Point::new(centre.x - 5.0, y), Size::new(10.0, 10.0));
+                draw_picture(renderer, handle, at, [0.0; 4], 1.0);
+            }
+        });
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut Tree,
+        layout: Layout<'b>,
+        renderer: &Renderer,
+        viewport: &Rectangle,
+        translation: Vector,
+    ) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
+        self.child.as_widget_mut().overlay(
+            &mut tree.children[0],
+            layout,
+            renderer,
+            viewport,
+            translation,
+        )
+    }
+}
+
+impl<'a> From<Autoscroll<'a>> for Element<'a, Message> {
+    fn from(autoscroll: Autoscroll<'a>) -> Self {
+        Element::new(autoscroll)
+    }
+}
+
+#[cfg(test)]
+mod autoscroll_tests {
+    use super::autoscroll_speed;
+
+    #[test]
+    fn autoscroll_is_still_near_the_click_and_faster_farther() {
+        assert_eq!(autoscroll_speed(10.0), 0.0);
+        assert_eq!(autoscroll_speed(-6.0), 0.0);
+        // 10 px past: 80 px a second and 5 for the acceleration.
+        assert!((autoscroll_speed(20.0) - 85.0).abs() < 0.001);
+        assert!((autoscroll_speed(-20.0) + 85.0).abs() < 0.001);
+        assert_eq!(autoscroll_speed(5000.0), 12000.0);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// A ring that pulses
+
+/// A round ring of `color`, `width` px, over its child, its opacity
+/// pulsing between 0.05 and 0.85 once a second as the Slint client's
+/// ringing card's (`0.45 + 0.4 × sin`), drawn anew on each frame it asks
+/// for while it shows: a call ringing.
+pub struct Pulse<'a> {
+    child: Element<'a, Message>,
+    color: Color,
+    width: f32,
+}
+
+impl<'a> Pulse<'a> {
+    pub fn new(child: impl Into<Element<'a, Message>>, color: Color, width: f32) -> Self {
+        Self {
+            child: child.into(),
+            color,
+            width,
+        }
+    }
+}
+
+/// When it began, and the time of the frame being drawn.
+struct PulseState {
+    began: Option<std::time::Instant>,
+    now: Option<std::time::Instant>,
+}
+
+/// The ring's opacity `elapsed` into its pulse.
+pub fn pulse_opacity(elapsed: Duration) -> f32 {
+    let degrees = elapsed.as_secs_f32() * 1000.0 * 0.36;
+    0.45 + 0.4 * degrees.to_radians().sin()
+}
+
+impl Widget<Message, Theme, Renderer> for Pulse<'_> {
+    fn size(&self) -> Size<Length> {
+        self.child.as_widget().size()
+    }
+
+    fn tag(&self) -> tree::Tag {
+        tree::Tag::of::<PulseState>()
+    }
+
+    fn state(&self) -> tree::State {
+        tree::State::new(PulseState {
+            began: None,
+            now: None,
+        })
+    }
+
+    fn children(&self) -> Vec<Tree> {
+        vec![Tree::new(&self.child)]
+    }
+
+    fn diff(&self, tree: &mut Tree) {
+        tree.diff_children(std::slice::from_ref(&self.child));
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut Tree,
+        renderer: &Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        self.child
+            .as_widget_mut()
+            .layout(&mut tree.children[0], renderer, limits)
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        renderer: &Renderer,
+        operation: &mut dyn Operation,
+    ) {
+        self.child
+            .as_widget_mut()
+            .operate(&mut tree.children[0], layout, renderer, operation);
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut Tree,
+        event: &iced::Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        if let iced::Event::Window(window::Event::RedrawRequested(now)) = event {
+            let state = tree.state.downcast_mut::<PulseState>();
+            state.began.get_or_insert(*now);
+            state.now = Some(*now);
+            shell.request_redraw();
+        }
+        self.child.as_widget_mut().update(
+            &mut tree.children[0],
+            event,
+            layout,
+            cursor,
+            renderer,
+            clipboard,
+            shell,
+            viewport,
+        );
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &Tree,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &Renderer,
+    ) -> mouse::Interaction {
+        self.child.as_widget().mouse_interaction(
+            &tree.children[0],
+            layout,
+            cursor,
+            viewport,
+            renderer,
+        )
+    }
+
+    fn draw(
+        &self,
+        tree: &Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &renderer::Style,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        use iced::advanced::Renderer as _;
+        let state = tree.state.downcast_ref::<PulseState>();
+        let elapsed = match (state.began, state.now) {
+            (Some(began), Some(now)) => now.duration_since(began),
+            _ => Duration::ZERO,
+        };
+        let bounds = layout.bounds();
+        renderer.fill_quad(
+            renderer::Quad {
+                bounds,
+                border: Border {
+                    color: Color {
+                        a: self.color.a * pulse_opacity(elapsed),
+                        ..self.color
+                    },
+                    width: self.width,
+                    radius: (bounds.width.min(bounds.height) / 2.0).into(),
+                },
+                ..Default::default()
+            },
+            Color::TRANSPARENT,
+        );
+        self.child.as_widget().draw(
+            &tree.children[0],
+            renderer,
+            theme,
+            style,
+            layout,
+            cursor,
+            viewport,
+        );
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut Tree,
+        layout: Layout<'b>,
+        renderer: &Renderer,
+        viewport: &Rectangle,
+        translation: Vector,
+    ) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
+        self.child.as_widget_mut().overlay(
+            &mut tree.children[0],
+            layout,
+            renderer,
+            viewport,
+            translation,
+        )
+    }
+}
+
+impl<'a> From<Pulse<'a>> for Element<'a, Message> {
+    fn from(pulse: Pulse<'a>) -> Self {
+        Element::new(pulse)
+    }
+}
+
+#[cfg(test)]
+mod pulse_tests {
+    #[test]
+    fn the_ring_pulses_once_a_second() {
+        use std::time::Duration;
+        let at = |ms| super::pulse_opacity(Duration::from_millis(ms));
+        assert!((at(0) - 0.45).abs() < 0.001);
+        assert!((at(250) - 0.85).abs() < 0.001);
+        assert!((at(750) - 0.05).abs() < 0.001);
+        assert!((at(1000) - 0.45).abs() < 0.001);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// A profile frame round a card
+
+/// Where a frame's layer lies on the card, as Discord's stylesheet draws
+/// it: across the card and past its sides by [`Framed`]'s `side`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FrameKind {
+    /// Once, past the end it's anchored to.
+    Staple,
+    /// The card's height, its picture at its anchor.
+    Rail,
+    /// Repeated down the card.
+    Border,
+}
+
+/// The end of the card a frame's layer is anchored to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FrameAnchor {
+    Top,
+    Center,
+    Bottom,
+}
+
+/// One layer of a profile frame: its picture at the frame's width and
+/// `height`, and whether it lies over the card.
+pub struct FrameLayer {
+    pub picture: Handle,
+    pub height: f32,
+    pub kind: FrameKind,
+    pub anchor: FrameAnchor,
+    pub front: bool,
+}
+
+/// Discord draws its frames 1312 px wide, and a staple keeps the same part
+/// over the card whatever its height: 412 at the top, 212 at the foot.
+const FRAME_ART: f32 = 1312.0;
+const STAPLE_TOP: f32 = 412.0;
+const STAPLE_FOOT: f32 = 212.0;
+
+/// A card with a profile frame round it, as the Slint client's
+/// `ProfileFrameLayer`s: the back layers under the card, the front ones
+/// over it, each `side` past its left and right; a staple at the top sits
+/// `top_shift` lower (the full profile's 8 px). Its layout is the card's;
+/// the frame draws past it and takes no clicks.
+pub struct Framed<'a> {
+    child: Element<'a, Message>,
+    layers: Vec<FrameLayer>,
+    side: f32,
+    top_shift: f32,
+}
+
+impl<'a> Framed<'a> {
+    pub fn new(
+        child: impl Into<Element<'a, Message>>,
+        layers: Vec<FrameLayer>,
+        side: f32,
+        top_shift: f32,
+    ) -> Self {
+        Self {
+            child: child.into(),
+            layers,
+            side,
+            top_shift,
+        }
+    }
+
+    fn draw_layers(&self, renderer: &mut Renderer, card: Rectangle, front: bool) {
+        use iced::advanced::Renderer as _;
+        let (x, width) = (card.x - self.side, card.width + 2.0 * self.side);
+        let whole = Rectangle::new(Point::new(x, card.y), Size::new(width, card.height));
+        let layers = || self.layers.iter().filter(move |layer| layer.front == front);
+        let at = |y: f32, height: f32| {
+            Rectangle::new(Point::new(x, card.y + y), Size::new(width, height))
+        };
+        // A staple reaches past the card's end; the renderer clips by layer,
+        // so the rails and borders, which keep to the card's height, go in
+        // one of the card's size.
+        for layer in layers().filter(|layer| layer.kind == FrameKind::Staple) {
+            let y = match layer.anchor {
+                FrameAnchor::Bottom => card.height - width * STAPLE_FOOT / FRAME_ART,
+                FrameAnchor::Center => (card.height - layer.height) / 2.0,
+                FrameAnchor::Top => width * STAPLE_TOP / FRAME_ART + self.top_shift - layer.height,
+            };
+            frame_picture(renderer, &layer.picture, at(y, layer.height));
+        }
+        if !layers().any(|layer| layer.kind != FrameKind::Staple) {
+            return;
+        }
+        renderer.with_layer(whole, |renderer| {
+            for layer in layers() {
+                let height = layer.height;
+                match layer.kind {
+                    FrameKind::Staple => {}
+                    FrameKind::Rail => {
+                        let y = match layer.anchor {
+                            FrameAnchor::Bottom => card.height - height,
+                            FrameAnchor::Center => (card.height - height) / 2.0,
+                            FrameAnchor::Top => 0.0,
+                        };
+                        frame_picture(renderer, &layer.picture, at(y, height));
+                    }
+                    FrameKind::Border if height > 0.0 => {
+                        let copies = (card.height / height).ceil() as usize + 1;
+                        for copy in 0..copies {
+                            frame_picture(
+                                renderer,
+                                &layer.picture,
+                                at(copy as f32 * height, height),
+                            );
+                        }
+                    }
+                    FrameKind::Border => {}
+                }
+            }
+        });
+    }
+}
+
+fn frame_picture(renderer: &mut Renderer, handle: &Handle, bounds: Rectangle) {
+    use iced::advanced::image::Renderer as _;
+    renderer.draw_image(
+        raster::Image {
+            handle: handle.clone(),
+            filter_method: raster::FilterMethod::Linear,
+            rotation: iced::Radians(0.0),
+            border_radius: Default::default(),
+            opacity: 1.0,
+            snap: true,
+        },
+        bounds,
+        bounds,
+    );
+}
+
+impl Widget<Message, Theme, Renderer> for Framed<'_> {
+    fn size(&self) -> Size<Length> {
+        self.child.as_widget().size()
+    }
+
+    fn children(&self) -> Vec<Tree> {
+        vec![Tree::new(&self.child)]
+    }
+
+    fn diff(&self, tree: &mut Tree) {
+        tree.diff_children(std::slice::from_ref(&self.child));
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut Tree,
+        renderer: &Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        self.child
+            .as_widget_mut()
+            .layout(&mut tree.children[0], renderer, limits)
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        renderer: &Renderer,
+        operation: &mut dyn Operation,
+    ) {
+        self.child
+            .as_widget_mut()
+            .operate(&mut tree.children[0], layout, renderer, operation);
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut Tree,
+        event: &iced::Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        self.child.as_widget_mut().update(
+            &mut tree.children[0],
+            event,
+            layout,
+            cursor,
+            renderer,
+            clipboard,
+            shell,
+            viewport,
+        );
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &Tree,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &Renderer,
+    ) -> mouse::Interaction {
+        self.child.as_widget().mouse_interaction(
+            &tree.children[0],
+            layout,
+            cursor,
+            viewport,
+            renderer,
+        )
+    }
+
+    fn draw(
+        &self,
+        tree: &Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &renderer::Style,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        use iced::advanced::Renderer as _;
+        let card = layout.bounds();
+        // The back layers under the card's ground, the card in a layer of
+        // its own over them, and the front ones in another over it.
+        self.draw_layers(renderer, card, false);
+        let room = viewport.expand(self.side);
+        renderer.with_layer(room, |renderer| {
+            self.child.as_widget().draw(
+                &tree.children[0],
+                renderer,
+                theme,
+                style,
+                layout,
+                cursor,
+                viewport,
+            );
+        });
+        if self.layers.iter().any(|layer| layer.front) {
+            renderer.with_layer(room, |renderer| self.draw_layers(renderer, card, true));
+        }
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut Tree,
+        layout: Layout<'b>,
+        renderer: &Renderer,
+        viewport: &Rectangle,
+        translation: Vector,
+    ) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
+        self.child.as_widget_mut().overlay(
+            &mut tree.children[0],
+            layout,
+            renderer,
+            viewport,
+            translation,
+        )
+    }
+}
+
+impl<'a> From<Framed<'a>> for Element<'a, Message> {
+    fn from(framed: Framed<'a>) -> Self {
+        Element::new(framed)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// A colour's saturation, brightness and hue
+
+/// A colour as hue (0 to 360), saturation and brightness (0 to 1 each).
+pub type Hsv = [f32; 3];
+
+/// The colour of `hsv`, as 0xRRGGBB.
+pub fn hsv_rgb([hue, sat, val]: Hsv) -> u32 {
+    let hue = hue.rem_euclid(360.0) / 60.0;
+    let chroma = val * sat;
+    let x = chroma * (1.0 - (hue % 2.0 - 1.0).abs());
+    let (r, g, b) = match hue as u32 {
+        0 => (chroma, x, 0.0),
+        1 => (x, chroma, 0.0),
+        2 => (0.0, chroma, x),
+        3 => (0.0, x, chroma),
+        4 => (x, 0.0, chroma),
+        _ => (chroma, 0.0, x),
+    };
+    let channel = |c: f32| (((c + val - chroma) * 255.0).round().clamp(0.0, 255.0)) as u32;
+    channel(r) << 16 | channel(g) << 8 | channel(b)
+}
+
+/// The hue, saturation and brightness of 0xRRGGBB.
+pub fn rgb_hsv(rgb: u32) -> Hsv {
+    let [_, r, g, b] = rgb.to_be_bytes().map(|c| f32::from(c) / 255.0);
+    let max = r.max(g).max(b);
+    let chroma = max - r.min(g).min(b);
+    let hue = if chroma == 0.0 {
+        0.0
+    } else if max == r {
+        60.0 * ((g - b) / chroma).rem_euclid(6.0)
+    } else if max == g {
+        60.0 * ((b - r) / chroma + 2.0)
+    } else {
+        60.0 * ((r - g) / chroma + 4.0)
+    };
+    let sat = if max == 0.0 { 0.0 } else { chroma / max };
+    [hue, sat, max]
+}
+
+/// The square and strip of the Slint client's `ColourPopover`: saturation
+/// across and brightness down a square of the hue, a ring where the colour
+/// is; under it the hues, a handle at the one chosen. Pressing or dragging
+/// on either chooses; the colour is the caller's, kept as [`Hsv`] so a hue
+/// isn't lost at grey or black.
+pub struct ColourPad<'a> {
+    hsv: Hsv,
+    chosen: Box<dyn Fn(Hsv) -> Message + 'a>,
+}
+
+/// The square's height, the gap and the strip's.
+const PAD_SQUARE: f32 = 150.0;
+const PAD_GAP: f32 = 10.0;
+const PAD_STRIP: f32 = 10.0;
+
+impl<'a> ColourPad<'a> {
+    pub fn new(hsv: Hsv, chosen: impl Fn(Hsv) -> Message + 'a) -> Self {
+        Self {
+            hsv,
+            chosen: Box::new(chosen),
+        }
+    }
+
+    fn parts(bounds: Rectangle) -> (Rectangle, Rectangle) {
+        let square = Rectangle::new(bounds.position(), Size::new(bounds.width, PAD_SQUARE));
+        let strip = Rectangle::new(
+            Point::new(bounds.x, bounds.y + PAD_SQUARE + PAD_GAP),
+            Size::new(bounds.width, PAD_STRIP),
+        );
+        (square, strip)
+    }
+
+    /// The colour a point in a part chooses.
+    fn at(&self, part: PadPart, bounds: Rectangle, point: Point) -> Hsv {
+        let (square, strip) = Self::parts(bounds);
+        let [hue, sat, val] = self.hsv;
+        let across = |part: Rectangle| ((point.x - part.x) / part.width.max(1.0)).clamp(0.0, 1.0);
+        match part {
+            PadPart::Square => [
+                hue,
+                across(square),
+                1.0 - ((point.y - square.y) / square.height).clamp(0.0, 1.0),
+            ],
+            PadPart::Strip => [across(strip) * 360.0, sat, val],
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum PadPart {
+    Square,
+    Strip,
+}
+
+/// The part the button went down on, while it's down.
+#[derive(Default)]
+struct PadState {
+    held: Option<PadPart>,
+}
+
+impl Widget<Message, Theme, Renderer> for ColourPad<'_> {
+    fn size(&self) -> Size<Length> {
+        Size::new(
+            Length::Fill,
+            Length::Fixed(PAD_SQUARE + PAD_GAP + PAD_STRIP),
+        )
+    }
+
+    fn tag(&self) -> tree::Tag {
+        tree::Tag::of::<PadState>()
+    }
+
+    fn state(&self) -> tree::State {
+        tree::State::new(PadState::default())
+    }
+
+    fn layout(
+        &mut self,
+        _tree: &mut Tree,
+        _renderer: &Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        layout::Node::new(limits.resolve(
+            Length::Fill,
+            PAD_SQUARE + PAD_GAP + PAD_STRIP,
+            Size::ZERO,
+        ))
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut Tree,
+        event: &iced::Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        _renderer: &Renderer,
+        _clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, Message>,
+        _viewport: &Rectangle,
+    ) {
+        let bounds = layout.bounds();
+        let (square, strip) = Self::parts(bounds);
+        let state = tree.state.downcast_mut::<PadState>();
+        match event {
+            iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                let part = if cursor.is_over(square) {
+                    PadPart::Square
+                } else if cursor.is_over(strip.expand(3.0)) {
+                    PadPart::Strip
+                } else {
+                    return;
+                };
+                if let Some(position) = cursor.position() {
+                    state.held = Some(part);
+                    shell.publish((self.chosen)(self.at(part, bounds, position)));
+                    shell.capture_event();
+                }
+            }
+            iced::Event::Mouse(mouse::Event::CursorMoved { position }) => {
+                if let Some(part) = state.held {
+                    shell.publish((self.chosen)(self.at(part, bounds, *position)));
+                    shell.capture_event();
+                }
+            }
+            iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+                state.held = None;
+            }
+            _ => {}
+        }
+    }
+
+    fn mouse_interaction(
+        &self,
+        _tree: &Tree,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        _viewport: &Rectangle,
+        _renderer: &Renderer,
+    ) -> mouse::Interaction {
+        let (square, strip) = Self::parts(layout.bounds());
+        if cursor.is_over(square) || cursor.is_over(strip.expand(3.0)) {
+            mouse::Interaction::Pointer
+        } else {
+            mouse::Interaction::default()
+        }
+    }
+
+    fn draw(
+        &self,
+        _tree: &Tree,
+        renderer: &mut Renderer,
+        _theme: &Theme,
+        _style: &renderer::Style,
+        layout: Layout<'_>,
+        _cursor: mouse::Cursor,
+        _viewport: &Rectangle,
+    ) {
+        use iced::advanced::Renderer as _;
+        let (square, strip) = Self::parts(layout.bounds());
+        let [hue, sat, val] = self.hsv;
+        let colour = |rgb: u32| {
+            let [_, r, g, b] = rgb.to_be_bytes();
+            Color::from_rgb8(r, g, b)
+        };
+        let fill = |renderer: &mut Renderer,
+                    bounds: Rectangle,
+                    radius: f32,
+                    angle: f32,
+                    stops: &[(f32, Color)]| {
+            let mut linear = gradient::Linear::new(iced::Degrees(angle));
+            for (offset, colour) in stops {
+                linear = linear.add_stop(*offset, *colour);
+            }
+            renderer.fill_quad(
+                renderer::Quad {
+                    bounds,
+                    border: Border::default().rounded(radius),
+                    ..Default::default()
+                },
+                Background::Gradient(linear.into()),
+            );
+        };
+        // White to the hue across, then clear to black down.
+        fill(
+            renderer,
+            square,
+            8.0,
+            90.0,
+            &[(0.0, Color::WHITE), (1.0, colour(hsv_rgb([hue, 1.0, 1.0])))],
+        );
+        fill(
+            renderer,
+            square,
+            8.0,
+            180.0,
+            &[(0.0, Color::TRANSPARENT), (1.0, Color::BLACK)],
+        );
+        let ring = Rectangle::new(
+            Point::new(
+                square.x + sat * square.width - 6.0,
+                square.y + (1.0 - val) * square.height - 6.0,
+            ),
+            Size::new(12.0, 12.0),
+        );
+        renderer.fill_quad(
+            renderer::Quad {
+                bounds: ring,
+                border: Border {
+                    color: Color::WHITE,
+                    width: 2.0,
+                    radius: 6.0.into(),
+                },
+                ..Default::default()
+            },
+            Background::Color(Color::TRANSPARENT),
+        );
+        let hues = [
+            (0.0, 0xff0000),
+            (0.17, 0xffff00),
+            (0.33, 0x00ff00),
+            (0.5, 0x00ffff),
+            (0.67, 0x0000ff),
+            (0.83, 0xff00ff),
+            (1.0, 0xff0000),
+        ]
+        .map(|(offset, rgb)| (offset, colour(rgb)));
+        fill(renderer, strip, 5.0, 90.0, &hues);
+        let handle = Rectangle::new(
+            Point::new(strip.x + hue / 360.0 * strip.width - 4.0, strip.y - 3.0),
+            Size::new(8.0, 16.0),
+        );
+        renderer.fill_quad(
+            renderer::Quad {
+                bounds: handle,
+                border: Border::default().rounded(4),
+                ..Default::default()
+            },
+            Background::Color(Color::WHITE),
+        );
+    }
+}
+
+impl<'a> From<ColourPad<'a>> for Element<'a, Message> {
+    fn from(pad: ColourPad<'a>) -> Self {
+        Element::new(pad)
+    }
+}
+
+#[cfg(test)]
+mod colour_tests {
+    use super::*;
+
+    #[test]
+    fn colours_go_to_hsv_and_back() {
+        for rgb in [
+            0xff0000, 0x00ff00, 0x0000ff, 0x5865f2, 0xfde2e4, 0x000000, 0xffffff, 0x808080,
+        ] {
+            assert_eq!(hsv_rgb(rgb_hsv(rgb)), rgb, "{rgb:06x}");
+        }
+        assert_eq!(rgb_hsv(0x00ff00), [120.0, 1.0, 1.0]);
+        assert_eq!(hsv_rgb([240.0, 1.0, 0.5]), 0x000080);
     }
 }

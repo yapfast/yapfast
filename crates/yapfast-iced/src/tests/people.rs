@@ -458,3 +458,61 @@ fn a_discord_dm_offers_add_friend_or_accept_in_its_header() {
     assert!(!super::shows(&app, "Add Friend"));
     assert!(!super::shows(&app, "Accept Friend Request"));
 }
+
+#[test]
+fn a_cards_effect_plays_only_under_the_pointer_and_its_frame_shows() {
+    use yapfast_core::chat::{EffectLayer, ProfileEffect, ProfileFrameLayer};
+    let (mut app, _folder) = preview();
+    let user = app
+        .client
+        .state()
+        .members
+        .iter()
+        .flatten()
+        .flat_map(|members| members.iter())
+        .find(|member| member.name == "Riley")
+        .map(|member| member.id.clone())
+        .expect("Riley in the preview");
+    let _ = app.open_card(user, Point::new(400.0, 200.0));
+    change(&mut app, |state| {
+        state.profile_effects.push(Arc::new(ProfileEffect {
+            sku: "9".into(),
+            still: Some("effect-still".into()),
+            layers: vec![EffectLayer {
+                src: "effect-layer".into(),
+                x: 0,
+                y: 0,
+                start: 0,
+                duration: 2000,
+                looped: false,
+                loop_delay: 0,
+            }],
+        }));
+        let profile = &mut state.profile.as_mut().expect("open").profile;
+        profile.effect = Some("9".into());
+        profile.frame = Arc::from(vec![ProfileFrameLayer {
+            src: "frame-staple".into(),
+            kind: "staple".into(),
+            anchor: "top".into(),
+            front: true,
+        }]);
+    });
+    let wanted = |app: &App, url: &str| app.profile_pictures().iter().any(|got| got == url);
+    assert!(wanted(&app, "effect-still"), "its still at rest");
+    assert!(!wanted(&app, "effect-layer"), "no layers at rest");
+    assert!(wanted(&app, "frame-staple"));
+    let _ = app.update(Message::Profile(profile::Event::Pointed(true)));
+    assert!(wanted(&app, "effect-layer"), "it plays under the pointer");
+    let _ = app.update(Message::Profile(profile::Event::Pointed(false)));
+    assert!(
+        !wanted(&app, "effect-layer"),
+        "and lets its layers go after"
+    );
+    // With effects and frames switched off, neither is asked for.
+    change(&mut app, |state| {
+        state.cosmetics.effects = false;
+        state.cosmetics.frames = false;
+    });
+    assert!(!wanted(&app, "effect-still"));
+    assert!(!wanted(&app, "frame-staple"));
+}

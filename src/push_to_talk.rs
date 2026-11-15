@@ -225,6 +225,25 @@ pub fn pressed_talk_key() -> bool {
     PRESSED_TALK_KEY.load(Ordering::Relaxed)
 }
 
+/// The window's own key going down or up, by its scan code, or the focus
+/// going (none), as the iced client hands them on: holds the key while no
+/// global key works, as [`window_event`] does for the Slint client.
+#[cfg(any(
+    test,
+    all(not(feature = "desktop"), any(feature = "iced", feature = "iced-gpu"))
+))]
+pub fn window_key(scancode: Option<u32>, pressed: bool) {
+    let key = FOCUSED_KEY.load(Ordering::Relaxed);
+    if key == NONE {
+        return;
+    }
+    match scancode {
+        Some(code) if code == key => yapfast_core::push_to_talk::hold(pressed),
+        Some(_) => {}
+        None => yapfast_core::push_to_talk::hold(false),
+    }
+}
+
 /// Holds the key from the window's own events while no global key works.
 /// Losing the focus lets it go, as the key's release won't come.
 #[cfg(feature = "desktop")]
@@ -1194,5 +1213,25 @@ mod windows {
             assert!(!yapfast_core::push_to_talk::held());
             drop(hook);
         }
+    }
+}
+
+#[cfg(test)]
+mod window_key_tests {
+    use super::*;
+
+    #[test]
+    fn the_windows_own_key_holds_only_while_no_global_key_works() {
+        FOCUSED_KEY.store(NONE, Ordering::Relaxed);
+        window_key(Some(47), true);
+        assert!(!yapfast_core::push_to_talk::held(), "a global key works");
+        FOCUSED_KEY.store(47, Ordering::Relaxed);
+        window_key(Some(30), true);
+        assert!(!yapfast_core::push_to_talk::held(), "another key");
+        window_key(Some(47), true);
+        assert!(yapfast_core::push_to_talk::held());
+        window_key(None, false);
+        assert!(!yapfast_core::push_to_talk::held(), "the focus went");
+        FOCUSED_KEY.store(NONE, Ordering::Relaxed);
     }
 }

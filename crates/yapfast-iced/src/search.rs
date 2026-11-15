@@ -153,10 +153,12 @@ impl App {
             Message::Search(Event::Search),
             Message::Search(Event::Clear),
         )
+        .into()
     }
 
     /// A search box as the Slint client's `HeaderSearch`: a sunken field,
-    /// wider while it holds something, its icon or Clear at its end.
+    /// wider while it holds something, its icon or Clear at its end. Its
+    /// width and height are the header's, which another place may set.
     pub fn search_field<'a>(
         &'a self,
         id: &'static str,
@@ -165,7 +167,7 @@ impl App {
         on_input: impl Fn(String) -> Message + 'a,
         submit: Message,
         clear: Message,
-    ) -> Element<'a, Message> {
+    ) -> container::Container<'a, Message> {
         let theme = &self.theme;
         let (ink, hint, selection) = (theme.text, theme.muted, theme.selection);
         let input = text_input(placeholder, value)
@@ -203,7 +205,6 @@ impl App {
                 },
                 ..rounded(ground, 8)
             })
-            .into()
     }
 
     /// What the search found, beside the conversation.

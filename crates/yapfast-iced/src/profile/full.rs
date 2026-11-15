@@ -43,6 +43,9 @@ impl App {
         .height(Length::Fill)
         .clip(true)
         .style(super::frame_style(inks, self.theme.edge, 12.0, true));
+        let side = mouse_area(self.dressed(shown, Mode::Side, side_width, side.into()))
+            .on_enter(Message::Profile(Event::Pointed(true)))
+            .on_exit(Message::Profile(Event::Pointed(false)));
         let tab = self.profile_tab(look);
         let mut tabs = row![].spacing(20).height(40);
         for entry in &look.tabs {
@@ -53,38 +56,18 @@ impl App {
                 Tab::Friends => look.friends_label.as_str(),
                 Tab::Servers => look.servers_label.as_str(),
             };
-            let chosen = *entry == tab;
-            let (ink, ink3) = (inks.ink, inks.ink3);
-            let words = text(label)
-                .size(14)
-                .font(if chosen { BOLD } else { MEDIUM })
-                .wrapping(text::Wrapping::None);
-            let face = button(
-                column![
-                    container(words).height(38).align_y(Alignment::Center),
-                    container(Space::new())
-                        .width(Length::Fill)
-                        .height(2)
-                        .style(move |_| {
-                            if chosen {
-                                rounded(ink, 1)
-                            } else {
-                                container::Style::default()
-                            }
-                        }),
-                ]
-                .width(Length::Shrink),
-            )
-            .padding(0)
-            .on_press(Message::Profile(Event::Tab(*entry)))
-            .style(move |_, status| button::Style {
-                text_color: if chosen || crate::controls::lights(status) {
-                    ink
-                } else {
-                    ink3
+            let face = crate::controls::tab(
+                crate::controls::Tab {
+                    label,
+                    chosen: *entry == tab,
+                    ink: inks.ink,
+                    rest: inks.ink3,
+                    bar: inks.ink,
+                    height: 38.0,
+                    rest_font: MEDIUM,
                 },
-                ..Default::default()
-            });
+                Message::Profile(Event::Tab(*entry)),
+            );
             tabs = tabs.push(face);
         }
         let close = button(self.glyph(Icon::X, 18, inks.ink2).boxed(32))
@@ -305,7 +288,7 @@ impl App {
         let now = yapfast_core::clock::now_ms() / 1000;
         let mut list = column![].spacing(8);
         for activity in &look.activities {
-            list = list.push(self.activity_card_view(activity, inks, now));
+            list = list.push(self.activity_card_view(activity, inks, now, None));
         }
         if !profile.recent.is_empty() {
             list = list.push(

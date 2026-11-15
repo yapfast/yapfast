@@ -3,7 +3,7 @@
 //! confirmation. While one is open nothing under it takes a click or a key.
 
 use iced::{
-    Border, Element, Length, Task,
+    Alignment, Border, Element, Length, Task,
     keyboard::key,
     widget::{Space, column, container, opaque, row, stack, text},
 };
@@ -18,6 +18,8 @@ use crate::{
 
 /// The width of a dialog with a question and its answers.
 pub const CONFIRM_WIDTH: f32 = 440.0;
+/// How far a dialog stays in from the window's edges, in all.
+const ROOM: f32 = 48.0;
 
 impl App {
     /// The confirmation's keys: Escape cancels, Enter does what the focused
@@ -158,6 +160,95 @@ impl App {
         }
         Task::none()
     }
+}
+
+impl App {
+    /// A dialog's title with its close button, as the Slint client's
+    /// dialogs in `ui/server.slint` start.
+    pub fn dialog_head<'a>(&'a self, title: String, close: Message) -> Element<'a, Message> {
+        row![
+            text(title)
+                .size(18)
+                .font(BOLD)
+                .color(self.theme.text)
+                .wrapping(text::Wrapping::None)
+                .width(Length::Fill),
+            self.icon_button(crate::pictures::Icon::X, "Close", 28.0, 18, close, true),
+        ]
+        .align_y(Alignment::Center)
+        .into()
+    }
+
+    /// A dialog's parts, 12 px apart in 20 px of padding, in [`dialog`]'s
+    /// frame at `width`, kept inside the window.
+    pub fn framed<'a>(
+        &'a self,
+        body: impl IntoIterator<Item = Element<'a, Message>>,
+        width: f32,
+        close: Message,
+    ) -> Element<'a, Message> {
+        let body = column(body).spacing(12).padding(20);
+        dialog(
+            &self.theme,
+            body.into(),
+            width.min(self.window.width - ROOM),
+            close,
+        )
+    }
+
+    /// What a dialog found, on the sunken ground: a picture beside them
+    /// when given, its name in bold and the lines under it, as the Slint
+    /// client's join, event, gift and authorization dialogs show it.
+    pub fn found_card<'a>(
+        &'a self,
+        picture: Option<Element<'a, Message>>,
+        name: String,
+        lines: impl IntoIterator<Item = String>,
+    ) -> Element<'a, Message> {
+        let theme = &self.theme;
+        let mut words = column![
+            text(name)
+                .size(16)
+                .font(BOLD)
+                .color(theme.text)
+                .wrapping(text::Wrapping::None),
+        ]
+        .spacing(2)
+        .width(Length::Fill);
+        for line in lines.into_iter().filter(|line| !line.is_empty()) {
+            words = words.push(crate::form::note(theme, line));
+        }
+        let shown: Element<'_, Message> = match picture {
+            Some(picture) => row![picture, words]
+                .spacing(12)
+                .align_y(Alignment::Center)
+                .into(),
+            None => words.into(),
+        };
+        let sunken = theme.sunken;
+        container(shown)
+            .padding(12)
+            .width(Length::Fill)
+            .clip(true)
+            .style(move |_| crate::style::rounded(sunken, 8))
+            .into()
+    }
+}
+
+/// A dialog's buttons, at its end, a little below the rest.
+pub fn buttons<'a>(parts: impl IntoIterator<Item = Element<'a, Message>>) -> Element<'a, Message> {
+    let mut line = row![Space::new().width(Length::Fill)]
+        .spacing(8)
+        .align_y(Alignment::Center);
+    for part in parts {
+        line = line.push(part);
+    }
+    container(line)
+        .padding(iced::Padding {
+            top: 4.0,
+            ..iced::Padding::ZERO
+        })
+        .into()
 }
 
 /// A dialog over the dimmed window, as the Slint client's: the raised

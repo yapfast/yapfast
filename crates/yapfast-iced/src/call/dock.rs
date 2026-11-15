@@ -10,7 +10,7 @@ use iced::{
     Alignment, Color, Element, Length, Padding,
     widget::{button, column, container, mouse_area, row, text},
 };
-use yapfast_core::voice::{self, Phase, Quality};
+use yapfast_core::voice::{self, Phase};
 
 use super::{Event, Popup, voice_ready};
 use crate::{
@@ -51,13 +51,12 @@ impl App {
         };
         let measured = active && voice.link.is_some() && ready;
         let lead: Pic = if measured {
-            let (icon, ink) = match voice.link_quality {
-                Quality::Bad => (Icon::SignalLow, theme.danger),
-                Quality::Average => (Icon::SignalMedium, theme.accent),
-                Quality::Fine => (Icon::SignalHigh, theme.live),
-                Quality::Unknown => (Icon::SignalHigh, theme.muted),
-            };
-            self.glyph(icon, 24, ink)
+            let quality = voice.link_quality;
+            self.glyph(
+                super::signal_icon(quality),
+                24,
+                super::signal_ink(theme, quality),
+            )
         } else {
             self.glyph(Icon::Volume, 24, tone)
         };
@@ -73,18 +72,24 @@ impl App {
         if let Some(time) = self.call_time() {
             head = head.push(text(time).size(13).color(theme.muted));
         }
-        let mut words = column![head];
+        // The status, as the signal, opens the connection's details.
+        let mut words = column![self.link_touch(head, false)];
         if active {
             words = words.push(self.detail_line());
         }
         let mut top = row![
-            container(lead)
-                .width(LEAD)
-                .padding(Padding {
-                    left: 24.0,
-                    ..Padding::ZERO
-                })
-                .align_y(Alignment::Center),
+            // The whole column is the signal's touch, as the Slint
+            // client's `LinkTouch` over it.
+            self.link_touch(
+                container(lead)
+                    .width(LEAD)
+                    .padding(Padding {
+                        left: 24.0,
+                        ..Padding::ZERO
+                    })
+                    .align_y(Alignment::Center),
+                false
+            ),
             container(words.width(Length::Fill))
                 .width(Length::Fill)
                 .clip(true),

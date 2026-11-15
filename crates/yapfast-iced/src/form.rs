@@ -127,6 +127,24 @@ pub struct Switch<'a> {
     on: bool,
     message: Option<Message>,
     locked: Option<&'a str>,
+    fresh: bool,
+}
+
+/// The small NEW that follows a new setting's name, as the Slint client's
+/// `NewTag`: the accent's pill, 16 px tall.
+pub fn new_tag<'a>(theme: &crate::theme::Theme) -> Element<'a, Message> {
+    let accent = theme.accent;
+    container(
+        text("NEW")
+            .size(10)
+            .font(crate::fonts::BOLD)
+            .color(theme.on_accent),
+    )
+    .padding([0, 5])
+    .height(16)
+    .align_y(Alignment::Center)
+    .style(move |_| crate::style::rounded(accent, 4))
+    .into()
 }
 
 /// A [`Switch`] showing `on`, sending `message` when flipped.
@@ -141,6 +159,7 @@ pub fn switch<'a>(
         on,
         message,
         locked: None,
+        fresh: false,
     }
 }
 
@@ -148,6 +167,13 @@ impl<'a> Switch<'a> {
     pub fn description(mut self, words: impl Into<Cow<'a, str>>) -> Self {
         let words = words.into();
         self.description = (!words.is_empty()).then_some(words);
+        self
+    }
+
+    /// A NEW tag after its label, while the setting is new to this person
+    /// (`yapfast_core::new_tags`).
+    pub fn fresh(mut self, fresh: bool) -> Self {
+        self.fresh = fresh;
         self
     }
 
@@ -166,6 +192,7 @@ impl<'a> Switch<'a> {
                     .size(15)
                     .color(if enabled { theme.text } else { theme.muted })
             ]
+            .push(self.fresh.then(|| new_tag(theme)))
             .spacing(6)
             .align_y(Alignment::Center);
         if let (false, Some(why)) = (enabled, self.locked) {
@@ -679,6 +706,33 @@ pub fn entry<'a>(
     value: &'a str,
 ) -> text_input::TextInput<'a, Message> {
     controls::field(theme, id, placeholder, value, false, true).padding([9.6, 12.0])
+}
+
+/// The Slint client's `ColourPopover`: a colour's pad over its code's
+/// field, on a raised card 240 px wide, as a theme colour's handle and the
+/// Display Name Style window open it.
+pub const COLOUR_CARD: f32 = 240.0;
+
+pub fn colour_card<'a>(
+    theme: &Theme,
+    pad: crate::widgets::ColourPad<'a>,
+    code: text_input::TextInput<'a, Message>,
+) -> Element<'a, Message> {
+    let (raised, edge) = (theme.raised, theme.edge);
+    iced::widget::opaque(
+        container(column![pad, code.size(14).padding([12, 12])].spacing(14))
+            .padding(10)
+            .width(Length::Fill)
+            .style(move |_| container::Style {
+                border: Border {
+                    color: edge,
+                    width: 1.0,
+                    radius: 12.0.into(),
+                },
+                shadow: crate::style::card_shadow(),
+                ..rounded(raised, 12)
+            }),
+    )
 }
 
 /// A colour in an editor, as the Slint client's `ThemeColourRow`: a swatch,

@@ -275,3 +275,47 @@ fn closing_settings_lets_go_of_an_edited_theme() {
     assert!(app.settings.is_none());
     assert_eq!(app.theme.id, "bonfire", "the theme from before");
 }
+
+#[test]
+fn a_new_setting_is_tagged_until_its_page_is_left() {
+    use crate::settings::{Event as Settings, Section};
+    // A layout from before the tags: everything tagged since is new.
+    let folder = tempfile::tempdir_in(super::local()).expect("test folder");
+    std::fs::write(folder.path().join("layout.json"), b"{}").expect("layout");
+    let mut app = start(&folder, true);
+    let _ = app.update(Message::Settings(Settings::Open(Section::Account)));
+    assert!(shows(&app, "NEW"), "About's row says so");
+    let _ = app.update(Message::Settings(Settings::Open(Section::About)));
+    assert!(shows(&app, "Check for updates") && shows(&app, "NEW"));
+    // Leaving About sees them, and the layout keeps it.
+    let _ = app.update(Message::Settings(Settings::Open(Section::Account)));
+    assert!(!shows(&app, "NEW"));
+    let layout: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(folder.path().join("layout.json")).expect("the layout"),
+    )
+    .expect("JSON");
+    let seen: Vec<&str> = layout["seen_new"]
+        .as_array()
+        .expect("seen")
+        .iter()
+        .filter_map(|key| key.as_str())
+        .collect();
+    assert_eq!(seen, ["check-updates", "update-nightlies"]);
+    // A fresh install has met them all.
+    let (mut fresh, _folder) = preview();
+    let _ = fresh.update(Message::Settings(Settings::Open(Section::About)));
+    assert!(!shows(&fresh, "NEW"));
+}
+
+/// Every key the core tags has its tag in the iced client's pages.
+#[test]
+fn every_tagged_setting_has_its_tag() {
+    let pages = include_str!("../settings/pages.rs");
+    for tag in &yapfast_core::new_tags::NEW {
+        assert!(
+            pages.contains(&format!("self.fresh(\"{}\")", tag.key)),
+            "{}",
+            tag.key
+        );
+    }
+}

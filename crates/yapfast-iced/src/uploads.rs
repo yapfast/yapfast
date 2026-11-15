@@ -65,6 +65,12 @@ pub enum Event {
     /// Files dragged over the window, dropped (one at a time), the drop
     /// gathered, the drag gone.
     Hovered,
+    /// Where they are, in the window, where the desktop says (Wayland).
+    Moved(iced::Point),
+    /// Where winit says nothing of where (X11, Windows): the platform's
+    /// pointer, made as files come over the window, and a look at it.
+    Pointer(Following),
+    Follow,
     Dropped(PathBuf),
     Drop,
     Left,
@@ -72,10 +78,33 @@ pub enum Event {
     Understood,
 }
 
+/// The platform's pointer over the window, while files hover over it.
+#[derive(Clone)]
+pub struct Following(pub(crate) Option<Arc<dyn crate::desktop::PointerAt>>);
+
+impl std::fmt::Debug for Following {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(if self.0.is_some() {
+            "Following"
+        } else {
+            "Following(none)"
+        })
+    }
+}
+
+/// How often the pointer is asked where it is while files hover over the
+/// window on X11 and Windows, as the Slint client asks it.
+const FOLLOW: std::time::Duration = std::time::Duration::from_millis(40);
+
 /// What files over the window would do, and why a drop didn't.
 #[derive(Default)]
 pub struct Drop {
     pub dragging: bool,
+    /// The platform's pointer, on X11 and Windows while files hover.
+    pointer: Option<Arc<dyn crate::desktop::PointerAt>>,
+    asked: bool,
+    /// They're over the thread beside the channel, and go to it.
+    pub aside: bool,
     pub gathered: Vec<PathBuf>,
     pub refusal: Option<(String, String)>,
 }
@@ -132,10 +161,34 @@ impl App {
             Event::Hovered => {
                 self.drop.dragging = true;
                 self.drop.refusal = None;
+                self.follow_pointer()
+            }
+            Event::Moved(at) => {
+                self.drop.aside = self.over_aside(at);
                 Task::none()
             }
+            Event::Pointer(Following(pointer)) => {
+                // Unless the drag ended meanwhile.
+                if self.drop.dragging {
+                    self.drop.pointer = pointer;
+                    return self.uploads_event(Event::Follow);
+                }
+                Task::none()
+            }
+            Event::Follow => match self.drop.pointer.as_ref().and_then(|pointer| pointer.at()) {
+                Some((x, y)) => {
+                    let zoom = f64::from(self.shell.zoom);
+                    let at = iced::Point::new((x / zoom) as f32, (y / zoom) as f32);
+                    self.uploads_event(Event::Moved(at))
+                }
+                None => Task::none(),
+            },
             Event::Dropped(path) => {
+                // Where it was let go.
+                let _ = self.uploads_event(Event::Follow);
                 self.drop.dragging = false;
+                self.drop.pointer = None;
+                self.drop.asked = false;
                 self.drop.gathered.push(path);
                 if self.drop.gathered.len() == 1 {
                     return after(DROP_GATHER, Message::Write(Write::Uploads(Event::Drop)));
@@ -145,6 +198,8 @@ impl App {
             Event::Drop => self.dropped(),
             Event::Left => {
                 self.drop.dragging = false;
+                self.drop.pointer = None;
+                self.drop.asked = false;
                 Task::none()
             }
             Event::Understood => {
@@ -162,17 +217,72 @@ impl App {
             return Task::none();
         }
         let state = self.client.state();
+        // Over the thread beside the channel, they go to it.
+        let aside = self.drop.aside && self.aside.is_some();
+        let (can_attach, refusal) = if aside {
+            (state.aside_can_attach(), state.aside_drop_refusal(&paths))
+        } else {
+            (state.can_attach(), state.drop_refusal(&paths))
+        };
+        let stage = if aside {
+            Action::StageAside
+        } else {
+            Action::Stage
+        };
         // Staging says why it can't, as in a message being edited.
-        if !state.can_attach() {
-            self.client.dispatch(Action::Stage(paths));
+        if !can_attach {
+            self.client.dispatch(stage(paths));
             return self.sync();
         }
-        if let Some(refusal) = state.drop_refusal(&paths) {
+        if let Some(refusal) = refusal {
             self.drop.refusal = Some((refusal.title().to_owned(), refusal.help().to_owned()));
             return Task::none();
         }
-        self.client.dispatch(Action::Stage(paths));
-        Task::batch([self.sync(), self.previews(), self.refocus()])
+        self.client.dispatch(stage(paths));
+        let focus = if aside {
+            iced::widget::operation::focus(crate::thread::COMPOSER)
+        } else {
+            self.refocus()
+        };
+        Task::batch([self.sync(), self.previews(), focus])
+    }
+
+    /// Whether a point of the window is over the thread beside the
+    /// channel, below the header, as the Slint client's `over-aside`.
+    fn over_aside(&self, at: iced::Point) -> bool {
+        let bar = self.shell.frame.height - self.window.height;
+        self.aside.is_some()
+            && self.client.state().new_thread().is_none()
+            && at.x >= self.shell.frame.width - self.aside_width()
+            && at.y >= bar + crate::header::HEIGHT
+    }
+
+    /// Files came over the window: on X11 and Windows, where winit says
+    /// nothing of where they are, the platform's pointer is asked for once
+    /// per drag, to be asked where it is while they hover and as they're
+    /// let go.
+    fn follow_pointer(&mut self) -> Task<Message> {
+        let Some(id) = self.shell.window.filter(|_| !self.drop.asked) else {
+            return Task::none();
+        };
+        self.drop.asked = true;
+        iced::window::scale_factor(id)
+            .then(move |scale| {
+                iced::window::run(id, move |window| {
+                    crate::desktop::desktop()
+                        .pointer(window, f64::from(scale))
+                        .map(Arc::from)
+                })
+            })
+            .map(|pointer| Message::Write(Write::Uploads(Event::Pointer(Following(pointer)))))
+    }
+
+    /// The pointer asked where it is while files hover, where the
+    /// platform doesn't say (X11, Windows).
+    pub fn follow_subscription(&self) -> Option<iced::Subscription<Message>> {
+        (self.drop.dragging && self.drop.pointer.is_some()).then(|| {
+            iced::time::every(FOLLOW).map(|_| Message::Write(Write::Uploads(Event::Follow)))
+        })
     }
 
     /// The system's file dialog, as the Slint client's `attach` opens it.
@@ -393,7 +503,14 @@ impl App {
     /// it, or why a drop didn't go.
     pub fn drop_view(&self) -> Option<Element<'_, Message>> {
         let theme = &self.theme;
-        let dragging = self.drop.dragging && self.client.state().can_attach();
+        let state = self.client.state();
+        let aside = self.drop.aside && self.aside.is_some();
+        let dragging = self.drop.dragging
+            && if aside {
+                state.aside_can_attach()
+            } else {
+                state.can_attach()
+            };
         if !dragging && self.drop.refusal.is_none() {
             return None;
         }
@@ -412,11 +529,18 @@ impl App {
                 .push(
                     row![
                         text("Upload to ").size(20).color(ink),
-                        text(self.client.state().upload_destination())
-                            .size(20)
-                            .font(BOLD)
-                            .color(ink)
-                            .wrapping(text::Wrapping::None),
+                        text(if aside {
+                            state
+                                .aside_room()
+                                .map(|room| state.destination(room))
+                                .unwrap_or_default()
+                        } else {
+                            state.upload_destination()
+                        })
+                        .size(20)
+                        .font(BOLD)
+                        .color(ink)
+                        .wrapping(text::Wrapping::None),
                     ]
                     .width(Length::Shrink),
                 )
@@ -483,7 +607,7 @@ impl App {
 }
 
 /// The window's drag-and-drop events, where the platform has them (winit
-/// takes drops on X11 and Windows).
+/// takes drops on X11 and Windows, saying nothing of where).
 pub fn drops(event: &iced::window::Event) -> Option<Message> {
     let event = match event {
         iced::window::Event::FileHovered(_) => Event::Hovered,

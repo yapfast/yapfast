@@ -671,14 +671,6 @@ impl App {
                 }
             });
         let nitro = self.client.app.discord_nitro();
-        let sounds: Vec<(String, String)> = catalog
-            .iter()
-            .flat_map(|groups| groups.iter())
-            .flat_map(|group| &group.sounds)
-            .map(|sound| (sound.id.clone(), sound.name.clone()))
-            .collect();
-        let labels: Vec<String> = sounds.iter().map(|(_, name)| name.clone()).collect();
-        let ids: Vec<String> = sounds.into_iter().map(|(id, _)| id).collect();
         let open = settings.open;
         let mut line = vec![
             container(
@@ -697,25 +689,35 @@ impl App {
                 .width(Length::Fill)
                 .into(),
         ];
-        let choose: Element<'a, Message> = if nitro && open == Some(Drop::Start) {
-            form::dropdown(
-                labels,
-                None,
-                true,
-                Message::Settings(SettingsEvent::Drop(Drop::Start)),
-                move |index| voice_message(Event::Entrance(ids.get(index).cloned())),
-            )
-            .width(200)
-            .view(self)
-        } else {
+        // Choose opens the soundboard under it, as the Slint client's, a
+        // click on a sound choosing it.
+        let board = (nitro && open == Some(Drop::Start)).then(|| {
+            let groups = catalog.map_or(&[][..], |groups| &groups[..]);
+            let board =
+                self.sound_board("Choose an entrance sound", groups, None, false, |sound| {
+                    voice_message(Event::Entrance(Some(sound.id.clone())))
+                });
+            container(board)
+                .style(crate::controls::menu_panel(theme))
+                .into()
+        });
+        let choose: Element<'a, Message> = crate::popover::Popover::new(
             action(
                 theme,
                 "Choose",
                 Kind::Plain,
                 nitro.then(|| Message::Settings(SettingsEvent::Drop(Drop::Start))),
-            )
-            .into()
-        };
+            ),
+            board,
+            crate::popover::Side::Below,
+        )
+        .width(crate::popover::Width::Own(
+            crate::call::popups::SOUNDBOARD_WIDTH,
+        ))
+        .right()
+        .gap(6.0)
+        .outside(Message::Settings(SettingsEvent::Drop(Drop::Start)))
+        .into();
         line.push(choose);
         if sound.is_some() {
             line.push(
@@ -1073,9 +1075,77 @@ pub fn record_keys() -> iced::Subscription<Message> {
     })
 }
 
+/// The window's own keys for push to talk, as the Slint client hands them
+/// on (`push_to_talk::window_event`): each key's scan code going down or
+/// up, and the focus going, to the root crate, which holds the key only
+/// while no global key works. No message: the filter calls the root crate
+/// and returns nothing.
+pub fn window_talk_keys() -> Option<iced::Subscription<Message>> {
+    crate::WINDOW_TALK.get()?;
+    Some(iced::event::listen_with(|event, _, _| {
+        let talk = crate::WINDOW_TALK.get()?;
+        match event {
+            iced::Event::Keyboard(keyboard::Event::KeyPressed {
+                physical_key,
+                repeat: false,
+                ..
+            }) => {
+                if let Some(code) = known_scancode(physical_key) {
+                    talk(Some(code), true);
+                }
+            }
+            iced::Event::Keyboard(keyboard::Event::KeyReleased { physical_key, .. }) => {
+                if let Some(code) = known_scancode(physical_key) {
+                    talk(Some(code), false);
+                }
+            }
+            iced::Event::Window(iced::window::Event::Unfocused) => talk(None, false),
+            _ => {}
+        }
+        None
+    }))
+}
+
+/// [`scancode`], the last key's kept, as it searches winit's table.
+fn known_scancode(physical: key::Physical) -> Option<u32> {
+    static LAST: Mutex<Option<(key::Physical, Option<u32>)>> = Mutex::new(None);
+    let mut last = LAST
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((known, code)) = *last
+        && known == physical
+    {
+        return code;
+    }
+    let code = scancode(physical);
+    *last = Some((physical, code));
+    code
+}
+
 /// Push to talk's watcher and what it said of where the key works.
 #[derive(Default)]
 pub struct Talk {
     pub watcher: Option<Box<dyn std::any::Any>>,
     pub note: Arc<Mutex<String>>,
+}
+
+impl App {
+    /// The entrance sounds' pictures, while Choose's soundboard is open.
+    pub fn entrance_pictures(&self) -> Vec<String> {
+        let open = self.settings.as_ref().is_some_and(|settings| {
+            settings.open == Some(Drop::Start)
+                && settings.section() == crate::settings::Section::Voice
+        });
+        if !open {
+            return Vec::new();
+        }
+        self.client
+            .state()
+            .sound_catalog
+            .iter()
+            .flat_map(|groups| groups.iter())
+            .flat_map(|group| &group.sounds)
+            .filter_map(|sound| sound.picture.clone())
+            .collect()
+    }
 }

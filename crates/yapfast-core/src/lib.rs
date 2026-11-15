@@ -63,6 +63,7 @@ mod matrix_voice;
 pub mod mention;
 pub mod meter;
 pub mod network;
+pub mod new_tags;
 pub mod noise;
 pub mod picture;
 #[cfg(feature = "discord")]

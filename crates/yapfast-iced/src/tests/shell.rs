@@ -226,3 +226,51 @@ fn ctrl_and_plus_zoom_in_ctrl_and_zero_back_and_the_room_shrinks() {
     assert!((app.shell.zoom - 1.0).abs() < 0.001);
     assert!((app.window.width - width).abs() < 0.5);
 }
+
+#[test]
+fn ctrl_and_the_wheel_zoom_and_nothing_scrolls() {
+    use iced::mouse;
+    let (mut app, _folder) = preview();
+    let scrolled = app.from_end;
+    interact(&mut app, |ui| {
+        ui.point_at(iced::Point::new(600.0, 300.0));
+        ui.simulate([
+            iced::Event::Keyboard(iced::keyboard::Event::ModifiersChanged(
+                iced::keyboard::Modifiers::CTRL,
+            )),
+            iced::Event::Mouse(mouse::Event::WheelScrolled {
+                delta: mouse::ScrollDelta::Lines { x: 0.0, y: 1.0 },
+            }),
+            // A touchpad's 30 px is half a step: nothing yet.
+            iced::Event::Mouse(mouse::Event::WheelScrolled {
+                delta: mouse::ScrollDelta::Pixels { x: 0.0, y: -30.0 },
+            }),
+        ]);
+    });
+    assert!((app.shell.zoom - 1.05).abs() < 0.001, "{}", app.shell.zoom);
+    assert_eq!(app.from_end, scrolled, "the timeline stays put");
+}
+
+#[test]
+fn nobody_using_yapfast_holds_pictures_still_until_they_are_back() {
+    use std::sync::atomic::Ordering;
+
+    use crate::away::{Event as Away, LAST_USE, QUIET};
+    let (mut app, _folder) = preview();
+    app.layout.prefs.animate = crate::layout::Animate::Always;
+    assert!(app.plays());
+    // Used a moment ago: the check waits on.
+    LAST_USE.store(super::now_ms(), Ordering::Relaxed);
+    let _ = app.update(Message::Away(Away::Check));
+    assert!(!app.away.inactive);
+    // Quiet for longer than QUIET: Discord hears, and pictures hold still
+    // whatever Animate says.
+    let quiet = super::now_ms() - QUIET.as_millis() as u64 - 1000;
+    LAST_USE.store(quiet, Ordering::Relaxed);
+    let _ = app.update(Message::Away(Away::Check));
+    assert!(app.away.inactive);
+    assert!(!app.plays());
+    let _ = app.update(Message::Away(Away::Used));
+    assert!(!app.away.inactive);
+    assert!(app.plays());
+}

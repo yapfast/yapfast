@@ -11,6 +11,7 @@ use std::collections::HashMap;
 
 use crate::chat::{CustomEmoji, EmojiSet};
 
+pub mod card;
 pub mod names;
 
 /// Windows 11 and the Noto Color Emoji builds Yapfast is tested with draw Unicode

@@ -17,7 +17,7 @@ use crate::{
     dialogs::dialog,
     fonts::BOLD,
     pictures::Icon,
-    style::{card_shadow, faded, fill, rounded},
+    style::{card_shadow, fill, rounded},
 };
 
 /// A DM's call panel above its messages: the least it takes while in the
@@ -151,17 +151,12 @@ impl App {
         } else {
             format!("{} calling", who_is_here(&room.people))
         };
-        let live = faded(theme.live, 0.65);
-        let ring = container(self.avatar(room.avatar.as_deref(), &room.name, 72.0, 36.0, 1.0))
-            .center(92)
-            .style(move |_| container::Style {
-                border: Border {
-                    color: live,
-                    width: 3.0,
-                    radius: 46.0.into(),
-                },
-                ..Default::default()
-            });
+        // A ring that pulses while it rings.
+        let ring = crate::widgets::Pulse::new(
+            container(self.avatar(room.avatar.as_deref(), &room.name, 72.0, 36.0, 1.0)).center(92),
+            theme.live,
+            3.0,
+        );
         let answer = |accept: bool| Message::Call(Event::Answer(room.id.clone(), accept));
         let card = column![
             container(ring).center_x(Length::Fill),

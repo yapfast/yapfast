@@ -82,8 +82,10 @@ impl Canvas {
 /// Discord's presence dot, as the Slint client's `StatusDot` draws it at 16
 /// px, on a ring of `ring`: online, idle's moon, do not disturb's bar, and
 /// the phone of someone online on mobile, which stands 5 px taller (its
-/// picture is 16 by 21, drawn 5 px higher). None for offline.
-pub fn status_dot(presence: Presence, ring: u32, live: u32) -> Option<Canvas> {
+/// picture is 16 by 21, drawn 5 px higher), and offline's `faint` dot with
+/// a hole, which invisible shows too. Where Slint leaves it off for
+/// offline (lists of members), the caller does.
+pub fn status_dot(presence: Presence, ring: u32, live: u32, faint: u32) -> Option<Canvas> {
     let ring = Ink(ring, 1.0);
     if presence == Presence::Mobile {
         let mut canvas = Canvas::new(16, 21);
@@ -105,7 +107,11 @@ pub fn status_dot(presence: Presence, ring: u32, live: u32) -> Option<Canvas> {
             canvas.circle(3.0, 3.0, 10.0, Ink(0xf23f43, 1.0));
             canvas.rounded(5.0, 7.0, 6.0, 2.0, 1.0, ring);
         }
-        Presence::Offline | Presence::Mobile => return None,
+        Presence::Offline => {
+            canvas.circle(3.0, 3.0, 10.0, Ink(faint, 1.0));
+            canvas.circle(6.0, 6.0, 4.0, ring);
+        }
+        Presence::Mobile => return None,
     }
     Some(canvas)
 }
@@ -468,6 +474,28 @@ fn gradient(stops: &[(f32, u32)], t: f32) -> u32 {
 /// whole by resvg, strokes, circles, groups and transforms included, in
 /// `rgb` at `size` pixels: premultiplied BGRA, as a `Canvas` is. resvg here
 /// has no text, so it makes no font database.
+/// An SVG `size` square in its own colours, premultiplied BGRA.
+pub fn svg_drawn(svg: &str, size: u32) -> Canvas {
+    let mut canvas = Canvas::new(size, size);
+    let Ok(tree) = usvg::Tree::from_str(svg, &usvg::Options::default()) else {
+        return canvas;
+    };
+    let Some(mut pixmap) = tiny_skia::Pixmap::new(size, size) else {
+        return canvas;
+    };
+    let scale = size as f32 / tree.size().width().max(1.0);
+    resvg::render(
+        &tree,
+        tiny_skia::Transform::from_scale(scale, scale),
+        &mut pixmap.as_mut(),
+    );
+    canvas.pixels = pixmap.take();
+    for pixel in canvas.pixels.chunks_exact_mut(4) {
+        pixel.swap(0, 2);
+    }
+    canvas
+}
+
 pub fn svg_icon(svg: &str, size: u32, rgb: u32) -> Canvas {
     let mut canvas = Canvas::new(size, size);
     let color = format!("#{rgb:06x}");
@@ -587,9 +615,69 @@ pub fn has_emoji(system: &mut cosmic_text::FontSystem, emoji: &str) -> bool {
     twemoji_glyph(system, emoji, 16.0).is_some()
 }
 
+/// A display name painted whole in its style and handed to the renderer,
+/// ready to show wherever a styled name is drawn: the profile's card, the
+/// Display Name Style window's tiles and previews.
+pub struct NamePicture {
+    image: iced::advanced::image::Handle,
+    margin: f32,
+    /// The text box's size, and the picture's with its margins.
+    pub width: f32,
+    pub height: f32,
+    full: iced::Size,
+}
+
+impl NamePicture {
+    /// `text` in `look` at `size` and `weight` (the usual font's; a
+    /// style's own font keeps its weight).
+    pub fn new(look: &NameLook, text: &str, size: f32, weight: u16) -> Self {
+        use iced::advanced::graphics::text::font_system;
+        // Its font first, so the font system has it.
+        let _ = crate::fonts::style_font(Some(look), weight);
+        let mut system = font_system().write().expect("font system");
+        let shown = crate::fonts::shown_name(text, Some(look));
+        let mut picture = styled_name(system.raw(), &shown, look, size, weight);
+        let mut pixels = std::mem::take(&mut picture.canvas.pixels);
+        finish(&mut pixels);
+        let (width, height) = (picture.canvas.width, picture.canvas.height);
+        Self {
+            image: iced::advanced::image::Handle::from_rgba(width, height, pixels),
+            margin: picture.margin as f32,
+            width: picture.width,
+            height: picture.height,
+            full: iced::Size::new(width as f32, height as f32),
+        }
+    }
+
+    /// The name in its text box, its strokes and halos drawn past it.
+    pub fn view<'a>(&self) -> iced::Element<'a, crate::app::Message> {
+        crate::widgets::Pic::new(self.image.clone(), iced::Size::new(self.width, self.height))
+            .at(iced::Rectangle::new(
+                iced::Point::new(-self.margin, -self.margin),
+                self.full,
+            ))
+            .into()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_drawn_icon_keeps_its_own_colours() {
+        let svg = include_str!("../../../ui/icons/verified.svg");
+        let canvas = svg_drawn(svg, 16);
+        let at = |x: usize, y: usize| {
+            let i = (y * 16 + x) * 4;
+            let [b, g, r, a]: [u8; 4] = canvas.pixels[i..i + 4].try_into().unwrap();
+            (r, g, b, a)
+        };
+        // Discord's green round the edge, the white tick through the middle.
+        assert_eq!(at(8, 2), (0x23, 0xa5, 0x5a, 255));
+        let (r, g, b, _) = at(7, 10);
+        assert!(r > 200 && g > 200 && b > 200, "{:?}", at(7, 10));
+    }
 
     #[test]
     fn a_picture_cut_to_cover_keeps_its_middle() {
@@ -607,12 +695,16 @@ mod tests {
     }
 
     #[test]
-    fn a_presence_dot_is_drawn_for_each_presence_but_offline() {
-        assert!(status_dot(Presence::Offline, 0, LIVE_TEST).is_none());
-        let mobile = status_dot(Presence::Mobile, 0, LIVE_TEST).expect("drawn");
+    fn a_presence_dot_is_drawn_for_each_presence() {
+        let mobile = status_dot(Presence::Mobile, 0, LIVE_TEST, 0).expect("drawn");
         assert_eq!((mobile.width, mobile.height), (16, 21));
-        for presence in [Presence::Online, Presence::Idle, Presence::DoNotDisturb] {
-            let dot = status_dot(presence, 0, LIVE_TEST).expect("drawn");
+        for presence in [
+            Presence::Online,
+            Presence::Idle,
+            Presence::DoNotDisturb,
+            Presence::Offline,
+        ] {
+            let dot = status_dot(presence, 0, LIVE_TEST, 0).expect("drawn");
             assert_eq!((dot.width, dot.height), (16, 16));
         }
     }

@@ -25,6 +25,7 @@ use iced::{
     widget::{Space, button, column, container, row, scrollable, text},
 };
 use yapfast_core::application::Action;
+use yapfast_core::new_tags::{self, Page};
 
 use crate::{
     app::{App, Message},
@@ -72,6 +73,14 @@ pub enum Section {
 }
 
 impl Section {
+    /// The page as NEW tags name it, for those with tagged settings.
+    fn page(self) -> Option<Page> {
+        match self {
+            Section::About => Some(Page::About),
+            _ => None,
+        }
+    }
+
     /// The page's title in the header.
     fn title(self) -> &'static str {
         match self {
@@ -197,6 +206,26 @@ pub enum Event {
 }
 
 impl App {
+    /// Whether the setting `key` is new to this person, for its NEW tag.
+    pub(super) fn fresh(&self, key: &str) -> bool {
+        new_tags::key_new(
+            self.layout.first_version.as_deref(),
+            &self.layout.seen_new,
+            key,
+        )
+    }
+
+    /// Settings left `section`: what was new on it has been seen, kept in
+    /// `layout.json` so its tags don't come back.
+    fn leave_new(&mut self, section: Section) {
+        let Some(page) = section.page() else {
+            return;
+        };
+        if new_tags::leave(&mut self.layout.seen_new, page) {
+            crate::layout::store(self.client.root(), "seen_new", &self.layout.seen_new);
+        }
+    }
+
     /// Opens Settings on a section; Voice & video also lists the devices
     /// again, as the Slint client does.
     pub fn open_settings(&mut self, section: Section) -> Task<Message> {
@@ -218,6 +247,9 @@ impl App {
         let before = settings.section;
         settings.section = Some(section);
         settings.open = None;
+        if let Some(before) = before.filter(|before| *before != section) {
+            self.leave_new(before);
+        }
         if before == Some(Section::Appearance) && section != Section::Appearance {
             self.cancel_theme();
         }
@@ -241,6 +273,9 @@ impl App {
         }
         self.cancel_theme();
         self.leave_voice_settings();
+        if let Some(section) = self.settings.as_ref().and_then(|settings| settings.section) {
+            self.leave_new(section);
+        }
         self.settings = None;
         // Linking Discord from its page stops with it, as the Slint client's.
         if self.client.state().discord_link.is_some() {
@@ -272,7 +307,9 @@ impl App {
                 if let Some(settings) = &mut self.settings {
                     settings.open = (settings.open != Some(drop)).then_some(drop);
                 }
-                Task::none()
+                // What opened may show pictures, such as the entrance
+                // sounds' soundboard.
+                self.ask()
             }
             Event::CopyVersion => {
                 if let Some(settings) = &mut self.settings {
@@ -526,12 +563,22 @@ impl App {
 
     /// A section's row, as the Slint client's `ChannelRow`.
     fn nav_row(&self, section: Section, selected: bool) -> Element<'_, Message> {
+        let fresh = section.page().is_some_and(|page| {
+            new_tags::page_new(
+                self.layout.first_version.as_deref(),
+                &self.layout.seen_new,
+                page,
+            )
+        });
         crate::sheet::nav_row(
             self,
             section.icon(),
             section.title(),
-            selected,
-            false,
+            crate::sheet::NavState {
+                selected,
+                danger: false,
+                fresh,
+            },
             NAV_ROW,
             Message::Settings(Event::Open(section)),
         )
@@ -623,4 +670,6 @@ pub struct Build {
     pub tone: i32,
     /// Everything on one line, which a click copies.
     pub summary: String,
+    /// Its version, such as `0.4.1` or `0.5.0-nightly.20261107.12`.
+    pub version: String,
 }

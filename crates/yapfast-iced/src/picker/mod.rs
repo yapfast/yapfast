@@ -19,8 +19,8 @@ mod stickers;
 
 pub use emoji::drawn;
 use iced::{
-    Element, Length, Point, Size, Task,
-    widget::{column, operation, scrollable::AbsoluteOffset, scrollable::Viewport},
+    Color, Element, Length, Padding, Point, Size, Task,
+    widget::{column, container, operation, scrollable::AbsoluteOffset, scrollable::Viewport},
 };
 use yapfast_core::application::Action;
 
@@ -73,7 +73,17 @@ pub enum Event {
     Close,
     /// The search a pause in typing GIFs' search lets go, by its count.
     SearchDue(u64),
+    /// Its left edge dragged this far since the press, let go, and double
+    /// clicked back to its own width.
+    Widen(f32),
+    Widened,
+    ResetWidth,
 }
+
+/// The expression picker's own width, and its height, as Discord's; its
+/// left edge drags it wider.
+pub const WIDTH: f32 = 498.0;
+const HEIGHT: f32 = 486.0;
 
 pub struct Picker {
     pub target: Target,
@@ -93,13 +103,17 @@ pub struct Picker {
     /// The searches typed into the GIFs' field, the last of which goes once
     /// typing pauses.
     typed: u64,
+    /// The expression picker's width, and what it was as its edge was
+    /// pressed, while it's dragged.
+    width: f32,
+    widen_from: Option<f32>,
 }
 
 impl Picker {
     /// The panel's size: the expression picker's, or the reaction popup's.
     pub fn size(&self) -> Size {
         if self.tabs {
-            Size::new(498.0, 486.0)
+            Size::new(self.width, HEIGHT)
         } else {
             Size::new(408.0, 432.0)
         }
@@ -161,7 +175,16 @@ impl App {
             stickers: None,
             built: 0,
             typed: 0,
+            width: WIDTH,
+            widen_from: None,
         };
+        if tabs {
+            picker.width = self
+                .layout
+                .picker_width
+                .unwrap_or(WIDTH)
+                .clamp(WIDTH, self.picker_room());
+        }
         let query = self.open_tab(tab);
         picker.show(tab, &query);
         self.picker = Some(picker);
@@ -273,9 +296,24 @@ impl App {
             Tab::Stickers => self.stickers_view(picker),
         };
         let content: Element<'_, Message> = if picker.tabs {
-            column![kit::tabs(&self.theme, picker.tab), body]
-                .height(Length::Fill)
-                .into()
+            // Its left edge drags it wider, as Discord's: the right edge and
+            // the height stay. A double click puts it back.
+            let theme = &self.theme;
+            let edge = crate::widgets::Splitter::new(
+                Color::TRANSPARENT,
+                theme.line,
+                theme.faint,
+                |by| Message::Picker(Event::Widen(by)),
+                Message::Picker(Event::Widened),
+                Message::Picker(Event::ResetWidth),
+            );
+            iced::widget::stack![
+                column![kit::tabs(theme, picker.tab), body].height(Length::Fill),
+                container(edge)
+                    .padding(Padding::ZERO.left(3))
+                    .height(Length::Fill),
+            ]
+            .into()
         } else {
             body
         };
@@ -345,7 +383,47 @@ impl App {
             Event::Close => self.close_picker(),
             Event::Term(term) => self.gif_term(term),
             Event::SearchDue(typed) => self.gifs_due(typed),
+            Event::Widen(by) => {
+                let room = self.picker_room();
+                if let Some(picker) = &mut self.picker {
+                    let from = *picker.widen_from.get_or_insert(picker.width);
+                    picker.width = (from - by).clamp(WIDTH, room);
+                    picker.built = 0;
+                }
+                self.picker_sync();
+                Task::none()
+            }
+            Event::Widened => {
+                let Some(picker) = &mut self.picker else {
+                    return Task::none();
+                };
+                // Kept for the next start, if the drag changed it.
+                if picker.widen_from.take() != Some(picker.width) {
+                    self.layout.picker_width = Some(picker.width);
+                    crate::layout::store(self.client.root(), "picker_width", picker.width);
+                }
+                Task::none()
+            }
+            Event::ResetWidth => {
+                if let Some(picker) = &mut self.picker {
+                    picker.widen_from = None;
+                    picker.width = WIDTH;
+                    picker.built = 0;
+                }
+                self.layout.picker_width = Some(WIDTH);
+                crate::layout::store(self.client.root(), "picker_width", WIDTH);
+                self.picker_sync();
+                Task::none()
+            }
         }
+    }
+
+    /// How wide the expression picker may grow: from its right edge, over
+    /// the emoji button, to 8 px right of the server rail, or 8 px from the
+    /// window's own edge if that comes first, as the Slint client's.
+    pub fn picker_room(&self) -> f32 {
+        let right = self.chat_right() - 8.0 - 4.0;
+        (self.window.width - 88.0).min(right - 80.0).max(WIDTH)
     }
 
     /// The rail's section, by its place: the grid jumps to its top,

@@ -649,12 +649,14 @@ pub fn pictures_at(font: &[u8], glyphs: &[(char, Vec<u8>)]) -> Vec<std::ops::Ran
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     /// A font whose one character, U+100000, is a red square in COLRv1: glyph
     /// 1 paints glyph 2's outline, 0.8 em square, in the palette's one color.
-    fn colrv1_square() -> Vec<u8> {
+    /// `emoji_font.rs`'s tests draw it with Skia, which only the Slint build
+    /// has: the iced client's tests take this file too.
+    pub(crate) fn colrv1_square() -> Vec<u8> {
         let glyphs = [('\u{100000}', Vec::new())];
         let advance = units(i32::from(STRIKE.advance), &STRIKE);
         let mut glyf = Vec::new();
@@ -718,47 +720,6 @@ mod tests {
             (*b"name", name("COLRv1 Square")),
             (*b"post", post()),
         ])
-    }
-
-    /// Fedora installs only the COLRv1 build of Noto Color Emoji. Skia draws
-    /// COLRv1 through FreeType, and the prebuilt Skia made for the system's
-    /// FreeType drew nothing; Linux uses the one with Skia's own FreeType.
-    #[test]
-    fn skia_draws_colrv1_glyphs_in_colour() {
-        use skia_safe::{Color, Data, Font, FontMgr, Paint, Point, image::CachingHint, surfaces};
-        let typeface = FontMgr::new()
-            .new_from_data(Data::new_copy(&colrv1_square()), None)
-            .expect("Skia loads the font");
-        assert_eq!(typeface.unichar_to_glyph(0x10_0000), 1);
-        let mut surface = surfaces::raster_n32_premul((100, 100)).unwrap();
-        surface.canvas().clear(Color::WHITE);
-        surface.canvas().draw_glyphs_at(
-            &[1],
-            &[Point::new(10.0, 60.0)][..],
-            Point::default(),
-            &Font::from_typeface(typeface, 40.0),
-            &Paint::default(),
-        );
-        let image = surface.image_snapshot();
-        let mut pixels = vec![0u8; 100 * 100 * 4];
-        assert!(image.read_pixels(
-            image.image_info(),
-            &mut pixels,
-            400,
-            (0, 0),
-            CachingHint::Allow
-        ));
-        let (red, blue) = if image.image_info().color_type() == skia_safe::ColorType::BGRA8888 {
-            (2, 0)
-        } else {
-            (0, 2)
-        };
-        let painted = pixels
-            .chunks(4)
-            .filter(|pixel| pixel[red] > 200 && pixel[1] < 80 && pixel[blue] < 80)
-            .count();
-        // 40 pixel text draws the square 32 pixels on a side.
-        assert!((900..=1100).contains(&painted), "{painted} red pixels");
     }
 
     #[test]

@@ -126,8 +126,19 @@ pub enum Event {
 }
 
 impl App {
+    /// The header's button the last press was on, if it was on one.
+    pub fn header_button(&self) -> Option<iced::Rectangle> {
+        let button = self.header_spot.get();
+        button.contains(self.pressed.get()).then_some(button)
+    }
+
     pub fn popover_event(&mut self, event: Event) -> Task<Message> {
-        let right = self.pressed.get().x + crate::header::BUTTON / 2.0;
+        // From the header's button pressed, its right edge, as Slint's;
+        // opened from elsewhere, from the press.
+        let right = self.header_button().map_or(
+            self.pressed.get().x + crate::header::BUTTON / 2.0,
+            |button| button.x + button.width,
+        );
         match event {
             Event::Pins => {
                 let open = self.pins_open();
@@ -772,6 +783,7 @@ impl App {
             line = line.push(self.face(Face {
                 url: (!avatar.is_empty()).then_some(avatar.as_str()),
                 name: person,
+                key: None,
                 size: 16.0,
                 opacity: 1.0,
                 decoration: None,
@@ -824,6 +836,7 @@ impl App {
                     self.face(Face {
                         url: Some(avatar.as_str()),
                         name: "",
+                        key: None,
                         size: 18.0,
                         opacity: 1.0,
                         decoration: None,
@@ -965,6 +978,7 @@ impl App {
         let face = self.face(Face {
             url: person.avatar.as_deref(),
             name: &person.name,
+            key: None,
             size: 32.0,
             opacity: 1.0,
             decoration: None,

@@ -42,6 +42,8 @@ use crate::{
 pub const BODY: &str = "new-post-body";
 pub const TITLE: &str = "new-post-title";
 const SEARCH: &str = "forum-search";
+/// The search box's height, as Slint's forum sets it.
+const SEARCH_HEIGHT: f32 = 36.0;
 /// A card with tags, and without; its picture; the tags it shows.
 const CARD_TAGS: f32 = 120.0;
 const CARD: f32 = 96.0;
@@ -281,19 +283,18 @@ impl App {
         let can_post = app.can_post();
         let mut top = row![].spacing(8).align_y(Alignment::Center);
         if searchable {
+            // The header's search box, across the room New Post leaves.
             top = top.push(
-                controls::field(
-                    theme,
+                self.search_field(
                     SEARCH,
                     "Search posts",
                     &self.forum_post.query,
-                    false,
-                    true,
+                    |query| Message::Forum(Event::Query(query)),
+                    Message::Forum(Event::Search),
+                    Message::Forum(Event::Query(String::new())),
                 )
-                .size(14)
-                .padding([8, 10])
-                .on_input(|query| Message::Forum(Event::Query(query)))
-                .on_submit(Message::Forum(Event::Search)),
+                .width(Length::Fill)
+                .height(SEARCH_HEIGHT),
             );
         } else {
             top = top.push(Space::new().width(Length::Fill));

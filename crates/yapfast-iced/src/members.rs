@@ -5,7 +5,7 @@
 //! right click their menu (`person.rs`).
 
 use iced::{
-    Alignment, Border, Element, Length, Padding, Point, Rectangle, Size, Task, Vector,
+    Alignment, Border, Color, Element, Length, Padding, Point, Rectangle, Size, Task, Vector,
     widget::{Space, column, container, mouse_area, row, scrollable, text, tooltip},
 };
 use yapfast_core::{
@@ -147,6 +147,7 @@ impl App {
         let face = Face {
             url: look.avatar.as_deref(),
             name: &look.name,
+            key: None,
             size: 32.0,
             opacity: avatar_opacity,
             decoration: look.decoration.as_deref(),
@@ -286,11 +287,46 @@ impl App {
         selected: bool,
         opacity: f32,
     ) -> Option<Element<'_, Message>> {
+        let strength = if pointed || selected { 0.9 } else { 0.6 } * opacity;
+        self.plate_picture(url, height, strength, pointed)
+    }
+
+    /// The account's own nameplate behind its card or a tile `height`
+    /// tall, with its palette's colour for the theme, as the Slint client's
+    /// `Nameplate` with `account`: .4 strong, .6 when `hot`, playing when
+    /// `play`. None without one, or with Show nameplates off.
+    pub fn account_plate(
+        &self,
+        height: f32,
+        hot: bool,
+        play: bool,
+    ) -> Option<(Element<'_, Message>, Option<Color>)> {
+        let state = self.client.state();
+        let plate = state
+            .account_nameplate
+            .as_ref()
+            .filter(|_| !state.hide_nameplates)?;
+        let picture =
+            self.plate_picture(&plate.picture, height, if hot { 0.6 } else { 0.4 }, play)?;
+        let palette = plate
+            .colors
+            .map(|[dark, light]| hex(if self.theme.dark { dark } else { light }));
+        Some((picture, palette))
+    }
+
+    /// A nameplate's picture at a row's right end, `height` tall, at
+    /// `strength`, its moving picture asked for and played when `play`.
+    fn plate_picture(
+        &self,
+        url: &str,
+        height: f32,
+        strength: f32,
+        play: bool,
+    ) -> Option<Element<'_, Message>> {
         let picture = self.client.state().pictures.get(url)?;
         let width = (height * picture.width as f32 / picture.height.max(1) as f32).round();
         let size = Size::new(width, height);
-        let strength = if pointed || selected { 0.9 } else { 0.6 } * opacity;
-        let moving = pointed
+        let moving = play
             .then(|| {
                 self.moving(
                     &looks::animated_url(url),

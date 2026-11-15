@@ -437,6 +437,18 @@ impl App {
         light: Light,
         press: Message,
     ) -> Element<'a, Message> {
+        self.menu_item_sized(item, light, press, ITEM)
+    }
+
+    /// A menu row `height` tall (44 px with a subtitle), as the account's
+    /// popover's 40 px rows.
+    pub fn menu_item_sized<'a>(
+        &self,
+        item: Item<'a>,
+        light: Light,
+        press: Message,
+        height: f32,
+    ) -> Element<'a, Message> {
         let theme = &self.theme;
         let lit = light == Light::Lit(true);
         let ink = |lit: bool| match (item.danger, lit) {
@@ -485,7 +497,7 @@ impl App {
             };
             face = face.push(self.glyph(Icon::ChevronRight, SUBMENU_ARROW, ink));
         }
-        let height = if tall { 44.0 } else { ITEM };
+        let height = if tall { 44.0 } else { height };
         let face = container(face)
             .height(Length::Fill)
             .align_y(Alignment::Center);
@@ -947,4 +959,55 @@ pub fn choices_within<'a>(
         .max_width(widest)
         .style(move |_| rounded(sunken, 8))
         .into()
+}
+
+/// A tab with a bar under it while chosen (the full profile's, the voice
+/// details'): its words `height` tall over a 2 px bar, `ink` while chosen
+/// or under the pointer, `rest` otherwise, bold while chosen and in
+/// `rest_font` otherwise.
+pub struct Tab<'a> {
+    pub label: &'a str,
+    pub chosen: bool,
+    pub ink: Color,
+    pub rest: Color,
+    pub bar: Color,
+    pub height: f32,
+    pub rest_font: iced::Font,
+}
+
+pub fn tab<'a>(tab: Tab<'a>, press: Message) -> Element<'a, Message> {
+    let Tab {
+        label,
+        chosen,
+        ink,
+        rest,
+        bar,
+        height,
+        rest_font,
+    } = tab;
+    let words = text(label)
+        .size(14)
+        .font(if chosen { BOLD } else { rest_font })
+        .wrapping(text::Wrapping::None);
+    button(
+        column![
+            container(words).height(height).align_y(Alignment::Center),
+            container(Space::new())
+                .width(Length::Fill)
+                .height(2)
+                .style(move |_| if chosen {
+                    rounded(bar, 1)
+                } else {
+                    container::Style::default()
+                }),
+        ]
+        .width(Length::Shrink),
+    )
+    .padding(0)
+    .on_press(press)
+    .style(move |_, status| button::Style {
+        text_color: if chosen || lights(status) { ink } else { rest },
+        ..Default::default()
+    })
+    .into()
 }

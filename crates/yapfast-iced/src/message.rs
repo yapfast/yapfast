@@ -304,6 +304,7 @@ impl App {
             let face = self.face(Face {
                 url: message.avatar.as_deref(),
                 name: &message.author,
+                key: None,
                 size: AVATAR,
                 opacity: 1.0,
                 decoration,
@@ -349,6 +350,7 @@ impl App {
                 .push(self.face(Face {
                     url: reply.avatar.as_deref(),
                     name: &reply.author,
+                    key: None,
                     size: HEADER_AVATAR,
                     opacity: 1.0,
                     decoration: None,
@@ -397,6 +399,7 @@ impl App {
             self.face(Face {
                 url: used.avatar.as_deref(),
                 name: &used.user,
+                key: None,
                 size: HEADER_AVATAR,
                 opacity: 1.0,
                 decoration: None,
@@ -586,17 +589,28 @@ impl App {
     fn stickers<'a>(&'a self, message: &'a ChatMessage) -> Option<Element<'a, Message>> {
         let mut stickers = row![].spacing(8);
         let mut any = false;
-        for attachment in message
+        for (index, attachment) in message
             .attachments
             .iter()
-            .filter(|attachment| attachment.placement == Placement::Sticker)
+            .enumerate()
+            .filter(|(_, attachment)| attachment.placement == Placement::Sticker)
         {
             any = true;
             let size = Size::new(STICKER, STICKER);
-            stickers = stickers.push(match attachment.preview.as_ref() {
+            let shown = match attachment.preview.as_ref() {
                 Some(picture) => self.shot(Shot::new(Some(picture), size).fit(Fit::Contain).bare()),
                 None => self.shot(Shot::new(None, size).radius(12.0)),
-            });
+            };
+            // A click opens its card under it.
+            let open = Message::Info(crate::info_cards::Event::Sticker(
+                message.item.clone(),
+                index,
+            ));
+            let pressable = iced::widget::mouse_area(shown)
+                .on_press(open)
+                .interaction(iced::mouse::Interaction::Pointer);
+            stickers =
+                stickers.push(crate::widgets::Spot::new(pressable, &self.link_spot).by_press());
         }
         any.then(|| stickers.into())
     }

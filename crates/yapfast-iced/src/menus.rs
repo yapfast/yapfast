@@ -197,6 +197,10 @@ pub enum MenuAct {
     SaveMedia,
     CopyMediaLink,
     OpenMediaLink,
+    /// An activity's more menu on a profile's card: the full profile's
+    /// Activity tab, and one's own game's privacy.
+    AllActivity,
+    ActivityPrivacy,
 }
 
 #[derive(Clone)]
@@ -625,6 +629,14 @@ impl App {
                 }
             }
             MenuAct::Event => focus,
+            MenuAct::AllActivity => Task::batch([
+                focus,
+                self.profile_event(crate::profile::Event::AllActivity),
+            ]),
+            MenuAct::ActivityPrivacy => Task::batch([
+                focus,
+                self.profile_event(crate::profile::Event::ActivityPrivacy),
+            ]),
             MenuAct::NewPoll => self.switcher_event(crate::switcher::Event::OpenPoll),
             MenuAct::Place(choice) => {
                 let place = place.unwrap_or_default();

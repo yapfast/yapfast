@@ -29,7 +29,7 @@ use crate::{
     sidebar::room_icon,
     style::rounded,
     theme::rgb,
-    widgets::Pic,
+    widgets::{Pic, Spot},
 };
 
 /// The header's height; the line under it is one more pixel.
@@ -191,6 +191,7 @@ impl App {
                 head.push(self.face(Face {
                     url: header.avatar.as_deref(),
                     name: &header.name,
+                    key: None,
                     size: AVATAR,
                     opacity: 1.0,
                     decoration: None,
@@ -332,13 +333,20 @@ impl App {
         }
         let mut push = |icon, label, message, lit: bool| {
             let ink = if lit { theme.text } else { theme.secondary };
-            buttons.push(self.icon_face_button(
-                self.glyph(icon, GLYPH, ink),
-                label,
-                BUTTON,
-                message,
-                true,
-            ));
+            // Where it is, as it's pressed: what it opens opens from it.
+            buttons.push(
+                Spot::new(
+                    self.icon_face_button(
+                        self.glyph(icon, GLYPH, ink),
+                        label,
+                        BUTTON,
+                        message,
+                        true,
+                    ),
+                    &self.header_spot,
+                )
+                .into(),
+            );
         };
         if header.can_call {
             let label = if header.call_going {
@@ -394,6 +402,28 @@ impl App {
                 false,
             );
         }
+        // The call's signal, in the conversation it's in, as in Discord's
+        // voice panel.
+        if let Some(signal) = self.header_signal() {
+            buttons.push(signal);
+        }
+        let mut push = |icon, label, message, lit: bool| {
+            let ink = if lit { theme.text } else { theme.secondary };
+            // Where it is, as it's pressed: what it opens opens from it.
+            buttons.push(
+                Spot::new(
+                    self.icon_face_button(
+                        self.glyph(icon, GLYPH, ink),
+                        label,
+                        BUTTON,
+                        message,
+                        true,
+                    ),
+                    &self.header_spot,
+                )
+                .into(),
+            );
+        };
         if header.members_available && !header.direct {
             push(Icon::Users, members, Message::ToggleMembers, shown);
         }
@@ -437,6 +467,23 @@ impl App {
             );
         }
         buttons
+    }
+
+    /// The call's signal in the conversation it's in, once it's
+    /// connected and measured: its ping under it, the details on a click.
+    fn header_signal(&self) -> Option<Element<'_, Message>> {
+        let state = self.client.state();
+        let voice = &state.voice;
+        let here = voice.room.is_some() && voice.room == state.selected;
+        if !here || !crate::call::voice_ready(voice) || !self.link_measured() {
+            return None;
+        }
+        let face = self.glyph(
+            crate::call::signal_icon(voice.link_quality),
+            GLYPH,
+            crate::call::signal_ink(&self.theme, voice.link_quality),
+        );
+        Some(self.link_touch(face.boxed(BUTTON), true))
     }
 
     /// A group DM's member list toggle: its icon and count, as Slint's
@@ -555,6 +602,10 @@ impl App {
             .height(size)
             .on_press(message)
             .style(lit_style(None, lit, 6.0));
+        // An empty label shows no tip, as over a slider the button opened.
+        if label.is_empty() {
+            return face.into();
+        }
         let side = if below {
             tooltip::Position::Bottom
         } else {

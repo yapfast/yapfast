@@ -207,6 +207,22 @@ impl Draft {
         });
     }
 
+    /// A key typed while nothing had the keys, at the end of the text, as
+    /// the field would take it with its caret there.
+    pub fn type_at_end(&self, typed: &Typed) {
+        let mut inner = self.0.borrow_mut();
+        inner.editor.perform(Action::Move(Motion::DocumentEnd));
+        let (kind, edits) = match typed {
+            Typed::Text(text) => (Kind::Insert, text.chars().map(Edit::Insert).collect()),
+            Typed::Backspace => (Kind::Delete, vec![Edit::Backspace]),
+            Typed::Delete => (Kind::Delete, vec![Edit::Delete]),
+        };
+        for edit in edits {
+            inner.remember(kind);
+            inner.editor.perform(Action::Edit(edit));
+        }
+    }
+
     /// Edits as the composer's menu does: cut, copy, paste or select all.
     pub fn act(&self, edit: MenuEdit, clipboard_text: Option<String>) -> Option<String> {
         let mut inner = self.0.borrow_mut();
@@ -231,6 +247,34 @@ impl Draft {
             }
         }
         None
+    }
+}
+
+/// A key that writes, typed with nothing holding the keys (`App::key`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Typed {
+    Text(String),
+    Backspace,
+    Delete,
+}
+
+impl Typed {
+    /// What a key nothing took writes, if it writes: text without Ctrl
+    /// (AltGr's is), Space, Backspace or Delete. Enter isn't one: Discord's
+    /// sends the draft, which a stray press after a menu closes shouldn't.
+    pub fn of(key: &key::Key, modifiers: keyboard::Modifiers) -> Option<Self> {
+        if (modifiers.command() && !modifiers.alt()) || modifiers.logo() {
+            return None;
+        }
+        match key.as_ref() {
+            key::Key::Character(text) if text.chars().all(|c| !c.is_control()) => {
+                Some(Self::Text(text.to_owned()))
+            }
+            key::Key::Named(key::Named::Space) => Some(Self::Text(" ".to_owned())),
+            key::Key::Named(key::Named::Backspace) => Some(Self::Backspace),
+            key::Key::Named(key::Named::Delete) => Some(Self::Delete),
+            _ => None,
+        }
     }
 }
 
@@ -332,6 +376,8 @@ pub struct Field<'a> {
     /// Takes no input, its text greyed.
     enabled: bool,
     colors: Colors,
+    /// The line round it while it has the keys, as Slint's `TextField`.
+    ring: Option<Color>,
     on: fn(Event) -> Message,
 }
 
@@ -371,6 +417,7 @@ impl<'a> Field<'a> {
             tabs: false,
             enabled: true,
             colors,
+            ring: None,
             on,
         }
     }
@@ -389,6 +436,12 @@ impl<'a> Field<'a> {
 
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
+        self
+    }
+
+    /// A line of `ring` round it while it has the keys.
+    pub fn ring(mut self, ring: Color) -> Self {
+        self.ring = Some(ring);
         self
     }
 
@@ -890,10 +943,18 @@ impl Widget<Message, Theme, Renderer> for Field<'_> {
         let state = tree.state.downcast_ref::<State>();
         let bounds = layout.bounds();
         let text_bounds = self.text_bounds(layout);
+        let border = match self.ring.filter(|_| state.focus.is_some()) {
+            Some(ring) => Border {
+                color: ring,
+                width: 1.0,
+                radius: 8.0.into(),
+            },
+            None => Border::default().rounded(8),
+        };
         renderer.fill_quad(
             renderer::Quad {
                 bounds,
-                border: Border::default().rounded(8),
+                border,
                 ..Default::default()
             },
             self.colors.ground,

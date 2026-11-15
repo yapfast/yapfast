@@ -253,6 +253,106 @@ pub fn with_emoji(body: &mut Body, emoji: &[yapfast_core::chat::CustomEmoji]) {
     body.jumbo = only_emoji(&body.plain().replace(EMOJI_MARK, "🙂"));
 }
 
+/// Each emoji in `body`'s text, out of code, links and spoilers, linked to
+/// its card, as the Slint client's `emoji_text::linked` and
+/// `custom_emoji::linked`: a custom one of `custom` ([`with_emoji`] put in
+/// runs of their own), and each Unicode one the client `drawn` in a run of
+/// its own. A shortcode sent unexpanded, such as `:sob:`, shows as its
+/// emoji, as Discord's client draws one.
+pub fn link_emoji(
+    body: &mut Body,
+    custom: &[yapfast_core::chat::CustomEmoji],
+    drawn: impl Fn(&str) -> bool,
+) {
+    for part in &mut body.parts {
+        if part.shape == Shape::Code {
+            continue;
+        }
+        let mut runs = Vec::with_capacity(part.runs.len());
+        for mut run in part.runs.drain(..) {
+            if let Some((_, name)) = &run.emoji
+                && run.link.is_none()
+            {
+                run.link = custom
+                    .iter()
+                    .find(|emoji| &emoji.text == name)
+                    .map(|emoji| yapfast_core::emoji::card::custom_link(&emoji.id));
+            }
+            if run.code || run.hidden || run.link.is_some() || run.emoji.is_some() {
+                runs.push(run);
+                continue;
+            }
+            let mut plain = String::new();
+            let mut rest = run.text.as_str();
+            while let Some(next) = rest.chars().next() {
+                let found = if could_be_emoji(next) {
+                    Some(emoji_at(rest))
+                        .filter(|&length| length > 0)
+                        .map(|length| (length, &rest[..length]))
+                } else if next == ':' {
+                    shortcode_at(rest)
+                } else {
+                    None
+                };
+                if let Some((length, emoji)) = found.filter(|(_, emoji)| drawn(emoji)) {
+                    if !plain.is_empty() {
+                        runs.push(Run {
+                            text: std::mem::take(&mut plain),
+                            ..run.clone()
+                        });
+                    }
+                    runs.push(Run {
+                        text: emoji.to_owned(),
+                        link: Some(yapfast_core::emoji::card::unicode_link(emoji)),
+                        ..run.clone()
+                    });
+                    rest = &rest[length..];
+                    continue;
+                }
+                plain.push(next);
+                rest = &rest[next.len_utf8()..];
+            }
+            if !plain.is_empty() {
+                runs.push(Run { text: plain, ..run });
+            }
+        }
+        part.runs = runs;
+    }
+}
+
+/// Whether an emoji could start at `character`: emoji are beyond ASCII,
+/// but the digits 0 to 9, `#` and `*` begin keycaps.
+fn could_be_emoji(character: char) -> bool {
+    !character.is_ascii() || character.is_ascii_digit() || "#*".contains(character)
+}
+
+/// The length of the longest emoji `text` starts with, or 0.
+fn emoji_at(text: &str) -> usize {
+    text.char_indices()
+        .map(|(index, character)| index + character.len_utf8())
+        .take(12)
+        .filter(|&end| emojis::get(&text[..end]).is_some())
+        .last()
+        .unwrap_or(0)
+}
+
+/// The emoji `text` names at its start between colons, such as `:sob:`,
+/// and how many bytes that name takes.
+fn shortcode_at(text: &str) -> Option<(usize, &'static str)> {
+    let rest = text.strip_prefix(':')?;
+    let end = rest.find(':')?;
+    let name = &rest[..end];
+    let shaped = !name.is_empty()
+        && name.len() <= 64
+        && name
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || "_-+".contains(character));
+    if !shaped {
+        return None;
+    }
+    emojis::get_by_shortcode(name).map(|emoji| (end + 2, emoji.as_str()))
+}
+
 /// Text without Markdown, as typed, its web addresses linked.
 pub fn plain(text: &str) -> Body {
     let runs = inline(&links::linkify(&links::escape_markdown(text)));
@@ -532,15 +632,10 @@ pub fn only_emoji(text: &str) -> bool {
         let mut rest = word;
         while !rest.is_empty() {
             // The longest emoji the rest starts with, such as a family.
-            let Some(end) = rest
-                .char_indices()
-                .map(|(index, c)| index + c.len_utf8())
-                .take(12)
-                .filter(|&end| emojis::get(&rest[..end]).is_some())
-                .last()
-            else {
+            let end = emoji_at(rest);
+            if end == 0 {
                 return false;
-            };
+            }
             rest = &rest[end..];
             count += 1;
         }
@@ -675,7 +770,8 @@ impl App {
                 // Text in no timeline's row (a found card's) selects
                 // nothing: a press on it is the card's.
                 .starts(row != usize::MAX)
-                .selection(self.selected(row, number), self.selecting, theme.selection);
+                .selection(self.selected(row, number), self.selecting, theme.selection)
+                .spot(&self.link_spot);
             let shown: Element<'_, Message> = if part.shape == Shape::Code {
                 let (ground, line) = (theme.panel, theme.line);
                 container(piece)
@@ -742,6 +838,50 @@ mod tests {
             .parts
             .remove(0)
             .runs
+    }
+
+    #[test]
+    fn emoji_link_to_their_cards_out_of_code_and_links() {
+        let custom = vec![yapfast_core::chat::CustomEmoji {
+            text: ":pog:".into(),
+            id: "42".into(),
+            animated: false,
+            usable: true,
+            picture: "https://cdn.discordapp.com/emojis/42.png".into(),
+        }];
+        let mut body = parse(
+            "so 😭 :sob: `😭` [😭](https://example.com) :pog: :nope:",
+            &[],
+            0x00a8fc,
+            "m",
+            |_| false,
+        );
+        with_emoji(&mut body, &custom);
+        link_emoji(&mut body, &custom, |_| true);
+        let runs = &body.parts[0].runs;
+        let linked: Vec<(&str, &str)> = runs
+            .iter()
+            .filter_map(|run| Some((run.text.as_str(), run.link.as_deref()?)))
+            .collect();
+        assert_eq!(
+            linked,
+            [
+                ("😭", "yapfast:emoji/1f62d"),
+                // A shortcode sent unexpanded shows as its emoji.
+                ("😭", "yapfast:emoji/1f62d"),
+                ("😭", "yapfast:leave/https://example.com"),
+                ("\u{2003}", "yapfast:emoji/c/42"),
+            ]
+        );
+        assert!(
+            runs.iter().any(|run| run.code && run.text == "😭"),
+            "code keeps its emoji as typed"
+        );
+        assert!(body.plain().ends_with(" :nope:"), "no such shortcode");
+        // One the client doesn't draw stays plain text.
+        let mut body = parse("😭", &[], 0x00a8fc, "m", |_| false);
+        link_emoji(&mut body, &[], |_| false);
+        assert!(body.parts[0].runs.iter().all(|run| run.link.is_none()));
     }
 
     #[test]

@@ -602,7 +602,11 @@ impl App {
         // under the video is drawn again with every frame shown.
         let theme = &self.theme;
         let stage = (theme.stage != theme.chat).then_some(theme.stage);
-        container(column![self.header_view(), line, body])
+        // The banners show over the call too, under the header.
+        let column = column![self.header_view(), line]
+            .extend(self.banners())
+            .push(body);
+        container(column)
             .width(Length::Fill)
             .height(Length::Fill)
             .style(move |_| stage.map(fill).unwrap_or_default())

@@ -281,7 +281,7 @@ pub fn name_look(
 
 /// The font family Discord's client draws a style's `font_id` in; none, the
 /// usual font, for 11 and the retired ids.
-fn family(font: u8) -> Option<&'static str> {
+pub fn family(font: u8) -> Option<&'static str> {
     Some(match font {
         3 => "Sakura",
         4 => "Jellybean",
@@ -299,7 +299,7 @@ fn family(font: u8) -> Option<&'static str> {
 }
 
 /// The weight of that font's only face.
-fn weight(font: u8) -> u16 {
+pub fn weight(font: u8) -> u16 {
     match font {
         6 | 8 => 500,
         10 => 548,

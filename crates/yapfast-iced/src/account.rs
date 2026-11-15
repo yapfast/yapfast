@@ -20,7 +20,7 @@ use crate::{
     pictures::{Face, Icon},
     style::rounded,
     theme::rgb,
-    widgets::Pic,
+    widgets::{Pic, PlateRow},
 };
 
 /// The card's height and its inset from the window's edges.
@@ -149,7 +149,7 @@ impl App {
         match event {
             Event::Point(pointed) => {
                 self.account_pointed = pointed;
-                return iced::Task::none();
+                return self.ask();
             }
             // In a call they toggle; out of one they say how the next
             // starts.
@@ -185,10 +185,15 @@ impl App {
         let face = self.face(Face {
             url: account.avatar.as_deref(),
             name: &account.name,
+            key: None,
             size: AVATAR,
             opacity: 1.0,
-            decoration: None,
-            play: false,
+            decoration: self
+                .client
+                .state()
+                .cosmetics
+                .decoration(self.client.state().account_decoration.as_deref()),
+            play: pointed,
             dot: account
                 .presence
                 .map(|presence| (presence, rgb(theme.panel), Point::new(26.0, 26.0))),
@@ -354,14 +359,26 @@ impl App {
         })
         .height(HEIGHT)
         .align_y(Alignment::Center);
-        container(container(card).style(move |_| rounded(ground, 8)))
-            .padding(Padding {
-                left: INSET,
-                right: INSET,
-                bottom: INSET,
-                top: 0.0,
-            })
-            .into()
+        // The account's nameplate fills the card, brighter and playing
+        // under the pointer.
+        let card: Element<'_, Message> = match self.account_plate(HEIGHT, pointed, pointed) {
+            Some((plate, palette)) => PlateRow::new(card, Some(plate), palette, ground, 0.0, 1.0)
+                .account()
+                .into(),
+            None => card.into(),
+        };
+        container(
+            container(card)
+                .clip(true)
+                .style(move |_| rounded(ground, 8)),
+        )
+        .padding(Padding {
+            left: INSET,
+            right: INSET,
+            bottom: INSET,
+            top: 0.0,
+        })
+        .into()
     }
 }
 

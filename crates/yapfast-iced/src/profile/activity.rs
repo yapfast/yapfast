@@ -30,15 +30,31 @@ impl App {
         activity: &'a ActivityLook,
         inks: &Inks,
         now: u64,
+        menu: Option<bool>,
     ) -> Element<'a, Message> {
-        let mut card = column![
+        let mut head = row![
             text(activity.heading.as_str())
                 .size(12)
                 .font(BOLD)
                 .color(inks.ink3)
                 .wrapping(text::Wrapping::None)
+                .width(Length::Fill)
         ]
-        .spacing(8);
+        .height(16)
+        .align_y(Alignment::Center);
+        // Discord's more menu, on anyone's card but a bot's; on one's own
+        // game it offers its privacy too.
+        if let Some(own) = menu {
+            let face = self.glyph(crate::pictures::Icon::Ellipsis, 14, inks.ink2);
+            head = head.push(self.icon_face_button(
+                face,
+                "More",
+                20.0,
+                Message::Profile(super::Event::ActivityMenu(own && activity.game)),
+                false,
+            ));
+        }
+        let mut card = column![head].spacing(8);
         let mut body = row![].spacing(12).align_y(Alignment::Center);
         if let Some(large) = &activity.large {
             body = body.push(self.activity_art(large, activity.small.as_deref(), inks));

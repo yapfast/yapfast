@@ -694,7 +694,14 @@ impl App {
             names = names.push(elide(entry.place.as_str()).size(12).color(theme.muted));
         }
         let mut line = row![
-            self.avatar(entry.picture.as_deref(), &entry.initial, 32.0, 16.0, 1.0),
+            self.avatar_tinted(
+                entry.picture.as_deref(),
+                &entry.initial,
+                &entry.id,
+                32.0,
+                16.0,
+                1.0
+            ),
             container(names.spacing(2)).width(Length::Fill)
         ]
         .spacing(12)

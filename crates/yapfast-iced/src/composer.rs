@@ -9,7 +9,7 @@
 //! draft.
 
 use iced::{
-    Alignment, Border, Element, Length, Padding, Task,
+    Alignment, Border, Element, Length, Padding, Task, keyboard,
     widget::{Id, Space, button, column, container, operation, row, text, tooltip},
 };
 use yapfast_core::{
@@ -617,6 +617,7 @@ impl App {
         if self.server_screen.is_some()
             || self.channel_screen.is_some()
             || self.server_dialog_open()
+            || self.link_dialog_open()
         {
             return Task::none();
         }
@@ -633,12 +634,100 @@ impl App {
         }
         operation::focus(if self.editing.is_some() {
             EDIT
+        } else if self.writing_aside() {
+            crate::thread::COMPOSER
         } else {
             COMPOSER
         })
     }
 
+    /// A key nothing took, as the Slint client's `type-into-composer`:
+    /// one that writes goes on the end of the composer written in last
+    /// (the thread beside's or the channel's), which takes the keys, as
+    /// Discord's window sends typing anywhere to its composer; Tab only
+    /// gives it the keys. Not under a card or a popup, nor while the
+    /// talk key is held; stepping through the messages, only letters and
+    /// digits leave them.
+    pub fn type_anywhere(
+        &mut self,
+        key: &keyboard::Key,
+        modifiers: keyboard::Modifiers,
+    ) -> Task<Message> {
+        let typed = field::Typed::of(key, modifiers);
+        let tab = *key == keyboard::Key::Named(keyboard::key::Named::Tab)
+            && !modifiers.command()
+            && !modifiers.alt();
+        if (typed.is_none() && !tab) || self.composer_covered() {
+            return Task::none();
+        }
+        if self.keyed.is_some() {
+            let letters = matches!(&typed, Some(field::Typed::Text(text))
+                if text.chars().all(char::is_alphanumeric));
+            if !letters {
+                return Task::none();
+            }
+            self.leave_messages();
+        }
+        if self.call.since.is_some()
+            && yapfast_core::push_to_talk::on()
+            && yapfast_core::push_to_talk::held()
+        {
+            return Task::none();
+        }
+        let (which, field) = if self.writing_aside() {
+            let Some(aside) = &self.aside else {
+                return Task::none();
+            };
+            if !self.client.state().can_write_in(&aside.room) {
+                return Task::none();
+            }
+            (Writing::Aside, crate::thread::COMPOSER)
+        } else {
+            if !self.composer_look().enabled || self.editing.is_some() {
+                return Task::none();
+            }
+            (Writing::Draft, COMPOSER)
+        };
+        if let Some(typed) = typed {
+            let draft = self.writing(which);
+            draft.type_at_end(&typed);
+            let (text, caret) = (draft.text(), draft.caret());
+            self.edited(which, text, caret);
+        }
+        operation::focus(field)
+    }
+
+    /// Something over the window that keys typed with nothing focused
+    /// aren't for: a card, a popup, the picker or a full view.
+    fn composer_covered(&self) -> bool {
+        let state = self.client.state();
+        self.card.is_some()
+            || self.profiles.shown.is_some()
+            || self.cards.server.is_some()
+            || self.cards.expression.is_some()
+            || state.role.is_some()
+            || self.picker.is_some()
+            || self.call.popup.is_some()
+            || self.clip_full
+            || self.full_shown()
+            || self.inbox.is_some()
+            || state.select_menu.is_some()
+            || state.forwarding.is_some()
+            || state.viewer.is_some()
+    }
+
+    /// The thread beside the channel's composer was written in last, and
+    /// shows: keys typed anywhere go to it, and Escape cancels its reply.
+    pub fn writing_aside(&self) -> bool {
+        self.writing_last == Writing::Aside && self.aside.is_some() && self.aside_shown()
+    }
+
     fn field_event(&mut self, which: Writing, event: field::Event) -> Task<Message> {
+        // The keys come back to the composer written in last: the thread's
+        // or the channel's.
+        if matches!(which, Writing::Draft | Writing::Aside) {
+            self.writing_last = which;
+        }
         match event {
             field::Event::Edited(text, caret) => {
                 self.edited(which, text, caret);

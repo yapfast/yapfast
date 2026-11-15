@@ -158,10 +158,8 @@ impl Widget<Message, Theme, Renderer> for Reorder<'_> {
                     let height = layout
                         .children()
                         .nth(index)
-                        .map_or(1.0, |row| row.bounds().height.max(1.0));
-                    let steps = (*offset / height).round() as i64;
-                    let last = self.rows.len().saturating_sub(1) as i64;
-                    let to = (index as i64 + steps).clamp(0, last) as usize;
+                        .map_or(1.0, |row| row.bounds().height);
+                    let to = target(index, *offset, height, self.rows.len());
                     dragging.0 = None;
                     shell.request_redraw();
                     shell.capture_event();
@@ -248,6 +246,13 @@ impl Widget<Message, Theme, Renderer> for Reorder<'_> {
     ) {
         use iced::advanced::Renderer as _;
         let dragging = tree.state.downcast_ref::<Dragging>().0;
+        // The rows between the dragged one's place and where it would go
+        // move aside for it, by its height, as the Slint client's do.
+        let aside = dragging.and_then(|(dragged, _, offset)| {
+            let height = layout.children().nth(dragged)?.bounds().height;
+            let to = target(dragged, offset, height, self.rows.len());
+            Some((dragged, to, height))
+        });
         for (index, ((row, tree), layout)) in self
             .rows
             .iter()
@@ -255,11 +260,21 @@ impl Widget<Message, Theme, Renderer> for Reorder<'_> {
             .zip(layout.children())
             .enumerate()
         {
-            if dragging.is_some_and(|(dragged, _, _)| dragged == index) {
-                continue;
+            let shift = match aside {
+                Some((dragged, _, _)) if dragged == index => continue,
+                Some((dragged, to, height)) if dragged < index && index <= to => -height,
+                Some((dragged, to, height)) if to <= index && index < dragged => height,
+                _ => 0.0,
+            };
+            if shift == 0.0 {
+                row.as_widget()
+                    .draw(tree, renderer, theme, style, layout, cursor, viewport);
+            } else {
+                renderer.with_translation(Vector::new(0.0, shift), |renderer| {
+                    row.as_widget()
+                        .draw(tree, renderer, theme, style, layout, cursor, viewport);
+                });
             }
-            row.as_widget()
-                .draw(tree, renderer, theme, style, layout, cursor, viewport);
         }
         let Some((index, _, offset)) = dragging else {
             return;
@@ -310,5 +325,28 @@ impl Widget<Message, Theme, Renderer> for Reorder<'_> {
 impl<'a> From<Reorder<'a>> for Element<'a, Message> {
     fn from(list: Reorder<'a>) -> Self {
         Element::new(list)
+    }
+}
+
+/// Where row `index`, dragged `offset` down, would go among `rows`:
+/// rounded to whole rows of its `height`.
+fn target(index: usize, offset: f32, height: f32, rows: usize) -> usize {
+    let steps = (offset / height.max(1.0)).round() as i64;
+    let last = rows.saturating_sub(1) as i64;
+    (index as i64 + steps).clamp(0, last) as usize
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_row_goes_to_the_whole_row_it_is_nearest() {
+        assert_eq!(super::target(2, 0.0, 40.0, 5), 2);
+        assert_eq!(super::target(2, 59.0, 40.0, 5), 3, "past half a row");
+        assert_eq!(super::target(2, -100.0, 40.0, 5), 0);
+        assert_eq!(
+            super::target(2, 400.0, 40.0, 5),
+            4,
+            "no further than the last"
+        );
     }
 }

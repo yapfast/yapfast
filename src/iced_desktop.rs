@@ -153,6 +153,15 @@ impl yapfast_iced::Desktop for Shell {
         let _ = (window, token);
     }
 
+    fn pointer(
+        &self,
+        window: &dyn yapfast_iced::Window,
+        scale: f64,
+    ) -> Option<Box<dyn yapfast_iced::PointerAt>> {
+        crate::drop::Pointer::of(window, scale)
+            .map(|pointer| Box::new(pointer) as Box<dyn yapfast_iced::PointerAt>)
+    }
+
     fn decorate(&self, window: &dyn yapfast_iced::Window, tell: Tell) {
         #[cfg(windows)]
         if let Ok(handle) = window.window_handle()
@@ -233,7 +242,7 @@ fn watch_wayland_drops(window: &dyn yapfast_iced::Window, tell: Tell) {
                 crate::drop::Drag::Entered => Drag::Entered,
                 crate::drop::Drag::Left => Drag::Left,
                 crate::drop::Drag::Dropped(files) => Drag::Dropped(files),
-                crate::drop::Drag::Moved { .. } => return,
+                crate::drop::Drag::Moved { x, y } => Drag::Moved(x, y),
             };
             tell(Heard::Drag(drag));
         });
@@ -477,5 +486,14 @@ impl yapfast_iced::Updates for Shell {
 
     fn ready(&self) -> bool {
         self.lock_updates().prepared.is_some()
+    }
+}
+
+impl yapfast_iced::PointerAt for crate::drop::Pointer {
+    fn at(&self) -> Option<(f64, f64)> {
+        match crate::drop::Pointer::at(self)? {
+            crate::drop::Drag::Moved { x, y } => Some((x, y)),
+            _ => None,
+        }
     }
 }
