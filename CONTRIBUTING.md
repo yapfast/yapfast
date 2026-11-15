@@ -93,6 +93,14 @@ quality, default to the cheaper setting and put the heavier one behind a switch.
 
 ## Pull requests
 
+Pull requests to `main` run CI directly on Ubuntu, without Nix, using the Rust
+toolchain in `rust-toolchain.toml`. Separate jobs run formatting and doc links,
+`cargo audit --deny warnings`, `cargo machete`, and the default workspace build's
+`cargo check`, strict Clippy and tests. Compilation uses the `fast` profile and
+excludes `feature-union`, which is for optional Matrix builds. CI also runs on
+pushes to `main` and can be started manually. Run the Matrix and fake Discord
+checks above locally when your change needs them.
+
 - Keep each pull request to one feature or fix, started from `origin/main` after
   `git fetch`.
 - Base every pull request on `main`, including the layers of a stack, since a
