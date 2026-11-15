@@ -673,6 +673,9 @@ impl Adapter {
         };
         if wanted && theme_look::is_ready(id) {
             self.show_theme(window, Some(id));
+        } else {
+            // Closed meanwhile, or another chosen: nobody shows it.
+            theme_look::drop_ready();
         }
     }
 

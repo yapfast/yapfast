@@ -622,6 +622,11 @@ fn fingerprint(folder: &Path) -> Vec<(PathBuf, u64, Option<SystemTime>)> {
     print
 }
 
+/// Lets go of what [`prepare`] made that nobody will show.
+pub fn drop_ready() {
+    STATE.with_borrow_mut(|state| state.ready = None);
+}
+
 /// Whether [`prepare`] has made `id` ready, or found why it can't be.
 pub fn is_ready(id: &str) -> bool {
     STATE.with_borrow(|state| state.ready.as_ref().is_some_and(|(ready, _)| ready == id))
@@ -1076,7 +1081,13 @@ fn settle_rows() {
 
 /// Forgets the applied theme and puts every token back.
 pub fn clear(window: &YapfastWindow) {
+    // What the last prepare read is for the theme after it; with none shown,
+    // it's let go (unless a prepare holds it this moment, which keeps it).
+    if let Ok(mut kept) = KEPT.try_lock() {
+        *kept = None;
+    }
     STATE.with_borrow_mut(|state| {
+        state.ready = None;
         state.applied = None;
         state.clock = None;
         state.effects.clear();
