@@ -55,6 +55,7 @@ impl Adapter {
         // An installed theme is made ready on another thread, the window
         // keeping the theme it shows until then, and comes back here.
         if theme_look::is_package(id) && !theme_look::is_ready(id) {
+            super::theme_timing::start("choose");
             let again = SharedString::from(id);
             theme_look::prepare(window, id, move |window| window.invoke_choose_theme(again));
             return true;
@@ -93,6 +94,7 @@ impl Adapter {
         self.layout.theme = Some(id);
         self.layout.write(&self.root);
         self.show_previous_theme(window);
+        super::theme_timing::values_set();
         true
     }
 
@@ -195,9 +197,12 @@ impl Adapter {
         let content = self.show_theme_content(window);
         super::theme_chrome::workspaces(&self.app.state);
         super::theme_chrome::now_playing(window, &self.app.state);
+        super::theme_timing::step("media, options and content shown");
         if theme.apply(window) || icons || content {
+            super::theme_timing::step("colours set");
             self.restyle_mentions();
             self.refresh(window);
+            super::theme_timing::step("refreshed");
         }
     }
 
@@ -224,6 +229,7 @@ impl Adapter {
         option: &str,
         pick: impl FnOnce(&options::Kind) -> Option<serde_json::Value>,
     ) {
+        super::theme_timing::start("option");
         let Some(id) = theme_look::applied_id() else {
             return;
         };
@@ -250,9 +256,12 @@ impl Adapter {
         if !chosen.is_empty() {
             self.layout.theme_options.insert(id.clone(), chosen.clone());
         }
+        super::theme_timing::step("option kept");
         self.layout.write(&self.root);
+        super::theme_timing::step("layout written");
         theme_look::set_choices(&id, chosen);
         self.show_theme_options(window);
+        super::theme_timing::step("options shown");
         // The theme's sounds' volume is the app's to apply: nothing to make.
         if option.id == options::SOUNDS {
             return;
@@ -679,6 +688,7 @@ pub(super) fn bind_themes(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>
             });
         }};
     }
+    super::theme_timing::watch(window);
     super::theme_layout::init(window);
     super::theme_lists::init(window);
     super::theme_chrome::init(window);
@@ -748,15 +758,21 @@ pub(super) fn bind_themes(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>
         }
     });
     on!(option_page, on_reshow(id) => |adapter, window| {
+        super::theme_timing::step("reshow");
         match theme_look::show(&window, &id) {
-            Ok(colours) => adapter.set_theme(&window, &colours),
+            Ok(colours) => {
+                super::theme_timing::step("shown");
+                adapter.set_theme(&window, &colours);
+            }
             Err(reason) => {
                 // The theme as it was stays; the person hears why.
                 adapter.app.state.notice = Some(format!("That option couldn't be shown: {reason}"));
                 adapter.show_theme_options(&window);
             }
         }
+        super::theme_timing::step("theme set");
         adapter.refresh(&window);
+        super::theme_timing::values_set();
     });
     on!(window, on_theme_reload() => |adapter, window| {
         match theme_look::show(&window, "dev") {
@@ -880,13 +896,16 @@ pub(super) fn bind_themes(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>
         let layout_id = format!("{}{id}", theme_look::INSTALLED);
         // Ready off the UI thread first, then applied here again.
         if !theme_look::is_ready(&layout_id) {
+            super::theme_timing::start("apply");
             theme_look::prepare(&window, &layout_id, move |window| {
                 window.global::<ThemesPage>().invoke_apply(id);
             });
             return;
         }
+        super::theme_timing::step("apply ready");
         adapter.choose_theme(&window, &layout_id);
         adapter.themes_changed(&window);
+        super::theme_timing::step("gallery shown");
     });
     on!(page, on_turn_off() => |adapter, window| {
         adapter.default_theme_for_session(&window);

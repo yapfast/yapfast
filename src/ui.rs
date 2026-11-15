@@ -76,6 +76,7 @@ pub mod theme_look;
 mod theme_media;
 mod theme_pace;
 mod theme_remote;
+mod theme_timing;
 pub mod theme_tools;
 mod theme_trim;
 mod tiles;
