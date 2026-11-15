@@ -520,19 +520,23 @@ impl Animations {
     ) {
         i_slint_core::yapfast_emoji::set_playing(playing);
         self.side = frame_side(window.window().scale_factor());
-        let waiting = !self.decoding.is_empty()
-            || self.queue.len() > 0
-            || (playing && i_slint_core::yapfast_emoji::shortest_delay().is_some());
-        if !waiting {
+        let decoding = !self.decoding.is_empty() || self.queue.len() > 0;
+        let delay = playing
+            .then(i_slint_core::yapfast_emoji::next_frame_delay)
+            .flatten();
+        if !decoding && delay.is_none() {
             self.timer.stop();
             self.interval = 0;
             return;
         }
-        // A frame no faster than 16ms and no slower than 50 keeps the clock off
-        // a busy loop while still following a slow animation's own pace; with
-        // nothing registered yet, it only looks for what arrives.
-        let delay = i_slint_core::yapfast_emoji::shortest_delay().unwrap_or(30);
-        let interval = u64::from(delay.clamp(16, 50));
+        // Poll only while a worker has frames on the way. Once they arrive,
+        // slow animations wake at their own pace instead of twenty times a second.
+        let interval = match (decoding, delay) {
+            (true, delay) => delay.unwrap_or(30).min(30),
+            (false, Some(delay)) => delay,
+            (false, None) => unreachable!(),
+        };
+        let interval = u64::from(interval.max(16));
         if self.timer.running() && self.interval == interval {
             return;
         }
@@ -551,11 +555,9 @@ impl Animations {
                 let (Some(adapter), Some(window)) = (adapter.upgrade(), weak.upgrade()) else {
                     return;
                 };
-                let mut adapter = adapter.borrow_mut();
-                let Adapter {
-                    app, animations, ..
-                } = &mut *adapter;
-                animations.run(&window, &app.state.pictures);
+                // A completed decode can change both the required cadence and
+                // whether a paused window needs this timer at all.
+                adapter.borrow_mut().run_emoji_animations(&window);
             },
         );
     }
@@ -950,6 +952,46 @@ mod tests {
             "reopening restarts the timer without a refresh"
         );
         assert!(!adapter.animations.decoding.is_empty());
+    }
+
+    #[test]
+    fn slow_visible_emoji_do_not_poll_at_the_cached_fast_emojis_rate() {
+        i_slint_backend_testing::init_no_event_loop();
+        let window = YapfastWindow::new().unwrap();
+        let mut animations = Animations::new();
+        let pictures = HashMap::new();
+        animations.show(
+            [
+                ("slow:1".into(), None, "slow.gif".into()),
+                ("fast:1".into(), None, "fast.gif".into()),
+            ],
+            &pictures,
+        );
+        for (key, delay) in [("slow:1", 1000), ("fast:1", 20)] {
+            animations
+                .done
+                .send(Decoded {
+                    key: key.into(),
+                    glyph: None,
+                    frames: vec![vec![0; 16], vec![255; 16]],
+                    delays: vec![delay, delay + 500],
+                })
+                .unwrap();
+        }
+        animations.run(&window, &pictures);
+        animations.sync(&window, true, Default::default());
+        assert_eq!(animations.interval, 20);
+        animations.show([("slow:1".into(), None, "slow.gif".into())], &pictures);
+        animations.run(&window, &pictures);
+        animations.sync(&window, true, Default::default());
+        assert_eq!(animations.interval, 1000);
+        assert!(animations.cache.contains("fast:1"));
+        let revision = i_slint_core::yapfast_emoji::revision();
+        i_slint_core::yapfast_emoji::advance(Duration::from_millis(20));
+        assert_eq!(i_slint_core::yapfast_emoji::revision(), revision);
+        assert_eq!(i_slint_core::yapfast_emoji::next_frame_delay(), Some(980));
+        i_slint_core::yapfast_emoji::advance(Duration::from_millis(980));
+        assert_eq!(i_slint_core::yapfast_emoji::next_frame_delay(), Some(1500));
     }
 
     #[test]

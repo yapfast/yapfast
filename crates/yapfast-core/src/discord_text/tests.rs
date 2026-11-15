@@ -340,6 +340,26 @@ fn changes_render_again_only_the_messages_they_change() {
         kept
     };
     show(&mut open);
+    assert!(open.visible(vec!["d:5".into(), "d:9".into()]));
+    assert_eq!(
+        kept(&open),
+        [3, 5, 7],
+        "a preview entering view needs rendering"
+    );
+    show(&mut open);
+    assert!(open.visible(vec!["d:7".into(), "d:9".into()]));
+    assert_eq!(
+        kept(&open),
+        [3, 5, 7, 9],
+        "overlapping previews keep their cache"
+    );
+    assert!(open.visible(vec!["d:3".into()]));
+    assert_eq!(
+        kept(&open),
+        [3, 5, 7],
+        "a preview leaving view releases its image"
+    );
+    show(&mut open);
     open.live(&Live::Reaction {
         channel: "11".into(),
         message: "5".into(),
