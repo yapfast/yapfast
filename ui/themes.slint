@@ -220,6 +220,10 @@ component GalleryCard inherits Rectangle {
                         ThemesPage.apply(root.theme.id);
                     }
                 }
+                if root.theme.applied: ActionButton {
+                    text: "Turn off theme"; small: true;
+                    clicked => { ThemesPage.turn-off(); }
+                }
                 if root.theme.installed && !root.theme.applied: ActionButton {
                     text: "Try 30 s"; small: true;
                     clicked => {
@@ -288,6 +292,7 @@ component ThemeRow inherits Rectangle {
             if root.theme.cost != "": Text { text: root.theme.cost; color: Theme.muted; font-size: 12px; overflow: elide; }
         }
         if !root.theme.applied: Middle { ActionButton { text: "Apply"; small: true; primary: true; clicked => { Art.apply-x = self.absolute-position.x + self.width / 2; Art.apply-y = self.absolute-position.y + self.height / 2; ThemesPage.apply(root.theme.id); } } }
+        if root.theme.applied: Middle { ActionButton { text: "Turn off theme"; small: true; clicked => { ThemesPage.turn-off(); } } }
         if !root.theme.applied: Middle { ActionButton { text: "Try 30 s"; small: true; clicked => { Art.apply-x = self.absolute-position.x + self.width / 2; Art.apply-y = self.absolute-position.y + self.height / 2; ThemesPage.try(root.theme.id); } } }
         if root.theme.previous != "": Middle { ActionButton { text: "Roll back"; small: true; ghost: true; clicked => { ThemesPage.roll-back(root.theme.id); } } }
         Middle { ActionButton { text: "Remove"; small: true; ghost: true; clicked => { ThemesPage.remove(root.theme.id); } } }

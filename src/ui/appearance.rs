@@ -888,6 +888,10 @@ pub(super) fn bind_themes(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>
         adapter.choose_theme(&window, &layout_id);
         adapter.themes_changed(&window);
     });
+    on!(page, on_turn_off() => |adapter, window| {
+        adapter.default_theme_for_session(&window);
+        theme_look::mark_applied(&window);
+    });
     on!(page, on_try(id) => |adapter, window| {
         let layout_id = format!("{}{id}", theme_look::INSTALLED);
         if !theme_look::is_ready(&layout_id) {

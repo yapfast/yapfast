@@ -346,8 +346,9 @@ yapfast theme export custom:2 path/to/plum    # or the theme's name
   is open — signing in, a link's confirmation, a theme's review — the window shows the stock theme, shape and
   motion and the system's cursors, and the theme comes back when the last one
   closes.
-- **The way back.** Ctrl+Shift+T shows the default theme until Yapfast starts
-  again; `--default-theme` starts with it. A theme that can't be shown at start
+- **The way back.** Ctrl+Shift+T, or *Turn off theme* on the applied theme in
+  Settings → Themes, shows the default theme until Yapfast starts again;
+  `--default-theme` starts with it. A theme that can't be shown at start
   falls back to the default with a notice saying why.
 
 ### Performance
