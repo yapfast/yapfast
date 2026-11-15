@@ -454,10 +454,11 @@ impl Adapter {
     /// tab's does; every message in a DM counts as one.
     pub(super) fn show_title(&self, window: &YapfastWindow) {
         let waiting: u64 = self.app.state.rooms.iter().map(|room| room.mentions).sum();
+        let name = yapfast_lang::PRODUCT;
         let title = match waiting {
-            0 => "Yapfast".to_owned(),
-            1..=99 => format!("({waiting}) Yapfast"),
-            _ => "(99+) Yapfast".to_owned(),
+            0 => name.to_owned(),
+            1..=99 => format!("({waiting}) {name}"),
+            _ => format!("(99+) {name}"),
         };
         if window.get_window_title() != title.as_str() {
             window.set_window_title(title.into());

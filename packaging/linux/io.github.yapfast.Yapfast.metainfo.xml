@@ -2,7 +2,7 @@
 <!-- What software centers and AppImage catalogs show for Yapfast. -->
 <component type="desktop-application">
   <id>io.github.yapfast.Yapfast</id>
-  <name>Yapfast</name>
+  <name>Anomi</name>
   <summary>A Discord client without the web browser</summary>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
@@ -11,7 +11,8 @@
   </developer>
   <description>
     <p>
-      Yapfast talks to Discord's API itself and draws its own window with Slint
+      Anomi is a fork of Yapfast with a Russian interface and its own look.
+      It talks to Discord's API itself and draws its own window with Slint
       and Skia, so it runs in about 30 MB of RAM, where Discord's own app takes 720.
     </p>
     <p>
@@ -20,9 +21,9 @@
     </p>
   </description>
   <launchable type="desktop-id">io.github.yapfast.Yapfast.desktop</launchable>
-  <url type="homepage">https://yapfast.com</url>
-  <url type="bugtracker">https://github.com/yapfast/yapfast/issues</url>
-  <url type="vcs-browser">https://github.com/yapfast/yapfast</url>
+  <url type="homepage">https://github.com/Mrkdsjjsjs/yapfast</url>
+  <url type="bugtracker">https://github.com/Mrkdsjjsjs/yapfast/issues</url>
+  <url type="vcs-browser">https://github.com/Mrkdsjjsjs/yapfast</url>
   <screenshots>
     <screenshot type="default">
       <image>https://raw.githubusercontent.com/yapfast/yapfast/main/docs/images/yapfast.png</image>

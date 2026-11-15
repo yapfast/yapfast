@@ -72,30 +72,54 @@ impl Tray {
             self.platform.show(shown);
         }
     }
+
+    /// Words the menu and tooltip again, in the language chosen since.
+    pub fn reword(&self) {
+        self.platform.show(self.shown.get());
+    }
 }
 
-/// Yapfast's logo in Yap's marigold, `size` pixels square, with a red dot for
-/// unread messages cut into its corner.
+/// Anomi's picture as drawn to read at a tray's size, `size` pixels square,
+/// with a red dot for unread messages cut into its corner.
 fn logo(size: u32, unread: bool) -> Option<slint::SharedPixelBuffer<slint::Rgba8Pixel>> {
-    let mut svg = include_str!("../ui/icons/logo.svg")
-        .replacen(
-            r#"width="24" height="24""#,
-            &format!(r#"width="{size}" height="{size}""#),
-            1,
-        )
-        .replacen(r##"fill="#fff" mask"##, r##"fill="#ffbf47" mask"##, 1);
+    let picture = image::load_from_memory_with_format(
+        include_bytes!("../ui/icons/anomi-small.png"),
+        image::ImageFormat::Png,
+    )
+    .ok()?
+    .into_rgba8();
+    let picture = match picture.width() == size {
+        true => picture,
+        false => {
+            image::imageops::resize(&picture, size, size, image::imageops::FilterType::Lanczos3)
+        }
+    };
+    let mut pixels = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
+        picture.as_raw(),
+        size,
+        size,
+    );
     if unread {
-        svg = svg
-            .replacen("</mask>", r#"<circle cx="74" cy="74" r="21" /></mask>"#, 1)
-            .replacen(
-                "</svg>",
-                r##"<circle cx="74" cy="74" r="15" fill="#f0545e" /></svg>"##,
-                1,
-            );
+        // Where Yapfast's logo, 78 units across, had its dot: centred 62
+        // units in, 15 in radius, with a gap of 6 round it.
+        let unit = size as f32 / 78.;
+        let (centre, dot, gap) = (62. * unit, 15. * unit, 21. * unit);
+        for (place, pixel) in pixels.make_mut_slice().iter_mut().enumerate() {
+            let (x, y) = ((place as u32 % size) as f32, (place as u32 / size) as f32);
+            let distance = (x + 0.5 - centre).hypot(y + 0.5 - centre);
+            // How much of the pixel each covers, smoothed over its width.
+            let red = (dot - distance + 0.5).clamp(0., 1.);
+            let kept = (distance - gap + 0.5).clamp(0., 1.);
+            *pixel = match red > 0. {
+                true => slint::Rgba8Pixel::new(0xf0, 0x54, 0x5e, (red * 255.).round() as u8),
+                false => slint::Rgba8Pixel {
+                    a: (f32::from(pixel.a) * kept).round() as u8,
+                    ..*pixel
+                },
+            };
+        }
     }
-    slint::Image::load_from_svg_data(svg.as_bytes())
-        .ok()?
-        .to_rgba8()
+    Some(pixels)
 }
 
 #[cfg(target_os = "linux")]
@@ -224,7 +248,7 @@ mod linux {
         }
 
         fn title(&self) -> String {
-            "Yapfast".into()
+            yapfast_lang::PRODUCT.into()
         }
 
         fn category(&self) -> ksni::Category {
@@ -237,7 +261,7 @@ mod linux {
 
         fn tool_tip(&self) -> ksni::ToolTip {
             ksni::ToolTip {
-                title: "Yapfast".into(),
+                title: yapfast_lang::PRODUCT.into(),
                 description: if self.shown.unread {
                     yapfast_lang::tr!("Unread messages").into()
                 } else {
@@ -392,7 +416,8 @@ mod windows {
                     hIcon: icons[0],
                     ..std::mem::zeroed()
                 };
-                for (place, unit) in data.szTip.iter_mut().zip("Yapfast".encode_utf16()) {
+                let tip = yapfast_lang::PRODUCT.encode_utf16();
+                for (place, unit) in data.szTip.iter_mut().zip(tip) {
                     *place = unit;
                 }
                 let added = notify(NIM_ADD, &data);
@@ -595,21 +620,24 @@ mod none {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn the_logo_is_marigold_and_unread_adds_a_red_dot() {
+    fn the_logo_is_anomis_and_unread_adds_a_red_dot() {
         let plain = super::logo(32, false).unwrap();
         let unread = super::logo(32, true).unwrap();
         assert_eq!((plain.width(), plain.height()), (32, 32));
-        let marigold = |pixel: &slint::Rgba8Pixel| {
-            pixel.a == 255 && (pixel.r, pixel.g, pixel.b) == (0xff, 0xbf, 0x47)
+        assert_eq!(super::logo(64, false).unwrap().width(), 64);
+        // The light violet of its outline.
+        let violet = |pixel: &slint::Rgba8Pixel| {
+            pixel.a > 200 && pixel.r > 140 && pixel.b > 200 && pixel.g < pixel.r
         };
         let red = |pixel: &slint::Rgba8Pixel| {
             pixel.a == 255 && (pixel.r, pixel.g, pixel.b) == (0xf0, 0x54, 0x5e)
         };
-        assert!(plain.as_slice().iter().any(marigold));
+        assert!(plain.as_slice().iter().any(violet));
         assert!(!plain.as_slice().iter().any(red));
-        assert!(unread.as_slice().iter().any(marigold));
-        // The dot is in the bottom-right corner.
-        let corner = (24 * 32 + 24) as usize;
-        assert!(red(&unread.as_slice()[corner]));
+        assert!(unread.as_slice().iter().any(violet));
+        // The dot is in the bottom-right corner, with a clear ring round it.
+        let at = |x: usize, y: usize| unread.as_slice()[y * 32 + x];
+        assert!(red(&at(25, 25)));
+        assert_eq!(at(25, 18).a, 0);
     }
 }

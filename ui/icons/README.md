@@ -60,8 +60,11 @@ github.svg is GitHub's mark from Simple Icons 16.34.0 (CC0 1.0), filled
 white. It marks the GitHub link in About, and GitHub's logo guidelines apply to
 it rather than the ISC licence.
 
-logo.svg is the app's own mark, the Shout balloon from the Yapfast logo
-sketches: a comic shout balloon with typing dots cut out of it.
+anomi-small.png is this fork's own picture, Anomi's, by its owner, drawn
+plainer and brighter to read small, 64 pixels: the tray icon is drawn from it.
+Where the window shows the app's picture, it shows the app icon itself,
+packaging/icon.png, as it is. They replace Yapfast's logo.svg;
+docs/packaging.md says where each goes.
 
 - Drawn for Yapfast: eyedropper, for the name style window's own colour.
 - Drawn for Yapfast: moon and sun, for the name style preview light and dark switch.

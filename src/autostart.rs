@@ -166,11 +166,12 @@ mod linux {
             .map(|argument| desktop_entry::quoted(argument))
             .collect();
         let text = format!(
-            "[Desktop Entry]\nType=Application\nName=Yapfast\n\
-             Comment=Starts Yapfast in the system tray when you sign in\n\
+            "[Desktop Entry]\nType=Application\nName={name}\n\
+             Comment=Starts {name} in the system tray when you sign in\n\
              Exec={}\nIcon={}\nTerminal=false\nX-GNOME-Autostart-enabled=true\n",
             exec.join(" "),
             crate::icon::APP_ID,
+            name = yapfast_lang::PRODUCT,
         );
         desktop_entry::write(&entry(config), text.as_bytes())
     }
@@ -195,7 +196,7 @@ mod linux {
             assert!(text.contains(
                 r#"Exec="/opt/Yapfast Builds/yapfast" --background --data-dir "/home/a/100%% \$data""#
             ));
-            assert!(text.contains("Name=Yapfast\n"));
+            assert!(text.contains(&format!("Name={}\n", yapfast_lang::PRODUCT)));
         }
 
         #[test]

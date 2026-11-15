@@ -22,11 +22,10 @@ pub(super) const ABOUT: &str = "yapfast:about";
 /// requests an hour without an account.
 const EVERY: std::time::Duration = std::time::Duration::from_secs(6 * 60 * 60);
 
-/// The project's pages, which About's buttons open.
-const WEBSITE: &str = "https://yapfast.com";
-const GITHUB: &str = "https://github.com/yapfast/yapfast";
-/// The address the website sends to the project's Discord server, as the README's badge does.
-const DISCORD: &str = "https://yapfast.com/discord-invite";
+/// The pages About's buttons open: this fork's repository, and the original
+/// project's, Yapfast's.
+const GITHUB: &str = "https://github.com/Mrkdsjjsjs/yapfast";
+const WEBSITE: &str = "https://github.com/yapfast/yapfast";
 
 /// What the last look at the releases found.
 #[derive(Default)]
@@ -70,6 +69,7 @@ fn outcome(layout: &Layout, found: &[Release]) -> Option<Outcome> {
 /// Puts the choices and what was found in the window.
 pub(super) fn show(window: &YapfastWindow, layout: &Layout, state: &State) {
     let shown = window.global::<Updates>();
+    shown.set_releases(update::HAS_RELEASES);
     shown.set_check(layout.check_for_updates);
     shown.set_nightlies(layout.update_nightlies);
     shown.set_manager(
@@ -282,7 +282,7 @@ fn cancel(adapter: &Rc<RefCell<Adapter>>) {
 /// of a newer release in a notification, as a look nobody asked for does.
 fn look(adapter: &Rc<RefCell<Adapter>>, announce: bool) {
     let mut guard = adapter.borrow_mut();
-    if guard.updates.checking {
+    if guard.updates.checking || !update::HAS_RELEASES {
         return;
     }
     guard.updates.checking = true;
@@ -318,13 +318,17 @@ fn look(adapter: &Rc<RefCell<Adapter>>, announce: bool) {
     }
 }
 
-/// Shows the saved choices, and looks once if the check is on.
+/// Shows the saved choices, and looks once if the check is on. A build
+/// without releases of its own never looks.
 pub(super) fn start(adapter: &Rc<RefCell<Adapter>>, window: &YapfastWindow) {
     let checking = {
         let adapter = adapter.borrow();
         show(window, &adapter.layout, &adapter.updates);
         adapter.layout.check_for_updates
     };
+    if !update::HAS_RELEASES {
+        return;
+    }
     if checking {
         look(adapter, true);
     }
@@ -428,7 +432,6 @@ pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
     shown.on_install(move || start_install(&state));
     let state = adapter.clone();
     shown.on_cancel_install(move || cancel(&state));
-    shown.on_open_website(|| browser::open(WEBSITE));
     shown.on_open_github(|| browser::open(GITHUB));
-    shown.on_open_discord(|| browser::open(DISCORD));
+    shown.on_open_website(|| browser::open(WEBSITE));
 }

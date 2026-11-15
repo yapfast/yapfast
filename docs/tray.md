@@ -1,10 +1,12 @@
 # The tray
 
 Closing the window leaves Yapfast running in the system tray: the session, a call, notifications, ringing and sounds go on. The
-tray icon is Yapfast's logo in Yap's marigold, with a red dot cut into its
-corner while a mention or a DM waits unread, as Discord counts them. Clicking
-it opens the window. Its menu has Open Yapfast, Disconnect during a call, and
-Quit.
+tray icon is this fork's picture, Anomi's, drawn to read small
+(`ui/icons/anomi-small.png`), with a red dot cut into its corner while a
+mention or a DM waits unread, as Discord counts them. Its title and tooltip
+say Anomi. Clicking it opens the window. Its menu has Open Yapfast (Anomi, in
+both languages), Disconnect during a call, and Quit, worded again when the
+language changes.
 
 Settings → Advanced has "Close to tray", on unless turned off
 (`close_to_tray` in `layout.json`). Off, or with no tray to show the icon,

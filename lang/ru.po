@@ -753,7 +753,7 @@ msgid "Added tag "
 msgstr "Добавлен тег "
 
 msgid "Adding more from Yapfast is coming soon."
-msgstr "Добавление из Yapfast скоро появится."
+msgstr "Добавление из Anomi скоро появится."
 
 msgid "Adding..."
 msgstr "Добавление..."
@@ -780,10 +780,10 @@ msgid "Advanced Permissions"
 msgstr "Расширенные права"
 
 msgid "After 10 minutes without using Yapfast, as in Discord. Either way, your phone gets notifications while you're away."
-msgstr "Через 10 минут без использования Yapfast, как в Discord. В любом случае телефон получает уведомления, пока вас нет."
+msgstr "Через 10 минут без использования Anomi, как в Discord. В любом случае телефон получает уведомления, пока вас нет."
 
 msgid "Afterward, Discord hands its answer to {}, which Yapfast won't open."
-msgstr "После этого Discord передаст свой ответ на {}, а Yapfast этот адрес не откроет."
+msgstr "После этого Discord передаст свой ответ на {}, а Anomi этот адрес не откроет."
 
 msgid "Afterward, Discord sends you to {}."
 msgstr "После этого Discord перенаправит вас на {}."
@@ -1407,7 +1407,7 @@ msgid "Authorized."
 msgstr "Авторизовано."
 
 msgid "Authorized. Discord sends you on to this address, which isn't a web page, so Yapfast doesn't open it. Copy it if the app asks for it."
-msgstr "Авторизовано. Discord отправляет вас на этот адрес, но это не веб-страница, поэтому Yapfast его не открывает. Скопируйте его, если приложение попросит."
+msgstr "Авторизовано. Discord отправляет вас на этот адрес, но это не веб-страница, поэтому Anomi его не открывает. Скопируйте его, если приложение попросит."
 
 msgid "Authorizing..."
 msgstr "Авторизация..."
@@ -1815,7 +1815,7 @@ msgid "CHANNELS"
 msgstr "КАНАЛЫ"
 
 msgid "Channels you read in Yapfast show as read in the Discord apps too."
-msgstr "Каналы, прочитанные в Yapfast, отображаются прочитанными и в приложениях Discord."
+msgstr "Каналы, прочитанные в Anomi, отображаются прочитанными и в приложениях Discord."
 
 msgid "Check again"
 msgstr "Проверить снова"
@@ -1962,7 +1962,7 @@ msgid "Closed the thread"
 msgstr "Ветка закрыта"
 
 msgid "Closing the window keeps Yapfast running in the system tray, with any call. Quit from the tray icon's menu."
-msgstr "При закрытии окна Yapfast продолжает работать в системном трее, вместе со звонком. Выход через меню значка в трее."
+msgstr "При закрытии окна Anomi продолжает работать в системном трее, вместе со звонком. Выход через меню значка в трее."
 
 msgid "Codec:"
 msgstr "Кодек:"
@@ -2193,10 +2193,10 @@ msgid "Could not start the DM: {}"
 msgstr "Не удалось начать личный чат: {}"
 
 msgid "Could not start the voice worker. Restart Yapfast and retry."
-msgstr "Не удалось запустить голосовой процесс. Перезапустите Yapfast и повторите."
+msgstr "Не удалось запустить голосовой процесс. Перезапустите Anomi и повторите."
 
 msgid "Could not start voice. Restart Yapfast and try again."
-msgstr "Не удалось запустить голос. Перезапустите Yapfast и попробуйте ещё раз."
+msgstr "Не удалось запустить голос. Перезапустите Anomi и попробуйте ещё раз."
 
 msgid "Could not start your camera's video."
 msgstr "Не удалось запустить видео с камеры."
@@ -2325,7 +2325,7 @@ msgid "Couldn't remove the reaction: {}"
 msgstr "Не удалось убрать реакцию: {}"
 
 msgid "Couldn't restart. Please reopen Yapfast."
-msgstr "Не удалось перезапустить. Откройте Yapfast снова."
+msgstr "Не удалось перезапустить. Откройте Anomi снова."
 
 msgid "Couldn't revoke the ban: {}"
 msgstr "Не удалось снять бан: {}"
@@ -2805,13 +2805,13 @@ msgid "Discord asks for a captcha first. Solve it in your browser."
 msgstr "Сначала Discord просит пройти капчу. Пройдите её в браузере."
 
 msgid "Discord asks for a passkey or security key, which Yapfast can't use. Confirm in Discord's app, then try again."
-msgstr "Discord запрашивает ключ доступа или ключ безопасности, которые Yapfast использовать не может. Подтвердите в приложении Discord и повторите попытку."
+msgstr "Discord запрашивает ключ доступа или ключ безопасности, которые Anomi использовать не может. Подтвердите в приложении Discord и повторите попытку."
 
 msgid "Discord asks for two-factor authentication, which Yapfast can't do here."
-msgstr "Discord требует двухфакторную аутентификацию, которую Yapfast здесь выполнить не может."
+msgstr "Discord требует двухфакторную аутентификацию, которую Anomi здесь выполнить не может."
 
 msgid "Discord asks Yapfast to slow down. Try again in {} s."
-msgstr "Discord просит Yapfast не торопиться. Повторите через {} с."
+msgstr "Discord просит Anomi не торопиться. Повторите через {} с."
 
 msgid "Discord authorized it without saying where to go next."
 msgstr "Discord авторизовал приложение, но не сообщил, куда перейти дальше."
@@ -2910,7 +2910,7 @@ msgid "Discord disconnected while starting the stream."
 msgstr "Discord отключился при запуске трансляции."
 
 msgid "Discord doesn't allow apps like Yapfast on personal accounts. Linking puts your account at some risk of being suspended."
-msgstr "Discord не разрешает приложения вроде Yapfast на личных аккаунтах. Привязка создаёт риск блокировки вашего аккаунта."
+msgstr "Discord не разрешает приложения вроде Anomi на личных аккаунтах. Привязка создаёт риск блокировки вашего аккаунта."
 
 msgid "Discord doesn't know that application."
 msgstr "Discord не знает такого приложения."
@@ -2931,7 +2931,7 @@ msgid "Discord has nobody by that username."
 msgstr "В Discord нет пользователя с таким именем."
 
 msgid "Discord is disconnected. Yapfast is reconnecting."
-msgstr "Discord отключён. Yapfast переподключается."
+msgstr "Discord отключён. Anomi переподключается."
 
 msgid "Discord is offline."
 msgstr "Discord не в сети."
@@ -2958,13 +2958,13 @@ msgid "Discord isn't connected yet. Try again in a moment."
 msgstr "Discord ещё не подключён. Попробуйте через минуту."
 
 msgid "Discord isn't connected. Restart Yapfast and try again."
-msgstr "Discord не подключён. Перезапустите Yapfast и попробуйте снова."
+msgstr "Discord не подключён. Перезапустите Anomi и попробуйте снова."
 
 msgid "Discord isn't linked on this device."
 msgstr "Discord не привязан на этом устройстве."
 
 msgid "Discord keeps ending the connection, so Yapfast stopped reconnecting. Restart Yapfast to try again."
-msgstr "Discord постоянно разрывает соединение, поэтому Yapfast перестал переподключаться. Перезапустите Yapfast, чтобы попробовать снова."
+msgstr "Discord постоянно разрывает соединение, поэтому Anomi перестал переподключаться. Перезапустите Anomi, чтобы попробовать снова."
 
 msgid "Discord made no channel."
 msgstr "Discord не создал канал."
@@ -2976,7 +2976,7 @@ msgid "Discord messages must contain text and be at most 2,000 characters."
 msgstr "Сообщения Discord должны содержать текст и быть не длиннее 2000 символов."
 
 msgid "Discord moved the call to another voice server, and Yapfast couldn't connect to it. Join again."
-msgstr "Discord перенёс звонок на другой голосовой сервер, и Yapfast не смог к нему подключиться. Зайдите снова."
+msgstr "Discord перенёс звонок на другой голосовой сервер, и Anomi не смог к нему подключиться. Зайдите снова."
 
 msgid "Discord moved the call to another voice server, which took too long to answer. Join again."
 msgstr "Discord перенёс звонок на другой голосовой сервер, который слишком долго отвечал. Зайдите снова."
@@ -2988,7 +2988,7 @@ msgid "Discord refused the saved login. Link your Discord account again."
 msgstr "Discord отклонил сохранённый вход. Привяжите аккаунт Discord заново."
 
 msgid "Discord refused too many of Yapfast's requests lately, so Yapfast stopped asking. Try again in {} min."
-msgstr "Discord отклонил слишком много запросов Yapfast, поэтому Yapfast перестал их отправлять. Повторите через {} мин."
+msgstr "Discord отклонил слишком много запросов Anomi, поэтому Anomi перестал их отправлять. Повторите через {} мин."
 
 msgid "Discord refused: {}"
 msgstr "Discord отказал: {}"
@@ -3036,7 +3036,7 @@ msgid "Discord wants to check you're a person before it links your account."
 msgstr "Discord хочет убедиться, что вы человек, прежде чем привязать ваш аккаунт."
 
 msgid "Discord wants to check you're a person before it links your account. Yapfast opened the check in your browser; linking finishes once it's solved."
-msgstr "Discord хочет убедиться, что вы человек, прежде чем привязать аккаунт. Yapfast открыл проверку в браузере; привязка завершится после её прохождения."
+msgstr "Discord хочет убедиться, что вы человек, прежде чем привязать аккаунт. Anomi открыл проверку в браузере; привязка завершится после её прохождения."
 
 msgid "Discord won't let this account use this gift."
 msgstr "Discord не позволяет этому аккаунту использовать этот подарок."
@@ -3096,7 +3096,7 @@ msgid "Done"
 msgstr "Готово"
 
 msgid "Done. You can close this page and go back to Yapfast."
-msgstr "Готово. Можно закрыть эту страницу и вернуться в Yapfast."
+msgstr "Готово. Можно закрыть эту страницу и вернуться в Anomi."
 
 msgid "Downloading"
 msgstr "Загрузка"
@@ -3501,19 +3501,19 @@ msgid "For a bare or echoey room that makes your voice sound far away. Uses a li
 msgstr "Для пустой или гулкой комнаты, из-за которой голос звучит издалека. Требует чуть больше ресурсов, и голос уходит на 10 мс позже."
 
 msgid "For a message that notifies while Yapfast isn't in front. The window's title counts mentions and DMs waiting either way."
-msgstr "При сообщении с уведомлением, пока Yapfast не на переднем плане. Заголовок окна в любом случае показывает число ожидающих упоминаний и ЛС."
+msgstr "При сообщении с уведомлением, пока Anomi не на переднем плане. Заголовок окна в любом случае показывает число ожидающих упоминаний и ЛС."
 
 msgid "For channel"
 msgstr "Канал:"
 
 msgid "For new messages while Yapfast isn't in front. Each Discord server's notification settings and your Matrix notification rules decide which: usually DMs and mentions. Clicking one opens the conversation."
-msgstr "О новых сообщениях, пока Yapfast не на переднем плане. Какие именно, решают настройки уведомлений каждого сервера Discord и ваши правила уведомлений Matrix: обычно ЛС и упоминания. Нажатие открывает беседу."
+msgstr "О новых сообщениях, пока Anomi не на переднем плане. Какие именно, решают настройки уведомлений каждого сервера Discord и ваши правила уведомлений Matrix: обычно ЛС и упоминания. Нажатие открывает беседу."
 
 msgid "For new messages while Yapfast isn't in front. Each Discord server's notification settings decide which: usually DMs and mentions. Clicking one opens the conversation."
-msgstr "О новых сообщениях, пока Yapfast не на переднем плане. Какие именно, решают настройки уведомлений каждого сервера Discord: обычно ЛС и упоминания. Нажатие открывает беседу."
+msgstr "О новых сообщениях, пока Anomi не на переднем плане. Какие именно, решают настройки уведомлений каждого сервера Discord: обычно ЛС и упоминания. Нажатие открывает беседу."
 
 msgid "For new messages while Yapfast isn't in front. Your Matrix notification rules decide which: usually DMs and mentions. Clicking one opens the conversation."
-msgstr "О новых сообщениях, пока Yapfast не на переднем плане. Какие именно, решают ваши правила уведомлений Matrix: обычно ЛС и упоминания. Нажатие открывает беседу."
+msgstr "О новых сообщениях, пока Anomi не на переднем плане. Какие именно, решают ваши правила уведомлений Matrix: обычно ЛС и упоминания. Нажатие открывает беседу."
 
 msgid "For {n} hour"
 msgid_plural "For {n} hours"
@@ -3699,7 +3699,7 @@ msgid "Happening now"
 msgstr "Идёт сейчас"
 
 msgid "Hardware acceleration. Off, Yapfast draws on the processor, which uses about half the memory."
-msgstr "Аппаратное ускорение. Когда выключено, Yapfast рисует на процессоре, что занимает примерно вдвое меньше памяти."
+msgstr "Аппаратное ускорение. Когда выключено, Anomi рисует на процессоре, что занимает примерно вдвое меньше памяти."
 
 msgid "has: takes {}."
 msgstr "has: принимает {}."
@@ -3948,7 +3948,7 @@ msgid "Interface with your Discord client"
 msgstr "Взаимодействовать с вашим клиентом Discord"
 
 msgid "Invalid calling-service URL. Check Yapfast's configuration."
-msgstr "Недопустимый адрес службы звонков. Проверьте настройки Yapfast."
+msgstr "Недопустимый адрес службы звонков. Проверьте настройки Anomi."
 
 msgid "Invalid file type"
 msgstr "Недопустимый тип файла"
@@ -4236,7 +4236,7 @@ msgid "Leaving voice..."
 msgstr "Выход из голосового канала..."
 
 msgid "Leaving Yapfast"
-msgstr "Переход из Yapfast"
+msgstr "Переход из Anomi"
 
 msgid "less than a minute"
 msgstr "меньше минуты"
@@ -4267,10 +4267,10 @@ msgid "Link a Discord account first."
 msgstr "Сначала привяжите учётную запись Discord."
 
 msgid "Link Discord to Yapfast"
-msgstr "Привязка Discord к Yapfast"
+msgstr "Привязка Discord к Anomi"
 
 msgid "Link your Discord account to see its servers and DMs in Yapfast, and join its calls. The login stays on this computer, in the system's credential store."
-msgstr "Привяжите учётную запись Discord, чтобы видеть её серверы и ЛС в Yapfast и входить в её звонки. Вход хранится на этом компьютере, в хранилище учётных данных системы."
+msgstr "Привяжите учётную запись Discord, чтобы видеть её серверы и ЛС в Anomi и входить в её звонки. Вход хранится на этом компьютере, в хранилище учётных данных системы."
 
 msgid "Link your Discord account to sign in."
 msgstr "Привяжите аккаунт Discord, чтобы войти."
@@ -4942,7 +4942,7 @@ msgid "Name"
 msgstr "Имя"
 
 msgid "Name a game by its executable, a file name or a full path, and what to show after Playing. These come before the games Yapfast knows, but a game's Rich Presence comes first."
-msgstr "Укажите игру по исполняемому файлу, имени файла или полному пути и что показывать после «Играет в». Они проверяются раньше известных Yapfast игр, но Rich Presence игры приоритетнее."
+msgstr "Укажите игру по исполняемому файлу, имени файла или полному пути и что показывать после «Играет в». Они проверяются раньше игр, которые знает Anomi, но Rich Presence игры приоритетнее."
 
 msgid "Nameplate"
 msgstr "Именная табличка"
@@ -5176,7 +5176,7 @@ msgid "No System Messages"
 msgstr "Нет системных сообщений"
 
 msgid "No system tray is running, so closing the window quits Yapfast."
-msgstr "Системный трей не запущен, поэтому закрытие окна завершает Yapfast."
+msgstr "Системный трей не запущен, поэтому закрытие окна завершает Anomi."
 
 msgid "No upcoming events"
 msgstr "Нет предстоящих событий"
@@ -5233,7 +5233,7 @@ msgid "Not sending"
 msgstr "Не передаётся"
 
 msgid "Not sent yet. Yapfast sends it when the connection returns."
-msgstr "Ещё не отправлено. Yapfast отправит сообщение, когда появится соединение."
+msgstr "Ещё не отправлено. Anomi отправит сообщение, когда появится соединение."
 
 msgid "Not sent."
 msgstr "Не отправлено."
@@ -5426,7 +5426,7 @@ msgid "Open chat"
 msgstr "Открыть чат"
 
 msgid "Open Discord links in Yapfast"
-msgstr "Открывать ссылки Discord в Yapfast"
+msgstr "Открывать ссылки Discord в Anomi"
 
 msgid "Open GIF picker"
 msgstr "Открыть выбор GIF"
@@ -5468,7 +5468,7 @@ msgid "Open to read their message"
 msgstr "Откройте, чтобы прочитать сообщение"
 
 msgid "Open Yapfast"
-msgstr "Открыть Yapfast"
+msgstr "Открыть Anomi"
 
 msgid "Open {}"
 msgstr "Открыть {}"
@@ -5481,6 +5481,9 @@ msgstr "Открыть {}, никнейм: {}"
 
 msgid "Original message was deleted"
 msgstr "Исходное сообщение удалено"
+
+msgid "Original: {}"
+msgstr "Оригинал: {}"
 
 msgid "Otherwise you join muted, and unmute when you're ready."
 msgstr "Иначе вы войдёте с отключённым микрофоном и включите его, когда будете готовы."
@@ -6128,7 +6131,7 @@ msgid "Resolution:"
 msgstr "Разрешение:"
 
 msgid "Restart Yapfast"
-msgstr "Перезапустить Yapfast"
+msgstr "Перезапустить Anomi"
 
 msgid "Restarting…"
 msgstr "Перезапуск…"
@@ -6206,7 +6209,7 @@ msgid "ROLES/MEMBERS"
 msgstr "РОЛИ/УЧАСТНИКИ"
 
 msgid "Runs the effects Windows and your sound driver add to the microphone, such as their own noise suppression. Off, Yapfast skips them, as they can muffle your voice on top of Yapfast's. Turn it on if your microphone sounds worse without them, as some laptop microphones can."
-msgstr "Применяет эффекты, которые Windows и звуковой драйвер добавляют к микрофону, например собственное шумоподавление. Когда выключено, Yapfast их пропускает, так как вместе с шумоподавлением Yapfast они могут приглушать голос. Включите, если без них микрофон звучит хуже, как у некоторых ноутбуков."
+msgstr "Применяет эффекты, которые Windows и звуковой драйвер добавляют к микрофону, например собственное шумоподавление. Когда выключено, Anomi их пропускает, так как вместе с шумоподавлением Anomi они могут приглушать голос. Включите, если без них микрофон звучит хуже, как у некоторых ноутбуков."
 
 msgid "s"
 msgstr "с"
@@ -6284,7 +6287,7 @@ msgid "Screen sharing stopped."
 msgstr "Демонстрация экрана остановлена."
 
 msgid "Screen sharing uses the graphics card's video encoder, which takes almost no processor time and looks better at low bitrates. Off, or without one, Yapfast encodes on the processor."
-msgstr "Демонстрация экрана использует видеокодер видеокарты: он почти не нагружает процессор и лучше выглядит при низком битрейте. Когда выключено или без видеокарты, Yapfast кодирует на процессоре."
+msgstr "Демонстрация экрана использует видеокодер видеокарты: он почти не нагружает процессор и лучше выглядит при низком битрейте. Когда выключено или без видеокарты, Anomi кодирует на процессоре."
 
 msgid "Screen sharing was cancelled, or this desktop has no screen sharing dialog."
 msgstr "Демонстрация экрана отменена, или на этом рабочем столе нет окна выбора экрана."
@@ -6473,7 +6476,7 @@ msgid "Sending is locked until this device is verified."
 msgstr "Отправка заблокирована, пока это устройство не подтверждено."
 
 msgid "Sending it to Yapfast..."
-msgstr "Отправка в Yapfast..."
+msgstr "Отправка в Anomi..."
 
 msgid "Sending..."
 msgstr "Отправка..."
@@ -6920,7 +6923,7 @@ msgid "Sign in"
 msgstr "Войти"
 
 msgid "Sign in to Yapfast"
-msgstr "Вход в Yapfast"
+msgstr "Вход в Anomi"
 
 msgid "Sign in with your Matrix password. Single sign-on isn't available yet."
 msgstr "Войдите с паролем Matrix. Единый вход пока недоступен."
@@ -7121,7 +7124,7 @@ msgid "Starting the conversation..."
 msgstr "Начинаем беседу..."
 
 msgid "Starting Yapfast while it runs opens another Yapfast, with its own window and tray icon. Off, it brings the open window forward."
-msgstr "Запуск Yapfast, пока он работает, открывает ещё один Yapfast со своим окном и значком в трее. Когда выключено, открытое окно выводится на передний план."
+msgstr "Запуск Anomi, пока он работает, открывает ещё один Anomi со своим окном и значком в трее. Когда выключено, открытое окно выводится на передний план."
 
 msgid "Starting your camera..."
 msgstr "Запуск камеры..."
@@ -7334,7 +7337,7 @@ msgid "That isn't a Matrix id, such as @name:example.org."
 msgstr "Это не Matrix ID, например @name:example.org."
 
 msgid "That isn't a stream Yapfast knows how to watch."
-msgstr "Yapfast не умеет показывать такую трансляцию."
+msgstr "Anomi не умеет показывать такую трансляцию."
 
 msgid "That isn't a thread of this server."
 msgstr "Это не ветка этого сервера."
@@ -7400,7 +7403,7 @@ msgid "The code expired."
 msgstr "Срок действия кода истёк."
 
 msgid "The connection has stopped. Restart Yapfast to restore your session."
-msgstr "Соединение прервано. Перезапустите Yapfast, чтобы восстановить сеанс."
+msgstr "Соединение прервано. Перезапустите Anomi, чтобы восстановить сеанс."
 
 msgid "The description can be up to {} characters."
 msgstr "Описание может содержать до {} символов."
@@ -7583,7 +7586,7 @@ msgid "There's no Windows installer for this version yet."
 msgstr "Для этой версии пока нет установщика для Windows."
 
 msgid "There's nowhere to forward to yet. Yapfast forwards Matrix messages only into encrypted conversations."
-msgstr "Пересылать пока некуда. Yapfast пересылает сообщения Matrix только в зашифрованные чаты."
+msgstr "Пересылать пока некуда. Anomi пересылает сообщения Matrix только в зашифрованные чаты."
 
 msgid "They appear locked. Server admins hid them on purpose."
 msgstr "Они отображаются заблокированными. Администраторы сервера скрыли их намеренно."
@@ -7604,22 +7607,22 @@ msgid "Thinking co-op after nine, if people are up for it."
 msgstr "Думаю о коопе после девяти, если все не против."
 
 msgid "This app opens a page Yapfast can't show. Use it in Discord."
-msgstr "Это приложение открывает страницу, которую Yapfast не может показать. Используйте его в Discord."
+msgstr "Это приложение открывает страницу, которую Anomi не может показать. Используйте его в Discord."
 
 msgid "This build of Yapfast has no Matrix sign-in."
-msgstr "В этой сборке Yapfast нет входа в Matrix."
+msgstr "В этой сборке Anomi нет входа в Matrix."
 
 msgid "This build of Yapfast has no Matrix voice."
-msgstr "В этой сборке Yapfast нет голоса Matrix."
+msgstr "В этой сборке Anomi нет голоса Matrix."
 
 msgid "This build of Yapfast has no networks."
-msgstr "В этой сборке Yapfast нет сетей."
+msgstr "В этой сборке Anomi нет сетей."
 
 msgid "This channel doesn't have any pinned messages yet."
 msgstr "В этом канале пока нет закреплённых сообщений."
 
 msgid "This channel is unencrypted. Yapfast only joins encrypted voice channels."
-msgstr "Этот канал не зашифрован. Yapfast подключается только к зашифрованным голосовым каналам."
+msgstr "Этот канал не зашифрован. Anomi подключается только к зашифрованным голосовым каналам."
 
 msgid "This conversation doesn't have any pinned messages yet."
 msgstr "В этом чате пока нет закреплённых сообщений."
@@ -7649,13 +7652,13 @@ msgid "This event is not in that server."
 msgstr "Этого события нет на том сервере."
 
 msgid "This file is larger than Yapfast saves."
-msgstr "Этот файл больше, чем Yapfast может сохранить."
+msgstr "Этот файл больше, чем Anomi может сохранить."
 
 msgid "This file is no longer available."
 msgstr "Этот файл больше недоступен."
 
 msgid "This form has a part Yapfast can't fill yet. Use it in Discord."
-msgstr "В этой форме есть часть, которую Yapfast пока не может заполнить. Используйте её в Discord."
+msgstr "В этой форме есть часть, которую Anomi пока не может заполнить. Используйте её в Discord."
 
 msgid "This gift can only be redeemed in Discord. Open it in the browser to redeem it there."
 msgstr "Этот подарок можно активировать только в Discord. Откройте его в браузере, чтобы активировать там."
@@ -7673,7 +7676,7 @@ msgid "This homeserver doesn't advertise a MatrixRTC calling service (MSC4143). 
 msgstr "Этот сервер не предоставляет службу звонков MatrixRTC (MSC4143). Попросите администратора добавить её или задайте YAPFAST_RTC_AUTHORIZATION_URL."
 
 msgid "This homeserver doesn't support sticky events (MSC4354), which Yapfast voice channels need. Ask its administrator to enable them (Synapse: experimental_features.msc4354_enabled), or use another homeserver."
-msgstr "Этот сервер не поддерживает закреплённые события (MSC4354), которые нужны голосовым каналам Yapfast. Попросите администратора включить их (Synapse: experimental_features.msc4354_enabled) или используйте другой сервер."
+msgstr "Этот сервер не поддерживает закреплённые события (MSC4354), которые нужны голосовым каналам Anomi. Попросите администратора включить их (Synapse: experimental_features.msc4354_enabled) или используйте другой сервер."
 
 msgid "this homeserver requires SSO or OAuth sign-in; this build supports password sign-in only"
 msgstr "этот сервер требует вход через SSO или OAuth; эта сборка поддерживает только вход по паролю"
@@ -7701,6 +7704,9 @@ msgstr "Это стандартное эмодзи. Его можно испол
 
 msgid "This is a default sticker. It can be used anywhere."
 msgstr "Это стандартный стикер. Его можно использовать где угодно."
+
+msgid "This is {0}, a fork of {1}. The fork has no releases: it's updated by building it again from its source code, so {0} doesn't look for updates and downloads nothing."
+msgstr "Это {0}, форк {1}. У форка нет выпусков: он обновляется пересборкой из исходного кода, поэтому {0} не проверяет обновления и ничего не скачивает."
 
 msgid "This is Awkward"
 msgstr "Неловко вышло"
@@ -7790,7 +7796,7 @@ msgid "This server is full."
 msgstr "Этот сервер заполнен."
 
 msgid "this session was written by an unsupported Yapfast version"
-msgstr "этот сеанс создан неподдерживаемой версией Yapfast"
+msgstr "этот сеанс создан неподдерживаемой версией Anomi"
 
 msgid "This setting can only be changed by a server owner with 2FA enabled on their account."
 msgstr "Эту настройку может менять только владелец сервера с включённой 2FA."
@@ -8030,7 +8036,7 @@ msgid "Unlink Discord"
 msgstr "Отвязать Discord"
 
 msgid "Unlinking signs Yapfast out of Discord on this computer."
-msgstr "Отвязка выводит Yapfast из Discord на этом компьютере."
+msgstr "Отвязка выводит Anomi из Discord на этом компьютере."
 
 msgid "Unlock with Nitro"
 msgstr "Открыть с Nitro"
@@ -8133,7 +8139,7 @@ msgid "Until it ends, {} can read the server but can't send messages, react, or 
 msgstr "Пока он не закончится, {} сможет читать сервер, но не сможет писать сообщения, ставить реакции и заходить в голосовые каналы. Причина попадёт в журнал аудита сервера."
 
 msgid "Unverified device. It can't receive your audio key, and Yapfast refuses its key."
-msgstr "Неподтверждённое устройство. Оно не получит ваш ключ звука, а Yapfast отклоняет его ключ."
+msgstr "Неподтверждённое устройство. Оно не получит ваш ключ звука, а Anomi отклоняет его ключ."
 
 msgid "Up to {}"
 msgstr "До {}"
@@ -8421,7 +8427,7 @@ msgid "Use your existing Matrix account."
 msgstr "Используйте существующий аккаунт Matrix."
 
 msgid "Use your Matrix recovery key, or verify Yapfast in another client and check again."
-msgstr "Используйте ключ восстановления Matrix или подтвердите Yapfast в другом клиенте и проверьте снова."
+msgstr "Используйте ключ восстановления Matrix или подтвердите Anomi в другом клиенте и проверьте снова."
 
 msgid "Use your password"
 msgstr "Использовать пароль"
@@ -8722,13 +8728,13 @@ msgid "Which is a "
 msgstr "Это "
 
 msgid "While Yapfast is focused"
-msgstr "Когда Yapfast в фокусе"
+msgstr "Когда Anomi в фокусе"
 
 msgid "WINDOWS"
 msgstr "ОКНА"
 
 msgid "Windows didn't let Yapfast watch keys in other apps"
-msgstr "Windows не разрешила Yapfast следить за клавишами в других приложениях"
+msgstr "Windows не разрешила Anomi следить за клавишами в других приложениях"
 
 msgid "Winning answer: {}{}, {}{}."
 msgstr "Победивший ответ: {}{}, {}{}."
@@ -8788,169 +8794,169 @@ msgid "Write a reply"
 msgstr "Напишите ответ"
 
 msgid "Yapfast calls require an encrypted room; upgrade encryption explicitly first"
-msgstr "Звонки в Yapfast требуют зашифрованной комнаты; сначала включите шифрование"
+msgstr "Звонки в Anomi требуют зашифрованной комнаты; сначала включите шифрование"
 
 msgid "Yapfast can't fill this option yet"
-msgstr "Yapfast пока не может заполнить этот параметр"
+msgstr "Anomi пока не может заполнить этот параметр"
 
 msgid "Yapfast can't fill this part yet."
-msgstr "Yapfast пока не может заполнить эту часть."
+msgstr "Anomi пока не может заполнить эту часть."
 
 msgid "Yapfast can't find anyone called {} here."
-msgstr "Yapfast не находит здесь никого с именем {}."
+msgstr "Anomi не находит здесь никого с именем {}."
 
 msgid "Yapfast can't play this video."
-msgstr "Yapfast не может воспроизвести это видео."
+msgstr "Anomi не может воспроизвести это видео."
 
 msgid "Yapfast can't read this microphone. Check that it's connected, or choose another."
-msgstr "Yapfast не может читать этот микрофон. Проверьте подключение или выберите другой."
+msgstr "Anomi не может читать этот микрофон. Проверьте подключение или выберите другой."
 
 msgid "Yapfast can't show this image. Save it to open it elsewhere."
-msgstr "Yapfast не может показать это изображение. Сохраните его, чтобы открыть в другой программе."
+msgstr "Anomi не может показать это изображение. Сохраните его, чтобы открыть в другой программе."
 
 msgid "Yapfast can't show this part of the message yet."
-msgstr "Yapfast пока не может показать эту часть сообщения."
+msgstr "Anomi пока не может показать эту часть сообщения."
 
 msgid "Yapfast can't tell which DM to search."
-msgstr "Yapfast не может определить, в каких личных сообщениях искать."
+msgstr "Anomi не может определить, в каких личных сообщениях искать."
 
 msgid "Yapfast can't watch keys in other apps on this system yet"
-msgstr "Yapfast пока не может следить за клавишами в других приложениях в этой системе"
+msgstr "Anomi пока не может следить за клавишами в других приложениях в этой системе"
 
 msgid "Yapfast can't write to its own folder."
-msgstr "Yapfast не может записывать в свою папку."
+msgstr "Anomi не может записывать в свою папку."
 
 msgid "Yapfast can't write to the AppImage's folder."
-msgstr "Yapfast не может записывать в папку AppImage."
+msgstr "Anomi не может записывать в папку AppImage."
 
 msgid "Yapfast could not download or decrypt this file. Check your connection and retry."
-msgstr "Yapfast не смог скачать или расшифровать этот файл. Проверьте соединение и повторите."
+msgstr "Anomi не смог скачать или расшифровать этот файл. Проверьте соединение и повторите."
 
 msgid "Yapfast could not find the message to reply to."
-msgstr "Yapfast не нашёл сообщение, на которое нужно ответить."
+msgstr "Anomi не нашёл сообщение, на которое нужно ответить."
 
 msgid "Yapfast could not open a file dialog."
-msgstr "Yapfast не удалось открыть окно выбора файла."
+msgstr "Anomi не удалось открыть окно выбора файла."
 
 msgid "Yapfast could not queue that file. Check that it is readable and retry."
-msgstr "Yapfast не смог поставить файл в очередь. Проверьте, что он читается, и повторите."
+msgstr "Anomi не смог поставить файл в очередь. Проверьте, что он читается, и повторите."
 
 msgid "Yapfast could not queue the forwarded message. Check your connection and retry."
-msgstr "Yapfast не смог поставить пересылаемое сообщение в очередь. Проверьте соединение и повторите."
+msgstr "Anomi не смог поставить пересылаемое сообщение в очередь. Проверьте соединение и повторите."
 
 msgid "Yapfast could not queue the message you added. Check your connection."
-msgstr "Yapfast не смог поставить в очередь добавленное сообщение. Проверьте соединение."
+msgstr "Anomi не смог поставить в очередь добавленное сообщение. Проверьте соединение."
 
 msgid "Yapfast could not queue this message. Your draft is kept."
-msgstr "Yapfast не смог поставить сообщение в очередь. Черновик сохранён."
+msgstr "Anomi не смог поставить сообщение в очередь. Черновик сохранён."
 
 msgid "Yapfast could not read a file."
-msgstr "Yapfast не смог прочитать файл."
+msgstr "Anomi не смог прочитать файл."
 
 msgid "Yapfast could not read that file."
-msgstr "Yapfast не смог прочитать этот файл."
+msgstr "Anomi не смог прочитать этот файл."
 
 msgid "Yapfast could not read {}."
-msgstr "Yapfast не смог прочитать {}."
+msgstr "Anomi не смог прочитать {}."
 
 msgid "Yapfast could not write the file there. Choose another folder."
-msgstr "Yapfast не смог записать файл туда. Выберите другую папку."
+msgstr "Anomi не смог записать файл туда. Выберите другую папку."
 
 msgid "Yapfast couldn't copy this picture. Save it instead."
-msgstr "Yapfast не смог скопировать это изображение. Сохраните его."
+msgstr "Anomi не смог скопировать это изображение. Сохраните его."
 
 msgid "Yapfast couldn't download this image from Discord. Try again."
-msgstr "Yapfast не смог скачать это изображение из Discord. Попробуйте ещё раз."
+msgstr "Anomi не смог скачать это изображение из Discord. Попробуйте ещё раз."
 
 msgid "Yapfast couldn't download this image. Check your connection and try again."
-msgstr "Yapfast не смог скачать это изображение. Проверьте соединение и попробуйте ещё раз."
+msgstr "Anomi не смог скачать это изображение. Проверьте соединение и попробуйте ещё раз."
 
 msgid "Yapfast couldn't download this voice message."
-msgstr "Yapfast не смог скачать это голосовое сообщение."
+msgstr "Anomi не смог скачать это голосовое сообщение."
 
 msgid "Yapfast couldn't find that message."
-msgstr "Yapfast не нашёл это сообщение."
+msgstr "Anomi не нашёл это сообщение."
 
 msgid "Yapfast couldn't find that message. It may have been deleted."
-msgstr "Yapfast не нашёл это сообщение. Возможно, оно удалено."
+msgstr "Anomi не нашёл это сообщение. Возможно, оно удалено."
 
 msgid "Yapfast couldn't link Discord: {}"
-msgstr "Yapfast не смог привязать Discord: {}"
+msgstr "Anomi не смог привязать Discord: {}"
 
 msgid "Yapfast couldn't play this video."
-msgstr "Yapfast не смог воспроизвести это видео."
+msgstr "Anomi не смог воспроизвести это видео."
 
 msgid "Yapfast couldn't play this voice message."
-msgstr "Yapfast не смог воспроизвести это голосовое сообщение."
+msgstr "Anomi не смог воспроизвести это голосовое сообщение."
 
 msgid "Yapfast couldn't show this app's form."
-msgstr "Yapfast не смог показать форму этого приложения."
+msgstr "Anomi не смог показать форму этого приложения."
 
 msgid "Yapfast couldn't watch keys in other apps"
-msgstr "Yapfast не удалось следить за клавишами в других приложениях"
+msgstr "Anomi не удалось следить за клавишами в других приложениях"
 
 msgid "Yapfast didn't take it. Start linking again in Yapfast."
-msgstr "Yapfast не принял ответ. Начните привязку заново в Yapfast."
+msgstr "Anomi не принял ответ. Начните привязку заново в Anomi."
 
 msgid "Yapfast doesn't know that channel."
-msgstr "Yapfast не знает такого канала."
+msgstr "Anomi не знает такого канала."
 
 msgid "Yapfast doesn't know that forum."
-msgstr "Yapfast не знает такого форума."
+msgstr "Anomi не знает такого форума."
 
 msgid "Yapfast doesn't know that member's roles yet. Try again."
-msgstr "Yapfast ещё не знает роли этого участника. Попробуйте снова."
+msgstr "Anomi ещё не знает роли этого участника. Попробуйте снова."
 
 msgid "Yapfast has no folder."
-msgstr "У Yapfast нет папки."
+msgstr "У Anomi нет папки."
 
 msgid "Yapfast hasn't seen anyone with this role yet."
-msgstr "Yapfast пока не видел никого с этой ролью."
+msgstr "Anomi пока не видел никого с этой ролью."
 
 msgid "Yapfast looks for games among the programs running, and on Linux takes the Rich Presence games send. Your Discord account keeps this setting, so it's the same in Discord's apps."
-msgstr "Yapfast ищет игры среди запущенных программ, а в Linux принимает Rich Presence, который отправляют игры. Эта настройка хранится в вашей учётной записи Discord, поэтому одинакова в приложениях Discord."
+msgstr "Anomi ищет игры среди запущенных программ, а в Linux принимает Rich Presence, который отправляют игры. Эта настройка хранится в вашей учётной записи Discord, поэтому одинакова в приложениях Discord."
 
 msgid "Yapfast lost a file of this command. Choose it again."
-msgstr "Yapfast потерял файл этой команды. Выберите его снова."
+msgstr "Anomi потерял файл этой команды. Выберите его снова."
 
 msgid "Yapfast lost a file of this form. Choose it again."
-msgstr "Yapfast потерял файл этой формы. Выберите его снова."
+msgstr "Anomi потерял файл этой формы. Выберите его снова."
 
 msgid "Yapfast lost the X server's keys"
-msgstr "Yapfast потерял доступ к клавишам X-сервера"
+msgstr "Anomi потерял доступ к клавишам X-сервера"
 
 msgid "Yapfast plays these as you and others join and leave a call, as you mute and deafen, as others start and stop streaming, as they start and stop watching your stream or the one you watch, and for messages that notify, except in the conversation in front of you. They play on the speakers chosen for calls."
-msgstr "Yapfast проигрывает их, когда вы и другие входите в звонок и выходите из него, когда вы отключаете микрофон и звук, когда другие начинают и прекращают трансляцию, когда они начинают и прекращают смотреть вашу трансляцию или ту, что смотрите вы, и при сообщениях с уведомлением, кроме беседы перед вами. Звуки идут через динамики, выбранные для звонков."
+msgstr "Anomi проигрывает их, когда вы и другие входите в звонок и выходите из него, когда вы отключаете микрофон и звук, когда другие начинают и прекращают трансляцию, когда они начинают и прекращают смотреть вашу трансляцию или ту, что смотрите вы, и при сообщениях с уведомлением, кроме беседы перед вами. Звуки идут через динамики, выбранные для звонков."
 
 msgid "Yapfast reads dates as 2026-10-13, not {}."
-msgstr "Yapfast читает даты в виде 2026-10-13, а не {}."
+msgstr "Anomi читает даты в виде 2026-10-13, а не {}."
 
 msgid "Yapfast sends your microphone only while you hold a key."
-msgstr "Yapfast передаёт микрофон, только пока вы держите клавишу."
+msgstr "Anomi передаёт микрофон, только пока вы держите клавишу."
 
 msgid "Yapfast sends your voice when it hears you speak."
-msgstr "Yapfast передаёт голос, когда слышит, что вы говорите."
+msgstr "Anomi передаёт голос, когда слышит, что вы говорите."
 
 msgid "Yapfast sends your voice when it's louder than the handle, and other sounds when they're 18 dB louder still. The bar is your microphone after noise suppression and at its volume, as Yapfast hears it to decide."
-msgstr "Yapfast передаёт голос, когда он громче ползунка, а другие звуки, когда они ещё на 18 дБ громче. Полоса показывает микрофон после шумоподавления и с учётом его громкости, как его слышит Yapfast при решении."
+msgstr "Anomi передаёт голос, когда он громче ползунка, а другие звуки, когда они ещё на 18 дБ громче. Полоса показывает микрофон после шумоподавления и с учётом его громкости, как его слышит Anomi при решении."
 
 msgid "Yapfast starts in the system tray when you sign in to your computer, so messages and calls reach you."
-msgstr "Yapfast запускается в системном трее при входе в компьютер, чтобы сообщения и звонки доходили до вас."
+msgstr "Anomi запускается в системном трее при входе в компьютер, чтобы сообщения и звонки доходили до вас."
 
 msgid "Yapfast stopped waiting. Start linking again in Yapfast."
-msgstr "Yapfast перестал ждать. Начните привязку заново в Yapfast."
+msgstr "Anomi перестал ждать. Начните привязку заново в Anomi."
 
 msgid "Yapfast switches to the GPU when it restarts. Restarting leaves any call."
-msgstr "После перезапуска Yapfast перейдёт на GPU. Перезапуск завершает любой звонок."
+msgstr "После перезапуска Anomi перейдёт на GPU. Перезапуск завершает любой звонок."
 
 msgid "Yapfast switches to the processor when it restarts. Restarting leaves any call."
-msgstr "После перезапуска Yapfast перейдёт на процессор. Перезапуск завершает любой звонок."
+msgstr "После перезапуска Anomi перейдёт на процессор. Перезапуск завершает любой звонок."
 
 msgid "Yapfast {} is available"
-msgstr "Доступен Yapfast {}"
+msgstr "Доступен Anomi {}"
 
 msgid "Yapfast {} is available."
-msgstr "Доступна версия Yapfast {}."
+msgstr "Доступна версия Anomi {}."
 
 msgid "Year-Month-Day"
 msgstr "Год-Месяц-День"
@@ -9043,10 +9049,10 @@ msgid "You haven't banned anybody...\nbut if and when you must, do not hesitate!
 msgstr "Вы пока никого не банили...\nно если понадобится, не стесняйтесь!"
 
 msgid "You installed Yapfast with {}, so update it there."
-msgstr "Вы установили Yapfast через {}, обновляйте его там."
+msgstr "Вы установили Anomi через {}, обновляйте его там."
 
 msgid "You joined. This server asks new members to fill in a form before they can talk, which Yapfast can't show yet. Finish it in Discord's web app."
-msgstr "Вы присоединились. Этот сервер просит новых участников заполнить анкету, прежде чем писать, а Yapfast пока не умеет её показывать. Заполните её в веб-версии Discord."
+msgstr "Вы присоединились. Этот сервер просит новых участников заполнить анкету, прежде чем писать, а Anomi пока не умеет её показывать. Заполните её в веб-версии Discord."
 
 msgid "You may notice delayed audio at 250 ms or higher. If the problem persists, disconnect and try again."
 msgstr "При 250 мс и выше звук может запаздывать. Если проблема не исчезнет, отключитесь и подключитесь снова."
@@ -9079,7 +9085,7 @@ msgid "You'll need to send {} a friend request to be friends again."
 msgstr "Чтобы снова дружить, нужно будет отправить {} запрос в друзья."
 
 msgid "You'll show as offline, but can use Yapfast as usual."
-msgstr "Вы будете отображаться не в сети, но сможете пользоваться Yapfast как обычно."
+msgstr "Вы будете отображаться не в сети, но сможете пользоваться Anomi как обычно."
 
 msgid "You're already friends."
 msgstr "Вы уже друзья."
@@ -9139,10 +9145,10 @@ msgid "Your camera is off."
 msgstr "Камера выключена."
 
 msgid "Your desktop doesn't offer Yapfast a global shortcut"
-msgstr "Ваш рабочий стол не предоставляет Yapfast глобальное сочетание клавиш"
+msgstr "Ваш рабочий стол не предоставляет Anomi глобальное сочетание клавиш"
 
 msgid "Your desktop draws the window's title bar and buttons, as on its other windows. Off, Yapfast draws its own."
-msgstr "Рабочий стол рисует заголовок окна и кнопки, как у других окон. Когда выключено, Yapfast рисует свои."
+msgstr "Рабочий стол рисует заголовок окна и кнопки, как у других окон. Когда выключено, Anomi рисует свои."
 
 msgid "Your desktop gave push to talk the shortcut {}. Hold it in any app to talk; change it in your system's global shortcuts settings."
 msgstr "Рабочий стол назначил для рации сочетание {}. Удерживайте его в любом приложении, чтобы говорить; изменить его можно в системных настройках глобальных сочетаний клавиш."
@@ -9377,9 +9383,9 @@ msgstr[2] "{n} других активных веток"
 
 msgid "{n} permission Yapfast can't name"
 msgid_plural "{n} permissions Yapfast can't name"
-msgstr[0] "{n} право, которое Yapfast не может назвать"
-msgstr[1] "{n} права, которые Yapfast не может назвать"
-msgstr[2] "{n} прав, которые Yapfast не может назвать"
+msgstr[0] "{n} право, которое Anomi не может назвать"
+msgstr[1] "{n} права, которые Anomi не может назвать"
+msgstr[2] "{n} прав, которые Anomi не может назвать"
 
 msgid "{n} Person"
 msgid_plural "{n} People"
@@ -9565,7 +9571,7 @@ msgid "{} MB"
 msgstr "{} МБ"
 
 msgid "{} MB. Yapfast restarts when it's done."
-msgstr "{} МБ. Yapfast перезапустится по завершении."
+msgstr "{} МБ. Anomi перезапустится по завершении."
 
 msgid "{} Mbit/s"
 msgstr "{} Мбит/с"
@@ -9691,7 +9697,7 @@ msgid "{}, server menu"
 msgstr "{}, меню сервера"
 
 msgid "{}, so push to talk works only while Yapfast's window is in front."
-msgstr "{}, поэтому рация работает, только пока окно Yapfast на переднем плане."
+msgstr "{}, поэтому рация работает, только пока окно Anomi на переднем плане."
 
 msgid "{}, thread"
 msgstr "{}, ветка"
@@ -9926,10 +9932,10 @@ msgid "Toggle to switch between Push To Talk and Voice Activity mode."
 msgstr "Переключает режим между рацией и голосовой активностью."
 
 msgid "{}, so keybinds work only while Yapfast's window is in front."
-msgstr "{}, поэтому горячие клавиши работают, только пока окно Yapfast на переднем плане."
+msgstr "{}, поэтому горячие клавиши работают, только пока окно Anomi на переднем плане."
 
 msgid "Your desktop doesn't offer Yapfast global shortcuts"
-msgstr "Ваш рабочий стол не предлагает Yapfast глобальные сочетания клавиш"
+msgstr "Ваш рабочий стол не предлагает Anomi глобальные сочетания клавиш"
 
 msgid "Asking your desktop to let Yapfast use these keybinds in every app..."
 msgstr "Запрашиваем у рабочего стола разрешение использовать эти горячие клавиши во всех приложениях..."
@@ -9990,7 +9996,7 @@ msgid "Hear how your microphone sounds in Discord calls, with its noise suppress
 msgstr "Послушайте, как звучит ваш микрофон в звонках Discord: с шумоподавлением и громкостью, без удержания клавиши. Используйте наушники: через динамики микрофон слышит сам себя."
 
 msgid "Yapfast can't play your microphone. Check your speakers, or choose others."
-msgstr "Yapfast не может воспроизвести микрофон. Проверьте динамики или выберите другие."
+msgstr "Anomi не может воспроизвести микрофон. Проверьте динамики или выберите другие."
 
 msgid "SOUND"
 msgstr "ЗВУК"
@@ -9999,7 +10005,7 @@ msgid "All applications"
 msgstr "Все приложения"
 
 msgid "Except Yapfast's own sound"
-msgstr "Кроме звука самого Yapfast"
+msgstr "Кроме звука самого Anomi"
 
 msgid "No sound"
 msgstr "Без звука"
@@ -10032,10 +10038,10 @@ msgid "That application's window is closed."
 msgstr "Окно этого приложения закрыто."
 
 msgid "Yapfast doesn't share its own sound."
-msgstr "Yapfast не передаёт собственный звук."
+msgstr "Anomi не передаёт собственный звук."
 
 msgid "Yapfast doesn't share a Discord app's sound, which carries its call."
-msgstr "Yapfast не передаёт звук приложения Discord: в нём слышен звонок."
+msgstr "Anomi не передаёт звук приложения Discord: в нём слышен звонок."
 
 msgid "Yapfast can't tell which application this window belongs to."
-msgstr "Yapfast не может определить, какому приложению принадлежит это окно."
+msgstr "Anomi не может определить, какому приложению принадлежит это окно."

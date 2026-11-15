@@ -1,16 +1,29 @@
 # Translations
 
-Yapfast's interface is written in English, and each other language is one
-gettext file, `lang/<code>.po`, built into the program. Appearance in the
-settings chooses the language; until someone does, Yapfast follows the
-system's, and shows English where it has no translation.
+Yapfast's interface is written in English, and each language is one gettext
+file, `lang/<code>.po`, built into the program. Appearance in the settings
+chooses the language from a list with Russian first, then English; until
+someone does, the interface is in Russian, this fork's own language
+(`yapfast_lang::DEFAULT`), whatever the system's, and shows English where
+Russian has no translation. `layout.json` keeps the code chosen, `en` or
+`ru`; without one, it's Russian.
+
+This fork is called Anomi, and the code's own text says Yapfast. Each file
+gives the name Anomi wherever its text names the program: Russian's
+translations, and English's file, `lang/en.po`, which holds only the texts
+that name the program, each with Yapfast replaced and nothing else changed.
+Text outside the files, such as the window's title, the tray's, the About
+page's headline and the desktop entry, takes the name from
+`yapfast_lang::PRODUCT`. `yapfast --version` and the rest of the code keep
+Yapfast.
 
 ## How text is translated
 
 [`crates/yapfast-lang`](../crates/yapfast-lang) holds the languages
 (`LANGUAGES`), the chosen one, and its file as read. The English text is the
-key: a text the file lacks shows in English, and with English chosen nothing
-is looked up.
+key: a text the file lacks shows in English. Until a language is chosen,
+nothing is looked up and the code's own text shows, Yapfast and all: that is
+what every test sees, as `src/ui/language.rs` chooses none under `cfg(test)`.
 
 - **Slint** marks text with `@tr("Mark as read")`. Values go in placeholders,
   `@tr("Kick {}", name)`, and a count picks the form:
@@ -66,9 +79,13 @@ component's name as its context, `@tr("ThreadState" => "Open")` names one,
 and Rust asks with `yapfast_lang::text_in("Tray", "Disconnect")`.
 
 `scripts/check-translations` lists the marked text each file lacks, and with
-`--unused` the entries nothing marks. The tests of `yapfast-lang` check each
-file: no text twice, each translation with its text's placeholders, each
-plural in all the language's forms.
+`--unused` the entries nothing marks; for `lang/en.po` it counts only the
+texts that name Yapfast. The tests of `yapfast-lang` check each file: no text
+twice, each translation with its text's placeholders, each plural in all the
+language's forms, and in English's, the name the only change. A new text
+that names Yapfast needs its entry in both files. A text of the fork's own
+that names the original project passes "Yapfast" as a value, `@tr("Original:
+{}", "Yapfast")`, so English's file doesn't rename it.
 
 ## Adding a language
 

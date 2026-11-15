@@ -3,6 +3,8 @@ import { Theme, Tip } from "../theme.slint";
 // Which build this is, set once by src/ui/yapfast.rs from src/build_info.rs.
 // An empty `headline` means it isn't known, as in the tests' windows.
 export global BuildInfo {
+    /// The program's name as shown, `yapfast_lang::PRODUCT`: Anomi.
+    in property <string> product;
     in property <string> headline;
     /// Stable, Nightly, Pre-release or Development build.
     in property <string> channel;
@@ -32,6 +34,9 @@ export enum UpdateStatus {
 // The check is off until a person turns it on, and a release installs only when
 // they press Update and restart.
 export global Updates {
+    /// This build has releases of its own to look for (`update::HAS_RELEASES`).
+    /// A fork's hasn't: About says it's updated from source, and offers no check.
+    in property <bool> releases: true;
     in-out property <bool> check;
     in-out property <bool> nightlies;
     in property <UpdateStatus> status;
@@ -64,9 +69,9 @@ export global Updates {
     callback cancel-install();
     /// Opens the newest release's page in the browser.
     callback view();
-    callback open-website();
+    /// The fork's repository, and the original project's.
     callback open-github();
-    callback open-discord();
+    callback open-website();
 }
 
 // Under Settings' sections, when a newer release is out: a click goes to About.

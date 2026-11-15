@@ -8,6 +8,11 @@ use slint::winit_030::winit::window::WindowAttributes;
 /// The window's app ID on Linux, and the name of its desktop entry and icon.
 pub const APP_ID: &str = "io.github.yapfast.Yapfast";
 
+/// The icon, 256 pixels square: Anomi's picture in its frame. A static, so
+/// the window and the desktop entry share one copy.
+#[cfg(target_os = "linux")]
+pub static PNG: &[u8] = include_bytes!("../packaging/icon.png");
+
 /// Gives each window Slint makes the icon.
 pub fn attributes(attributes: WindowAttributes) -> WindowAttributes {
     platform::attributes(attributes)
@@ -20,11 +25,12 @@ mod platform {
     /// X11 shows the window's own icon where the desktop entry isn't
     /// installed; Wayland takes the icon only from the entry, and ignores it.
     pub fn attributes(attributes: WindowAttributes) -> WindowAttributes {
-        let icon = slint::Image::load_from_svg_data(include_bytes!("../packaging/icon.svg"))
+        let icon = image::load_from_memory_with_format(super::PNG, image::ImageFormat::Png)
             .ok()
-            .and_then(|image| image.to_rgba8())
-            .and_then(|pixels| {
-                Icon::from_rgba(pixels.as_bytes().to_vec(), pixels.width(), pixels.height()).ok()
+            .and_then(|picture| {
+                let picture = picture.into_rgba8();
+                let (width, height) = picture.dimensions();
+                Icon::from_rgba(picture.into_raw(), width, height).ok()
             });
         attributes.with_window_icon(icon)
     }

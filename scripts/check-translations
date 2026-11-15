@@ -5,7 +5,9 @@ Usage: scripts/check-translations [--unused]
 
 Lists, per language, the texts of `@tr("…")` in ui/ and of `tr!("…")`,
 `trn!("…", "…", n)` and `yapfast_lang::text("…")` in Rust that the language's
-file doesn't translate; such text shows in English. --unused also lists the
+file doesn't translate; such text shows in English. English is the code's own
+text, so its file is checked only for the texts that name Yapfast, which it
+gives this fork's name. --unused also lists the
 entries no such text matches: most are stale, but text from a table, which
 `yapfast_lang::text(entry.name)` translates, is found only in the file.
 Exits non-zero when a text lacks a translation.
@@ -84,9 +86,12 @@ def main():
     missing = 0
     for path in sorted((ROOT / "lang").glob("*.po")):
         have = translated(path)
-        lacking = sorted((where, text) for text, where in texts.items() if text not in have)
+        wanted = {
+            text: where for text, where in texts.items() if path.stem != "en" or "Yapfast" in text
+        }
+        lacking = sorted((where, text) for text, where in wanted.items() if text not in have)
         missing += len(lacking)
-        print(f"{path.name}: {len(have)} translated, {len(lacking)} of {len(texts)} marked texts lack one")
+        print(f"{path.name}: {len(have)} translated, {len(lacking)} of {len(wanted)} marked texts lack one")
         for where, text in lacking:
             print(f"  {where}: {text!r}")
         if unused:

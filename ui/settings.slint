@@ -1809,6 +1809,12 @@ export component AboutSettings inherits VerticalLayout {
         background: Theme.sidebar; border-radius: 8px;
         HorizontalLayout {
             padding: 16px; spacing: 16px;
+            Middle {
+                Rectangle {
+                    width: 56px; height: 56px; border-radius: 14px; clip: true;
+                    Image { source: @image-url("../packaging/icon.png"); width: 56px; height: 56px; }
+                }
+            }
             VerticalLayout {
                 alignment: center; spacing: 4px; horizontal-stretch: 1;
                 Text { text: BuildInfo.headline; color: Theme.text; font-size: 20px; font-weight: 700; overflow: elide; }
@@ -1833,10 +1839,13 @@ export component AboutSettings inherits VerticalLayout {
     VerticalLayout {
         spacing: 8px;
         SettingsHeading { text: @tr("UPDATES"); }
-        if Updates.manager != "": Label {
+        if !Updates.releases: Label {
+            text: @tr("This is {0}, a fork of {1}. The fork has no releases: it's updated by building it again from its source code, so {0} doesn't look for updates and downloads nothing.", BuildInfo.product, "Yapfast");
+        }
+        if Updates.releases && Updates.manager != "": Label {
             text: @tr("You installed Yapfast with {}, so update it there.", Updates.manager);
         }
-        if root.status-text != "": Label {
+        if Updates.releases && root.status-text != "": Label {
             text: root.status-text;
             color: Updates.status == UpdateStatus.available ? Theme.accent : Updates.status == UpdateStatus.failed ? Theme.danger-text : Theme.muted;
         }
@@ -1862,7 +1871,7 @@ export component AboutSettings inherits VerticalLayout {
             text: Updates.install-note;
         }
         // A narrow window takes them onto a second line.
-        if !Updates.installing: FlexboxLayout {
+        if Updates.releases && !Updates.installing: FlexboxLayout {
             spacing: 8px; alignment: start;
             if Updates.status == UpdateStatus.available && Updates.can-install: ActionButton {
                 text: @tr("Update and restart"); icon: @image-url("icons/download.svg"); primary: true;
@@ -1896,14 +1905,14 @@ export component AboutSettings inherits VerticalLayout {
             }
         }
     }
-    SettingsSwitch {
+    if Updates.releases: SettingsSwitch {
         text: @tr("Check for updates");
         description: @tr("Checks for new versions every 6 hours.");
         new-key: "check-updates";
         checked <=> Updates.check;
         toggled => { Updates.preferences-changed(); }
     }
-    SettingsSwitch {
+    if Updates.releases: SettingsSwitch {
         text: @tr("Include nightly builds");
         description: @tr("Get the newest features before release. Expect some bugs.");
         new-key: "update-nightlies";
@@ -1913,7 +1922,7 @@ export component AboutSettings inherits VerticalLayout {
     }
     // Not available: the project decides whether Yapfast may update without
     // being asked, and until it does, nothing turns this on.
-    SettingsSwitch {
+    if Updates.releases: SettingsSwitch {
         text: @tr("Install updates automatically");
         description: @tr("Not available yet.");
         checked: false;
@@ -1924,9 +1933,8 @@ export component AboutSettings inherits VerticalLayout {
         SettingsHeading { text: @tr("LINKS"); }
         FlexboxLayout {
             spacing: 8px; alignment: start;
-            ActionButton { text: @tr("Website"); icon: @image-url("icons/logo.svg"); clicked => { Updates.open-website(); } }
             ActionButton { text: "GitHub"; icon: @image-url("icons/github.svg"); clicked => { Updates.open-github(); } }
-            ActionButton { text: "Discord"; icon: @image-url("icons/discord.svg"); clicked => { Updates.open-discord(); } }
+            ActionButton { text: @tr("Original: {}", "Yapfast"); icon: @image-url("icons/external-link.svg"); clicked => { Updates.open-website(); } }
         }
     }
 }

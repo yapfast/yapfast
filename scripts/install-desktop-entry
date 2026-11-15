@@ -8,7 +8,9 @@ id=io.github.yapfast.Yapfast
 executable=$(realpath "${1:-target/release/yapfast}")
 [ -x "$executable" ] || { echo "no executable at $executable; build Yapfast first" >&2; exit 1; }
 data=${XDG_DATA_HOME:-$HOME/.local/share}
-install -Dm644 packaging/icon.svg "$data/icons/hicolor/scalable/apps/$id.svg"
+install -Dm644 packaging/icon.png "$data/icons/hicolor/256x256/apps/$id.png"
+# Yapfast's own scalable icon, from before, would win over this one.
+rm -f "$data/icons/hicolor/scalable/apps/$id.svg"
 mkdir -p "$data/applications"
 # NixOS keeps the GPU's libraries out of the default search path.
 command=$executable

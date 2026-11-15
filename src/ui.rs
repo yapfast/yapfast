@@ -1274,7 +1274,7 @@ struct Layout {
     /// DMs pinned to the top of the DM list, by room ID, the first pinned first.
     pinned: Vec<String>,
     /// The interface's language, by its code in `yapfast_lang::LANGUAGES`;
-    /// the system's unless chosen.
+    /// `yapfast_lang::DEFAULT`, Russian, unless chosen.
     language: Option<String>,
     /// Message times as 9:41 PM rather than 21:41.
     twelve_hour_clock: bool,

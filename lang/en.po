@@ -1,0 +1,394 @@
+msgid ""
+msgstr ""
+"Language: en\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "Adding more from Yapfast is coming soon."
+msgstr "Adding more from Anomi is coming soon."
+
+msgid "After 10 minutes without using Yapfast, as in Discord. Either way, your phone gets notifications while you're away."
+msgstr "After 10 minutes without using Anomi, as in Discord. Either way, your phone gets notifications while you're away."
+
+msgid "Afterward, Discord hands its answer to {}, which Yapfast won't open."
+msgstr "Afterward, Discord hands its answer to {}, which Anomi won't open."
+
+msgid "Asking your desktop to let Yapfast use the key in every app..."
+msgstr "Asking your desktop to let Anomi use the key in every app..."
+
+msgid "Authorized. Discord sends you on to this address, which isn't a web page, so Yapfast doesn't open it. Copy it if the app asks for it."
+msgstr "Authorized. Discord sends you on to this address, which isn't a web page, so Anomi doesn't open it. Copy it if the app asks for it."
+
+msgid "Channels you read in Yapfast show as read in the Discord apps too."
+msgstr "Channels you read in Anomi show as read in the Discord apps too."
+
+msgid "Closing the window keeps Yapfast running in the system tray, with any call. Quit from the tray icon's menu."
+msgstr "Closing the window keeps Anomi running in the system tray, with any call. Quit from the tray icon's menu."
+
+msgid "Could not start the voice worker. Restart Yapfast and retry."
+msgstr "Could not start the voice worker. Restart Anomi and retry."
+
+msgid "Could not start voice. Restart Yapfast and try again."
+msgstr "Could not start voice. Restart Anomi and try again."
+
+msgid "Couldn't restart. Please reopen Yapfast."
+msgstr "Couldn't restart. Please reopen Anomi."
+
+msgid "Discord asks for a passkey or security key, which Yapfast can't use. Confirm in Discord's app, then try again."
+msgstr "Discord asks for a passkey or security key, which Anomi can't use. Confirm in Discord's app, then try again."
+
+msgid "Discord asks for two-factor authentication, which Yapfast can't do here."
+msgstr "Discord asks for two-factor authentication, which Anomi can't do here."
+
+msgid "Discord asks Yapfast to slow down. Try again in {} s."
+msgstr "Discord asks Anomi to slow down. Try again in {} s."
+
+msgid "Discord doesn't allow apps like Yapfast on personal accounts. Linking puts your account at some risk of being suspended."
+msgstr "Discord doesn't allow apps like Anomi on personal accounts. Linking puts your account at some risk of being suspended."
+
+msgid "Discord is disconnected. Yapfast is reconnecting."
+msgstr "Discord is disconnected. Anomi is reconnecting."
+
+msgid "Discord isn't connected. Restart Yapfast and try again."
+msgstr "Discord isn't connected. Restart Anomi and try again."
+
+msgid "Discord keeps ending the connection, so Yapfast stopped reconnecting. Restart Yapfast to try again."
+msgstr "Discord keeps ending the connection, so Anomi stopped reconnecting. Restart Anomi to try again."
+
+msgid "Discord moved the call to another voice server, and Yapfast couldn't connect to it. Join again."
+msgstr "Discord moved the call to another voice server, and Anomi couldn't connect to it. Join again."
+
+msgid "Discord refused too many of Yapfast's requests lately, so Yapfast stopped asking. Try again in {} min."
+msgstr "Discord refused too many of Anomi's requests lately, so Anomi stopped asking. Try again in {} min."
+
+msgid "Discord wants to check you're a person before it links your account. Yapfast opened the check in your browser; linking finishes once it's solved."
+msgstr "Discord wants to check you're a person before it links your account. Anomi opened the check in your browser; linking finishes once it's solved."
+
+msgid "Done. You can close this page and go back to Yapfast."
+msgstr "Done. You can close this page and go back to Anomi."
+
+msgid "For a message that notifies while Yapfast isn't in front. The window's title counts mentions and DMs waiting either way."
+msgstr "For a message that notifies while Anomi isn't in front. The window's title counts mentions and DMs waiting either way."
+
+msgid "For new messages while Yapfast isn't in front. Each Discord server's notification settings and your Matrix notification rules decide which: usually DMs and mentions. Clicking one opens the conversation."
+msgstr "For new messages while Anomi isn't in front. Each Discord server's notification settings and your Matrix notification rules decide which: usually DMs and mentions. Clicking one opens the conversation."
+
+msgid "For new messages while Yapfast isn't in front. Each Discord server's notification settings decide which: usually DMs and mentions. Clicking one opens the conversation."
+msgstr "For new messages while Anomi isn't in front. Each Discord server's notification settings decide which: usually DMs and mentions. Clicking one opens the conversation."
+
+msgid "For new messages while Yapfast isn't in front. Your Matrix notification rules decide which: usually DMs and mentions. Clicking one opens the conversation."
+msgstr "For new messages while Anomi isn't in front. Your Matrix notification rules decide which: usually DMs and mentions. Clicking one opens the conversation."
+
+msgid "Hardware acceleration. Off, Yapfast draws on the processor, which uses about half the memory."
+msgstr "Hardware acceleration. Off, Anomi draws on the processor, which uses about half the memory."
+
+msgid "Invalid calling-service URL. Check Yapfast's configuration."
+msgstr "Invalid calling-service URL. Check Anomi's configuration."
+
+msgid "Leaving Yapfast"
+msgstr "Leaving Anomi"
+
+msgid "Link Discord to Yapfast"
+msgstr "Link Discord to Anomi"
+
+msgid "Link your Discord account to see its servers and DMs in Yapfast, and join its calls. The login stays on this computer, in the system's credential store."
+msgstr "Link your Discord account to see its servers and DMs in Anomi, and join its calls. The login stays on this computer, in the system's credential store."
+
+msgid "Name a game by its executable, a file name or a full path, and what to show after Playing. These come before the games Yapfast knows, but a game's Rich Presence comes first."
+msgstr "Name a game by its executable, a file name or a full path, and what to show after Playing. These come before the games Anomi knows, but a game's Rich Presence comes first."
+
+msgid "No system tray is running, so closing the window quits Yapfast."
+msgstr "No system tray is running, so closing the window quits Anomi."
+
+msgid "Not sent yet. Yapfast sends it when the connection returns."
+msgstr "Not sent yet. Anomi sends it when the connection returns."
+
+msgid "Open Discord links in Yapfast"
+msgstr "Open Discord links in Anomi"
+
+msgid "Open Yapfast"
+msgstr "Open Anomi"
+
+msgid "Restart Yapfast"
+msgstr "Restart Anomi"
+
+msgid "Runs the effects Windows and your sound driver add to the microphone, such as their own noise suppression. Off, Yapfast skips them, as they can muffle your voice on top of Yapfast's. Turn it on if your microphone sounds worse without them, as some laptop microphones can."
+msgstr "Runs the effects Windows and your sound driver add to the microphone, such as their own noise suppression. Off, Anomi skips them, as they can muffle your voice on top of Anomi's. Turn it on if your microphone sounds worse without them, as some laptop microphones can."
+
+msgid "Screen sharing uses the graphics card's video encoder, which takes almost no processor time and looks better at low bitrates. Off, or without one, Yapfast encodes on the processor."
+msgstr "Screen sharing uses the graphics card's video encoder, which takes almost no processor time and looks better at low bitrates. Off, or without one, Anomi encodes on the processor."
+
+msgid "Sending it to Yapfast..."
+msgstr "Sending it to Anomi..."
+
+msgid "Sign in to Yapfast"
+msgstr "Sign in to Anomi"
+
+msgid "Starting Yapfast while it runs opens another Yapfast, with its own window and tray icon. Off, it brings the open window forward."
+msgstr "Starting Anomi while it runs opens another Anomi, with its own window and tray icon. Off, it brings the open window forward."
+
+msgid "That isn't a stream Yapfast knows how to watch."
+msgstr "That isn't a stream Anomi knows how to watch."
+
+msgid "The connection has stopped. Restart Yapfast to restore your session."
+msgstr "The connection has stopped. Restart Anomi to restore your session."
+
+msgid "There's nowhere to forward to yet. Yapfast forwards Matrix messages only into encrypted conversations."
+msgstr "There's nowhere to forward to yet. Anomi forwards Matrix messages only into encrypted conversations."
+
+msgid "This app opens a page Yapfast can't show. Use it in Discord."
+msgstr "This app opens a page Anomi can't show. Use it in Discord."
+
+msgid "This build of Yapfast has no Matrix sign-in."
+msgstr "This build of Anomi has no Matrix sign-in."
+
+msgid "This build of Yapfast has no Matrix voice."
+msgstr "This build of Anomi has no Matrix voice."
+
+msgid "This build of Yapfast has no networks."
+msgstr "This build of Anomi has no networks."
+
+msgid "This channel is unencrypted. Yapfast only joins encrypted voice channels."
+msgstr "This channel is unencrypted. Anomi only joins encrypted voice channels."
+
+msgid "This file is larger than Yapfast saves."
+msgstr "This file is larger than Anomi saves."
+
+msgid "This form has a part Yapfast can't fill yet. Use it in Discord."
+msgstr "This form has a part Anomi can't fill yet. Use it in Discord."
+
+msgid "This homeserver doesn't support sticky events (MSC4354), which Yapfast voice channels need. Ask its administrator to enable them (Synapse: experimental_features.msc4354_enabled), or use another homeserver."
+msgstr "This homeserver doesn't support sticky events (MSC4354), which Anomi voice channels need. Ask its administrator to enable them (Synapse: experimental_features.msc4354_enabled), or use another homeserver."
+
+msgid "this session was written by an unsupported Yapfast version"
+msgstr "this session was written by an unsupported Anomi version"
+
+msgid "Unlinking signs Yapfast out of Discord on this computer."
+msgstr "Unlinking signs Anomi out of Discord on this computer."
+
+msgid "Unverified device. It can't receive your audio key, and Yapfast refuses its key."
+msgstr "Unverified device. It can't receive your audio key, and Anomi refuses its key."
+
+msgid "Use your Matrix recovery key, or verify Yapfast in another client and check again."
+msgstr "Use your Matrix recovery key, or verify Anomi in another client and check again."
+
+msgid "While Yapfast is focused"
+msgstr "While Anomi is focused"
+
+msgid "Windows didn't let Yapfast watch keys in other apps"
+msgstr "Windows didn't let Anomi watch keys in other apps"
+
+msgid "Yapfast calls require an encrypted room; upgrade encryption explicitly first"
+msgstr "Anomi calls require an encrypted room; upgrade encryption explicitly first"
+
+msgid "Yapfast can't fill this option yet"
+msgstr "Anomi can't fill this option yet"
+
+msgid "Yapfast can't fill this part yet."
+msgstr "Anomi can't fill this part yet."
+
+msgid "Yapfast can't find anyone called {} here."
+msgstr "Anomi can't find anyone called {} here."
+
+msgid "Yapfast can't play this video."
+msgstr "Anomi can't play this video."
+
+msgid "Yapfast can't read this microphone. Check that it's connected, or choose another."
+msgstr "Anomi can't read this microphone. Check that it's connected, or choose another."
+
+msgid "Yapfast can't show this image. Save it to open it elsewhere."
+msgstr "Anomi can't show this image. Save it to open it elsewhere."
+
+msgid "Yapfast can't show this part of the message yet."
+msgstr "Anomi can't show this part of the message yet."
+
+msgid "Yapfast can't tell which DM to search."
+msgstr "Anomi can't tell which DM to search."
+
+msgid "Yapfast can't watch keys in other apps on this system yet"
+msgstr "Anomi can't watch keys in other apps on this system yet"
+
+msgid "Yapfast can't write to its own folder."
+msgstr "Anomi can't write to its own folder."
+
+msgid "Yapfast can't write to the AppImage's folder."
+msgstr "Anomi can't write to the AppImage's folder."
+
+msgid "Yapfast could not download or decrypt this file. Check your connection and retry."
+msgstr "Anomi could not download or decrypt this file. Check your connection and retry."
+
+msgid "Yapfast could not find the message to reply to."
+msgstr "Anomi could not find the message to reply to."
+
+msgid "Yapfast could not open a file dialog."
+msgstr "Anomi could not open a file dialog."
+
+msgid "Yapfast could not queue that file. Check that it is readable and retry."
+msgstr "Anomi could not queue that file. Check that it is readable and retry."
+
+msgid "Yapfast could not queue the forwarded message. Check your connection and retry."
+msgstr "Anomi could not queue the forwarded message. Check your connection and retry."
+
+msgid "Yapfast could not queue the message you added. Check your connection."
+msgstr "Anomi could not queue the message you added. Check your connection."
+
+msgid "Yapfast could not queue this message. Your draft is kept."
+msgstr "Anomi could not queue this message. Your draft is kept."
+
+msgid "Yapfast could not read a file."
+msgstr "Anomi could not read a file."
+
+msgid "Yapfast could not read that file."
+msgstr "Anomi could not read that file."
+
+msgid "Yapfast could not read {}."
+msgstr "Anomi could not read {}."
+
+msgid "Yapfast could not write the file there. Choose another folder."
+msgstr "Anomi could not write the file there. Choose another folder."
+
+msgid "Yapfast couldn't copy this picture. Save it instead."
+msgstr "Anomi couldn't copy this picture. Save it instead."
+
+msgid "Yapfast couldn't download this image from Discord. Try again."
+msgstr "Anomi couldn't download this image from Discord. Try again."
+
+msgid "Yapfast couldn't download this image. Check your connection and try again."
+msgstr "Anomi couldn't download this image. Check your connection and try again."
+
+msgid "Yapfast couldn't download this voice message."
+msgstr "Anomi couldn't download this voice message."
+
+msgid "Yapfast couldn't find that message."
+msgstr "Anomi couldn't find that message."
+
+msgid "Yapfast couldn't find that message. It may have been deleted."
+msgstr "Anomi couldn't find that message. It may have been deleted."
+
+msgid "Yapfast couldn't link Discord: {}"
+msgstr "Anomi couldn't link Discord: {}"
+
+msgid "Yapfast couldn't play this video."
+msgstr "Anomi couldn't play this video."
+
+msgid "Yapfast couldn't play this voice message."
+msgstr "Anomi couldn't play this voice message."
+
+msgid "Yapfast couldn't show this app's form."
+msgstr "Anomi couldn't show this app's form."
+
+msgid "Yapfast couldn't watch keys in other apps"
+msgstr "Anomi couldn't watch keys in other apps"
+
+msgid "Yapfast didn't take it. Start linking again in Yapfast."
+msgstr "Anomi didn't take it. Start linking again in Anomi."
+
+msgid "Yapfast doesn't know that channel."
+msgstr "Anomi doesn't know that channel."
+
+msgid "Yapfast doesn't know that forum."
+msgstr "Anomi doesn't know that forum."
+
+msgid "Yapfast doesn't know that member's roles yet. Try again."
+msgstr "Anomi doesn't know that member's roles yet. Try again."
+
+msgid "Yapfast has no folder."
+msgstr "Anomi has no folder."
+
+msgid "Yapfast hasn't seen anyone with this role yet."
+msgstr "Anomi hasn't seen anyone with this role yet."
+
+msgid "Yapfast looks for games among the programs running, and on Linux takes the Rich Presence games send. Your Discord account keeps this setting, so it's the same in Discord's apps."
+msgstr "Anomi looks for games among the programs running, and on Linux takes the Rich Presence games send. Your Discord account keeps this setting, so it's the same in Discord's apps."
+
+msgid "Yapfast lost a file of this command. Choose it again."
+msgstr "Anomi lost a file of this command. Choose it again."
+
+msgid "Yapfast lost a file of this form. Choose it again."
+msgstr "Anomi lost a file of this form. Choose it again."
+
+msgid "Yapfast lost the X server's keys"
+msgstr "Anomi lost the X server's keys"
+
+msgid "Yapfast plays these as you and others join and leave a call, as you mute and deafen, as others start and stop streaming, as they start and stop watching your stream or the one you watch, and for messages that notify, except in the conversation in front of you. They play on the speakers chosen for calls."
+msgstr "Anomi plays these as you and others join and leave a call, as you mute and deafen, as others start and stop streaming, as they start and stop watching your stream or the one you watch, and for messages that notify, except in the conversation in front of you. They play on the speakers chosen for calls."
+
+msgid "Yapfast reads dates as 2026-10-13, not {}."
+msgstr "Anomi reads dates as 2026-10-13, not {}."
+
+msgid "Yapfast sends your microphone only while you hold a key."
+msgstr "Anomi sends your microphone only while you hold a key."
+
+msgid "Yapfast sends your voice when it hears you speak."
+msgstr "Anomi sends your voice when it hears you speak."
+
+msgid "Yapfast sends your voice when it's louder than the handle, and other sounds when they're 18 dB louder still. The bar is your microphone after noise suppression and at its volume, as Yapfast hears it to decide."
+msgstr "Anomi sends your voice when it's louder than the handle, and other sounds when they're 18 dB louder still. The bar is your microphone after noise suppression and at its volume, as Anomi hears it to decide."
+
+msgid "Yapfast starts in the system tray when you sign in to your computer, so messages and calls reach you."
+msgstr "Anomi starts in the system tray when you sign in to your computer, so messages and calls reach you."
+
+msgid "Yapfast stopped waiting. Start linking again in Yapfast."
+msgstr "Anomi stopped waiting. Start linking again in Anomi."
+
+msgid "Yapfast switches to the GPU when it restarts. Restarting leaves any call."
+msgstr "Anomi switches to the GPU when it restarts. Restarting leaves any call."
+
+msgid "Yapfast switches to the processor when it restarts. Restarting leaves any call."
+msgstr "Anomi switches to the processor when it restarts. Restarting leaves any call."
+
+msgid "Yapfast {} is available"
+msgstr "Anomi {} is available"
+
+msgid "Yapfast {} is available."
+msgstr "Anomi {} is available."
+
+msgid "You installed Yapfast with {}, so update it there."
+msgstr "You installed Anomi with {}, so update it there."
+
+msgid "You joined. This server asks new members to fill in a form before they can talk, which Yapfast can't show yet. Finish it in Discord's web app."
+msgstr "You joined. This server asks new members to fill in a form before they can talk, which Anomi can't show yet. Finish it in Discord's web app."
+
+msgid "You'll show as offline, but can use Yapfast as usual."
+msgstr "You'll show as offline, but can use Anomi as usual."
+
+msgid "Your desktop doesn't offer Yapfast a global shortcut"
+msgstr "Your desktop doesn't offer Anomi a global shortcut"
+
+msgid "Your desktop draws the window's title bar and buttons, as on its other windows. Off, Yapfast draws its own."
+msgstr "Your desktop draws the window's title bar and buttons, as on its other windows. Off, Anomi draws its own."
+
+msgid "{n} permission Yapfast can't name"
+msgid_plural "{n} permissions Yapfast can't name"
+msgstr[0] "{n} permission Anomi can't name"
+msgstr[1] "{n} permissions Anomi can't name"
+
+msgid "{} MB. Yapfast restarts when it's done."
+msgstr "{} MB. Anomi restarts when it's done."
+
+msgid "{}, so push to talk works only while Yapfast's window is in front."
+msgstr "{}, so push to talk works only while Anomi's window is in front."
+
+msgid "{}, so keybinds work only while Yapfast's window is in front."
+msgstr "{}, so keybinds work only while Anomi's window is in front."
+
+msgid "Your desktop doesn't offer Yapfast global shortcuts"
+msgstr "Your desktop doesn't offer Anomi global shortcuts"
+
+msgid "Asking your desktop to let Yapfast use these keybinds in every app..."
+msgstr "Asking your desktop to let Anomi use these keybinds in every app..."
+
+msgid "Yapfast can't play your microphone. Check your speakers, or choose others."
+msgstr "Anomi can't play your microphone. Check your speakers, or choose others."
+
+msgid "Except Yapfast's own sound"
+msgstr "Except Anomi's own sound"
+
+msgid "Yapfast doesn't share its own sound."
+msgstr "Anomi doesn't share its own sound."
+
+msgid "Yapfast doesn't share a Discord app's sound, which carries its call."
+msgstr "Anomi doesn't share a Discord app's sound, which carries its call."
+
+msgid "Yapfast can't tell which application this window belongs to."
+msgstr "Anomi can't tell which application this window belongs to."

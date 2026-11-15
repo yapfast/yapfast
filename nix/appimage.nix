@@ -44,7 +44,7 @@ let
   };
 in
 pkgs.runCommand "yapfast-appdir-${yapfast.version}" {
-  nativeBuildInputs = with pkgs; [ patchelf binutils librsvg ];
+  nativeBuildInputs = with pkgs; [ patchelf binutils ];
   inherit (yapfast) version;
   inherit updateInformation build;
 } ''
@@ -80,9 +80,9 @@ pkgs.runCommand "yapfast-appdir-${yapfast.version}" {
   chmod -R u+w "$appdir/usr/share"
   ln -s usr/bin/yapfast "$appdir/AppRun"
   ln -s usr/share/applications/${id}.desktop "$appdir/${id}.desktop"
-  ln -s usr/share/icons/hicolor/scalable/apps/${id}.svg "$appdir/${id}.svg"
+  ln -s usr/share/icons/hicolor/256x256/apps/${id}.png "$appdir/${id}.png"
   # File managers show .DirIcon as the AppImage's thumbnail, and want a PNG.
-  rsvg-convert -w 256 -h 256 "$share/icons/hicolor/scalable/apps/${id}.svg" -o "$appdir/.DirIcon"
+  cp "$share/icons/hicolor/256x256/apps/${id}.png" "$appdir/.DirIcon"
 
   # The runtime keeps a section for the update information.
   install -m755 ${runtime} "$out/runtime"

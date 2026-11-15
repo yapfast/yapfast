@@ -140,6 +140,14 @@ files on top of the commit, so a development build can't say it has them.
 
 ## Newer releases
 
+This fork, Anomi, has no releases of its own, and the releases below are
+Yapfast's, which would install over it. So `update::HAS_RELEASES` is false:
+nothing looks for releases, at start, on the timer or on a click, nothing is
+downloaded, and About's updates part is one line saying the fork is updated by
+building it again from source, with no Check now and no update switches. Its
+links are the fork's repository on GitHub and the original project's. The rest
+of this section is how the code works with the switch on, as in Yapfast.
+
 Settings' About page shows the build, as the lines under the sections do, and
 says whether a newer release is out. A line under the sections tells too:
 "Update available" with the release's tag, and a click opens About. About
@@ -287,15 +295,38 @@ changes what it serves.
 
 ## The app icon
 
-`packaging/icon.svg` is Yapfast's icon: the logo in marigold, its dots in
-on-accent ink, so it reads on a light taskbar as well as a dark one. The UI
-keeps drawing `ui/icons/logo.svg`.
+This fork, Anomi, has its owner's pictures, as optimised PNGs:
+
+- `packaging/icon.png`, 256 pixels: the app icon, the picture in its frame
+  with the corners cut away. The window, the desktop entry, the AppImage and
+  the larger sizes of the Windows icon use it, and the window shows it as it
+  is, never coloured by the theme, rounded to its place: the Home tile at the
+  top of the server rail, the sign-in screen and About. Its own black ground
+  reads the same on dark and light themes.
+- `ui/icons/anomi-small.png`, 64 pixels: the picture drawn plainer and
+  brighter to read at 16 to 32 pixels. The tray icon is drawn from it
+  (`src/tray.rs`), with the unread dot cut into its corner, and so are the
+  Windows icon's sizes up to 32.
+- `docs/images/anomi.png`, 320 pixels: the picture without its frame, on a
+  transparent ground, for the README. Small, its dark face sinks into a dark
+  theme, so the window doesn't use it.
+
+They're drawn from the owner's 1100-pixel originals, which aren't in the
+repository, with ImageMagick's Lanczos filter and libimagequant's palette (as
+pngquant does), which keeps each under half its size with no change the eye
+sees. The binary holds `icon.png` twice, about 39 KB each: once for Rust
+(`src/icon.rs`, which `src/desktop_entry.rs` shares) and once for the Slint
+interface, which embeds its own pictures; and `anomi-small.png` once.
 
 On Linux the window's app ID is `io.github.yapfast.Yapfast` (`src/icon.rs`).
 Wayland desktops show a window's icon only through the desktop entry of that
 name, `packaging/linux/io.github.yapfast.Yapfast.desktop`;
 `scripts/install-desktop-entry [EXECUTABLE]` installs it and the icon for
-this user, running `target/release/yapfast` unless told otherwise. The
+this user, running `target/release/yapfast` unless told otherwise. The icon
+goes in the hicolor theme at 256×256, where packages put it too, and a
+scalable icon of the same name that an earlier Yapfast left there is removed,
+as it would win at every size. The entry's Name is Anomi; its file name and
+the app ID stay Yapfast's, so settings and sign-in carry over. The
 AppImage installs nothing, so Yapfast run from one writes the entry and the
 icon to `~/.local/share` itself before it opens its window
 (`src/desktop_entry.rs`), with Exec and TryExec naming the AppImage. It
@@ -309,5 +340,7 @@ On Windows, `build.rs` compiles `packaging/windows/yapfast.rc` with `llvm-rc`,
 or the Windows SDK's `rc.exe` where there is none,
 and links the icon into `yapfast.exe`, for Explorer and shortcuts; the window
 loads it from there for its title bar and the taskbar, each at the size
-Windows draws it. After changing `icon.svg`, run `scripts/make-windows-icon`
-to draw `yapfast.ico` again.
+Windows draws it. After changing `icon.png` or `anomi-small.png`, run
+`scripts/make-windows-icon` to draw `yapfast.ico` again: up to 32 pixels from
+the small picture, above from the app icon, bitmaps up to 64 and PNGs at 128
+and 256.

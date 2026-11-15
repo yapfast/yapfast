@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=Yapfast
+Name=Anomi
 GenericName=Chat
 Comment=Chat and voice for Matrix and Discord
 Exec=yapfast --open-link %u

@@ -2,6 +2,7 @@ import { ScrollView } from "scrollview.slint";
 import { Theme, Label } from "theme.slint";
 import { ActionButton, TextField, Banner } from "controls.slint";
 import { DiscordLinkPanel } from "discord.slint";
+import { BuildInfo } from "yapfast/build-info.slint";
 
 // Sign in: a centred card on the darkest ground, with the local preview beside it.
 export component SignInScreen inherits Rectangle {
@@ -28,7 +29,15 @@ export component SignInScreen inherits Rectangle {
     callback link-discord-token(string);
     callback open-discord-captcha;
     background: Theme.rail;
-    Text { x: 32px; y: 24px; text: "Yapfast"; color: Theme.accent; font-size: 24px; font-weight: 900; letter-spacing: -0.4px; }
+    // The app's icon and its name, at the top left.
+    HorizontalLayout {
+        x: 28px; y: 18px; height: 36px; spacing: 10px;
+        Rectangle {
+            width: 36px; height: 36px; border-radius: 9px; clip: true;
+            Image { source: @image-url("../packaging/icon.png"); width: 36px; height: 36px; }
+        }
+        Text { text: BuildInfo.product; color: Theme.accent; font-size: 24px; font-weight: 900; letter-spacing: -0.4px; vertical-alignment: center; }
+    }
     ScrollView {
         y: 64px; height: parent.height - 64px;
         VerticalLayout {
@@ -90,8 +99,8 @@ export component SignInScreen inherits Rectangle {
                             HorizontalLayout {
                                 alignment: center;
                                 Rectangle {
-                                    width: 72px; height: 72px; border-radius: 24px; background: Theme.raised;
-                                    Image { source: @image-url("icons/logo.svg"); width: 44px; height: 44px; colorize: Theme.accent; }
+                                    width: 72px; height: 72px; border-radius: 20px; clip: true;
+                                    Image { source: @image-url("../packaging/icon.png"); width: 72px; height: 72px; }
                                 }
                             }
                             Text { text: @tr("Just looking?"); color: Theme.text; font-size: 20px; font-weight: 700; horizontal-alignment: center; wrap: word-wrap; }

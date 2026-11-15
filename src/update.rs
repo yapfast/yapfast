@@ -21,6 +21,11 @@ pub mod signature;
 /// behind a run of nightlies.
 const RELEASES: &str = "https://api.github.com/repos/yapfast/yapfast/releases?per_page=30";
 
+/// Whether this build looks for releases at all. Anomi, a fork of Yapfast,
+/// has none of its own, and Yapfast's would install over it: it's updated from
+/// source, so About never looks, offers nothing and says so.
+pub const HAS_RELEASES: bool = false;
+
 /// Where a release's page is, for the browser to open: only this project's.
 const PAGES: &str = "https://github.com/yapfast/yapfast/releases/";
 

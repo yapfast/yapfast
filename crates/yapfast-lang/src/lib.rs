@@ -1,13 +1,23 @@
 //! The language of Yapfast's interface. The text in the code is English, and
-//! each other language is one gettext file, `lang/<code>.po`, built into the
-//! program: [`tr!`] and [`trn!`] give Rust's text in the chosen language, and
-//! the window's `@tr` asks [`lookup`] and [`lookup_plural`]. See
-//! `docs/translations.md`.
+//! each language is one gettext file, `lang/<code>.po`, built into the
+//! program; English's only gives the program this fork's name. [`tr!`] and
+//! [`trn!`] give Rust's text in the chosen language, and the window's `@tr`
+//! asks [`lookup`] and [`lookup_plural`]. See `docs/translations.md`.
 
 use std::borrow::Cow;
 use std::fmt::{Display, Write};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
+
+/// The program's name as the interface shows it. This is Anomi, a fork of
+/// Yapfast: the code's own text says Yapfast, each language's file says Anomi
+/// wherever its text names the program, and what no file translates, such as
+/// the window's title, takes the name from here.
+pub const PRODUCT: &str = "Anomi";
+
+/// The language the interface shows until another is chosen in the settings:
+/// Russian, this fork's own.
+pub const DEFAULT: &str = "ru";
 
 /// A language the interface comes in.
 pub struct Language {
@@ -15,7 +25,8 @@ pub struct Language {
     pub code: &'static str,
     /// Its name in the language itself, which the settings list.
     pub name: &'static str,
-    /// Its gettext file; empty for English, which the code holds.
+    /// Its gettext file. English's holds only the text that names the
+    /// program; the rest is the code's own.
     po: &'static str,
     /// Which of its plural forms a count takes.
     form: fn(u64) -> usize,
@@ -28,7 +39,7 @@ pub static LANGUAGES: [Language; 2] = [
     Language {
         code: "en",
         name: "English",
-        po: "",
+        po: include_str!("../../../lang/en.po"),
         form: |count| usize::from(count != 1),
         catalog: OnceLock::new(),
     },
@@ -45,36 +56,45 @@ pub static LANGUAGES: [Language; 2] = [
     },
 ];
 
-/// The chosen language, as an index into [`LANGUAGES`].
-static CHOSEN: AtomicUsize = AtomicUsize::new(0);
+/// The chosen language, as an index into [`LANGUAGES`], or [`UNCHOSEN`].
+static CHOSEN: AtomicUsize = AtomicUsize::new(UNCHOSEN);
+
+/// No language chosen: text shows as the code has it, untranslated, which is
+/// what tests expect.
+const UNCHOSEN: usize = usize::MAX;
 
 /// Chooses the language of what's translated from now on, by its code or by a
 /// locale that starts with it, as `ru_RU.UTF-8` does. Anything else is
-/// English. Returns the code chosen.
+/// English, and an empty code is none: the code's own text. Returns the code
+/// chosen.
 pub fn choose(locale: &str) -> &'static str {
     let code = locale
         .split(['_', '-', '.', '@'])
         .next()
         .unwrap_or_default();
-    let index = LANGUAGES
-        .iter()
-        .position(|language| language.code.eq_ignore_ascii_case(code))
-        .unwrap_or(0);
+    let index = match code {
+        "" => UNCHOSEN,
+        code => LANGUAGES
+            .iter()
+            .position(|language| language.code.eq_ignore_ascii_case(code))
+            .unwrap_or(0),
+    };
     CHOSEN.store(index, Ordering::Relaxed);
-    LANGUAGES[index].code
+    chosen().code
 }
 
-/// The chosen language.
+/// The chosen language; English, the code's own, while none is.
 pub fn chosen() -> &'static Language {
-    &LANGUAGES[CHOSEN.load(Ordering::Relaxed)]
+    translating().unwrap_or(&LANGUAGES[0])
+}
+
+/// The chosen language, whose file the text is looked up in: none until one
+/// is chosen.
+pub fn translating() -> Option<&'static Language> {
+    LANGUAGES.get(CHOSEN.load(Ordering::Relaxed))
 }
 
 impl Language {
-    /// Whether the interface shows the code's own text, untranslated.
-    pub fn is_english(&self) -> bool {
-        self.po.is_empty()
-    }
-
     fn catalog(&self) -> &Catalog {
         self.catalog.get_or_init(|| Catalog::read(self.po))
     }
@@ -269,13 +289,9 @@ fn unescaped(text: &'static str) -> Cow<'static, str> {
 }
 
 /// A text in the chosen language, where its file has it: for the context
-/// given first, then for any. None in English.
+/// given first, then for any. None while no language is chosen.
 pub fn lookup(text: &str, context: Option<&str>) -> Option<&'static str> {
-    let language = chosen();
-    if language.is_english() {
-        return None;
-    }
-    let catalog = language.catalog();
+    let catalog = translating()?.catalog();
     if let (Some(context), false) = (context, catalog.contexts.is_empty())
         && let Ok(index) = catalog
             .contexts
@@ -291,13 +307,10 @@ pub fn lookup(text: &str, context: Option<&str>) -> Option<&'static str> {
 }
 
 /// A text that differs with a count, in the chosen language's form for that
-/// count, by its English text for one. None in English, and where the file
-/// lacks it.
+/// count, by its English text for one. None while no language is chosen, and
+/// where the file lacks it.
 pub fn lookup_plural(count: u64, one: &str) -> Option<&'static str> {
-    let language = chosen();
-    if language.is_english() {
-        return None;
-    }
+    let language = translating()?;
     let catalog = language.catalog();
     let index = catalog
         .plurals
@@ -469,7 +482,7 @@ mod tests {
     /// placeholders of its text, and each plural in all the language's forms.
     #[test]
     fn the_translations_fit_their_texts() {
-        for language in LANGUAGES.iter().filter(|language| !language.is_english()) {
+        for language in &LANGUAGES {
             let forms = (0..200).map(language.form).max().unwrap() + 1;
             let mut seen = std::collections::HashSet::new();
             let mut wrong = Vec::new();
@@ -518,11 +531,30 @@ mod tests {
         }
     }
 
+    /// Until a language is chosen, as in every other crate's tests.
     #[test]
     fn english_is_the_text_itself() {
         assert_eq!(tr!("Not in any file"), "Not in any file");
         assert_eq!(tr!("Kick {}", "Sam"), "Kick Sam");
+        assert_eq!(tr!("Open Yapfast"), "Open Yapfast");
         assert_eq!(trn!("{n} member", "{n} members", 1), "1 member");
         assert_eq!(trn!("{n} member", "{n} members", 4), "4 members");
+    }
+
+    /// English's file only puts the program's name in the code's own text.
+    #[test]
+    fn english_changes_only_the_name() {
+        let mut wrong = Vec::new();
+        for entry in entries(LANGUAGES[0].po) {
+            if entry.text.is_empty() {
+                continue;
+            }
+            let texts = std::iter::once(entry.text).chain(entry.plural);
+            let named = texts.map(|text| text.replace("Yapfast", PRODUCT));
+            if !entry.text.contains("Yapfast") || !named.eq(entry.translations.iter().copied()) {
+                wrong.push(entry.text);
+            }
+        }
+        assert!(wrong.is_empty(), "lang/en.po: {wrong:#?}");
     }
 }

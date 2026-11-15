@@ -1032,8 +1032,8 @@ export component ServerRail inherits Rectangle {
         // The Home tile's top meets the sidebar's first row, 8px under the edge.
         padding-top: ClientStyle.enabled ? 8px : 12px; padding-bottom: 12px; spacing: 8px;
         RailItem {
-            // The app's logo, as Discord puts its own here.
-            icon: @image-url("icons/logo.svg"); icon-color: Theme.accent; icon-size: ClientStyle.enabled ? 24px : 32px;
+            // The app's icon, as Discord puts its logo here.
+            picture: @image-url("../packaging/icon.png");
             label: @tr("Direct messages") + (root.dms-badge != "" ? @tr(", {} waiting", root.dms-badge) : root.dms-unread ? @tr(", unread") : "");
             tip: @tr("Direct messages");
             selected: root.dms-selected; unread: root.dms-unread; badge: root.dms-badge;

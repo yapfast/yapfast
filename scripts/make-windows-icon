@@ -1,14 +1,43 @@
 #!/usr/bin/env bash
-# Draws packaging/windows/yapfast.ico from packaging/icon.svg, at each size
-# Windows asks for, from 16 px in the title bar to 256 px in Explorer.
+# Draws packaging/windows/yapfast.ico at each size Windows asks for, from 16 px
+# in the title bar to 256 px in Explorer: up to 32 px from the picture drawn
+# to read small, ui/icons/anomi-small.png, and above from the app icon,
+# packaging/icon.png. Up to 64 px the pictures are bitmaps, as every Windows
+# reads them; 128 and 256 px are PNGs, which keeps the file small, and
+# notifications take the 256 px one as it is.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-sizes=(16 20 24 32 40 48 64 256)
-pictures=()
-for size in "${sizes[@]}"; do
-    magick -background none -density 1200 packaging/icon.svg -resize "${size}x${size}" "PNG32:$work/$size.png"
-    pictures+=("$work/$size.png")
+small=()
+for size in 16 20 24 32 40 48 64 128 256; do
+    source=packaging/icon.png
+    [ "$size" -le 32 ] && source=ui/icons/anomi-small.png
+    magick "$source" -strip -filter Lanczos -resize "${size}x${size}" \
+        -define png:compression-level=9 "PNG32:$work/$size.png"
+    [ "$size" -le 64 ] && small+=("$work/$size.png")
 done
-magick "${pictures[@]}" packaging/windows/yapfast.ico
+# ImageMagick writes every size as a bitmap; the two large ones are put in
+# as PNGs after them.
+magick "${small[@]}" "$work/small.ico"
+python3 - "$work" packaging/windows/yapfast.ico <<'EOF'
+import struct
+import sys
+
+work, out = sys.argv[1], sys.argv[2]
+ico = open(f"{work}/small.ico", "rb").read()
+entries = []
+for index in range(struct.unpack_from("<H", ico, 4)[0]):
+    width, height, colours, _, planes, bits, size, offset = struct.unpack_from(
+        "<BBBBHHII", ico, 6 + 16 * index
+    )
+    entries.append(((width, height, colours, planes, bits), ico[offset : offset + size]))
+for side in (128, 256):
+    entries.append(((side % 256, side % 256, 0, 1, 32), open(f"{work}/{side}.png", "rb").read()))
+offset = 6 + 16 * len(entries)
+head = struct.pack("<HHH", 0, 1, len(entries))
+for (width, height, colours, planes, bits), data in entries:
+    head += struct.pack("<BBBBHHII", width, height, colours, 0, planes, bits, len(data), offset)
+    offset += len(data)
+open(out, "wb").write(head + b"".join(data for _, data in entries))
+EOF

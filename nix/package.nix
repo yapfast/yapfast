@@ -78,7 +78,7 @@ rustPlatform.buildRustPackage {
   # tables were 55 MB of the binary.
   stripAllList = [ "bin" ];
   postInstall = ''
-    install -Dm644 packaging/icon.svg "$out/share/icons/hicolor/scalable/apps/${id}.svg"
+    install -Dm644 packaging/icon.png "$out/share/icons/hicolor/256x256/apps/${id}.png"
     install -Dm644 packaging/linux/${id}.desktop -t "$out/share/applications"
     install -Dm644 packaging/linux/${id}.metainfo.xml -t "$out/share/metainfo"
     # The GPU, audio and screen capture libraries are loaded at runtime, and

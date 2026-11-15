@@ -14,11 +14,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::icon::APP_ID;
+use crate::icon::{APP_ID, PNG as ICON};
 
 /// The entry a package installs, whose Exec line names the AppImage instead.
 const ENTRY: &str = include_str!("../packaging/linux/io.github.yapfast.Yapfast.desktop");
-const ICON: &[u8] = include_bytes!("../packaging/icon.svg");
 
 /// The AppImage this Yapfast runs from. An AppImage runs from a temporary
 /// mount, APPDIR, and names its file in APPIMAGE. Programs it starts inherit
@@ -55,8 +54,8 @@ pub(crate) fn install_in(data: &Path, system: &[PathBuf], image: &Path) -> io::R
     let applications = data.join("applications");
     let path = applications.join(&name);
     let icon = data
-        .join("icons/hicolor/scalable/apps")
-        .join(format!("{APP_ID}.svg"));
+        .join("icons/hicolor/256x256/apps")
+        .join(format!("{APP_ID}.png"));
     let text = entry(image);
     // The usual start, with both in place: two small reads.
     let icon_current = std::fs::read(&icon).is_ok_and(|bytes| bytes == ICON);
@@ -75,6 +74,10 @@ pub(crate) fn install_in(data: &Path, system: &[PathBuf], image: &Path) -> io::R
     }
     if !icon_current {
         write(&icon, ICON)?;
+        // Yapfast's own icon, which an AppImage of it wrote, would win over
+        // this one at every size.
+        let scalable = format!("icons/hicolor/scalable/apps/{APP_ID}.svg");
+        let _ = std::fs::remove_file(data.join(scalable));
     }
     // After the icon, so a desktop that sees the entry finds its icon too.
     write(&path, text.as_bytes())?;
@@ -191,7 +194,7 @@ mod tests {
         assert!(text.contains(&format!("\nIcon={APP_ID}\n")));
         let icon = data
             .path()
-            .join(format!("icons/hicolor/scalable/apps/{APP_ID}.svg"));
+            .join(format!("icons/hicolor/256x256/apps/{APP_ID}.png"));
         assert_eq!(std::fs::read(&icon).unwrap(), ICON);
         use std::os::unix::fs::PermissionsExt;
         let mode = std::fs::metadata(icon).unwrap().permissions().mode();

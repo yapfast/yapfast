@@ -135,7 +135,7 @@ mod linux {
             }
             let actions = ["default", yapfast_lang::tr!("Open")];
             let request = (
-                "Yapfast",
+                yapfast_lang::PRODUCT,
                 0u32,
                 "",
                 alert.title.as_str(),
@@ -351,7 +351,7 @@ mod windows {
             std::fs::write(&icon, png).context("writing the notification icon")?;
         }
         let key = format!(r"Software\Classes\AppUserModelId\{}", crate::icon::APP_ID);
-        crate::protocol::set_string(&key, Some("DisplayName"), "Yapfast")
+        crate::protocol::set_string(&key, Some("DisplayName"), yapfast_lang::PRODUCT)
             .context("registering Yapfast's name")?;
         let icon = icon
             .to_str()
