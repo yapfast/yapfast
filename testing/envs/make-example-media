@@ -10,7 +10,7 @@ mkdir -p "$out"
 avatar() {
   magick -size 128x128 radial-gradient:"$2"-"$3" \
     \( -size 128x128 xc:none -fill 'rgba(255,255,255,0.85)' \
-       -draw 'circle 64,50 64,26' -draw 'ellipse 64,122 42,36 180,360' \) \
+    -draw 'circle 64,50 64,26' -draw 'ellipse 64,122 42,36 180,360' \) \
     -composite -depth 8 -strip -define png:compression-level=9 "$out/$1.png"
 }
 avatar me '#ff8a65' '#d84315'

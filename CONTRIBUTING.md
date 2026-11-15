@@ -7,6 +7,29 @@ don't build the same thing. A small fix can go straight to a pull request.
 
 ## Build and test
 
+### Lint and formatting
+
+Install [prek](https://prek.j178.dev/installation/) 0.5.2 or newer,
+then run the hooks from the repository root:
+
+```sh
+prek run --all-files
+```
+
+The same command runs in CI. Formatters apply changes; inspect them and rerun
+until all hooks pass. For automatic checks of staged files, run
+`prek install`. If you previously installed hooks with pre-commit, replace them
+with `prek install -f`. If you use `core.hooksPath=.githooks`, the existing hook
+calls prek directly instead; no installation is needed.
+
+Tools are pinned in `prek.toml`; prek installs their isolated environments on
+the first run, including Node.js for Prettier. No project Python environment
+or npm install is needed.
+
+See [Code style](docs/code-style.md) for language rules, exclusions and commands.
+
+### Build checks
+
 [Development](docs/development.md) covers running the app, and
 [Architecture](docs/architecture.md) shows where code lives and how a UI change
 flows from `ui/*.slint` to `application/`.
@@ -28,7 +51,7 @@ scripts/check --fast
 scripts/test-fake-discord
 ```
 
-`scripts/check` runs formatting, doc links, Clippy, the tests and a smoke run of
+`scripts/check` runs lint and formatting hooks, doc links, Clippy, the tests and a smoke run of
 the default build. It enters the dev shell when Nix is installed, and uses your
 own tools otherwise. Each compile of the UI crate takes 6–8 GiB of memory, which
 is why its steps run one after another. Add `--matrix` when you change code that
@@ -93,6 +116,18 @@ quality, default to the cheaper setting and put the heavier one behind a switch.
 
 ## Pull requests
 
+Pull requests to `main` run CI directly on Ubuntu, without Nix, using the Rust
+toolchain in `rust-toolchain.toml`. Separate jobs run lint, formatting and doc links,
+and the default workspace build's `cargo check`, strict Clippy and tests.
+`cargo audit --deny warnings` and `cargo machete` are temporarily commented out
+until the dependency findings are addressed in a separate PR.
+CI uses the development profile to avoid
+release optimization costs, while retaining the manifest's optimized noise
+suppression dependencies. Compilation excludes `feature-union`, which is for
+optional Matrix builds. CI also runs on
+pushes to `main` and can be started manually. Run the Matrix and fake Discord
+checks above locally when your change needs them.
+
 - Keep each pull request to one feature or fix, started from `origin/main` after
   `git fetch`.
 - Base every pull request on `main`, including the layers of a stack, since a
@@ -100,7 +135,7 @@ quality, default to the cheaper setting and put the heavier one behind a switch.
   description, say which pull request goes in first.
 - Write commit subjects as Conventional Commits, in the present tense, saying
   what changes for the user: `feat(discord): join and leave threads from their
-  menu`. The body says what it does and why.
+menu`. The body says what it does and why.
 - A change in behavior updates its doc in the same commit. Docs describe how
   things work now; history and measurements go in the commit message.
 - In the description, say what you ran, what you skipped and which systems you

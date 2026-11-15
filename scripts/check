@@ -7,7 +7,7 @@
 # target/check/. The script exits non-zero when any step failed, after running
 # them all.
 set -uo pipefail
-cd "$(dirname "${BASH_SOURCE[0]}")/.."
+cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit
 
 # Without Nix, it uses the tools already installed.
 if [[ -z "${IN_NIX_SHELL:-}" ]] && command -v nix >/dev/null; then
@@ -21,7 +21,10 @@ for argument in "$@"; do
   case $argument in
     --fast) profile=(--profile fast) profile_dir=fast ;;
     --matrix) matrix=1 ;;
-    *) echo "usage: scripts/check [--fast] [--matrix]" >&2; exit 2 ;;
+    *)
+      echo "usage: scripts/check [--fast] [--matrix]" >&2
+      exit 2
+      ;;
   esac
 done
 
@@ -53,8 +56,9 @@ clippy=(cargo clippy --locked "${profile[@]}" --all-targets)
 # feature-union is for the Matrix steps below; with it, the default build would
 # resolve as the full one and compile Slint apart from `cargo build`.
 workspace=(--workspace --exclude feature-union)
-steps=(fmt doc-links clippy test build smoke)
+steps=(lint fmt doc-links clippy test build smoke)
 
+run lint prek run --all-files --show-diff-on-failure
 run fmt cargo fmt --all -- --check
 run doc-links scripts/check-doc-links
 # yapfast-ui is outside the workspace (see Cargo.toml), so Clippy checks it
@@ -81,7 +85,7 @@ fi
 # compile of the UI crate takes several GiB, and two or three at once ran the
 # machine out of memory.
 if [[ $matrix ]]; then
-  full=(--features yapfast/matrix,yapfast-core/matrix)
+  full=(--features 'yapfast/matrix,yapfast-core/matrix')
   run clippy-matrix "${clippy[@]}" --workspace "${full[@]}" -- -D warnings
   run test-matrix cargo test --locked "${profile[@]}" --workspace "${full[@]}"
   run clippy-matrix-only "${clippy[@]}" -p yapfast -p yapfast-core -p feature-union \

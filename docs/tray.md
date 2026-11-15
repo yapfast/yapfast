@@ -68,7 +68,7 @@ registry and starts no process.
   `Software\Classes\discord` command. The one there before is kept, in its
   own registry type, under `Software\Yapfast\DiscordProtocol`. The installer
   registers only `yapfast://`; uninstalling runs `yapfast.exe
-  --release-discord-links`, which gives `discord://` back, and removes the key.
+--release-discord-links`, which gives `discord://` back, and removes the key.
 - **Linux**: the switch is the person's own `mimeapps.list`, in
   `$XDG_CONFIG_HOME` or `~/.config`, and it's on while its
   `[Default Applications]` name Yapfast's entry first for

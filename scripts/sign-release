@@ -16,15 +16,19 @@ if [[ $tag != v* || $tag == *-nightly.* ]]; then
   exit 2
 fi
 sums=$dir/SHA256SUMS.txt
-[[ -f $sums ]] || { echo "scripts/sign-release: no $sums" >&2; exit 2; }
+[[ -f $sums ]] || {
+  echo "scripts/sign-release: no $sums" >&2
+  exit 2
+}
 minisign() {
-  if type -P minisign > /dev/null; then command minisign "$@"
+  if type -P minisign >/dev/null; then
+    command minisign "$@"
   else nix shell nixpkgs#minisign -c minisign "$@"; fi
 }
 comment="yapfast $tag SHA256SUMS.txt"
 minisign -S -s "$key" -m "$sums" -t "$comment" -c "Yapfast $tag"
 for public in packaging/keys/stable.pub packaging/keys/stable-backup.pub; do
-  if [[ $(minisign -V -p "$public" -m "$sums" -Q 2> /dev/null) == "$comment" ]]; then
+  if [[ $(minisign -V -p "$public" -m "$sums" -Q 2>/dev/null) == "$comment" ]]; then
     echo "Signed $sums for $tag, checked with $public."
     exit 0
   fi

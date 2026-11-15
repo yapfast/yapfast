@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # A single Slint UI compilation can use 6–8 GiB of memory.
+  CARGO_BUILD_JOBS: 2
+
+jobs:
+  formatting:
+    name: Lint, formatting and documentation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: j178/prek-action@e255e0dfb748c18fd93df34c3eb853e9a999c6aa # v3.1.0
+        with:
+          prek-version: "0.5.2"
+      # rustup reads the pinned version and components from rust-toolchain.toml.
+      - run: cargo fmt --all -- --check
+      - run: python3 scripts/check-doc-links
+
+  # TODO: Re-enable after dependency audit and unused-dependency fixes.
+  #   dependencies:
+  #     name: Dependencies (${{ matrix.tool }})
+  #     runs-on: ubuntu-latest
+  #     timeout-minutes: 15
+  #     strategy:
+  #       fail-fast: false
+  #       matrix:
+  #         tool: [cargo-audit, cargo-machete]
+  #     steps:
+  #       - uses: actions/checkout@v7.0.1
+  #         with:
+  #           persist-credentials: false
+  #       - uses: taiki-e/install-action@v2
+  #         with:
+  #           tool: ${{ matrix.tool }}
+  #       - name: Audit dependencies (deny all warnings)
+  #         if: matrix.tool == 'cargo-audit'
+  #         run: cargo audit --deny warnings
+  #       - name: Find unused dependencies
+  #         if: matrix.tool == 'cargo-machete'
+  #         run: cargo machete
+
+  linux:
+    name: Check, Clippy and tests
+    needs: formatting
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      CC: clang-18
+      CXX: clang++-18
+      LIBCLANG_PATH: /usr/lib/llvm-18/lib
+    steps:
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-18 libclang-18-dev llvm-18 cmake ninja-build nasm \
+            pkg-config protobuf-compiler python3 libasound2-dev libpulse-dev \
+            libfontconfig1-dev libfreetype6-dev libglib2.0-dev libxkbcommon-dev \
+            libxkbcommon-x11-dev libssl-dev libwayland-dev libgl1-mesa-dev \
+            libx11-dev libxcursor-dev libxi-dev libxrandr-dev libxcb1-dev \
+            libpipewire-0.3-dev libdrm-dev libgbm-dev libxfixes-dev \
+            libxdamage-dev libxcomposite-dev libxext-dev
+      - uses: Swatinem/rust-cache@v2.9.3
+        with:
+          shared-key: ci-linux
+          # GitHub scopes PR caches to that PR; retries can reuse dependencies
+          # even before the first successful build on main.
+          cache-on-failure: true
+      # feature-union is only for coordinating the optional Matrix builds.
+      # Keep these sequential to reuse artifacts and bound peak memory use.
+      - name: Cargo check
+        run: cargo check --locked --workspace --exclude feature-union --all-targets
+      - name: Cargo Clippy
+        run: cargo clippy --locked --workspace --exclude feature-union --all-targets -- -D warnings
+      - name: Cargo test
+        run: cargo test --locked --workspace --exclude feature-union

@@ -51,11 +51,11 @@ source=(
 noextract=("$_skia")
 # The tag's commit holds this file, so it can't hold its own checksum; git checks the objects.
 sha256sums=('SKIP'
-            'dce9d9414cd8e2cc9a471c054481851b257ad2a879112ce5be56369b4fefdaed'
-            'd5ea4666b67f4ff74a2c9dccf9cbb069fc991552caa9ed26fd4379572ddfe3b1')
+  'dce9d9414cd8e2cc9a471c054481851b257ad2a879112ce5be56369b4fefdaed'
+  'd5ea4666b67f4ff74a2c9dccf9cbb069fc991552caa9ed26fd4379572ddfe3b1')
 
 prepare() {
-  cd "$pkgname"
+  cd "$pkgname" || return
   export RUSTUP_TOOLCHAIN=stable CARGO_HOME="$srcdir/.cargo"
   cargo fetch --locked --target host-tuple
   # The Skia archive with its JPEG table renamed, as nix/native.nix prepares it.
@@ -65,7 +65,7 @@ prepare() {
 }
 
 build() {
-  cd "$pkgname"
+  cd "$pkgname" || return
   export RUSTUP_TOOLCHAIN=stable CARGO_HOME="$srcdir/.cargo" CARGO_TARGET_DIR=target
   export CC=clang CXX=clang++ PROTOC=/usr/bin/protoc
   # This is the release's own build, not a development build (src/build_info.rs).
@@ -104,7 +104,7 @@ build() {
 # No check(): upstream's tests need a display and its fake Discord server (nix/package.nix).
 
 package() {
-  cd "$pkgname"
+  cd "$pkgname" || return
   install -Dm755 target/release/yapfast -t "$pkgdir/usr/bin"
   install -Dm644 packaging/icon.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/$_id.svg"
   install -Dm644 "packaging/linux/$_id.desktop" -t "$pkgdir/usr/share/applications"
