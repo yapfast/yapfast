@@ -1348,6 +1348,11 @@ impl Package {
                 package.notes.push(note);
             }
         }
+        // Notes quote the theme's own names: shown as Yapfast's words only
+        // once they're on one line and short.
+        for note in &mut package.notes {
+            *note = super::shown(note);
+        }
         Ok(package)
     }
 

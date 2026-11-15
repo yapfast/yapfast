@@ -39,6 +39,22 @@ pub const INSTALLED: &str = "installed:";
 /// How long Try shows a theme before going back.
 const TRIAL: u64 = 30;
 
+/// A theme's notes as its card and review show them: the first eight, then
+/// how many more, so a theme can't push Yapfast's own words away.
+fn review_notes(notes: &[String]) -> String {
+    const MOST: usize = 8;
+    let mut text = notes
+        .iter()
+        .take(MOST)
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join("\n");
+    if notes.len() > MOST {
+        text.push_str(&format!("\nand {} more", notes.len() - MOST));
+    }
+    text
+}
+
 /// Settings → Themes' section number, which `SettingsSections` names.
 pub fn themes_section(window: &YapfastWindow) -> i32 {
     window.global::<yapfast_ui::SettingsSections>().get_themes()
@@ -2592,7 +2608,7 @@ fn listing_of(
         applied,
         reviewed: false,
         previous: previous.unwrap_or_default().into(),
-        notes: package.notes.join("\n").into(),
+        notes: review_notes(&package.notes).into(),
         based_on: package.based_on.clone().unwrap_or_default().into(),
     }
 }
@@ -2772,7 +2788,7 @@ fn show_review(window: &YapfastWindow, fetched: Fetched) {
         commit: fetched.rev.chars().take(7).collect::<String>().into(),
         modes: modes_text(&package).into(),
         cost: fetched.report.cost.text().into(),
-        notes: package.notes.join("\n").into(),
+        notes: review_notes(&package.notes).into(),
         based_on: package.based_on.clone().unwrap_or_default().into(),
         previews: ModelRc::new(VecModel::from(previews)),
         notification_sounds: slots.iter().any(|slot| !slot.interface()),

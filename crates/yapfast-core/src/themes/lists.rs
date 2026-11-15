@@ -280,13 +280,13 @@ impl ChannelRows {
             parts.push("selected underline".into());
         }
         if !self.selected.prefix.is_empty() {
-            parts.push(format!("selected prefix {}", self.selected.prefix));
+            parts.push("selected prefix".into());
         }
         if !self.meta.voice.is_empty() {
-            parts.push(format!("voice \"{}\"", self.meta.voice));
+            parts.push("custom voice counts".into());
         }
         if !self.headers.text.is_empty() {
-            parts.push(format!("headings \"{}\"", self.headers.text));
+            parts.push("custom headings".into());
         }
         if let Some(rule) = self.server_rule {
             parts.push(format!(
@@ -340,7 +340,7 @@ impl MemberRows {
             parts.push("online badges".into());
         }
         if !self.headers.text.is_empty() {
-            parts.push(format!("headings \"{}\"", self.headers.text));
+            parts.push("custom headings".into());
         }
         format!(
             "member rows: {}",
@@ -745,8 +745,10 @@ fn text(value: &Value, place: &str, most: usize) -> Result<String, Error> {
     let text = value
         .as_str()
         .ok_or_else(|| Error(format!("\"{place}\" is text")))?;
-    if text.chars().count() > most {
-        return Err(Error(format!("\"{place}\" is at most {most} characters")));
+    if text.chars().count() > most || text.chars().any(super::refused_char) {
+        return Err(Error(format!(
+            "\"{place}\" is plain text, at most {most} characters, on one line"
+        )));
     }
     Ok(text.to_owned())
 }
@@ -996,7 +998,16 @@ fn read_headers(value: &Value, place: &str, notes: &mut Vec<String>) -> Result<H
             "size" => headers.size = Some(number(value, &here, (9.0, 28.0))?),
             "weight" => headers.weight = Some(number(value, &here, (100.0, 900.0))?),
             "case" => headers.case = Some(case(value, &here)?),
-            "text" => headers.text = text(value, &here, 40)?,
+            "text" => {
+                headers.text = text(value, &here, 40)?;
+                // A heading shows its group's name, so it can't pass for
+                // other words.
+                if !headers.text.contains("{name}") && !headers.text.contains("{role}") {
+                    return Err(Error(format!(
+                        "\"{here}\" has to show {{name}} or {{role}}"
+                    )));
+                }
+            }
             "style" => headers.style = named(value, &here, HeaderStyle::ALL, HeaderStyle::name)?,
             "height" => headers.height = Some(number(value, &here, (24.0, 56.0))?),
             "colour" => headers.colour = Some(colour_at(value, &here)?),

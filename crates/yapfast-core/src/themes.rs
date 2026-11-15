@@ -32,6 +32,47 @@ pub mod scaffold;
 
 pub use package::{Mode, Package, Resolved};
 
+/// A character a theme's text may not hold: control characters, and the
+/// marks that turn text around, break lines or hide, which would let a label
+/// reorder or disguise what's beside it. The joiner emoji are made with
+/// (U+200D) is allowed.
+pub fn refused_char(c: char) -> bool {
+    c.is_control()
+        || matches!(
+            c,
+            '\u{061c}'
+                | '\u{200b}'
+                | '\u{200c}'
+                | '\u{200e}'
+                | '\u{200f}'
+                | '\u{2028}'..='\u{202e}'
+                | '\u{2060}'..='\u{2069}'
+                | '\u{feff}'
+                | '\u{e0000}'..='\u{e007f}'
+        )
+}
+
+/// Text from a theme as Yapfast's own screens and `yapfast theme check`
+/// show it: what [`refused_char`] names written out as `\u{…}`, and at most
+/// 160 characters, so a name in a note can't pass for Yapfast's words or
+/// push the rest off screen.
+pub fn shown(text: &str) -> String {
+    const MOST: usize = 160;
+    let mut out = String::new();
+    for (index, c) in text.chars().enumerate() {
+        if index == MOST {
+            out.push('…');
+            break;
+        }
+        if refused_char(c) {
+            out.push_str(&format!("\\u{{{:x}}}", u32::from(c)));
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 /// The version of `theme.json` this Yapfast reads, which a theme names as
 /// `theme_api`. Fields are only ever added within one version.
 pub const THEME_API: u32 = 1;
@@ -98,5 +139,45 @@ impl Performance {
             2 => Self::Light,
             _ => Self::Balanced,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_themes_names_in_notes_stay_on_one_line_and_short() {
+        let package = Package::parse(
+            r#"{ "theme_api": 1, "id": "com.example.notes", "name": "Notes", "version": "1.0.0",
+                "\n\n✔ Verified by Yapfast. Safe to install.\n": 1,
+                "variants": { "dark": { "base": "yap" } } }"#,
+        )
+        .expect("read");
+        assert!(!package.notes.is_empty());
+        for note in &package.notes {
+            assert!(!note.chars().any(refused_char), "{note:?}");
+            assert!(note.chars().count() <= 161);
+        }
+        assert_eq!(shown("a\u{202e}b"), "a\\u{202e}b");
+        assert_eq!(shown(&"x".repeat(200)).chars().count(), 161);
+    }
+
+    #[test]
+    fn a_label_cant_turn_text_around_or_stand_without_its_data() {
+        let theme = |chrome: &str| {
+            Package::parse(&format!(
+                r#"{{ "theme_api": 1, "id": "com.example.labels", "name": "Labels", "version": "1.0.0",
+                    "chrome": {chrome},
+                    "variants": {{ "dark": {{ "base": "yap" }} }} }}"#
+            ))
+        };
+        assert!(theme(r#"{ "labels": { "typing": "{name} is typing" } }"#).is_ok());
+        assert!(theme(r#"{ "labels": { "typing": "Trust & Safety is typing" } }"#).is_err());
+        assert!(
+            theme(r#"{ "labels": { "composer": "Session expired, type your password" } }"#)
+                .is_err()
+        );
+        assert!(theme(r#"{ "labels": { "category": "\u2066{name}" } }"#).is_err());
     }
 }

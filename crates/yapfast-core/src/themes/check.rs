@@ -194,13 +194,13 @@ impl Report {
             ));
         }
         for error in &self.errors {
-            out.push_str(&format!("error: {error}\n"));
+            out.push_str(&format!("error: {}\n", super::shown(error)));
         }
         for warning in &self.warnings {
-            out.push_str(&format!("warning: {warning}\n"));
+            out.push_str(&format!("warning: {}\n", super::shown(warning)));
         }
         for note in &self.notes {
-            out.push_str(&format!("note: {note}\n"));
+            out.push_str(&format!("note: {}\n", super::shown(note)));
         }
         out.push_str(&format!("cost: {}\n", self.cost.text()));
         out.push_str(if self.passed() {
@@ -424,7 +424,7 @@ impl Cost {
         cost.fonts = fonts.len();
         cost.memory += art_memory + cursor_memory;
         for variant in resolved {
-            for look in looks(variant) {
+            for look in looks(variant).iter().map(|look| super::shown(look)) {
                 if !cost.looks.contains(&look) {
                     cost.looks.push(look);
                 }
@@ -2719,7 +2719,7 @@ mod lists_summary {
         assert!(
             lines
                 .iter()
-                .any(|line| line == "channel rows: 40 px, voice \"voice · {n}\""),
+                .any(|line| line == "channel rows: 40 px, custom voice counts"),
             "{lines:?}"
         );
         assert!(

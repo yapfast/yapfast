@@ -105,6 +105,15 @@ impl Label {
             Self::New | Self::RailTitle | Self::RailHome => &[],
         }
     }
+
+    /// It stands where Yapfast shows people's words or a place's name, so it
+    /// has to use one of its placeholders.
+    pub fn stands_for_data(self) -> bool {
+        matches!(
+            self,
+            Self::MembersGroup | Self::Category | Self::Composer | Self::Typing | Self::Topic
+        )
+    }
 }
 
 closed! {
@@ -633,8 +642,7 @@ fn plain(value: &Value, place: &str, most: usize) -> Result<String, Error> {
     let text = value
         .as_str()
         .ok_or_else(|| Error(format!("\"{place}\" has to be text")))?;
-    let turning = |c: char| matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}');
-    if text.chars().count() > most || text.chars().any(|c| c.is_control() || turning(c)) {
+    if text.chars().count() > most || text.chars().any(super::refused_char) {
         return Err(Error(format!(
             "\"{place}\" is plain text, at most {most} characters, on one line"
         )));
@@ -830,6 +838,24 @@ pub(super) fn read_chrome(
                     };
                     let text = plain(value, &at, MAX_LABEL)?;
                     placeholders(&text, &at, label.placeholders())?;
+                    // A label that stands for people's words or a place's
+                    // name has to show them, so it can't pass for Yapfast's.
+                    if label.stands_for_data()
+                        && !label
+                            .placeholders()
+                            .iter()
+                            .any(|name| text.contains(&format!("{{{name}}}")))
+                    {
+                        return Err(Error(format!(
+                            "\"{at}\" has to show {}",
+                            label
+                                .placeholders()
+                                .iter()
+                                .map(|name| format!("{{{name}}}"))
+                                .collect::<Vec<_>>()
+                                .join(" or ")
+                        )));
+                    }
                     chrome.labels.insert(label, text);
                 }
             }

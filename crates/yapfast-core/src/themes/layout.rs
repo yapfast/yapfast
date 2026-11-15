@@ -1023,9 +1023,9 @@ fn short(value: &Value, place: &str, most: usize) -> Result<String, Error> {
     let text = value
         .as_str()
         .ok_or_else(|| Error(format!("\"{place}\" has to be text")))?;
-    if text.chars().count() > most || text.chars().any(char::is_control) {
+    if text.chars().count() > most || text.chars().any(super::refused_char) {
         return Err(Error(format!(
-            "\"{place}\" is at most {most} characters, on one line"
+            "\"{place}\" is plain text, at most {most} characters, on one line"
         )));
     }
     Ok(text.to_owned())

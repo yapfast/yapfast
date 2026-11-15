@@ -1714,9 +1714,14 @@ allowed): duotone pictures, square avatars, …`.
 **Chrome** (`chrome`): the fixed words and small marks around the window,
 so a theme can read as a terminal, a ledger or a zine. It is plain text
 from closed lists: nothing is read as markup, labels are at most 48
-characters on one line (no control characters or marks that turn text
-around), and a label takes only the placeholders listed for it; any other
-`{word}` refuses the theme. Screen readers keep hearing the stock names and
+characters on one line (no control characters, marks that turn text
+around, line separators, or zero-width or tag characters; the same holds
+for every text a theme sets), and a label takes only the placeholders
+listed for it; any other `{word}` refuses the theme. A label that stands
+where people's words or a place's name go (`typing`, `composer`, `topic`,
+`category`, `members_group`) has to use one of its placeholders, and a
+list's `headers.text` has to show `{name}` or `{role}`, so a theme can't
+put words of its own in their place. Screen readers keep hearing the stock names and
 labels, and every row keeps its keyboard focus, menu and truncation (a long
 name ends in an ellipsis). Text runs in the reader's direction, right to
 left included.
