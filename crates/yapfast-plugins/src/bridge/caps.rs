@@ -69,8 +69,8 @@ pub(super) fn app_capability(call: &AppCall) -> Option<Capability> {
 
 /// Whether a call stands behind a person's own gesture.
 ///
-/// §9.1: opening a room, starting a reply, starting an edit and writing into
-/// the composer need no capability, and they do need a click of the person's
+/// §9.1: opening a room, jumping to a message, starting a reply, starting an
+/// edit and writing into the composer need no capability, and they do need a click of the person's
 /// behind them: a plugin must not move the window or put text in front of
 /// someone who is not there. So does handing a URL to the system, because that
 /// is the one call that can start another program.
@@ -78,9 +78,11 @@ pub(super) fn needs_gesture(call: &AppCall) -> bool {
     matches!(
         call,
         AppCall::OpenRoom { .. }
+            | AppCall::JumpTo { .. }
             | AppCall::StartReply { .. }
             | AppCall::StartEdit { .. }
             | AppCall::Insert { .. }
+            | AppCall::SetDraft { .. }
             | AppCall::Open { .. }
     )
 }

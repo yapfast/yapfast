@@ -113,19 +113,20 @@ turn of a window. The refusal says how long to wait, and that is the whole rate
 limit a plugin meets: it never argues with Discord's own buckets, because it
 never talks to Discord.
 
-A send counts as the person's while it follows something they did. A command
-typed in the composer, a menu row chosen or a button pressed records that the
-person asked the plugin for something, and for five seconds after that
-`messages.send` alone covers what the plugin sends. Past five seconds, or with no
-gesture at all, the send is the plugin acting on its own and needs
-`messages.send.background`.
+A send counts as the person's while it follows something they did. Typing in
+the composer, sending, or using something a plugin drew records a gesture, and
+for 30 seconds after that `messages.send` alone covers what a plugin sends.
+Past 30 seconds, or with no gesture at all, the send is the plugin acting on its
+own and needs `messages.send.background`. The gesture is the window's, not one
+plugin's: any enabled plugin may act behind it.
 
 ## What each call needs
 
 | Call | Capability |
 | --- | --- |
-| `messages.send`, `edit`, `delete`, `react` | `messages.send`; a send without a recent gesture also needs `messages.send.background` |
-| `messages.jump_to`, `composer.*` | none: navigation and the person's own composer |
+| `messages.send`, `edit`, `delete`, `react` | `messages.send`; without a recent gesture any of them also needs `messages.send.background`, and together they share the limit of five in ten seconds |
+| `composer.get_draft` | none: the person's own composer |
+| `messages.jump_to`, `composer.set_draft`, `composer.insert` | none, and a recent user gesture: without one they answer `denied` |
 | `notify.send` | `notifications` |
 | `clipboard.write` | `clipboard.write` |
 | `open.url` | `open.app` |

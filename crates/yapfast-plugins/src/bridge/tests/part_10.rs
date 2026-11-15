@@ -144,6 +144,38 @@ fn a_send_without_a_gesture_names_the_capability_it_needs() {
 }
 
 #[test]
+fn a_delete_without_a_gesture_is_held_to_the_send_rails() {
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    let plugin = installed(directory.path(), SENDER_MANIFEST, b"not a real module");
+    let (wake, notices) = notice_channel();
+    let shared = shared(directory.path(), wake);
+    let (_session_directory, mut session, written, _inbound) = session_stub();
+
+    // `messages.send` alone once let a plugin delete or react in the
+    // background, with no rate limit: everything a moderator can reach.
+    let call = HostCall::new(
+        call::method::MESSAGES_DELETE,
+        yapfast_plugin_api::call::MessageRef {
+            room: "room-1".to_owned(),
+            message: "message-1".to_owned(),
+        },
+    )
+    .expect("a call payload");
+    runtime().block_on(async { session.on_call(&shared, 9, plugin, call) });
+
+    let (id, answer) = returned(&next_frame(&written));
+    assert_eq!(id, 9);
+    let HostReturn::Denied { reason } = answer else {
+        panic!("a delete nobody asked for is refused: {answer:?}");
+    };
+    assert!(reason.contains("messages.send.background"), "{reason}");
+    assert!(
+        notices.recv_timeout(Duration::from_millis(50)).is_err(),
+        "nothing is deleted"
+    );
+}
+
+#[test]
 fn a_send_the_person_just_acted_for_goes_to_the_application() {
     let directory = tempfile::tempdir().expect("a temporary directory");
     let plugin = installed(directory.path(), SENDER_MANIFEST, b"not a real module");

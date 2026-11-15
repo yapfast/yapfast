@@ -206,12 +206,23 @@ impl Session {
         }
         // §9.1's guard rails for sending: a person's action behind it, or the
         // capability that says the plugin sends on its own, and five sends in
-        // any ten seconds either way.
-        if matches!(app, AppCall::Send { .. }) {
+        // any ten seconds either way. Editing, deleting and reacting act as
+        // the person under the same `messages.send`, so they share the rails:
+        // without them a plugin could delete every message a moderator can
+        // reach, or react in a loop, with nobody at the keyboard.
+        if matches!(
+            app,
+            AppCall::Send { .. }
+                | AppCall::Edit { .. }
+                | AppCall::Delete { .. }
+                | AppCall::React { .. }
+        ) {
             if !shared.has_gesture() && !permissions.allows(Capability::MessagesSendBackground) {
                 return Some(HostReturn::Denied {
                     reason: format!(
-                        "{plugin} wants to send without you doing anything: that needs                          `messages.send.background`, and automated sending can get a Discord                          account banned"
+                        "{plugin} wants to send without you doing anything: that needs \
+                         `messages.send.background`, and automated sending can get a Discord \
+                         account banned"
                     ),
                 });
             }
