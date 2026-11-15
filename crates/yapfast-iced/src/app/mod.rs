@@ -15,7 +15,6 @@ use crate::{
     after,
     client::Client,
     field::Draft,
-    fonts,
     looks::MemberLine,
     menus::Menu,
     mfa,
@@ -621,10 +620,7 @@ impl App {
                 self.modifiers = modifiers;
                 Task::none()
             }
-            Message::FontsWanted => {
-                fonts::load_wanted();
-                Task::none()
-            }
+            Message::FontsLoaded => Task::none(),
             Message::PointReaction(item, key, entered) => self.point_reaction(item, key, entered),
             Message::ReactionDue(item, key) => {
                 if self

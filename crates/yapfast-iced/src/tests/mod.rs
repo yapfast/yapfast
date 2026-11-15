@@ -39,8 +39,7 @@ fn preview() -> (App, tempfile::TempDir) {
 /// The window on `folder`'s data: the preview, or else the sign-in screen
 /// of a Yapfast that has no account yet.
 fn start(folder: &tempfile::TempDir, preview: bool) -> App {
-    static FONTS: Once = Once::new();
-    FONTS.call_once(|| fonts::install(twemoji()));
+    install_fonts();
     let runtime = Arc::new(BackgroundRuntime::new().expect("runtime"));
     let mut client = Client::new(runtime, folder.path().into());
     if preview {
@@ -50,6 +49,12 @@ fn start(folder: &tempfile::TempDir, preview: bool) -> App {
     // As the window opens.
     app.shell.window = Some(iced::window::Id::unique());
     app
+}
+
+/// The window's fonts, once per test run.
+pub(crate) fn install_fonts() {
+    static FONTS: Once = Once::new();
+    FONTS.call_once(|| fonts::install(twemoji()));
 }
 
 /// The Twemoji font for the tests that draw or offer emoji, made from

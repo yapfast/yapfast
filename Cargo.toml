@@ -208,6 +208,9 @@ const_panic = { git = "https://github.com/jplatte/const_panic", rev = "e0b317a9a
 # iced 0.14's renderers with the iced front end's patches; see docs/building.md.
 iced_tiny_skia = { path = "vendor/iced_tiny_skia" }
 iced_wgpu = { path = "vendor/iced_wgpu" }
+# cosmic-text with a hook for characters no loaded font has; see
+# vendor/cosmic-text/README.yapfast.md.
+cosmic-text = { path = "vendor/cosmic-text" }
 
 # The crates of that commit reach these two by path, so they're patched there too.
 [patch."https://github.com/slint-ui/slint"]

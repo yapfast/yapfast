@@ -259,6 +259,9 @@ dependency in Cargo.toml:
 - `iced_wgpu`: iced 0.14's GPU renderer, 0.14.0: round image corners where
   the quad shader puts them, each corner's own radius, and pictures up to 4K
   uploaded in the frame that draws them, so a stream's frames show.
+- `cosmic-text`: cosmic-text 0.15.0, the iced client's text shaper, telling
+  the client which characters no loaded font has, so it can load a system
+  font that covers them.
 
 `vendor/x264-src` isn't a patched crate but x264's own C source, unchanged and
 trimmed to what an 8-bit encoder library uses, with a build script in place of

@@ -1269,9 +1269,27 @@ what costs is kept out of the view:
   activity's time, an invite's countdown) `LiveText`s that read their
   text so, each drawn again on a timer of its own while it shows; neither
   sends a message, so no view is built for them.
-- Fonts: DM Sans and its italic, the packed Twemoji (the root `build.rs` makes it for this
-  build too), the display-name fonts on first use, and for other scripts a
-  system font loaded the first time a script is shaped (`fonts.rs`).
+- Fonts (`fonts.rs`): DM Sans and its italic, the packed Twemoji (the root
+  `build.rs` makes it for this build too), the system's monospace face for
+  code, and the display-name fonts on first use. DM Sans then Twemoji are
+  the fallbacks every text tries. A script DM Sans lacks loads the system's
+  font for its language (fontconfig's `:lang=`, on Windows a table of the
+  fonts it ships) the first time a script is shaped. A character none of
+  those has, whatever its script (𝔟, ⓒ, ⠃, ᐊ, z̷), is handed over by the
+  shaper (`vendor/cosmic-text` patch 1); the system's font for that
+  character (fontconfig's `:charset=`, on Windows the first of a list of
+  symbol and script fonts whose character map has it) is loaded once and
+  named for that character from then on, as Skia does for the Slint
+  client, and a face already chosen for a character in the same block of
+  128 code points is used when it has it. Each character is looked up
+  once, found or not. The lookups and loads run on a blocking thread
+  (`wakes`), the font system's version moves so iced shapes text again,
+  and `Message::FontsLoaded` lays the window out again. Fallback faces are
+  mapped from their files and kept upright and italic at any weight: the
+  shaper takes a family's face at the weight nearest the text's (patch 2),
+  so semibold names take DM Sans and Twemoji as regular text does.
+  Elided text (`elide.rs`) clips across only, so marks above and below the
+  line show.
 - Video (`video.rs`, `call/`): cameras' frames are made in the client's
   own memory (`picture::set_frame_buffers`) at their tile's size, and a
   watched stream's frames come from the stream worker's shared mapping.
@@ -1557,6 +1575,12 @@ it's on screen, put quads on whole pixels at such a zoom, and
 keep one scaler context for every glyph, so fonts' hinting is set up once
 rather than for each text drawn; the wgpu ones fix two shader mistakes
 and upload large pictures in the frame.
+
+`vendor/cosmic-text` is the text shaper iced uses, cosmic-text 0.15.0,
+patched in the same way with its own `README.yapfast.md`: the shaper hands
+the client each cluster its default, script and common fallbacks can't draw
+and tries the families the client names for it next, and those fallbacks
+match a family's face at the weight nearest the text's.
 
 ## Tests
 

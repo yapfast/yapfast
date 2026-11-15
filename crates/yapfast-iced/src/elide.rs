@@ -255,11 +255,18 @@ impl Widget<Message, Theme, Renderer> for Elide<'_> {
         } else {
             bounds.x
         };
+        // Clipped across to its width only: marks above or below the line
+        // (Tibetan vowels, stacked accents) show, as the Slint client's do.
+        let across = Rectangle {
+            y: viewport.y,
+            height: viewport.height,
+            ..bounds
+        };
         renderer.fill_paragraph(
             &state.shown,
             iced::Point::new(x, bounds.y),
             self.color,
-            bounds.intersection(viewport).unwrap_or(bounds),
+            across.intersection(viewport).unwrap_or(bounds),
         );
     }
 

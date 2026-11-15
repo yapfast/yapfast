@@ -103,8 +103,9 @@ pub enum Message {
     Pressed(keyboard::Key, keyboard::Modifiers, keyboard::key::Physical),
     /// Shift, Ctrl, Alt or the logo key went down or up.
     Modifiers(keyboard::Modifiers),
-    /// Scripts are waiting for a fallback font (`fonts::load_wanted`).
-    FontsWanted,
+    /// Fallback fonts the shaper wanted are in (`fonts::load_wanted`): the
+    /// view is built and its text laid out again.
+    FontsLoaded,
     /// The pointer came onto a reaction chip or left it, and its tooltip
     /// fell due.
     PointReaction(String, String, bool),

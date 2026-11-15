@@ -26,7 +26,7 @@ impl App {
             keyboard::Event::ModifiersChanged(modifiers) => Some(Message::Modifiers(modifiers)),
             _ => None,
         });
-        let fonts = Subscription::run(fonts::wakes).map(|()| Message::FontsWanted);
+        let fonts = Subscription::run(fonts::wakes).map(|()| Message::FontsLoaded);
         let drops = iced::event::listen_with(|event, _, _| match event {
             iced::Event::Window(event) => crate::uploads::drops(&event),
             _ => None,

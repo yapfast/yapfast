@@ -42,6 +42,9 @@ iced_tiny_skia = { version = "=0.14.1", optional = true }
 bytes = "1.10"
 # The type of cosmic-text's `Fallback::script_fallback` argument.
 unicode-script = "0.5.5"
+# A fallback font's character map, read where fontdb maps the file; the
+# version fontdb already builds.
+ttf-parser = { version = "0.25", default-features = false, features = ["std"] }
 # The Slint client's icons from ui/icons, drawn once per size and colour;
 # the version yapfast-core already builds. Without its default features it
 # has no text, so it makes no font database.
