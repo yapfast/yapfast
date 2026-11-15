@@ -202,6 +202,8 @@ struct Applied {
     /// `installed:<id>`, or `dev` for `--theme-dev`.
     id: String,
     name: String,
+    /// The variant shown.
+    mode: Mode,
     resolved: Resolved,
     /// The theme's folder, which its pictures are read from.
     folder: PathBuf,
@@ -622,6 +624,29 @@ fn fingerprint(folder: &Path) -> Vec<(PathBuf, u64, Option<SystemTime>)> {
     print
 }
 
+/// Whether the shown theme `id` would show another variant now, as after
+/// the system switched light and dark.
+pub fn variant_changed(window: &YapfastWindow, id: &str) -> bool {
+    let wanted = wanted_for(window, id);
+    STATE.with_borrow(|state| {
+        let Some(applied) = state.applied.as_ref().filter(|applied| applied.id == id) else {
+            return false;
+        };
+        let package = if id == "dev" || created_folder(id).is_some() {
+            None
+        } else {
+            let installed = id.strip_prefix(INSTALLED).unwrap_or(id);
+            state
+                .installed
+                .iter()
+                .find(|theme| theme.id == installed)
+                .map(|theme| &theme.package)
+        };
+        // A folder of the person's own is read again whatever it holds.
+        package.is_none_or(|package| package.mode_for(wanted) != applied.mode)
+    })
+}
+
 /// Lets go of what [`prepare`] made that nobody will show.
 pub fn drop_ready() {
     STATE.with_borrow_mut(|state| state.ready = None);
@@ -895,18 +920,19 @@ fn apply_package(
 ) -> Result<theme::Theme, String> {
     let started = Instant::now();
     let checked = ready.is_some();
-    let (resolved, prepared) = match ready {
+    let (mode, resolved, prepared) = match ready {
         Some(ready) => {
             super::theme_media::seed_sounds(ready.sounds);
             super::theme_art::take_baked(ready.art);
             if let Some(emoji) = ready.emoji {
                 crate::emoji_text::take_prepared(emoji);
             }
-            (ready.resolved, ready.fonts)
+            (ready.mode, ready.resolved, ready.fonts)
         }
         None => {
             let mode = package.mode_for(wanted_for(window, id));
             (
+                mode,
                 package
                     .resolve_with(mode, &choices_of(id))
                     .map_err(|error| error.0)?,
@@ -949,6 +975,7 @@ fn apply_package(
         state.applied = Some(Applied {
             id: id.to_owned(),
             name: package.name.clone(),
+            mode,
             resolved,
             folder: folder.to_owned(),
             fonts,

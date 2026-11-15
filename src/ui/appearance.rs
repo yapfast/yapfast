@@ -180,9 +180,15 @@ impl Adapter {
         else {
             return;
         };
-        if let Ok(colours) = theme_look::show(window, &id) {
-            self.set_theme(window, &colours);
+        // A theme with one variant, or one pinned light or dark, stays as it
+        // is; another variant is made ready off the UI thread first.
+        if !theme_look::variant_changed(window, &id) {
+            return;
         }
+        let again = SharedString::from(id.as_str());
+        theme_look::prepare(window, &id, move |window| {
+            window.global::<ThemeOptions>().invoke_reshow(again);
+        });
     }
 
     /// Refreshes the Themes tab and Appearance's cards after the installed
