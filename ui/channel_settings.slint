@@ -2,7 +2,10 @@
 // do: Overview, its name and a text channel's topic, slowmode and age
 // restriction; and Permissions, its overwrites, each permission allowed,
 // denied or left to the roles for a role or member.
-import { Theme, Middle, Label, Tip } from "theme.slint";
+import { IconPack } from "media.slint";
+import { Theme, Middle, Label, Tip, Look } from "theme.slint";
+import { Art, ArtLayer } from "theme_art.slint";
+import { DialogFrame } from "theme_layout.slint";
 import { ActionButton, Avatar, IconButton, TextField } from "controls.slint";
 import { SettingsCard, SettingsFrame, SettingsRow, SettingsTitle, SettingsHeading, SettingsSwitch, UnsavedBar } from "settings.slint";
 import { ListView } from "scrollview.slint";
@@ -81,21 +84,21 @@ component ThreeState inherits Rectangle {
     in property <bool> enabled;
     in property <string> title;
     callback chose(int);
-    width: 108px; height: 28px; border-radius: 6px;
-    border-width: 1px; border-color: Theme.line;
+    width: 108px; height: 28px; border-radius: Look.radius(6px);
+    border-width: Look.line(1px); border-color: Theme.line;
     HorizontalLayout {
         for choice[index] in [
-            { icon: @image-url("icons/x.svg"), label: "Deny", fill: Theme.danger },
-            { icon: @image-url("icons/slash.svg"), label: "Passthrough", fill: Theme.faint },
-            { icon: @image-url("icons/check.svg"), label: "Allow", fill: Theme.live },
+            { icon: IconPack.x, label: "Deny", fill: Theme.danger },
+            { icon: IconPack.slash, label: "Passthrough", fill: Theme.faint },
+            { icon: IconPack.check, label: "Allow", fill: Theme.live },
         ]: Rectangle {
-            border-radius: 5px;
+            border-radius: Look.radius(5px);
             background: root.state == index ? choice.fill : area.has-hover && root.enabled ? Theme.hover : transparent;
             accessible-role: button; accessible-label: root.title + ", " + choice.label;
             accessible-checked: root.state == index;
             Image {
                 width: 16px; height: 16px; source: choice.icon;
-                colorize: root.state == index ? #ffffff : root.enabled ? Theme.secondary : Theme.faint;
+                colorize: IconPack.tint(self.source, root.state == index ? #ffffff : root.enabled ? Theme.secondary : Theme.faint);
             }
             area := TouchArea {
                 enabled: root.enabled;
@@ -122,7 +125,7 @@ component ThreeStateLine inherits VerticalLayout {
             }
             if root.permission.lock-text != "": Middle {
                 Image {
-                    width: 14px; height: 14px; source: @image-url("icons/lock.svg"); colorize: Theme.muted;
+                    width: 14px; height: 14px; source: IconPack.lock; colorize: IconPack.tint(self.source, Theme.muted);
                     accessible-role: image; accessible-label: root.permission.lock-text;
                     TouchArea {
                         changed has-hover => {
@@ -162,7 +165,7 @@ component OverviewSection inherits VerticalLayout {
     callback nsfw(bool);
     property <[string]> slowmodes: ["Off", "5s", "10s", "15s", "30s", "1m", "2m", "5m", "10m", "15m", "30m", "1h", "2h", "6h"];
     spacing: 20px;
-    SettingsTitle { text: "Overview"; }
+    SettingsTitle { title: "Overview"; }
     VerticalLayout {
         spacing: 8px;
         SettingsHeading { text: root.prompt.kind == 2 ? "CATEGORY NAME" : "CHANNEL NAME"; }
@@ -187,7 +190,7 @@ component OverviewSection inherits VerticalLayout {
         HorizontalLayout {
             spacing: 8px; alignment: start;
             IconButton {
-                icon: @image-url("icons/chevron-left.svg"); label: "Shorter slowmode"; size: 32px; glyph: 18px;
+                icon: IconPack.chevron-left; label: "Shorter slowmode"; size: 32px; glyph: 18px;
                 clicked => { root.slowmode(max(0, root.prompt.slowmode - 1)); }
             }
             Text {
@@ -196,7 +199,7 @@ component OverviewSection inherits VerticalLayout {
                 accessible-role: text; accessible-label: "Slowmode " + self.text;
             }
             IconButton {
-                icon: @image-url("icons/chevron-right.svg"); label: "Longer slowmode"; size: 32px; glyph: 18px;
+                icon: IconPack.chevron-right; label: "Longer slowmode"; size: 32px; glyph: 18px;
                 clicked => { root.slowmode(min(root.slowmodes.length - 1, root.prompt.slowmode + 1)); }
             }
         }
@@ -217,10 +220,10 @@ component PermissionsSection inherits VerticalLayout {
     /// What was done; see ChannelSettingsScreen's `input`.
     callback input(int, string, int);
     spacing: 16px; vertical-stretch: 1;
-    SettingsTitle { text: root.prompt.title; }
+    SettingsTitle { title: root.prompt.title; }
     Label { text: root.prompt.subtitle; }
     if root.prompt.sync != 0: Rectangle {
-        border-radius: 6px; background: Theme.raised; height: sync.preferred-height;
+        border-radius: Look.radius(6px); background: Theme.raised-fill; height: sync.preferred-height;
         sync := HorizontalLayout {
             padding: 10px; padding-left: 12px; spacing: 12px;
             Text {
@@ -234,7 +237,7 @@ component PermissionsSection inherits VerticalLayout {
         }
     }
     Rectangle {
-        border-radius: 8px; background: Theme.raised; height: private.preferred-height;
+        border-radius: Look.radius(8px); background: Theme.raised-fill; height: private.preferred-height;
         private := HorizontalLayout {
             padding: 14px;
             SettingsSwitch {
@@ -255,7 +258,7 @@ component PermissionsSection inherits VerticalLayout {
                 height: 28px;
                 Text { text: "ROLES/MEMBERS"; color: Theme.muted; font-size: 12px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
                 IconButton {
-                    icon: @image-url("icons/circle-plus.svg"); label: "Add a role or member"; size: 28px; glyph: 16px;
+                    icon: IconPack.circle-plus; label: "Add a role or member"; size: 28px; glyph: 16px;
                     enabled: root.prompt.may-edit && !root.prompt.saving;
                     clicked => { root.input(20, "", 0); }
                 }
@@ -263,17 +266,17 @@ component PermissionsSection inherits VerticalLayout {
             ListView {
                 vertical-stretch: 1;
                 for row in root.prompt.overwrites: Rectangle {
-                    height: 32px; border-radius: 4px;
+                    height: 32px; border-radius: Look.radius(4px);
                     background: row.selected ? Theme.active : area.has-hover ? Theme.hover : transparent;
                     accessible-role: button; accessible-label: row.name;
                     area := TouchArea { clicked => { root.input(13, row.id, 0); } }
                     HorizontalLayout {
                         padding-left: 8px; padding-right: 8px; spacing: 8px;
                         if !row.member: Middle {
-                            Rectangle { width: 10px; height: 10px; border-radius: 5px; background: row.color; }
+                            Rectangle { width: 10px; height: 10px; border-radius: Look.radius(5px); background: row.color; }
                         }
                         if row.member: Middle {
-                            Image { width: 14px; height: 14px; source: @image-url("icons/user.svg"); colorize: Theme.muted; }
+                            Image { width: 14px; height: 14px; source: IconPack.user; colorize: IconPack.tint(self.source, Theme.muted); }
                         }
                         Text {
                             text: row.name; font-size: 14px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
@@ -314,7 +317,7 @@ component OverwriteConfirmDialog inherits Rectangle {
     in property <string> channel;
     callback confirm;
     callback cancel;
-    background: #000000aa;
+    background: Theme.scrim(#000000aa);
     TouchArea { clicked => { root.cancel(); } }
     FocusScope {
         init => { self.focus(); }
@@ -325,7 +328,15 @@ component OverwriteConfirmDialog inherits Rectangle {
         Rectangle {
             width: 440px; height: box.preferred-height;
             x: (root.width - self.width) / 2; y: (root.height - self.height) / 2;
-            background: Theme.chat; border-radius: 8px;
+            background: Art.glass-dialog ? transparent : Theme.chat-fill; border-radius: Look.r(Look.dialog, 8px);
+            // A dialog's shape, art and glass.
+            border-width: Look.bw(Look.dialog, 0px); border-color: Look.bc(Look.dialog, transparent);
+            drop-shadow-blur: Look.sb(Look.dialog, 0px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, transparent); drop-shadow-offset-y: Look.sy(Look.dialog, 0px);
+            if Art.dialog.length > 0 || Art.glass-dialog: ArtLayer {
+                x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.dialog, 8px);
+                layers: Art.dialog; glass: Art.glass-dialog; ground: Theme.chat-fill;
+            }
+            DialogFrame { x: 0px; y: 0px; z: 100; }
             TouchArea { }
             box := VerticalLayout {
                 padding: 16px; spacing: 12px;
@@ -369,7 +380,7 @@ component AddOverwriteDialog inherits Rectangle {
     callback role(string);
     callback member(string);
     callback close;
-    background: #000000aa;
+    background: Theme.scrim(#000000aa);
     TouchArea { clicked => { root.close(); } }
     FocusScope {
         key-pressed(event) => {
@@ -379,11 +390,19 @@ component AddOverwriteDialog inherits Rectangle {
         Rectangle {
             width: 400px; height: min(480px, root.height - 80px);
             x: (root.width - self.width) / 2; y: (root.height - self.height) / 2;
-            background: Theme.chat; border-radius: 8px;
+            background: Art.glass-dialog ? transparent : Theme.chat-fill; border-radius: Look.r(Look.dialog, 8px);
+            // A dialog's shape, art and glass.
+            border-width: Look.bw(Look.dialog, 0px); border-color: Look.bc(Look.dialog, transparent);
+            drop-shadow-blur: Look.sb(Look.dialog, 0px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, transparent); drop-shadow-offset-y: Look.sy(Look.dialog, 0px);
+            if Art.dialog.length > 0 || Art.glass-dialog: ArtLayer {
+                x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.dialog, 8px);
+                layers: Art.dialog; glass: Art.glass-dialog; ground: Theme.chat-fill;
+            }
+            DialogFrame { x: 0px; y: 0px; z: 100; }
             TouchArea { }
             VerticalLayout {
                 padding: 16px; spacing: 12px;
-                Text { text: "Add:"; color: Theme.text; font-size: 20px; font-weight: 700; }
+                Text { text: "Add:"; color: Theme.text; font-size: Look.title-size(20px); font-weight: Look.heading-weight(700); font-family: Look.heading-font(""); }
                 TextField {
                     placeholder: "Role/Member"; label: "Role or member"; text-size: 14px;
                     init => { self.focus-input(); }
@@ -396,19 +415,19 @@ component AddOverwriteDialog inherits Rectangle {
                         alignment: start;
                         if root.prompt.roles-to-add.length > 0: SettingsHeading { text: "ROLES"; }
                         for role in root.prompt.roles-to-add: Rectangle {
-                            height: 36px; border-radius: 4px;
+                            height: 36px; border-radius: Look.radius(4px);
                             background: role-area.has-hover ? Theme.hover : transparent;
                             accessible-role: button; accessible-label: role.name;
                             role-area := TouchArea { clicked => { root.role(role.id); } }
                             HorizontalLayout {
                                 padding-left: 8px; spacing: 10px;
-                                Middle { Rectangle { width: 10px; height: 10px; border-radius: 5px; background: role.color; } }
+                                Middle { Rectangle { width: 10px; height: 10px; border-radius: Look.radius(5px); background: role.color; } }
                                 Text { text: role.name; color: Theme.text; font-size: 15px; vertical-alignment: center; overflow: elide; }
                             }
                         }
                         if root.prompt.members-found.length > 0: SettingsHeading { text: "MEMBERS"; }
                         for member in root.prompt.members-found: Rectangle {
-                            height: 40px; border-radius: 4px;
+                            height: 40px; border-radius: Look.radius(4px);
                             background: member-area.has-hover ? Theme.hover : transparent;
                             accessible-role: button; accessible-label: member.name;
                             member-area := TouchArea { clicked => { root.member(member.id); } }
@@ -480,7 +499,7 @@ export component ChannelSettingsScreen inherits Rectangle {
         if root.bar: UnsavedBar {
             x: frame.content-x + 24px; width: min(700px, frame.content-width - 48px);
             y: frame.height - self.height - 24px;
-            border-radius: 8px; drop-shadow-blur: 16px; drop-shadow-color: #00000066; drop-shadow-offset-y: 4px;
+            border-radius: Look.radius(8px); drop-shadow-blur: Look.shadow-blur(16px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000066); drop-shadow-offset-y: Look.shadow-y(4px);
             saving: root.prompt.saving; may-save: root.prompt.may-save; nudge: root.prompt.nudge;
             undo => { frame.focus-keys(); root.input(30, "", 0); }
             save => { frame.focus-keys(); root.input(31, "", 0); }

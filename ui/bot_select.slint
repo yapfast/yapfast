@@ -1,4 +1,5 @@
-import { Theme } from "theme.slint";
+import { IconPack } from "media.slint";
+import { Theme, Look } from "theme.slint";
 
 // Where the bot's select menu that was opened last sits in the window,
 // which its dropdown opens under: the box clicked writes it before it
@@ -20,8 +21,8 @@ export component BotSelectBox inherits Rectangle {
     /// It waits for Discord's word on its last pick.
     in property <bool> busy;
     callback clicked;
-    height: 40px; border-radius: 8px; opacity: root.enabled && !root.busy ? 1 : 0.5;
-    background: Theme.field; border-width: 1px; border-color: touch.has-hover && root.enabled ? Theme.secondary : Theme.edge;
+    height: 40px; border-radius: Look.radius(8px); opacity: root.enabled && !root.busy ? 1 : 0.5;
+    background: Theme.field; border-width: Look.line(1px); border-color: touch.has-hover && root.enabled ? Theme.secondary : Theme.edge;
     accessible-role: combobox; accessible-label: root.text; accessible-enabled: root.enabled && !root.busy;
     accessible-action-default => { root.open(); }
     function open() {
@@ -38,7 +39,7 @@ export component BotSelectBox inherits Rectangle {
             text: root.text; color: root.picked ? Theme.text : Theme.secondary; font-weight: 500;
             vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
         }
-        Image { source: @image-url("icons/chevron-down.svg"); width: 18px; image-fit: contain; colorize: Theme.secondary; }
+        Image { source: IconPack.chevron-down; width: 18px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.secondary); }
     }
     touch := TouchArea {
         enabled: root.enabled && !root.busy; mouse-cursor: MouseCursor.pointer;

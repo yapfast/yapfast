@@ -65,6 +65,19 @@ mod server_settings;
 mod shell;
 mod stickers;
 mod theme;
+mod theme_art;
+mod theme_chrome;
+mod theme_content;
+mod theme_creator;
+mod theme_cursor;
+pub mod theme_layout;
+pub mod theme_lists;
+pub mod theme_look;
+mod theme_media;
+mod theme_pace;
+mod theme_remote;
+pub mod theme_tools;
+mod theme_trim;
 mod tiles;
 mod title_bar;
 mod updates;
@@ -149,6 +162,8 @@ pub fn run(
         .with_winit_window_attributes_hook(|attributes| {
             crate::instance::attributes(title_bar::attributes(crate::icon::attributes(attributes)))
         })
+        // A theme's animated cursors see the pointer here; see `theme_cursor`.
+        .with_winit_custom_application_handler(theme_cursor::Handler)
         .select()
         .context("could not select the Slint desktop backend")?;
     slint::set_xdg_app_id(crate::icon::APP_ID).context("could not set Yapfast's app ID")?;
@@ -179,6 +194,7 @@ pub fn run(
     if let Some(placement) = &placement {
         placement::place(&window, placement);
     }
+    theme_pace::shown(None, !hidden);
     if !hidden && let Err(error) = window.show() {
         return failed(error, "could not show Yapfast");
     }
@@ -191,10 +207,17 @@ pub fn run(
         autostart::refresh();
     }
     prepare(&window);
+    theme_look::init(&root);
     let adapter = Adapter::new(Arc::new(runtime), root, &window)?;
     bind_callbacks(&window, &adapter);
     updates::start(&adapter, &window);
     new_tags::start(&adapter);
+    appearance::bind_themes(&window, &adapter);
+    appearance::bind_export(&window, &adapter);
+    theme_creator::bind(&window, &adapter);
+    if let Some(reason) = theme_look::take_failure() {
+        adapter.borrow_mut().app.state.notice = Some(reason);
+    }
     watch_window(&window, &adapter);
     adapter.borrow_mut().watch_away();
     adapter.borrow_mut().watch_keybinds(&window);
@@ -383,6 +406,7 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                 .unwrap_or(false)
         };
         FOCUSED.set(focused);
+        theme_pace::focused(&window, focused);
         show_motion(&window);
         // The display's own scale factor, which the zoom multiplies.
         let base = Rc::new(Cell::new(window.window().scale_factor()));
@@ -494,6 +518,20 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                 {
                     adapter.used(&window);
                 }
+                // What shows of the window, for the theme's motion.
+                if let Some(window) = weak.upgrade() {
+                    match event {
+                        WindowEvent::Focused(focused) => theme_pace::focused(&window, *focused),
+                        WindowEvent::Occluded(occluded) => {
+                            theme_pace::occluded(&window, *occluded);
+                        }
+                        WindowEvent::CursorEntered { .. }
+                        | WindowEvent::CursorMoved { .. }
+                        | WindowEvent::MouseInput { .. }
+                        | WindowEvent::KeyboardInput { .. } => theme_pace::seen_again(&window),
+                        _ => {}
+                    }
+                }
                 if let WindowEvent::Focused(focused) = event {
                     FOCUSED.set(*focused);
                     if let Some(window) = weak.upgrade() {
@@ -508,6 +546,16 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                             adapter.action(&window, Action::WindowFocused(*focused));
                         }
                     }
+                }
+                // The system's windows went light or dark: an installed theme
+                // that ships both shows the other one.
+                if let WindowEvent::ThemeChanged(_) = event {
+                    let (adapter, weak) = (adapter.clone(), weak.clone());
+                    slint::Timer::single_shot(Duration::ZERO, move || {
+                        if let (Some(adapter), Some(window)) = (adapter.upgrade(), weak.upgrade()) {
+                            adapter.borrow_mut().system_mode_changed(&window);
+                        }
+                    });
                 }
                 if matches!(event, WindowEvent::Moved(_) | WindowEvent::Resized(_)) {
                     #[cfg(windows)]
@@ -527,6 +575,10 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                                 (adapter.upgrade(), weak.upgrade())
                             {
                                 window.set_window_maximized(window.window().is_maximized());
+                                theme_pace::platform_minimized(
+                                    &window,
+                                    window.window().is_minimized(),
+                                );
                                 placement::moved(&mut adapter.borrow_mut(), &window);
                             }
                             // A window held to one display's density, as by
@@ -603,6 +655,25 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                             adapter.borrow_mut().stop_moving_person(&window);
                         }
                     });
+                }
+                // Ctrl+Shift+T shows the default theme for the rest of this
+                // run, wherever the focus is: the way back from a theme that
+                // made the window hard to use.
+                if let WindowEvent::KeyboardInput { event: key, .. } = event
+                    && key.state == ElementState::Pressed
+                    && !key.repeat
+                    && keys.control_shift()
+                    && key.physical_key == PhysicalKey::Code(KeyCode::KeyT)
+                    && let Some(window) = weak.upgrade()
+                {
+                    let (adapter, weak) = (adapter.clone(), weak.clone());
+                    slint::Timer::single_shot(Duration::ZERO, move || {
+                        if let (Some(adapter), Some(window)) = (adapter.upgrade(), weak.upgrade()) {
+                            adapter.borrow_mut().default_theme_for_session(&window);
+                        }
+                    });
+                    let _ = window;
+                    return EventResult::PreventDefault;
                 }
                 // Ctrl+K opens the quick switcher, or closes it, wherever the
                 // focus is, as in Discord; not over the settings or a link
@@ -963,8 +1034,32 @@ fn control(path: PathBuf, shell: Rc<shell::Shell>) -> slint::Timer {
                 let window = shell.window();
                 let adapter = &shell.adapter;
                 let result = match command {
-                    "hide" => window.map_or(Ok(()), |window| window.hide()),
-                    "show" => window.map_or(Ok(()), |window| window.show()),
+                    "hide" => window.map_or(Ok(()), |window| {
+                        theme_pace::shown(Some(&window), false);
+                        window.hide()
+                    }),
+                    "show" => window.map_or(Ok(()), |window| {
+                        let shown = window.show();
+                        theme_pace::shown(Some(&window), true);
+                        shown
+                    }),
+                    // As the title bar's minimise button.
+                    "minimize" => {
+                        if let Some(window) = &window {
+                            window.invoke_minimize_window();
+                        }
+                        Ok(())
+                    }
+                    // As the focus going to another window and coming back,
+                    // for what follows it (the theme's motion, notifications).
+                    "focus" | "unfocus" => {
+                        let focused = command == "focus";
+                        FOCUSED.set(focused);
+                        if let Some(window) = &window {
+                            theme_pace::focused(window, focused);
+                        }
+                        Ok(())
+                    }
                     // Drops the window without giving the memory back, which
                     // `trim` then does.
                     "destroy" => {
@@ -1278,6 +1373,13 @@ struct Layout {
     name_styles: Option<bool>,
     server_tags: Option<bool>,
     profile_frames: Option<bool>,
+    /// Names show plain, not in a theme's ransom letters: the switch before
+    /// themes had options, now the default of each theme's "Ransom names"
+    /// option, which `theme_options` overrides.
+    plain_names: bool,
+    /// Settings → Appearance → Readable text: every theme draws reading
+    /// text in the stock face, without text effects. Off unless turned on.
+    readable_text: bool,
     /// Joining a call turns the microphone on; on unless turned off.
     unmute_on_join: Option<bool>,
     /// Joining a call deafens.
@@ -1345,6 +1447,26 @@ struct Layout {
     theme: Option<String>,
     /// The person's own themes, in the order Appearance shows them.
     custom_themes: Vec<theme::Custom>,
+    /// The theme shown before the last one chosen, which Appearance's Back
+    /// returns to.
+    previous_theme: Option<String>,
+    /// How much of an installed theme runs; see `theme_look`.
+    theme_performance: yapfast_core::themes::Performance,
+    /// Installed themes' animations, effects and motion stay still.
+    reduce_motion: bool,
+    /// The person's choices for installed themes' sounds, by the theme's id,
+    /// where they aren't the defaults.
+    theme_sounds: std::collections::BTreeMap<String, theme_media::Prefs>,
+    /// The installed themes, by id, the person lets style people's profiles
+    /// and media; see [`theme_content`].
+    #[serde(skip_serializing_if = "std::collections::BTreeSet::is_empty")]
+    theme_content: std::collections::BTreeSet<String>,
+    /// Installed themes whose cursors the person turned off, by id.
+    theme_cursors_off: std::collections::BTreeSet<String>,
+    /// The person's choices for installed themes' options, by the theme's
+    /// id, each only where it isn't the option's default.
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    theme_options: std::collections::BTreeMap<String, yapfast_core::themes::options::Choices>,
     /// Closing the window leaves Yapfast in the system tray; on unless turned off.
     close_to_tray: Option<bool>,
     /// Starting Yapfast again on this folder starts another, rather than
@@ -1564,6 +1686,7 @@ impl Layout {
         looks.set_name_styles(cosmetics.name_styles);
         looks.set_server_tags(cosmetics.server_tags);
         looks.set_profile_frames(cosmetics.frames);
+        looks.set_readable_text(self.readable_text);
         pictures::set_moving_collectibles(cosmetics.moving);
     }
 
@@ -1576,6 +1699,8 @@ impl Layout {
         self.name_styles = Some(looks.get_name_styles());
         self.server_tags = Some(looks.get_server_tags());
         self.profile_frames = Some(looks.get_profile_frames());
+        self.readable_text = looks.get_readable_text();
+        theme_look::set_readable(window, self.readable_text);
         pictures::set_moving_collectibles(self.cosmetics().moving);
     }
 
@@ -1616,11 +1741,45 @@ impl Layout {
             .global::<ClientStyle>()
             .get_enabled()
             .then_some("bonfire");
-        let (id, chosen) =
-            theme::chosen(self.theme.as_deref().or(default_theme), &self.custom_themes);
+        theme_look::set_motion(window, self.theme_performance, self.reduce_motion);
+        theme_look::set_plain_names(self.plain_names);
+        for (id, choices) in &self.theme_options {
+            theme_look::set_choices(id, choices.clone());
+        }
+        theme_look::set_readable(window, self.readable_text);
+        let page = window.global::<yapfast_ui::ThemesPage>();
+        page.set_performance(self.theme_performance.index());
+        page.set_reduce_motion(self.reduce_motion);
+        // An installed theme, or `--theme-dev`'s folder, over its base; the
+        // default when this run asked for it or the theme can't be shown.
+        // Themes made with the creator show from their own packages.
+        if let Some(root) = theme_look::data_root() {
+            theme_creator::ensure_folders(&root, &self.custom_themes);
+            theme_creator::register(&root, &self.custom_themes);
+        }
+        let built_in = self
+            .theme
+            .as_deref()
+            .filter(|id| !id.starts_with(theme_look::INSTALLED) && !theme_look::default_only());
+        let (id, chosen) = theme::chosen(built_in.or(default_theme), &self.custom_themes);
+        let (id, chosen) = match theme_look::startup(window, self.theme.as_deref()) {
+            Some(colours) => (
+                theme_look::applied_id().unwrap_or_else(|| id.to_owned()),
+                colours,
+            ),
+            None => (id.to_owned(), chosen),
+        };
         chosen.apply(window);
-        window.set_theme_id(id.into());
-        window.set_themes(theme::cards(&self.custom_themes));
+        window.set_theme_id(id.as_str().into());
+        theme::show_cards(window, &self.custom_themes);
+        page.set_previous_name(
+            self.previous_theme
+                .as_deref()
+                .and_then(|previous| theme_look::name_of(previous, &self.custom_themes))
+                .unwrap_or_default()
+                .into(),
+        );
+        window.set_theme_installed_name(theme_look::applied_name().unwrap_or_default().into());
         if let Some(width) = self.sidebar_width {
             window.set_sidebar_width(width);
         }
@@ -1952,14 +2111,94 @@ struct ChannelIcon {
     age_restricted: slint::Image,
 }
 
-impl ChannelIcon {
-    fn load(plain: &[u8], private: &[u8], age_restricted: &[u8]) -> Result<Self> {
-        Ok(Self {
-            plain: slint::Image::load_from_svg_data(plain)?,
-            private: slint::Image::load_from_svg_data(private)?,
-            age_restricted: slint::Image::load_from_svg_data(age_restricted)?,
-        })
+/// Yapfast's icons that Rust hands the interface, a theme's in place of any
+/// it replaces.
+fn load_icons() -> Result<Icons> {
+    macro_rules! icon {
+        ($name:literal) => {
+            theme_media::icon(
+                $name,
+                include_bytes!(concat!("../ui/icons/", $name, ".svg")),
+            )
+        };
     }
+    Ok(Icons {
+        dm: icon!("message-circle")?,
+        chat: icon!("message-square-text")?,
+        text: ChannelIcon {
+            plain: icon!("hash")?,
+            private: icon!("hash-lock")?,
+            age_restricted: icon!("hash-warning")?,
+        },
+        id: icon!("id-filled")?,
+        thread: icon!("thread")?,
+        forum: ChannelIcon {
+            plain: icon!("message-square-text")?,
+            private: icon!("message-square-text-lock")?,
+            age_restricted: icon!("message-square-text-warning")?,
+        },
+        voice: ChannelIcon {
+            plain: icon!("volume-2")?,
+            private: icon!("volume-2-lock")?,
+            age_restricted: icon!("volume-2-warning")?,
+        },
+        announcement: ChannelIcon {
+            plain: icon!("megaphone")?,
+            private: icon!("megaphone-lock")?,
+            age_restricted: icon!("megaphone-warning")?,
+        },
+        media: ChannelIcon {
+            plain: icon!("image")?,
+            private: icon!("image-lock")?,
+            age_restricted: icon!("image-warning")?,
+        },
+        stage: ChannelIcon {
+            plain: icon!("stage")?,
+            private: icon!("stage-lock")?,
+            age_restricted: icon!("stage")?,
+        },
+        rules: icon!("rules")?,
+        lock: icon!("lock")?,
+        read: icon!("check")?,
+        call: icon!("phone")?,
+        profile: icon!("user")?,
+        copy: icon!("copy")?,
+        befriend: icon!("user-plus")?,
+        cancel: icon!("x")?,
+        pin: icon!("pin")?,
+        unpin: icon!("pin-off")?,
+        note: icon!("sticky-note")?,
+        nickname: icon!("user-pen")?,
+        unfriend: icon!("user-minus")?,
+        ignore: icon!("eye-off")?,
+        show: icon!("eye")?,
+        block: icon!("ban")?,
+        mute: icon!("bell-off")?,
+        unmute: icon!("bell")?,
+        mention: icon!("at-sign")?,
+        rename: icon!("pencil")?,
+        roles: icon!("shield")?,
+        timeout: icon!("clock")?,
+        kick: icon!("user-x")?,
+        ban: icon!("gavel")?,
+        history: icon!("history")?,
+        members: icon!("users")?,
+        invites: icon!("link")?,
+        emoji: icon!("smile")?,
+        crown: icon!("crown")?,
+        create: icon!("circle-plus")?,
+        create_category: icon!("folder-plus")?,
+        settings: icon!("settings")?,
+        edit: icon!("pencil")?,
+        duplicate: icon!("copy-plus")?,
+        delete: icon!("trash-2")?,
+        leave: icon!("log-out")?,
+        mic_off: icon!("mic-off")?,
+        soundboard: icon!("soundboard")?,
+        deafen: icon!("headphone-off")?,
+        move_to: icon!("forward")?,
+        disconnect: icon!("phone-off")?,
+    })
 }
 
 struct Icons {
@@ -2042,6 +2281,12 @@ struct Adapter {
     app: Application,
     models: Models,
     icons: Icons,
+    /// The theme icons [`Self::icons`] were loaded with; see
+    /// [`theme_media::generation`].
+    icons_generation: u64,
+    /// [`theme_media::changes`] when the theme's sounds and icons were last
+    /// put in step.
+    media_changes: u64,
     weak: std::rc::Weak<RefCell<Self>>,
     window: slint::Weak<YapfastWindow>,
     away: away::Away,
@@ -2302,101 +2547,7 @@ impl Adapter {
         root: PathBuf,
         window: &YapfastWindow,
     ) -> Result<Rc<RefCell<Self>>> {
-        let icons = Icons {
-            dm: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/message-circle.svg"))?,
-            chat: slint::Image::load_from_svg_data(include_bytes!(
-                "../ui/icons/message-square-text.svg"
-            ))?,
-            text: ChannelIcon::load(
-                include_bytes!("../ui/icons/hash.svg"),
-                include_bytes!("../ui/icons/hash-lock.svg"),
-                include_bytes!("../ui/icons/hash-warning.svg"),
-            )?,
-            id: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/id-filled.svg"))?,
-            thread: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/thread.svg"))?,
-            forum: ChannelIcon::load(
-                include_bytes!("../ui/icons/message-square-text.svg"),
-                include_bytes!("../ui/icons/message-square-text-lock.svg"),
-                include_bytes!("../ui/icons/message-square-text-warning.svg"),
-            )?,
-            voice: ChannelIcon::load(
-                include_bytes!("../ui/icons/volume-2.svg"),
-                include_bytes!("../ui/icons/volume-2-lock.svg"),
-                include_bytes!("../ui/icons/volume-2-warning.svg"),
-            )?,
-            announcement: ChannelIcon::load(
-                include_bytes!("../ui/icons/megaphone.svg"),
-                include_bytes!("../ui/icons/megaphone-lock.svg"),
-                include_bytes!("../ui/icons/megaphone-warning.svg"),
-            )?,
-            media: ChannelIcon::load(
-                include_bytes!("../ui/icons/image.svg"),
-                include_bytes!("../ui/icons/image-lock.svg"),
-                include_bytes!("../ui/icons/image-warning.svg"),
-            )?,
-            stage: ChannelIcon::load(
-                include_bytes!("../ui/icons/stage.svg"),
-                include_bytes!("../ui/icons/stage-lock.svg"),
-                include_bytes!("../ui/icons/stage.svg"),
-            )?,
-            rules: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/rules.svg"))?,
-            lock: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/lock.svg"))?,
-            read: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/check.svg"))?,
-            call: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/phone.svg"))?,
-            profile: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/user.svg"))?,
-            copy: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/copy.svg"))?,
-            befriend: slint::Image::load_from_svg_data(include_bytes!(
-                "../ui/icons/user-plus.svg"
-            ))?,
-            cancel: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/x.svg"))?,
-            pin: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/pin.svg"))?,
-            unpin: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/pin-off.svg"))?,
-            note: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/sticky-note.svg"))?,
-            nickname: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/user-pen.svg"))?,
-            unfriend: slint::Image::load_from_svg_data(include_bytes!(
-                "../ui/icons/user-minus.svg"
-            ))?,
-            ignore: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/eye-off.svg"))?,
-            show: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/eye.svg"))?,
-            block: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/ban.svg"))?,
-            mute: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/bell-off.svg"))?,
-            unmute: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/bell.svg"))?,
-            mention: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/at-sign.svg"))?,
-            rename: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/pencil.svg"))?,
-            roles: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/shield.svg"))?,
-            timeout: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/clock.svg"))?,
-            kick: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/user-x.svg"))?,
-            ban: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/gavel.svg"))?,
-            history: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/history.svg"))?,
-            members: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/users.svg"))?,
-            invites: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/link.svg"))?,
-            emoji: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/smile.svg"))?,
-            crown: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/crown.svg"))?,
-            create: slint::Image::load_from_svg_data(include_bytes!(
-                "../ui/icons/circle-plus.svg"
-            ))?,
-            create_category: slint::Image::load_from_svg_data(include_bytes!(
-                "../ui/icons/folder-plus.svg"
-            ))?,
-            settings: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/settings.svg"))?,
-            edit: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/pencil.svg"))?,
-            duplicate: slint::Image::load_from_svg_data(include_bytes!(
-                "../ui/icons/copy-plus.svg"
-            ))?,
-            delete: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/trash-2.svg"))?,
-            leave: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/log-out.svg"))?,
-            mic_off: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/mic-off.svg"))?,
-            soundboard: slint::Image::load_from_svg_data(include_bytes!(
-                "../ui/icons/soundboard.svg"
-            ))?,
-            deafen: slint::Image::load_from_svg_data(include_bytes!(
-                "../ui/icons/headphone-off.svg"
-            ))?,
-            move_to: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/forward.svg"))?,
-            disconnect: slint::Image::load_from_svg_data(include_bytes!(
-                "../ui/icons/phone-off.svg"
-            ))?,
-        };
+        let icons = load_icons()?;
         let models = Models::default();
         models.attach(window);
         let layout = Layout::read(&root);
@@ -2459,6 +2610,8 @@ impl Adapter {
                 app,
                 models,
                 icons,
+                icons_generation: 0,
+                media_changes: 0,
                 weak: weak.clone(),
                 window: window.as_weak(),
                 away: away::Away::default(),
@@ -3035,8 +3188,17 @@ impl Adapter {
         self.play(sound);
     }
 
-    /// Plays a sound on the call's speakers, at the volume set for it.
+    /// Plays a sound on the call's speakers, at the volume set for it: the
+    /// shown theme's in its place, if it has one and its sounds are on.
     fn play(&self, sound: Sound) {
+        if let Some((samples, own)) = theme_media::replacing(sound) {
+            sounds::play_decoded(
+                samples,
+                self.layout.sound_gain(sound) * own,
+                self.app.state.voice.speaker.as_deref(),
+            );
+            return;
+        }
         sounds::play(
             self.layout.sound_set,
             sound,

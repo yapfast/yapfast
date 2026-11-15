@@ -1,5 +1,5 @@
 import { ClientStyle } from "style.slint";
-import { Theme } from "../theme.slint";
+import { Theme, Look } from "../theme.slint";
 
 // Visual face only. SettingsSwitch retains focus, locked-state behavior and
 // controlled callbacks, including updates arriving from its adapter.
@@ -10,15 +10,16 @@ export component SettingsToggle inherits Rectangle {
     in property <bool> focused;
     width: ClientStyle.enabled ? 48px : 40px;
     height: ClientStyle.enabled ? 24px : 22px;
-    border-radius: self.height / 2;
-    background: !root.enabled ? Theme.field : root.checked ? (root.hovered ? Theme.accent-hover : Theme.accent) : (root.hovered ? Theme.active : Theme.field);
-    border-width: root.focused ? 2px : 1px;
-    border-color: root.focused ? Theme.text : root.checked && root.enabled ? transparent : Theme.line;
+    // A theme's `shape.toggle`: its corner, border and colour.
+    border-radius: Look.toggle.radius >= 0px ? min(self.height / 2, Look.toggle.radius) : self.height / 2;
+    background: !root.enabled ? Theme.field : root.checked ? (root.hovered ? Theme.accent-hover : Theme.accent-fill) : (root.hovered ? Theme.active : Theme.toggle-off);
+    border-width: root.focused ? 2px : Look.bw(Look.toggle, 1px);
+    border-color: root.focused ? Theme.text : Look.toggle.border >= 0px && Look.toggle.border-color != transparent ? Look.toggle.border-color : root.checked && root.enabled ? transparent : Theme.line;
     animate background { duration: Theme.quick; }
     Rectangle {
         x: root.checked ? parent.width - self.width - 3px : 3px;
-        width: ClientStyle.enabled ? 18px : 16px; height: self.width; border-radius: self.width / 2;
-        background: !root.enabled ? Theme.faint : root.checked ? Theme.on-accent : Theme.secondary;
+        width: ClientStyle.enabled ? 18px : 16px; height: self.width; border-radius: Look.toggle.radius >= 0px ? min(self.width / 2, max(0px, Look.toggle.radius - 3px)) : self.width / 2;
+        background: !root.enabled ? Theme.faint : root.checked ? Theme.on-accent : Theme.knob-off;
         animate x, background { duration: Theme.quick; easing: ease-out; }
     }
 }

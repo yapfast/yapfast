@@ -1,5 +1,6 @@
+import { IconPack } from "../media.slint";
 import { ScrollView } from "../scrollview.slint";
-import { Theme, Middle } from "../theme.slint";
+import { Theme, Middle, Look } from "../theme.slint";
 import { Avatar, MenuItem, StatusText, StyledName, ServerTagChip, AccountLook } from "../controls.slint";
 import { ProfileData, BadgeRows, ProfileTheme } from "../people.slint";
 import { StatusDot } from "../rail.slint";
@@ -42,10 +43,10 @@ export component AccountPopover inherits Rectangle {
     property <string> presence-label: root.status == "idle" ? "Idle" : root.status == "dnd" ? "Do Not Disturb" : root.status == "invisible" ? "Invisible" : "Online";
     background: root.themed
         ? @linear-gradient(180deg, root.theme-start 0%, ProfileTheme.wash(root.profile.theme-secondary, root.light) 100%)
-        : Theme.panel;
-    border-radius: 8px;
-    border-width: 1px; border-color: root.themed ? root.profile.theme-primary : Theme.line;
-    drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+        : Theme.panel-fill;
+    border-radius: Look.radius(8px);
+    border-width: Look.line(1px); border-color: root.themed ? root.profile.theme-primary : Theme.line;
+    drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
     accessible-role: groupbox; accessible-label: "Account";
     height: min(root.available-height, content.preferred-height);
     ScrollView {
@@ -58,14 +59,14 @@ export component AccountPopover inherits Rectangle {
                 property <color> ring: root.themed ? root.theme-start : Theme.panel;
                 Rectangle {
                     y: 0px; height: 80px; background: header.banner-colour;
-                    border-top-left-radius: 8px; border-top-right-radius: 8px; clip: true;
+                    border-top-left-radius: Look.radius(8px); border-top-right-radius: Look.radius(8px); clip: true;
                     if root.profile.banner.width > 0: Image { width: parent.width; height: parent.height; source: root.profile.banner; image-fit: cover; }
                 }
                 Rectangle {
                     x: 12px; y: 36px; width: 88px; height: 88px;
-                    border-radius: 44px; background: header.ring;
+                    border-radius: Look.radius(44px); background: header.ring;
                     Avatar { size: 80px; initial: root.initial; tint: root.tint; picture: root.picture; decoration-url: AccountLook.decoration-url; animate: true; }
-                    StatusDot { x: 66px; y: 65px; width: 20px; height: 20px; border-radius: 10px; presence: root.status == "invisible" ? "offline" : root.status; ring: header.ring; }
+                    StatusDot { x: 66px; y: 65px; width: 20px; height: 20px; border-radius: Look.radius(10px); presence: root.status == "invisible" ? "offline" : root.status; ring: header.ring; }
                 }
                 HorizontalLayout {
                     x: 16px; y: 128px; width: parent.width - 32px; height: 24px; spacing: 6px; alignment: start;
@@ -84,7 +85,7 @@ export component AccountPopover inherits Rectangle {
                 padding: 16px; padding-top: 8px; spacing: 12px;
                 if root.has-custom-status: StatusText { text: root.custom-text; emoji-url: root.custom-emoji; color: root.themed ? root.ink : Theme.muted; }
                 if root.game-name != "": Rectangle {
-                    height: 80px; border-radius: 8px; background: Theme.raised;
+                    height: 80px; border-radius: Look.radius(8px); background: Theme.raised-fill;
                     VerticalLayout {
                         padding: 12px; spacing: 4px; alignment: center;
                         Text { text: "Playing"; color: Theme.secondary; font-size: 12px; font-weight: 700; }
@@ -94,13 +95,13 @@ export component AccountPopover inherits Rectangle {
                     Timer { interval: 20s; running: root.game-duration != ""; triggered => { root.game-duration-due(); } }
                 }
                 Rectangle {
-                    background: Theme.raised; border-radius: 8px;
+                    background: Theme.raised-fill; border-radius: Look.radius(8px);
                     VerticalLayout {
                         padding: 8px; spacing: 4px;
-                        MenuItem { height: 40px; text: "Edit Profile"; icon: @image-url("../icons/pencil.svg"); clicked => { root.edit-profile(); } }
+                        MenuItem { height: 40px; text: "Edit Profile"; icon: IconPack.pencil; clicked => { root.edit-profile(); } }
                         Rectangle { height: 1px; background: Theme.line; }
                         Rectangle {
-                            height: 40px; border-radius: 4px;
+                            height: 40px; border-radius: Look.radius(4px);
                             background: status-touch.has-hover ? Theme.active : transparent;
                             border-width: status-focus.has-focus ? 2px : 0px; border-color: Theme.accent;
                             accessible-role: button; accessible-label: "Change status"; accessible-description: root.presence-label;
@@ -111,7 +112,7 @@ export component AccountPopover inherits Rectangle {
                                 padding-left: 8px; padding-right: 8px; spacing: 8px;
                                 Middle { StatusDot { presence: root.status == "invisible" ? "offline" : root.status; ring: Theme.raised; } }
                                 Text { text: root.presence-label; color: Theme.secondary; font-size: 15px; vertical-alignment: center; horizontal-stretch: 1; }
-                                Image { source: root.expanded ? @image-url("../icons/chevron-down.svg") : @image-url("../icons/chevron-right.svg"); width: 16px; image-fit: contain; colorize: Theme.muted; }
+                                Image { source: root.expanded ? IconPack.chevron-down : IconPack.chevron-right; width: 16px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
                             }
                             status-focus := FocusScope {
                                 key-pressed(event) => {
@@ -133,15 +134,15 @@ export component AccountPopover inherits Rectangle {
                                 clicked => { root.choose(option.key); }
                             }
                         }
-                        MenuItem { height: 40px; text: root.has-custom-status ? "Change custom status" : "Set a custom status"; icon: @image-url("../icons/smile-plus.svg"); clicked => { root.custom-status(); } }
+                        MenuItem { height: 40px; text: root.has-custom-status ? "Change custom status" : "Set a custom status"; icon: IconPack.smile-plus; clicked => { root.custom-status(); } }
                     }
                 }
                 Rectangle {
-                    background: Theme.raised; border-radius: 8px;
+                    background: Theme.raised-fill; border-radius: Look.radius(8px);
                     VerticalLayout {
                         padding: 8px; spacing: 4px;
-                        if root.user-id != "": MenuItem { height: 40px; text: "Copy User ID"; icon: @image-url("../icons/copy.svg"); clicked => { root.copy-id(); } }
-                        MenuItem { height: 40px; text: "User Settings"; icon: @image-url("../icons/settings.svg"); clicked => { root.settings(); } }
+                        if root.user-id != "": MenuItem { height: 40px; text: "Copy User ID"; icon: IconPack.copy; clicked => { root.copy-id(); } }
+                        MenuItem { height: 40px; text: "User Settings"; icon: IconPack.settings; clicked => { root.settings(); } }
                     }
                 }
             }

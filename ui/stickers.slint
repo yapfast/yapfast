@@ -1,6 +1,8 @@
+import { IconPack } from "media.slint";
 import { ScrollView } from "scrollview.slint";
 import { PickerRail, RailSection } from "messages.slint";
-import { Theme } from "theme.slint";
+import { Theme, Look } from "theme.slint";
+import { Art, ArtLayer } from "theme_art.slint";
 import { Picture, TextField } from "controls.slint";
 
 /// A tile of the sticker picker's grid, placed by the adapter: `kind` 0 is a
@@ -63,11 +65,17 @@ export component StickerPicker inherits Rectangle {
     changed shown-height => { root.report(); }
     changed tiles => { root.hovered = ""; }
     changed query => { grid.content-y = 0; }
-    background: root.bare ? transparent : Theme.raised;
-    border-color: Theme.edge; border-width: root.bare ? 0px : 1px;
-    border-radius: root.bare ? 0px : 10px;
-    drop-shadow-blur: root.bare ? 0px : 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+    // On its own, the picker's shape, art and glass; inside the expression
+    // picker (`bare`), that panel's.
+    background: root.bare || Art.glass-picker ? transparent : Theme.raised-fill;
+    border-color: Look.bc(Look.picker, Theme.edge); border-width: root.bare ? 0px : Look.bw(Look.picker, 1px);
+    border-radius: root.bare ? 0px : Look.r(Look.picker, 10px);
+    drop-shadow-blur: root.bare ? 0px : Look.sb(Look.picker, 24px); drop-shadow-offset-x: Look.sx(Look.picker, 0px); drop-shadow-color: Look.sc(Look.picker, #00000080); drop-shadow-offset-y: Look.sy(Look.picker, 8px);
     clip: true;
+    if !root.bare && (Art.picker.length > 0 || Art.glass-picker): ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.picker, 10px);
+        layers: Art.picker; glass: Art.glass-picker; ground: Theme.raised-fill;
+    }
     FocusScope {
         key-pressed(event) => {
             if event.text == Key.Escape { root.close(); return accept; }
@@ -119,7 +127,7 @@ export component StickerPicker inherits Rectangle {
                         if tile.kind == 2: HorizontalLayout {
                             x: 2px; y: (parent.height - self.height) / 2;
                             height: 18px; spacing: 6px; alignment: start;
-                            Image { width: 16px; height: 16px; source: @image-url("icons/clock.svg"); colorize: Theme.secondary; }
+                            Image { width: 16px; height: 16px; source: IconPack.clock; colorize: IconPack.tint(self.source, Theme.secondary); }
                             Text {
                                 text: tile.label; color: Theme.secondary; font-size: 13px; font-weight: 700;
                                 vertical-alignment: center; horizontal-alignment: left; overflow: elide;
@@ -127,7 +135,7 @@ export component StickerPicker inherits Rectangle {
                         }
                         if tile.kind == 0: Rectangle {
                             width: parent.width; height: parent.height;
-                            border-radius: 8px; clip: true;
+                            border-radius: Look.radius(8px); clip: true;
                             opacity: tile.usable ? 1 : 0.4;
                             background: tile-touch.has-hover ? Theme.hover : transparent;
                             accessible-role: button;
@@ -140,10 +148,10 @@ export component StickerPicker inherits Rectangle {
                                 still: tile.image; frames: tile.frames; delays: tile.delays; image-fit: contain;
                             }
                             if !tile.usable: Image {
-                                source: @image-url("icons/lock.svg");
+                                source: IconPack.lock;
                                 width: 14px; height: 14px;
                                 x: parent.width - self.width - 4px; y: parent.height - self.height - 4px;
-                                colorize: Theme.text;
+                                colorize: IconPack.tint(self.source, Theme.text);
                             }
                             tile-touch := TouchArea {
                                 mouse-cursor: MouseCursor.pointer;
@@ -163,8 +171,8 @@ export component StickerPicker inherits Rectangle {
                             // GIF's does in the GIFs' picker.
                             star := Rectangle {
                                 x: parent.width - self.width - 4px; y: 4px;
-                                width: 24px; height: 24px; border-radius: 5px;
-                                background: Theme.panel;
+                                width: 24px; height: 24px; border-radius: Look.radius(5px);
+                                background: Theme.panel-fill;
                                 opacity: tile-touch.has-hover ? 1 : 0;
                                 animate opacity { duration: Theme.quick; }
                                 accessible-role: button;
@@ -173,8 +181,8 @@ export component StickerPicker inherits Rectangle {
                                 Image {
                                     x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
                                     width: 16px; height: 16px;
-                                    source: tile.favorite ? @image-url("icons/star-filled.svg") : @image-url("icons/star.svg");
-                                    colorize: tile.favorite ? #f0b232 : Theme.text;
+                                    source: tile.favorite ? IconPack.star-filled : IconPack.star;
+                                    colorize: IconPack.tint(self.source, tile.favorite ? #f0b232 : Theme.text);
                                 }
                                 TouchArea {
                                     enabled: tile-touch.has-hover;
@@ -192,7 +200,7 @@ export component StickerPicker inherits Rectangle {
             }
             // The sticker under the pointer, by name, or what a click does.
             Rectangle {
-                height: 46px; background: Theme.panel;
+                height: 46px; background: Theme.panel-fill;
                 HorizontalLayout {
                     padding-left: 14px; padding-right: 14px;
                     Text {

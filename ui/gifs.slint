@@ -1,4 +1,5 @@
-import { Theme, Tip } from "theme.slint";
+import { IconPack } from "media.slint";
+import { Theme, Tip, Look } from "theme.slint";
 import { IconButton, TextField, Picture } from "controls.slint";
 
 /// A tile of the GIF picker's grid, placed by the adapter as Discord's
@@ -33,8 +34,8 @@ export component FavoriteStar inherits Rectangle {
     in property <bool> on;
     in property <bool> shown;
     callback clicked;
-    width: 32px; height: 32px; border-radius: 5px;
-    background: Theme.panel;
+    width: 32px; height: 32px; border-radius: Look.radius(5px);
+    background: Theme.panel-fill;
     opacity: root.shown ? 1 : 0;
     animate opacity { duration: Theme.quick; }
     accessible-role: button;
@@ -42,8 +43,8 @@ export component FavoriteStar inherits Rectangle {
     accessible-action-default => { root.clicked(); }
     Image {
         width: 20px; height: 20px;
-        source: root.on ? @image-url("icons/star-filled.svg") : @image-url("icons/star.svg");
-        colorize: root.on ? #f0b232 : touch.has-hover ? Theme.text : Theme.secondary;
+        source: root.on ? IconPack.star-filled : IconPack.star;
+        colorize: IconPack.tint(self.source, root.on ? #f0b232 : touch.has-hover ? Theme.text : Theme.secondary);
     }
     touch := TouchArea {
         enabled: root.shown; mouse-cursor: MouseCursor.pointer;
@@ -125,7 +126,7 @@ export component GifPicker inherits VerticalLayout {
         HorizontalLayout {
             padding-left: 16px; padding-right: 16px; padding-bottom: 12px; spacing: 8px;
             if root.view != 0: IconButton {
-                icon: @image-url("icons/chevron-left.svg"); label: "Back"; size: 34px;
+                icon: IconPack.chevron-left; label: "Back"; size: 34px;
                 clicked => { root.back(); }
             }
             if root.view == 1: Text {
@@ -156,7 +157,7 @@ export component GifPicker inherits VerticalLayout {
         content-height: max(root.grid-height, root.note != "" ? 96px : 0px) + (root.suggestions.length > 0 ? footer.preferred-height + 12px : 0px);
         for tile in root.tiles: Rectangle {
             x: tile.x; y: tile.y; width: tile.w; height: tile.h;
-            border-radius: 5px; clip: true;
+            border-radius: Look.radius(5px); clip: true;
             background: tile.tint;
             accessible-role: button;
             accessible-label: tile.kind == 0 ? "GIF" : tile.label;
@@ -187,8 +188,8 @@ export component GifPicker inherits VerticalLayout {
                     }
                     HorizontalLayout {
                         alignment: center; spacing: 6px;
-                        if tile.kind == 1: Image { y: (parent.height - self.height) / 2; width: 20px; height: 20px; source: @image-url("icons/star-filled.svg"); colorize: #ffffff; }
-                        if tile.kind == 2: Image { y: (parent.height - self.height) / 2; width: 20px; height: 20px; source: @image-url("icons/trending-up.svg"); colorize: #ffffff; }
+                        if tile.kind == 1: Image { y: (parent.height - self.height) / 2; width: 20px; height: 20px; source: IconPack.star-filled; colorize: IconPack.tint(self.source, #ffffff); }
+                        if tile.kind == 2: Image { y: (parent.height - self.height) / 2; width: 20px; height: 20px; source: IconPack.trending-up; colorize: IconPack.tint(self.source, #ffffff); }
                         Text {
                             text: tile.label; color: #ffffff; font-size: 16px; font-weight: 600;
                             vertical-alignment: center; overflow: elide;
@@ -213,7 +214,7 @@ export component GifPicker inherits VerticalLayout {
             HorizontalLayout {
                 alignment: center; spacing: 8px;
                 for term in root.suggestions: Rectangle {
-                    height: 28px; width: term-text.preferred-width + 20px; border-radius: 4px;
+                    height: 28px; width: term-text.preferred-width + 20px; border-radius: Look.radius(4px);
                     background: term-touch.has-hover ? Theme.hover : Theme.sunken;
                     accessible-role: button; accessible-label: term;
                     accessible-action-default => { root.category(term); }
@@ -234,7 +235,7 @@ export component PickerTab inherits Rectangle {
     in property <string> text;
     in property <bool> selected;
     callback clicked;
-    width: label.preferred-width + 24px; height: 30px; border-radius: 6px;
+    width: label.preferred-width + 24px; height: 30px; border-radius: Look.radius(6px);
     background: root.selected ? Theme.active : touch.has-hover ? Theme.hover : transparent;
     accessible-role: tab; accessible-label: root.text; accessible-item-selected: root.selected;
     accessible-action-default => { root.clicked(); }

@@ -1,5 +1,6 @@
+import { IconPack } from "media.slint";
 import { ListView } from "scrollview.slint";
-import { Theme, Tip, Middle, Label } from "theme.slint";
+import { Theme, Tip, Middle, Label, Look } from "theme.slint";
 import { ActionButton, TextField } from "controls.slint";
 import { SettingsSwitch } from "settings.slint";
 
@@ -29,8 +30,8 @@ component BrowseItem inherits Rectangle {
     callback view;
     property <string> locked-tip: "You must unfollow this category to add or remove specific channels.";
     height: 56px;
-    border-radius: 8px;
-    background: pointer.has-hover && !root.channel.by-category ? Theme.raised : transparent;
+    border-radius: Look.radius(8px);
+    background: pointer.has-hover && !root.channel.by-category ? Theme.raised-fill : transparent;
     accessible-role: checkbox;
     accessible-label: root.channel.name;
     accessible-description: root.channel.topic;
@@ -58,7 +59,7 @@ component BrowseItem inherits Rectangle {
     HorizontalLayout {
         padding-left: 12px; padding-right: 12px; spacing: 12px;
         Middle {
-            Image { source: root.channel.icon; width: 20px; height: 20px; image-fit: contain; colorize: Theme.muted; }
+            Image { source: root.channel.icon; width: 20px; height: 20px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
         }
         VerticalLayout {
             alignment: center; spacing: 2px; horizontal-stretch: 1;
@@ -80,13 +81,13 @@ component BrowseItem inherits Rectangle {
         }
         Middle {
             Rectangle {
-                width: 20px; height: 20px; border-radius: 4px;
+                width: 20px; height: 20px; border-radius: Look.radius(4px);
                 opacity: root.channel.by-category ? 0.5 : 1;
-                background: root.channel.followed ? Theme.accent : transparent;
+                background: root.channel.followed ? Theme.accent-fill : transparent;
                 border-width: root.channel.followed ? 0px : 1.5px; border-color: Theme.muted;
                 if root.channel.followed: Image {
                     width: 14px; height: 14px; image-fit: contain;
-                    source: @image-url("icons/check.svg"); colorize: Theme.on-accent;
+                    source: IconPack.check; colorize: IconPack.tint(self.source, Theme.on-accent);
                 }
             }
         }

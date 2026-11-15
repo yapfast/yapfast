@@ -1,4 +1,4 @@
-import { Theme, Middle, Label } from "theme.slint";
+import { Theme, Middle, Label, Look } from "theme.slint";
 import { ActionButton, Avatar, TextField, PictureStore } from "controls.slint";
 import { Choices, Picker, SettingsCard, SettingsFrame, SettingsRow, SettingsTitle, SettingsHeading, SettingsSwitch, UnsavedBar } from "settings.slint";
 import { AddMembersDialog, RoleConfirmDialog, RolesPrompt, RolesSection } from "roles.slint";
@@ -105,7 +105,7 @@ component SettingsArea inherits VerticalLayout {
     callback edited(string);
     spacing: 4px;
     Rectangle {
-        height: 96px; border-radius: 6px; background: Theme.sunken;
+        height: 96px; border-radius: Look.radius(6px); background: Theme.sunken;
         border-width: input.has-focus ? 1px : 0px; border-color: Theme.accent.with-alpha(0.8);
         Text {
             x: 10px; y: 8px; width: parent.width - 20px;
@@ -118,7 +118,7 @@ component SettingsArea inherits VerticalLayout {
             text <=> root.text; enabled: root.enabled;
             single-line: false; wrap: word-wrap;
             font-size: 14px; color: Theme.text;
-            selection-background-color: Theme.accent.with-alpha(0.35);
+            selection-background-color: Theme.selection;
             selection-foreground-color: Theme.text;
             accessible-label: root.label;
             edited => { root.edited(self.text); }
@@ -142,7 +142,7 @@ component ServerProfileSection inherits VerticalLayout {
     callback remove-icon;
     property <bool> ready: !root.prompt.saving;
     spacing: 16px;
-    SettingsTitle { text: "Server Profile"; }
+    SettingsTitle { title: "Server Profile"; }
     Label { text: "Customize how your server appears in invite links and, if enabled, in Server Discovery and Announcement Channel messages."; }
     VerticalLayout {
         spacing: 8px;
@@ -204,7 +204,7 @@ component EngagementSection inherits VerticalLayout {
     property <EngagementPrompt> page: root.prompt.engagement;
     property <bool> system: root.page.system-channel > 0;
     spacing: 16px;
-    SettingsTitle { text: "Engagement"; }
+    SettingsTitle { title: "Engagement"; }
     VerticalLayout {
         spacing: 8px;
         SettingsHeading { text: "SYSTEM MESSAGES CHANNEL"; }
@@ -286,7 +286,7 @@ component BoostBackground inherits VerticalLayout {
     HorizontalLayout {
         spacing: 16px; alignment: start;
         Rectangle {
-            width: 240px; height: 135px; border-radius: 8px; clip: true;
+            width: 240px; height: 135px; border-radius: Look.radius(8px); clip: true;
             background: Theme.sunken;
             if root.shown.width > 0: Image { width: parent.width; height: parent.height; source: root.shown; image-fit: cover; }
             if root.shown.width == 0: Text {
@@ -320,7 +320,7 @@ component BoostSection inherits VerticalLayout {
     property <BoostPrompt> page: root.prompt.boost;
     spacing: 16px;
     HorizontalLayout {
-        SettingsTitle { text: "Boost Perks"; horizontal-stretch: 1; }
+        SettingsTitle { title: "Boost Perks"; horizontal-stretch: 1; }
         Middle { Text { text: root.page.level; color: Theme.muted; font-size: 14px; font-weight: 700; } }
     }
     SettingsSwitch {
@@ -483,7 +483,7 @@ export component ServerSettingsScreen inherits Rectangle {
         if root.bar: UnsavedBar {
             x: frame.content-x + 24px; width: min(700px, frame.content-width - 48px);
             y: frame.height - self.height - 24px;
-            border-radius: 8px; drop-shadow-blur: 16px; drop-shadow-color: #00000066; drop-shadow-offset-y: 4px;
+            border-radius: Look.radius(8px); drop-shadow-blur: Look.shadow-blur(16px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000066); drop-shadow-offset-y: Look.shadow-y(4px);
             saving: root.prompt.saving; may-save: root.prompt.may-save; nudge: root.prompt.nudge;
             // The fields go still while Discord takes the change, so Escape
             // goes to the frame.

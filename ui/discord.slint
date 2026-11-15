@@ -1,4 +1,5 @@
-import { Theme, Badges } from "theme.slint";
+import { IconPack } from "media.slint";
+import { Theme, Badges, Look } from "theme.slint";
 import { ActionButton, TextField } from "controls.slint";
 
 // Marks something from Discord: its logo, white on blurple, on a ring of the
@@ -13,9 +14,9 @@ export component DiscordBadge inherits Rectangle {
         width: root.size; height: root.size; border-radius: root.size / 2;
         background: #5865f2;
         Image {
-            source: @image-url("icons/discord.svg");
+            source: IconPack.discord;
             width: root.size * 0.62; height: self.width; image-fit: contain;
-            colorize: white;
+            colorize: IconPack.tint(self.source, white);
         }
     }
 }
@@ -43,13 +44,13 @@ export component DiscordLinkPanel inherits VerticalLayout {
         spacing: 12px;
         Rectangle {
             min-height: warning.preferred-height;
-            background: Theme.danger.with-alpha(0.1); border-radius: 8px;
-            border-width: 1px; border-color: Theme.danger.with-alpha(0.35);
+            background: Theme.danger.with-alpha(0.1); border-radius: Look.radius(8px);
+            border-width: Look.line(1px); border-color: Theme.danger.with-alpha(0.35);
             warning := HorizontalLayout {
                 padding: 12px; spacing: 10px;
                 VerticalLayout {
                     alignment: start;
-                    Image { source: @image-url("icons/triangle-alert.svg"); width: 18px; height: 18px; colorize: Theme.danger; }
+                    Image { source: IconPack.triangle-alert; width: 18px; height: 18px; colorize: IconPack.tint(self.source, Theme.danger); }
                 }
                 Text {
                     text: "Discord doesn't allow apps like Yapfast on personal accounts. Linking puts your account at some risk of being suspended.";
@@ -103,7 +104,7 @@ export component DiscordLinkPanel inherits VerticalLayout {
     if root.phase >= 1 && root.phase <= 3: HorizontalLayout {
         spacing: 20px;
         Rectangle {
-            width: 184px; height: 184px; border-radius: 12px;
+            width: 184px; height: 184px; border-radius: Look.radius(12px);
             background: root.phase == 2 ? #ffffff : Theme.sunken;
             if root.phase == 2: Image {
                 source: root.code; width: 176px; height: 176px; image-rendering: pixelated;
@@ -114,7 +115,7 @@ export component DiscordLinkPanel inherits VerticalLayout {
                 alignment: center; spacing: 8px;
                 HorizontalLayout {
                     alignment: center;
-                    Image { source: @image-url("icons/check.svg"); width: 40px; height: 40px; colorize: Theme.live; }
+                    Image { source: IconPack.check; width: 40px; height: 40px; colorize: IconPack.tint(self.source, Theme.live); }
                 }
                 Text { text: "Scanned"; color: Theme.text; font-size: 15px; font-weight: 700; horizontal-alignment: center; }
             }

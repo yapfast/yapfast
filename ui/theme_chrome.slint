@@ -1,0 +1,253 @@
+// A theme's chrome: the fixed words and small marks around the window, from
+// the closed lists in crates/yapfast-core/src/themes/chrome.rs.
+// src/ui/theme_chrome.rs sets these; every default is the stock window, so
+// with no theme each binding gives the stock text and nothing here draws.
+// Screen readers keep the stock names: an element whose text changes here
+// keeps its stock accessible label.
+
+import { Theme, Look } from "theme.slint";
+
+/// One of the top bar's workspaces: a server (or a folder's), its number
+/// as shown, its name for screen readers, and whether it's open or unread.
+export struct Workspace {
+    id: string, number: string, name: string, current: bool, unread: bool,
+    /// Mentions waiting, as a small number after it; empty for none.
+    badge: string,
+    /// The DMs' workspace, the "+N" that opens every server past the bar's
+    /// last, and a folder's id when it's a folder's.
+    home: bool, more: bool, folder: string,
+}
+
+export global Chrome {
+    /// The face the chrome's words take, a type role's family; empty for
+    /// each place's stock face.
+    in property <string> font;
+    public pure function face(stock: string) -> string { self.font != "" ? self.font : stock }
+    /// A bar across the window's top: 0 px for none.
+    in property <length> topbar-height;
+    out property <length> topbar-px: self.topbar-height;
+    in property <[Workspace]> workspaces;
+    in property <string> topbar-centre;
+    in property <string> topbar-right;
+    in property <length> topbar-size: 12px;
+    // Colours a theme sets, or transparent to follow the theme's own.
+    in property <color> topbar-ground-set;
+    in property <color> topbar-ink-set;
+    in property <color> topbar-current-set;
+    in property <color> topbar-underline-set;
+    in property <color> topbar-line-set;
+    out property <color> topbar-ground: self.topbar-ground-set.alpha > 0 ? self.topbar-ground-set : Theme.rail;
+    out property <color> topbar-ink: self.topbar-ink-set.alpha > 0 ? self.topbar-ink-set : Theme.muted;
+    out property <color> topbar-current: self.topbar-current-set.alpha > 0 ? self.topbar-current-set : Theme.text;
+    out property <color> topbar-underline: self.topbar-underline-set.alpha > 0 ? self.topbar-underline-set : Theme.accent;
+    out property <color> topbar-line: self.topbar-line-set.alpha > 0 ? self.topbar-line-set : Theme.line;
+    /// What's playing and the time, kept by Rust while a label shows them.
+    in property <string> now-playing;
+    in property <string> time;
+    /// The right label decrypts when what's playing changes.
+    in property <bool> topbar-decrypt;
+    /// A top bar label with its placeholders filled.
+    pure callback bar(string /* template */, string /* name */, string /* server */, string /* channel */, string /* now */, string /* time */) -> string;
+    /// The composer as a console's input line: no box, a hairline under it
+    /// that draws across in `console-focus` while it has the keys, over
+    /// `console-draw` ms (0 under reduced motion), a coloured caret and a
+    /// placeholder typed `console-typing` ms a letter (0 for none).
+    in property <bool> console;
+    in property <color> console-line-set;
+    in property <color> console-focus-set;
+    out property <color> console-line: self.console-line-set.alpha > 0 ? self.console-line-set : Theme.line;
+    out property <color> console-focus: self.console-focus-set.alpha > 0 ? self.console-focus-set : Theme.accent;
+    in property <duration> console-draw: 420ms;
+    in property <color> console-caret: transparent;
+    in property <duration> console-typing;
+    /// The first `count` characters of `text`.
+    pure callback typed(string /* text */, int /* count */) -> string;
+    /// Labels; empty for the stock text. A label's placeholders are filled
+    /// by `fill`.
+    in property <string> members-title;
+    in property <string> members-group;
+    in property <string> category;
+    in property <string> composer;
+    in property <string> new-label;
+    in property <string> typing;
+    in property <string> welcome;
+    in property <string> start;
+    in property <string> rail-title;
+    in property <string> rail-footer;
+    in property <string> rail-home;
+    in property <string> reaction: "(+{n})";
+    in property <string> tree-root;
+    /// The day divider between messages, with `{date}`.
+    in property <string> day;
+    // Marks before and after names.
+    in property <string> channel-before;
+    in property <string> channel-after;
+    in property <string> server-before;
+    in property <string> server-after;
+    in property <string> member-before;
+    in property <string> member-after;
+    in property <string> author-before;
+    in property <string> author-after;
+    in property <string> header-before;
+    in property <string> header-after;
+    in property <string> time-before;
+    in property <string> time-after;
+    // What a theme leaves out.
+    in property <bool> hide-member-avatars;
+    in property <bool> hide-channel-icons;
+    in property <bool> hide-header-buttons;
+    in property <bool> hide-account-avatar;
+    in property <bool> hide-activity-cards;
+    in property <bool> reaction-text;
+    /// The server rail as a list of names, and its width then.
+    in property <bool> rail-text;
+    in property <length> rail-width: 150px;
+    /// A theme's rail tiles' width for the rail, when they need more than 72.
+    in property <length> rail-tiles-px;
+    out property <length> rail-px: self.rail-text ? self.rail-width : max(72px, self.rail-tiles-px);
+    /// The composer's block caret and its prompt.
+    in property <bool> caret-block;
+    in property <string> prompt;
+    /// The member list's status column, by presence; empty for none.
+    in property <bool> status-column;
+    in property <string> status-online;
+    in property <string> status-idle;
+    in property <string> status-dnd;
+    in property <string> status-offline;
+    in property <string> status-streaming;
+    /// Server folders and channel categories as directories: a mark for
+    /// open or closed before the name, and one after it.
+    in property <bool> folders;
+    in property <string> folder-open: "▾";
+    in property <string> folder-closed: "▸";
+    in property <string> folder-suffix: "/";
+    public pure function folder(name: string, open: bool) -> string {
+        (open ? self.folder-open : self.folder-closed) + " " + name + self.folder-suffix
+    }
+    /// Lists drawn as file trees, and their lines' colour: a theme colour
+    /// (0 faint, 1 muted, 2 secondary, 3 text, 4 accent) unless one is set.
+    in property <bool> tree-channels;
+    in property <bool> tree-members;
+    in property <bool> tree-dms;
+    in property <bool> tree-rail;
+    in property <bool> tree-replies;
+    in property <int> tree-token;
+    in property <color> tree-colour-set: transparent;
+    out property <color> tree-ink: self.tree-colour-set != transparent ? self.tree-colour-set
+        : self.tree-token == 1 ? Theme.muted : self.tree-token == 2 ? Theme.secondary
+        : self.tree-token == 3 ? Theme.text : self.tree-token == 4 ? Theme.accent : Theme.faint;
+    /// A row's branch: `├──`, or `└──` for its group's last.
+    public pure function branch(last: bool) -> string { last ? "└──" : "├──" }
+    /// A nested row's: a line on past its parent, unless the parent is last.
+    public pure function nested(parent-last: bool, last: bool) -> string {
+        (parent-last ? "    " : "│   ") + (last ? "└──" : "├──")
+    }
+    /// A label with its placeholders filled. `kind` says what `text` is:
+    /// "group" a member list heading such as "Leads — 2", "typing" the stock
+    /// typing line, "channel", "server", "name" or "n" a value.
+    pure callback fill(string /* label */, string /* kind */, string /* text */) -> string;
+    /// Counts after the names of tree rows, the text rail and the tree
+    /// sidebar (`chrome.tree.counts`): mentions with `{n}`, in place of the
+    /// badge, and a mark for a row unread without any; empty for stock.
+    in property <string> count-mentions;
+    in property <string> count-unread;
+    /// The mentions' colour: 0 danger, 1 loud, 2 accent, 3 text, 4
+    /// secondary, 5 muted.
+    in property <int> count-token;
+    out property <color> count-ink: self.count-token == 1 ? Theme.loud : self.count-token == 2 ? Theme.accent
+        : self.count-token == 3 ? Theme.text : self.count-token == 4 ? Theme.secondary
+        : self.count-token == 5 ? Theme.muted : Theme.danger;
+    /// What a row writes after its name: its badge in the theme's words,
+    /// `stock` when the theme has none, or its unread mark.
+    public pure function count(badge: string, unread: bool, stock: string) -> string {
+        badge != "" ? (self.count-mentions != "" ? self.fill(self.count-mentions, "n", badge) : stock)
+            : unread ? self.count-unread : ""
+    }
+    /// Panes framed with box-drawing characters (`chrome.box`): which, the
+    /// corners, the across and down lines run long (each pane clips them to
+    /// its size, so they stay crisp at any width), the titles, the face's
+    /// size and the lines' colour (a tree token unless one is set).
+    in property <bool> box-chat;
+    in property <bool> box-sidebar;
+    in property <bool> box-members;
+    in property <string> box-tl: "┌";
+    in property <string> box-tr: "┐";
+    in property <string> box-bl: "└";
+    in property <string> box-br: "┘";
+    in property <string> box-across;
+    in property <string> box-down;
+    in property <string> box-title-chat;
+    in property <string> box-title-sidebar;
+    in property <string> box-title-members;
+    in property <length> box-size: 14px;
+    in property <int> box-token: -1;
+    in property <color> box-colour-set: transparent;
+    out property <color> box-ink: self.box-colour-set != transparent ? self.box-colour-set
+        : self.box-token == 1 ? Theme.muted : self.box-token == 2 ? Theme.secondary
+        : self.box-token == 3 ? Theme.text : self.box-token == 4 ? Theme.accent
+        : self.box-token == 0 ? Theme.faint : self.tree-ink;
+    /// A box title with its placeholders filled.
+    public pure function box-title(template: string, name: string, n: string) -> string {
+        template == "" ? "" : self.fill(template, "box", name + "\n" + n)
+    }
+    public pure function status(presence: string, place: int) -> string {
+        self.fill(
+            presence == "idle" ? self.status-idle
+                : presence == "dnd" ? self.status-dnd
+                : presence == "streaming" ? self.status-streaming
+                : presence == "offline" || presence == "" ? self.status-offline
+                : self.status-online,
+            "n", place)
+    }
+}
+
+/// A pane's frame of box-drawing characters, laid over it: corners, the
+/// across and down lines (one long run of a character each, clipped to the
+/// pane, never a stretched picture) and a title in the top edge, such as
+/// `┌─[ #general ]────┐`. `cell` and `line` are a character's width and
+/// height in the box face, which the pane also keeps clear on each side.
+export component BoxFrame inherits Rectangle {
+    in property <string> title;
+    in property <length> cell;
+    in property <length> line;
+    property <length> title-room: max(0px, root.width - 4 * root.cell);
+    property <length> title-width: root.title == "" ? 0px : min(title-text.preferred-width, root.title-room);
+    // The top edge: a corner, a line, the title, the line on, a corner.
+    Text { x: 0px; y: 0px; text: Chrome.box-tl; color: Chrome.box-ink; font-family: Look.mono; font-size: Chrome.box-size; accessible-role: none; }
+    Rectangle {
+        x: root.cell; y: 0px; width: root.title == "" ? max(0px, root.width - 2 * root.cell) : min(root.cell, max(0px, root.width - 2 * root.cell)); height: root.line; clip: true;
+        Text { x: 0px; y: 0px; text: Chrome.box-across; wrap: no-wrap; color: Chrome.box-ink; font-family: Look.mono; font-size: Chrome.box-size; accessible-role: none; }
+    }
+    Rectangle {
+        x: 2 * root.cell; y: 0px; width: root.title-width; height: root.line; clip: true;
+        title-text := Text {
+            x: 0px; y: 0px; width: root.title-width; text: root.title; color: Theme.text; overflow: elide; wrap: no-wrap;
+            font-family: Look.mono; font-size: Chrome.box-size; accessible-role: none;
+        }
+    }
+    if root.title != "": Rectangle {
+        x: 2 * root.cell + root.title-width; y: 0px; width: max(0px, root.width - root.cell - self.x); height: root.line; clip: true;
+        Text { x: 0px; y: 0px; text: Chrome.box-across; wrap: no-wrap; color: Chrome.box-ink; font-family: Look.mono; font-size: Chrome.box-size; accessible-role: none; }
+    }
+    Text { x: root.width - root.cell; y: 0px; text: Chrome.box-tr; color: Chrome.box-ink; font-family: Look.mono; font-size: Chrome.box-size; accessible-role: none; }
+    // The sides.
+    Rectangle {
+        x: 0px; y: root.line / 2; width: root.cell; height: max(0px, root.height - root.line); clip: true;
+        // A face's down line may stop short of its line's height: three
+        // runs a third of a line apart close the gaps.
+        for shift in 3: Text { x: 0px; y: root.line * shift / 3; text: Chrome.box-down; wrap: no-wrap; color: Chrome.box-ink; font-family: Look.mono; font-size: Chrome.box-size; accessible-role: none; }
+    }
+    Rectangle {
+        x: root.width - root.cell; y: root.line / 2; width: root.cell; height: max(0px, root.height - root.line); clip: true;
+        // A face's down line may stop short of its line's height: three
+        // runs a third of a line apart close the gaps.
+        for shift in 3: Text { x: 0px; y: root.line * shift / 3; text: Chrome.box-down; wrap: no-wrap; color: Chrome.box-ink; font-family: Look.mono; font-size: Chrome.box-size; accessible-role: none; }
+    }
+    // The bottom edge.
+    Text { x: 0px; y: root.height - root.line; text: Chrome.box-bl; color: Chrome.box-ink; font-family: Look.mono; font-size: Chrome.box-size; accessible-role: none; }
+    Rectangle {
+        x: root.cell; y: root.height - root.line; width: max(0px, root.width - 2 * root.cell); height: root.line; clip: true;
+        Text { x: 0px; y: 0px; text: Chrome.box-across; wrap: no-wrap; color: Chrome.box-ink; font-family: Look.mono; font-size: Chrome.box-size; accessible-role: none; }
+    }
+    Text { x: root.width - root.cell; y: root.height - root.line; text: Chrome.box-br; color: Chrome.box-ink; font-family: Look.mono; font-size: Chrome.box-size; accessible-role: none; }
+}

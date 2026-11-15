@@ -1,5 +1,6 @@
+import { IconPack } from "media.slint";
 import { ScrollView } from "scrollview.slint";
-import { Theme, Label } from "theme.slint";
+import { Theme, Label, Look } from "theme.slint";
 import { ActionButton, TextField, Banner } from "controls.slint";
 import { DiscordLinkPanel } from "discord.slint";
 
@@ -28,7 +29,7 @@ export component SignInScreen inherits Rectangle {
     callback link-discord-token(string);
     callback open-discord-captcha;
     background: Theme.rail;
-    Text { x: 32px; y: 24px; text: "Yapfast"; color: Theme.accent; font-size: 24px; font-weight: 900; letter-spacing: -0.4px; }
+    Text { x: 32px; y: 24px; text: "Yapfast"; color: Theme.accent-text; font-size: 24px; font-weight: 900; letter-spacing: -0.4px; }
     ScrollView {
         y: 64px; height: parent.height - 64px;
         VerticalLayout {
@@ -43,8 +44,8 @@ export component SignInScreen inherits Rectangle {
                 alignment: center;
                 Rectangle {
                     max-width: 760px; horizontal-stretch: 1;
-                    background: Theme.chat; border-radius: 12px;
-                    drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+                    background: Theme.chat-fill; border-radius: Look.r(Look.dialog, 12px);
+                    drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
                     HorizontalLayout {
                         padding: 32px; spacing: 32px;
                         // A build without Matrix signs in by linking Discord.
@@ -90,8 +91,8 @@ export component SignInScreen inherits Rectangle {
                             HorizontalLayout {
                                 alignment: center;
                                 Rectangle {
-                                    width: 72px; height: 72px; border-radius: 24px; background: Theme.raised;
-                                    Image { source: @image-url("icons/logo.svg"); width: 44px; height: 44px; colorize: Theme.accent; }
+                                    width: 72px; height: 72px; border-radius: Look.radius(24px); background: Theme.raised-fill;
+                                    Image { source: IconPack.logo; width: 44px; height: 44px; colorize: IconPack.tint(self.source, Theme.accent-text); }
                                 }
                             }
                             Text { text: "Just looking?"; color: Theme.text; font-size: 20px; font-weight: 700; horizontal-alignment: center; }
@@ -112,12 +113,12 @@ export component VerifyBanner inherits Rectangle {
     in-out property <string> recovery;
     callback recover;
     callback refresh-trust;
-    min-height: trust-content.preferred-height; background: Theme.raised; vertical-stretch: 0;
+    min-height: trust-content.preferred-height; background: Theme.raised-fill; vertical-stretch: 0;
     trust-content := HorizontalLayout {
         padding: 16px; spacing: 14px;
         Rectangle {
-            width: 36px; height: 36px; border-radius: 18px; background: Theme.accent-soft;
-            Image { source: @image-url("icons/lock.svg"); width: 18px; height: 18px; colorize: Theme.accent; }
+            width: 36px; height: 36px; border-radius: Look.radius(18px); background: Theme.accent-soft;
+            Image { source: IconPack.lock; width: 18px; height: 18px; colorize: IconPack.tint(self.source, Theme.accent-text); }
         }
         VerticalLayout {
             spacing: 8px;

@@ -1,4 +1,5 @@
-import { Theme, Tip, Middle } from "../theme.slint";
+import { IconPack } from "../media.slint";
+import { Theme, Tip, Middle, Look } from "../theme.slint";
 
 // Use the existing move/resize/close callbacks, including close-to-tray.
 component CaptionButton inherits Rectangle {
@@ -14,7 +15,7 @@ component CaptionButton inherits Rectangle {
     forward-focus: focus;
     Image {
         source: root.icon; width: 12px; height: 12px;
-        colorize: root.close && pointer.has-hover ? Theme.on-danger : Theme.secondary;
+        colorize: IconPack.tint(self.source, root.close && pointer.has-hover ? Theme.on-danger : Theme.secondary);
     }
     focus := FocusScope {
         key-pressed(event) => {
@@ -32,7 +33,7 @@ component BarButton inherits Rectangle {
     in property <bool> enabled: true;
     in property <bool> active;
     callback clicked;
-    width: 28px; height: 24px; border-radius: 4px;
+    width: 28px; height: 24px; border-radius: Look.radius(4px);
     background: !root.enabled ? transparent : root.active ? Theme.overlay.with-alpha(0.12) : pointer.has-hover || focus.has-focus ? Theme.overlay.with-alpha(0.08) : transparent;
     accessible-role: button;
     accessible-label: root.label;
@@ -41,7 +42,7 @@ component BarButton inherits Rectangle {
     forward-focus: focus;
     Image {
         source: root.icon; width: 16px; height: 16px;
-        colorize: !root.enabled ? Theme.faint : root.active || pointer.has-hover ? Theme.text : Theme.secondary;
+        colorize: IconPack.tint(self.source, !root.enabled ? Theme.faint : root.active || pointer.has-hover ? Theme.text : Theme.secondary);
     }
     focus := FocusScope {
         enabled: root.enabled;
@@ -103,7 +104,7 @@ export component WindowBar inherits Rectangle {
     HorizontalLayout {
         x: (parent.width - self.width) / 2; width: min(label.preferred-width + 26px, parent.width - 460px);
         height: parent.height; spacing: 8px;
-        Middle { width: 16px; Image { source: @image-url("../icons/message-circle.svg"); width: 16px; height: 16px; colorize: Theme.secondary; } }
+        Middle { width: 16px; Image { source: IconPack.message-circle; width: 16px; height: 16px; colorize: IconPack.tint(self.source, Theme.secondary); } }
         label := Text {
             text: root.place; font-size: 12px; font-weight: 600;
             color: root.focused ? Theme.secondary : Theme.faint;
@@ -112,24 +113,24 @@ export component WindowBar inherits Rectangle {
     }
     HorizontalLayout {
         alignment: start; padding-left: 8px; spacing: 4px;
-        Middle { BarButton { icon: @image-url("../icons/arrow-left.svg"); label: "Back"; enabled: root.can-go-back; clicked => { root.go-back(); } } }
-        Middle { BarButton { icon: @image-url("../icons/arrow-right.svg"); label: "Forward"; enabled: root.can-go-forward; clicked => { root.go-forward(); } } }
+        Middle { BarButton { icon: IconPack.arrow-left; label: "Back"; enabled: root.can-go-back; clicked => { root.go-back(); } } }
+        Middle { BarButton { icon: IconPack.arrow-right; label: "Forward"; enabled: root.can-go-forward; clicked => { root.go-forward(); } } }
     }
     HorizontalLayout {
         alignment: end; spacing: 0px;
         if root.workspace: Middle {
             HorizontalLayout {
                 spacing: 4px; padding-right: 12px;
-                BarButton { icon: @image-url("../icons/inbox.svg"); label: "Inbox"; active: root.inbox-open; clicked => { root.toggle-inbox(); } }
-                BarButton { icon: @image-url("../icons/help-circle.svg"); label: "Help"; clicked => { root.open-help(); } }
+                BarButton { icon: IconPack.inbox; label: "Inbox"; active: root.inbox-open; clicked => { root.toggle-inbox(); } }
+                BarButton { icon: IconPack.help-circle; label: "Help"; clicked => { root.open-help(); } }
             }
         }
-        CaptionButton { icon: @image-url("../icons/minus.svg"); label: "Minimize"; clicked => { root.minimize-window(); } }
+        CaptionButton { icon: IconPack.minus; label: "Minimize"; clicked => { root.minimize-window(); } }
         CaptionButton {
-            icon: root.maximized ? @image-url("../icons/restore.svg") : @image-url("../icons/square.svg");
+            icon: root.maximized ? IconPack.restore : IconPack.square;
             label: root.maximized ? "Restore" : "Maximize";
             clicked => { root.maximize-window(); }
         }
-        CaptionButton { icon: @image-url("../icons/x.svg"); label: "Close"; close: true; clicked => { root.close-window(); } }
+        CaptionButton { icon: IconPack.x; label: "Close"; close: true; clicked => { root.close-window(); } }
     }
 }

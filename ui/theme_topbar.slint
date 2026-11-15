@@ -1,0 +1,196 @@
+// A theme's top bar (`chrome.topbar`): a thin bar across the window's top,
+// as a tiling desktop's. On the left the first servers as numbered
+// workspaces, the open one underlined; a label in the middle and one on the
+// right, their placeholders filled by Rust (`Chrome.bar`). Each workspace is
+// a button named for its server, reached with Tab and pressed with Enter or
+// Space. src/ui/theme_chrome.rs keeps its model; with no theme the bar isn't
+// made at all.
+import { Theme, Look } from "theme.slint";
+import { Chrome, Workspace } from "theme_chrome.slint";
+import { Picker, ServerPicker } from "theme_picker.slint";
+
+component WorkspaceButton inherits Rectangle {
+    in property <Workspace> space;
+    /// Its picker is open: the full list under "+N", or its folder's.
+    in property <bool> open;
+    /// Takes the keyboard back when `refocus-tick` changes and it's the
+    /// button whose picker just closed.
+    in property <int> refocus-tick;
+    in property <bool> refocus-me;
+    changed refocus-tick => {
+        if root.refocus-me { focus.focus(); }
+    }
+    callback chosen();
+    /// Down on a folder's workspace opens its list.
+    callback dropped();
+    callback context-menu(length, length);
+    property <bool> lit: root.space.current || touch.has-hover || focus.has-focus;
+    width: max(Chrome.topbar-size * 1.6, number.preferred-width + Chrome.topbar-size + (root.space.badge != "" ? sup.preferred-width + 1px : 0px));
+    background: root.open ? Theme.active : transparent;
+    accessible-role: button;
+    accessible-label: root.space.name + (root.space.current ? ", open" : root.space.unread ? ", unread" : "")
+        + (root.space.badge != "" ? ", " + root.space.badge + " mentions" : "");
+    accessible-action-default => { root.chosen(); }
+    forward-focus: focus;
+    focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Return || event.text == " " {
+                root.chosen();
+                return accept;
+            }
+            if event.text == Key.DownArrow && (root.space.folder != "" || root.space.more) {
+                root.dropped();
+                return accept;
+            }
+            if (event.text == Key.Menu || (event.text == Key.F10 && event.modifiers.shift)) && !root.space.home && !root.space.more {
+                root.context-menu(self.absolute-position.x, self.absolute-position.y + root.height);
+                return accept;
+            }
+            return reject;
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.chosen(); }
+        pointer-event(event) => {
+            if event.button == PointerEventButton.right && event.kind == PointerEventKind.down && !root.space.home && !root.space.more {
+                root.context-menu(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+            }
+        }
+    }
+    number := Text {
+        text: root.space.number;
+        font-family: Chrome.face(Look.mono); font-size: Chrome.topbar-size;
+        font-weight: root.space.current || root.space.unread ? 700 : 400;
+        // Unread workspaces stand out from read ones in the theme's
+        // secondary ink, as well as by weight.
+        color: root.lit ? Chrome.topbar-current : root.space.unread || root.space.badge != "" ? Theme.secondary : Chrome.topbar-ink;
+        x: (parent.width - self.preferred-width - (root.space.badge != "" ? sup.preferred-width + 1px : 0px)) / 2;
+        width: self.preferred-width;
+        horizontal-alignment: center; vertical-alignment: center; accessible-role: none;
+    }
+    // Mentions, a superscript after the number.
+    sup := Text {
+        visible: root.space.badge != "";
+        x: number.x + number.width + 1px; y: (parent.height - number.preferred-height) / 2 - 4px;
+        text: root.space.badge; font-family: Chrome.face(Look.mono); font-size: 9px; color: Theme.accent-text;
+        accessible-role: none;
+    }
+    // Unread DMs on the home workspace.
+    if root.space.home && root.space.unread: Rectangle {
+        x: number.x + number.width; y: (parent.height - number.preferred-height) / 2;
+        width: 4px; height: 4px; border-radius: 2px; background: Theme.accent;
+    }
+    if root.space.current: Rectangle {
+        x: number.x + (number.width - self.width) / 2; y: parent.height - 3px;
+        width: number.preferred-width + 4px; height: 2px;
+        background: Chrome.topbar-underline;
+    }
+    if focus.has-focus: Rectangle {
+        border-width: 1px; border-color: Theme.focus-ring; border-radius: 2px;
+    }
+}
+
+export component TopBar inherits Rectangle {
+    in property <string> account-name;
+    in property <string> server-name;
+    in property <string> channel-name;
+    callback chosen(string /* server id */);
+    /// The rail is hidden: the home workspace opens the DMs, "+N" and a
+    /// folder's workspace open the server picker, which reaches every
+    /// server, an unread DM, and joining one.
+    callback home();
+    callback open-dm(string);
+    callback join-server;
+    callback open-server-menu(string, length, length);
+    /// The window's height, which the picker stays within.
+    in property <length> bounds: 720px;
+    /// What the open picker shows: "" all, a folder's id, or none open.
+    property <string> showing: "-";
+    property <length> picker-x;
+    in property <length> bounds-width: 1280px;
+    /// The picker that just closed, whose button takes the keyboard back.
+    property <string> closed-from: "-";
+    property <int> refocus-tick;
+    function close-picker(refocus: bool) {
+        popup.close();
+        root.popup-open = false;
+        root.closed-from = refocus ? root.showing : "-";
+        root.showing = "-";
+        if refocus { root.refocus-tick += 1; }
+    }
+    function open-picker(folder: string, name: string, x: length) {
+        if root.showing == folder && root.popup-open {
+            root.close-picker(false);
+            return;
+        }
+        root.showing = folder;
+        Picker.filter(folder);
+        Picker.title = folder == "" ? "servers" : name;
+        Picker.count = Picker.count-of(folder);
+        root.picker-x = x - root.absolute-position.x;
+        popup.show();
+        root.popup-open = true;
+    }
+    property <bool> popup-open;
+    property <string> now: Look.bar-text(Chrome.now-playing, Chrome.topbar-decrypt);
+    background: Chrome.topbar-ground;
+    // The workspaces.
+    HorizontalLayout {
+        x: 6px; height: parent.height; spacing: 0px; alignment: start;
+        for space in Chrome.workspaces: WorkspaceButton {
+            space: space;
+            open: root.popup-open && ((space.more && root.showing == "") || (space.folder != "" && root.showing == space.folder));
+            refocus-tick: root.refocus-tick;
+            refocus-me: (space.more && root.closed-from == "") || (space.folder != "" && root.closed-from == space.folder);
+            chosen => {
+                if space.home { root.home(); }
+                else if space.more { root.open-picker("", "", self.absolute-position.x); }
+                else if space.folder != "" && Picker.on { root.open-picker(space.folder, space.name, self.absolute-position.x); }
+                else { root.chosen(space.id); }
+            }
+            dropped => {
+                if Picker.on { root.open-picker(space.more ? "" : space.folder, space.name, self.absolute-position.x); }
+            }
+            context-menu(x, y) => { root.open-server-menu(space.folder != "" ? space.folder : space.id, x, y); }
+        }
+    }
+    // The picker covers the window while open, so a click anywhere off it
+    // closes it and the bar knows it closed.
+    popup := PopupWindow {
+        x: -root.absolute-position.x; y: -root.absolute-position.y;
+        width: root.bounds-width; height: root.bounds;
+        close-policy: no-auto-close;
+        TouchArea {
+            clicked => { root.close-picker(false); }
+        }
+        picker := ServerPicker {
+            x: root.absolute-position.x + root.picker-x; y: root.absolute-position.y + root.height + 2px;
+            bounds: root.bounds;
+            init => { self.focus(); }
+            open-server(id) => { root.chosen(id); }
+            open-dm(id) => { root.open-dm(id); }
+            join-server => { root.join-server(); }
+            open-server-menu(id, x, y) => { root.open-server-menu(id, x, y); }
+            closed => { root.close-picker(false); }
+            escaped => { root.close-picker(true); }
+        }
+    }
+    centre-label := Text {
+        x: (parent.width - self.width) / 2;
+        width: min(self.preferred-width, parent.width * 0.4); height: parent.height;
+        text: Chrome.bar(Chrome.topbar-centre, root.account-name, root.server-name, root.channel-name, Chrome.now-playing, Chrome.time);
+        font-family: Chrome.face(Look.mono); font-size: Chrome.topbar-size; color: Chrome.topbar-ink;
+        vertical-alignment: center; overflow: elide;
+    }
+    right-label := Text {
+        x: parent.width - self.width - 10px;
+        width: min(self.preferred-width, parent.width * 0.3); height: parent.height;
+        text: Chrome.bar(Chrome.topbar-right, root.account-name, root.server-name, root.channel-name, root.now, Chrome.time);
+        accessible-label: Chrome.bar(Chrome.topbar-right, root.account-name, root.server-name, root.channel-name, Chrome.now-playing, Chrome.time);
+        font-family: Chrome.face(Look.mono); font-size: Chrome.topbar-size; color: Chrome.topbar-ink;
+        horizontal-alignment: right; vertical-alignment: center; overflow: elide;
+    }
+    // The hairline under it.
+    Rectangle { y: parent.height - 1px; height: 1px; background: Chrome.topbar-line; }
+}

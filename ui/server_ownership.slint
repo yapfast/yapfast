@@ -1,4 +1,7 @@
-import { Theme } from "theme.slint";
+import { IconPack } from "media.slint";
+import { Theme, Look } from "theme.slint";
+import { Art, ArtLayer } from "theme_art.slint";
+import { DialogFrame } from "theme_layout.slint";
 import { ActionButton, Avatar, TextField } from "controls.slint";
 import { SettingsHeading } from "settings.slint";
 
@@ -36,7 +39,7 @@ export struct OwnershipPrompt {
 component OwnershipFrame inherits Rectangle {
     in property <OwnershipPrompt> page;
     callback cancel;
-    background: #000000aa;
+    background: Theme.scrim(#000000aa);
     TouchArea { clicked => { if !root.page.sending { root.cancel(); } } }
     FocusScope {
         init => { self.focus(); }
@@ -47,12 +50,20 @@ component OwnershipFrame inherits Rectangle {
         Rectangle {
             width: 440px; height: box.preferred-height;
             x: (root.width - self.width) / 2; y: (root.height - self.height) / 2;
-            background: Theme.chat; border-radius: 8px;
+            background: Art.glass-dialog ? transparent : Theme.chat-fill; border-radius: Look.r(Look.dialog, 8px);
+            // A dialog's shape, art and glass.
+            border-width: Look.bw(Look.dialog, 0px); border-color: Look.bc(Look.dialog, transparent);
+            drop-shadow-blur: Look.sb(Look.dialog, 0px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, transparent); drop-shadow-offset-y: Look.sy(Look.dialog, 0px);
+            if Art.dialog.length > 0 || Art.glass-dialog: ArtLayer {
+                x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.dialog, 8px);
+                layers: Art.dialog; glass: Art.glass-dialog; ground: Theme.chat-fill;
+            }
+            DialogFrame { x: 0px; y: 0px; z: 100; }
             accessible-role: groupbox; accessible-label: root.page.title;
             TouchArea { }
             box := VerticalLayout {
                 padding: 16px; spacing: 14px;
-                Text { text: root.page.title; color: Theme.text; font-size: 20px; font-weight: 700; wrap: word-wrap; }
+                Text { text: root.page.title; color: Theme.text; font-size: Look.title-size(20px); font-weight: Look.heading-weight(700); font-family: Look.heading-font(""); wrap: word-wrap; }
                 @children
             }
         }
@@ -110,12 +121,12 @@ export component TransferOwnershipDialog inherits Rectangle {
             Avatar { size: 80px; initial: root.page.owner-initial; picture-url: root.page.owner-avatar; }
             VerticalLayout {
                 alignment: center;
-                Image { source: @image-url("icons/chevron-right.svg"); width: 24px; height: 24px; colorize: Theme.muted; }
+                Image { source: IconPack.chevron-right; width: 24px; height: 24px; colorize: IconPack.tint(self.source, Theme.muted); }
             }
             Avatar { size: 80px; initial: root.page.new-initial; picture-url: root.page.new-avatar; }
         }
         if !root.page.code && root.page.verified: Rectangle {
-            border-radius: 6px; background: Theme.danger.with-alpha(0.12);
+            border-radius: Look.radius(6px); background: Theme.danger.with-alpha(0.12);
             height: warning.preferred-height + 20px;
             warning := Text {
                 x: 10px; width: parent.width - 20px;
@@ -134,10 +145,10 @@ export component TransferOwnershipDialog inherits Rectangle {
                 VerticalLayout {
                     alignment: start; padding-top: 2px;
                     Rectangle {
-                        width: 18px; height: 18px; border-radius: 4px;
-                        background: root.page.agreed ? Theme.accent : transparent;
+                        width: 18px; height: 18px; border-radius: Look.radius(4px);
+                        background: root.page.agreed ? Theme.accent-fill : transparent;
                         border-width: root.page.agreed ? 0px : 1.5px; border-color: Theme.muted;
-                        if root.page.agreed: Image { width: 12px; height: 12px; image-fit: contain; source: @image-url("icons/check.svg"); colorize: Theme.on-accent; }
+                        if root.page.agreed: Image { width: 12px; height: 12px; image-fit: contain; source: IconPack.check; colorize: IconPack.tint(self.source, Theme.on-accent); }
                     }
                 }
                 StyledText { horizontal-stretch: 1; text: root.page.acknowledge; default-color: Theme.secondary; default-font-size: 14px; }
