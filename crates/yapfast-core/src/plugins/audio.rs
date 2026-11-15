@@ -233,6 +233,13 @@ fn wav(data: &[u8]) -> Result<Vec<i16>> {
             }
             let channels = small(body + 2)?.max(1) as usize;
             let rate = word(body + 4)?.max(1);
+            // A plugin wrote this header. Each sample played averages every
+            // channel, and the output is as long as the longest sound whatever
+            // the rate, so 65,535 channels or a rate of 1 Hz made one sound
+            // billions of steps of work on the thread that decodes it.
+            if channels > 8 || !(8_000..=192_000).contains(&rate) {
+                bail!("only WAV files of 1 to 8 channels at 8 to 192 kHz are played");
+            }
             let mut sound = body + length;
             while let Some(header) = data.get(sound..sound + 8) {
                 let length =
@@ -315,6 +322,18 @@ mod tests {
         file.extend_from_slice(&(pcm.len() as u32).to_le_bytes());
         file.extend_from_slice(&pcm);
         file
+    }
+
+    #[test]
+    fn a_header_that_would_take_forever_to_decode_is_refused() {
+        let samples = [0i16; 16];
+        for rate in [1, 7_999, 192_001] {
+            assert!(decode(&wav_of(&samples, rate)).is_err(), "{rate} Hz");
+        }
+        let mut many = wav_of(&samples, 48_000);
+        // The channel count, two bytes after the format tag.
+        many[22..24].copy_from_slice(&65_535u16.to_le_bytes());
+        assert!(decode(&many).is_err(), "65,535 channels");
     }
 
     #[test]
