@@ -11823,3 +11823,42 @@ fn a_card_or_full_profile_takes_escape_again_after_a_link_or_person_dialog() {
     tap(&window, Key::Escape.into());
     assert_eq!(closed.get(), 2, "then Escape closes the full profile");
 }
+
+#[test]
+fn the_member_list_counts_online_and_all_members_from_its_group_headings() {
+    use yapfast_core::chat::{ChatMember, Role};
+    let member = |group: Option<&str>| ChatMember {
+        bot: false,
+        id: "1".into(),
+        name: "Alice".into(),
+        username: None,
+        role: Role::Member,
+        avatar: None,
+        decoration: None,
+        nameplate: None,
+        boosting_since: None,
+        style: None,
+        tag: None,
+        group: group.map(Into::into),
+        presence: None,
+        color: None,
+        activity: None,
+        activities: Default::default(),
+        roles: Default::default(),
+        timed_out_until: None,
+        group_icon: None,
+        role_icon: None,
+    };
+    // Each heading's size counts once, however many of its members the list
+    // holds, and Offline counts toward the total but not toward online.
+    let members = [
+        member(Some("Mods \u{2014} 3")),
+        member(Some("Mods \u{2014} 3")),
+        member(Some("Online \u{2014} 12")),
+        member(Some("Offline \u{2014} 30")),
+    ];
+    let (online, total) = refresh::member_counts(&members);
+    assert_eq!((online.as_str(), total.as_str()), ("15", "45"));
+    let (online, total) = refresh::member_counts(&[member(None)]);
+    assert!(online.is_empty() && total.is_empty(), "no headings, no counts");
+}

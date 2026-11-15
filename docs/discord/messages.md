@@ -1029,11 +1029,11 @@ the width is the same for all three tabs and comes back at the next start
 
 ## Jumping to a message
 
-A reply's quote, a pin, a search result and the bar over the "New" divider
+A reply's quote, a pin, a search result and the banner over the messages
 jump to a message. A loaded one scrolls into view. Otherwise Yapfast asks for
 `GET /channels/{id}/messages?around={id}&limit=50`, as Discord's client does,
 and the messages around it show in place of the timeline: a window of older
-messages, with "You're viewing older messages" and "Jump to present" in a bar
+messages, with "You're viewing older messages" and "Jump to present" in a pill
 over its end. Discord answers around a snowflake even when no message has it,
 so a deleted message's place shows, and Yapfast says it couldn't find the
 message. A jump into another channel opens that channel at the message.

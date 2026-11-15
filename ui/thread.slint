@@ -206,7 +206,7 @@ export component ThreadPanel inherits Rectangle {
                     if message.highlighted: Rectangle {
                         y: index == 0 ? col.padding-top + 42px : 0px;
                         background: row-pointer.has-hover ? Theme.mentioned-hover : Theme.mentioned;
-                        Rectangle { x: 0px; width: 2px; background: Theme.accent; }
+                        Rectangle { x: 0px; width: 2px; background: Theme.mention-edge; }
                     }
                     row-pointer := TouchArea {
                         changed has-hover => { if self.has-hover { root.active-item = message.item; } }

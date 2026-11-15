@@ -397,6 +397,10 @@ export component YapfastWindow inherits Window {
     in property <bool> can-notify;
     in property <bool> room-muted;
     in property <string> members;
+    /// How many of the open server's members are online, and how many there are,
+    /// for the counter above the member list; empty when unknown.
+    in property <string> members-online;
+    in property <string> members-total;
     /// The open room lists its members: a text channel or a group DM.
     /// The zoom level, such as "110%", shown for a moment after it changes.
     in property <string> zoom-note;
@@ -706,6 +710,8 @@ export component YapfastWindow inherits Window {
     callback gifs-scrolled(length, length);
     /// "Replying to …" or "Editing your message"; empty for a new message.
     in property <string> compose-label;
+    /// The message the composer's reply answers, tinted blue in the list.
+    in property <string> compose-item;
     /// Whether the reply being written mentions the person it replies to.
     in property <bool> reply-ping;
     callback toggle-reply-ping;
@@ -1478,6 +1484,8 @@ export component YapfastWindow inherits Window {
     callback later;
     callback jump-to-present;
     callback jump-to-unread;
+    /// Marks the open conversation read, from the unread banner.
+    callback mark-read(string);
     // The newest message came into view with the window in front, or left it.
     callback reading-changed(bool);
     callback join-voice;
@@ -2689,13 +2697,15 @@ export component YapfastWindow inherits Window {
                                 if !header-box.banner: Rectangle { y: parent.height - 1px; height: 1px; background: ClientStyle.enabled ? Theme.outline : Theme.edge; }
                             }
                             // Discord's boost goal bar under the server's name: a pill 26px
-                            // tall, its fill the share of the goal the boosts reach.
+                            // tall, 16px under the header and 12px above the divider below
+                            // it, its fill the share of the goal the boosts reach.
                             if ClientStyle.enabled && root.header-server != "" && root.header-boosts >= 0: boost-bar := Rectangle {
-                                height: 39px;
+                                height: 55px;
                                 property <float> share: min(1.0, root.header-boosts / 33.0);
                                 pill := Rectangle {
-                                    x: 12px; y: 4px; width: parent.width - 16px; height: 26px;
-                                    background: Theme.hover;
+                                    x: 12px; y: 16px; width: parent.width - 25px; height: 26px;
+                                    // Discord's (32,32,36) on its dark theme: the field colour, a step above the sheet.
+                                    background: Theme.field;
                                     border-radius: 13px;
                                     if boost-bar.share > 0: Rectangle {
                                         x: 2px; y: 2px; height: parent.height - 4px;
@@ -2719,18 +2729,18 @@ export component YapfastWindow inherits Window {
                                         source: @image-url("icons/chevron-right.svg"); colorize: Theme.muted; accessible-role: none;
                                     }
                                 }
-                                Rectangle { x: 8px; y: parent.height - 1px; width: parent.width - 8px; height: 1px; background: Theme.outline; }
+                                Rectangle { x: 8px; y: parent.height - 1px; width: parent.width - 17px; height: 1px; background: Theme.outline; }
                                 accessible-role: text;
                                 accessible-label: "Boost Goal, " + root.header-boosts + " of 33 boosts";
                             }
                             // Discord's "N Events" row under the server's name.
                             if ClientStyle.enabled && root.header-server != "" && root.header-events-row: events-row := Rectangle {
-                                height: 60px;
-                                Image { x: 16px; y: (parent.height - self.height) / 2; width: 20px; height: 20px; source: @image-url("icons/calendar.svg"); colorize: Theme.muted; accessible-role: none; }
+                                height: 58px;
+                                Image { x: 16px; y: (parent.height - self.height) / 2; width: 20px; height: 20px; source: @image-url("icons/calendar-filled.svg"); colorize: Theme.channel-read; accessible-role: none; }
                                 Text {
                                     x: 44px; width: parent.width - 60px; height: parent.height;
                                     text: root.header-events == 0 ? "Events" : root.header-events == 1 ? "1 Event" : root.header-events + " Events";
-                                    font-size: 14px; font-weight: 500; color: Theme.muted;
+                                    font-size: 14px; font-weight: 500; color: Theme.channel-read;
                                     vertical-alignment: center; overflow: elide;
                                 }
                                 Rectangle { x: 16px; y: parent.height - 1px; width: parent.width - 32px; height: 1px; background: Theme.outline; }
@@ -2940,7 +2950,7 @@ export component YapfastWindow inherits Window {
                 Rectangle {
                     height: ClientStyle.header-height;
                     HorizontalLayout {
-                        padding-left: 16px; padding-right: 16px; spacing: 10px;
+                        padding-left: 16px; padding-right: ClientStyle.enabled ? 8px : 16px; spacing: 10px;
                         if root.room-direct: Middle {
                             Rectangle {
                                 width: 26px; height: 26px;
@@ -3501,7 +3511,8 @@ export component YapfastWindow inherits Window {
                                             // leave out the history notice and the dividers above it.
                                             property <length> head: (index == 0 && root.room-ready ? (ClientStyle.enabled && root.history-start && root.intro-kind != "" ? (root.intro-kind == "server" ? ClientStyle.intro-server-height : ClientStyle.intro-channel-height) : 42px) : 0px)
                                                 + (message.day != "" || message.unread-start ? 26px : 0px);
-                                            property <length> body: self.top + (self.head > 0px ? col.padding-top + self.head : 0px);
+                                            // Discord's tint starts under the gap that sets a group apart from the one above it.
+                                            property <length> body: self.top + (self.head > 0px ? col.padding-top + self.head : ClientStyle.enabled && message.first ? col.padding-top : 0px);
                                             Rectangle {
                                                 y: parent.body; height: parent.height - parent.body - parent.tail;
                                                 background: parent.jumped && root.jump-lit ? Theme.accent.transparentize(0.86) : parent.lit ? Theme.row-hover : transparent;
@@ -3511,16 +3522,18 @@ export component YapfastWindow inherits Window {
                                             // on its dark theme).
                                             if message.item != "" && InlineEdit.item == message.item && !InlineEdit.aside: Rectangle {
                                                 y: parent.body; height: parent.height - self.y - parent.tail;
-                                                background: Theme.active.mix(Theme.chat, 0.79);
+                                                background: Theme.active.mix(Theme.chat, 0.84);
                                             }
-                                            // A message that calls on this account is tinted marigold with a
-                                            // marigold edge, below the history notice and the dividers above it:
-                                            // a mention always, a reply to its message while it's new.
-                                            if message.highlighted: Rectangle {
+                                            // A message that calls on this account is tinted Discord's gold
+                                            // with a gold edge, below the history notice and the dividers above
+                                            // it: a mention or a reply to its message, always. The message a
+                                            // reply in the composer answers is blue instead, as in Discord.
+                                            if message.highlighted || (message.item != "" && message.item == root.compose-item): Rectangle {
                                                 y: parent.body;
                                                 height: parent.height - self.y - parent.tail;
-                                                background: row-pointer.has-hover ? Theme.mentioned-hover : Theme.mentioned;
-                                                Rectangle { x: 0px; width: 2px; background: Theme.accent; }
+                                                property <bool> target: message.item != "" && message.item == root.compose-item;
+                                                background: self.target ? (row-pointer.has-hover ? Theme.reply-target-hover : Theme.reply-target) : row-pointer.has-hover ? Theme.mentioned-hover : Theme.mentioned;
+                                                Rectangle { x: 0px; width: 2px; background: parent.target ? Theme.reply-edge : Theme.mention-edge; }
                                             }
                                             // The keyboard's message has a marigold edge.
                                             if self.lit && root.browsing: Rectangle { x: 0px; y: parent.body; width: 3px; height: parent.height - parent.body; background: Theme.accent; }
@@ -3565,26 +3578,39 @@ export component YapfastWindow inherits Window {
                                                         intro: root.intro-kind; intro-welcome: root.intro-welcome; intro-title: root.intro-title; intro-text: root.intro-text;
                                                         earlier => { root.earlier(); }
                                                     }
-                                                    // A new day's date, and the "New" divider in marigold above
-                                                    // the first unread message, in the middle of one line, the
-                                                    // date and "New" together when both are here.
+                                                    // A new day's date, and above the first unread message Discord's
+                                                    // new-messages marker: a red line across the row (the date in
+                                                    // red when both are here) ending in a red pill with a notched
+                                                    // left end. Measured: line 1px from 15px to 31px short of the
+                                                    // right edge, pill 13px tall with 10px bold capitals.
                                                     if message.day != "" || message.unread-start: HorizontalLayout {
-                                                        padding-left: 16px; padding-right: 16px; padding-bottom: 6px; spacing: 10px; height: 26px;
-                                                        Rectangle { horizontal-stretch: 1; Rectangle { height: 1px; background: message.unread-start ? Theme.accent : Theme.line; } }
-                                                        if message.day != "": Text { text: message.day; color: Theme.muted; font-size: ClientStyle.enabled ? 12px : 13px; font-weight: ClientStyle.enabled ? 600 : 700; vertical-alignment: center; }
-                                                        if message.day != "" && message.unread-start: Text { text: "·"; color: Theme.muted; font-size: 13px; font-weight: 700; vertical-alignment: center; }
+                                                        padding-left: message.unread-start ? 15px : 16px; padding-right: message.unread-start ? 30px : 16px;
+                                                        padding-bottom: 6px; spacing: 0px; height: 26px;
+                                                        Rectangle { horizontal-stretch: 1; Rectangle { height: 1px; background: message.unread-start ? Theme.new-marker : Theme.line; } }
+                                                        if message.day != "": Rectangle {
+                                                            width: day-text.preferred-width + 20px;
+                                                            day-text := Text { text: message.day; color: message.unread-start ? Theme.new-marker : Theme.muted; font-size: ClientStyle.enabled ? 12px : 13px; font-weight: ClientStyle.enabled ? 600 : 700; vertical-alignment: center; horizontal-alignment: center; }
+                                                        }
+                                                        if message.day != "" && message.unread-start: Rectangle { horizontal-stretch: 1; Rectangle { height: 1px; background: Theme.new-marker; } }
                                                         if message.unread-start: Rectangle {
-                                                            width: new-text.preferred-width + 10px;
+                                                            width: new-text.preferred-width + 14px;
                                                             accessible-role: text; accessible-label: "New messages start here";
+                                                            // The notch: a point at the line's height widening to the pill's.
+                                                            Path {
+                                                                x: 0px; y: (parent.height - 13px) / 2; width: 7px; height: 13px;
+                                                                viewbox-width: 7; viewbox-height: 13;
+                                                                commands: "M 0 6.5 L 6.5 0 L 7 0 L 7 13 L 6.5 13 Z";
+                                                                fill: Theme.new-marker;
+                                                            }
                                                             Rectangle {
-                                                                height: 18px; border-radius: 4px; background: Theme.accent;
+                                                                x: 6px; width: parent.width - 6px; height: 13px; border-radius: 3px; background: Theme.new-marker;
                                                                 new-text := Text {
-                                                                    text: "New"; color: Theme.on-accent; font-size: 12px; font-weight: 800;
-                                                                    horizontal-alignment: center; vertical-alignment: center;
+                                                                    x: 4px; width: self.preferred-width;
+                                                                    text: "NEW"; color: #ffffff; font-size: 10px; font-weight: 700;
+                                                                    vertical-alignment: center;
                                                                 }
                                                             }
                                                         }
-                                                        Rectangle { horizontal-stretch: 1; Rectangle { height: 1px; background: message.unread-start ? Theme.accent : Theme.line; } }
                                                     }
                                                     MessageContent {
                                                         message: message; active-item: root.active-item; preview: root.preview; reactions-enabled: root.reactions-enabled; bot-busy-item: root.bot-busy-item; bot-failed-item: root.bot-failed-item; bot-failed-text: root.bot-failed-text;
@@ -3733,17 +3759,18 @@ export component YapfastWindow inherits Window {
                                     }
                                 }
                             }
-                            // While the "New" divider is out of view, until the newest message is
-                            // read, a bar at the top jumps to it.
+                            // Until the newest message is read, Discord's banner across the top says how
+                            // much is new and marks it read, with the divider in view or not.
                             if root.room-selected && !root.requests-open && !root.friends-open && !root.caught-up
-                                && (root.unread-above || root.unread-below): UnreadBar {
-                                x: (parent.width - self.width) / 2; y: 12px;
+                                && root.unread-index >= 0: UnreadBar {
+                                x: 7px; y: 0px; width: parent.width - 24px;
                                 label: root.unread-label; above: root.unread-above;
                                 jump => { root.jump-to-unread(); }
+                                mark-read => { root.mark-read(root.room-id); }
                             }
                             // A window of older messages says so over its end, with the way back.
                             if root.room-selected && root.detached && !root.requests-open && !root.friends-open: PresentBar {
-                                x: 16px; width: parent.width - 32px; y: parent.height - self.height - 8px;
+                                x: (parent.width - self.width) / 2; y: parent.height - self.height - 8px;
                                 jump => { root.jump-to-present(); }
                             }
                             if root.requests-open: RequestsScreen {
@@ -4138,7 +4165,7 @@ export component YapfastWindow inherits Window {
                         fold(item, whole) => { root.fold-message(item, whole); }
                     }
                     if root.members-docked: MemberPanel {
-                        width: root.members-shown; rows: root.roster; group: root.dms-selected; activity-rows: root.roster-activity; note: root.roster-note; selected: root.profile-member; boost-gems: root.boost-gems;
+                        width: root.members-shown; rows: root.roster; group: root.dms-selected; activity-rows: root.roster-activity; online: root.members-online; total: root.members-total; note: root.roster-note; selected: root.profile-member; boost-gems: root.boost-gems;
                         activity-hidden <=> root.activity-cards-hidden;
                         activity-hidden-toggled(hidden) => { root.activity-cards-hidden-toggled(hidden); }
                         activity-clock => { root.activity-clock(); }

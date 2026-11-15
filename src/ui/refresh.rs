@@ -2487,6 +2487,9 @@ impl Adapter {
         let cosmetics = state.cosmetics;
         // In a server, names show their style's font alone.
         let in_server = name_style::in_server(state.selected.as_deref());
+        let (online, total) = member_counts(members);
+        window.set_members_online(online);
+        window.set_members_total(total);
         window.set_roster_note(
             match &state.members {
                 None => "Loading members...",
@@ -4107,6 +4110,11 @@ impl Adapter {
             state.compose(),
             Some(Compose::Reply { ping: true, .. })
         ));
+        // The message a reply answers is tinted blue in the list, as Discord does.
+        window.set_compose_item(match state.compose() {
+            Some(Compose::Reply { item, .. }) => item.as_str().into(),
+            None => SharedString::default(),
+        });
         window.set_compose_label(match state.compose() {
             Some(Compose::Reply { author, body, .. }) => {
                 format!("Replying to {author}: {body}").into()
@@ -5712,6 +5720,36 @@ fn show_hits(
             ..found_row(&hit.message, twelve_hour)
         });
     }
+}
+
+/// Discord's counter above the member list: how many members are online and how
+/// many there are, summed from the sizes in its group headings (`Online — 12`,
+/// `Offline — 30`); empty when the list has no such headings, as a Matrix room's.
+pub(super) fn member_counts(
+    members: &[yapfast_core::chat::ChatMember],
+) -> (SharedString, SharedString) {
+    let (mut online, mut total) = (0u64, 0u64);
+    let mut last = None;
+    for group in members.iter().map(|member| member.group.as_deref()) {
+        if group == last {
+            continue;
+        }
+        last = group;
+        let Some((name, size)) = group.and_then(|group| group.rsplit_once(" \u{2014} ")) else {
+            continue;
+        };
+        let Ok(size) = size.trim().parse::<u64>() else {
+            continue;
+        };
+        total += size;
+        if !name.trim().eq_ignore_ascii_case("offline") {
+            online += size;
+        }
+    }
+    if total == 0 {
+        return Default::default();
+    }
+    (online.to_string().into(), total.to_string().into())
 }
 
 /// What the bar that jumps to the "New" divider says: how many messages

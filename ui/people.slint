@@ -102,6 +102,10 @@ export component MemberPanel inherits Rectangle {
     /// panel above the list shows the first three until its header is opened.
     in property <[MemberActivityRow]> activity-rows;
     property <bool> activity-open;
+    /// How many members are online and how many there are, shown as Discord's
+    /// counter above the list when both are known.
+    in property <string> online;
+    in property <string> total;
     /// The panel shows its header alone.
     in-out property <bool> activity-hidden;
     callback activity-hidden-toggled(bool);
@@ -128,6 +132,24 @@ export component MemberPanel inherits Rectangle {
         triggered => { root.activity-clock(); }
     }
     VerticalLayout {
+        // Discord's counter, 40px tall with its content centred 25px down: a green dot
+        // and the online count, a grey ring and the member count. Measured: 12px dot,
+        // 13px ring with a 3px stroke, 15px figures.
+        if ClientStyle.enabled && root.online != "" && root.total != "": Rectangle {
+            height: 40px;
+            accessible-role: text;
+            accessible-label: root.online + " online, " + root.total + " members";
+            HorizontalLayout {
+                padding-top: 11px; padding-bottom: 1px; padding-right: 5px; alignment: center; spacing: 0px;
+                Middle { Rectangle { width: 12px; height: 12px; border-radius: 6px; background: #3d9e60; } }
+                Rectangle { width: 12px; }
+                Text { text: root.online; color: #3d9e60; font-size: 15px; font-weight: 500; vertical-alignment: center; }
+                Rectangle { width: 15px; }
+                Middle { Rectangle { width: 13px; height: 13px; border-radius: 6.5px; border-width: 3px; border-color: #9d9ea5; } }
+                Rectangle { width: 10px; }
+                Text { text: root.total; color: #84858d; font-size: 15px; font-weight: 500; vertical-alignment: center; }
+            }
+        }
         if root.activity-rows.length > 0: VerticalLayout {
             padding-left: 8px; padding-right: 8px; padding-top: 8px; padding-bottom: 4px; spacing: 0px;
             activity-header := Rectangle {

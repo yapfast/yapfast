@@ -512,7 +512,7 @@ export component ChannelRow inherits Rectangle {
     accessible-label: root.label;
     accessible-action-default => { root.clicked(); }
     forward-focus: focus;
-    property <color> ink: root.danger ? Theme.danger : root.locked ? (root.selected ? Theme.muted : Theme.faint) : root.selected || root.unread ? Theme.text : pointer.has-hover ? Theme.secondary : Theme.muted;
+    property <color> ink: root.danger ? Theme.danger : root.locked ? (root.selected ? Theme.muted : Theme.faint) : root.selected || root.unread ? (ClientStyle.enabled && !root.person ? Theme.channel-white : Theme.text) : pointer.has-hover ? Theme.secondary : (ClientStyle.enabled && !root.person ? Theme.channel-read : Theme.muted);
     // Discord's client draws a DM row's plate only while the row is selected,
     // pointed at or focused, so a long list holds none. It stops short of the
     // focus ring.
@@ -602,7 +602,7 @@ export component ChannelRow inherits Rectangle {
                         }
                     }
                 }
-                if !root.person && !root.thread: Image { source: root.icon; width: 20px; image-fit: contain; colorize: root.danger ? Theme.danger : root.selected && ClientStyle.enabled ? Theme.text : root.selected || root.unread ? Theme.secondary : Theme.faint; }
+                if !root.person && !root.thread: Image { source: root.icon; width: 20px; image-fit: contain; colorize: root.danger ? Theme.danger : root.selected && ClientStyle.enabled ? Theme.channel-white : root.selected || root.unread ? Theme.secondary : ClientStyle.enabled ? Theme.channel-read : Theme.faint; }
                 text-column := VerticalLayout {
                     alignment: center; spacing: 0px; horizontal-stretch: 1;
                     HorizontalLayout {
@@ -846,9 +846,9 @@ component CategoryHeading inherits Rectangle {
     /// pointer is over it.
     in property <bool> can-create;
     callback create;
-    property <color> ink: touch.has-hover ? Theme.secondary : Theme.muted;
+    property <color> ink: touch.has-hover ? Theme.secondary : ClientStyle.enabled ? Theme.channel-read : Theme.muted;
     HorizontalLayout {
-        padding-left: 16px; padding-right: 8px; padding-top: 17px; spacing: 4px;
+        padding-left: ClientStyle.enabled ? 8px : 16px; padding-right: 8px; padding-top: 17px; spacing: 4px;
         Text {
             text: root.text; color: root.ink; font-size: 14px; font-weight: 600; letter-spacing: 0px;
             vertical-alignment: center; overflow: elide; horizontal-stretch: 0;

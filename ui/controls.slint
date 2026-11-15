@@ -172,9 +172,14 @@ export component DeviceToggle inherits Rectangle {
     Rectangle {
         y: (parent.height - self.height) / 2; height: 32px;
         border-radius: 4px;
-        // Only the open pair keeps a fill; each half lights itself when hovered.
-        background: root.open ? Theme.overlay.with-alpha(0.12) : transparent;
+        // The open pair keeps a fill, and a muted or deafened one a dark ground
+        // as Discord's does: measured over a nameplate, 20% of a near-black red (57,27,84 to
+        // 45,21,66), which on the plain panel reads as the same step down; each
+        // half lights itself when hovered.
+        background: root.open ? Theme.overlay.with-alpha(0.12) : root.alert ? #1e000033 : transparent;
         animate background { duration: Theme.quick; }
+        // The faint seam Discord draws between the toggle and its caret.
+        if root.alert: Rectangle { x: 32px; width: 1px; height: parent.height; background: #00000026; }
     }
     HorizontalLayout {
         toggle := IconButton {

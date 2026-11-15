@@ -37,9 +37,23 @@ export global Theme {
     in-out property <color> accent-hover: #ffcd70;
     in-out property <color> on-accent: #1d1607;
     in-out property <color> accent-soft: #ffbf4726;
-    // A message that mentions you: Discord's hsl(39.4 100% 48.6%) at 12%, 16% under the pointer.
-    in-out property <color> mentioned: #f8a5001f;
-    in-out property <color> mentioned-hover: #f8a50029;
+    // A message that mentions you or replies to you, measured on Discord's dark theme:
+    // its gold #ea9800 at 8.6% over the chat (11% under the pointer), with a 2px edge of the
+    // full gold. Fixed colours: Discord's gold doesn't follow the palette.
+    in-out property <color> mentioned: #ea980016;
+    in-out property <color> mentioned-hover: #ea98001c;
+    out property <color> mention-edge: #ea9800;
+    // The message a reply in the composer answers: blurple at 17% (21% under the pointer)
+    // with a blurple edge, in place of the gold tint.
+    out property <color> reply-target: #5865f22b;
+    out property <color> reply-target-hover: #5865f235;
+    out property <color> reply-edge: #5865f2;
+    // Discord's channel list ink, measured: a read channel's name, glyph and a category's name
+    // (129,130,138); the open or unread channel's name (251,251,251).
+    out property <color> channel-read: self.dark ? #81828a : self.muted;
+    out property <color> channel-white: self.dark ? #fbfbfb : self.text;
+    // The new-messages marker, banner pill and its line: Discord's red, measured (210,45,57).
+    out property <color> new-marker: #d22d39;
     in-out property <color> danger: #f0545e;
     in-out property <color> danger-hover: #f46f77;
     /// A destructive menu row's text and icon, Discord's lighter red on a dark theme.

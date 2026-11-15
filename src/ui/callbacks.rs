@@ -1180,6 +1180,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         }};
     }
     bind_item!(on_reply, Action::Reply);
+    bind_item!(on_mark_read, Action::MarkRead);
     bind_item!(on_jump_to, Action::Jump);
     {
         let adapter = adapter.clone();

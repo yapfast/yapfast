@@ -2404,53 +2404,72 @@ export component HistoryEdge inherits HorizontalLayout {
     }
 }
 
-// Says how much is new since the conversation was last read while the "New"
-// divider is out of view, and jumps to it.
+// Discord's banner across the top of the conversation while it has unread
+// messages: how many are new since when (a click jumps to the first), and
+// Mark as read at its right end. Measured: 32px tall, square at the top and
+// rounded 8px at the bottom, 14px semibold text 20px in from the left.
 export component UnreadBar inherits Rectangle {
     in property <string> label;
     /// The divider is above the view, rather than below it.
     in property <bool> above;
     callback jump;
-    width: content.preferred-width; height: 32px; border-radius: 16px;
-    background: touch.has-hover ? Theme.accent-hover : Theme.accent;
-    drop-shadow-blur: 12px; drop-shadow-color: #00000060; drop-shadow-offset-y: 4px;
+    callback mark-read;
+    height: 34px;
+    background: Theme.accent;
+    border-bottom-left-radius: 8px; border-bottom-right-radius: 8px;
     accessible-role: button;
     accessible-label: root.label + ". Jump to the first unread message";
     accessible-action-default => { root.jump(); }
-    content := HorizontalLayout {
-        padding-left: 14px; padding-right: 10px; spacing: 8px;
-        Text { text: root.label; color: Theme.on-accent; font-size: 14px; font-weight: 700; vertical-alignment: center; }
-        Image {
-            source: @image-url("icons/chevron-down.svg"); width: 16px; image-fit: contain;
-            colorize: Theme.on-accent; transform-rotation: root.above ? 180deg : 0deg;
+    touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.jump(); } }
+    HorizontalLayout {
+        padding-left: 21px; padding-right: 23px; spacing: 12px;
+        Text {
+            text: root.label; color: Theme.on-accent; font-size: 14px; font-weight: 600;
+            vertical-alignment: center; horizontal-stretch: 1; overflow: elide;
+        }
+        Rectangle {
+            width: mark.preferred-width;
+            accessible-role: button; accessible-label: "Mark as read";
+            accessible-action-default => { root.mark-read(); }
+            mark := HorizontalLayout {
+                spacing: 7px;
+                Text { text: "Mark as read"; color: Theme.on-accent; font-size: 14px; font-weight: 600; vertical-alignment: center; }
+                Image {
+                    source: @image-url("icons/mark-read.svg"); width: 19px; image-fit: contain;
+                    colorize: Theme.on-accent;
+                }
+            }
+            TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.mark-read(); } }
         }
     }
-    touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.jump(); } }
 }
 
 // Says the timeline shows a window of older messages, which new ones don't go
-// in, and goes back to the newest, as Discord's bar over the composer does.
+// in, and goes back to the newest: Discord's floating pill over the composer,
+// measured 50px tall with a 1px border and a 16px radius, its button 30px
+// tall with an 8px radius.
 export component PresentBar inherits Rectangle {
     callback jump;
-    height: 36px; border-radius: 8px;
-    background: Theme.raised; border-color: Theme.edge; border-width: 1px;
-    drop-shadow-blur: 12px; drop-shadow-color: #00000060; drop-shadow-offset-y: 4px;
+    height: 50px; width: content.preferred-width + 2px; border-radius: 16px;
+    background: #2c2d32; border-color: #414248; border-width: 1px;
+    drop-shadow-blur: 8px; drop-shadow-color: #00000040; drop-shadow-offset-y: 2px;
     accessible-role: button;
     accessible-label: "You're viewing older messages. Jump to present";
     accessible-action-default => { root.jump(); }
-    HorizontalLayout {
-        padding-left: 14px; padding-right: 12px; spacing: 8px;
+    content := HorizontalLayout {
+        padding-left: 17px; padding-right: 13px; padding-top: 9px; padding-bottom: 9px; spacing: 15px;
         Text {
-            text: "You're viewing older messages"; color: Theme.secondary; font-size: 14px; font-weight: 500;
-            vertical-alignment: center; horizontal-stretch: 1; overflow: elide;
+            text: "You're viewing older messages"; color: #b3b4b6; font-size: 14px; font-weight: 500;
+            vertical-alignment: center;
         }
-        Text {
-            text: "Jump to present"; color: touch.has-hover ? Theme.accent-hover : Theme.accent;
-            font-size: 14px; font-weight: 700; vertical-alignment: center;
-        }
-        Image {
-            source: @image-url("icons/chevron-down.svg"); width: 16px; image-fit: contain;
-            colorize: touch.has-hover ? Theme.accent-hover : Theme.accent;
+        Rectangle {
+            width: label.preferred-width + 23px; border-radius: 8px;
+            background: touch.has-hover ? Theme.accent-hover : Theme.accent;
+            label := Text {
+                x: 11px; width: self.preferred-width;
+                text: "Jump to present"; color: Theme.on-accent; font-size: 14px; font-weight: 600;
+                vertical-alignment: center;
+            }
         }
     }
     touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.jump(); } }
@@ -3070,7 +3089,7 @@ export component MessageContent inherits VerticalLayout {
                 }
                 if message.tag != "": Middle { ServerTagChip { text: message.tag; badge: message.tag-badge; server: message.tag-server; font-size: root.message-font-size * 0.72; } }
                 if message.bot: Middle { BotTag { } }
-                StyledText { text: message.time-styled; link-color: Theme.link; default-color: Theme.muted; default-font-size: root.message-font-size - (ClientStyle.enabled ? 4px : 3px); max-lines: 1; vertical-alignment: center; }
+                StyledText { text: message.time-styled; link-color: Theme.link; default-color: ClientStyle.enabled && Theme.dark ? #86878f : Theme.muted; default-font-size: root.message-font-size - (ClientStyle.enabled ? 4px : 3px); max-lines: 1; vertical-alignment: center; }
                 Rectangle { horizontal-stretch: 1; }
             }
             // As Discord's client marks a forward, above what it carries.

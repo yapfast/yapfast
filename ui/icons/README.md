@@ -31,6 +31,7 @@ glyphs such as check, x and chevrons.
   volume-2 with two sparkles), thread (a spool of thread,
   as Discord marks threads), user-minus, user-pen, user-plus and user-x, and
   the speaker of volume-2, volume-2-bold and volume-x; community, gamepad,
+  mark-read (message-circle with a check cut into its corner, the banner's mark-as-read mark),
   id-filled, music, plus, trophy, tv and verified; gem, a hexagonal gem
   drawn as an outline round a solid core, which marks a member boosting
   their Discord server; noise-bars and noise-bars-off (five rounded bars of
@@ -43,6 +44,8 @@ glyphs such as check, x and chevrons.
   and stage with a small lock (`-lock`), and all but stage with a warning
   sign (`-warning`), for a private and an age-restricted channel. The
   badges are drawn for Yapfast; the icons under them are the ones above.
+
+calendar-filled is a solid calendar drawn for Yapfast, after the one beside Discord's Events row.
 
 The rest are Lucide icons (https://lucide.dev/), under the accompanying
 LICENSE (ISC): calendar, check, chevron-down, chevron-left, chevron-right,

@@ -92,7 +92,7 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   that's loaded scrolls a third of the way down and is highlighted for a
   moment. Otherwise the messages around it load in place of the timeline,
   as a window of older messages: Discord's 50 around it, Matrix's 30 around
-  it through the SDK's event-focused timeline (`/context`). A bar over its
+  it through the SDK's event-focused timeline (`/context`). A floating pill over its
   end says "You're viewing older messages" with "Jump to present", and
   scrolling near its end loads newer pages, with "Loading newer messages..."
   under the last one, as scrolling up loads earlier ones. New messages don't
@@ -429,15 +429,16 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   red count. A conversation is read once its newest message is in view with
   the window in front, as Discord's client reads one: a Discord channel
   then, a Matrix room as its timeline loads. A conversation opened with
-  unread messages opens at a marigold
-  "New" divider above the first one, sitting at the top of the view rather
+  unread messages opens at a "New" divider above the first one, a red line
+  with a notched red "NEW" tag at its right end (Discord's), sitting at the top of the view rather
   than at the newest message, and the author's name shows again below it. The
   divider stays put while the conversation is open, as newer messages are
   read as they come, and it's gone the next time once the conversation was
   read. While the divider is out of view, until the newest message has been
-  in view, a marigold bar at the top says how
+  in view, an accent banner across the top says how
   many messages are new and since when ("80 new messages since 14:44"), with
-  an arrow toward it, and clicking it scrolls back to the divider. A Discord
+  "Mark as read" at its right end, and clicking the text scrolls back to the
+  divider. A Discord
   channel places it by message order; when every loaded message is unread,
   it opens on a window of the messages around the last read one, where the
   bar counts those loaded with a plus ("50+ new messages"). A Matrix room
@@ -449,9 +450,9 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   reply to their message while it's new. New is from the "New" divider down,
   and what comes while the conversation is open; a conversation opened with
   nothing unread counts from its newest message, and the thread beside a
-  channel from its own last read message. A reply that pings only lists
-  them as mentioned, so it counts as a mention only when its text names
-  them. Matrix's push rules decide which messages mention the user; a reply
+  channel from its own last read message. A reply that pings lists
+  them as mentioned, so it is highlighted as a mention, as Discord's client
+  does, and one with its ping off isn't. Matrix's push rules decide which messages mention the user; a reply
   stays a mention when its text has their user ID or a link to it, or
   @room. Their own messages are never highlighted. Yapfast counts unread messages on this device; for a room that isn't open,
   sync often delivers only the newest event, so Yapfast shows that something is

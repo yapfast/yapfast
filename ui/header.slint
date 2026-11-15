@@ -70,15 +70,16 @@ export component HeaderSearch inherits Rectangle {
     callback search(string);
     callback clear;
     init => { if root.autofocus { input.focus(); } }
-    // Discord's box: 243px with a faint outline, wider while it's used.
-    width: input.has-focus || root.text != "" ? 300px : ClientStyle.enabled ? 240px : 180px;
+    // Discord's box, measured: 244px by 32px with a faint outline on a field a step
+    // above the header, wider while it's used.
+    width: input.has-focus || root.text != "" ? 300px : ClientStyle.enabled ? 244px : 180px;
     animate width { duration: Theme.quick; }
-    height: ClientStyle.enabled ? 30px : 28px; border-radius: ClientStyle.enabled ? 8px : 6px;
-    background: Theme.sunken;
+    height: ClientStyle.enabled ? 32px : 28px; border-radius: ClientStyle.enabled ? 8px : 6px;
+    background: ClientStyle.enabled && Theme.dark ? #17171a : Theme.sunken;
     border-width: input.has-focus || ClientStyle.enabled ? 1px : 0px;
-    border-color: input.has-focus ? Theme.accent.with-alpha(0.8) : Theme.line;
+    border-color: input.has-focus ? Theme.accent.with-alpha(0.8) : ClientStyle.enabled && Theme.dark ? #303035 : Theme.line;
     Text {
-        x: 8px; width: root.width - 36px; height: root.height;
+        x: ClientStyle.enabled ? 10px : 8px; width: root.width - 36px; height: root.height;
         visible: root.text == "";
         text: root.placeholder; color: Theme.muted; font-size: 14px;
         vertical-alignment: center; overflow: elide;
@@ -111,8 +112,8 @@ export component HeaderSearch inherits Rectangle {
         }
     }
     if root.text == "": Image {
-        x: root.width - (ClientStyle.enabled ? 28px : 24px); y: (root.height - self.height) / 2;
-        width: ClientStyle.enabled ? 20px : 16px; height: ClientStyle.enabled ? 20px : 16px;
+        x: root.width - (ClientStyle.enabled ? 23px : 24px); y: (root.height - self.height) / 2;
+        width: ClientStyle.enabled ? 15.5px : 16px; height: ClientStyle.enabled ? 15.5px : 16px;
         source: @image-url("icons/search.svg"); colorize: ClientStyle.enabled ? Theme.secondary : Theme.muted;
     }
     if root.text != "": IconButton {
