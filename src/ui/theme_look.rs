@@ -2386,7 +2386,7 @@ pub fn show_installed(window: &YapfastWindow) {
     let page = window.global::<ThemesPage>();
     let applied = applied_id();
     let installed: Vec<ThemeListing> = STATE.with_borrow(|state| {
-        GALLERY.with_borrow(|gallery| {
+        GALLERY.with_borrow_mut(|gallery| {
             state
                 .installed
                 .iter()
@@ -2401,15 +2401,24 @@ pub fn show_installed(window: &YapfastWindow) {
                     let preview = theme.package.preview.first().and_then(|first| {
                         if first.extension().and_then(|extension| extension.to_str()) == Some("svg")
                         {
-                            svg_preview(&theme.folder.join(first))
+                            gallery
+                                .svgs
+                                .entry(store.to_owned())
+                                .or_insert_with(|| svg_preview(&theme.folder.join(first)))
+                                .clone()
                         } else {
                             gallery.thumbs.get(store).cloned()
                         }
                     });
+                    let colours = *gallery
+                        .colours
+                        .entry(store.to_owned())
+                        .or_insert_with(|| card_colours(&theme.package));
                     listing_of(
                         &theme.package,
                         &theme.id,
                         cost,
+                        colours,
                         preview.unwrap_or_default(),
                         applied.as_deref() == Some(id.as_str()),
                         theme
@@ -2500,6 +2509,10 @@ const THUMBNAIL: (u32, u32) = (672, 378);
 struct Gallery {
     costs: HashMap<String, String>,
     thumbs: HashMap<String, Image>,
+    /// SVG previews, read and parsed once, by store address.
+    svgs: HashMap<String, Option<Image>>,
+    /// The six colours a card draws its preview's frame in.
+    colours: HashMap<String, theme::Theme>,
     /// A worker is making what's missing.
     working: bool,
 }
@@ -2642,16 +2655,22 @@ fn modes_text(package: &Package) -> &'static str {
     }
 }
 
+/// The colours an installed theme's card draws it in: its dark variant's,
+/// or its only one's.
+fn card_colours(package: &Package) -> theme::Theme {
+    let resolved = package.resolve(package.mode_for(Mode::Dark)).ok();
+    resolved.as_ref().map_or(theme::YAP, colours_of)
+}
+
 fn listing_of(
     package: &Package,
     id: &str,
     cost: String,
+    colours: theme::Theme,
     preview: Image,
     applied: bool,
     previous: Option<String>,
 ) -> ThemeListing {
-    let resolved = package.resolve(package.mode_for(Mode::Dark)).ok();
-    let colours = resolved.as_ref().map_or(theme::YAP, colours_of);
     ThemeListing {
         id: id.into(),
         name: package.name.as_str().into(),
