@@ -467,7 +467,12 @@ returns to 100%. The level shows
 for a moment at the top and is kept in `layout.json`. Yapfast multiplies the
 display's scale factor by it, so the window lays out in fewer logical pixels,
 and zooming in stops before those would fall below the window's 800×560
-minimum, which would make it grow.
+minimum, which would make it grow. On Windows that scale is the one of the
+monitor the window is on, taken again when a move or resize settles: the
+HIGHDPIAWARE compatibility setting holds the window's own scale to the
+primary display's and sends no change on the others. Elsewhere it is the
+window's, as a Wayland monitor names only a whole scale where the window
+has its fractional one.
 
 The window starts at the size it had when Yapfast last ran, maximized if it
 was, and on Windows in the same place (`window` in `layout.json`,
