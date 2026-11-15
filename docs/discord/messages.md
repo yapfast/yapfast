@@ -495,7 +495,9 @@ Yapfast is back, rather than showing an error.
   regular weight, before 13px text in the secondary colour.
 - A picture in a message sits straight on the message background: a
   transparent PNG or GIF shows no backdrop, as in Discord. Only the
-  loading skeleton draws a fill.
+  loading skeleton draws a fill. A skeleton's band sweeps only while animations play, so
+  in a window that isn't in front an unloaded image, GIF or video does not
+  continuously request redraws.
 - The context menus (channel, server, member and message) use Discord's
   shades (`Theme.menu`, `Theme.menu-line`, `Theme.danger-text`), a 255px
   minimum width, icons only on the rows Discord gives them, and a greyed

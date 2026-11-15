@@ -19,7 +19,7 @@
 //! draw. Both name one [`Animation`], so text and the picker move in step.
 
 use alloc::boxed::Box;
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::String;
 use alloc::rc::Rc;
 use alloc::vec::Vec;
@@ -44,6 +44,7 @@ pub struct Animation {
     starts: Vec<u32>,
     /// How long the animation runs before it starts again.
     ends: u32,
+    shortest_delay: u32,
 }
 
 impl Animation {
@@ -65,7 +66,19 @@ impl Animation {
             starts = (0..frames.len() as u32).collect();
             ends = frames.len() as u32;
         }
-        Self { frames, starts, ends }
+        let shortest_delay = starts
+            .iter()
+            .zip(starts.iter().skip(1).chain(core::iter::once(&ends)))
+            .map(|(start, next)| next.saturating_sub(*start))
+            .filter(|delay| *delay > 0)
+            .min()
+            .unwrap_or(ends);
+        Self {
+            frames,
+            starts,
+            ends,
+            shortest_delay,
+        }
     }
 
     /// The frame that shows `elapsed` milliseconds in.
@@ -89,13 +102,18 @@ impl Animation {
 
     /// The shortest delay of its frames, which is how often it needs drawing.
     pub fn shortest_delay(&self) -> u32 {
-        self.starts
-            .iter()
-            .zip(self.starts.iter().skip(1).chain(core::iter::once(&self.ends)))
-            .map(|(start, next)| next.saturating_sub(*start))
-            .filter(|delay| *delay > 0)
-            .min()
-            .unwrap_or(self.ends)
+        self.shortest_delay
+    }
+
+    /// Time until the next frame boundary, including animations whose frames
+    /// have different durations. A fixed interval could skip a long frame's end.
+    fn next_delay_at(&self, elapsed: u32) -> Option<u32> {
+        if self.frames.len() < 2 {
+            return None;
+        }
+        let index = self.index_at(elapsed)?;
+        let next = self.starts.get(index + 1).copied().unwrap_or(self.ends);
+        Some(next.saturating_sub(elapsed % self.ends))
     }
 
     /// The bytes its frames hold.
@@ -116,9 +134,30 @@ struct Registered {
     by_key: BTreeMap<String, Rc<Animation>>,
     /// The key an emoji's glyph draws, by its code point.
     by_glyph: BTreeMap<char, String>,
+    /// Cached frames may stay registered after their last item leaves the view.
+    /// None preserves the default behavior for callers without a viewport.
+    active: Option<BTreeSet<String>>,
     /// The animation's time, in milliseconds.
     elapsed: u32,
     playing: bool,
+}
+
+impl Registered {
+    /// Visit the visible keys directly, rather than scanning every cached emoji
+    /// at each tick. Callers without a viewport still use all registered frames.
+    fn animations(&self) -> impl Iterator<Item = &Animation> {
+        let all = self.by_key.values().take(if self.active.is_none() {
+            self.by_key.len()
+        } else {
+            0
+        });
+        let active = self
+            .active
+            .iter()
+            .flat_map(|keys| keys.iter())
+            .filter_map(|key| self.by_key.get(key));
+        all.chain(active).map(Rc::as_ref)
+    }
 }
 
 std::thread_local! {
@@ -194,8 +233,7 @@ pub fn advance(delta: Duration) {
         registered.elapsed = before.saturating_add(millis);
         let after = registered.elapsed;
         registered
-            .by_key
-            .values()
+            .animations()
             .any(|animation| animation.index_at(before) != animation.index_at(after))
     });
     if moved {
@@ -207,6 +245,14 @@ pub fn advance(delta: Duration) {
 /// with the window's focus, its idleness and the Animate setting.
 pub fn set_playing(playing: bool) {
     REGISTRY.with_borrow_mut(|registered| registered.playing = playing);
+}
+
+/// Limits clock-driven redraws to emoji currently shown, keeping decoded frames
+/// registered for reuse when the user scrolls back.
+pub fn set_active<'a>(keys: impl IntoIterator<Item = &'a str>) {
+    REGISTRY.with_borrow_mut(|registered| {
+        registered.active = Some(keys.into_iter().map(String::from).collect());
+    });
 }
 
 /// Whether the clock moves. False until the application says otherwise, so a
@@ -238,14 +284,25 @@ pub fn is_empty() -> bool {
     REGISTRY.with_borrow(|registered| registered.by_key.is_empty())
 }
 
-/// The shortest delay among the registered animations: how often the clock has
-/// to move for the fastest of them. None when nothing is registered.
+/// The shortest delay among active animations with multiple frames. Cached
+/// offscreen emoji and single-frame pictures do not need to drive the clock.
 pub fn shortest_delay() -> Option<u32> {
     REGISTRY.with_borrow(|registered| {
         registered
-            .by_key
-            .values()
-            .map(|animation| animation.shortest_delay())
+            .animations()
+            .filter(|animation| animation.frames.len() > 1)
+            .map(Animation::shortest_delay)
+            .filter(|delay| *delay > 0)
+            .min()
+    })
+}
+
+/// Time until an active emoji changes frame, so the application can sleep
+/// through long or uneven frame delays without polling or skipping boundaries.
+pub fn next_frame_delay() -> Option<u32> {
+    REGISTRY.with_borrow(|registered| {
+        registered.animations()
+            .filter_map(|animation| animation.next_delay_at(registered.elapsed))
             .filter(|delay| *delay > 0)
             .min()
     })

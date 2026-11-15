@@ -656,7 +656,7 @@ impl Adapter {
     /// Drives the animated emoji: the frames the rows and the picker show are
     /// wanted, decoded ahead of the draw, and the clock moves only while
     /// something plays and the window is focused, used and not minimised.
-    fn show_emoji_animations(&mut self, window: &YapfastWindow) {
+    pub(super) fn show_emoji_animations(&mut self, window: &YapfastWindow) {
         let state = &self.app.state;
         let mut shown: Vec<(String, Option<char>, String)> = self
             .app

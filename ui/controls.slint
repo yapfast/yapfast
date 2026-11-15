@@ -1083,8 +1083,10 @@ export component CallButton inherits VerticalLayout {
     }
 }
 
-// Stands in for something on its way, such as a picture or the messages,
-// with a light sweeping across it as in Discord.
+// Stands in for something on its way, such as a picture or the messages.
+// Its band sweeps only while animations play: media can stay unloaded
+// indefinitely, and the sweep asks for a frame each tick, which a window
+// nobody looks at mustn't.
 export component Skeleton inherits Rectangle {
     // A step off its ground: lighter on a dark theme, darker on a light one,
     // whose raised surfaces are near white and would hide the white sweep.
@@ -1092,7 +1094,7 @@ export component Skeleton inherits Rectangle {
     clip: true;
     accessible-role: image;
     accessible-label: @tr("Loading");
-    Rectangle {
+    if Motion.playing: Rectangle {
         width: max(120px, parent.width * 0.5); height: parent.height;
         x: Math.mod(animation-tick() / 1ms, 1500) / 1500 * (parent.width + self.width) - self.width;
         background: @linear-gradient(90deg, Theme.shimmer.with-alpha(0) 0%, Theme.shimmer 50%, Theme.shimmer.with-alpha(0) 100%);

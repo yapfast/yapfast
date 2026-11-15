@@ -1243,28 +1243,27 @@ impl OpenChannel {
         if self.visible == visible {
             return false;
         }
-        self.visible = visible;
+        let previous = std::mem::replace(&mut self.visible, visible);
         let urls: HashSet<_> = self
-            .shown
-            .messages
+            .visible
             .iter()
-            .filter(|(order, _)| self.visible.contains(order))
-            .flat_map(|(_, message)| &message.attachments)
+            .filter_map(|order| self.shown.messages.get(order))
+            .flat_map(|message| &message.attachments)
             .flat_map(|attachment| attachment.preview_url.iter().chain(&attachment.still_url))
             .collect();
         self.pictures.retain(|url, _| urls.contains(url));
         self.requested.retain(|url| urls.contains(url));
-        // Rows with a preview render again, to take theirs or let it go;
-        // the rest show the same wherever the view is. Following a busy
-        // channel moves the view at each message.
-        let shown = &self.shown.messages;
-        self.rendered.retain(|order, _| {
-            !shown.get(order).is_some_and(|message| {
+        // Only previews crossing a viewport boundary need to take or release
+        // their images. Rows in the overlap keep their rendered text and media.
+        for order in previous.symmetric_difference(&self.visible) {
+            if self.shown.messages.get(order).is_some_and(|message| {
                 message.attachments.iter().any(|attachment| {
                     attachment.preview_url.is_some() || attachment.still_url.is_some()
                 })
-            })
-        });
+            }) {
+                self.rendered.remove(order);
+            }
+        }
         true
     }
 
