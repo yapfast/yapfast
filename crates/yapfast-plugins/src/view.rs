@@ -35,10 +35,11 @@ impl Bridge {
             advanced: Advanced {
                 memory_budget: limits.memory_mib,
                 idle_minutes: limits.idle_minutes,
-                // Nothing here probes for an OS sandbox: the helper runs under
-                // wasmtime's alone wherever there is nothing more, and the page
-                // says so without asking the system.
-                sandbox_unavailable: false,
+                // What the helper said in its `Ready` (PLAN.md 9.5): a part of
+                // the OS sandbox it couldn't apply, on this system, is named in
+                // the log, and here the dialog says the plugins run under
+                // wasmtime's sandbox alone.
+                sandbox_unavailable: self.shared().sandbox_unavailable(),
             },
             ..View::default()
         }

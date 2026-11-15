@@ -65,6 +65,11 @@ pub(crate) struct Shared {
     pub(super) helper_installed: bool,
     /// The helper's process id while it runs, and 0 when none does.
     pub(super) helper: AtomicU32,
+    /// What the last helper said of its OS sandbox in its `Ready`: 0 while
+    /// none has started this session, 1 when it was complete, 2 when a part
+    /// was missing. It outlives the helper, as the page's Advanced dialog
+    /// reads it whether or not one runs now.
+    pub(super) sandbox: std::sync::atomic::AtomicU8,
     /// What the person allows the helper: its whole memory budget and how long
     /// an instance may sit without a call. The pair a helper is given on its
     /// `Ready` is read from here, so a change made while one was starting
@@ -166,6 +171,18 @@ impl Shared {
             0 => None,
             pid => Some(pid),
         }
+    }
+
+    /// Whether a helper started this session and said a part of its OS
+    /// sandbox was missing. Nothing is known before one starts, so nothing
+    /// is claimed.
+    pub(crate) fn sandbox_unavailable(&self) -> bool {
+        self.sandbox.load(Ordering::Relaxed) == 2
+    }
+
+    /// Keeps what the helper said about its sandbox in its `Ready`.
+    pub(super) fn set_sandboxed(&self, sandboxed: bool) {
+        self.sandbox.store(if sandboxed { 1 } else { 2 }, Ordering::Relaxed);
     }
 
     /// Keeps the helper's process id, or forgets it when the process is gone.

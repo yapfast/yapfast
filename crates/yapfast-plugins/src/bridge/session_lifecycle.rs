@@ -115,7 +115,7 @@ impl Session {
         // speaks: a mismatch would otherwise show up as a timeout per request.
         self.send_message(&ToHelper::Hello { api: API_VERSION }, FrameKind::Hello);
         match tokio::time::timeout(HELLO_TIMEOUT, self.await_ready()).await {
-            Ok(Ok(())) => {}
+            Ok(Ok(sandboxed)) => shared.set_sandboxed(sandboxed),
             Ok(Err(reason)) => return Ending::Gone(reason),
             Err(_) => return Ending::Gone("it didn't answer the hello".to_owned()),
         }
@@ -171,7 +171,8 @@ impl Session {
     }
 
     /// Waits for the helper's `Ready`, which is the answer to the hello.
-    pub(super) async fn await_ready(&mut self) -> Result<(), String> {
+    /// It answers whether the helper's OS sandbox is complete.
+    pub(super) async fn await_ready(&mut self) -> Result<bool, String> {
         if let Some(incoming) = self.inbound.recv().await {
             let frame = match incoming {
                 Inbound::Frame(frame) => frame,
@@ -182,14 +183,21 @@ impl Session {
             // The contract doesn't pin which frame kind carries the greeting, so
             // any of the three is accepted as long as it is a `Ready`.
             match serde_json::from_slice::<FromHelper>(&frame.payload) {
-                Ok(FromHelper::Ready { api, version }) => {
+                Ok(FromHelper::Ready {
+                    api,
+                    version,
+                    sandbox,
+                }) => {
                     if api != API_VERSION {
                         return Err(format!(
                             "the helper speaks plugin API {api}, and this Yapfast speaks {API_VERSION}"
                         ));
                     }
-                    tracing::debug!(%version, "the plugin helper is up");
-                    return Ok(());
+                    tracing::debug!(%version, applied = ?sandbox.applied, "the plugin helper is up");
+                    for reason in &sandbox.missing {
+                        tracing::warn!("plugin helper sandbox: {reason}");
+                    }
+                    return Ok(sandbox.complete());
                 }
                 Ok(_) => return Err("it said something before the hello".to_owned()),
                 Err(_) => return Err("its hello wasn't a message this build knows".to_owned()),

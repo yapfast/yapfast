@@ -411,11 +411,37 @@ pub struct MemberBadge {
 }
 
 /// The helper's report to the parent.
+/// The operating system's sandbox around the helper, as it reported it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Sandbox {
+    /// The parts that are on, such as `landlock v4` and `seccomp`.
+    #[serde(default)]
+    pub applied: Vec<String>,
+    /// Why a part is off, a sentence each.
+    #[serde(default)]
+    pub missing: Vec<String>,
+}
+
+impl Sandbox {
+    /// Whether every part the platform has is on.
+    pub fn complete(&self) -> bool {
+        !self.applied.is_empty() && self.missing.is_empty()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "t", rename_all = "snake_case")]
 pub enum FromHelper {
-    /// The answer to [`ToHelper::Hello`]: the helper's own version.
-    Ready { api: u32, version: String },
+    /// The answer to [`ToHelper::Hello`]: the helper's own version, and how
+    /// far the operating system confines it.
+    Ready {
+        api: u32,
+        version: String,
+        /// Missing from a helper older than the sandbox, which reads as no
+        /// sandbox at all.
+        #[serde(default)]
+        sandbox: Sandbox,
+    },
     /// A guest wants something from the parent, which answers with
     /// [`ToHelper::Return`] for the same `call`. The id lives here rather than
     /// in the frame header, because the helper hands its outbox to the runtime

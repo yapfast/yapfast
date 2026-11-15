@@ -37,6 +37,7 @@ impl Bridge {
             // Asked once: a file beside the app doesn't appear while it runs.
             helper_installed: spawn::program().is_ok(),
             helper: AtomicU32::new(0),
+            sandbox: std::sync::atomic::AtomicU8::new(0),
             limits: Mutex::new(limits),
             world,
             wake,

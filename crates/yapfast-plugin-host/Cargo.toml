@@ -33,6 +33,10 @@ extism.workspace = true
 # it.
 gix.workspace = true
 
+# Landlock and seccomp for `run`'s sandbox, through raw syscalls.
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2.189"
+
 [dev-dependencies]
 # The fetch tests build real repositories in directories of their own.
 tempfile.workspace = true

@@ -54,6 +54,9 @@ pub fn start(data_dir: &Path, stderr: Stdio) -> Result<Helper> {
         .arg("run")
         .arg("--cache")
         .arg(&cache)
+        // The one other folder the helper's OS sandbox lets it read.
+        .arg("--store")
+        .arg(data_dir.join("plugins").join("store"))
         .env_clear()
         // Wasmtime's compile pool would otherwise size itself to the machine:
         // plugins are a side feature and must not take every core.

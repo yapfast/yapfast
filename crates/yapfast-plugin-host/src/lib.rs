@@ -12,4 +12,5 @@ pub mod host;
 pub mod logging;
 pub mod pipe;
 pub mod runtime;
+pub mod sandbox;
 pub mod scheduler;

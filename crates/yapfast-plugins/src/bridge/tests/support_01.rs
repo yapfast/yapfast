@@ -176,6 +176,7 @@ pub(super) fn shared_with_world(
         held: Mutex::new(BTreeMap::new()),
         helper_installed: false,
         helper: AtomicU32::new(0),
+        sandbox: std::sync::atomic::AtomicU8::new(0),
         limits,
         world,
         wake,

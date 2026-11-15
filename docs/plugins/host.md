@@ -193,6 +193,32 @@ limit traps, is discarded, and is replaced by a smaller fresh one, rather than
 holding the peak for the rest of the session. The limit is per instance, from the
 manifest, and defaults to 256 pages, 16 MiB.
 
+## The OS sandbox
+
+Wasmtime keeps a guest away from files and sockets; the OS sandbox is the wall
+behind it, for a wasmtime bug that lets guest code run as the helper. `run`
+applies it first thing, while it still has one thread, because Landlock binds
+only the calling thread and those it starts.
+
+On Linux:
+
+- **Landlock** leaves the helper `--store` and the system's library folders
+  (`/usr`, `/lib`, `/lib64`, `/nix/store`) to read, `--cache` to read and
+  write, and `/dev/null` and `/dev/urandom`. Nothing may be executed. From
+  Landlock ABI 4 it refuses TCP bind and connect, and from ABI 6 signals and
+  abstract Unix sockets outside the sandbox. The parent passes
+  `--store <data>/plugins/store`; a helper started without it skips Landlock.
+- **seccomp** answers `EPERM` to `socket`, `ptrace`, `process_vm_readv`,
+  `process_vm_writev`, `execve`, `execveat` and the io_uring calls, and kills
+  the process on a syscall from a foreign architecture (`int 0x80`, x32).
+
+What is on travels in `Ready` as `sandbox: { applied, missing }`. Each missing
+part is a warning in the log, and once such a helper has started, the Plugins
+page's Advanced dialog says *OS sandbox unavailable*. Windows and macOS have no
+OS sandbox yet, so the dialog says so there. `yapfast-plugins sandbox-check STORE CACHE OUTSIDE`
+applies the same sandbox and prints what the process can still reach; the
+tests run it.
+
 ## The compile cache
 
 Compiled modules are cached under `plugins/cache/` in the data directory.

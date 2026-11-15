@@ -52,8 +52,9 @@ kept in `plugins/budget.json`, so it is still there next time and shown again
 when the tab opens, and a helper that is running is told the new pair right
 away ([the helper](host.md#eviction-and-the-memory-budget)); one that starts
 later is given it right after its `Ready`. A choice that couldn't be written
-down still applies, and the page says so. The tab also says when the helper
-can't apply the OS sandbox here and runs under wasmtime's alone.
+down still applies, and the page says so. Once a helper has started, the tab
+also says when it couldn't apply the OS sandbox here and runs under wasmtime's
+alone ([the helper](host.md#the-os-sandbox)).
 
 **The manifest is what a plugin is** — its name and id, the commands it answers,
 its settings, what it may reach and when it runs — so it is what an install

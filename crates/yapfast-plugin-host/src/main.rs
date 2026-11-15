@@ -15,14 +15,14 @@
 //! * `catalog` reads a marketplace registry the same way, and `verify-entry`
 //!   checks one of its entries, which is what a registry's CI runs.
 
-use yapfast_plugin_host::{fetch, host};
+use yapfast_plugin_host::{fetch, host, sandbox};
 
 /// Prints what this build can do, and exits.
 const HELP: &str = "\
 yapfast-plugins — the process Yapfast runs plugins in
 
 Usage:
-  yapfast-plugins run [--cache DIR] [--dev DIR]
+  yapfast-plugins run [--cache DIR] [--store DIR] [--dev DIR]
   yapfast-plugins fetch <URL>
   yapfast-plugins catalog <URL>
   yapfast-plugins verify-entry <FILE>
@@ -40,6 +40,11 @@ lists, and every icon.
 `verify-entry` checks one registry entry against the repository it pins: the
 schema, the license, the source link, the commit, the module's hash, the
 manifest and the icon. A registry's CI runs it on every pull request.
+
+`run` confines itself before it reads a frame: on Linux, Landlock limits it to
+`--store` (read), `--cache` (read and write) and the system's libraries, and
+seccomp refuses sockets, ptrace and exec. `sandbox-check STORE CACHE OUTSIDE`
+applies the same sandbox and prints what it still reaches.
 ";
 
 fn main() {
@@ -59,6 +64,7 @@ fn run() -> anyhow::Result<()> {
         Some("fetch") => std::process::exit(fetch::run(arguments.collect())),
         Some("catalog") => std::process::exit(fetch::run_catalog(arguments.collect())),
         Some("verify-entry") => std::process::exit(fetch::run_verify(arguments.collect())),
+        Some("sandbox-check") => std::process::exit(sandbox::check(arguments.collect())),
         Some("help" | "--help" | "-h") => {
             print!("{HELP}");
             Ok(())

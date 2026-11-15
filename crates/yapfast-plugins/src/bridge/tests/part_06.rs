@@ -379,6 +379,7 @@ fn a_helper_gets_the_limits_after_its_hello_and_before_any_work() {
             serde_json::to_vec(&FromHelper::Ready {
                 api: API_VERSION,
                 version: "test".to_owned(),
+                sandbox: Default::default(),
             })
             .expect("it serializes"),
         )))

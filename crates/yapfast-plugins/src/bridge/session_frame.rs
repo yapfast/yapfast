@@ -14,7 +14,7 @@ impl Session {
             }
         };
         match message {
-            FromHelper::Ready { api, version } => {
+            FromHelper::Ready { api, version, .. } => {
                 tracing::debug!(api, %version, "the plugin helper greeted twice");
                 None
             }

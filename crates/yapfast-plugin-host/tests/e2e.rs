@@ -43,7 +43,7 @@ fn the_handshake_is_answered_with_ready() {
     match helper.wait_for(BUDGET, "Ready", |message| {
         matches!(message, FromHelper::Ready { .. })
     }) {
-        FromHelper::Ready { api, version } => {
+        FromHelper::Ready { api, version, .. } => {
             assert_eq!(api, API_VERSION, "the helper speaks the parent's API");
             assert!(!version.is_empty(), "the helper names its own version");
         }

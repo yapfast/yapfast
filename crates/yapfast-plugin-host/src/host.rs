@@ -18,7 +18,7 @@ use tracing::warn;
 use yapfast_plugin_api::API_VERSION;
 use yapfast_plugin_api::frame::{Frame, FrameKind};
 use yapfast_plugin_api::limits::Limits;
-use yapfast_plugin_api::message::{FromHelper, ToHelper};
+use yapfast_plugin_api::message::{FromHelper, Sandbox, ToHelper};
 
 use crate::backend::{Backend, LoadSpec};
 use crate::pipe::{Pipe, Signal};
@@ -30,6 +30,9 @@ use crate::scheduler::{Config, Message, Scheduler};
 pub struct Options {
     /// Where wasmtime keeps its compiled modules.
     pub cache: Option<PathBuf>,
+    /// The plugin store the modules are read from: the one folder outside the
+    /// cache the sandbox lets the helper read.
+    pub store: Option<PathBuf>,
     /// A folder a plugin is loaded from while its author works on it.
     pub dev: Option<PathBuf>,
 }
@@ -43,6 +46,10 @@ impl Options {
                 "--cache" => {
                     let path = arguments.next().context("`--cache` needs a directory")?;
                     options.cache = Some(PathBuf::from(path));
+                }
+                "--store" => {
+                    let path = arguments.next().context("`--store` needs a directory")?;
+                    options.store = Some(PathBuf::from(path));
                 }
                 "--dev" => {
                     let path = arguments.next().context("`--dev` needs a directory")?;
@@ -64,14 +71,6 @@ pub fn run(options: Options) -> anyhow::Result<()> {
     //
     // Safety: nothing else in this process exists to read the environment yet.
     let dropped = unsafe { crate::environment::clear_extism_variables() };
-    if dropped > 0 {
-        warn!(dropped, "dropped Extism's environment switches");
-    }
-    let pipe = Pipe::stdio().context("setting up the pipe to Yapfast")?;
-    // Logging comes after the pipe, because a plugin's own lines travel as
-    // frames: the subscriber files them under their plugin instead of letting
-    // them reach the terminal as if the helper had said them.
-    crate::logging::init(pipe.reports());
 
     // Without a cache directory the runtime compiles every module from cold,
     // which costs about eight times as much; the parent passes one, and a
@@ -80,12 +79,34 @@ pub fn run(options: Options) -> anyhow::Result<()> {
         .cache
         .clone()
         .unwrap_or_else(|| std::env::temp_dir().join("yapfast-plugins-cache"));
+    // The sandbox grants folders that exist, so the cache is made first.
+    let _ = std::fs::create_dir_all(&cache);
+    // Still one thread: Landlock binds this thread and every thread it starts,
+    // which is all of them once the pipe and the workers are up.
+    let paths = crate::sandbox::Paths {
+        read: options.store.iter().chain(options.dev.iter()).cloned().collect(),
+        write: vec![cache.clone()],
+    };
+    // Safety: as above, nothing has started a thread yet.
+    let sandbox = unsafe { crate::sandbox::apply(&paths) };
+
+    let pipe = Pipe::stdio().context("setting up the pipe to Yapfast")?;
+    // Logging comes after the pipe, because a plugin's own lines travel as
+    // frames: the subscriber files them under their plugin instead of letting
+    // them reach the terminal as if the helper had said them.
+    crate::logging::init(pipe.reports());
+    if dropped > 0 {
+        warn!(dropped, "dropped Extism's environment switches");
+    }
+    for reason in &sandbox.missing {
+        warn!("OS sandbox: {reason}");
+    }
     let backend =
         ExtismBackend::new(&cache, pipe.reports()).context("starting the WebAssembly runtime")?;
     let mut scheduler = Scheduler::start(backend, pipe.outbox(), pipe.waker(), Config::default())
         .context("starting the plugin workers")?;
 
-    let last = serve(&pipe, &scheduler, options.dev.as_deref());
+    let last = serve(&pipe, &scheduler, options.dev.as_deref(), &sandbox);
     // The workers must be gone before the pipe closes: the last thing written
     // is the reason the helper is leaving, and nothing may follow it.
     scheduler.shutdown();
@@ -119,6 +140,7 @@ fn serve(
     pipe: &Pipe,
     scheduler: &Scheduler<ExtismBackend>,
     dev: Option<&Path>,
+    sandbox: &crate::sandbox::Report,
 ) -> Option<FromHelper> {
     // What arrived while the helper was waiting out its grace, before the loop
     // took another turn.
@@ -129,7 +151,7 @@ fn serve(
             None => pipe.recv(),
         };
         match signal {
-            Signal::Frame(frame) => match dispatch(frame, pipe, scheduler, dev) {
+            Signal::Frame(frame) => match dispatch(frame, pipe, scheduler, dev, sandbox) {
                 After::Continue => {}
                 After::Stop(report) => return Some(*report),
             },
@@ -161,6 +183,7 @@ fn dispatch(
     pipe: &Pipe,
     scheduler: &Scheduler<ExtismBackend>,
     dev: Option<&Path>,
+    sandbox: &crate::sandbox::Report,
 ) -> After {
     let request: ToHelper = match serde_json::from_slice(&frame.payload) {
         Ok(request) => request,
@@ -179,7 +202,7 @@ fn dispatch(
         _ => frame.id,
     };
     match request {
-        ToHelper::Hello { api } => hello(pipe, api, frame.id),
+        ToHelper::Hello { api } => hello(pipe, api, frame.id, sandbox),
         ToHelper::Limits {
             memory_mib,
             idle_minutes,
@@ -354,7 +377,7 @@ pub fn apply_limits<B: Backend + 'static>(
 }
 
 /// Answers the parent's opening frame with what this helper speaks.
-fn hello(pipe: &Pipe, api: u32, id: u64) -> After {
+fn hello(pipe: &Pipe, api: u32, id: u64, sandbox: &crate::sandbox::Report) -> After {
     if api > API_VERSION {
         // Loading a plugin written for a newer ABI would fail at
         // instantiation, where nobody could explain it; saying so here is the
@@ -366,6 +389,10 @@ fn hello(pipe: &Pipe, api: u32, id: u64) -> After {
     let ready = FromHelper::Ready {
         api: API_VERSION,
         version: env!("CARGO_PKG_VERSION").to_owned(),
+        sandbox: Sandbox {
+            applied: sandbox.applied.clone(),
+            missing: sandbox.missing.clone(),
+        },
     };
     if let Err(error) = pipe.outbox().answer(FrameKind::Hello, id, &ready) {
         warn!(%error, "the handshake never reached Yapfast");
