@@ -73,6 +73,8 @@ import { BrowseRow, BrowseScreen } from "browse.slint";
 
 // Rust sees these, besides YapfastWindow.
 export { ClientStyle } from "yapfast/style.slint";
+import { SettingsSections } from "yapfast/settings-nav.slint";
+export { SettingsSections } from "yapfast/settings-nav.slint";
 export { BuildInfo, Updates, UpdateStatus } from "yapfast/build-info.slint";
 import { NewTags } from "yapfast/new-tags.slint";
 export { NewTags } from "yapfast/new-tags.slint";
@@ -1452,8 +1454,8 @@ export component YapfastWindow inherits Window {
     callback delete-theme();
     changed settings-section => {
         root.track-new();
-        if root.theme-editor && root.settings-section != 10 { root.cancel-theme(); }
-        if root.settings-section != 10 { ThemesPage.closed(); }
+        if root.theme-editor && root.settings-section != SettingsSections.themes { root.cancel-theme(); }
+        if root.settings-section != SettingsSections.themes { ThemesPage.closed(); }
     }
     out property <length> message-font-size: root.text-size == 0 ? 14px : root.text-size == 2 ? 18px : ClientStyle.text-size;
     // The sidebar keeps 180 to 380px. Dragging also leaves the conversation 420px;
@@ -4995,7 +4997,7 @@ export component YapfastWindow inherits Window {
         if root.settings-section == 9: AboutSettings {
             copy-text(text) => { root.copy-text(text); }
         }
-        if root.settings-section == 10: ThemesSettings {
+        if root.settings-section == SettingsSections.themes: ThemesSettings {
             themes: root.themes; theme-id: root.theme-id;
             editor: root.theme-editor; colours: root.theme-colours;
             theme-name <=> root.theme-name; theme-dark <=> root.theme-dark;

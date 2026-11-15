@@ -38,6 +38,11 @@ pub const INSTALLED: &str = "installed:";
 /// How long Try shows a theme before going back.
 const TRIAL: u64 = 30;
 
+/// Settings → Themes' section number, which `SettingsSections` names.
+pub fn themes_section(window: &YapfastWindow) -> i32 {
+    window.global::<yapfast_ui::SettingsSections>().get_themes()
+}
+
 /// The theme creator's draft, shown while Appearance's creator is open.
 pub const DRAFT: &str = "creator:draft";
 
@@ -1941,7 +1946,7 @@ fn fetch_previews(window: &YapfastWindow, runtime: Arc<BackgroundRuntime>) {
             let pixels = super::theme_remote::preview(runtime.clone(), url).await;
             let Some(window) = weak.upgrade() else { return };
             // Closed while it came: the page draws nothing until it opens.
-            if !window.get_settings_open() || window.get_settings_section() != 10 {
+            if !window.get_settings_open() || window.get_settings_section() != themes_section(&window) {
                 return;
             }
             let picture = pixels.map(Image::from_rgba8).unwrap_or_default();

@@ -1,0 +1,594 @@
+// Appearance's theme creator: a few plain choices that make a whole theme,
+// each shown at once on the window and in a small preview. Rust
+// (src/ui/theme_creator.rs) keeps every value here and derives the theme's
+// colours, shapes and fonts from them; the controls only report a choice.
+
+import { IconPack, Cue } from "media.slint";
+import { Theme, Middle, Look } from "theme.slint";
+import { ActionButton, VolumeSlider, TextField } from "controls.slint";
+
+/// A font the creator offers: its key, what it's called, and the family and
+/// weight its sample draws in.
+export struct CreatorFont { key: string, label: string, family: string, weight: int, imported: bool }
+
+/// A theme to start from: its name and three colours for its chip.
+export struct CreatorStart { name: string, ground: color, side: color, accent: color }
+
+export global Creator {
+    /// Simple, the creator, or Advanced, every colour.
+    in-out property <bool> simple: true;
+    in property <[CreatorStart]> starts;
+    in property <int> start: -1;
+    in property <color> accent: #ffbf47;
+    in property <string> accent-hex;
+    in property <[color]> presets;
+    /// The picture's own colours, while there's one.
+    in property <[color]> picture-colours;
+    /// 0 dark, 1 light, 2 the picture.
+    in property <int> background;
+    in property <bool> has-picture;
+    /// The picture as the preview shows it: blurred and dimmed as chosen.
+    in property <image> picture;
+    in property <[image]> suggestions;
+    in property <bool> reading-picture;
+    in property <int> blur: 40;
+    in property <int> dim: 35;
+    /// 0 flat, 1 bubbles, 2 cards, 3 irc.
+    in property <int> messages;
+    in property <int> corners: 50;
+    in property <[CreatorFont]> fonts;
+    in property <int> body: 0;
+    /// -1: the same as the body.
+    in property <int> headings: -1;
+    /// What the font tiles set: false the body, true headings.
+    in-out property <bool> picking-headings;
+    /// 0 compact, 1 cozy, 2 roomy.
+    in property <int> density: 1;
+    in property <bool> glass;
+    /// A word on the last import or picture, and whether it's a problem.
+    in property <string> note;
+    in property <bool> note-bad;
+    in property <bool> can-export;
+    callback start-chosen(int);
+    callback choose-picture();
+    callback suggestion-chosen(int);
+    callback accent-chosen(color);
+    callback hue-chosen(float);
+    callback hex-typed(string);
+    callback background-chosen(int);
+    callback blur-chosen(int);
+    callback dim-chosen(int);
+    callback messages-chosen(int);
+    callback corners-chosen(int);
+    callback font-chosen(int, bool);
+    callback import-font();
+    callback density-chosen(int);
+    callback glass-toggled(bool);
+    callback open-advanced();
+    callback export();
+    /// A theme the creator asked for is ready to show.
+    callback ready(string);
+    /// A picture or font the creator read off the UI thread has arrived.
+    callback arrived();
+
+    /// A radius at the creator's corners: stock at 50, square at 0, `round` at 100.
+    public pure function radius(stock: length, round: length) -> length {
+        return root.corners <= 50 ? stock * root.corners / 50 : stock + (round - stock) * (root.corners - 50) / 50;
+    }
+}
+
+component Heading inherits Text {
+    color: Theme.muted; font-size: Look.label-size(12px); font-weight: Look.label-weight(700); letter-spacing: 0.6px + Look.spacing-labels;
+    font-family: Look.label-font("");
+}
+
+// A section: its heading, and the control under it.
+component Section inherits VerticalLayout {
+    in property <string> title;
+    in property <string> hint;
+    spacing: 8px;
+    HorizontalLayout {
+        spacing: 8px;
+        Heading { text: root.title; vertical-alignment: center; }
+        if root.hint != "": Text { text: root.hint; color: Theme.faint; font-size: 12px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+    }
+    @children
+}
+
+// A choice drawn as a picture of itself, with its name under it; the chosen
+// one has an accent ring and a check.
+component Tile inherits Rectangle {
+    in property <string> label;
+    in property <bool> chosen;
+    in property <length> art-height: 52px;
+    callback clicked;
+    min-width: 88px; horizontal-stretch: 1;
+    height: self.art-height + 34px;
+    border-radius: Creator.radius(10px, 18px);
+    background: touch.has-hover ? Theme.hover : transparent;
+    border-width: root.chosen || focus.has-focus ? 2px : 1px;
+    border-color: root.chosen || focus.has-focus ? Theme.accent : touch.has-hover ? Theme.faint : Theme.line;
+    animate background, border-color { duration: Theme.quick; }
+    accessible-role: button;
+    accessible-label: root.chosen ? root.label + ", chosen" : root.label;
+    accessible-action-default => { root.clicked(); }
+    art := Rectangle {
+        x: 6px; y: 6px; width: parent.width - 12px; height: root.art-height;
+        border-radius: Creator.radius(6px, 12px); clip: true;
+        @children
+    }
+    HorizontalLayout {
+        x: 8px; y: art.y + art.height + 4px; width: parent.width - 16px; height: 22px; spacing: 4px;
+        alignment: center;
+        Text {
+            text: root.label; color: root.chosen ? Theme.text : Theme.secondary; font-size: 13px;
+            font-weight: root.chosen ? 700 : 500; vertical-alignment: center; overflow: elide;
+        }
+        if root.chosen: Image {
+            width: 14px; source: IconPack.check; colorize: Theme.accent-text; image-fit: contain;
+        }
+    }
+    focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == " " || event.text == "\n" { Cue.pressed(); root.clicked(); return accept; }
+            return reject;
+        }
+        touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { Cue.pressed(); root.clicked(); } }
+    }
+}
+
+// A round swatch of a colour; the chosen one ringed.
+component Swatch inherits Rectangle {
+    in property <color> colour;
+    in property <bool> chosen;
+    in property <string> label;
+    callback clicked;
+    width: 30px; height: 30px; border-radius: 15px;
+    background: root.colour;
+    border-width: root.chosen ? 3px : touch.has-hover ? 2px : 0px;
+    border-color: Theme.text;
+    accessible-role: button;
+    accessible-label: root.chosen ? root.label + ", chosen" : root.label;
+    accessible-action-default => { root.clicked(); }
+    if root.chosen: Rectangle {
+        width: parent.width - 8px; height: parent.height - 8px; border-radius: self.width / 2;
+        border-width: 2px; border-color: Theme.chat;
+    }
+    touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { Cue.pressed(); root.clicked(); } }
+}
+
+// A small picture of a theme: a chat beside a sidebar, two messages in the
+// chosen style, in the colours, corners, fonts and glass the window now
+// shows.
+component Preview inherits Rectangle {
+    property <bool> picture: Creator.background == 2 && Creator.has-picture;
+    property <bool> glass: Creator.glass;
+    property <length> gap: root.glass ? 6px : 0px;
+    property <string> body: Creator.body >= 0 && Creator.body < Creator.fonts.length ? Creator.fonts[Creator.body].family : "";
+    property <int> heading-index: Creator.headings < 0 ? Creator.body : Creator.headings;
+    property <string> heading: root.heading-index >= 0 && root.heading-index < Creator.fonts.length ? Creator.fonts[root.heading-index].family : "";
+    property <float> pane: root.glass ? 0.45 : 1.0;
+    property <length> row-height: Creator.density == 0 ? 26px : Creator.density == 2 ? 40px : 32px;
+    height: 230px;
+    border-radius: Creator.radius(10px, 18px); clip: true;
+    background: Theme.rail;
+    border-width: 1px; border-color: Theme.line;
+    accessible-role: image; accessible-label: "Preview of the theme";
+    // What shows behind glass panes.
+    if root.glass && root.picture: Image { width: parent.width; height: parent.height; source: Creator.picture; image-fit: cover; }
+    if root.glass && !root.picture: Rectangle {
+        background: @radial-gradient(circle, Theme.accent.with-alpha(Theme.dark ? 0.45 : 0.3) 0%, transparent 70%);
+    }
+    // The sidebar.
+    side := Rectangle {
+        x: root.gap; y: root.gap; width: 132px; height: parent.height - 2 * root.gap;
+        border-radius: root.glass ? Creator.radius(8px, 14px) : 0px;
+        background: Theme.sidebar.with-alpha(root.pane);
+        VerticalLayout {
+            padding: 10px; spacing: 2px; alignment: start;
+            Text { text: "Night Owls"; color: Theme.text; font-size: 13px; font-weight: 700; font-family: root.heading; overflow: elide; }
+            Rectangle { height: 6px; }
+            for name[index] in ["general", "ideas", "lounge", "weekend"]: Rectangle {
+                height: root.row-height - 8px;
+                border-radius: min(Creator.radius(4px, 12px), (root.row-height - 8px) / 2);
+                background: index == 0 ? Theme.active : transparent;
+                Text {
+                    x: 8px; text: "# " + name; font-size: 12px; font-family: root.body; overflow: elide;
+                    color: index == 0 ? Theme.text : Theme.muted; font-weight: index == 0 ? 600 : 400;
+                }
+            }
+        }
+    }
+    // The conversation.
+    chat := Rectangle {
+        x: side.x + side.width + root.gap; y: root.gap; width: parent.width - self.x - root.gap; height: parent.height - 2 * root.gap;
+        border-radius: root.glass ? Creator.radius(8px, 14px) : 0px; clip: true;
+        background: Theme.chat.with-alpha(root.glass ? root.pane : 1.0);
+        if root.picture && !root.glass: Image { width: parent.width; height: parent.height; source: Creator.picture; image-fit: cover; }
+        Text {
+            x: 12px; y: 8px; text: "# general"; color: Theme.text; font-size: 13px; font-weight: 700; font-family: root.heading;
+        }
+        Rectangle { y: 30px; height: 1px; background: Theme.line.with-alpha(0.7); }
+        // Flat: avatar, name and text.
+        if Creator.messages == 0: VerticalLayout {
+            x: 12px; y: 40px; width: parent.width - 24px; spacing: Creator.density == 0 ? 8px : Creator.density == 2 ? 16px : 12px;
+            for message[index] in [{ name: "Bob", text: "sunset at eight, roof?" }, { name: "Carol", text: "yes! I'll bring snacks" }, { name: "You", text: "on my way" }]: HorizontalLayout {
+                spacing: 8px;
+                Rectangle {
+                    width: 28px; height: 28px; border-radius: Creator.radius(50px, 50px) / 50px * 14px;
+                    background: index == 2 ? Theme.accent : index == 0 ? #7a8cff : #4ccf9e;
+                }
+                VerticalLayout {
+                    spacing: 1px;
+                    Text { text: message.name; color: index == 2 ? Theme.accent-text : Theme.text; font-size: 12px; font-weight: 700; font-family: root.body; }
+                    Text { text: message.text; color: Theme.secondary; font-size: 12px; font-family: root.body; overflow: elide; }
+                }
+            }
+        }
+        // Bubbles: others on the left, yours on the right in the accent.
+        if Creator.messages == 1: VerticalLayout {
+            x: 12px; y: 42px; width: parent.width - 24px; spacing: Creator.density == 0 ? 6px : Creator.density == 2 ? 12px : 9px;
+            for message[index] in [{ text: "sunset at eight, roof?" }, { text: "yes! I'll bring snacks" }, { text: "on my way" }]: HorizontalLayout {
+                alignment: index == 2 ? LayoutAlignment.end : LayoutAlignment.start;
+                Rectangle {
+                    border-radius: Creator.radius(14px, 18px);
+                    background: index == 2 ? Theme.accent : Theme.raised;
+                    HorizontalLayout {
+                        padding-left: 10px; padding-right: 10px; padding-top: 6px; padding-bottom: 6px;
+                        Text { text: message.text; color: index == 2 ? Theme.on-accent : Theme.text; font-size: 12px; font-family: root.body; }
+                    }
+                }
+            }
+        }
+        // Cards: each message on a raised card.
+        if Creator.messages == 2: VerticalLayout {
+            x: 10px; y: 40px; width: parent.width - 20px; spacing: Creator.density == 0 ? 5px : Creator.density == 2 ? 10px : 7px;
+            for message[index] in [{ name: "Bob", text: "sunset at eight, roof?" }, { name: "Carol", text: "yes! I'll bring snacks" }, { name: "You", text: "on my way" }]: Rectangle {
+                border-radius: Creator.radius(12px, 22px); background: Theme.raised;
+                drop-shadow-blur: 6px; drop-shadow-offset-y: 2px; drop-shadow-color: #00000030;
+                HorizontalLayout {
+                    padding: 7px; spacing: 6px;
+                    Text { text: message.name; color: index == 2 ? Theme.accent-text : Theme.text; font-size: 12px; font-weight: 700; font-family: root.body; }
+                    Text { text: message.text; color: Theme.secondary; font-size: 12px; font-family: root.body; overflow: elide; horizontal-stretch: 1; }
+                }
+            }
+        }
+        // IRC: time, name, a bar, the text, one line each.
+        if Creator.messages == 3: VerticalLayout {
+            x: 12px; y: 42px; width: parent.width - 24px; spacing: Creator.density == 0 ? 4px : Creator.density == 2 ? 10px : 6px;
+            for message[index] in [{ time: "19:58", name: "bob", text: "sunset at eight, roof?" }, { time: "19:59", name: "carol", text: "yes! I'll bring snacks" }, { time: "20:01", name: "you", text: "on my way" }]: HorizontalLayout {
+                spacing: 6px;
+                Text { text: message.time; color: Theme.muted; font-size: 12px; font-family: root.body; width: 34px; }
+                Text { text: message.name; color: index == 2 ? Theme.accent-text : Theme.text; font-size: 12px; font-weight: 700; font-family: root.body; width: 38px; horizontal-alignment: right; }
+                Text { text: "│"; color: Theme.faint; font-size: 12px; }
+                Text { text: message.text; color: Theme.secondary; font-size: 12px; font-family: root.body; overflow: elide; horizontal-stretch: 1; }
+            }
+        }
+        // The message box.
+        Rectangle {
+            x: 10px; y: parent.height - 38px; width: parent.width - 20px; height: 28px;
+            border-radius: Creator.radius(10px, 26px); background: Theme.composer;
+            Text { x: 10px; text: "Message #general"; color: Theme.placeholder; font-size: 12px; font-family: root.body; }
+            Rectangle {
+                x: parent.width - 24px; width: 18px; height: 18px; border-radius: Creator.radius(6px, 9px); background: Theme.accent;
+            }
+        }
+    }
+}
+
+// Simple: one screen of choices, each shown at once.
+export component CreatorView inherits VerticalLayout {
+    spacing: 22px;
+    Preview { }
+    Section {
+        title: "START FROM"; hint: "a theme you like, or a picture";
+        // As many chips across as fit, in rows.
+        Rectangle {
+            property <length> gap: 8px;
+            property <int> count: Creator.starts.length + 1;
+            property <int> columns: max(1, floor((self.width + self.gap) / (124px + self.gap)));
+            property <length> chip-width: (self.width - (self.columns - 1) * self.gap) / self.columns;
+            height: ceil(self.count / self.columns) * (34px + self.gap) - self.gap;
+            accessible-role: list; accessible-label: "Start from";
+            for start[index] in Creator.starts: Rectangle {
+                x: mod(index, parent.columns) * (parent.chip-width + parent.gap);
+                y: floor(index / parent.columns) * (34px + parent.gap);
+                width: parent.chip-width; height: 34px;
+                border-radius: Creator.radius(8px, 17px);
+                background: chip.has-hover ? Theme.hover : Theme.sunken;
+                border-width: index == Creator.start ? 2px : 0px; border-color: Theme.accent;
+                accessible-role: button; accessible-label: start.name;
+                accessible-action-default => { Creator.start-chosen(index); }
+                HorizontalLayout {
+                    padding-left: 8px; padding-right: 8px; spacing: 8px;
+                    Middle {
+                        Rectangle {
+                            width: 20px; height: 20px; border-radius: 10px; clip: true; background: start.ground;
+                            border-width: 1px; border-color: Theme.line;
+                            Rectangle { x: 0px; width: 10px; background: start.side; }
+                            Rectangle { x: 10px; y: 10px; width: 6px; height: 6px; border-radius: 3px; background: start.accent; }
+                        }
+                    }
+                    Text { text: start.name; color: Theme.text; font-size: 13px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                }
+                chip := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { Cue.pressed(); Creator.start-chosen(index); } }
+            }
+            // The picture chip.
+            Rectangle {
+                x: mod(Creator.starts.length, parent.columns) * (parent.chip-width + parent.gap);
+                y: floor(Creator.starts.length / parent.columns) * (34px + parent.gap);
+                width: parent.chip-width; height: 34px;
+                border-radius: Creator.radius(8px, 17px);
+                background: pick.has-hover ? Theme.accent-hover : Theme.accent;
+                accessible-role: button; accessible-label: "Choose a picture";
+                accessible-action-default => { Creator.choose-picture(); }
+                HorizontalLayout {
+                    padding-left: 10px; padding-right: 10px; spacing: 6px; alignment: center;
+                    Middle { Image { width: 16px; height: 16px; source: IconPack.image; colorize: Theme.on-accent; } }
+                    Text { text: Creator.reading-picture ? "Reading…" : "Picture…"; color: Theme.on-accent; font-size: 13px; font-weight: 700; vertical-alignment: center; }
+                }
+                pick := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { Cue.pressed(); Creator.choose-picture(); } }
+            }
+        }
+        // Pictures from the person's Pictures folder, newest first.
+        if Creator.suggestions.length > 0: HorizontalLayout {
+            spacing: 8px; alignment: start;
+            for picture[index] in Creator.suggestions: Rectangle {
+                width: 84px; height: 52px; border-radius: Creator.radius(6px, 12px); clip: true;
+                border-width: suggestion.has-hover ? 2px : 0px; border-color: Theme.accent;
+                accessible-role: button; accessible-label: "Use picture " + (index + 1);
+                accessible-action-default => { Creator.suggestion-chosen(index); }
+                Image { width: parent.width; height: parent.height; source: picture; image-fit: cover; }
+                suggestion := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { Cue.pressed(); Creator.suggestion-chosen(index); } }
+            }
+        }
+    }
+    Section {
+        title: "ACCENT";
+        HorizontalLayout {
+            spacing: 8px; alignment: start;
+            for colour in Creator.presets: Swatch {
+                colour: colour; chosen: colour == Creator.accent; label: "Accent";
+                clicked => { Creator.accent-chosen(colour); }
+            }
+            if Creator.picture-colours.length > 0: Rectangle { width: 1px; background: Theme.line; }
+            for colour in Creator.picture-colours: Swatch {
+                colour: colour; chosen: colour == Creator.accent; label: "Accent from the picture";
+                clicked => { Creator.accent-chosen(colour); }
+            }
+        }
+        HorizontalLayout {
+            spacing: 10px;
+            // Any hue: drag along the rainbow.
+            hue := Rectangle {
+                height: 24px; horizontal-stretch: 1; border-radius: Creator.radius(6px, 12px);
+                background: @linear-gradient(90deg, #ff4d4d 0%, #ffd24d 17%, #5ce65c 33%, #4de6e6 50%, #4d79ff 67%, #d24dff 83%, #ff4d4d 100%);
+                accessible-role: slider; accessible-label: "Accent hue";
+                hue-touch := TouchArea {
+                    mouse-cursor: MouseCursor.crosshair;
+                    pointer-event(event) => {
+                        if event.button == PointerEventButton.left && event.kind == PointerEventKind.up {
+                            Creator.hue-chosen(max(0, min(1, self.mouse-x / self.width)) * 360);
+                        }
+                    }
+                }
+                if hue-touch.pressed: Rectangle {
+                    x: max(0px, min(parent.width, hue-touch.mouse-x)) - 2px; width: 4px; background: #ffffff;
+                    border-width: 1px; border-color: #00000080;
+                }
+            }
+            TextField {
+                width: 104px; min-height: 30px; text-size: 14px; pad: 8px;
+                text: Creator.accent-hex; label: "Accent colour as hex";
+                accepted => { Creator.hex-typed(self.text); }
+                edited(text) => { if text.character-count == 7 { Creator.hex-typed(text); } }
+            }
+        }
+    }
+    Section {
+        title: "BACKGROUND";
+        HorizontalLayout {
+            spacing: 10px;
+            Tile {
+                label: "Dark"; chosen: Creator.background == 0; clicked => { Creator.background-chosen(0); }
+                Rectangle { background: #1e1f24; Rectangle { x: 8px; y: 10px; width: parent.width * 0.5; height: 6px; border-radius: 3px; background: #eef0f4; } Rectangle { x: 8px; y: 22px; width: parent.width * 0.35; height: 5px; border-radius: 2.5px; background: #8d919c; } }
+            }
+            Tile {
+                label: "Light"; chosen: Creator.background == 1; clicked => { Creator.background-chosen(1); }
+                Rectangle { background: #f6f5f8; Rectangle { x: 8px; y: 10px; width: parent.width * 0.5; height: 6px; border-radius: 3px; background: #2a2b33; } Rectangle { x: 8px; y: 22px; width: parent.width * 0.35; height: 5px; border-radius: 2.5px; background: #7a7d88; } }
+            }
+            Tile {
+                label: "Picture"; chosen: Creator.background == 2; clicked => { Creator.background-chosen(2); }
+                if Creator.has-picture: Image { width: parent.width; height: parent.height; source: Creator.picture; image-fit: cover; }
+                if !Creator.has-picture: Rectangle {
+                    background: Theme.sunken;
+                    Image { width: 22px; height: 22px; source: IconPack.image; colorize: Theme.muted; }
+                }
+            }
+        }
+        if Creator.background == 2 && Creator.has-picture: HorizontalLayout {
+            spacing: 24px;
+            VolumeSlider {
+                horizontal-stretch: 1; label: "Blur"; value: Creator.blur; maximum: 100; full-mark: false;
+                shown: Creator.blur == 0 ? "Sharp" : Creator.blur + "%";
+                committed(value) => { Creator.blur-chosen(value); }
+            }
+            VolumeSlider {
+                horizontal-stretch: 1; label: "Dim"; value: Creator.dim; maximum: 100; full-mark: false;
+                shown: Creator.dim + "%";
+                committed(value) => { Creator.dim-chosen(value); }
+            }
+        }
+    }
+    Section {
+        title: "MESSAGES";
+        HorizontalLayout {
+            spacing: 10px;
+            Tile {
+                label: "Flat"; chosen: Creator.messages == 0; clicked => { Creator.messages-chosen(0); }
+                Rectangle {
+                    background: Theme.chat;
+                    for index in 2: Rectangle {
+                        y: 8px + index * 22px; height: 18px;
+                        Rectangle { x: 8px; width: 14px; height: 14px; border-radius: 7px; background: index == 0 ? #7a8cff : Theme.accent; }
+                        Rectangle { x: 28px; y: 1px; width: 26px; height: 4px; border-radius: 2px; background: Theme.text; }
+                        Rectangle { x: 28px; y: 9px; width: parent.width - 40px; height: 4px; border-radius: 2px; background: Theme.muted; }
+                    }
+                }
+            }
+            Tile {
+                label: "Bubbles"; chosen: Creator.messages == 1; clicked => { Creator.messages-chosen(1); }
+                Rectangle {
+                    background: Theme.chat;
+                    Rectangle { x: 8px; y: 8px; width: parent.width * 0.55; height: 15px; border-radius: 7.5px; background: Theme.raised; }
+                    Rectangle { x: parent.width - self.width - 8px; y: 29px; width: parent.width * 0.45; height: 15px; border-radius: 7.5px; background: Theme.accent; }
+                }
+            }
+            Tile {
+                label: "Cards"; chosen: Creator.messages == 2; clicked => { Creator.messages-chosen(2); }
+                Rectangle {
+                    background: Theme.chat;
+                    for index in 2: Rectangle {
+                        x: 7px; y: 6px + index * 22px; width: parent.width - 14px; height: 18px; border-radius: 4px; background: Theme.raised;
+                        drop-shadow-blur: 3px; drop-shadow-offset-y: 1px; drop-shadow-color: #00000040;
+                        Rectangle { x: 6px; y: 7px; width: 18px; height: 4px; border-radius: 2px; background: index == 1 ? Theme.accent : Theme.text; }
+                        Rectangle { x: 28px; y: 7px; width: parent.width - 36px; height: 4px; border-radius: 2px; background: Theme.muted; }
+                    }
+                }
+            }
+            Tile {
+                label: "IRC"; chosen: Creator.messages == 3; clicked => { Creator.messages-chosen(3); }
+                Rectangle {
+                    background: Theme.chat;
+                    for index in 4: Rectangle {
+                        y: 7px + index * 10px; height: 5px;
+                        Rectangle { x: 6px; width: 10px; height: 4px; background: Theme.faint; }
+                        Rectangle { x: 20px; width: 12px; height: 4px; background: index == 2 ? Theme.accent : Theme.text; }
+                        Rectangle { x: 36px; width: parent.width - 44px - mod(index, 2) * 14px; height: 4px; background: Theme.muted; }
+                    }
+                }
+            }
+        }
+    }
+    Section {
+        title: "CORNERS";
+        HorizontalLayout {
+            spacing: 16px;
+            Middle {
+                Rectangle {
+                    width: 44px; height: 32px; background: Theme.accent;
+                    border-radius: Creator.radius(8px, 16px);
+                }
+            }
+            VolumeSlider {
+                horizontal-stretch: 1; label: "Square to round"; value: Creator.corners; maximum: 100; full-mark: false;
+                shown: Creator.corners == 0 ? "Square" : Creator.corners == 50 ? "Yapfast's own" : Creator.corners == 100 ? "Round" : Creator.corners < 50 ? "Sharper" : "Rounder";
+                committed(value) => { Creator.corners-chosen(value); }
+            }
+        }
+    }
+    Section {
+        title: "FONT";
+        HorizontalLayout {
+            spacing: 10px;
+            for role[index] in ["Body", "Headings"]: Rectangle {
+                width: 96px; height: 30px; border-radius: Creator.radius(6px, 15px);
+                background: (index == 1) == Creator.picking-headings ? Theme.active : role-touch.has-hover ? Theme.hover : Theme.sunken;
+                accessible-role: button; accessible-label: (index == 1) == Creator.picking-headings ? role + ", chosen" : role;
+                accessible-action-default => { Creator.picking-headings = index == 1; }
+                Text { text: role; color: (index == 1) == Creator.picking-headings ? Theme.text : Theme.secondary; font-size: 13px; font-weight: 600; }
+                role-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { Creator.picking-headings = index == 1; } }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            ActionButton {
+                text: "Import font…"; small: true; ghost: true; icon: IconPack.plus;
+                clicked => { Creator.import-font(); }
+            }
+        }
+        // As many 112px or wider samples across as fit.
+        Rectangle {
+            property <length> gap: 10px;
+            property <int> count: Creator.fonts.length + (Creator.picking-headings ? 1 : 0);
+            property <int> columns: max(1, floor((self.width + self.gap) / (112px + self.gap)));
+            property <length> tile-width: (self.width - (self.columns - 1) * self.gap) / self.columns;
+            property <int> first: Creator.picking-headings ? 1 : 0;
+            height: ceil(self.count / self.columns) * (70px + self.gap) - self.gap;
+            accessible-role: list; accessible-label: Creator.picking-headings ? "Heading font" : "Body font";
+            if Creator.picking-headings: Tile {
+                x: 0px; y: 0px; width: parent.tile-width; art-height: 36px;
+                label: "Same as body"; chosen: Creator.headings < 0;
+                clicked => { Creator.font-chosen(-1, true); }
+                Rectangle { background: Theme.sunken; Text { text: "= Aa"; color: Theme.muted; font-size: 18px; } }
+            }
+            for font[index] in Creator.fonts: Tile {
+                x: mod(index + parent.first, parent.columns) * (parent.tile-width + parent.gap);
+                y: floor((index + parent.first) / parent.columns) * (70px + parent.gap);
+                width: parent.tile-width; art-height: 36px;
+                label: font.label;
+                chosen: Creator.picking-headings ? Creator.headings == index : Creator.body == index;
+                clicked => { Creator.font-chosen(index, Creator.picking-headings); }
+                Rectangle {
+                    background: Theme.sunken;
+                    Text { text: "Aa Hello"; color: Theme.text; font-size: 17px; font-family: font.family; font-weight: font.weight; overflow: elide; }
+                }
+            }
+        }
+        if Creator.note != "": Text {
+            text: Creator.note; color: Creator.note-bad ? Theme.danger-text : Theme.muted; font-size: 13px; wrap: word-wrap;
+        }
+    }
+    Section {
+        title: "DENSITY";
+        HorizontalLayout {
+            spacing: 10px;
+            for name[index] in ["Compact", "Cozy", "Roomy"]: Tile {
+                label: name; chosen: Creator.density == index; art-height: 40px;
+                clicked => { Creator.density-chosen(index); }
+                Rectangle {
+                    background: Theme.chat;
+                    for line in (index == 0 ? 5 : index == 1 ? 4 : 3): Rectangle {
+                        x: 8px; y: 5px + line * (index == 0 ? 7px : index == 1 ? 9px : 12px);
+                        width: parent.width - 16px - mod(line, 2) * 16px; height: 4px; border-radius: 2px; background: Theme.muted;
+                    }
+                }
+            }
+        }
+    }
+    Section {
+        title: "GLASS";
+        HorizontalLayout {
+            spacing: 10px;
+            Tile {
+                label: "Off"; chosen: !Creator.glass; art-height: 40px; clicked => { Creator.glass-toggled(false); }
+                Rectangle {
+                    background: Theme.rail;
+                    Rectangle { x: 0px; width: parent.width * 0.3; background: Theme.sidebar; }
+                    Rectangle { x: parent.width * 0.3; width: parent.width * 0.7; background: Theme.chat; }
+                }
+            }
+            Tile {
+                label: "On"; chosen: Creator.glass; art-height: 40px; clicked => { Creator.glass-toggled(true); }
+                Rectangle {
+                    background: @linear-gradient(135deg, Theme.accent 0%, Theme.rail 70%);
+                    if Creator.has-picture && Creator.background == 2: Image { width: parent.width; height: parent.height; source: Creator.picture; image-fit: cover; }
+                    Rectangle { x: 4px; y: 4px; width: parent.width * 0.3 - 6px; height: parent.height - 8px; border-radius: 4px; background: Theme.sidebar.with-alpha(0.45); }
+                    Rectangle { x: parent.width * 0.3; y: 4px; width: parent.width * 0.7 - 4px; height: parent.height - 8px; border-radius: 4px; background: Theme.chat.with-alpha(0.45); }
+                }
+            }
+        }
+        Text {
+            text: "Panes show the background through them, frosted."; color: Theme.muted; font-size: 13px; wrap: word-wrap;
+        }
+    }
+    HorizontalLayout {
+        alignment: start; spacing: 8px;
+        ActionButton {
+            text: "Open in Advanced"; small: true; ghost: true; icon: IconPack.palette;
+            clicked => { Creator.open-advanced(); }
+        }
+        if Creator.can-export: ActionButton {
+            text: "Export"; small: true; ghost: true; icon: IconPack.download;
+            clicked => { Creator.export(); }
+        }
+    }
+}
