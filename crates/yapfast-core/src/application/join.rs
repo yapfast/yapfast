@@ -133,13 +133,11 @@ impl Application {
         if self.state.preview {
             return vec![];
         }
-        join.joining = true;
-        join.error = None;
-        vec![Effect::Backend(Command::Discord(
-            DiscordCommand::JoinServer {
-                preview: Box::new(preview),
-                from_link: join.from_link,
-            },
+        self.state.join = None;
+        self.pending_open = Some(preview.room);
+        vec![Effect::OpenPage(format!(
+            "https://discord.gg/{}",
+            preview.code
         ))]
     }
 
