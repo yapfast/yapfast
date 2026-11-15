@@ -4,6 +4,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
+    num::NonZeroU64,
     sync::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering::Relaxed},
@@ -1197,6 +1198,10 @@ pub struct Tag {
     pub text: Arc<str>,
     /// The address of the picture of the server's tag badge, when it has one.
     pub badge: Option<Arc<str>>,
+    /// The server it's from, by its id, which its card opens; none in a
+    /// profile saved before Yapfast kept it.
+    #[serde(default)]
+    pub guild: Option<NonZeroU64>,
 }
 
 impl Tag {
@@ -1207,9 +1212,8 @@ impl Tag {
         if primary["identity_enabled"].as_bool() != Some(true) {
             return None;
         }
-        let guild = primary["identity_guild_id"]
-            .as_str()
-            .filter(|g| id(g).is_some())?;
+        let guild = primary["identity_guild_id"].as_str()?;
+        let guild_id = guild.parse::<NonZeroU64>().ok()?;
         let text = primary["tag"]
             .as_str()
             .map(str::trim)
@@ -1220,9 +1224,14 @@ impl Tag {
                 .as_str()
                 .filter(|hash| !hash.is_empty())
                 .map(|hash| ready::guild_tag_badge(guild, hash).into()),
+            guild: Some(guild_id),
         })
     }
 }
+
+/// A person's tag as saved: their user id, its server's id, text and badge
+/// address.
+type SavedTag = (String, Option<String>, Arc<str>, Option<Arc<str>>);
 
 /// [`Names`] as saved to disk, where maps keyed by server and user become
 /// lists.
@@ -1238,9 +1247,14 @@ pub struct SavedNames {
     usernames: Vec<(String, String)>,
     #[serde(default)]
     bots: Vec<String>,
-    /// Each person's tag: user id, text and badge address.
-    #[serde(default)]
+    /// Each person's tag, as saved before its server was kept: user id, text
+    /// and badge address. Only read, for tags that show until their server
+    /// comes with the next user objects.
+    #[serde(default, skip_serializing)]
     tags: Vec<(String, Arc<str>, Option<Arc<str>>)>,
+    /// Each person's tag.
+    #[serde(default)]
+    server_tags: Vec<SavedTag>,
     /// Avatar decorations' SKUs by user id.
     #[serde(default)]
     decorations: Vec<(String, String)>,
@@ -1329,12 +1343,12 @@ impl serde::Serialize for SavingNames<'_> {
         )?;
         saved.serialize_field("bots", &List(|| names.bots.iter().copied().map(Text)))?;
         saved.serialize_field(
-            "tags",
+            "server_tags",
             &List(|| {
-                names
-                    .tags
-                    .iter()
-                    .map(|(user, tag)| (Text(*user), &tag.text, &tag.badge))
+                names.tags.iter().map(|(user, tag)| {
+                    let guild = tag.guild.map(|guild| Text(guild.get()));
+                    (Text(*user), guild, &tag.text, &tag.badge)
+                })
             }),
         )?;
         saved.serialize_field(
@@ -1540,7 +1554,12 @@ impl Names {
             tags: saved
                 .tags
                 .into_iter()
-                .filter_map(|(user, text, badge)| Some((id(&user)?, Tag { text, badge })))
+                .map(|(user, text, badge)| (user, None, text, badge))
+                .chain(saved.server_tags)
+                .filter_map(|(user, guild, text, badge)| {
+                    let guild = guild.and_then(|guild| guild.parse().ok());
+                    Some((id(&user)?, Tag { text, badge, guild }))
+                })
                 .collect(),
             decorations: saved
                 .decorations
@@ -3330,6 +3349,7 @@ mod tests {
         names.learn_user(&wears(true));
         let tag = names.server_tag("2").unwrap();
         assert_eq!(&*tag.text, "CODE");
+        assert_eq!(tag.guild, NonZeroU64::new(10), "its card opens its server");
         assert!(
             tag.badge
                 .as_deref()
@@ -3345,6 +3365,16 @@ mod tests {
         // It survives a restart.
         let saved = serde_json::to_vec(&names.saving()).unwrap();
         let restored = Names::restore(serde_json::from_slice(&saved).unwrap());
+        assert_eq!(restored.server_tag("2"), names.server_tag("2"));
+        // Names saved before tags kept their server still show them, without
+        // it, until the next user objects bring it.
+        let earlier = json!({
+            "users": [], "nicknames": [], "members": [], "avatars": [],
+            "member_avatars": [], "roles": [], "tags": [["2", "CODE", null]]});
+        let mut restored = Names::restore(serde_json::from_value(earlier).unwrap());
+        let old = restored.server_tag("2").expect("an older saved tag");
+        assert_eq!((&*old.text, old.guild), ("CODE", None));
+        restored.learn_user(&wears(true));
         assert_eq!(restored.server_tag("2"), names.server_tag("2"));
 
         // Leaving it off, or taking it away, removes it, and redraws them.

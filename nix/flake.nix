@@ -9,6 +9,24 @@
       pkgs = import nixpkgs { inherit system; };
       native = import ./native.nix { inherit pkgs; };
       inherit (native) webrtc skia skiaPackage libraries runtimeLibraries;
+      # nixos-25.11's cargo-xwin 0.20.2 has xwin 0.6.7, which finds no headers
+      # for the Windows SDK in Visual Studio's 17.14.45 manifest: it names
+      # them `Installers/…` where older ones had `Installers\…`. xwin 0.10.0
+      # takes both. A machine that downloaded the SDK before keeps its copy.
+      cargoXwin = pkgs.cargo-xwin.overrideAttrs (old: rec {
+        version = "0.23.1";
+        src = pkgs.fetchFromGitHub {
+          owner = "rust-cross";
+          repo = "cargo-xwin";
+          tag = "v${version}";
+          hash = "sha256-JQYAYCCN/dWvX1oqFX/MjvtPuCA3k8WbHmmGBxG9ylA=";
+        };
+        cargoDeps = pkgs.rustPlatform.fetchCargoVendor {
+          inherit src;
+          name = "cargo-xwin-${version}";
+          hash = "sha256-FRK4bCTPAPWGov8vEFr9XdqCNoeXeyFdyiWV5x+4WYY=";
+        };
+      });
       windowsWebrtcArchive = pkgs.fetchurl {
         url = "https://github.com/livekit/rust-sdks/releases/download/webrtc-51ef663/webrtc-win-x64-release.zip";
         hash = "sha256-ClalyRs7e0IiCCuKCTiNFqgCzeItZylb6yTFVwB1WzA=";
@@ -95,7 +113,7 @@
         };
         windows = pkgs.mkShell {
           nativeBuildInputs = with pkgs; [
-            rustup cargo-xwin cmake ninja gn protobuf python3 curl jq zip wineWowPackages.stable
+            rustup cargoXwin cmake ninja gn protobuf python3 curl jq zip wineWowPackages.stable
             # Inno Setup's own installer opens windows even when silent.
             xvfb-run
             llvmPackages_21.clang llvmPackages_21.lld llvmPackages_21.llvm
