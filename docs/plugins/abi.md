@@ -157,6 +157,10 @@ a log.
 | `yf_call` | `HostCall { method, payload }` | `HostReturn` |
 | `yf_post` | `HostCall` | Nothing |
 
+A `HostCall` is at most 1 MiB less 16 KiB, so it fits one frame to the parent,
+and a plugin makes at most 1,024 calls and posts in a second. Past either, the
+host function traps: the instance is discarded and the plugin takes a strike.
+
 An event batch arrives as:
 
 ```json

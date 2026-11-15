@@ -26,7 +26,7 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, mpsc};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use extism::{CurrentPlugin, Error, Function, PTR, UserData, Val};
 use serde::Deserialize;
@@ -60,7 +60,20 @@ pub struct Channel {
     /// parent and survives an eviction; it goes when the module does, or when the
     /// parent drops the plugin's timers.
     timers: Mutex<Vec<(String, bool)>>,
+    /// The second the guest's recent host calls are counted in, and how many
+    /// it made in it: see [`MAX_HOST_CALLS_PER_SECOND`].
+    recent: Mutex<(Instant, u32)>,
 }
+
+/// The most host calls and posts one plugin may make in a second.
+///
+/// A call never waits, so a guest in a loop can make one per microsecond, and
+/// each becomes a message queued for the parent, an entry in the scheduler's
+/// account of what the plugin waits on and, when the answer comes, another guest
+/// call: memory the page limit doesn't see, and work for the app. Past this the
+/// call traps, the instance is discarded and the plugin takes a strike. A
+/// screenful of decorations, each with a read, is a few dozen.
+pub const MAX_HOST_CALLS_PER_SECOND: u32 = 1024;
 
 impl Channel {
     pub fn new(plugin: PluginId, outbox: mpsc::Sender<FromHelper>, waits: Option<Waits>) -> Self {
@@ -70,7 +83,25 @@ impl Channel {
             next_call: AtomicU64::new(0),
             waits,
             timers: Mutex::new(Vec::new()),
+            recent: Mutex::new((Instant::now(), 0)),
         }
+    }
+
+    /// Counts one host call or post, refusing it past the plugin's rate.
+    fn admit(&self) -> Result<(), Error> {
+        let mut recent = lock(&self.recent);
+        let now = Instant::now();
+        if now.duration_since(recent.0) >= Duration::from_secs(1) {
+            *recent = (now, 0);
+        }
+        recent.1 += 1;
+        if recent.1 > MAX_HOST_CALLS_PER_SECOND {
+            return Err(Error::msg(format!(
+                "{} made more than {MAX_HOST_CALLS_PER_SECOND} host calls in a second",
+                self.plugin
+            )));
+        }
+        Ok(())
     }
 
     /// The id for the next request, counting from one; zero reads like "no
@@ -323,6 +354,7 @@ fn yf_call(
     user_data: UserData<Arc<Channel>>,
 ) -> Result<(), Error> {
     let channel = channel(&user_data)?;
+    channel.admit()?;
     let call = read_call(plugin, inputs, "yf_call")?;
     let answer = if forwards(&call.method) {
         channel.request(call)?
@@ -341,6 +373,7 @@ fn yf_post(
     user_data: UserData<Arc<Channel>>,
 ) -> Result<(), Error> {
     let channel = channel(&user_data)?;
+    channel.admit()?;
     let post = read_call(plugin, inputs, "yf_post")?;
     posted(&channel, post)
 }
@@ -494,6 +527,18 @@ fn write_answer(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_flood_of_host_calls_is_refused() {
+        let (outbox, _inbox) = mpsc::channel();
+        let plugin = PluginId::parse("com.example.flood").expect("an id");
+        let channel = Channel::new(plugin, outbox, None);
+        for _ in 0..MAX_HOST_CALLS_PER_SECOND {
+            channel.admit().expect("within the rate");
+        }
+        let error = channel.admit().expect_err("one past it traps");
+        assert!(error.to_string().contains("host calls in a second"), "{error}");
+    }
 
     #[test]
     fn a_named_method_travels_and_a_typo_does_not() {
