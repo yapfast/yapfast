@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
-use slint::{Brush, Color, ComponentHandle, Image, ModelRc, SharedString, VecModel};
+use slint::{Brush, Color, ComponentHandle, Image, Model, ModelRc, SharedString, VecModel};
 use yapfast_core::runtime::BackgroundRuntime;
 use yapfast_core::themes::check::{self, Files, Strictness};
 use yapfast_core::themes::install::{Fetched, Installed, Themes};
@@ -2036,29 +2036,80 @@ pub fn marketplace(_: &YapfastWindow) -> Vec<Listed> {
 
 /// Fills the Themes tab: installed themes, and the marketplace's.
 pub fn show_page(window: &YapfastWindow, listed: &[Listed]) {
+    show_installed(window);
+    show_listed(window, listed);
+}
+
+/// The installed themes' cards. What's slow to make of each, its cost line
+/// and its thumbnail, comes from [`GALLERY`]; a card without them yet shows
+/// its colours, and [`fill_gallery`] makes them off the UI thread.
+pub fn show_installed(window: &YapfastWindow) {
     let page = window.global::<ThemesPage>();
-    let query = page.get_query().to_lowercase();
     let applied = applied_id();
     let installed: Vec<ThemeListing> = STATE.with_borrow(|state| {
-        state
-            .installed
-            .iter()
-            .map(|theme| {
-                let id = format!("{INSTALLED}{}", theme.id);
-                listing_of(
-                    &theme.package,
-                    &theme.id,
-                    Some(&theme.folder),
-                    applied.as_deref() == Some(id.as_str()),
-                    theme
-                        .entry
-                        .previous
-                        .as_ref()
-                        .map(|previous| previous.rev.chars().take(7).collect()),
-                )
-            })
-            .collect()
+        GALLERY.with_borrow(|gallery| {
+            state
+                .installed
+                .iter()
+                .map(|theme| {
+                    let id = format!("{INSTALLED}{}", theme.id);
+                    let store = theme.entry.store.as_str();
+                    let cost = if theme.entry.cost.is_empty() {
+                        gallery.costs.get(store).cloned().unwrap_or_default()
+                    } else {
+                        theme.entry.cost.clone()
+                    };
+                    let preview = theme.package.preview.first().and_then(|first| {
+                        if first.extension().and_then(|extension| extension.to_str()) == Some("svg")
+                        {
+                            svg_preview(&theme.folder.join(first))
+                        } else {
+                            gallery.thumbs.get(store).cloned()
+                        }
+                    });
+                    listing_of(
+                        &theme.package,
+                        &theme.id,
+                        cost,
+                        preview.unwrap_or_default(),
+                        applied.as_deref() == Some(id.as_str()),
+                        theme
+                            .entry
+                            .previous
+                            .as_ref()
+                            .map(|previous| previous.rev.chars().take(7).collect()),
+                    )
+                })
+                .collect()
+        })
     });
+    page.set_installed_rows(pairs(&installed));
+    page.set_installed(ModelRc::new(VecModel::from(installed)));
+    fill_gallery(window);
+}
+
+/// Marks which installed card is applied, without building the cards again.
+pub fn mark_applied(window: &YapfastWindow) {
+    let page = window.global::<ThemesPage>();
+    let applied = applied_id();
+    let mark = |listing: &mut ThemeListing| {
+        listing.applied = applied.as_deref() == Some(&format!("{INSTALLED}{}", listing.id));
+    };
+    let installed = page.get_installed();
+    let mut rows: Vec<ThemeListing> = installed.iter().collect();
+    if rows.is_empty() {
+        return;
+    }
+    rows.iter_mut().for_each(mark);
+    page.set_installed_rows(pairs(&rows));
+    page.set_installed(ModelRc::new(VecModel::from(rows)));
+}
+
+/// The marketplace's cards, those the search matches and that aren't
+/// installed: a keystroke in the search builds only these.
+pub fn show_listed(window: &YapfastWindow, listed: &[Listed]) {
+    let page = window.global::<ThemesPage>();
+    let query = page.get_query().to_lowercase();
     let listed: Vec<ThemeListing> = listed
         .iter()
         .filter(|listing| {
@@ -2087,10 +2138,143 @@ pub fn show_page(window: &YapfastWindow, listed: &[Listed]) {
             ..ThemeListing::default()
         })
         .collect();
-    page.set_installed_rows(pairs(&installed));
     page.set_listed_rows(pairs(&listed));
-    page.set_installed(ModelRc::new(VecModel::from(installed)));
     page.set_listed(ModelRc::new(VecModel::from(listed)));
+}
+
+/// The largest thumbnail the gallery keeps, twice the card it's drawn on.
+const THUMBNAIL: (u32, u32) = (672, 378);
+
+/// The gallery's cost lines and thumbnails, by store address: an address
+/// names a version's files, so neither changes while it stays. Kept for the
+/// run, and the thumbnails on disk too, in `<data>/theme-thumbs/`.
+#[derive(Default)]
+struct Gallery {
+    costs: HashMap<String, String>,
+    thumbs: HashMap<String, Image>,
+    /// A worker is making what's missing.
+    working: bool,
+}
+
+thread_local! {
+    static GALLERY: std::cell::RefCell<Gallery> = std::cell::RefCell::new(Gallery::default());
+}
+
+/// Makes the missing cost lines and thumbnails on a thread of its own, and
+/// shows the cards again with them.
+fn fill_gallery(window: &YapfastWindow) {
+    struct Wanted {
+        store: String,
+        folder: PathBuf,
+        cost: bool,
+        preview: Option<PathBuf>,
+    }
+    let Some(root) = STATE.with_borrow(|state| state.root.clone()) else {
+        return;
+    };
+    let wanted: Vec<Wanted> = STATE.with_borrow(|state| {
+        GALLERY.with_borrow(|gallery| {
+            state
+                .installed
+                .iter()
+                .filter_map(|theme| {
+                    let store = &theme.entry.store;
+                    let cost = theme.entry.cost.is_empty() && !gallery.costs.contains_key(store);
+                    let preview = theme
+                        .package
+                        .preview
+                        .first()
+                        .filter(|first| {
+                            first.extension().and_then(|extension| extension.to_str())
+                                != Some("svg")
+                        })
+                        .filter(|_| !gallery.thumbs.contains_key(store))
+                        .map(|first| theme.folder.join(first));
+                    (cost || preview.is_some()).then(|| Wanted {
+                        store: store.clone(),
+                        folder: theme.folder.clone(),
+                        cost,
+                        preview,
+                    })
+                })
+                .collect()
+        })
+    });
+    if wanted.is_empty() || GALLERY.with_borrow(|gallery| gallery.working) {
+        return;
+    }
+    GALLERY.with_borrow_mut(|gallery| gallery.working = true);
+    let weak = window.as_weak();
+    let spawned = std::thread::Builder::new()
+        .name("theme-gallery".into())
+        .spawn(move || {
+            let thumbs = root.join("theme-thumbs");
+            let made: Vec<_> = wanted
+                .into_iter()
+                .map(|wanted| {
+                    let cost = wanted.cost.then(|| {
+                        Files::read(&wanted.folder)
+                            .map(|files| check::check(&files, Strictness::Install).cost.text())
+                            .unwrap_or_default()
+                    });
+                    let thumb = wanted
+                        .preview
+                        .map(|preview| thumbnail_of(&thumbs, &wanted.store, &preview));
+                    (wanted.store, cost, thumb)
+                })
+                .collect();
+            let _ = slint::invoke_from_event_loop(move || {
+                GALLERY.with_borrow_mut(|gallery| {
+                    gallery.working = false;
+                    for (store, cost, thumb) in made {
+                        if let Some(cost) = cost {
+                            gallery.costs.insert(store.clone(), cost);
+                        }
+                        if let Some(thumb) = thumb {
+                            gallery
+                                .thumbs
+                                .insert(store, thumb.map(Image::from_rgba8).unwrap_or_default());
+                        }
+                    }
+                });
+                if let Some(window) = weak.upgrade()
+                    && window.get_settings_open()
+                    && window.get_settings_section() == themes_section(&window)
+                {
+                    show_installed(&window);
+                }
+            });
+        });
+    if let Err(error) = spawned {
+        GALLERY.with_borrow_mut(|gallery| gallery.working = false);
+        tracing::warn!(%error, "could not start making the theme gallery's thumbnails");
+    }
+}
+
+/// An installed theme's thumbnail: the one made before, from disk, or one
+/// made now from its preview and kept there.
+fn thumbnail_of(
+    folder: &Path,
+    store: &str,
+    preview: &Path,
+) -> Option<slint::SharedPixelBuffer<slint::Rgba8Pixel>> {
+    let kept = folder.join(format!("{store}.png"));
+    if let Ok(bytes) = std::fs::read(&kept)
+        && let Some(pixels) = decode_preview(&bytes)
+    {
+        return Some(pixels);
+    }
+    let pixels = decode_preview(&std::fs::read(preview).ok()?)?;
+    let saved = std::fs::create_dir_all(folder).and_then(|()| {
+        image::RgbaImage::from_raw(pixels.width(), pixels.height(), pixels.as_bytes().to_vec())
+            .ok_or_else(|| std::io::Error::other("a thumbnail's pixels"))?
+            .save(&kept)
+            .map_err(std::io::Error::other)
+    });
+    if let Err(error) = saved {
+        tracing::warn!(%error, "could not keep a theme's thumbnail");
+    }
+    Some(pixels)
 }
 
 /// Two to a row, for the gallery.
@@ -2113,20 +2297,13 @@ fn modes_text(package: &Package) -> &'static str {
 fn listing_of(
     package: &Package,
     id: &str,
-    folder: Option<&Path>,
+    cost: String,
+    preview: Image,
     applied: bool,
     previous: Option<String>,
 ) -> ThemeListing {
     let resolved = package.resolve(package.mode_for(Mode::Dark)).ok();
     let colours = resolved.as_ref().map_or(theme::YAP, colours_of);
-    let cost = folder
-        .and_then(|folder| Files::read(folder).ok())
-        .map(|files| check::check(&files, Strictness::Install).cost.text())
-        .unwrap_or_default();
-    let preview = folder
-        .zip(package.preview.first())
-        .and_then(|(folder, preview)| preview_picture(&folder.join(preview)))
-        .unwrap_or_default();
     ThemeListing {
         id: id.into(),
         name: package.name.as_str().into(),
@@ -2142,7 +2319,7 @@ fn listing_of(
         accent: colours.accent,
         text: colours.text,
         muted: colours.muted,
-        installed: folder.is_some(),
+        installed: true,
         applied,
         reviewed: false,
         previous: previous.unwrap_or_default().into(),
@@ -2151,60 +2328,57 @@ fn listing_of(
     }
 }
 
-/// A preview picture, decoded at most 960 pixels wide: the gallery draws it
-/// at about 400.
-fn picture(path: &Path) -> Option<Image> {
-    let bytes = std::fs::read(path).ok()?;
-    if path.extension().and_then(|extension| extension.to_str()) == Some("svg") {
-        return Image::load_from_svg_data(&bytes).ok();
-    }
-    decode_preview(&bytes).map(Image::from_rgba8)
+/// An SVG preview, drawn as it is: it costs nothing to keep.
+fn svg_preview(path: &Path) -> Option<Image> {
+    Image::load_from_svg_data(&std::fs::read(path).ok()?).ok()
 }
 
-/// A preview's pixels, at most 960 wide, from a PNG, JPEG, WebP or GIF that
-/// passes the checks a theme's pictures do. Runs off the UI thread for the
-/// marketplace's.
+/// A preview's pixels from a PNG, JPEG or WebP, decoded once under the
+/// limits a theme's pictures have and shrunk to fit [`THUMBNAIL`]. Runs off
+/// the UI thread.
 pub fn decode_preview(bytes: &[u8]) -> Option<slint::SharedPixelBuffer<slint::Rgba8Pixel>> {
-    check::check_image(bytes).ok()?;
-    let decoded = image::load_from_memory(bytes).ok()?;
-    let decoded = if decoded.width() > 960 {
-        decoded.resize(
-            960,
-            960 * decoded.height() / decoded.width(),
-            image::imageops::FilterType::Triangle,
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()?;
+    if !matches!(
+        reader.format(),
+        Some(image::ImageFormat::Png | image::ImageFormat::Jpeg | image::ImageFormat::WebP)
+    ) {
+        return None;
+    }
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(check::MAX_IMAGE_SIDE);
+    limits.max_image_height = Some(check::MAX_IMAGE_SIDE);
+    reader.limits(limits);
+    let decoded = reader.decode().ok()?.into_rgba8();
+    let (width, height) = decoded.dimensions();
+    let scale = f64::min(
+        1.0,
+        f64::min(
+            f64::from(THUMBNAIL.0) / f64::from(width.max(1)),
+            f64::from(THUMBNAIL.1) / f64::from(height.max(1)),
+        ),
+    );
+    let shrunk = if scale < 1.0 {
+        image::imageops::thumbnail(
+            &decoded,
+            ((f64::from(width) * scale).round() as u32).max(1),
+            ((f64::from(height) * scale).round() as u32).max(1),
         )
     } else {
         decoded
     };
-    let rgba = decoded.into_rgba8();
-    let (width, height) = rgba.dimensions();
+    let (width, height) = shrunk.dimensions();
     Some(slint::SharedPixelBuffer::clone_from_slice(
-        rgba.as_raw(),
+        shrunk.as_raw(),
         width,
         height,
     ))
 }
 
-/// An installed theme's preview, decoded once while the page is open: the
-/// page is drawn again each time a theme is applied.
-fn preview_picture(path: &Path) -> Option<Image> {
-    PREVIEWS.with_borrow_mut(|previews| {
-        previews
-            .entry(path.to_owned())
-            .or_insert_with(|| picture(path))
-            .clone()
-    })
-}
-
-thread_local! {
-    static PREVIEWS: std::cell::RefCell<HashMap<PathBuf, Option<Image>>> =
-        std::cell::RefCell::new(HashMap::new());
-}
-
-/// Drops the gallery's pictures, once the page closes.
+/// Drops the gallery's cards once the page closes; the thumbnails and cost
+/// lines stay, so it opens again at once.
 pub fn close_page(window: &YapfastWindow) {
-    PREVIEWS.with_borrow_mut(HashMap::clear);
-    MARKET.with_borrow_mut(|market| market.previews.clear());
     let page = window.global::<ThemesPage>();
     page.set_installed(ModelRc::default());
     page.set_listed(ModelRc::default());
@@ -2218,8 +2392,26 @@ fn reload_installed() {
     STATE.with_borrow_mut(|state| {
         if let Some(root) = &state.root {
             (state.installed, state.refused) = Themes::open(root).installed_and_refused();
+            prune_thumbnails(root, &state.installed);
         }
     });
+}
+
+/// Removes the thumbnails of versions no longer installed.
+fn prune_thumbnails(root: &Path, installed: &[Installed]) {
+    let Ok(entries) = std::fs::read_dir(root.join("theme-thumbs")) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let kept = path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .is_some_and(|stem| installed.iter().any(|theme| theme.entry.store == stem));
+        if !kept {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
 }
 
 fn themes() -> Option<Themes> {

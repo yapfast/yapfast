@@ -114,6 +114,10 @@ pub struct Entry {
     pub manifest_sha256: String,
     #[serde(default)]
     pub origin: String,
+    /// What it costs to run, as its check said at install: the gallery's
+    /// line, which a version's files can't change.
+    #[serde(default)]
+    pub cost: String,
     #[serde(default)]
     pub previous: Option<Box<Entry>>,
 }
@@ -239,6 +243,7 @@ impl Themes {
             },
             "store": address,
             "manifest_sha256": manifest_sha256,
+            "cost": fetched.report.cost.text(),
         });
         // The version replaced is kept to roll back to, unless this install
         // is the same files again.

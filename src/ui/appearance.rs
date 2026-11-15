@@ -85,9 +85,7 @@ impl Adapter {
         if id.starts_with(theme_look::INSTALLED) {
             theme_media::cue(SoundSlot::ThemeApplied, FOCUSED.get());
             // Settings → Themes, if it's open, marks the theme now applied.
-            if window.global::<ThemesPage>().get_installed().row_count() > 0 {
-                theme_look::show_page(window, &theme_look::marketplace(window));
-            }
+            theme_look::mark_applied(window);
         }
         if self.layout.theme.as_deref() != Some(id.as_str()) {
             self.layout.previous_theme = self.layout.theme.take();
@@ -810,7 +808,7 @@ pub(super) fn bind_themes(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>
     });
     on!(page, on_search(query) => |adapter, window| {
         let _ = (adapter, query);
-        theme_look::show_page(&window, &theme_look::marketplace(&window));
+        theme_look::show_listed(&window, &theme_look::marketplace(&window));
     });
     on!(page, on_revert_theme() => |adapter, window| {
         if let Some(previous) = adapter.layout.previous_theme.clone() {
