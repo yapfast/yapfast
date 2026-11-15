@@ -1858,7 +1858,14 @@ fn stream_window_pickers_share_one_scroll_area_in_a_fixed_height_menu() {
             .map(|index| SharedString::from(format!("{prefix} {index}")))
             .collect::<Vec<_>>()
     };
-    window.set_share_windows(ModelRc::new(VecModel::from(titles("Video app"))));
+    let cards = titles("Video app")
+        .into_iter()
+        .map(|title| ShareScreen {
+            title,
+            picture: Default::default(),
+        })
+        .collect::<Vec<_>>();
+    window.set_share_windows(ModelRc::new(VecModel::from(cards)));
     let mut audio = vec!["No audio".into(), "All applications".into()];
     audio.extend(titles("Audio app"));
     window.set_share_audio_options(ModelRc::new(VecModel::from(audio)));
@@ -1890,10 +1897,7 @@ fn stream_window_pickers_share_one_scroll_area_in_a_fixed_height_menu() {
             }
         })
     };
-    assert!(find("Video windows").is_none() && find("Audio windows").is_none());
-    find("Other windows")
-        .unwrap()
-        .accessible_action(&AccessibilityAction::Default);
+    assert!(find("Video windows").is_some() && find("Audio windows").is_none());
     let popup_height = || {
         let inner = i_slint_core::window::WindowInner::from_pub(window.window());
         let popups = inner.active_popups();
@@ -1903,6 +1907,21 @@ fn stream_window_pickers_share_one_scroll_area_in_a_fixed_height_menu() {
             .height
     };
     assert_eq!(popup_height(), 560.);
+    assert!(
+        find("Other windows").is_none(),
+        "window thumbnails are shown immediately"
+    );
+    let card_position = |name| {
+        let card = find(name).unwrap();
+        card.map_to_window(card.geometry().origin)
+    };
+    let first = card_position("Video app 0");
+    let second = card_position("Video app 1");
+    let third = card_position("Video app 2");
+    assert_eq!(first.y, second.y, "two thumbnails share each row");
+    assert!(second.x > first.x);
+    assert_eq!(first.x, third.x);
+    assert!(third.y > first.y, "the third thumbnail begins the next row");
     let video = find("Video windows").unwrap();
     assert!(
         video.geometry().size.height > popup_height(),
@@ -1958,10 +1977,7 @@ fn stream_window_pickers_share_one_scroll_area_in_a_fixed_height_menu() {
     find("Video app 5")
         .unwrap()
         .accessible_action(&AccessibilityAction::Default);
-    find("Other windows")
-        .unwrap()
-        .accessible_action(&AccessibilityAction::Default);
-    assert!(find("Video windows").is_none());
+    assert!(find("Video windows").is_some());
     find("Select audio from window")
         .unwrap()
         .accessible_action(&AccessibilityAction::Default);
@@ -1971,7 +1987,7 @@ fn stream_window_pickers_share_one_scroll_area_in_a_fixed_height_menu() {
         560.,
         "expanding audio does not resize the menu"
     );
-    assert!(find("Video windows").is_none());
+    assert!(find("Video windows").is_some());
     find("Audio app 0")
         .unwrap()
         .accessible_action(&AccessibilityAction::Default);
@@ -1988,19 +2004,20 @@ fn stream_window_pickers_share_one_scroll_area_in_a_fixed_height_menu() {
         find("No audio").is_some(),
         "mute remains available with application choices collapsed"
     );
-    find("Other windows")
-        .unwrap()
-        .accessible_action(&AccessibilityAction::Default);
     find("Select audio from window")
         .unwrap()
         .accessible_action(&AccessibilityAction::Default);
     find("Go Live")
         .unwrap()
         .accessible_action(&AccessibilityAction::Default);
-    assert_eq!(source.get(), Some(6), "video selection survives collapsing");
+    assert_eq!(
+        source.get(),
+        Some(6),
+        "thumbnail selection preserves source indices"
+    );
     window.invoke_show_share_menu();
     settle(&window);
-    assert!(find("Video windows").is_none() && find("Audio windows").is_none());
+    assert!(find("Video windows").is_some() && find("Audio windows").is_none());
     assert_eq!(
         window.get_share_audio_choice(),
         2,
@@ -2030,7 +2047,13 @@ fn the_share_menu_fits_a_short_window_and_keeps_its_button() {
         title: "Entire screen".into(),
         picture: Default::default(),
     }])));
-    window.set_share_windows(titles("Window", 12));
+    let cards = (0..12)
+        .map(|index| ShareScreen {
+            title: format!("Window {index}").into(),
+            picture: Default::default(),
+        })
+        .collect::<Vec<_>>();
+    window.set_share_windows(ModelRc::new(VecModel::from(cards)));
     window.set_share_audio_options(titles("Audio", 14));
     window.set_share_cameras(titles("Camera", 4));
     let went = Rc::new(Cell::new(None));

@@ -1272,7 +1272,7 @@ component ScreenCard inherits Rectangle {
 // Going live, or choosing a different source while the stream keeps running.
 export component ShareMenu inherits Rectangle {
     in property <[ShareScreen]> screens;
-    in property <[string]> windows;
+    in property <[ShareScreen]> windows;
     in property <[string]> cameras;
     in property <bool> dialog;
     in property <bool> switching;
@@ -1284,13 +1284,11 @@ export component ShareMenu inherits Rectangle {
     in-out property <bool> pick-high-quality;
     in property <[string]> audio-options;
     in-out property <int> pick-audio;
-    property <bool> windows-open;
     property <bool> audio-windows-open;
     callback audio-changed(int);
     callback go-live(int, int, int, bool);
     in property <int> picker-session;
     changed picker-session => {
-        root.windows-open = false;
         root.audio-windows-open = false;
         menu-scroll.content-y = 0px;
     }
@@ -1320,21 +1318,23 @@ export component ShareMenu inherits Rectangle {
                         clicked => { root.pick-source = index; }
                     }
                 }
-                if root.windows.length > 0: MenuItem {
-                    text: "Other windows";
-                    subtitle: root.pick-source >= root.screens.length && root.pick-source < root.dialog-index
-                        ? root.windows[root.pick-source - root.screens.length] : "";
-                    icon: root.windows-open ? @image-url("icons/chevron-down.svg") : @image-url("icons/chevron-right.svg");
-                    clicked => { root.windows-open = !root.windows-open; }
+                if root.windows.length > 0: HorizontalLayout {
+                    padding-left: 8px; padding-top: 8px; padding-bottom: 4px;
+                    Text { text: "WINDOWS"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
                 }
-                if root.windows-open && root.windows.length > 0: Rectangle {
+                if root.windows.length > 0: Rectangle {
                     accessible-role: groupbox; accessible-label: "Video windows";
-                    height: video-windows.preferred-height;
-                    video-windows := VerticalLayout {
-                        for window[index] in root.windows: MenuItem {
-                            text: window; checked: root.screens.length + index == root.pick-source;
-                            clicked => { root.pick-source = root.screens.length + index; }
-                        }
+                    property <length> gap: 8px;
+                    property <length> card: (self.width - self.gap) / 2;
+                    property <length> card-height: self.card * 9 / 16 + 30px;
+                    height: ceil(root.windows.length / 2) * (self.card-height + self.gap) - self.gap;
+                    for window[index] in root.windows: ScreenCard {
+                        x: mod(index, 2) * (parent.card + parent.gap);
+                        y: floor(index / 2) * (parent.card-height + parent.gap);
+                        width: parent.card; height: parent.card-height;
+                        text: window.title; picture: window.picture;
+                        checked: root.screens.length + index == root.pick-source;
+                        clicked => { root.pick-source = root.screens.length + index; }
                     }
                 }
                 if root.dialog: MenuItem {

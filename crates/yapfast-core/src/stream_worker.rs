@@ -123,11 +123,13 @@ pub enum Job {
         speakers: Option<String>,
         volume: f32,
     },
-    /// Takes a picture of each screen in `screens`, by the ids [`shareable`]
+    /// Takes a picture of each screen and window, by the ids [`shareable`]
     /// listed them with, scaled down to fit `width` by `height`, for the
     /// share menu to show. Each comes as a [`Report::Screen`].
     Glance {
         screens: Vec<u64>,
+        #[serde(default)]
+        windows: Vec<u64>,
         width: u32,
         height: u32,
     },
@@ -360,6 +362,9 @@ pub enum Report {
     /// [`Job::Glance`]: RGBA pixels, `width` by `height`.
     Screen {
         id: u64,
+        /// A window thumbnail, rather than a display thumbnail.
+        #[serde(default)]
+        window: bool,
         width: u32,
         height: u32,
         #[serde(with = "base64_pixels")]
@@ -495,11 +500,12 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
         }
         Job::Glance {
             screens,
+            windows,
             width,
             height,
         } => {
             report(Report::Ready);
-            glance(&screens, width, height, &stop, report);
+            glance(&screens, &windows, width, height, &stop, report);
             Ok(())
         }
     });
@@ -1340,20 +1346,25 @@ fn picture_of(frame: &livekit::webrtc::desktop_capturer::DesktopFrame) -> I420Bu
 /// before showing the last it took, or none.
 const GLANCE_WAIT: Duration = Duration::from_millis(1500);
 
-/// Takes a picture of each of `screens`, as [`Job::Glance`] asks. A screen
-/// that gives none goes without, and the rest still come.
+/// Takes one thumbnail per display or window. Unavailable sources are skipped
+/// so a closed or minimized window does not prevent the remaining previews.
 fn glance(
     screens: &[u64],
+    windows: &[u64],
     max_width: u32,
     max_height: u32,
     stop: &AtomicBool,
     report: &mut dyn FnMut(Report),
 ) {
-    for &id in screens {
+    for (id, window) in screens
+        .iter()
+        .map(|&id| (id, false))
+        .chain(windows.iter().map(|&id| (id, true)))
+    {
         if stop.load(Ordering::Relaxed) {
             return;
         }
-        match glance_at(id, stop) {
+        match glance_at(id, window, stop) {
             Ok(Some(mut picture)) => {
                 let (width, height) = fit(picture.width(), picture.height(), max_width, max_height);
                 if (width, height) != (picture.width(), picture.height()) {
@@ -1363,6 +1374,7 @@ fn glance(
                 to_rgba(&picture, &mut rgba);
                 report(Report::Screen {
                     id,
+                    window,
                     width,
                     height,
                     rgba,
@@ -1374,14 +1386,16 @@ fn glance(
     }
 }
 
-/// A picture of the screen listed by `id`, at its own size.
-fn glance_at(id: u64, stop: &AtomicBool) -> Result<Option<I420Buffer>> {
+/// A picture of the display or window listed by `id`, at its own size.
+fn glance_at(id: u64, window: bool, stop: &AtomicBool) -> Result<Option<I420Buffer>> {
     use livekit::webrtc::desktop_capturer::{
         CaptureError, DesktopCaptureSourceType, DesktopCapturer, DesktopCapturerOptions,
     };
-    let mut capturer = DesktopCapturer::new(DesktopCapturerOptions::new(
-        DesktopCaptureSourceType::Screen,
-    ))
+    let mut capturer = DesktopCapturer::new(DesktopCapturerOptions::new(if window {
+        DesktopCaptureSourceType::Window
+    } else {
+        DesktopCaptureSourceType::Screen
+    }))
     .context("Screen sharing isn't available on this system.")?;
     let source = capturer
         .get_source_list()
@@ -1483,11 +1497,13 @@ impl Worker {
     /// [`Report::Ended`].
     pub fn glance(
         screens: Vec<u64>,
+        windows: Vec<u64>,
         width: u32,
         height: u32,
     ) -> Result<(Self, mpsc::UnboundedReceiver<Report>)> {
         Self::start(&Job::Glance {
             screens,
+            windows,
             width,
             height,
         })
@@ -1825,6 +1841,7 @@ mod tests {
             unsafe { std::env::set_var("YAPFAST_STREAM_WORKER", &worker) };
             let (worker, mut reports) = Worker::start(&Job::Glance {
                 screens: vec![],
+                windows: vec![],
                 width: 320,
                 height: 180,
             })
@@ -2196,6 +2213,7 @@ mod tests {
     fn a_screen_picture_survives_its_report_line() {
         let report = Report::Screen {
             id: 7,
+            window: false,
             width: 2,
             height: 1,
             rgba: vec![255, 0, 0, 255, 0, 0, 255, 255],
@@ -2203,6 +2221,66 @@ mod tests {
         let line = serde_json::to_string(&report).unwrap();
         assert!(line.contains(r#""rgba":"/wAA/wAA//8=""#), "{line}");
         assert_eq!(serde_json::from_str::<Report>(&line).unwrap(), report);
+        let window = Report::Screen {
+            id: 7,
+            window: true,
+            width: 2,
+            height: 1,
+            rgba: vec![255; 8],
+        };
+        assert_eq!(
+            serde_json::from_str::<Report>(&serde_json::to_string(&window).unwrap()).unwrap(),
+            window
+        );
+    }
+
+    #[test]
+    #[ignore = "needs a desktop with capturable application windows"]
+    fn glances_at_the_listed_windows() {
+        let windows: Vec<u64> = shareable()
+            .into_iter()
+            .filter_map(|listed| match listed.source {
+                Source::Window(id) => Some(id),
+                _ => None,
+            })
+            .take(8)
+            .collect();
+        assert!(!windows.is_empty(), "no application window is available");
+        let job = Job::Glance {
+            screens: vec![],
+            windows: windows.clone(),
+            width: 240,
+            height: 135,
+        };
+        let (input, mut feed) = std::io::pipe().unwrap();
+        writeln!(feed, "{}", serde_json::to_string(&job).unwrap()).unwrap();
+        let mut pictured = vec![];
+        serve(
+            Box::new(BufReader::new(input)),
+            &mut |report| match report {
+                Report::Screen {
+                    id,
+                    window,
+                    width,
+                    height,
+                    rgba,
+                } => {
+                    assert!(window, "window previews must not be routed to displays");
+                    assert!(windows.contains(&id));
+                    assert!(width > 0 && width <= 240 && height > 0 && height <= 135);
+                    assert_eq!(rgba.len(), (width * height * 4) as usize);
+                    pictured.push(id);
+                }
+                Report::Ended { error } => assert!(error.is_none(), "{error:?}"),
+                _ => {}
+            },
+        );
+        eprintln!(
+            "Captured {} of {} window thumbnails",
+            pictured.len(),
+            windows.len()
+        );
+        assert!(!pictured.is_empty(), "no application provided a preview");
     }
 
     /// Takes a picture of each listed screen, as the share menu shows them.
@@ -2222,6 +2300,7 @@ mod tests {
         assert!(!screens.is_empty(), "no screen");
         let job = Job::Glance {
             screens: screens.clone(),
+            windows: vec![],
             width: 320,
             height: 180,
         };
@@ -2236,6 +2315,7 @@ mod tests {
             .filter_map(|report| match report {
                 Report::Screen {
                     id,
+                    window: false,
                     width,
                     height,
                     rgba,

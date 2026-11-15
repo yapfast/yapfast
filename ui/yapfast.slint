@@ -1494,7 +1494,10 @@ export component YapfastWindow inherits Window {
     /// they're in, with the first picked. The screens' pictures come after.
     in property <bool> share-lists;
     in property <[ShareScreen]> share-screens;
-    in property <[string]> share-windows;
+    in property <[ShareScreen]> share-windows;
+    out property <bool> share-menu-open: share-menu.is-open;
+    callback share-menu-closed;
+    changed share-menu-open => { if !root.share-menu-open { root.share-menu-closed(); } }
     in property <[string]> share-cameras;
     callback list-share-sources();
     /// Opens the share menu once its lists are in, including audio controls
@@ -1999,8 +2002,8 @@ export component YapfastWindow inherits Window {
     share-menu := PopupWindow {
         x: max(8px, min(root.width - self.width - 8px, root.menu-x - 6px));
         y: max(8px, root.menu-y - self.height - 6px);
-        // Wider for the screens' pictures.
-        width: root.share-screens.length > 0 ? 336px : 240px;
+        // Two readable thumbnails per row, constrained by the main window.
+        width: min(root.share-screens.length + root.share-windows.length > 0 ? 496px : 240px, root.width - 16px);
         // Expanding source lists scrolls the content without resizing the menu.
         height: min(560px, root.height - 16px);
         close-policy: PopupClosePolicy.close-on-click-outside;
