@@ -831,6 +831,7 @@ pub fn reset(window: &YapfastWindow) {
     look.set_row_inset_x(0.);
     look.set_row_inset_y(0.);
     look.set_card_inset_top(0.);
+    look.set_packaged(false);
     look.set_scrollbar_width(-1.);
     look.set_scrollbar_hover_width(-1.);
     look.set_shadows_on(false);
@@ -924,6 +925,7 @@ fn paint(window: &YapfastWindow) {
             return;
         };
         let resolved = &applied.resolved;
+        window.global::<Look>().set_packaged(true);
         // Readable text keeps the theme's art, colours, shapes and layout,
         // and draws reading text as stock: messages, names, labels, code and
         // what's typed, at the stock weight and spacing, with no ransom

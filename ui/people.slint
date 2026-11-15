@@ -1544,10 +1544,10 @@ export component ProfileCard inherits Rectangle {
     property <length> corner: root.docked ? Look.radius(ClientStyle.enabled ? 8px : 0px) : Look.r(Look.card, 12px);
     // A theme's border, solid, dashed or dotted, stays around the banner
     // and the card's art: what's inside starts past it, under corners
-    // rounded to the border's inner edge. The stock card keeps its banner
-    // to the edge.
+    // rounded to the border's inner edge, under any theme, even one that
+    // sets only colours or corners. The stock card keeps its banner to the edge.
     property <bool> dashed: Arrange.dash-card.on && !root.docked;
-    property <bool> edge-themed: Look.card.border >= 0px || Look.outline-width >= 0px || root.dashed;
+    property <bool> edge-themed: Look.packaged || Look.card.border >= 0px || Look.outline-width >= 0px || root.dashed;
     property <length> dash-stroke: Arrange.dash-card.width >= 0px ? Arrange.dash-card.width : Look.bw(Look.card, 1px);
     property <length> solid-edge: root.themed ? 0px : root.docked && !ClientStyle.enabled ? 0px : Look.bw(Look.card, 1px);
     property <length> edge-inset: root.themed ? 2px : !root.edge-themed ? 0px : max(root.dashed ? max(1px, root.dash-stroke) : 0px, root.solid-edge);

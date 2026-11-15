@@ -243,6 +243,9 @@ export global Look {
     in property <length> scrollbar-hover-width: -1px;
     /// Room kept above a profile card's banner for chrome its art draws.
     in property <length> card-inset-top;
+    /// An installed or created theme is applied, not a stock palette: its
+    /// profile cards keep the banner inside their border, under their corners.
+    in property <bool> packaged;
     in property <length> row-inset-x;
     in property <length> row-inset-y;
     out property <length> row-radius: self.row.radius >= 0px ? self.row.radius : self.r(self.message, 0px);
