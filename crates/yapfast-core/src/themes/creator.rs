@@ -410,6 +410,17 @@ pub fn is_dark(spec: &Spec) -> bool {
     spec.background != Background::Light
 }
 
+/// `hover` and `row-hover` are washes laid over whatever the row sits on, a
+/// ground or a picture, never a ground of their own: white on dark themes,
+/// black on light, at these alphas out of 255 (about 8% and 6%; 6% and 4%).
+const HOVER: u32 = 0x14;
+const ROW_HOVER: u32 = 0x0f;
+const HOVER_LIGHT: u32 = 0x0f;
+const ROW_HOVER_LIGHT: u32 = 0x0a;
+
+/// The washes that light a row under the pointer.
+const WASHES: [&str; 2] = ["hover", "row-hover"];
+
 /// The grounds and inks of a spec, before any is nudged: each ground a step
 /// of lightness in the ground's hue, as Yap's own steps go.
 fn ramp(spec: &Spec) -> Vec<(&'static str, u32)> {
@@ -432,9 +443,9 @@ fn ramp(spec: &Spec) -> Vec<(&'static str, u32)> {
             ("raised", ground(0.27, 0.95)),
             ("field", ground(0.285, 0.9)),
             ("sunken", ground(0.15, 1.0)),
-            ("hover", ground(0.262, 0.9)),
+            ("hover", alpha(0xffffff, HOVER)),
             ("active", ground(0.305, 0.9)),
-            ("row-hover", ground(0.215, 1.0)),
+            ("row-hover", alpha(0xffffff, ROW_HOVER)),
             ("line", line),
             ("edge", ground(0.13, 1.0)),
             ("outline", line),
@@ -477,9 +488,9 @@ fn ramp(spec: &Spec) -> Vec<(&'static str, u32)> {
             ("raised", ground(0.995, 0.25)),
             ("field", ground(0.93, 0.9)),
             ("sunken", ground(0.895, 1.0)),
-            ("hover", ground(0.925, 1.0)),
+            ("hover", alpha(0x000000, HOVER_LIGHT)),
             ("active", ground(0.895, 1.0)),
-            ("row-hover", ground(0.955, 0.8)),
+            ("row-hover", alpha(0x000000, ROW_HOVER_LIGHT)),
             ("line", line),
             ("edge", ground(0.84, 1.0)),
             ("outline", line),
@@ -578,10 +589,19 @@ pub fn finish(spec: &Spec, colours: Vec<(&'static str, u32)>) -> Derived {
     derived.set("embed", sidebar);
     derived.set("account", panel);
     derived.set("actions", raised);
-    let surfaces: Vec<u32> = ["sidebar", "panel", "chat", "field"]
+    let mut surfaces: Vec<u32> = ["sidebar", "panel", "chat", "field"]
         .iter()
         .map(|token| get(&derived, token))
         .collect();
+    // A row under the pointer shows its wash over the ground it's on, and
+    // its text has to read there too.
+    let mut lit = Vec::new();
+    for ground in ["sidebar", "panel", "chat", "field", "raised"] {
+        for wash in WASHES {
+            lit.push(washed(get(&derived, wash), get(&derived, ground)));
+        }
+    }
+    surfaces.extend(lit);
     let mut under_text = surfaces.clone();
     under_text.extend(
         [
@@ -637,6 +657,11 @@ fn mix(under: u32, over: u32, amount: f32) -> u32 {
     0xff00_0000 | (channel(16) << 16) | (channel(8) << 8) | channel(0)
 }
 
+/// A wash, `0xAARRGGBB`, laid over an opaque `under`, as the window draws it.
+fn washed(wash: u32, under: u32) -> u32 {
+    mix(under, wash, (wash >> 24) as f32 / 255.0)
+}
+
 /// What the art under text averages to: `(mean of the art, dimmed)`, and the
 /// art's own mean, if the theme has art.
 pub fn art_mean(spec: &Spec) -> Option<u32> {
@@ -666,9 +691,13 @@ fn keep_art_readable(spec: &Spec, derived: &mut Derived) {
         .iter()
         .filter_map(|token| derived.colour(token))
         .collect();
+    let washes: Vec<u32> = WASHES
+        .iter()
+        .filter_map(|token| derived.colour(token))
+        .collect();
     let reads = |derived: &Derived| {
         let art = dimmed(mean, derived.dim);
-        let unders: Vec<u32> = if spec.glass {
+        let mut unders: Vec<u32> = if spec.glass {
             grounds
                 .iter()
                 .map(|ground| mix(art, *ground, derived.glass_opacity))
@@ -676,6 +705,12 @@ fn keep_art_readable(spec: &Spec, derived: &mut Derived) {
         } else {
             vec![art]
         };
+        // A hovered row's wash lies over the art as well.
+        let lit: Vec<u32> = unders
+            .iter()
+            .flat_map(|under| washes.iter().map(move |wash| washed(*wash, *under)))
+            .collect();
+        unders.extend(lit);
         inks.iter()
             .all(|(ink, needed)| worst(*ink, &unders) >= *needed)
     };

@@ -76,7 +76,11 @@ as text and the ink on the accent are each moved in lightness until they read
 at 4.65:1 on every ground they sit on, so a creator theme always passes
 `yapfast theme check`. Over a picture, its dim (or glass's cover) is raised
 as far as text needs, past what the person chose if it must; the creator
-never shows a contrast error. The accent itself stays as chosen.
+never shows a contrast error. The accent itself stays as chosen. `hover`
+and `row-hover` aren't grounds but washes, white at about 8% and 6% on a
+dark theme and black at 6% and 4% on a light one, so a picture or glass
+shows through a row under the pointer; text is held to the same 4.65:1 on
+each wash over each ground and over the dimmed picture.
 
 Save keeps a custom theme as above, with the creator's choices as `creator`,
 and writes a package from them to `<data>/themes/creator/<n>/`: its

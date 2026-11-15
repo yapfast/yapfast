@@ -452,3 +452,115 @@ fn a_font_that_isnt_one_is_never_copied() {
     assert!(store_font(folder.path(), b"nope").is_err());
     assert!(!folder.path().join("fonts").exists());
 }
+
+#[test]
+fn hovers_are_washes_that_keep_text_readable_on_every_ground() {
+    // A picture's colours as the creator reads them: bright, middling and
+    // dark, and the grey-brown of the theme that showed a solid slab.
+    let pictures: Vec<(PreparedPicture, Vec<u8>)> = [
+        solid(64, 64, |_, _| [250, 245, 235]),
+        solid(64, 64, |_, _| [128, 120, 118]),
+        solid(64, 64, |x, y| {
+            if (x / 8 + y / 8) % 2 == 0 {
+                [255, 255, 255]
+            } else {
+                [20, 18, 18]
+            }
+        }),
+        solid(64, 64, |_, _| [0x1f, 0x1e, 0x1e]),
+    ]
+    .iter()
+    .map(|picture| {
+        let bytes = jpeg(picture);
+        (prepare_picture(&bytes).expect("a picture"), bytes)
+    })
+    .collect();
+    let mut tried = 0;
+    for hue in (0..360).step_by(45) {
+        for (lightness, chroma) in [(0.45, 0.15), (0.7, 0.18), (0.95, 0.04)] {
+            for ground in [0x1e1f24, 0x1f1e1e, 0x2a1a3a, 0x0b3d2e, 0xf0e6ff] {
+                for background in [Background::Dark, Background::Light, Background::Picture] {
+                    for glass in [false, true] {
+                        let index = tried;
+                        tried += 1;
+                        let picture = &pictures[index % pictures.len()];
+                        let spec = Spec {
+                            accent: from_lch([lightness, chroma, f64::from(hue)]),
+                            ground,
+                            background,
+                            glass,
+                            dim: [0, 35, 100][index % 3],
+                            picture: (background == Background::Picture)
+                                .then(|| picture.0.picture.clone()),
+                            ..Spec::default()
+                        };
+                        let derived = derive(&spec);
+                        let get = |token: &str| derived.colour(token).expect(token);
+                        // Washes, not grounds: see-through, white on dark and
+                        // black on light, so a picture shows through a hovered
+                        // row.
+                        for wash in WASHES {
+                            let alpha = get(wash) >> 24;
+                            assert!(
+                                (0x08..=0x20).contains(&alpha),
+                                "{wash} {:08x} ({spec:?})",
+                                get(wash)
+                            );
+                            let rgb = get(wash) & 0xff_ffff;
+                            assert_eq!(
+                                rgb,
+                                if derived.dark { 0xffffff } else { 0x000000 },
+                                "{wash} ({spec:?})"
+                            );
+                        }
+                        // Text on a hovered row reads, over each ground…
+                        for wash in WASHES {
+                            for surface in ["sidebar", "panel", "chat", "field", "raised"] {
+                                let under = washed(get(wash), get(surface));
+                                for ink in ["text", "secondary", "muted", "link", "accent-text"] {
+                                    let reads = contrast(get(ink), under);
+                                    assert!(
+                                        reads >= READABLE,
+                                        "{ink} on {wash} over {surface}: {reads:.2} ({spec:?})"
+                                    );
+                                }
+                            }
+                        }
+                        // …and over the art, as `check::art` measures it.
+                        if let Some(mean) = art_mean(&spec) {
+                            let art = dimmed(mean, derived.dim);
+                            let unders: Vec<u32> = if spec.glass {
+                                ["sidebar", "chat", "panel"]
+                                    .iter()
+                                    .map(|surface| mix(art, get(surface), derived.glass_opacity))
+                                    .collect()
+                            } else {
+                                vec![art]
+                            };
+                            for under in unders {
+                                for wash in WASHES {
+                                    let lit = washed(get(wash), under);
+                                    for (ink, needed) in [
+                                        ("text", READABLE),
+                                        ("secondary", check::art::HINT),
+                                        ("muted", check::art::HINT),
+                                    ] {
+                                        let reads = contrast(get(ink), lit);
+                                        assert!(
+                                            reads >= needed,
+                                            "{ink} on {wash} over the art: {reads:.2} ({spec:?})"
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        // And the theme still installs.
+                        let stored = (background == Background::Picture).then_some(&picture.1[..]);
+                        assert_eq!(refused(&spec, stored), None, "{spec:?}");
+                    }
+                }
+            }
+        }
+    }
+    assert!(tried >= 700);
+}
