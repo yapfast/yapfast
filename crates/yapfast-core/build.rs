@@ -17,6 +17,8 @@ fn main() {
         "camera.cc",
         "hwenc.c",
         "hevc.c",
+        "video_hevc.c",
+        "video_hevc.h",
     ] {
         println!("cargo:rerun-if-changed=native/{file}");
     }
@@ -65,14 +67,15 @@ fn main() {
         return;
     }
     // FFmpeg's hardware encoders and HEVC decoder, where ffmpeg-src builds
-    // them: hwenc.c and hevc.c see only their headers, with FFmpeg's names
-    // prefixed as in the library.
+    // them: hwenc.c, hevc.c and video_hevc.c see only their headers, with
+    // FFmpeg's names prefixed as in the library.
     if std::env::var("DEP_FFMPEG_ENCODERS").as_deref() == Ok("1") {
         let mut ffmpeg = cc::Build::new();
         use_clang_cl(&mut ffmpeg);
         ffmpeg
             .file("native/hwenc.c")
             .file("native/hevc.c")
+            .file("native/video_hevc.c")
             .warnings(true);
         let folders = std::env::var_os("DEP_FFMPEG_INCLUDE").expect("ffmpeg-src's headers");
         ffmpeg.includes(std::env::split_paths(&folders));
@@ -97,6 +100,9 @@ fn main() {
         _ => "x64",
     };
     let mut codecs = cc::Build::new();
+    if std::env::var("DEP_FFMPEG_ENCODERS").as_deref() == Ok("1") {
+        codecs.define("YAPFAST_FILE_HEVC", None);
+    }
     codecs
         .file("native/vp8.c")
         .file("native/h264.c")
