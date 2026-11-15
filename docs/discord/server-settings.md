@@ -151,7 +151,7 @@ asks the gateway for. It saves with:
   `tertiary_color`), `hoist`, `mentionable`, `unicode_emoji`, and `icon`,
   a data URI or `null`, only when it changed.
 - `POST /guilds/{id}/roles`, `{name: "new role", color: 0, colors,
-  permissions: "0"}`; a copy then saves its fields with the PATCH above,
+permissions: "0"}`; a copy then saves its fields with the PATCH above,
   and moves.
 - `DELETE /guilds/{id}/roles/{role}`.
 - `GET /guilds/{id}/roles/{role}/member-ids`, up to 100, then the members
@@ -293,7 +293,7 @@ puts back what Discord has, with its words.
   Discord's colour and what it asks of members, from a verified email to a
   verified phone. A Community server can't have None, which says "This
   option is not available for Community Servers." Saved with `PATCH
-  /guilds/{id}`, `{verification_level}`.
+/guilds/{id}`, `{verification_level}`.
 - **Require 2FA for moderator actions**: only the owner, with two-factor
   authentication on, may move it, as Discord's client decides. For anyone
   else its lock's tooltip says why: "This setting can only be changed by a

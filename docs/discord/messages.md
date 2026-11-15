@@ -219,7 +219,7 @@ Yapfast is back, rather than showing an error.
   without an icon keeps its initials, and a person without
   an avatar gets Discord's default avatar for their account.
 - Who reacted comes as Discord's client asks for it: `GET
-  /channels/{c}/messages/{m}/reactions/{emoji}?limit=3&type=0` for a
+/channels/{c}/messages/{m}/reactions/{emoji}?limit=3&type=0` for a
   reaction's tooltip, and `limit=100` with `after`, the last user id, for each
   page of the Reactions window. Users come by id; those not known in the
   server are asked for over the gateway first, so the names are server
@@ -546,7 +546,7 @@ Yapfast is back, rather than showing an error.
   (`PreloadedUserSettings`, field 11), which arrive in READY as
   `user_settings_proto` and change in USER_SETTINGS_PROTO_UPDATE. Yapfast reads
   only the status and custom status from it, and changes either with `PATCH
-  /users/@me/settings-proto/1`, whose body sets nothing else. Discord resets
+/users/@me/settings-proto/1`, whose body sets nothing else. Discord resets
   what such a body leaves out of a top-level field, so each change of the
   status, the custom status or [game sharing](people.md#game-detection)
   sends the whole `StatusSettings` with the one field changed, fields
@@ -786,9 +786,9 @@ more after Discord's wait, as Discord's client sends a command or a form
 again; a click on a bot's control or an autocomplete isn't.
 
 - Files are uploaded first, as a message's are (`POST
-  /channels/{id}/attachments`, then the file to the address it gives), and
+/channels/{id}/attachments`, then the file to the address it gives), and
   the JSON names them in `data.attachments` as `{id: "0", filename,
-  uploaded_filename}`, as Discord's client does; a file option's value is
+uploaded_filename}`, as Discord's client does; a file option's value is
   that place, as a number. Up to 25 files. Uploads a refused command didn't
   use are deleted.
 - As with a bot's buttons, Discord answers 204 and tells the rest over the
@@ -858,7 +858,7 @@ its desktop client does:
   trending terms, each with a picture, and one trending GIF. It shows a
   Favorites tile, a "Trending GIFs" tile and the terms, 110px tall, two to a
   row. A term searches for itself; Trending GIFs lists `GET
-  /gifs/trending-gifs`.
+/gifs/trending-gifs`.
 - Typing searches with `GET /gifs/search?q=` a quarter second after the last
   key, as Discord's does. Results come in Discord's masonry: columns at
   least 200px wide with 12px gutters, each GIF going to the shortest. Within

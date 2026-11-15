@@ -1,10 +1,13 @@
-/target
-/result
-/inspirations
-/.local
-/.impeccable/review
+/target/
+/result/
+/inspirations/
+/.local/
+/.impeccable/review/
 __pycache__/
 .direnv/
+node_modules/
+.venv/
+.ruff_cache/
 
 # Private working material, kept on this machine but out of the repository:
 # old plans and records (docs/archive), measurement data, experiments, the beta server's

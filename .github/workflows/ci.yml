@@ -21,39 +21,42 @@ env:
 
 jobs:
   formatting:
-    name: Formatting and documentation
+    name: Lint, formatting and documentation
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
+      - uses: j178/prek-action@e255e0dfb748c18fd93df34c3eb853e9a999c6aa # v3.1.0
+        with:
+          prek-version: "0.5.2"
       # rustup reads the pinned version and components from rust-toolchain.toml.
       - run: cargo fmt --all -- --check
       - run: python3 scripts/check-doc-links
 
   # TODO: Re-enable after dependency audit and unused-dependency fixes.
-#   dependencies:
-#     name: Dependencies (${{ matrix.tool }})
-#     runs-on: ubuntu-latest
-#     timeout-minutes: 15
-#     strategy:
-#       fail-fast: false
-#       matrix:
-#         tool: [cargo-audit, cargo-machete]
-#     steps:
-#       - uses: actions/checkout@v7.0.1
-#         with:
-#           persist-credentials: false
-#       - uses: taiki-e/install-action@v2
-#         with:
-#           tool: ${{ matrix.tool }}
-#       - name: Audit dependencies (deny all warnings)
-#         if: matrix.tool == 'cargo-audit'
-#         run: cargo audit --deny warnings
-#       - name: Find unused dependencies
-#         if: matrix.tool == 'cargo-machete'
-#         run: cargo machete
+  #   dependencies:
+  #     name: Dependencies (${{ matrix.tool }})
+  #     runs-on: ubuntu-latest
+  #     timeout-minutes: 15
+  #     strategy:
+  #       fail-fast: false
+  #       matrix:
+  #         tool: [cargo-audit, cargo-machete]
+  #     steps:
+  #       - uses: actions/checkout@v7.0.1
+  #         with:
+  #           persist-credentials: false
+  #       - uses: taiki-e/install-action@v2
+  #         with:
+  #           tool: ${{ matrix.tool }}
+  #       - name: Audit dependencies (deny all warnings)
+  #         if: matrix.tool == 'cargo-audit'
+  #         run: cargo audit --deny warnings
+  #       - name: Find unused dependencies
+  #         if: matrix.tool == 'cargo-machete'
+  #         run: cargo machete
 
   linux:
     name: Check, Clippy and tests

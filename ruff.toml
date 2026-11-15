@@ -1,0 +1,12 @@
+target-version = "py315"
+line-length = 100
+extend-exclude = [".venv", "venv", "vendor", ".local", "target", "node_modules"]
+
+[lint]
+select = ["E", "W", "F", "I"]
+
+fixable = ["ALL"]
+
+[format]
+quote-style = "double"
+docstring-code-format = true

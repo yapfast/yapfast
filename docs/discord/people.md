@@ -147,7 +147,7 @@ Right-clicking a DM offers, besides Profile and copying, these:
   read is kept in memory, so opening a profile again asks nothing:
   USER_NOTE_UPDATE changes it, and a new session forgets them all.
 - Add friend nickname, for a friend, is `PATCH
-  /users/@me/relationships/{id}` with `{"nickname": ...}`, or null to remove
+/users/@me/relationships/{id}` with `{"nickname": ...}`, or null to remove
   it. RELATIONSHIP_UPDATE carries it back, and Yapfast shows a friend by their
   nickname in the DM list and the friends list, as Discord does.
 - Close DM is `DELETE /channels/{id}`; Discord answers with CHANNEL_DELETE,
@@ -166,7 +166,7 @@ Right-clicking a DM offers, besides Profile and copying, these:
   brings the change back, and a muted DM shows faint and counts nothing unread.
 - Leave group, in a group DM, asks first with Discord's dialog, whose box
   leaves without notifying the other members. Either way it's `DELETE
-  /channels/{id}` with `silent` true or false, which Discord's client always
+/channels/{id}` with `silent` true or false, which Discord's client always
   sends; Discord posts no "left the group" message with true. CHANNEL_DELETE
   takes the group out of the list.
 
@@ -205,7 +205,7 @@ threads](servers.md#a-channels-list-of-threads).
   links. A channel without one shows none.
 
 - Pinned messages open under the pin, the latest pinned first, from `GET
-  /channels/{id}/messages/pins`, whose `items` carry each `message`. Yapfast asks
+/channels/{id}/messages/pins`, whose `items` carry each `message`. Yapfast asks
   each time they open, and for the first 50.
 - Notices, such as that someone pinned a message, joined, started a thread
   or a call, or that a poll closed, show as Discord's client shows them: a
@@ -215,7 +215,7 @@ threads](servers.md#a-channels-list-of-threads).
   **pinned messages**.", linking to the message its `message_reference`
   names and to the pinned messages.
 - Search, as in Discord, looks through the DM in a DM, with `GET
-  /channels/{id}/messages/search`, and through the whole server in a server
+/channels/{id}/messages/search`, and through the whole server in a server
   channel, with `GET /guilds/{id}/messages/search`; the box says "Search"
   and the DM's or the server's name. Results come 25 a page, newest first,
   each of `messages` a list whose first is the one found; they take the
@@ -469,13 +469,13 @@ yet, and leaves out a live entry of someone listed offline. Each card has the
 author, the title and a 48 px picture, with their presence's picture while it's
 live and the feed's otherwise. Cards say:
 
-| Entry | Icon | Time |
-| --- | --- | --- |
-| Game or Activity, live | controller, green | `for 12 min`, from the presence or else the entry |
-| Music or show, live | music or TV, green | the same |
-| Finished | the same, grey | `3h ago`, in Discord's steps |
-| The week's top game | trophy | `Most played: 13h` |
-| The week's top artist | trophy | `31 tracks this week` |
+| Entry                  | Icon               | Time                                              |
+| ---------------------- | ------------------ | ------------------------------------------------- |
+| Game or Activity, live | controller, green  | `for 12 min`, from the presence or else the entry |
+| Music or show, live    | music or TV, green | the same                                          |
+| Finished               | the same, grey     | `3h ago`, in Discord's steps                      |
+| The week's top game    | trophy             | `Most played: 13h`                                |
+| The week's top artist  | trophy             | `31 tracks this week`                             |
 
 Times step by the minute, on a timer that runs while there are cards, where
 Discord's client ticks seconds. Other content types and the feed's badges (new
@@ -500,13 +500,13 @@ client, as docs.discord.food doesn't cover this endpoint.
 The full profile has tabs beside the card, in the client's order and by its
 rules:
 
-| Tab | Shows when |
-| --- | --- |
-| Board | It's one's own, or they have widgets |
-| Activity | Always |
-| Wishlist | It's one's own, or it's public and they're a friend or share a server |
-| Mutual friends | It's someone else's on Discord, and not a bot's |
-| Mutual servers | It's someone else's on Discord |
+| Tab            | Shows when                                                            |
+| -------------- | --------------------------------------------------------------------- |
+| Board          | It's one's own, or they have widgets                                  |
+| Activity       | Always                                                                |
+| Wishlist       | It's one's own, or it's public and they're a friend or share a server |
+| Mutual friends | It's someone else's on Discord, and not a bot's                       |
+| Mutual servers | It's someone else's on Discord                                        |
 
 A bot's keeps Mutual Servers, as the client's bot profile has, and words an
 empty one "No servers in common".
@@ -542,15 +542,15 @@ The Board comes with the profile: `widgets`, each `{id, data: {type,
 as the client reads them, a game listed twice showing once and an unknown
 type left out. Their headings are the client's:
 
-| `type` | Heading | Shows |
-| --- | --- | --- |
-| `favorite_games` | Favorite Game | Its game and comment |
-| `current_games` | Games in Rotation | Its games |
-| `want_to_play_games` | Want to Play | Its games |
-| `played_games` | Games I Like | Its games |
-| `application` | The application's name, from `GET /applications/public` | A line that it only shows in Discord |
-| `personal` | Personal | The same line |
-| `clips_gallery` | Clips Gallery | The same line |
+| `type`               | Heading                                                 | Shows                                |
+| -------------------- | ------------------------------------------------------- | ------------------------------------ |
+| `favorite_games`     | Favorite Game                                           | Its game and comment                 |
+| `current_games`      | Games in Rotation                                       | Its games                            |
+| `want_to_play_games` | Want to Play                                            | Its games                            |
+| `played_games`       | Games I Like                                            | Its games                            |
+| `application`        | The application's name, from `GET /applications/public` | A line that it only shows in Discord |
+| `personal`           | Personal                                                | The same line                        |
+| `clips_gallery`      | Clips Gallery                                           | The same line                        |
 
 Games are named by `GET /games?game_ids=...`, at most 20 at once as the
 client asks, when the tab first opens, and only if it has any. A game's
@@ -568,15 +568,15 @@ of one's own loads, and says that. An item in `wishlist_items` is named by
 `sku.name`, else `sku_name`, and pictured by what it is, `sku.product_line`,
 else the item's `sku_product_line`:
 
-| Line | What | Picture |
-| --- | --- | --- |
-| 1 | Nitro | None: the client draws its own, so the card shows a letter |
-| 7 | Avatar decoration, by `type` 0 | `/avatar-decoration-presets/{asset}.png`, its still |
-| 7 | Profile effect, by `type` 1 | `thumbnailPreviewSrc`, else `reducedMotionSrc`, `staticFrameSrc` |
-| 7 | Nameplate, by `type` 2 | `/media/v1/collectibles-shop/{sku}/static` |
-| 7 | Profile frame, by `type` 3 | `/media/v1/collectibles-shop/{sku}/{layer}/static`, the first layer not `responsive` |
-| 7 | Bundle | `sku.preview_asset_paths.fg_static`, else the first thing in it with a picture |
-| 14 | A game's item | `/app-assets/{sku.application_id}/store/{asset}.webp`, the asset being `tenant_metadata.social_layer.card_image_asset_id`, else `thumbnail_asset_id` |
+| Line | What                           | Picture                                                                                                                                              |
+| ---- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | Nitro                          | None: the client draws its own, so the card shows a letter                                                                                           |
+| 7    | Avatar decoration, by `type` 0 | `/avatar-decoration-presets/{asset}.png`, its still                                                                                                  |
+| 7    | Profile effect, by `type` 1    | `thumbnailPreviewSrc`, else `reducedMotionSrc`, `staticFrameSrc`                                                                                     |
+| 7    | Nameplate, by `type` 2         | `/media/v1/collectibles-shop/{sku}/static`                                                                                                           |
+| 7    | Profile frame, by `type` 3     | `/media/v1/collectibles-shop/{sku}/{layer}/static`, the first layer not `responsive`                                                                 |
+| 7    | Bundle                         | `sku.preview_asset_paths.fg_static`, else the first thing in it with a picture                                                                       |
+| 14   | A game's item                  | `/app-assets/{sku.application_id}/store/{asset}.webp`, the asset being `tenant_metadata.social_layer.card_image_asset_id`, else `thumbnail_asset_id` |
 
 A collectible's kind and `asset` are in `sku.tenant_metadata.collectibles.item`,
 else the item's `collectibles_item` or `bundle_items`. The client's card shows
@@ -770,15 +770,15 @@ default, and what's off is left out before anything is fetched: the core
 asks for none of its pictures (`pictures_on_screen`), and the rows the
 window draws carry no address for it, so Slint asks for nothing either.
 
-| Switch (`layout.json` key) | Off | Default |
-| --- | --- | --- |
-| Play profile effects (`profile_effects`) | No `/user-profile-effects` or `/collectibles-products/` request for a profile's effect (`DiscordCommand::Profile`'s `effect`), and none of its layers | On |
-| Show avatar decorations (`decorations`) | No decoration on messages, member lists, DM rows, profile cards or the account | On |
-| Show nameplates (`nameplates`) | No nameplate in member lists or on the account's card (`AppState::hide_nameplates`) | On |
-| Animate decorations and nameplates (`moving_cosmetics`) | Their `/animated` APNG is never asked for (`animated_url` gives none), so only the still is fetched and decoded | On |
-| Show name styles (`name_styles`) | Names in the UI's typeface and the theme's colour | On |
-| Show server tags (`server_tags`) | No tag chip, and no badge picture | On |
-| Show profile frames (`profile_frames`) | No `/collectibles-products/` request for a profile's frame (`DiscordCommand::Profile`'s `frame`), and none of its layers | On |
+| Switch (`layout.json` key)                              | Off                                                                                                                                                   | Default |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| Play profile effects (`profile_effects`)                | No `/user-profile-effects` or `/collectibles-products/` request for a profile's effect (`DiscordCommand::Profile`'s `effect`), and none of its layers | On      |
+| Show avatar decorations (`decorations`)                 | No decoration on messages, member lists, DM rows, profile cards or the account                                                                        | On      |
+| Show nameplates (`nameplates`)                          | No nameplate in member lists or on the account's card (`AppState::hide_nameplates`)                                                                   | On      |
+| Animate decorations and nameplates (`moving_cosmetics`) | Their `/animated` APNG is never asked for (`animated_url` gives none), so only the still is fetched and decoded                                       | On      |
+| Show name styles (`name_styles`)                        | Names in the UI's typeface and the theme's colour                                                                                                     | On      |
+| Show server tags (`server_tags`)                        | No tag chip, and no badge picture                                                                                                                     | On      |
+| Show profile frames (`profile_frames`)                  | No `/collectibles-products/` request for a profile's frame (`DiscordCommand::Profile`'s `frame`), and none of its layers                              | On      |
 
 Every switch starts on, so profiles look as in Discord's client. The
 switches are there for the cheaper side: an effect's layers are APNGs up
@@ -869,7 +869,7 @@ does:
 3. `PUT /users/@me/clan` with `identity_guild_id` and `identity_enabled`
    for the Server Tag: the server's id and `true`, or `null` and `false`
    for none. The client's own code has `primary_guild_id` for `PATCH
-   /users/@me` too, but its editor doesn't save the tag that way.
+/users/@me` too, but its editor doesn't save the tag that way.
 
 Discord answers each with USER_UPDATE, which brings the new name and
 avatar to the account panel, messages and member lists. A picture goes

@@ -4,8 +4,8 @@
 import argparse
 import json
 import os
-from pathlib import Path
 import time
+from pathlib import Path
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("pid", type=int)
@@ -34,8 +34,10 @@ def gpu_counters():
     clients = {}
     for path in (process / "fdinfo").iterdir():
         try:
-            values = dict(line.split(":", 1) for line in path.read_text().splitlines() if ":" in line)
-        except (OSError, ValueError):
+            values = dict(
+                line.split(":", 1) for line in path.read_text().splitlines() if ":" in line
+            )
+        except OSError, ValueError:
             continue
         client = values.get("drm-client-id")
         if client is None:
@@ -68,13 +70,22 @@ gpu = {
     for engine, value in start_gpu.items()
     if engine in end_gpu
 }
-print(json.dumps({
-    "pid": args.pid,
-    "duration_seconds": round(elapsed, 3),
-    "cpu_percent_one_core": round((end_ticks - start_ticks) / os.sysconf("SC_CLK_TCK") / elapsed * 100, 3),
-    "rss_mib_mean": round(sum(sample["rss"] for sample in samples) / len(samples), 3),
-    "rss_mib_peak": round(max(sample["rss"] for sample in samples), 3),
-    "pss_mib_mean": round(sum(sample["pss"] for sample in samples) / len(samples), 3),
-    "gpu_engine_percent": {engine: round(value, 3) for engine, value in gpu.items()},
-    "gpu_measurement": "DRM per-process engine counters" if gpu else "Counters unavailable; GPU utilization not measured",
-}, indent=2))
+print(
+    json.dumps(
+        {
+            "pid": args.pid,
+            "duration_seconds": round(elapsed, 3),
+            "cpu_percent_one_core": round(
+                (end_ticks - start_ticks) / os.sysconf("SC_CLK_TCK") / elapsed * 100, 3
+            ),
+            "rss_mib_mean": round(sum(sample["rss"] for sample in samples) / len(samples), 3),
+            "rss_mib_peak": round(max(sample["rss"] for sample in samples), 3),
+            "pss_mib_mean": round(sum(sample["pss"] for sample in samples) / len(samples), 3),
+            "gpu_engine_percent": {engine: round(value, 3) for engine, value in gpu.items()},
+            "gpu_measurement": "DRM per-process engine counters"
+            if gpu
+            else "Counters unavailable; GPU utilization not measured",
+        },
+        indent=2,
+    )
+)

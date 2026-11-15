@@ -8,7 +8,7 @@ trap 'rm -rf "$work"' EXIT
 sizes=(16 20 24 32 40 48 64 256)
 pictures=()
 for size in "${sizes[@]}"; do
-    magick -background none -density 1200 packaging/icon.svg -resize "${size}x${size}" "PNG32:$work/$size.png"
-    pictures+=("$work/$size.png")
+  magick -background none -density 1200 packaging/icon.svg -resize "${size}x${size}" "PNG32:$work/$size.png"
+  pictures+=("$work/$size.png")
 done
 magick "${pictures[@]}" packaging/windows/yapfast.ico

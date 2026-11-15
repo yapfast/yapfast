@@ -13,7 +13,14 @@ default-members = ["."]
 # every workspace member it compiles, even one --exclude leaves out, and
 # linting Slint's generated code took 190 s of a 253 s check after a UI change.
 # Outside, rustc checks it in 37 s.
-exclude = ["crates/yapfast-ui", "vendor/matrix-rtc-livekit", "vendor/webrtc-sys", "vendor/davey", "vendor/x264-src", "vendor/ffmpeg-src"]
+exclude = [
+  "crates/yapfast-ui",
+  "vendor/matrix-rtc-livekit",
+  "vendor/webrtc-sys",
+  "vendor/davey",
+  "vendor/x264-src",
+  "vendor/ffmpeg-src",
+]
 resolver = "3"
 
 [features]
@@ -23,7 +30,35 @@ resolver = "3"
 default = ["desktop", "discord"]
 matrix = ["yapfast-core/matrix"]
 discord = ["yapfast-core/discord", "dep:qrcode"]
-desktop = ["dep:slint", "dep:yapfast-ui", "dep:skia-safe", "dep:rfd", "dep:memmap2", "dep:emojis", "dep:webbrowser", "dep:i-slint-core", "dep:zbus", "dep:arboard", "dep:image", "dep:tempfile", "dep:wl-clipboard-rs", "dep:wayland-client", "dep:wayland-backend", "dep:wayland-protocols", "dep:ksni", "dep:windows-sys", "dep:windows", "dep:i-slint-renderer-skia", "dep:futures-util", "dep:x11rb", "dep:xkeysym", "dep:reqwest", "dep:rustls", "dep:sha2", "dep:minisign-verify"]
+desktop = [
+  "dep:slint",
+  "dep:yapfast-ui",
+  "dep:skia-safe",
+  "dep:rfd",
+  "dep:memmap2",
+  "dep:emojis",
+  "dep:webbrowser",
+  "dep:i-slint-core",
+  "dep:zbus",
+  "dep:arboard",
+  "dep:image",
+  "dep:tempfile",
+  "dep:wl-clipboard-rs",
+  "dep:wayland-client",
+  "dep:wayland-backend",
+  "dep:wayland-protocols",
+  "dep:ksni",
+  "dep:windows-sys",
+  "dep:windows",
+  "dep:i-slint-renderer-skia",
+  "dep:futures-util",
+  "dep:x11rb",
+  "dep:xkeysym",
+  "dep:reqwest",
+  "dep:rustls",
+  "dep:sha2",
+  "dep:minisign-verify",
+]
 # The desktop app with a window that reloads ui/ on each save, for UI work;
 # see docs/building.md.
 live-preview = ["desktop", "yapfast-ui/live-preview"]
@@ -34,7 +69,10 @@ serde.workspace = true
 serde_json.workspace = true
 slint = { workspace = true, optional = true }
 # Reject an unpinned native source build if the prepared Skia archive is unavailable.
-skia-safe = { version = "=0.157.0", default-features = false, features = ["binary-cache", "no-compile"], optional = true }
+skia-safe = { version = "=0.157.0", default-features = false, features = [
+  "binary-cache",
+  "no-compile",
+], optional = true }
 # Native open and save dialogs: XDG portals on Linux, common dialogs on Windows.
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"], optional = true }
 # Names and categories for the emoji picker.
@@ -49,15 +87,27 @@ yapfast-ui = { path = "crates/yapfast-ui", optional = true }
 # Opens links clicked in messages in the default browser.
 webbrowser = { version = "1", optional = true }
 # Pictures copied from messages. Slint already carries arboard for text.
-arboard = { version = "3.6", default-features = false, features = ["image-data", "wayland-data-control"], optional = true }
+arboard = { version = "3.6", default-features = false, features = [
+  "image-data",
+  "wayland-data-control",
+], optional = true }
 # Saves pictures pasted as pixels to PNG files to attach, after decoding the
 # bitmaps Windows pastes, and reads pictures copied from messages.
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"], optional = true }
+image = { version = "0.25", default-features = false, features = [
+  "png",
+  "jpeg",
+  "gif",
+  "webp",
+  "bmp",
+], optional = true }
 tempfile = { workspace = true, optional = true }
 tracing.workspace = true
 # The About page's one request, for the list of releases; the same TLS as the
 # Discord connection, which is already in the tree.
-reqwest = { version = "0.13", default-features = false, features = ["http2", "rustls-no-provider"], optional = true }
+reqwest = { version = "0.13", default-features = false, features = [
+  "http2",
+  "rustls-no-provider",
+], optional = true }
 rustls = { workspace = true, optional = true }
 # Checks a downloaded release against the SHA256SUMS.txt it was published with.
 sha2 = { version = "0.10", optional = true }
@@ -69,7 +119,10 @@ qrcode = { version = "0.14", default-features = false, optional = true }
 # Desktop notifications through the freedesktop service, on the session bus Slint and
 # the keyring already use.
 [target.'cfg(target_os = "linux")'.dependencies]
-zbus = { version = "5.19", default-features = false, features = ["async-io", "blocking-api"], optional = true }
+zbus = { version = "5.19", default-features = false, features = [
+  "async-io",
+  "blocking-api",
+], optional = true }
 # Pasted pictures as their copied bytes, through Wayland's data-control protocol.
 wl-clipboard-rs = { version = "0.9.4", optional = true }
 # Files dropped on the window, which winit doesn't take on Wayland, through a data
@@ -81,7 +134,10 @@ wayland-backend = { version = "0.3.17", features = ["client_system"], optional =
 # the tree through winit.
 wayland-protocols = { version = "0.32.13", features = ["client", "staging"], optional = true }
 # The tray icon, as a StatusNotifierItem on the same bus; pure Rust, on the zbus above.
-ksni = { version = "0.3.7", default-features = false, features = ["async-io", "blocking"], optional = true }
+ksni = { version = "0.3.7", default-features = false, features = [
+  "async-io",
+  "blocking",
+], optional = true }
 # The push-to-talk key in any app: the GlobalShortcuts portal's signals as a
 # stream, XInput 2's raw key events on X11, and keysym names for the portal's
 # trigger. All three are already in the tree, through zbus and winit. x11rb
@@ -94,7 +150,20 @@ xkeysym = { version = "0.2.1", optional = true }
 # later start sets to show the window, the clipboard's files and pictures for
 # a paste, and keybinds' keys. Already in the tree through winit.
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Console", "Win32_System_DataExchange", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_Security", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"], optional = true }
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_System_Console",
+  "Win32_System_DataExchange",
+  "Win32_System_LibraryLoader",
+  "Win32_System_Memory",
+  "Win32_Security",
+  "Win32_System_Registry",
+  "Win32_System_Threading",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+], optional = true }
 # Toasts, through WinRT, in the version Slint and yapfast-core already build.
 windows = { version = "0.62", features = ["Data_Xml_Dom", "UI_Notifications"], optional = true }
 # The GPU setting draws through Direct3D 12 on Windows: NVIDIA's OpenGL driver
@@ -124,7 +193,9 @@ required-features = ["desktop"]
 
 [dev-dependencies]
 i-slint-backend-testing = "=1.19.0"
-yapfast-core = { path = "crates/yapfast-core", default-features = false, features = ["test-fixtures"] }
+yapfast-core = { path = "crates/yapfast-core", default-features = false, features = [
+  "test-fixtures",
+] }
 # Builds a Discord server's snapshot for the menus' tests.
 yapfast-discord = { path = "crates/yapfast-discord" }
 tempfile.workspace = true
@@ -146,8 +217,13 @@ futures-util = "0.3"
 keyring = "=4.2.0"
 livekit = { version = "=0.7.48", features = ["rustls-tls-native-roots", "rustls-tls-webpki-roots"] }
 # Keep this SDK source and revision identical to matrix-rust-rtc's workspace pin.
-matrix-sdk = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "c6ad52ecc09eaa36601f55effb0a48a533eb87dd", features = ["bundled-sqlite", "markdown"] }
-matrix-sdk-ui = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "c6ad52ecc09eaa36601f55effb0a48a533eb87dd", features = ["unstable-msc4354"] }
+matrix-sdk = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "c6ad52ecc09eaa36601f55effb0a48a533eb87dd", features = [
+  "bundled-sqlite",
+  "markdown",
+] }
+matrix-sdk-ui = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "c6ad52ecc09eaa36601f55effb0a48a533eb87dd", features = [
+  "unstable-msc4354",
+] }
 matrix-sdk-crypto = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "c6ad52ecc09eaa36601f55effb0a48a533eb87dd" }
 matrix-rtc-livekit = { path = "vendor/matrix-rtc-livekit", features = ["matrix-sdk"] }
 matrix-rtc-core = { git = "https://github.com/element-hq/matrix-rust-rtc", rev = "5831af899f1e1744c21332613cdc9578a98c604f" }
@@ -155,7 +231,16 @@ matrix-rtc-media = { git = "https://github.com/element-hq/matrix-rust-rtc", rev 
 rustls = { version = "0.23", features = ["aws_lc_rs"] }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
-slint = { version = "=1.19.0", default-features = false, features = ["std", "compat-1-18", "backend-winit", "renderer-skia", "renderer-skia-opengl", "accessibility", "unstable-winit-030", "unstable-fontique-012"] }
+slint = { version = "=1.19.0", default-features = false, features = [
+  "std",
+  "compat-1-18",
+  "backend-winit",
+  "renderer-skia",
+  "renderer-skia-opengl",
+  "accessibility",
+  "unstable-winit-030",
+  "unstable-fontique-012",
+] }
 tempfile = "3"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "net"] }
 tracing = "0.1"

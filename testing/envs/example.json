@@ -1,147 +1,220 @@
 {
-  "me": {
-    "username": "robin",
-    "name": "Robin",
-    "avatar": "example/me.png",
-    "email": "robin@example.org",
-    "status": "online",
-    "customStatus": { "text": "Planting tomatoes", "emoji": "🍅" }
-  },
-  "people": [
-    {
-      "key": "maya", "name": "Maya", "avatar": "example/maya.png", "relationship": "friend",
-      "status": "online", "playing": "Pixel Painter",
-      "bio": "Draws tiny worlds, one pixel at a time.", "pronouns": "she/her", "banner": "example/maya-banner.png"
-    },
-    {
-      "key": "theo", "name": "Theo", "avatar": "example/theo.png", "relationship": "friend",
-      "status": "idle", "customStatus": { "text": "back after lunch", "emoji": "🥪" }
-    },
-    { "key": "priya", "name": "Priya", "avatar": "example/priya.png", "relationship": "friend", "status": "dnd", "accentColor": "#43a047" },
-    { "key": "jonas", "name": "Jonas", "avatar": "example/jonas.png", "status": "online", "mobile": true },
-    { "key": "lena", "name": "Lena", "avatar": "example/lena.png", "relationship": "incoming", "status": "offline" },
-    { "key": "sprout", "name": "Sprout", "avatar": "example/sprout.png", "bot": true }
-  ],
-  "dms": [
-    {
-      "with": "maya",
-      "unread": 2,
-      "messages": [
-        { "from": "maya", "text": "Did the seedlings make it through the cold night?", "at": "3h ago" },
-        { "from": "me", "text": "All but one! The basil is *thriving*." },
-        { "from": "maya", "text": "Told you the windowsill works", "at": "12m ago", "id": "told" },
-        { "from": "maya", "text": "Bring a cutting on Saturday?", "reply": "told" }
-      ]
-    },
-    {
-      "with": "theo",
-      "messages": [
-        { "from": "theo", "text": "Here's the trail from last weekend", "at": "1d 2h ago", "files": ["example/sunrise.jpg"] },
-        { "from": "me", "text": "That light though", "reactions": [{ "emoji": "😍", "by": ["theo"] }] }
-      ]
-    }
-  ],
-  "groups": [
-    {
-      "name": "Board game night",
-      "with": ["maya", "theo", "priya"],
-      "unread": 1,
-      "messages": [
-        { "from": "priya", "text": "Friday at mine? I'll make **dal**.", "at": "5h ago" },
-        { "from": "theo", "text": "I'll bring Carcassonne" },
-        { "from": "maya", "text": "Count me in 🎲", "at": "40m ago" }
-      ]
-    }
-  ],
-  "servers": [
-    {
-      "name": "Pixel Garden",
-      "icon": "example/garden.png",
-      "owner": "maya",
-      "roles": [
-        { "name": "Gardeners", "color": "#e91e63", "hoist": true, "mentionable": true },
-        { "name": "Helpers", "color": "#7e57c2", "hoist": true },
-        { "name": "Artists", "color": "#ff9800" }
-      ],
-      "members": [
-        { "who": "maya", "roles": ["Gardeners", "Artists"] },
-        { "who": "me", "roles": ["Helpers"] },
-        { "who": "theo", "roles": ["Helpers"], "nick": "Theo 🌱" },
-        { "who": "priya", "roles": ["Artists"] },
-        "jonas", "lena", "sprout"
-      ],
-      "categories": [
-        {
-          "name": "Info",
-          "channels": [
-            {
-              "name": "welcome",
-              "topic": "Say hi, and read the house rules first",
-              "messages": [
-                {
-                  "from": "maya", "at": "2d ago", "pinned": true,
-                  "text": "Welcome to **Pixel Garden**! Share what you're growing in <#general>, and ask <@&Helpers> if you're stuck.",
-                  "reactions": [{ "emoji": "👋", "by": ["theo", "priya", "me"] }]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "name": "Garden",
-          "channels": [
-            {
-              "name": "general",
-              "topic": "Seeds, soil and everything green. Be kind.",
-              "unread": 3,
-              "mentions": 1,
-              "messages": [
-                { "from": "theo", "text": "Morning all ☀️", "at": "2h ago" },
-                { "from": "priya", "text": "Look at this sunrise over the allotments", "files": ["example/sunrise.jpg"], "reactions": [{ "emoji": "🌅", "by": ["me", "maya", "theo"] }, { "emoji": "❤️", "by": ["jonas"] }] },
-                { "from": "me", "text": "Gorgeous. Are those the new raised beds?", "id": "beds" },
-                { "from": "priya", "text": "Yes! Built them from old pallets", "reply": "beds" },
-                { "from": "sprout", "text": "🌱 Reminder: watering rota starts tomorrow. Type `/rota` to see your slot." },
-                { "from": "jonas", "text": "Who has spare tomato seeds?", "at": "25m ago" },
-                { "from": "maya", "text": "I do! Also filmed the sunrise from the shed", "files": ["example/sunrise-pan.mp4"] },
-                { "from": "theo", "text": "<@me> can you check the shed key is back on its hook?", "at": "4m ago" }
-              ]
-            },
-            {
-              "name": "showcase",
-              "topic": "Your finest pixels and plants",
-              "messages": [
-                { "from": "maya", "text": "New palette for the garden map:\n- moss\n- clay\n- dusk", "at": "1d ago" },
-                { "from": "priya", "text": "||spoiler: the clay one is my favourite||" }
-              ]
-            },
-            { "type": "voice", "name": "Greenhouse", "people": [
-              { "who": "maya", "stream": "example/screen-stream.mp4" },
-              { "who": "theo", "mute": true },
-              { "who": "priya", "mute": true, "deaf": true },
-              { "who": "jonas", "video": true }
-            ] },
-            { "type": "voice", "name": "Potting shed" }
-          ]
-        }
-      ]
-    },
-    {
-      "name": "Weekend Hikers",
-      "icon": "example/hikers.png",
-      "owner": "me",
-      "roles": [{ "name": "Trail leads", "color": "#00897b", "hoist": true }],
-      "members": [{ "who": "me", "roles": ["Trail leads"] }, "theo", "lena"],
-      "channels": [
-        {
-          "name": "trails",
-          "topic": "Routes, maps and meeting points",
-          "messages": [
-            { "from": "lena", "text": "Ridge loop this Sunday? About 14 km.", "at": "6h ago" },
-            { "from": "theo", "text": "In, if we stop for pastries 🥐" }
-          ]
-        },
-        { "type": "voice", "name": "Campfire", "people": [{ "who": "lena", "mute": true }] }
-      ]
-    }
-  ]
+	"me": {
+		"username": "robin",
+		"name": "Robin",
+		"avatar": "example/me.png",
+		"email": "robin@example.org",
+		"status": "online",
+		"customStatus": { "text": "Planting tomatoes", "emoji": "🍅" }
+	},
+	"people": [
+		{
+			"key": "maya",
+			"name": "Maya",
+			"avatar": "example/maya.png",
+			"relationship": "friend",
+			"status": "online",
+			"playing": "Pixel Painter",
+			"bio": "Draws tiny worlds, one pixel at a time.",
+			"pronouns": "she/her",
+			"banner": "example/maya-banner.png"
+		},
+		{
+			"key": "theo",
+			"name": "Theo",
+			"avatar": "example/theo.png",
+			"relationship": "friend",
+			"status": "idle",
+			"customStatus": { "text": "back after lunch", "emoji": "🥪" }
+		},
+		{
+			"key": "priya",
+			"name": "Priya",
+			"avatar": "example/priya.png",
+			"relationship": "friend",
+			"status": "dnd",
+			"accentColor": "#43a047"
+		},
+		{
+			"key": "jonas",
+			"name": "Jonas",
+			"avatar": "example/jonas.png",
+			"status": "online",
+			"mobile": true
+		},
+		{
+			"key": "lena",
+			"name": "Lena",
+			"avatar": "example/lena.png",
+			"relationship": "incoming",
+			"status": "offline"
+		},
+		{ "key": "sprout", "name": "Sprout", "avatar": "example/sprout.png", "bot": true }
+	],
+	"dms": [
+		{
+			"with": "maya",
+			"unread": 2,
+			"messages": [
+				{
+					"from": "maya",
+					"text": "Did the seedlings make it through the cold night?",
+					"at": "3h ago"
+				},
+				{ "from": "me", "text": "All but one! The basil is *thriving*." },
+				{ "from": "maya", "text": "Told you the windowsill works", "at": "12m ago", "id": "told" },
+				{ "from": "maya", "text": "Bring a cutting on Saturday?", "reply": "told" }
+			]
+		},
+		{
+			"with": "theo",
+			"messages": [
+				{
+					"from": "theo",
+					"text": "Here's the trail from last weekend",
+					"at": "1d 2h ago",
+					"files": ["example/sunrise.jpg"]
+				},
+				{
+					"from": "me",
+					"text": "That light though",
+					"reactions": [{ "emoji": "😍", "by": ["theo"] }]
+				}
+			]
+		}
+	],
+	"groups": [
+		{
+			"name": "Board game night",
+			"with": ["maya", "theo", "priya"],
+			"unread": 1,
+			"messages": [
+				{ "from": "priya", "text": "Friday at mine? I'll make **dal**.", "at": "5h ago" },
+				{ "from": "theo", "text": "I'll bring Carcassonne" },
+				{ "from": "maya", "text": "Count me in 🎲", "at": "40m ago" }
+			]
+		}
+	],
+	"servers": [
+		{
+			"name": "Pixel Garden",
+			"icon": "example/garden.png",
+			"owner": "maya",
+			"roles": [
+				{ "name": "Gardeners", "color": "#e91e63", "hoist": true, "mentionable": true },
+				{ "name": "Helpers", "color": "#7e57c2", "hoist": true },
+				{ "name": "Artists", "color": "#ff9800" }
+			],
+			"members": [
+				{ "who": "maya", "roles": ["Gardeners", "Artists"] },
+				{ "who": "me", "roles": ["Helpers"] },
+				{ "who": "theo", "roles": ["Helpers"], "nick": "Theo 🌱" },
+				{ "who": "priya", "roles": ["Artists"] },
+				"jonas",
+				"lena",
+				"sprout"
+			],
+			"categories": [
+				{
+					"name": "Info",
+					"channels": [
+						{
+							"name": "welcome",
+							"topic": "Say hi, and read the house rules first",
+							"messages": [
+								{
+									"from": "maya",
+									"at": "2d ago",
+									"pinned": true,
+									"text": "Welcome to **Pixel Garden**! Share what you're growing in <#general>, and ask <@&Helpers> if you're stuck.",
+									"reactions": [{ "emoji": "👋", "by": ["theo", "priya", "me"] }]
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Garden",
+					"channels": [
+						{
+							"name": "general",
+							"topic": "Seeds, soil and everything green. Be kind.",
+							"unread": 3,
+							"mentions": 1,
+							"messages": [
+								{ "from": "theo", "text": "Morning all ☀️", "at": "2h ago" },
+								{
+									"from": "priya",
+									"text": "Look at this sunrise over the allotments",
+									"files": ["example/sunrise.jpg"],
+									"reactions": [
+										{ "emoji": "🌅", "by": ["me", "maya", "theo"] },
+										{ "emoji": "❤️", "by": ["jonas"] }
+									]
+								},
+								{ "from": "me", "text": "Gorgeous. Are those the new raised beds?", "id": "beds" },
+								{ "from": "priya", "text": "Yes! Built them from old pallets", "reply": "beds" },
+								{
+									"from": "sprout",
+									"text": "🌱 Reminder: watering rota starts tomorrow. Type `/rota` to see your slot."
+								},
+								{ "from": "jonas", "text": "Who has spare tomato seeds?", "at": "25m ago" },
+								{
+									"from": "maya",
+									"text": "I do! Also filmed the sunrise from the shed",
+									"files": ["example/sunrise-pan.mp4"]
+								},
+								{
+									"from": "theo",
+									"text": "<@me> can you check the shed key is back on its hook?",
+									"at": "4m ago"
+								}
+							]
+						},
+						{
+							"name": "showcase",
+							"topic": "Your finest pixels and plants",
+							"messages": [
+								{
+									"from": "maya",
+									"text": "New palette for the garden map:\n- moss\n- clay\n- dusk",
+									"at": "1d ago"
+								},
+								{ "from": "priya", "text": "||spoiler: the clay one is my favourite||" }
+							]
+						},
+						{
+							"type": "voice",
+							"name": "Greenhouse",
+							"people": [
+								{ "who": "maya", "stream": "example/screen-stream.mp4" },
+								{ "who": "theo", "mute": true },
+								{ "who": "priya", "mute": true, "deaf": true },
+								{ "who": "jonas", "video": true }
+							]
+						},
+						{ "type": "voice", "name": "Potting shed" }
+					]
+				}
+			]
+		},
+		{
+			"name": "Weekend Hikers",
+			"icon": "example/hikers.png",
+			"owner": "me",
+			"roles": [{ "name": "Trail leads", "color": "#00897b", "hoist": true }],
+			"members": [{ "who": "me", "roles": ["Trail leads"] }, "theo", "lena"],
+			"channels": [
+				{
+					"name": "trails",
+					"topic": "Routes, maps and meeting points",
+					"messages": [
+						{ "from": "lena", "text": "Ridge loop this Sunday? About 14 km.", "at": "6h ago" },
+						{ "from": "theo", "text": "In, if we stop for pastries 🥐" }
+					]
+				},
+				{ "type": "voice", "name": "Campfire", "people": [{ "who": "lena", "mute": true }] }
+			]
+		}
+	]
 }
