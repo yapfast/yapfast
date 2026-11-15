@@ -82,7 +82,8 @@ that it did.
 - **Shape**. *Messages*: Flat, Bubbles, Cards or IRC, as `layout.messages`.
   *Corners*: square to round, every radius at once; the middle is Yapfast's
   own, and sets no `shape`. *Density*: Compact, Cozy or Roomy, as
-  `spacing.density`. *Glass*: panes frosted over the picture, or without
+  `spacing.density`. *Outlines*: None, Thin (Yapfast's own), Medium or
+  Bold, as `shape.outline_width` 0 to 3. *Glass*: panes frosted over the picture, or without
   one over a soft backdrop of the accent the creator draws.
 - **Fonts**: eight that ship with Yapfast, under the SIL Open Font License —
   Default (DM Sans), Readable (Atkinson Hyperlegible Next), Slab (Zilla Slab),

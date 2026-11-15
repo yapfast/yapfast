@@ -2352,17 +2352,26 @@ pub fn show_installed(window: &YapfastWindow) {
 pub fn mark_applied(window: &YapfastWindow) {
     let page = window.global::<ThemesPage>();
     let applied = applied_id();
-    let mark = |listing: &mut ThemeListing| {
-        listing.applied = applied.as_deref() == Some(&format!("{INSTALLED}{}", listing.id));
+    let applied = applied.as_deref().and_then(|id| id.strip_prefix(INSTALLED));
+    // Only the cards whose mark changes are written, in both views' models.
+    let mark = |model: &ModelRc<ThemeListing>| {
+        for index in 0..model.row_count() {
+            if let Some(mut listing) = model.row_data(index) {
+                let now = applied == Some(listing.id.as_str());
+                if listing.applied != now {
+                    listing.applied = now;
+                    model.set_row_data(index, listing);
+                }
+            }
+        }
     };
-    let installed = page.get_installed();
-    let mut rows: Vec<ThemeListing> = installed.iter().collect();
-    if rows.is_empty() {
-        return;
+    mark(&page.get_installed());
+    let rows = page.get_installed_rows();
+    for index in 0..rows.row_count() {
+        if let Some(pair) = rows.row_data(index) {
+            mark(&pair);
+        }
     }
-    rows.iter_mut().for_each(mark);
-    page.set_installed_rows(pairs(&rows));
-    page.set_installed(ModelRc::new(VecModel::from(rows)));
 }
 
 /// The marketplace's cards, those the search matches and that aren't

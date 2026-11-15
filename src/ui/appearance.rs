@@ -85,9 +85,10 @@ impl Adapter {
         self.set_theme(window, &chosen);
         if id.starts_with(theme_look::INSTALLED) {
             theme_media::cue(SoundSlot::ThemeApplied, FOCUSED.get());
-            // Settings → Themes, if it's open, marks the theme now applied.
-            theme_look::mark_applied(window);
         }
+        // Settings → Themes, if it's open, marks the theme now applied, and
+        // no other: one of the person's own takes the mark from them too.
+        theme_look::mark_applied(window);
         if self.layout.theme.as_deref() != Some(id.as_str()) {
             self.layout.previous_theme = self.layout.theme.take();
         }
@@ -107,9 +108,10 @@ impl Adapter {
             .as_deref()
             .filter(|previous| self.layout.theme.as_deref() != Some(*previous))
             .and_then(|previous| theme_look::name_of(previous, &self.layout.custom_themes));
-        window
-            .global::<yapfast_ui::ThemesPage>()
-            .set_previous_name(name.unwrap_or_default().into());
+        let page = window.global::<yapfast_ui::ThemesPage>();
+        page.set_previous_name(name.unwrap_or_default().into());
+        // One of the person's own shows: Your themes can turn it off.
+        page.set_own_applied(window.get_theme_id().starts_with("custom:"));
         let installed = theme_look::applied_id()
             .is_some_and(|id| id.starts_with(theme_look::INSTALLED) || id == "dev");
         window.set_theme_installed_name(
@@ -461,7 +463,7 @@ impl Adapter {
                 let from = theme_look::creator_folder(&self.root, &start_id);
                 self.open_creator(window, spec, Some(from), false);
             }
-            None => self.open_creator(window, theme_creator::spec_from(&start), None, true),
+            None => self.open_creator(window, theme_creator::spec_from(&start, base), None, true),
         }
         let page = window.global::<yapfast_ui::Creator>();
         page.set_start(index as i32);
@@ -556,7 +558,7 @@ impl Adapter {
             *spec = theme_creator::Spec {
                 fonts: std::mem::take(&mut spec.fonts),
                 picture: spec.picture.take(),
-                ..theme_creator::spec_from(&theme)
+                ..theme_creator::spec_from(&theme, base)
             };
         }
         window.set_theme_start(index);

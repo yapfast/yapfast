@@ -54,6 +54,8 @@ export global Creator {
     in-out property <bool> picking-headings;
     /// 0 compact, 1 cozy, 2 roomy.
     in property <int> density: 1;
+    /// Every hairline's width in pixels, 0 to 3; 1 is Yapfast's own.
+    in property <int> outline: 1;
     in property <bool> glass;
     /// A word on the last import or picture, and whether it's a problem.
     in property <string> note;
@@ -82,6 +84,7 @@ export global Creator {
     callback font-chosen(int, bool);
     callback import-font();
     callback density-chosen(int);
+    callback outline-chosen(int);
     callback glass-toggled(bool);
     callback tint-chosen(int);
     /// Takes the last change back.
@@ -276,10 +279,10 @@ export component CreatorPreview inherits Rectangle {
         Text {
             x: 12px; y: 8px; text: "# general"; color: Theme.text; font-size: 13px; font-weight: 700; font-family: root.heading;
         }
-        Rectangle { y: 30px; height: 1px; background: Theme.line.with-alpha(0.7); }
+        Rectangle { y: 30px; height: Creator.outline * 1px; background: Theme.line.with-alpha(0.7); }
         // Flat: avatar, name and text.
         if Creator.messages == 0: VerticalLayout {
-            x: 12px; y: 40px; width: parent.width - 24px; spacing: Creator.density == 0 ? 8px : Creator.density == 2 ? 16px : 12px;
+            x: 12px; y: 40px; width: parent.width - 24px; spacing: Creator.density == 0 ? 8px : Creator.density == 2 ? 16px : 12px; alignment: start;
             for message[index] in [{ name: "Bob", text: "sunset at eight, roof?" }, { name: "Carol", text: "yes! I'll bring snacks" }, { name: "You", text: "on my way" }]: HorizontalLayout {
                 spacing: 8px;
                 Rectangle {
@@ -295,7 +298,7 @@ export component CreatorPreview inherits Rectangle {
         }
         // Bubbles: others on the left, yours on the right in the accent.
         if Creator.messages == 1: VerticalLayout {
-            x: 12px; y: 42px; width: parent.width - 24px; spacing: Creator.density == 0 ? 6px : Creator.density == 2 ? 12px : 9px;
+            x: 12px; y: 42px; width: parent.width - 24px; spacing: Creator.density == 0 ? 6px : Creator.density == 2 ? 12px : 9px; alignment: start;
             for message[index] in [{ text: "sunset at eight, roof?" }, { text: "yes! I'll bring snacks" }, { text: "on my way" }]: HorizontalLayout {
                 alignment: index == 2 ? LayoutAlignment.end : LayoutAlignment.start;
                 Rectangle {
@@ -310,7 +313,7 @@ export component CreatorPreview inherits Rectangle {
         }
         // Cards: each message on a raised card.
         if Creator.messages == 2: VerticalLayout {
-            x: 10px; y: 40px; width: parent.width - 20px; spacing: Creator.density == 0 ? 5px : Creator.density == 2 ? 10px : 7px;
+            x: 10px; y: 40px; width: parent.width - 20px; spacing: Creator.density == 0 ? 5px : Creator.density == 2 ? 10px : 7px; alignment: start;
             for message[index] in [{ name: "Bob", text: "sunset at eight, roof?" }, { name: "Carol", text: "yes! I'll bring snacks" }, { name: "You", text: "on my way" }]: Rectangle {
                 border-radius: Creator.radius(12px, 22px); background: Theme.raised;
                 drop-shadow-blur: 6px; drop-shadow-offset-y: 2px; drop-shadow-color: #00000030;
@@ -323,7 +326,7 @@ export component CreatorPreview inherits Rectangle {
         }
         // IRC: time, name, a bar, the text, one line each.
         if Creator.messages == 3: VerticalLayout {
-            x: 12px; y: 42px; width: parent.width - 24px; spacing: Creator.density == 0 ? 4px : Creator.density == 2 ? 10px : 6px;
+            x: 12px; y: 42px; width: parent.width - 24px; spacing: Creator.density == 0 ? 4px : Creator.density == 2 ? 10px : 6px; alignment: start;
             for message[index] in [{ time: "19:58", name: "bob", text: "sunset at eight, roof?" }, { time: "19:59", name: "carol", text: "yes! I'll bring snacks" }, { time: "20:01", name: "you", text: "on my way" }]: HorizontalLayout {
                 spacing: 6px;
                 Text { text: message.time; color: Theme.muted; font-size: 12px; font-family: root.body; width: 34px; }
@@ -650,6 +653,24 @@ component ShapeStep inherits VerticalLayout {
                     for line in (index == 0 ? 5 : index == 1 ? 4 : 3): Rectangle {
                         x: 8px; y: 5px + line * (index == 0 ? 7px : index == 1 ? 9px : 12px);
                         width: parent.width - 16px - mod(line, 2) * 16px; height: 4px; border-radius: 2px; background: Theme.muted;
+                    }
+                }
+            }
+        }
+    }
+    Section {
+        title: "OUTLINES";
+        HorizontalLayout {
+            spacing: 8px;
+            for name[index] in ["None", "Thin", "Medium", "Bold"]: Tile {
+                label: name; chosen: Creator.outline == index; art-height: 40px;
+                clicked => { Creator.outline-chosen(index); }
+                Rectangle {
+                    background: Theme.chat;
+                    Rectangle {
+                        x: 10px; y: 8px; width: parent.width - 20px; height: parent.height - 16px;
+                        border-radius: Creator.radius(4px, 10px); background: Theme.raised;
+                        border-width: index * 1px; border-color: Theme.line;
                     }
                 }
             }

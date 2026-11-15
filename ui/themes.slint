@@ -79,6 +79,8 @@ export global ThemesPage {
     in property <string> fetching;
     /// How many of the person's own themes there are, which Installed lists.
     in property <int> own-count;
+    /// One of the person's own themes is showing.
+    in property <bool> own-applied;
     /// How Installed draws themes: 0 a list, 1 cards.
     in-out property <int> view: 1;
     in property <[ThemeListing]> installed;
@@ -680,6 +682,10 @@ export component ThemesSettings inherits VerticalLayout {
             HorizontalLayout {
                 height: 28px;
                 SettingsHeading { text: "YOUR THEMES"; vertical-alignment: center; horizontal-stretch: 1; }
+                if ThemesPage.own-applied: ActionButton {
+                    text: "Turn off theme"; small: true;
+                    clicked => { ThemesPage.turn-off(); }
+                }
                 ActionButton {
                     text: "New theme"; small: true; ghost: true; icon: IconPack.circle-plus;
                     clicked => { root.new-theme(); }

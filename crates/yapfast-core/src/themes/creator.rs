@@ -105,6 +105,12 @@ pub struct Spec {
     pub glass: bool,
     pub picture: Option<Picture>,
     pub fonts: Vec<ImportedFont>,
+    /// The built-in theme it started from, whose colours stand under the
+    /// ones it sets while its light or dark matches; `None` for Yapfast's
+    /// own.
+    pub base: Option<String>,
+    /// Every hairline outline's width in pixels, 0 to 4; 1 is Yapfast's own.
+    pub outline: u8,
 }
 
 impl Default for Spec {
@@ -123,6 +129,8 @@ impl Default for Spec {
             glass: false,
             picture: None,
             fonts: Vec::new(),
+            base: None,
+            outline: 1,
         }
     }
 }
@@ -1149,11 +1157,13 @@ fn hex(colour: u32) -> String {
     }
 }
 
-/// The `shape` for a corners value; none at 50, Yapfast's own.
-fn shape(corners: u8) -> Option<Value> {
-    if corners == 50 {
-        return None;
+/// The `shape` for a spec's corners and outlines; none at Yapfast's own.
+fn shape(spec: &Spec) -> Option<Value> {
+    let outline = spec.outline.min(4);
+    if spec.corners == 50 {
+        return (outline != 1).then(|| json!({ "outline_width": outline }));
     }
+    let corners = spec.corners;
     let round = corners >= 90;
     let mut shape = serde_json::Map::new();
     for (surface, stock, most) in [
@@ -1191,6 +1201,9 @@ fn shape(corners: u8) -> Option<Value> {
             "large": radius(corners, 12.0, 20.0),
         }),
     );
+    if outline != 1 {
+        shape.insert("outline_width".to_owned(), json!(outline));
+    }
     Some(Value::Object(shape))
 }
 
@@ -1243,7 +1256,7 @@ pub fn manifest(spec: &Spec, name: &str, id: &str, derived: &Derived) -> String 
         "variants": { mode: { "base": derived.base, "colours": colours } },
     });
     let object = theme.as_object_mut().expect("an object");
-    if let Some(shape) = shape(spec.corners) {
+    if let Some(shape) = shape(spec) {
         object.insert("shape".to_owned(), shape);
     }
     let mut types = serde_json::Map::new();

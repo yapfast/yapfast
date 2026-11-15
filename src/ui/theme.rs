@@ -907,6 +907,7 @@ impl Theme {
 pub fn cards(custom: &[Custom]) -> ModelRc<yapfast_ui::ThemeCard> {
     let card = |id: &str, name: &str, custom: bool, theme: &Theme| yapfast_ui::ThemeCard {
         id: id.into(),
+        bubbles: false,
         name: name.into(),
         custom,
         rail: theme.rail,
@@ -920,11 +921,12 @@ pub fn cards(custom: &[Custom]) -> ModelRc<yapfast_ui::ThemeCard> {
     let cards: Vec<_> = BUILT_IN
         .iter()
         .map(|built_in| card(built_in.id, built_in.name, false, &built_in.theme))
-        .chain(
-            custom
-                .iter()
-                .map(|custom| card(&custom.id, &custom.name, true, &custom.theme)),
-        )
+        .chain(custom.iter().map(|custom| yapfast_ui::ThemeCard {
+            bubbles: custom.creator.as_ref().is_some_and(|spec| {
+                spec.messages == yapfast_core::themes::creator::Messages::Bubbles
+            }),
+            ..card(&custom.id, &custom.name, true, &custom.theme)
+        }))
         .collect();
     ModelRc::new(VecModel::from(cards))
 }

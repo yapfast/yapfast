@@ -104,9 +104,25 @@ fn take_colours(theme: &mut theme::Theme, derived: &creator::Derived) -> &'stati
     base.id
 }
 
-/// A spec that starts as a theme looks.
-pub(super) fn spec_from(theme: &theme::Theme) -> Spec {
+/// A spec's colours over the built-in theme it started from, while that
+/// one is as light or dark; otherwise over Yapfast's own.
+fn based(spec: &Spec, mut derived: creator::Derived) -> creator::Derived {
+    if let Some(base) = spec
+        .base
+        .as_deref()
+        .and_then(theme::find)
+        .filter(|base| base.theme.dark == derived.dark)
+    {
+        derived.base = base.id;
+    }
+    derived
+}
+
+/// A spec that starts as a theme looks, over `base`, the built-in theme it
+/// is or began as.
+pub(super) fn spec_from(theme: &theme::Theme, base: &str) -> Spec {
     Spec {
+        base: Some(base.to_owned()),
         accent: rgb(theme.accent),
         ground: rgb(theme.chat),
         background: if theme.dark {
@@ -134,7 +150,7 @@ pub(super) fn ensure_folders(root: &Path, custom: &[theme::Custom]) {
         if !folder.join(creator::PICTURE).exists() && spec.background == Background::Picture {
             spec.background = Background::Dark;
         }
-        let derived = creator::finish(&spec, colours_of(&theme.theme));
+        let derived = based(&spec, creator::finish(&spec, colours_of(&theme.theme)));
         if let Err(error) =
             creator::write_folder(&folder, &spec, &theme.name, &theme.id, &derived, font_bytes)
         {
@@ -375,9 +391,9 @@ impl Adapter {
             return;
         };
         let derived = if recolour {
-            creator::derive(spec)
+            based(spec, creator::derive(spec))
         } else {
-            creator::finish(spec, colours_of(&editor.theme))
+            based(spec, creator::finish(spec, colours_of(&editor.theme)))
         };
         // Colours the person set that were moved to stay readable.
         let moved = !recolour
@@ -428,7 +444,12 @@ impl Adapter {
         else {
             return;
         };
-        let (id, name, theme) = (start.id.to_owned(), start.name.to_owned(), start.theme);
+        let (id, name, theme, base) = (
+            start.id.to_owned(),
+            start.name.to_owned(),
+            start.theme,
+            start.base,
+        );
         let custom = self
             .layout
             .custom_themes
@@ -442,7 +463,7 @@ impl Adapter {
         }
         let spec = match custom.as_ref().and_then(|custom| custom.creator.clone()) {
             Some(spec) => spec,
-            None => spec_from(&theme),
+            None => spec_from(&theme, base),
         };
         let from = custom
             .as_ref()
@@ -461,6 +482,8 @@ impl Adapter {
         let recolour = from.is_none();
         self.begin_creator(window, spec, from, recolour);
         window.global::<Creator>().set_start(index);
+        // Advanced's Start from names it too.
+        window.set_theme_start(index);
     }
 
     /// A picture the person chose, read: it becomes the background, and its
@@ -592,7 +615,7 @@ impl Adapter {
         theme: &theme::Theme,
     ) -> bool {
         let draft = self.draft_folder();
-        let derived = creator::finish(spec, colours_of(theme));
+        let derived = based(spec, creator::finish(spec, colours_of(theme)));
         let written =
             creator::write_folder(&draft, spec, name, id, &derived, font_bytes).and_then(|()| {
                 creator::copy_folder(&draft, &theme_look::creator_folder(&self.root, id))
@@ -665,7 +688,7 @@ impl Adapter {
         };
         let name = window.get_theme_name().to_string();
         let draft = self.draft_folder();
-        let derived = creator::finish(&spec, colours_of(&editor.theme));
+        let derived = based(&spec, creator::finish(&spec, colours_of(&editor.theme)));
         let folder_name = creator::slug(if name.trim().is_empty() {
             "my theme"
         } else {
@@ -772,6 +795,7 @@ fn show_spec(window: &YapfastWindow, spec: &Spec, derived: &creator::Derived) {
         Density::Cozy => 1,
         Density::Roomy => 2,
     });
+    page.set_outline(i32::from(spec.outline.min(3)));
     page.set_glass(spec.glass);
     page.set_can_export(true);
     // The preview's picture: the thumbnail blurred and dimmed as the theme
@@ -1090,6 +1114,9 @@ pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
             (false, Some(key)) => spec.body = key,
             (false, None) => {}
         })
+    });
+    on!(on_outline_chosen(width) => |adapter, window| {
+        adapter.creator_edit(&window, false, |spec| spec.outline = width.clamp(0, 3) as u8)
     });
     on!(on_density_chosen(index) => |adapter, window| {
         adapter.creator_edit(&window, false, |spec| {

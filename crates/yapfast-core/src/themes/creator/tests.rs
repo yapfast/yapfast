@@ -310,17 +310,42 @@ fn a_nudged_ink_always_reads() {
 
 #[test]
 fn corners_run_from_square_to_round_with_stock_in_the_middle() {
-    assert_eq!(shape(50), None);
-    let square = shape(0).expect("a shape");
+    assert_eq!(
+        shape(&Spec {
+            corners: 50,
+            ..Spec::default()
+        }),
+        None
+    );
+    let square = shape(&Spec {
+        corners: 0,
+        ..Spec::default()
+    })
+    .expect("a shape");
     assert_eq!(square["button"]["radius"], json!(0.0));
     assert_eq!(square["avatar"]["radius"], json!(0.0));
     assert_eq!(square["radii"]["large"], json!(0.0));
-    let round = shape(100).expect("a shape");
+    let round = shape(&Spec {
+        corners: 100,
+        ..Spec::default()
+    })
+    .expect("a shape");
     assert_eq!(round["button"]["radius"], json!(999.0));
     assert_eq!(round["avatar"]["radius"], json!(50.0));
     assert_eq!(round["card"]["radius"], json!(22.0));
-    let near = shape(49).expect("a shape");
+    let near = shape(&Spec {
+        corners: 49,
+        ..Spec::default()
+    })
+    .expect("a shape");
     assert!((near["card"]["radius"].as_f64().unwrap() - 12.0).abs() <= 0.5);
+    // Outlines other than Yapfast's own make a shape at stock corners too.
+    let outlined = shape(&Spec {
+        outline: 3,
+        ..Spec::default()
+    })
+    .expect("a shape");
+    assert_eq!(outlined["outline_width"], json!(3));
 }
 
 #[test]

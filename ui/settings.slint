@@ -1006,6 +1006,8 @@ export struct ThemeCard {
     accent: color,
     text: color,
     muted: color,
+    /// Its messages are bubbles, as the creator made it.
+    bubbles: bool,
 }
 
 /// A colour in the theme editor: its name, the colour, and its field's text,
@@ -1051,12 +1053,21 @@ export component ThemeTile inherits Rectangle {
                 background: index == 1 ? root.card.text : root.card.muted;
             }
         }
-        // Two messages and the composer.
-        for index in 2: Rectangle {
+        // Two messages and the composer: bubbles, others' on the left and
+        // the person's own on the right in the accent, or flat rows.
+        if root.card.bubbles: Rectangle {
+            x: 60px; y: 8px; width: parent.width - 66px; height: 42px;
+            Rectangle { x: 0px; y: 0px; width: parent.width * 0.62; height: 14px; border-radius: Look.radius(7px); background: root.card.raised; }
+            Rectangle { x: parent.width - self.width; y: 20px; width: parent.width * 0.5; height: 14px; border-radius: Look.radius(7px); background: root.card.accent; }
+        }
+        if !root.card.bubbles: Rectangle {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+            for index in 2: Rectangle {
             x: 60px; y: 8px + index * 22px; width: parent.width - 66px; height: 16px;
             Rectangle { x: 0px; y: 0px; width: 10px; height: 10px; border-radius: Look.radius(5px); background: index == 0 ? root.card.accent : root.card.muted; }
             Rectangle { x: 14px; y: 1px; width: index == 0 ? 22px : 16px; height: 4px; border-radius: Look.radius(2px); background: root.card.text; }
             Rectangle { x: 14px; y: 8px; width: min(parent.width - 14px, index == 0 ? 52px : 40px); height: 3px; border-radius: Look.radius(1.5px); background: root.card.muted; }
+            }
         }
         Rectangle {
             x: 60px; y: parent.height - 18px; width: parent.width - 66px; height: 12px;
