@@ -601,6 +601,8 @@ export component VoiceSettings inherits VerticalLayout {
     in-out property <int> camera-index;
     /// Filming to try the camera, and what it films; and why it can't, if
     /// it couldn't start.
+    in property <bool> microphone-test-available;
+    in-out property <bool> microphone-testing;
     in-out property <bool> camera-testing;
     in property <image> camera-preview;
     in property <string> camera-note;
@@ -694,6 +696,33 @@ export component VoiceSettings inherits VerticalLayout {
                 committed => { root.preferences-changed(); }
             }
         }
+    }
+    if root.microphone-test-available: VerticalLayout {
+        spacing: 8px;
+        SettingsHeading { text: "MICROPHONE TEST"; }
+        HorizontalLayout {
+            ActionButton {
+                text: root.microphone-testing ? "Stop testing" : "Test microphone"; small: true;
+                clicked => { root.microphone-testing = !root.microphone-testing; }
+            }
+            VerticalLayout {
+                spacing: 6px;
+                HorizontalLayout {
+                    height: 24px; spacing: 3px;
+                    accessible-role: progress-indicator;
+                    accessible-label: "Microphone test input level";
+                    accessible-value: round(max(0, min(1, (root.gate-level + 60) / 60)) * 100) + "%";
+                    for segment in 48: Rectangle {
+                        border-radius: 2px;
+                        background: !root.microphone-testing || (segment + 0.5) / 48 > max(0, min(1, (root.gate-level + 60) / 60))
+                            ? Theme.line : segment >= 40 ? Theme.danger : Theme.accent;
+                    }
+                }
+                Label { text: root.microphone-testing ? "Playing back your microphone. Call microphone and audio are temporarily muted." : "Start testing to hear your microphone and see its input level."; }
+            }
+        }
+        Label { text: "Hear your microphone through the selected speakers, with your current noise suppression and volume settings. Use headphones to avoid feedback. The test works without holding your push-to-talk key and stops when you leave this page."; }
+        if root.microphone-testing && root.gate-meter-note != "": Label { text: root.gate-meter-note; }
     }
     if root.microphones.length == 0 && root.speakers.length == 0: Label { text: "No audio devices found. Connect one, then refresh."; }
     HorizontalLayout {

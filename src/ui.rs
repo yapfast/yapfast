@@ -2024,6 +2024,14 @@ struct Icons {
     disconnect: slint::Image,
 }
 
+/// The call state to restore after local microphone playback.
+#[cfg(feature = "discord")]
+struct MicrophoneTestMute {
+    room: Option<String>,
+    muted: bool,
+    deafened: bool,
+}
+
 struct Adapter {
     // Cancel the UI event receiver before releasing the actor and runtime.
     events: Option<slint::JoinHandle<()>>,
@@ -2235,6 +2243,8 @@ struct Adapter {
     /// show the voice gate's sensitivity.
     #[cfg(feature = "discord")]
     gate_meter: Option<yapfast_core::discord_audio::GateMeter>,
+    #[cfg(feature = "discord")]
+    microphone_test_mute: Option<MicrophoneTestMute>,
     /// Watches the keybinds while any is set, with or without the window.
     keybinds: Option<crate::keybinds::Watcher>,
     /// Previews of the pictures waiting in the composer, by file; `None` while
@@ -2544,6 +2554,8 @@ impl Adapter {
                 watched: None,
                 #[cfg(feature = "discord")]
                 gate_meter: None,
+                #[cfg(feature = "discord")]
+                microphone_test_mute: None,
                 keybinds: None,
                 thumbnails: HashMap::new(),
                 pasted: None,
@@ -3066,7 +3078,54 @@ impl Adapter {
         });
     }
 
+    #[cfg(feature = "discord")]
+    fn set_microphone_test_mute(&mut self, on: bool) {
+        let voice = &self.app.state.voice;
+        if on {
+            if self
+                .microphone_test_mute
+                .as_ref()
+                .is_some_and(|saved| saved.room == voice.room)
+            {
+                return;
+            }
+            self.microphone_test_mute = Some(MicrophoneTestMute {
+                room: voice.room.clone(),
+                muted: voice.muted,
+                deafened: voice.deafened,
+            });
+            if voice.active() {
+                let effects = self
+                    .app
+                    .dispatch(Action::Voice(voice::Command::Deafen(true)));
+                self.execute(effects);
+            }
+        } else if let Some(saved) = self.microphone_test_mute.take()
+            && voice.active()
+            && voice.room == saved.room
+        {
+            for command in [
+                voice::Command::Deafen(saved.deafened),
+                voice::Command::Mute(saved.muted),
+            ] {
+                let effects = self.app.dispatch(Action::Voice(command));
+                self.execute(effects);
+            }
+        }
+    }
+
     fn action(&mut self, window: &YapfastWindow, action: Action) {
+        // A shortcut or menu must not undo the test's temporary call mute.
+        #[cfg(feature = "discord")]
+        if self.microphone_test_mute.is_some()
+            && matches!(
+                action,
+                Action::Voice(voice::Command::Mute(_) | voice::Command::Deafen(_))
+                    | Action::UnmuteOnJoin
+            )
+        {
+            return;
+        }
         // A keystroke in the composer changes only the composer, and one in
         // the profile editor only the editor; the rest of the window
         // stays as it is.

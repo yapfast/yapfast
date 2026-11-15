@@ -1433,6 +1433,8 @@ export component YapfastWindow inherits Window {
     in property <[string]> speakers;
     in property <[string]> cameras;
     in-out property <int> camera-index;
+    /// Local microphone playback, only while Voice & Video is open.
+    in-out property <bool> microphone-testing;
     /// Trying the camera in settings: what it films, refreshed by
     /// stream-tick, or why it can't.
     in-out property <bool> camera-testing;
@@ -1583,7 +1585,7 @@ export component YapfastWindow inherits Window {
     /// Whether the input menu wants the microphone level measured.
     callback metering(bool);
     callback meter-tick;
-    callback gate-metering(bool);
+    callback gate-metering(int);
     callback select-camera(int);
     /// Film to try the camera, or stop.
     callback test-camera(bool);
@@ -1901,13 +1903,14 @@ export component YapfastWindow inherits Window {
     // microphone on, once connected.
     changed voice-ready => {
         if !root.voice-ready { return; }
+        if root.microphone-testing { root.join-deafened(); return; }
         if root.deafen-on-join { if !root.deafened { root.join-deafened(); } }
         else if root.unmute-on-join && root.muted { root.join-unmuted(); }
     }
     // Out of a call, the account panel's toggles show and change how the next
     // call starts. Deafening mutes too, as it does in a call.
-    property <bool> shown-deafened: root.voice-active ? root.deafened : root.deafen-on-join;
-    property <bool> shown-muted: root.voice-active ? root.muted : !root.unmute-on-join || root.deafen-on-join;
+    property <bool> shown-deafened: root.microphone-testing || (root.voice-active ? root.deafened : root.deafen-on-join);
+    property <bool> shown-muted: root.microphone-testing || (root.voice-active ? root.muted : !root.unmute-on-join || root.deafen-on-join);
 
     // The device menus open above the toggle whose caret was clicked.
     property <length> menu-x;
@@ -1918,7 +1921,9 @@ export component YapfastWindow inherits Window {
     changed input-open => { root.input-level = 0; root.meter-note = ""; root.metering(root.input-open); }
     Timer { interval: 50ms; running: root.input-open; triggered => { root.meter-tick(); } }
     // The Discord gate's meter runs while voice settings show it.
-    property <bool> gate-metered: root.settings-open && root.settings-section == 1 && root.discord-linked && root.input-mode == 0;
+    // 0 stopped, 1 level only, 2 level and local microphone playback.
+    property <int> gate-mode: !root.settings-open || root.settings-section != 1 ? 0
+        : root.microphone-testing ? 2 : root.discord-linked && root.input-mode == 0 ? 1 : 0;
     // Cameras stop making pictures for a grid that left the screen, and one
     // starts in the corner.
     changed grid-shown => { root.stream-tick(); }
@@ -1926,8 +1931,8 @@ export component YapfastWindow inherits Window {
     // The camera films for the preview only while the voice settings show it.
     property <bool> camera-filming: root.settings-open && root.settings-section == 1 && root.camera-testing;
     changed camera-filming => { root.camera-preview = @image-url(""); root.test-camera(self.camera-filming); }
-    changed gate-metered => { root.gate-level = -100; root.gate-sending = false; root.gate-meter-note = ""; root.gate-metering(self.gate-metered); }
-    Timer { interval: 50ms; running: root.gate-metered; triggered => { root.gate-meter-tick(); } }
+    changed gate-mode => { if self.gate-mode == 0 { root.microphone-testing = false; } root.gate-level = -100; root.gate-sending = false; root.gate-meter-note = ""; root.gate-metering(self.gate-mode); }
+    Timer { interval: 50ms; running: root.gate-mode != 0; triggered => { root.gate-meter-tick(); } }
     Timer { interval: 33ms; running: root.sharing || root.watching || root.video-active || root.camera-filming || (root.call-video && (root.grid-shown || root.pip-shown)); triggered => { root.stream-tick(); } }
     input-menu := PopupWindow {
         x: max(8px, min(root.width - self.width - 8px, root.menu-x - 6px));
@@ -2891,7 +2896,7 @@ export component YapfastWindow inherits Window {
                                 // Discord's glyphs are white and a little larger than the default.
                                 tint: ClientStyle.enabled ? Theme.text : Theme.secondary;
                                 menu-label: "Input options"; open: root.input-open;
-                                enabled: root.voice-ready || !root.voice-active;
+                                enabled: !root.microphone-testing && (root.voice-ready || !root.voice-active);
                                 clicked => { root.toggle-mute(); }
                                 menu => {
                                     root.menu-x = self.absolute-position.x; root.menu-y = self.absolute-position.y + (self.height - 32px) / 2;
@@ -2905,7 +2910,7 @@ export component YapfastWindow inherits Window {
                                 glyph: ClientStyle.enabled ? 21px : 20px;
                                 tint: ClientStyle.enabled ? Theme.text : Theme.secondary;
                                 menu-label: "Output options"; open: root.output-open;
-                                enabled: root.voice-ready || !root.voice-active;
+                                enabled: !root.microphone-testing && (root.voice-ready || !root.voice-active);
                                 clicked => { root.toggle-deafen(); }
                                 menu => {
                                     root.menu-x = self.absolute-position.x; root.menu-y = self.absolute-position.y + (self.height - 32px) / 2;
@@ -4418,6 +4423,8 @@ export component YapfastWindow inherits Window {
         if root.settings-section == 1: VoiceSettings {
             microphones: root.microphones; microphone-index <=> root.microphone-index;
             speakers: root.speakers; speaker-index <=> root.speaker-index;
+            microphone-test-available: root.discord-build;
+            microphone-testing <=> root.microphone-testing;
             cameras: root.cameras; camera-index <=> root.camera-index;
             camera-testing <=> root.camera-testing; camera-preview: root.camera-preview; camera-note: root.camera-note;
             unmute-on-join <=> root.unmute-on-join; level-voice <=> root.level-voice;

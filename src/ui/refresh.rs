@@ -4483,6 +4483,10 @@ impl Adapter {
     /// The call: the voice dock, sharing and watching a screen, a DM's call,
     /// ringing, and the devices.
     fn show_voice(&mut self, window: &YapfastWindow) {
+        #[cfg(feature = "discord")]
+        if self.microphone_test_mute.is_some() {
+            self.set_microphone_test_mute(true);
+        }
         self.ring();
         // The server of a call shows it on the rail, so the rail follows a
         // call that starts, ends or moves; other voice events leave it be.

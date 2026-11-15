@@ -34,6 +34,22 @@ audio handle, and restarting Yapfast requires joining again. Preview calls are
 simulated, but the preview lists and chooses real devices without remembering
 them.
 
+## Microphone test
+
+In desktop builds with Discord support, Settings > Voice & video has a
+"Test microphone" button. It plays the selected microphone through the selected
+speakers on Windows (WASAPI) and Linux (PulseAudio or PipeWire's PulseAudio
+server), without joining a call or linking an account. Use headphones to avoid
+feedback.
+
+The test uses Discord voice's microphone processing, including the selected
+DeepFilterNet, RNNoise or Off setting, suppression strength, dereverberation,
+voice leveling and microphone volume. Changes take effect during the test;
+speaker volume applies to playback too. The preview is before the transmission
+gate and works without holding push to talk. It does not publish audio or change
+a running call's mute state. Stop testing, leave Voice & video, or close settings
+to stop playback. Changing either selected audio device restarts the test there.
+
 ## Cameras
 
 Settings › Voice & video chooses the camera, beside the microphone and
