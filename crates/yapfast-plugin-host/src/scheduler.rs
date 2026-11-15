@@ -1099,6 +1099,12 @@ impl<B: Backend + 'static> Shared<B> {
             let _ = self.reply(task.id, &nothing());
             return;
         }
+        // An optional export: a plugin that doesn't write it answers nothing,
+        // rather than trapping and taking a strike for not listening.
+        if !self.backend.has_export(&plugin, "yf_decorate") {
+            let _ = self.reply(task.id, &nothing());
+            return;
+        }
         let Ok(bytes) = serde_json::to_vec(request) else {
             let _ = self.reply(task.id, &nothing());
             return;
@@ -1158,6 +1164,12 @@ impl<B: Backend + 'static> Shared<B> {
             let _ = self.reply(task.id, &nothing());
             return;
         }
+        // An optional export: a plugin that doesn't write it answers nothing,
+        // rather than trapping and taking a strike for not listening.
+        if !self.backend.has_export(&plugin, "yf_identity") {
+            let _ = self.reply(task.id, &nothing());
+            return;
+        }
         let Ok(bytes) = serde_json::to_vec(request) else {
             let _ = self.reply(task.id, &nothing());
             return;
@@ -1207,6 +1219,12 @@ impl<B: Backend + 'static> Shared<B> {
             let _ = self.reply(task.id, &nothing());
             return;
         }
+        // An optional export: a plugin that doesn't write it answers nothing,
+        // rather than trapping and taking a strike for not listening.
+        if !self.backend.has_export(&plugin, "yf_code_block") {
+            let _ = self.reply(task.id, &nothing());
+            return;
+        }
         let Ok(bytes) = serde_json::to_vec(request) else {
             let _ = self.reply(task.id, &nothing());
             return;
@@ -1249,6 +1267,12 @@ impl<B: Backend + 'static> Shared<B> {
             badge: None,
         };
         if self.ensure_active(slot).is_none() {
+            let _ = self.reply(task.id, &nothing());
+            return;
+        }
+        // An optional export: a plugin that doesn't write it answers nothing,
+        // rather than trapping and taking a strike for not listening.
+        if !self.backend.has_export(&plugin, "yf_member_decorate") {
             let _ = self.reply(task.id, &nothing());
             return;
         }
