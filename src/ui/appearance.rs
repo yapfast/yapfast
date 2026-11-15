@@ -1000,6 +1000,12 @@ pub(super) fn bind_themes(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>
     });
     on!(page, on_remove(id) => |adapter, window| {
         let layout_id = format!("{}{id}", theme_look::INSTALLED);
+        // On trial, it ends first: back to what showed before.
+        if theme_look::trying_installed().as_deref() == Some(layout_id.as_str())
+            && let Some(Err(back)) = theme_look::end_trial(&window, false)
+        {
+            adapter.show_theme(&window, back.as_deref());
+        }
         if adapter.layout.theme.as_deref() == Some(layout_id.as_str()) {
             let back = adapter.layout.previous_theme.clone().filter(|previous| *previous != layout_id);
             adapter.layout.theme = back.clone();
@@ -1007,8 +1013,18 @@ pub(super) fn bind_themes(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>
             adapter.layout.write(&adapter.root);
             adapter.show_theme(&window, back.as_deref());
         }
-        if let Err(reason) = theme_look::remove(&id) {
-            window.global::<ThemesPage>().set_error(reason.into());
+        match theme_look::remove(&id) {
+            Ok(()) => {
+                // Its settings go with it: a theme that takes its id later
+                // starts without them, its content not let show.
+                let layout = &mut adapter.layout;
+                layout.theme_options.remove(&layout_id);
+                layout.theme_sounds.remove(&layout_id);
+                layout.theme_content.remove(&layout_id);
+                layout.theme_cursors_off.remove(&layout_id);
+                layout.write(&adapter.root);
+            }
+            Err(reason) => window.global::<ThemesPage>().set_error(reason.into()),
         }
         adapter.themes_changed(&window);
     });
