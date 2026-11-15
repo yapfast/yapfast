@@ -171,30 +171,32 @@ interested. Folders show up as they do in Discord.
   mute or close a DM from its menu, leave a group DM, and accept or ignore
   message requests.
 - **Messages** you can send, reply to, edit, react to, pin, forward, mark
-  unread, copy a link to and attach files to, with Markdown, embeds, custom emoji, stickers and spoilers. Bots'
-  buttons, dropdown menus and forms work too, radio buttons, checkboxes and
-  file uploads included, and so do apps' slash commands: type `/`, pick one
-  and fill in its options, files and autocomplete included; an app's answer
-  says who used which command. Apps' message and user commands are under Apps
-  in a message's or a person's menu.
-  Discord's own links to servers, channels, messages and profiles open in
+  unread, copy a link to and attach files to, with Markdown, embeds, custom
+  emoji, stickers and spoilers. Voice messages play, with their speed and
+  volume. Bots' buttons, dropdown menus and forms work too, radio buttons,
+  checkboxes and file uploads included, and so do apps' slash commands: type
+  `/`, pick one and fill in its options, files and autocomplete included; an
+  app's answer says who used which command. Apps' message and user commands
+  are under Apps in a message's or a person's menu. Discord's own links to servers, channels, messages and profiles open in
   Yapfast, including one handed to it by the desktop.
 - **Threads**: start one from a message, browse a channel's threads, join or
   leave one, and read it beside its channel.
-- **Bots' buttons, menus and forms**: click a bot's buttons, choose from its
-  menus and fill in the forms it opens.
 - **Search** a whole server with Discord's filters, and browse a channel's pins.
+- **Profiles** as Discord draws them: badges, server tags, avatar decorations,
+  nameplates, name styles, profile effects and frames, and the full profile's
+  Board, Wishlist and recent activity. Edit Profile changes your own theme,
+  name style and server tag.
 - **Friends**: requests, adding by username, nicknames, notes, profile cards,
   your status and custom status (custom emoji included). Block and ignore
   people from their menu, block and unblock them from their profile, hide what
-  blocked people write, and unblock them from a list in Settings.
+  blocked people write, and unblock them from a list in Settings. Active Now
+  sits beside the friends list.
 - **Notifications** that follow your Discord settings, muting for channels,
   categories and servers, and unread markers.
 - **Soft sounds** for joining, leaving, muting and messages, in six sets.
 
 ### Not there yet
 
-- Media channels.
 - Activities.
 - Making and changing server folders.
 - A server's form for new members, such as its rules, when you join. Yapfast
@@ -244,7 +246,9 @@ servers just to snoop on your DMs, and no thanks :D).
   Yapfast never sees your password.
 - The login token stays in your system's credential store, and only ever goes
   to Discord. Unlinking signs that session out and deletes it.
-- It sends no analytics or crash reports, and doesn't check for updates.
+- It sends no analytics or crash reports. It looks for updates only if you
+  turn on **Check for updates** in **Settings → About**, with one request to
+  GitHub that says nothing about you.
 - Pictures and GIFs load from wherever they're hosted, such as Discord or
   Tenor.
 
@@ -301,6 +305,14 @@ It compiles from source, so give it a few minutes. An older glibc and no Nix?
 Then [build it yourself](#build-it-yourself).
 
 </details>
+
+### Updates
+
+Turn on **Check for updates** in **Settings → About**, and Yapfast tells you
+when a new release is out. The Windows installer's copy and the AppImage can
+then update themselves with **Update and restart**; they install only a
+release signed with Yapfast's key. Update the portable ZIP and the Arch
+package the way you installed them.
 
 ### macOS
 

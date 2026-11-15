@@ -2452,6 +2452,7 @@ pub struct Application {
     #[cfg(feature = "discord")]
     emoji_cache_current: bool,
     /// The server icons fetched ahead, so each is fetched once.
+    #[cfg(feature = "discord")]
     server_icons_prefetched: HashSet<String>,
     /// Names searched for in the selected room, lowercased.
     searched: HashSet<String>,

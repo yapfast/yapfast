@@ -6446,6 +6446,98 @@ fn friends_in_a_servers_voice_channel_show_where() {
 }
 
 #[test]
+fn a_voice_channels_chat_marks_its_server_only_by_mentions() {
+    use yapfast_core::chat::{ChatRoom, ChatServer, Reacts};
+    let room = |id: &str, voice: bool, unread: u64, mentions: u64| ChatRoom {
+        id: id.into(),
+        network: Network::Discord,
+        capabilities: Network::Discord.capabilities(),
+        name: id.into(),
+        direct: false,
+        voice,
+        encrypted: false,
+        members: 0,
+        unread,
+        mentions,
+        muted: false,
+        last_read: None,
+        locked: false,
+        join_locked: false,
+        read_only: false,
+        reacts: Reacts::Any,
+        slowed: false,
+        timed_out_until: None,
+        category: String::new(),
+        category_id: None,
+        request: false,
+        person: None,
+        people: Vec::new(),
+        ringing: Vec::new(),
+        incoming: false,
+        avatar: None,
+        decoration: None,
+        nameplate: None,
+        style: None,
+        upload_limit: 0,
+        presence: None,
+        activity: None,
+        activities: Default::default(),
+        parent: None,
+        forum: false,
+        mark: Default::default(),
+        unlisted: false,
+        tag: None,
+        official: false,
+        empty: false,
+        preview: None,
+        voice_started: None,
+    };
+    let unread_server = |rooms: Vec<ChatRoom>, discord: bool| {
+        let mut state = AppState::default();
+        state.rooms = rooms.into_iter().map(Arc::new).collect();
+        state.servers = vec![Arc::new(ChatServer {
+            id: "Alpha".into(),
+            name: "Alpha".into(),
+            channels: state.rooms.iter().map(|room| room.id.clone()).collect(),
+            discord,
+            ..Default::default()
+        })];
+        let rooms_by_id = state
+            .rooms
+            .iter()
+            .map(|room| (room.id.as_str(), &**room))
+            .collect();
+        let row = refresh::rail_rows(&state, &rooms_by_id, &Default::default()).remove(0);
+        (row.unread, row.badge.to_string())
+    };
+    assert_eq!(
+        unread_server(
+            vec![room("lounge", true, 3, 0), room("general", false, 0, 0)],
+            true
+        ),
+        (false, String::new()),
+        "Discord's client leaves a server read for its voice channels' chat"
+    );
+    assert_eq!(
+        unread_server(vec![room("lounge", true, 3, 1)], true),
+        (true, "1".into()),
+        "a mention there still counts"
+    );
+    assert_eq!(
+        unread_server(
+            vec![room("lounge", true, 3, 0), room("general", false, 1, 0)],
+            true
+        ),
+        (true, String::new())
+    );
+    assert_eq!(
+        unread_server(vec![room("lounge", true, 3, 0)], false),
+        (true, String::new()),
+        "a Matrix space's call room stays as it was"
+    );
+}
+
+#[test]
 fn a_call_shows_on_its_servers_icon_and_its_closed_folder() {
     let folder = yapfast_core::chat::ServerFolder {
         id: "discord-folder:7".into(),
@@ -11354,6 +11446,7 @@ fn the_mouse_side_buttons_go_back_and_forward() {
     }
 }
 
+#[cfg(feature = "discord")]
 #[test]
 fn a_profiles_more_menu_blocks_from_the_profile() {
     i_slint_backend_testing::init_no_event_loop();

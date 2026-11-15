@@ -13,9 +13,7 @@
 //! open.
 
 use super::*;
-#[cfg(feature = "discord")]
-use crate::chat::Sticker;
-use crate::chat::{Permission, StickerCollection};
+use crate::chat::{Permission, Sticker, StickerCollection};
 
 /// A picture the picker shows, by its address.
 #[derive(Clone, Debug)]
