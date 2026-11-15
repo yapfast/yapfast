@@ -145,7 +145,10 @@ component MemberTile inherits Rectangle {
             decoration-url: root.member.decoration-url; animate: touch.has-hover; opacity: root.member.presence == "offline" ? 0.4 : 1;
         }
         if root.member.presence != "" && root.member.presence != "offline": StatusDot {
-            x: root.size - 13px; y: root.size - 13px; presence: root.member.presence; ring: Theme.sidebar;
+            x: root.size - 13px; y: root.size - 13px; presence: root.member.presence;
+            ring: Look.packaged ? (Theme.members-on ? Theme.members-set : ClientStyle.enabled ? Theme.chat-fill : Theme.sidebar-fill) : Theme.sidebar;
+            wash: Look.packaged ? root.background : transparent;
+            bare: Look.packaged && (Art.glass-members || Art.members.length > 0);
         }
     }
     Text {
@@ -465,7 +468,7 @@ export component MemberPanel inherits Rectangle {
                     }
                 }
                 // A heading is a row of its own; see `show_roster`.
-                if member.id != "" && !MemberLists.on && !root.tiles: Rectangle {
+                if member.id != "" && !MemberLists.on && !root.tiles: member-row := Rectangle {
                   height: Look.member-row-height >= 0px ? Look.member-row-height : 42px; border-radius: Look.radius(8px);
                   background: member.id == root.selected ? #97979f33 : member-pointer.has-hover ? #97979f1f
                       : Trim.stripe-members && Math.mod(member.place, 2) == 1 ? Trim.stripe : transparent;
@@ -509,7 +512,14 @@ export component MemberPanel inherits Rectangle {
                             if ThemeContent.initial-members && ThemeContent.lettered(member.name, member-pointer.has-hover): IlluminatedInitial {
                                 size: 32px; name: member.name; opacity: member.presence == "offline" ? 0.4 : 1;
                             }
-                            if member.presence != "" && member.presence != "offline": StatusDot { x: 20px; y: 20px; presence: member.presence; ring: Theme.sidebar; }
+                            // Under a theme the dot is cut from the list's own ground and
+                            // the row's wash, or sits bare on the picture over glass or art.
+                            if member.presence != "" && member.presence != "offline": StatusDot {
+                                x: 20px; y: 20px; presence: member.presence;
+                                ring: Look.packaged ? (Theme.members-on ? Theme.members-set : ClientStyle.enabled ? Theme.chat-fill : Theme.sidebar-fill) : Theme.sidebar;
+                                wash: Look.packaged ? member-row.background : transparent;
+                                bare: Look.packaged && (Art.glass-members || Art.members.length > 0);
+                            }
                         }
                     }
                     text-column := VerticalLayout {
@@ -1360,7 +1370,10 @@ export component ProfileListRow inherits Rectangle {
                 width: 32px; height: 32px;
                 if root.person: Avatar { size: 32px; initial: root.initial; tint: root.tint; picture: root.picture; }
                 if root.person && root.presence != "": StatusDot {
-                    x: 20px; y: 20px; presence: root.presence; ring: pointer.has-hover ? root.hover : root.ground;
+                    x: 20px; y: 20px; presence: root.presence;
+                    // Under a theme, the ground with the row's wash laid over it.
+                    ring: !Look.packaged && pointer.has-hover ? root.hover : root.ground;
+                    wash: Look.packaged ? root.background : transparent;
                 }
                 if !root.person: Rectangle {
                     border-radius: Look.radius(10px); clip: true;
@@ -1703,6 +1716,9 @@ export component ProfileCard inherits Rectangle {
                             if root.data.presence != "" && root.data.presence != "offline": StatusDot {
                                 x: parent.width - self.width - (root.large ? 14px : 10px); y: parent.height - self.height - (root.large ? 14px : 10px);
                                 presence: root.data.presence; ring: root.ground;
+                                // A theme's card art or glass: no colour matches it.
+                                bare: Look.packaged && !root.themed
+                                    && (root.docked ? Art.profile-pane.length > 0 || Art.glass-profile-pane : Art.card.length > 0 || Art.glass-card || Art.foil-card);
                             }
                             // The picture opens the full profile.
                             if !root.large && !root.preview: TouchArea {

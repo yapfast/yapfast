@@ -420,36 +420,53 @@ component FolderItem inherits Rectangle {
 // fills its slot; the 16px default leaves the small rows as they were.
 export component StatusDot inherits Rectangle {
     in property <string> presence;
-    in property <color> ring;
+    /// The ground the dot is cut from, and what washes it there (a row's
+    /// hover or selection), laid over it as the row lays it.
+    in property <brush> ring;
+    in property <brush> wash: transparent;
+    /// No ring: the dot sits on the picture, for a ground no colour matches
+    /// (a theme's glass or art); its marks take `hole`.
+    in property <bool> bare;
+    in property <brush> hole: Theme.chat;
     property <bool> mobile: root.presence == "mobile";
     property <bool> online: root.presence == "online" || root.mobile || root.presence == "idle" || root.presence == "dnd";
     property <length> unit: root.width / 16;
-    width: 16px; height: 16px; border-radius: Look.radius(root.width / 2);
-    background: root.mobile ? transparent : root.ring;
+    property <brush> mark: root.bare ? root.hole : root.ring;
+    property <brush> mark-wash: root.bare ? transparent : root.wash;
+    // The ring is cut around the dot in its shape: a round dot a round
+    // ring, a square one a square ring, whatever the avatar's corners.
+    property <length> dot-size: (root.presence == "idle" ? 12 : 10) * root.unit;
+    property <length> dot-radius: min(Look.radius(self.dot-size / 2), self.dot-size / 2);
+    width: 16px; height: 16px; border-radius: root.dot-radius * root.width / root.dot-size;
+    background: root.mobile || root.bare ? transparent : root.ring;
     accessible-role: image;
     accessible-label: root.presence == "dnd" ? "Do not disturb" : root.presence == "idle" ? "Idle" : root.presence == "online" ? "Online" : root.mobile ? "Online on mobile" : "Offline";
+    if !root.mobile && !root.bare: Rectangle { border-radius: parent.border-radius; background: root.wash; }
     // Idle is Discord's yellow whatever the accent is, and its moon a size larger.
     if !root.mobile: Rectangle {
-        width: (root.presence == "idle" ? 12 : 10) * root.unit; height: self.width; border-radius: Look.radius(self.width / 2);
+        width: root.dot-size; height: self.width; border-radius: root.dot-radius;
         background: root.presence == "dnd" ? #f23f43 : root.presence == "idle" ? #f0b232 : root.presence == "online" ? Theme.live : Theme.faint;
     }
     if !root.online: Rectangle {
-        width: 4 * root.unit; height: self.width; border-radius: Look.radius(self.width / 2); background: root.ring;
+        width: 4 * root.unit; height: self.width; border-radius: Look.radius(self.width / 2); background: root.mark;
+        Rectangle { border-radius: parent.border-radius; background: root.mark-wash; }
     }
     if root.presence == "idle": Rectangle {
-        x: root.unit; y: root.unit; width: 7 * root.unit; height: self.width; border-radius: Look.radius(self.width / 2); background: root.ring;
+        x: root.unit; y: root.unit; width: 7 * root.unit; height: self.width; border-radius: Look.radius(self.width / 2); background: root.mark;
+        Rectangle { border-radius: parent.border-radius; background: root.mark-wash; }
     }
     if root.presence == "dnd": Rectangle {
-        width: 6 * root.unit; height: 2 * root.unit; border-radius: Look.radius(self.height / 2); background: root.ring;
+        width: 6 * root.unit; height: 2 * root.unit; border-radius: Look.radius(self.height / 2); background: root.mark;
+        Rectangle { border-radius: parent.border-radius; background: root.mark-wash; }
     }
     // The phone keeps the dot's ring and bottom edge, and stands taller.
     if root.mobile: Rectangle {
         y: root.height - self.height; height: root.height + 5 * root.unit;
-        border-radius: Look.radius(4 * root.unit); background: root.ring;
+        border-radius: Look.radius(4 * root.unit); background: root.bare ? transparent : root.ring;
         Rectangle {
             width: 10 * root.unit; height: 15 * root.unit; border-radius: Look.radius(2 * root.unit); background: Theme.live;
-            Rectangle { x: 2 * root.unit; y: 2 * root.unit; width: 6 * root.unit; height: 9 * root.unit; border-radius: Look.radius(root.unit); background: root.ring; }
-            Rectangle { x: 4 * root.unit; y: 12 * root.unit; width: 2 * root.unit; height: 2 * root.unit; border-radius: Look.radius(self.width / 2); background: root.ring; }
+            Rectangle { x: 2 * root.unit; y: 2 * root.unit; width: 6 * root.unit; height: 9 * root.unit; border-radius: Look.radius(root.unit); background: root.mark; }
+            Rectangle { x: 4 * root.unit; y: 12 * root.unit; width: 2 * root.unit; height: 2 * root.unit; border-radius: Look.radius(self.width / 2); background: root.mark; }
         }
     }
 }
@@ -745,9 +762,13 @@ export component ChannelRow inherits Rectangle {
                             x: -2px; y: -2px; size: 13px;
                             ring: root.selected ? Theme.active : pointer.has-hover ? Theme.hover : Theme.sidebar;
                         }
+                        // Under a theme it's cut from the sidebar's ground and the
+                        // row's own wash, or sits bare over glass, art or a list's look.
                         if root.presence != "": StatusDot {
                             x: 20px; y: 20px; presence: root.presence;
-                            ring: root.selected ? Theme.active : pointer.has-hover ? Theme.hover : Theme.sidebar;
+                            ring: !Look.packaged ? (root.selected ? Theme.active : pointer.has-hover ? Theme.hover : Theme.sidebar) : Theme.sidebar-fill;
+                            wash: Look.packaged ? root.background : transparent;
+                            bare: Look.packaged && (Art.glass-sidebar || Art.sidebar.length > 0 || root.listed);
                         }
                     }
                 }
