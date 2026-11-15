@@ -17,7 +17,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   # A single Slint UI compilation can use 6–8 GiB of memory.
-  CARGO_BUILD_JOBS: 1
+  CARGO_BUILD_JOBS: 2
 
 jobs:
   formatting:
@@ -41,7 +41,7 @@ jobs:
       matrix:
         tool: [cargo-audit, cargo-machete]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
       - uses: taiki-e/install-action@v2
@@ -56,6 +56,7 @@ jobs:
 
   linux:
     name: Check, Clippy and tests
+    needs: formatting
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
@@ -82,13 +83,14 @@ jobs:
       - uses: Swatinem/rust-cache@v2.9.3
         with:
           shared-key: ci-linux
-          # Only main populates caches used by later pull requests.
-          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          # GitHub scopes PR caches to that PR; retries can reuse dependencies
+          # even before the first successful build on main.
+          cache-on-failure: true
       # feature-union is only for coordinating the optional Matrix builds.
       # Keep these sequential to reuse artifacts and bound peak memory use.
       - name: Cargo check
-        run: cargo check --locked --profile fast --workspace --exclude feature-union --all-targets
+        run: cargo check --locked --workspace --exclude feature-union --all-targets
       - name: Cargo Clippy
-        run: cargo clippy --locked --profile fast --workspace --exclude feature-union --all-targets -- -D warnings
+        run: cargo clippy --locked --workspace --exclude feature-union --all-targets -- -D warnings
       - name: Cargo test
-        run: cargo test --locked --profile fast --workspace --exclude feature-union
+        run: cargo test --locked --workspace --exclude feature-union
