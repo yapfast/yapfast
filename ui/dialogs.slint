@@ -1,5 +1,8 @@
+import { IconPack } from "media.slint";
 import { ScrollView } from "scrollview.slint";
-import { Theme, Middle, Label, Popup, Twemoji } from "theme.slint";
+import { Theme, Middle, Label, Popup, Twemoji, Look } from "theme.slint";
+import { Art, ArtLayer, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil } from "theme_art.slint";
+import { DialogFrame } from "theme_layout.slint";
 import { ActionButton, IconButton, Avatar, TextField, MenuItem } from "controls.slint";
 import { DiscordBadge } from "discord.slint";
 import { StatusDot } from "rail.slint";
@@ -42,13 +45,18 @@ export component StatusDialog inherits Rectangle {
     callback close-status;
     /// How far it's open, from 0 to 1; see PopupMotion.
     in property <float> motion: 1;
-    background: rgba(0, 0, 0, 0.6 * root.motion);
+    background: Theme.scrim-on ? Theme.scrim-set.transparentize(1 - root.motion) : rgba(0, 0, 0, 0.6 * root.motion);
     TouchArea { clicked => { root.close-status(); } }
     Rectangle {
         opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
         width: min(460px, root.width - 48px); height: status-content.preferred-height;
-        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
-        drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+        background: Art.glass-dialog ? transparent : Theme.raised-fill; border-color: Look.bc(Look.dialog, Theme.edge); border-width: Look.bw(Look.dialog, 1px); border-radius: Look.r(Look.dialog, 12px);
+        if Art.dialog.length > 0 || Art.glass-dialog: ArtLayer {
+            x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.dialog, 12px);
+            layers: Art.dialog; glass: Art.glass-dialog; ground: Theme.raised-fill;
+        }
+        drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
+        DialogFrame { x: 0px; y: 0px; z: 100; }
         accessible-role: groupbox;
         accessible-label: "Set a custom status";
         TouchArea { }
@@ -60,20 +68,20 @@ export component StatusDialog inherits Rectangle {
             status-content := VerticalLayout {
                 padding: 20px; spacing: 12px;
                 HorizontalLayout {
-                    Text { text: "Set a custom status"; color: Theme.text; font-size: 18px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
-                    IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close-status(); } }
+                    Text { text: "Set a custom status"; color: Theme.text; font-size: Look.title-size(18px); font-weight: Look.heading-weight(700); font-family: Look.heading-font(""); vertical-alignment: center; horizontal-stretch: 1; }
+                    IconButton { icon: IconPack.x; label: "Close"; size: 28px; glyph: 18px; clicked => { root.close-status(); } }
                 }
                 HorizontalLayout {
                     spacing: 8px;
                     Rectangle {
-                        width: 40px; height: 40px; border-radius: 6px;
+                        width: 40px; height: 40px; border-radius: Look.radius(6px);
                         background: status-emoji-touch.has-hover ? Theme.hover : Theme.sunken;
                         accessible-role: button;
                         accessible-label: root.status-emoji.glyph != "" ? "Emoji, " + root.status-emoji.name + ". Change it" : "Pick an emoji";
                         accessible-action-default => { root.pick-emoji(); }
                         if root.status-emoji.glyph != "": EmojiFace { emoji: root.status-emoji; font: root.emoji-font; side: 22px; }
                         if root.status-emoji.glyph == "": Image {
-                            source: @image-url("icons/smile-plus.svg"); width: 20px; colorize: Theme.secondary;
+                            source: IconPack.smile-plus; width: 20px; colorize: IconPack.tint(self.source, Theme.secondary);
                         }
                         status-emoji-touch := TouchArea {
                             mouse-cursor: MouseCursor.pointer;
@@ -81,13 +89,13 @@ export component StatusDialog inherits Rectangle {
                         }
                         // Taking the emoji off: a small badge on its corner.
                         if root.status-emoji.glyph != "": Rectangle {
-                            x: parent.width - 12px; y: -6px; width: 18px; height: 18px; border-radius: 9px;
+                            x: parent.width - 12px; y: -6px; width: 18px; height: 18px; border-radius: Look.radius(9px);
                             background: remove-touch.has-hover ? Theme.danger : Theme.faint;
                             border-width: 2px; border-color: Theme.raised;
                             accessible-role: button;
                             accessible-label: "Remove the emoji";
                             accessible-action-default => { root.status-emoji = { glyph: "", name: "", key: "" }; }
-                            Image { source: @image-url("icons/x.svg"); width: 10px; colorize: Theme.text; }
+                            Image { source: IconPack.x; width: 10px; colorize: IconPack.tint(self.source, Theme.text); }
                             remove-touch := TouchArea {
                                 mouse-cursor: MouseCursor.pointer;
                                 clicked => { root.status-emoji = { glyph: "", name: "", key: "" }; }
@@ -140,13 +148,18 @@ export component NewDmDialog inherits Rectangle {
     callback close-new-dm;
     /// How far it's open, from 0 to 1; see PopupMotion.
     in property <float> motion: 1;
-    background: rgba(0, 0, 0, 0.6 * root.motion);
+    background: Theme.scrim-on ? Theme.scrim-set.transparentize(1 - root.motion) : rgba(0, 0, 0, 0.6 * root.motion);
     TouchArea { clicked => { root.close-new-dm(); } }
     Rectangle {
         opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
         width: min(440px, root.width - 48px); height: min(520px, root.height - 48px);
-        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
-        drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+        background: Art.glass-dialog ? transparent : Theme.raised-fill; border-color: Look.bc(Look.dialog, Theme.edge); border-width: Look.bw(Look.dialog, 1px); border-radius: Look.r(Look.dialog, 12px);
+        if Art.dialog.length > 0 || Art.glass-dialog: ArtLayer {
+            x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.dialog, 12px);
+            layers: Art.dialog; glass: Art.glass-dialog; ground: Theme.raised-fill;
+        }
+        drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
+        DialogFrame { x: 0px; y: 0px; z: 100; }
         accessible-role: groupbox;
         accessible-label: "New message";
         TouchArea { }
@@ -158,8 +171,8 @@ export component NewDmDialog inherits Rectangle {
             VerticalLayout {
                 padding: 20px; spacing: 12px;
                 HorizontalLayout {
-                    Text { text: "New message"; color: Theme.text; font-size: 18px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
-                    IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close-new-dm(); } }
+                    Text { text: "New message"; color: Theme.text; font-size: Look.title-size(18px); font-weight: Look.heading-weight(700); font-family: Look.heading-font(""); vertical-alignment: center; horizontal-stretch: 1; }
+                    IconButton { icon: IconPack.x; label: "Close"; size: 28px; glyph: 18px; clicked => { root.close-new-dm(); } }
                 }
                 TextField {
                     init => { self.focus-input(); }
@@ -172,7 +185,7 @@ export component NewDmDialog inherits Rectangle {
                     VerticalLayout {
                         spacing: 2px; alignment: start;
                         for person[index] in root.new-dm-people: Rectangle {
-                            height: 48px; border-radius: 6px;
+                            height: 48px; border-radius: Look.radius(6px);
                             background: person-touch.has-hover && !root.new-dm-starting ? Theme.hover : transparent;
                             accessible-role: button;
                             accessible-label: "Message " + person.name + ", " + person.detail;
@@ -235,13 +248,18 @@ export component ForwardDialog inherits Rectangle {
     callback close-forward;
     /// How far it's open, from 0 to 1; see PopupMotion.
     in property <float> motion: 1;
-    background: rgba(0, 0, 0, 0.6 * root.motion);
+    background: Theme.scrim-on ? Theme.scrim-set.transparentize(1 - root.motion) : rgba(0, 0, 0, 0.6 * root.motion);
     TouchArea { clicked => { root.close-forward(); } }
     Rectangle {
         opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
         width: min(440px, root.width - 48px); height: min(600px, root.height - 48px);
-        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
-        drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+        background: Art.glass-dialog ? transparent : Theme.raised-fill; border-color: Look.bc(Look.dialog, Theme.edge); border-width: Look.bw(Look.dialog, 1px); border-radius: Look.r(Look.dialog, 12px);
+        if Art.dialog.length > 0 || Art.glass-dialog: ArtLayer {
+            x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.dialog, 12px);
+            layers: Art.dialog; glass: Art.glass-dialog; ground: Theme.raised-fill;
+        }
+        drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
+        DialogFrame { x: 0px; y: 0px; z: 100; }
         accessible-role: groupbox;
         accessible-label: "Forward To";
         TouchArea { }
@@ -255,13 +273,13 @@ export component ForwardDialog inherits Rectangle {
                 HorizontalLayout {
                     VerticalLayout {
                         spacing: 2px; horizontal-stretch: 1;
-                        Text { text: "Forward To"; color: Theme.text; font-size: 18px; font-weight: 700; }
+                        Text { text: "Forward To"; color: Theme.text; font-size: Look.title-size(18px); font-weight: Look.heading-weight(700); font-family: Look.heading-font(""); }
                         Text {
                             text: root.forward-chosen < root.forward-limit ? "Select where you want to share this message." : "Maximum " + root.forward-limit + " places at once.";
                             color: Theme.secondary; font-size: 14px; overflow: elide;
                         }
                     }
-                    Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close-forward(); } } }
+                    Middle { IconButton { icon: IconPack.x; label: "Close"; size: 28px; glyph: 18px; clicked => { root.close-forward(); } } }
                 }
                 TextField {
                     init => { self.focus-input(); }
@@ -275,7 +293,7 @@ export component ForwardDialog inherits Rectangle {
                         spacing: 2px; alignment: start;
                         for target in root.forward-targets: Rectangle {
                             property <bool> can-choose: target.chosen || root.forward-chosen < root.forward-limit;
-                            height: 48px; border-radius: 6px;
+                            height: 48px; border-radius: Look.radius(6px);
                             background: target-touch.has-hover && self.can-choose ? Theme.hover : transparent;
                             opacity: self.can-choose ? 1 : 0.5;
                             accessible-role: checkbox;
@@ -291,8 +309,8 @@ export component ForwardDialog inherits Rectangle {
                                 if target.avatar: Middle { Avatar { size: 32px; initial: target.initial; tint: target.tint; picture-url: target.picture-url; } }
                                 if !target.avatar: Middle {
                                     Rectangle {
-                                        width: 32px; height: 32px; border-radius: 16px; background: Theme.field;
-                                        Image { source: target.icon; width: 18px; height: 18px; colorize: Theme.secondary; }
+                                        width: 32px; height: 32px; border-radius: Look.radius(16px); background: Theme.field;
+                                        Image { source: target.icon; width: 18px; height: 18px; colorize: IconPack.tint(self.source, Theme.secondary); }
                                     }
                                 }
                                 VerticalLayout {
@@ -302,10 +320,10 @@ export component ForwardDialog inherits Rectangle {
                                 }
                                 Middle {
                                     Rectangle {
-                                        width: 22px; height: 22px; border-radius: 6px;
-                                        background: target.chosen ? Theme.accent : transparent;
+                                        width: 22px; height: 22px; border-radius: Look.radius(6px);
+                                        background: target.chosen ? Theme.accent-fill : transparent;
                                         border-width: target.chosen ? 0px : 2px; border-color: Theme.faint;
-                                        if target.chosen: Image { source: @image-url("icons/check.svg"); width: 16px; height: 16px; colorize: Theme.on-accent; }
+                                        if target.chosen: Image { source: IconPack.check; width: 16px; height: 16px; colorize: IconPack.tint(self.source, Theme.on-accent); }
                                     }
                                 }
                             }
@@ -319,7 +337,7 @@ export component ForwardDialog inherits Rectangle {
                 // The message, as a quote.
                 HorizontalLayout {
                     spacing: 10px;
-                    Rectangle { width: 3px; border-radius: 1.5px; background: Theme.line; }
+                    Rectangle { width: 3px; border-radius: Look.radius(1.5px); background: Theme.line; }
                     Text { text: root.forward-preview; color: Theme.secondary; font-size: 15px; overflow: elide; vertical-alignment: center; horizontal-stretch: 1; }
                 }
                 TextField {
@@ -365,13 +383,18 @@ export component QuickSwitcher inherits Rectangle {
             list.content-y = list.visible-height - (root.current + 1) * root.pitch;
         }
     }
-    background: rgba(0, 0, 0, 0.6 * root.motion);
+    background: Theme.scrim-on ? Theme.scrim-set.transparentize(1 - root.motion) : rgba(0, 0, 0, 0.6 * root.motion);
     TouchArea { clicked => { root.close-switcher(); } }
     Rectangle {
         opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
         width: min(570px, root.width - 48px); height: min(440px, root.height - 48px);
-        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
-        drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+        background: Art.glass-dialog ? transparent : Theme.raised-fill; border-color: Look.bc(Look.dialog, Theme.edge); border-width: Look.bw(Look.dialog, 1px); border-radius: Look.r(Look.dialog, 12px);
+        if Art.dialog.length > 0 || Art.glass-dialog: ArtLayer {
+            x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.dialog, 12px);
+            layers: Art.dialog; glass: Art.glass-dialog; ground: Theme.raised-fill;
+        }
+        drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
+        DialogFrame { x: 0px; y: 0px; z: 100; }
         accessible-role: groupbox;
         accessible-label: "Quick switcher";
         TouchArea { }
@@ -419,7 +442,7 @@ export component QuickSwitcher inherits Rectangle {
                     VerticalLayout {
                         alignment: start;
                         for place[index] in root.switcher-places: Rectangle {
-                            height: root.pitch; border-radius: 6px;
+                            height: root.pitch; border-radius: Look.radius(6px);
                             background: index == root.current ? Theme.active : place-touch.has-hover ? Theme.hover : transparent;
                             accessible-role: button;
                             accessible-label: place.name + ", " + place.place
@@ -433,7 +456,7 @@ export component QuickSwitcher inherits Rectangle {
                                 padding-left: 8px; padding-right: 8px; spacing: 10px;
                                 if place.avatar: Middle { Avatar { size: 24px; initial: place.initial; tint: place.tint; picture-url: place.picture-url; } }
                                 if !place.avatar: Middle {
-                                    Image { source: place.icon; width: 20px; height: 20px; colorize: Theme.faint; }
+                                    Image { source: place.icon; width: 20px; height: 20px; colorize: IconPack.tint(self.source, Theme.faint); }
                                 }
                                 Text {
                                     text: place.name; vertical-alignment: center; overflow: elide;
@@ -446,7 +469,7 @@ export component QuickSwitcher inherits Rectangle {
                                 }
                                 if place.badge != "": Middle {
                                     Rectangle {
-                                        width: max(18px, badge-text.preferred-width + 10px); height: 18px; border-radius: 9px; background: Theme.danger;
+                                        width: max(18px, badge-text.preferred-width + 10px); height: 18px; border-radius: Look.radius(9px); background: Theme.danger;
                                         badge-text := Text { text: place.badge; color: Theme.on-danger; font-size: 11px; font-weight: 700; }
                                     }
                                 }
@@ -476,13 +499,18 @@ export component LeavingDialog inherits Rectangle {
     callback close;
     /// How far it's open, from 0 to 1; see PopupMotion.
     in property <float> motion: 1;
-    background: rgba(0, 0, 0, 0.6 * root.motion);
+    background: Theme.scrim-on ? Theme.scrim-set.transparentize(1 - root.motion) : rgba(0, 0, 0, 0.6 * root.motion);
     TouchArea { clicked => { root.close(); } }
     Rectangle {
         opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
         width: min(440px, root.width - 48px); height: content.preferred-height;
-        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
-        drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+        background: Art.glass-dialog ? transparent : Theme.raised-fill; border-color: Look.bc(Look.dialog, Theme.edge); border-width: Look.bw(Look.dialog, 1px); border-radius: Look.r(Look.dialog, 12px);
+        if Art.dialog.length > 0 || Art.glass-dialog: ArtLayer {
+            x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.dialog, 12px);
+            layers: Art.dialog; glass: Art.glass-dialog; ground: Theme.raised-fill;
+        }
+        drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
+        DialogFrame { x: 0px; y: 0px; z: 100; }
         accessible-role: groupbox;
         accessible-label: "Leaving Yapfast";
         TouchArea { }
@@ -495,11 +523,11 @@ export component LeavingDialog inherits Rectangle {
             }
             content := VerticalLayout {
                 padding: 20px; spacing: 12px;
-                Text { text: "Leaving Yapfast"; color: Theme.text; font-size: 18px; font-weight: 700; }
+                Text { text: "Leaving Yapfast"; color: Theme.text; font-size: Look.title-size(18px); font-weight: Look.heading-weight(700); font-family: Look.heading-font(""); }
                 Text { text: "This link goes to"; color: Theme.secondary; font-size: 15px; }
                 Text { text: root.site; color: Theme.text; font-size: 17px; font-weight: 700; wrap: word-wrap; }
                 Rectangle {
-                    background: Theme.sunken; border-radius: 6px;
+                    background: Theme.sunken; border-radius: Look.radius(6px);
                     height: link-text.preferred-height + 16px;
                     link-text := Text {
                         x: 10px; width: parent.width - 20px;
@@ -525,7 +553,7 @@ export component StatusOption inherits Rectangle {
     in property <bool> checked;
     callback clicked;
     height: max(36px, content.preferred-height);
-    border-radius: 4px;
+    border-radius: Look.radius(4px);
     background: pointer.has-hover ? Theme.active : transparent;
     border-width: focus.has-focus ? 2px : 0px;
     border-color: Theme.accent;
@@ -552,7 +580,7 @@ export component StatusOption inherits Rectangle {
             if root.note != "": Text { text: root.note; color: Theme.muted; font-size: 12px; wrap: word-wrap; }
         }
         if root.checked: Middle {
-            Image { source: @image-url("icons/check.svg"); width: 16px; image-fit: contain; colorize: Theme.accent; }
+            Image { source: IconPack.check; width: 16px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.accent-text); }
         }
     }
     focus := FocusScope {
@@ -579,8 +607,8 @@ export component StatusMenu inherits Rectangle {
     callback choose(string);
     callback custom-status;
     callback edit-profile;
-    background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
-    drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+    background: Theme.raised-fill; border-color: Theme.edge; border-width: Look.line(1px); border-radius: Look.radius(8px);
+    drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
     accessible-role: groupbox;
     accessible-label: "Status";
     VerticalLayout {
@@ -607,12 +635,12 @@ export component StatusMenu inherits Rectangle {
         }
         MenuItem {
             text: root.has-custom-status ? "Change custom status" : "Set a custom status";
-            icon: @image-url("icons/smile-plus.svg");
+            icon: IconPack.smile-plus;
             clicked => { root.custom-status(); }
         }
         MenuItem {
             text: "Edit Profile";
-            icon: @image-url("icons/user-pen.svg");
+            icon: IconPack.user-pen;
             clicked => { root.edit-profile(); }
         }
     }
@@ -654,13 +682,18 @@ export component PersonDialog inherits Rectangle {
     callback close;
     /// How far it's open, from 0 to 1; see PopupMotion.
     in property <float> motion: 1;
-    background: rgba(0, 0, 0, 0.6 * root.motion);
+    background: Theme.scrim-on ? Theme.scrim-set.transparentize(1 - root.motion) : rgba(0, 0, 0, 0.6 * root.motion);
     TouchArea { clicked => { root.close(); } }
     Rectangle {
         opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
         width: min(440px, root.width - 48px); height: person-content.preferred-height;
-        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
-        drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+        background: Art.glass-dialog ? transparent : Theme.raised-fill; border-color: Look.bc(Look.dialog, Theme.edge); border-width: Look.bw(Look.dialog, 1px); border-radius: Look.r(Look.dialog, 12px);
+        if Art.dialog.length > 0 || Art.glass-dialog: ArtLayer {
+            x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.dialog, 12px);
+            layers: Art.dialog; glass: Art.glass-dialog; ground: Theme.raised-fill;
+        }
+        drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
+        DialogFrame { x: 0px; y: 0px; z: 100; }
         accessible-role: groupbox;
         accessible-label: root.prompt.title;
         TouchArea { }
@@ -674,8 +707,8 @@ export component PersonDialog inherits Rectangle {
             person-content := VerticalLayout {
                 padding: 20px; spacing: 12px;
                 HorizontalLayout {
-                    Text { text: root.prompt.title; color: Theme.text; font-size: 18px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
-                    IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
+                    Text { text: root.prompt.title; color: Theme.text; font-size: Look.title-size(18px); font-weight: Look.heading-weight(700); font-family: Look.heading-font(""); vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                    IconButton { icon: IconPack.x; label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
                 }
                 if root.prompt.text != "": Label { text: root.prompt.text; }
                 if root.prompt.options.length > 0: VerticalLayout {
@@ -751,13 +784,18 @@ export component ReactionsDialog inherits Rectangle {
     callback close-reactions;
     /// How far it's open, from 0 to 1; see PopupMotion.
     in property <float> motion: 1;
-    background: rgba(0, 0, 0, 0.6 * root.motion);
+    background: Theme.scrim-on ? Theme.scrim-set.transparentize(1 - root.motion) : rgba(0, 0, 0, 0.6 * root.motion);
     TouchArea { clicked => { root.close-reactions(); } }
     Rectangle {
         opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
         width: min(600px, root.width - 48px); height: min(720px, root.height - 96px);
-        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
-        drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+        background: Art.glass-dialog ? transparent : Theme.raised-fill; border-color: Look.bc(Look.dialog, Theme.edge); border-width: Look.bw(Look.dialog, 1px); border-radius: Look.r(Look.dialog, 12px);
+        if Art.dialog.length > 0 || Art.glass-dialog: ArtLayer {
+            x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.dialog, 12px);
+            layers: Art.dialog; glass: Art.glass-dialog; ground: Theme.raised-fill;
+        }
+        drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
+        DialogFrame { x: 0px; y: 0px; z: 100; }
         accessible-role: groupbox;
         accessible-label: root.voters ? "Votes" : "Reactions";
         TouchArea { }
@@ -771,8 +809,8 @@ export component ReactionsDialog inherits Rectangle {
                 padding-top: 16px; spacing: 0px;
                 HorizontalLayout {
                     padding-left: 24px; padding-right: 16px; padding-bottom: 12px;
-                    Text { text: root.voters ? "Votes" : "Reactions"; color: Theme.text; font-size: 20px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
-                    IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close-reactions(); } }
+                    Text { text: root.voters ? "Votes" : "Reactions"; color: Theme.text; font-size: Look.title-size(20px); font-weight: Look.heading-weight(700); font-family: Look.heading-font(""); vertical-alignment: center; horizontal-stretch: 1; }
+                    IconButton { icon: IconPack.x; label: "Close"; size: 28px; glyph: 18px; clicked => { root.close-reactions(); } }
                 }
                 Rectangle { height: 1px; background: Theme.line; }
                 HorizontalLayout {
@@ -788,7 +826,7 @@ export component ReactionsDialog inherits Rectangle {
                                     property <bool> chosen: pill.key == root.reactions-key;
                                     height: 40px;
                                     Rectangle {
-                                        y: 0px; height: 32px; border-radius: 8px;
+                                        y: 0px; height: 32px; border-radius: Look.radius(8px);
                                         background: parent.chosen ? Theme.active : pill-touch.has-hover ? Theme.hover : transparent;
                                         accessible-role: button;
                                         accessible-label: pill.name + " " + pill.count + (root.voters ? (pill.count == 1 ? " vote" : " votes") : (pill.count == 1 ? " reaction" : " reactions"));
@@ -831,7 +869,7 @@ export component ReactionsDialog inherits Rectangle {
                                         }
                                         if person.removable && person-touch.has-hover: Middle {
                                             IconButton {
-                                                icon: @image-url("icons/x.svg"); label: "Remove Reaction"; size: 28px; glyph: 16px;
+                                                icon: IconPack.x; label: "Remove Reaction"; size: 28px; glyph: 16px;
                                                 clicked => { root.remove-reactor(person.id); }
                                             }
                                         }
@@ -897,14 +935,19 @@ export component PollDialog inherits Rectangle {
     callback close;
     /// How far it's open, from 0 to 1; see PopupMotion.
     in property <float> motion: 1;
-    background: rgba(0, 0, 0, 0.6 * root.motion);
+    background: Theme.scrim-on ? Theme.scrim-set.transparentize(1 - root.motion) : rgba(0, 0, 0, 0.6 * root.motion);
     TouchArea { clicked => { root.close(); } }
     Rectangle {
         opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
         width: min(500px, root.width - 48px);
         height: min(root.height - 48px, head.preferred-height + form.preferred-height + foot.preferred-height + 40px);
-        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
-        drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+        background: Art.glass-dialog ? transparent : Theme.raised-fill; border-color: Look.bc(Look.dialog, Theme.edge); border-width: Look.bw(Look.dialog, 1px); border-radius: Look.r(Look.dialog, 12px);
+        if Art.dialog.length > 0 || Art.glass-dialog: ArtLayer {
+            x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.dialog, 12px);
+            layers: Art.dialog; glass: Art.glass-dialog; ground: Theme.raised-fill;
+        }
+        drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
+        DialogFrame { x: 0px; y: 0px; z: 100; }
         accessible-role: groupbox;
         accessible-label: "Create a Poll";
         TouchArea { }
@@ -917,8 +960,8 @@ export component PollDialog inherits Rectangle {
                 padding: 20px; spacing: 0px;
                 head := HorizontalLayout {
                     padding-bottom: 12px;
-                    Text { text: "Create a Poll"; color: Theme.text; font-size: 18px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
-                    IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
+                    Text { text: "Create a Poll"; color: Theme.text; font-size: Look.title-size(18px); font-weight: Look.heading-weight(700); font-family: Look.heading-font(""); vertical-alignment: center; horizontal-stretch: 1; }
+                    IconButton { icon: IconPack.x; label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
                 }
                 ScrollView {
                     vertical-stretch: 1;
@@ -938,14 +981,14 @@ export component PollDialog inherits Rectangle {
                         for answer[index] in root.answers: HorizontalLayout {
                             spacing: 8px;
                             Rectangle {
-                                width: 40px; height: 40px; border-radius: 6px;
+                                width: 40px; height: 40px; border-radius: Look.radius(6px);
                                 background: emoji-touch.has-hover ? Theme.hover : Theme.sunken;
                                 accessible-role: button;
                                 accessible-label: answer.emoji.glyph != "" ? "Emoji, " + answer.emoji.name + ". Change it" : "Add emoji, answer " + (index + 1);
                                 accessible-action-default => { root.pick-emoji(index, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
                                 if answer.emoji.glyph != "": EmojiFace { emoji: answer.emoji; font: root.emoji-font; side: 22px; }
                                 if answer.emoji.glyph == "": Image {
-                                    source: @image-url("icons/smile-plus.svg"); width: 20px; colorize: Theme.secondary;
+                                    source: IconPack.smile-plus; width: 20px; colorize: IconPack.tint(self.source, Theme.secondary);
                                 }
                                 emoji-touch := TouchArea {
                                     mouse-cursor: MouseCursor.pointer;
@@ -953,13 +996,13 @@ export component PollDialog inherits Rectangle {
                                 }
                                 // Taking the emoji off: a small badge on its corner.
                                 if answer.emoji.glyph != "": Rectangle {
-                                    x: parent.width - 12px; y: -6px; width: 18px; height: 18px; border-radius: 9px;
+                                    x: parent.width - 12px; y: -6px; width: 18px; height: 18px; border-radius: Look.radius(9px);
                                     background: remove-emoji-touch.has-hover ? Theme.danger : Theme.faint;
                                     border-width: 2px; border-color: Theme.raised;
                                     accessible-role: button;
                                     accessible-label: "Remove the emoji";
                                     accessible-action-default => { root.remove-emoji(index); }
-                                    Image { source: @image-url("icons/x.svg"); width: 10px; colorize: Theme.text; }
+                                    Image { source: IconPack.x; width: 10px; colorize: IconPack.tint(self.source, Theme.text); }
                                     remove-emoji-touch := TouchArea {
                                         mouse-cursor: MouseCursor.pointer;
                                         clicked => { root.remove-emoji(index); }
@@ -974,7 +1017,7 @@ export component PollDialog inherits Rectangle {
                             }
                             if root.answers.length > 1: Middle {
                                 IconButton {
-                                    icon: @image-url("icons/trash-2.svg"); label: "Remove answer " + (index + 1); size: 32px; glyph: 18px;
+                                    icon: IconPack.trash-2; label: "Remove answer " + (index + 1); size: 32px; glyph: 18px;
                                     clicked => { root.remove-answer(index); }
                                 }
                             }
@@ -982,7 +1025,7 @@ export component PollDialog inherits Rectangle {
                         if root.can-add: HorizontalLayout {
                             alignment: start;
                             ActionButton {
-                                text: "Add another answer"; ghost: true; small: true; icon: @image-url("icons/circle-plus.svg");
+                                text: "Add another answer"; ghost: true; small: true; icon: IconPack.circle-plus;
                                 clicked => { root.add-answer(); }
                             }
                         }
@@ -1002,10 +1045,10 @@ export component PollDialog inherits Rectangle {
                                 spacing: 10px; padding-top: 4px;
                                 Middle {
                                     Rectangle {
-                                        width: 20px; height: 20px; border-radius: 5px;
-                                        background: root.multiselect ? Theme.accent : transparent;
+                                        width: 20px; height: 20px; border-radius: Look.radius(5px);
+                                        background: root.multiselect ? Theme.accent-fill : transparent;
                                         border-width: root.multiselect ? 0px : 2px; border-color: Theme.faint;
-                                        if root.multiselect: Image { source: @image-url("icons/check.svg"); width: 14px; height: 14px; colorize: Theme.on-accent; }
+                                        if root.multiselect: Image { source: IconPack.check; width: 14px; height: 14px; colorize: IconPack.tint(self.source, Theme.on-accent); }
                                     }
                                 }
                                 Text { text: "Allow Multiple Answers"; color: Theme.text; font-size: 15px; vertical-alignment: center; horizontal-stretch: 1; }

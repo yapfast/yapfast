@@ -1,4 +1,7 @@
-import { Theme, Label, Popup } from "theme.slint";
+import { IconPack } from "media.slint";
+import { Theme, Label, Popup, Look } from "theme.slint";
+import { Art, ArtLayer, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil } from "theme_art.slint";
+import { DialogFrame } from "theme_layout.slint";
 import { ActionButton, IconButton, MenuItem, TextField } from "controls.slint";
 
 /// A way to confirm that the prompt lists, by its id: 0 an authenticator
@@ -43,7 +46,7 @@ export component MfaDialog inherits Rectangle {
     callback cancel;
     /// How far it's open, from 0 to 1; see PopupMotion.
     in property <float> motion: 1;
-    background: rgba(0, 0, 0, 0.6 * root.motion);
+    background: Theme.scrim-on ? Theme.scrim-set.transparentize(1 - root.motion) : rgba(0, 0, 0, 0.6 * root.motion);
     // The warning's button waits ten seconds, as Discord's does, each time
     // it shows.
     property <bool> warning: root.prompt.warning;
@@ -56,8 +59,13 @@ export component MfaDialog inherits Rectangle {
     Rectangle {
         opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
         width: min(440px, root.width - 48px); height: content.preferred-height;
-        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
-        drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+        background: Art.glass-dialog ? transparent : Theme.raised-fill; border-color: Look.bc(Look.dialog, Theme.edge); border-width: Look.bw(Look.dialog, 1px); border-radius: Look.r(Look.dialog, 12px);
+        if Art.dialog.length > 0 || Art.glass-dialog: ArtLayer {
+            x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.dialog, 12px);
+            layers: Art.dialog; glass: Art.glass-dialog; ground: Theme.raised-fill;
+        }
+        drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
+        DialogFrame { x: 0px; y: 0px; z: 100; }
         accessible-role: groupbox;
         accessible-label: "Multi-Factor Authentication";
         TouchArea { }
@@ -70,8 +78,8 @@ export component MfaDialog inherits Rectangle {
             content := VerticalLayout {
                 padding: 20px; spacing: 12px;
                 HorizontalLayout {
-                    Text { text: "Multi-Factor Authentication"; color: Theme.text; font-size: 18px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
-                    IconButton { icon: @image-url("icons/x.svg"); label: "Cancel"; size: 28px; glyph: 18px; clicked => { root.cancel(); } }
+                    Text { text: "Multi-Factor Authentication"; color: Theme.text; font-size: Look.title-size(18px); font-weight: Look.heading-weight(700); font-family: Look.heading-font(""); vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                    IconButton { icon: IconPack.x; label: "Cancel"; size: 28px; glyph: 18px; clicked => { root.cancel(); } }
                 }
                 if root.prompt.listing: VerticalLayout {
                     spacing: 2px;

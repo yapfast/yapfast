@@ -432,6 +432,103 @@ mod current_binding_storage {
     }
 }
 
+/// Yapfast: runs `f` with the properties it sets held back. Each property
+/// without a binding that `f` sets tells what depends on it only once `f`
+/// returns, and only if its value then differs from the one it had before:
+/// a value set and set back, as a theme's tokens put back to stock and then
+/// to the theme's own again, invalidates nothing. Bindings that read a held
+/// property during `f` see its value from before. Nested calls join the
+/// outer batch.
+#[cfg(feature = "std")]
+pub fn batch<R>(f: impl FnOnce() -> R) -> R {
+    yapfast_batch::batch(f)
+}
+
+#[cfg(feature = "std")]
+mod yapfast_batch {
+    use super::Property;
+    use std::boxed::Box;
+    use std::cell::RefCell;
+    use std::vec::Vec;
+    use std::collections::HashSet;
+
+    /// A held property: its address, its value before the batch, and how to
+    /// compare and settle it.
+    struct Held {
+        property: *const (),
+        previous: *mut (),
+        settle: unsafe fn(*const (), *mut ()),
+    }
+
+    #[derive(Default)]
+    struct Batch {
+        seen: HashSet<*const ()>,
+        held: Vec<Held>,
+    }
+
+    std::thread_local! {
+        static BATCH: RefCell<Option<Batch>> = const { RefCell::new(None) };
+    }
+
+    pub(super) fn batch<R>(f: impl FnOnce() -> R) -> R {
+        let outer = BATCH.with_borrow_mut(|batch| {
+            if batch.is_some() {
+                return true;
+            }
+            *batch = Some(Batch::default());
+            false
+        });
+        if outer {
+            return f();
+        }
+        struct Settle;
+        impl Drop for Settle {
+            fn drop(&mut self) {
+                let Some(batch) = BATCH.with_borrow_mut(Option::take) else { return };
+                for held in batch.held {
+                    // Safety: `hold` made these for a property that lives at
+                    // least as long as the batch, and a `Box` of its value.
+                    unsafe { (held.settle)(held.property, held.previous) };
+                }
+            }
+        }
+        let _settle = Settle;
+        f()
+    }
+
+    /// Holds a property's change back if a batch is on; false if not.
+    pub(super) fn hold<T: Clone + PartialEq>(property: &Property<T>, previous: T) -> bool {
+        BATCH.with_borrow_mut(|batch| {
+            let Some(batch) = batch else { return false };
+            let address = property as *const Property<T> as *const ();
+            if batch.seen.insert(address) {
+                batch.held.push(Held {
+                    property: address,
+                    previous: Box::into_raw(Box::new(previous)) as *mut (),
+                    settle: settle::<T>,
+                });
+            }
+            true
+        })
+    }
+
+    /// Safety: `property` is a live `Property<T>` and `previous` a
+    /// `Box<T>` from [`hold`].
+    unsafe fn settle<T: Clone + PartialEq>(property: *const (), previous: *mut ()) {
+        unsafe {
+            let previous = Box::from_raw(previous as *mut T);
+            let property = &*(property as *const Property<T>);
+            let changed = property.handle.access(|_| *property.value.get() != *previous);
+            if changed {
+                property.handle.mark_dirty(
+                    #[cfg(slint_debug_property)]
+                    property.debug_name.borrow().as_str(),
+                );
+            }
+        }
+    }
+}
+
 /// Evaluate a function without registering any property dependencies.
 pub fn evaluate_no_tracking<T>(f: impl FnOnce() -> T) -> T {
     current_binding_storage::set(None, f)
@@ -1054,13 +1151,18 @@ impl<T: Clone> Property<T> {
         }
 
         // Safety: PropertyHandle::access ensure that the value is locked
-        let has_value_changed = self.handle.access(|_| unsafe {
-            *self.value.get() != t && {
-                *self.value.get() = t;
-                true
-            }
+        let previous = self.handle.access(|binding| unsafe {
+            (*self.value.get() != t).then(|| (core::mem::replace(&mut *self.value.get(), t), binding.is_none()))
         });
-        if has_value_changed {
+        if let Some((previous, unbound)) = previous {
+            // Yapfast: in a `batch`, a property without a binding tells its
+            // dependents only at the batch's end, and only if it changed.
+            #[cfg(feature = "std")]
+            if unbound && yapfast_batch::hold(self, previous) {
+                return;
+            }
+            #[cfg(not(feature = "std"))]
+            let _ = (previous, unbound);
             self.handle.mark_dirty(
                 #[cfg(slint_debug_property)]
                 self.debug_name.borrow().as_str(),

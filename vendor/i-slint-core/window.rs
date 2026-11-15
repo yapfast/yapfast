@@ -690,6 +690,8 @@ pub struct WindowInner {
     touch_state: RefCell<TouchState>,
     /// How the window adapter shows the current mouse cursor, `None` before the window asked.
     mouse_cursor_handling: RefCell<Option<MouseCursorHandling>>,
+    /// Yapfast: the `yapfast_cursors` generation the adapter's cursor was last set in.
+    yapfast_cursors_seen: Cell<u32>,
     /// The pointer position for the mouse cursor the renderer draws, `None` before the pointer
     /// moves or after it exits. See [`MouseCursorHandling::Render`].
     /// Set when dispatching `PointerMoved` and `PointerExited`, whose processing then schedules
@@ -770,6 +772,7 @@ impl WindowInner {
             mouse_input_state: Default::default(),
             touch_state: Default::default(),
             mouse_cursor_handling: Default::default(),
+            yapfast_cursors_seen: Default::default(),
             software_cursor_position: Default::default(),
             cursor_image_overlay: Default::default(),
             drag_image_overlay: Default::default(),
@@ -1252,10 +1255,16 @@ impl WindowInner {
             // A delay was just set up, preserve the old cursor
             mouse_input_state.cursor = old_cursor;
         } else if (old_cursor != mouse_input_state.cursor
-            || self.mouse_cursor_handling.borrow().is_none())
+            || self.mouse_cursor_handling.borrow().is_none()
+            // Yapfast: the app's cursors changed since the adapter was last given one.
+            || self.yapfast_cursors_seen.get() != crate::yapfast_cursors::generation())
             && let Some(window_adapter) = window_adapter.internal(crate::InternalToken)
         {
-            let handling = window_adapter.set_mouse_cursor(mouse_input_state.cursor.clone());
+            self.yapfast_cursors_seen.set(crate::yapfast_cursors::generation());
+            let handling = window_adapter.set_mouse_cursor(crate::yapfast_cursors::custom(
+                mouse_input_state.cursor.clone(),
+                self.scale_factor(),
+            ));
             self.mouse_cursor_handling.replace(Some(handling));
         }
 
@@ -1935,7 +1944,9 @@ impl WindowInner {
         if state.cursor != cursor {
             state.cursor = cursor.clone();
             if let Some(window_adapter) = self.window_adapter().internal(crate::InternalToken) {
-                window_adapter.set_mouse_cursor(cursor);
+                self.yapfast_cursors_seen.set(crate::yapfast_cursors::generation());
+                window_adapter
+                    .set_mouse_cursor(crate::yapfast_cursors::custom(cursor, self.scale_factor()));
             }
         }
         self.mouse_input_state.set(state);

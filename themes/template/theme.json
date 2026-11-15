@@ -1,0 +1,259 @@
+{
+  "theme_api": 1,
+  "id": "com.example.template",
+  "name": "Template",
+  "version": "1.0.0",
+  "description": "A starting point: copy this folder, change the id and name, and make it yours.",
+  "authors": ["Your Name"],
+  "license": "CC0-1.0",
+  "source": "https://github.com/your-name/your-theme",
+  "preview": ["preview.png"],
+
+  "shape": {
+    "button": { "radius": 8 },
+    "field": { "radius": 8 },
+    "composer": { "radius": 12 },
+    "card": { "radius": 14, "inset_top": 0, "shadow": { "blur": 24, "y": 8, "colour": "#00000066" } },
+    "card-button": { "radius": 8, "border": 1, "border_colour": "#ffffff33" },
+    "menu": { "radius": 10 },
+    "dialog": { "radius": 14 },
+    "chip": { "radius": 999 },
+    "toggle": { "radius": 999 },
+    "avatar": { "radius": 50 },
+    "actions": { "radius": 10, "shadow": { "blur": 12, "y": 4, "colour": "#00000055" } },
+    "row": { "radius": 6, "inset": [8, 1], "stripe": { "colour": "#ffffff05", "lists": ["members"] } },
+    "label": { "radius": 6, "case": "as written" },
+    "header": { "border": 0 },
+    "card_section": { "radius": 8, "bar": "#ffffff0d" },
+    "call": { "radius": 14, "border": 1, "border_colour": "#ffffff1f" },
+    "stream": { "radius": 10, "shadow": { "blur": 16, "y": 6, "colour": "#00000066" } },
+    "toast": { "radius": 12 },
+    "picker": { "radius": 14 },
+    "popout": { "radius": 12 },
+    "scrollbar": { "radius": 2, "width": 3, "hover_width": 8 },
+    "radii": { "small": 4, "medium": 8, "large": 12 },
+    "outline_width": 1,
+    "borders": { "tile": "dashed", "divider": { "style": "dotted", "gap": 4 }, "actions": "solid",
+                 "panes": { "style": "dotted", "gap": 3 } }
+  },
+  "type": {
+    "body": { "size": 15 },
+    "headings": { "weight": 800, "letter_spacing": 0.2 },
+    "names": { "weight": 600, "style": "ransom",
+               "papers": [["#f5f1e8", "#141414"], ["#141414", "#f5f1e8"]] },
+    "labels": { "letter_spacing": 1 },
+    "small": { "size": 13 },
+    "time": { "size": 12, "weight": 500 }
+  },
+  "spacing": {
+    "density": "default",
+    "message_group_gap": 18,
+    "avatar_size": 40
+  },
+  "motion": {
+    "quick": 140,
+    "popup": 160,
+    "curve": "ease-out",
+    "hover": "lift",
+    "press": "scale",
+    "open": "zoom",
+    "close": "reverse",
+    "unfocused": "slow"
+  },
+  "animations": [
+    { "name": "unread breathes", "slot": "unread", "property": "opacity",
+      "values": [1, 0.55, 1], "period": 2400, "easing": "ease-in-out" }
+  ],
+  "effects": {
+    "channel.name": { "effect": "decrypt", "duration": 500 }
+  },
+  "art": {
+    "surfaces": {
+      "chat": { "texture": "paper", "colour": "#ffffff", "opacity": 0.05, "blend": "screen" },
+      "sidebar": [{ "texture": "noise", "colour": "#000000", "opacity": 0.12, "scale": 2 },
+                  { "texture": "halftone", "colour": "#7aa2ff", "opacity": 0.25, "size": [200, 40],
+                    "position": "bottom", "reserve": { "bottom": 44 } }],
+      "account": { "texture": "grain", "colour": "#ffffff", "opacity": 0.04 },
+      "actions": { "texture": "grain", "colour": "#ffffff", "opacity": 0.04 },
+      "profile-pane": [{ "texture": "noise", "colour": "#808080", "opacity": 0.04 },
+                       { "texture": "halftone", "colour": "#7aa2ff", "opacity": 0.08,
+                         "size": [96, 96], "position": "bottom right" }],
+      "settings": { "texture": "noise", "colour": "#ffffff", "opacity": 0.04 },
+      "embed": { "texture": "grain", "colour": "#ffffff", "opacity": 0.04 },
+      "code": { "texture": "halftone", "colour": "#ffffff", "opacity": 0.03 },
+      "row-selected": { "texture": "paper", "colour": "#ffffff", "opacity": 0.08 },
+      "card_over": { "texture": "grain", "colour": "#ffffff", "opacity": 0.03 },
+      "footer": { "texture": "halftone", "colour": "#7aa2ff", "opacity": 0.06 },
+      "call": { "texture": "halftone", "colour": "#7aa2ff", "opacity": 0.06 },
+      "toast": { "texture": "grain", "colour": "#ffffff", "opacity": 0.04 },
+      "tooltip": { "texture": "noise", "colour": "#ffffff", "opacity": 0.04 },
+      "picker": { "texture": "noise", "colour": "#ffffff", "opacity": 0.03 },
+      "popout": { "texture": "grain", "colour": "#ffffff", "opacity": 0.04 },
+      "aside": { "texture": "paper", "colour": "#ffffff", "opacity": 0.04, "blend": "screen" },
+      "lightbox": { "texture": "noise", "colour": "#000000", "opacity": 0.2 }
+    },
+    "footer_height": 48,
+    "overlays": [
+      { "kind": "vignette", "opacity": 0.25 },
+      { "kind": "scanlines", "size": 3, "opacity": 0.04, "on": "chat" }
+    ],
+    "glass": { "surfaces": ["menu", "dialog", "picker", "popout"], "blur": 16, "opacity": 0.85, "highlight": "#ffffff26", "gap": 0,
+               "rim": { "colour": "#00000066", "width": 1 } },
+    "text": {
+      "headings": { "shadow": { "blur": 0, "x": 0, "y": 1, "colour": "#00000099" } },
+      "names": { "glow": { "colour": "#7aa2ff66", "size": 2 } },
+      "body": { "glow": { "colour": "#7aa2ff1a", "size": 1 } }
+    },
+    "particles": [
+      { "preset": "sparkles", "on": "message.sent", "colours": ["#7aa2ff", "#ffffff"], "count": 10,
+        "from": "composer", "z": "under" }
+    ],
+    "events": { "click": "ripple", "hover": "gloss", "select": { "effect": "highlighter", "colour": "#7aa2ff" }, "reaction": "stamp", "row": "none",
+                "name_hover": "decrypt" },
+    "foil": { "surfaces": ["card"], "opacity": 0.12 },
+    "transition": { "kind": "fade", "duration": 260 }
+  },
+  "sounds": {
+    "send": "sounds/send.wav",
+    "hover": { "file": "sounds/tick.wav", "volume": 0.6 }
+  },
+  "icons": {
+    "hash": "icons/hash.svg",
+    "send-horizontal": { "file": "icons/send.svg", "colour": "accent-text" }
+  },
+  "cursors": {
+    "default": { "image": ["cursors/default.png", "cursors/default@2x.png"], "hotspot": [16, 16] },
+    "pointer": { "image": ["cursors/pointer.png", "cursors/pointer@2x.png"], "hotspot": [16, 16] },
+    "hidpi": "@2x",
+    "wait": { "frames": ["cursors/default.png", "cursors/move/n-slow.png"], "ms": 400, "hotspot": [16, 16] },
+    "transitions": {
+      "default>pointer": { "frames": ["cursors/move/s-slow.png", "cursors/pointer.png"], "ms": 40, "hotspot": [16, 16] },
+      "pointer>default": { "frames": ["cursors/move/n-slow.png", "cursors/default.png"], "ms": 40, "hotspot": [16, 16] },
+      "press": { "frames": ["cursors/move/s-fast.png", "cursors/move/s-slow.png"], "ms": [50, 80], "hotspot": [16, 16] }
+    },
+    "motion": {
+      "slow": 60, "fast": 700,
+      "default": {
+        "move": "cursors/move/{dir}-{speed}.png", "hotspot": [16, 16],
+        "settle": { "frames": ["cursors/move/{dir}-slow.png", "cursors/default.png"], "ms": [50, 70], "slow_start": 1 },
+        "idle": { "frames": ["cursors/default.png", "cursors/move/n-slow.png"], "ms": 900 },
+        "idle_after": 1500
+      }
+    },
+    "trail": { "sheet": "cursors/trail.png", "cell": 16, "sprites": [[0, 0], [16, 0]], "life": 900,
+               "every": 12, "per_step": 1, "jitter": 8, "count": 48, "press": 4, "opacity": 0.5 }
+  },
+  "layout": {
+    "rail": "left",
+    "members": "collapsed",
+    "composer": "bottom",
+    "messages": "flat",
+    "chat_avatars": true,
+    "members_style": "list",
+    "grid": { "columns": 3, "size": 56 },
+    "tree": { "expand": "one", "root": "~/", "dms": "dm" },
+    "irc": { "time_width": 56, "nick_width": 120, "separator": "│", "rule": false },
+    "bubbles": { "max_width": 72, "radius": 18,
+                 "own": { "ground": "linear(180deg, #3558c9, #23409e)",
+                          "art": [{ "texture": "grain", "colour": "#ffffff", "opacity": 0.08 }] },
+                 "own_text": "#ffffff" },
+    "cards": { "tilt": 0, "gap": 8, "padding": 12, "stagger": 0, "tint_art": true,
+               "shadow": { "blur": 0, "x": 4, "y": 4, "colour": "#00000040" },
+               "art": [{ "texture": "paper", "colour": "#f5f1e8", "opacity": 0.8, "position": "top",
+                         "size": [72, 18], "rotation": -3 },
+                       { "texture": "kraft", "colour": "#c8a878", "opacity": 0.5, "position": "bottom",
+                         "size": ["full", 6] }],
+               "tab": { "text": "{name}", "font": "labels", "size": 11, "colour": "#141414" } },
+    "rail_tiles": { "shape": "square", "width": 48, "height": 48, "radius": 12, "gap": 8, "pad": 4, "tilt": 0,
+                    "label": "none", "hover": "lift", "hover_amount": 2, "hover_ms": 120,
+                    "selected": { "offset": [0, 0] }, "pill": true, "focus": "tile" },
+    "channel_rows": { "height": 34, "gap": 2, "inset": 8,
+                      "separator": { "colour": "#2a2c33", "width": 1, "inset": [8, 8] },
+                      "selected": { "underline": { "colour": "#7aa2ff", "width": 2, "offset": 2 } },
+                      "meta": { "unread": "badge", "voice": "voice · {n}" },
+                      "headers": { "case": "upper", "text": "{name}" } },
+    "member_rows": { "height": 42, "status": "dot",
+                     "meta": { "idle": "away", "listening": "listening · {detail|name}", "playing": "playing · {name}", "max_width": 120 },
+                     "headers": { "text": "{role} — {n}" } }
+  },
+  "content": {
+    "media": { "tint": { "colour": "#7aa2ff", "amount": 0.2 } },
+    "avatars": { "shape": { "rounded": 10 }, "decorations": "keep", "ring": { "colour": "#7aa2ff", "width": 2 },
+                 "mode": "initial", "initial": { "font": "headings", "size": 0.8, "border": { "colour": "#7aa2ff", "width": 1 },
+                                                 "hover": "picture", "members": false } },
+    "names": { "colours": "clamp", "styles": "keep", "nameplates": "tint" },
+    "profiles": { "themes": "theme", "effects": "keep" },
+    "embeds": "theme",
+    "activity": "theme"
+  },
+  "chrome": {
+    "labels": { "members_group": "{role} — {n}", "new": "New", "composer": "Message #{channel}",
+                "typing": "{name} typing…", "reaction": "(+{n})",
+                "topic": "{topic}", "member_count": "", "day": "{date}" },
+    "prefix": { "channel": "", "author": "", "member_by_role": [""] },
+    "system": { "join": "", "leave": "", "notice": "" },
+    "status": { "text": "{channel} · {typing}", "position": "below" },
+    "suffix": { "author": "" },
+    "time": "HH:MM",
+    "hide": [],
+    "rail": { "mode": "icons", "width": 150 },
+    "composer": { "style": "console", "caret": "block", "prompt": "", "line": "#3a3d46", "focus_line": "#7aa2ff",
+                  "caret_colour": "#7aa2ffcc", "draw": 420, "typing": 38 },
+    "font": "code",
+    "topbar": { "workspaces": 5, "from": "servers", "centre": "{name}@{server}", "right": "{now_playing}  {time}",
+                "height": 26, "size": 12, "underline": "#7aa2ff", "effect": "decrypt" },
+    "members": { "columns": {} },
+    "tree": { "lists": [], "colour": "faint", "counts": { "mentions": "", "unread": "" } },
+    "box": { "panes": [], "chars": "┌┐└┘─│", "title": "[ {name} ]", "titles": { "members": "[ {name}: {n} ]" },
+             "colour": "faint", "size": 14 },
+    "folders": { "open": "▾", "closed": "▸", "suffix": "/" }
+  },
+
+  "options": [
+    { "id": "vignette", "label": "Vignette", "kind": "toggle", "default": true,
+      "description": "The darkened edges of the window.",
+      "off": { "art.overlays.vignette": null } },
+    { "id": "rail", "label": "Rail side", "kind": "choice", "default": "left",
+      "choices": [{ "value": "left", "label": "Left" },
+                  { "value": "right", "label": "Right", "set": { "layout.rail": "right" } }] },
+    { "id": "messages", "label": "Messages", "kind": "choice", "default": "flat",
+      "choices": [{ "value": "flat", "label": "Flat" },
+                  { "value": "cards", "label": "Cards", "set": "cards" }] },
+    { "id": "blur", "label": "Glass blur", "kind": "slider", "min": 0, "max": 32, "step": 1,
+      "default": 16, "paths": ["art.glass.blur"] }
+  ],
+  "sets": {
+    "cards": { "layout.messages": "cards", "art.overlays.scanlines": null }
+  },
+  "variants": {
+    "dark": {
+      "base": "yap",
+      "content": { "names": { "palette": ["#7aa2ff", "#93e0b3", "#f5c27a", "#e79bd8"] } },
+      "colours": {
+        "accent": "#7aa2ff",
+        "accent-hover": "#93b4ff",
+        "on-accent": "#0b1020",
+        "accent-text": "#93b4ff",
+        "selection": "#7aa2ff59",
+        "account": "#1a1d27",
+        "actions": "#23262f",
+        "actions-hover": "#7aa2ff33",
+        "row-selected-text": "#eef0f4",
+        "card-button": "#00000080",
+        "card-button-hover": "#000000b3",
+        "card-button-icon": "#ffffff",
+        "mention-chip": "#93b4ff"
+      }
+    },
+    "light": {
+      "base": "sakura",
+      "content": { "media": { "dither": { "palette": ["#2b2140", "#9a6fb0", "#fbeef3"], "matrix": 4, "scale": 1 } } },
+      "colours": {
+        "accent": "#3558c9",
+        "accent-hover": "#2a48ad",
+        "on-accent": "#ffffff",
+        "accent-text": "#2a48ad"
+      }
+    }
+  }
+}

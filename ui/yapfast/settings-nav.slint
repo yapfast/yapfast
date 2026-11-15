@@ -1,12 +1,20 @@
+import { IconPack } from "../media.slint";
 import { Theme, Middle } from "../theme.slint";
 import { Avatar, TextField } from "../controls.slint";
 import { ChannelRow } from "../rail.slint";
 import { ScrollView } from "../scrollview.slint";
 import { BuildStamp, UpdateNotice } from "build-info.slint";
 import { NewTags } from "new-tags.slint";
+import { Art } from "../theme_art.slint";
 
 // Section IDs are the existing SettingsScreen contract. Only implemented pages
 // belong here; Discord's billing and subscription destinations have no adapter.
+/// The settings pages' numbers that more than one place names.
+export global SettingsSections {
+    /// Settings → Themes.
+    out property <int> themes: 11;
+}
+
 export component SettingsNavigation inherits Rectangle {
     in property <int> selected;
     in property <bool> with-discord;
@@ -23,7 +31,10 @@ export component SettingsNavigation inherits Rectangle {
     function matches(text: string) -> bool {
         return root.query == "" || text.to-lowercase().replace-all(root.query.to-lowercase(), "") != text.to-lowercase();
     }
-    width: 266px; horizontal-stretch: 0; background: Theme.chat;
+    width: 266px; horizontal-stretch: 0; background: Art.glass-settings ? transparent : Theme.chat-fill;
+    // On glass, the sections' own ground lies over the frame's glass, as
+    // thin as the glass's own.
+    if Art.glass-settings: Rectangle { background: Theme.chat-fill; opacity: Art.glass-opacity; }
     VerticalLayout {
         padding-top: 16px; spacing: 16px;
         HorizontalLayout {
@@ -40,7 +51,7 @@ export component SettingsNavigation inherits Rectangle {
                     HorizontalLayout {
                         alignment: start; spacing: 4px;
                         Text { text: "Edit Profile"; color: edit-touch.has-hover ? Theme.text : Theme.muted; font-size: 13px; vertical-alignment: center; }
-                        Image { source: @image-url("../icons/pencil.svg"); width: 12px; image-fit: contain; colorize: Theme.muted; }
+                        Image { source: IconPack.pencil; width: 12px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
                     }
                     edit-focus := FocusScope {
                         key-pressed(event) => {
@@ -62,19 +73,20 @@ export component SettingsNavigation inherits Rectangle {
                 padding-left: 16px; padding-right: 16px; padding-bottom: 16px; spacing: 0px; alignment: start;
                 for entry in [
                     { heading: true, text: "Account", id: -1 },
-                    { text: "My Account", icon: @image-url("../icons/user.svg"), id: 0 },
+                    { text: "My Account", icon: IconPack.user, id: 0 },
                     { heading: true, text: "Experience", id: -1 },
-                    { text: "Voice & Video", icon: @image-url("../icons/mic.svg"), id: 1 },
-                    { text: "Messages", icon: @image-url("../icons/message-circle.svg"), id: 2 },
-                    { text: "Notifications", icon: @image-url("../icons/bell.svg"), id: 3 },
-                    { text: "Sounds", icon: @image-url("../icons/volume-2.svg"), id: 5 },
-                    { text: "Appearance", icon: @image-url("../icons/palette.svg"), id: 7 },
+                    { text: "Voice & Video", icon: IconPack.mic, id: 1 },
+                    { text: "Messages", icon: IconPack.message-circle, id: 2 },
+                    { text: "Notifications", icon: IconPack.bell, id: 3 },
+                    { text: "Sounds", icon: IconPack.volume-2, id: 5 },
+                    { text: "Appearance", icon: IconPack.palette, id: 7 },
                     { heading: true, text: "App Settings", id: -1 },
-                    { text: "Discord", icon: @image-url("../icons/discord.svg"), id: 4 },
-                    { text: "Game Activity", icon: @image-url("../icons/play.svg"), id: 8 },
-                    { text: "Keybinds", icon: @image-url("../icons/keyboard.svg"), id: 10 },
-                    { text: "Advanced", icon: @image-url("../icons/settings.svg"), id: 6 },
-                    { text: "About", icon: @image-url("../icons/help-circle.svg"), id: 9 },
+                    { text: "Discord", icon: IconPack.discord, id: 4 },
+                    { text: "Game Activity", icon: IconPack.play, id: 8 },
+                    { text: "Keybinds", icon: IconPack.keyboard, id: 10 },
+                    { text: "Themes", icon: IconPack.brush, id: SettingsSections.themes },
+                    { text: "Advanced", icon: IconPack.settings, id: 6 },
+                    { text: "About", icon: IconPack.help-circle, id: 9 },
                 ]: VerticalLayout {
                     if entry.heading && root.query == "": VerticalLayout {
                         padding-top: entry.text == "Account" ? 0px : 16px;

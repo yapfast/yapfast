@@ -1,8 +1,9 @@
+import { IconPack } from "media.slint";
 import { AccountPopover } from "yapfast/account-popover.slint";
 import { ClientStyle } from "yapfast/style.slint";
 import { WindowBar } from "yapfast/window-bar.slint";
 import { Palette } from "std-widgets.slint";
-import { ListView, Autoscroll, AutoscrollMarker } from "scrollview.slint";
+import { ListView, ScrollView, Autoscroll, AutoscrollMarker } from "scrollview.slint";
 // The UI's typeface, Atkinson Hyperlegible Next; ExtraBold serves weight 900.
 import "fonts/DMSans[opsz,wght].ttf";
 import "fonts/DMSans-Italic[opsz,wght].ttf";
@@ -38,16 +39,19 @@ import "fonts/DisplayName-Journal.ttf";
 // Yapfast's window. Its parts live beside it, by area: theme.slint, controls.slint,
 // discord.slint, voice.slint, rail.slint, composer.slint, messages.slint,
 // settings.slint, people.slint, friends.slint, dialogs.slint and sign-in.slint.
-import { Theme, Tip, BadgeTip, ReactionHover, Middle, Popup, PopupMotion, Twemoji } from "theme.slint";
+import { Theme, Tip, BadgeTip, ReactionHover, Middle, Popup, PopupMotion, Twemoji, Look } from "theme.slint";
+import { Arrange, DashedOutline, DashedRule, ActionsFrame, PaneRule } from "theme_layout.slint";
 import { TitleBar, ResizeEdges } from "title_bar.slint";
+import { Art, ArtImage, ArtLayer, ArtOverlays, ArtParticles, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil, ArtTransition, ArtPicture, ArtEmitter } from "theme_art.slint";
 import { InboxRow, InboxPopout } from "yapfast/inbox.slint";
 import { GifPicker, GifTile, PickerTab } from "gifs.slint";
 import { StickerPicker, StickerGridTile } from "stickers.slint";
 import { ServerTags, ActionButton, IconButton, Motion, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, QuickDeviceMenu, HeaderToggle, Banner, StatusText, Nameplate, AccountLook, PictureStore } from "controls.slint";
 import { PersonRow, VoiceCard, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, StreamPip, CallInvite, JoinVoice, ParticipantGrid, CallControls, IncomingCall, SwitchDialog, InputLevel, ShareMenu, ShareScreen, VolumeMenu, Soundboard, SoundRow } from "voice.slint";
-import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList, VoiceCardView } from "rail.slint";
+import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList, ServerTree, VoiceCardView } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
 import { InlineEdit, EmojiCell, EmojiRow, EmojiTile, EmojiSection, RailSection, EmojiCard, EmojiCardView, MessageStickerCard, MessageStickerCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, VoicePlayer, Polls } from "messages.slint";
+import { ThemesPage, ThemeReviewDialog, TryBanner, ThemesSettings } from "themes.slint";
 import { Choices, SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, KeybindSettings, KeybindRow, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable, AboutSettings } from "settings.slint";
 import { ActivityMenu, MemberRow, MemberActivityRow, ProfileData, BadgeTipCard, ProfileServerRow, MemberPanel, ProfileCard, ProfileModal, ServerCard, RoleCard, TagCard, TagCardView } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
@@ -69,14 +73,31 @@ import { BrowseRow, BrowseScreen } from "browse.slint";
 
 // Rust sees these, besides YapfastWindow.
 export { ClientStyle } from "yapfast/style.slint";
+import { SettingsSections } from "yapfast/settings-nav.slint";
+export { SettingsSections } from "yapfast/settings-nav.slint";
 export { BuildInfo, Updates, UpdateStatus } from "yapfast/build-info.slint";
 import { NewTags } from "yapfast/new-tags.slint";
 export { NewTags } from "yapfast/new-tags.slint";
 export { InboxRow } from "yapfast/inbox.slint";
-export { Theme, Badges, Popup, Twemoji, Looks } from "theme.slint";
+export { Theme, Badges, Popup, Twemoji, Looks, Look, Shape, SlotMotion } from "theme.slint";
+export { Arrange, BubbleGel, Dash, Scrap } from "theme_layout.slint";
+export { ThemeOptions, ThemeOptionRow } from "settings.slint";
+export { Creator, CreatorFont, CreatorStart } from "creator.slint";
+export { ThemeContent } from "theme_content.slint";
+export { Chrome, Workspace } from "theme_chrome.slint";
+export { Rails, ChannelLists, MemberLists, TileLayer, ListGlyph, FolderServer } from "theme_lists.slint";
+import { RuleLine, ChannelLists as ListsOfChannels } from "theme_lists.slint";
+export { Picker, PickerRow } from "theme_picker.slint";
+import { Chrome, BoxFrame } from "theme_chrome.slint";
+import { TopBar } from "theme_topbar.slint";
+import { CursorTrail, CursorTrailLayer } from "theme_cursor.slint";
+export { CursorTrail, TrailSprite } from "theme_cursor.slint";
+export { Trim } from "theme_trim.slint";
+import { Trim, FrameGround } from "theme_trim.slint";
 export { Autoscroll } from "scrollview.slint";
+export { Art, ArtImage, ArtOverlay, ArtText, ArtParticle, CardArt, Reserve } from "theme_art.slint";
 export { PersonRow, CallLink, ShareScreen, VoiceCard } from "voice.slint";
-export { ServerRow, RoomRow, FolderServer } from "rail.slint";
+export { ServerRow, RoomRow } from "rail.slint";
 export { PictureStore, EmojiAnimations, Motion, AccountLook, NameStyleRow, NameLetter, EffectLayer, NameStyles, ActivityClock, ServerTags } from "controls.slint";
 export { ServerTagRow } from "server.slint";
 export { ActiveFace, ActiveRowKind, ActiveNowRow, ActiveNowCard } from "active_now.slint";
@@ -89,6 +110,8 @@ export { ContactRow, PlaceRow, ReactionPill, ReactorRow, PollAnswerDraft } from 
 export { FoundRow, PickRow } from "header.slint";
 export { GifTile, GifFavorites } from "gifs.slint";
 export { SelectChoice, ModalField } from "interactions.slint";
+export { ThemesPage, ThemeListing, ThemeReview, CostRow } from "themes.slint";
+export { IconPack, Cue } from "media.slint";
 export { CommandChoice, CommandOptionPill } from "app_commands.slint";
 
 export component YapfastWindow inherits Window {
@@ -111,8 +134,9 @@ export component YapfastWindow inherits Window {
     callback minimize-window();
     callback maximize-window();
     callback close-window();
-    background: Theme.chat;
+    background: Theme.chat-fill;
     default-font-family: ClientStyle.font-family;
+    default-font-weight: Look.weight-body >= 0 ? Look.weight-body : 400;
     // default-font-family: "Satoshi";
     // Both faces' x-heights are about half their size, small, so text
     // defaults to 16px.
@@ -1269,6 +1293,8 @@ export component YapfastWindow inherits Window {
     // Closing settings stops linking Discord there.
     changed settings-open => {
         root.track-new();
+        ThemesPage.settings-shown(root.settings-open);
+        if !root.settings-open { ThemesPage.closed(); }
         if !self.settings-open && self.link-phase != 0 { self.cancel-discord-link(); }
         if !self.settings-open { self.camera-testing = false; }
         if !self.settings-open && self.theme-editor { self.cancel-theme(); }
@@ -1403,6 +1429,12 @@ export component YapfastWindow inherits Window {
     in property <[ThemeCard]> themes;
     in property <string> theme-id;
     callback choose-theme(string);
+    /// Writes the theme being edited as a theme package folder.
+    callback export-theme();
+    /// The installed theme shown, if one is, for Appearance to say so.
+    in property <string> theme-installed-name;
+    /// `--theme-dev`'s folder changed: show it again.
+    callback theme-reload();
     /// Appearance's theme editor; see AppearanceSettings. Leaving Appearance
     /// or settings cancels it.
     in property <bool> theme-editor;
@@ -1423,7 +1455,8 @@ export component YapfastWindow inherits Window {
     callback delete-theme();
     changed settings-section => {
         root.track-new();
-        if root.theme-editor && root.settings-section != 7 { root.cancel-theme(); }
+        if root.theme-editor && root.settings-section != SettingsSections.themes { root.cancel-theme(); }
+        if root.settings-section != SettingsSections.themes { ThemesPage.closed(); }
     }
     out property <length> message-font-size: root.text-size == 0 ? 14px : root.text-size == 2 ? 18px : ClientStyle.text-size;
     // The sidebar keeps 180 to 380px. Dragging also leaves the conversation 420px;
@@ -1865,7 +1898,20 @@ export component YapfastWindow inherits Window {
     changed active-item => { root.hide-badge-tips(); }
 
     // The member list is a second sidebar, on the right of the conversation.
-    property <bool> members-docked: root.members-available && root.member-list && !root.search-open && !root.aside-docked;
+    property <bool> members-docked: root.members-available && root.member-list && !root.search-open && !root.aside-docked && Arrange.members != 2;
+    // Where a theme's layout puts the rail: the width it takes on the
+    // left, or on the right, and the height it takes along the top.
+    property <length> rail-left: Arrange.rail == 0 ? Chrome.rail-px : 0px;
+    property <length> rail-right: Arrange.rail == 1 ? Chrome.rail-px : 0px;
+    // A theme's top bar sits over the top rail, if there's one.
+    property <length> rail-top: (Arrange.rail == 2 ? 64px : 0px) + (root.workspace ? Chrome.topbar-px : 0px);
+    /// In a theme's tree, the open server's channels folded away.
+    property <bool> tree-folded;
+    // A theme's status line's clock, while it shows.
+    Timer {
+        interval: 10s; running: Trim.status != "";
+        triggered => { Trim.status-tick += 1; }
+    }
     // A thread opened beside the channel takes the place of the member list
     // and the profile, and search results take its place.
     // The thread beside the channel, or the form that starts one, in place
@@ -1882,7 +1928,7 @@ export component YapfastWindow inherits Window {
     }
     property <bool> profile-docked: root.profile-available && root.profile-panel && root.panel-profile-shown && !root.search-open && !root.aside-docked;
     // Search results take the place of the member list or the profile.
-    property <length> docked-width: root.search-open ? 420px : root.aside-docked ? root.aside-shown : (root.members-docked ? root.members-shown : 0px) + (root.profile-docked ? ClientStyle.profile-width : 0px);
+    property <length> docked-width: root.search-open ? 420px : root.aside-docked ? root.aside-shown : (root.members-docked ? (Arrange.members == 3 ? 56px : root.members-shown) : 0px) + (root.profile-docked ? ClientStyle.profile-width : 0px);
     // The pin and add buttons open their popovers under themselves.
     property <length> popover-x;
     property <length> popover-y;
@@ -2189,21 +2235,21 @@ export component YapfastWindow inherits Window {
         y: max(8px, root.menu-y - self.height - 8px);
         close-policy: PopupClosePolicy.close-on-click-outside;
         Rectangle {
-            background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
-            drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+            background: Theme.raised-fill; border-color: Theme.edge; border-width: Look.line(1px); border-radius: Look.radius(8px);
+            drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
             plus-content := VerticalLayout {
                 padding: 6px; spacing: 2px;
                 MenuItem {
-                    text: "Upload a File"; icon: @image-url("icons/file.svg"); disabled: !root.can-attach;
+                    text: "Upload a File"; icon: IconPack.file; disabled: !root.can-attach;
                     clicked => { if root.can-attach { plus-menu.close(); root.attach(); } }
                 }
                 // Closing the menu takes these away, so they act first.
                 if root.can-start-threads: MenuItem {
-                    text: "Create Thread"; icon: @image-url("icons/thread.svg");
+                    text: "Create Thread"; icon: IconPack.thread;
                     clicked => { root.new-thread("", "plus"); plus-menu.close(); }
                 }
                 if root.can-create-polls: MenuItem {
-                    text: "Create Poll"; icon: @image-url("icons/chart-bar.svg");
+                    text: "Create Poll"; icon: IconPack.chart-bar;
                     clicked => { root.open-poll(); plus-menu.close(); }
                 }
             }
@@ -2394,10 +2440,15 @@ export component YapfastWindow inherits Window {
         panel := Rectangle {
             width: root.picker-shown;
             x: parent.width - self.width;
-            background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 10px;
-            drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+            // The picker's shape, art and glass.
+            background: Art.glass-picker ? transparent : Theme.raised-fill; border-color: Look.bc(Look.picker, Theme.edge); border-width: Look.bw(Look.picker, 1px); border-radius: Look.r(Look.picker, 10px);
+            drop-shadow-blur: Look.sb(Look.picker, 24px); drop-shadow-offset-x: Look.sx(Look.picker, 0px); drop-shadow-color: Look.sc(Look.picker, #00000080); drop-shadow-offset-y: Look.sy(Look.picker, 8px);
             clip: true;
             accessible-role: groupbox; accessible-label: "Expression Picker";
+            if Art.picker.length > 0 || Art.glass-picker: ArtLayer {
+                x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.picker, 10px);
+                layers: Art.picker; glass: Art.glass-picker; ground: Theme.raised-fill;
+            }
             VerticalLayout {
                 padding-top: 16px; spacing: 12px;
                 HorizontalLayout {
@@ -2615,19 +2666,67 @@ export component YapfastWindow inherits Window {
         open-discord-captcha => { root.open-discord-captcha(); }
     }
 
+    // A character of a theme's box frames, measured in their face: the room
+    // a framed pane keeps clear on each side.
+    box-probe := Text { visible: false; text: Chrome.box-tl; font-family: Look.mono; font-size: Chrome.box-size; accessible-role: none; }
+    property <length> box-cell: box-probe.preferred-width;
+    property <length> box-line: box-probe.preferred-height;
+    // The conversation's name in its box's title: `#general`, a person's.
+    property <string> box-chat-name: root.room-selected ? (root.room-direct ? root.room-name : "#" + root.room-name)
+        : root.requests-open ? "Requests" : root.friends-open ? "Friends" : root.sidebar-title;
+    // A theme's window art, under everything; glass panes line their blurred
+    // copy of it up with the window's size.
+    changed width => { Art.window-width = self.width; }
+    changed height => { Art.window-height = self.height; }
+    if Art.window.length > 0: ArtLayer {
+        x: 0px; y: 0px; width: root.width; height: root.height; layers: Art.window;
+        init => { Art.window-width = root.width; Art.window-height = root.height; }
+    }
+    // A theme's layout may run the rail along the top, over everything.
+    if root.workspace && Chrome.topbar-px > 0px: TopBar {
+        x: 0px; y: root.title-height; width: root.width; height: Chrome.topbar-px;
+        account-name: root.account-name; server-name: root.sidebar-title; channel-name: root.room-name;
+        chosen(id) => { root.navigate-server(id); }
+        home => { root.navigate-dms(); }
+        open-dm(id) => { root.open-conversation(id); }
+        join-server => { root.open-join-server(); }
+        open-server-menu(id, x, y) => { root.open-context-menu(id, false, x, y); }
+        bounds: root.height; bounds-width: root.width;
+    }
+    if root.workspace && Arrange.rail == 2: ServerRail {
+        x: 0px; y: root.title-height + Chrome.topbar-px; width: root.width; height: root.rail-top - Chrome.topbar-px;
+        horizontal: true; own-art: true;
+        dms-selected: root.dms-selected; dms-unread: root.dms-unread; dms-badge: root.dms-badge; servers: root.servers;
+        matrix-build: root.matrix-build;
+        navigate-dms => { root.navigate-dms(); }
+        navigate-server(id) => { root.navigate-server(id); }
+        toggle-folder(id) => { root.toggle-folder(id); }
+        open-dm(id) => { root.open-conversation(id); }
+        open-server-menu(id, x, y) => { root.open-context-menu(id, false, x, y); }
+        can-join: root.can-join-server;
+        join-server => { root.open-join-server(); }
+    }
     HorizontalLayout {
-        y: root.title-height; height: root.height - root.title-height;
+        y: root.title-height + root.rail-top; height: root.height - root.title-height - root.rail-top;
         visible: root.workspace;
-        spacing: 0px;
+        // A theme's glass may float the panes apart over its window art.
+        spacing: Art.gap; padding: Art.gap;
         // Navigation: the rail and the sidebar, with the voice and account dock across both.
-        Rectangle {
-            width: 72px + root.sidebar-shown; background: Theme.rail;
+        navigation := Rectangle {
+            width: root.rail-left + root.sidebar-shown; background: Art.glass-rail ? transparent : Theme.rail-fill;
+            border-radius: Art.pane-radius; clip: Art.pane-radius > 0px;
+            if root.rail-left > 0px && (Art.rail.length > 0 || Art.glass-rail): ArtLayer {
+                x: 0px; y: 0px; width: root.rail-left; height: parent.height; layers: Art.rail; glass: Art.glass-rail; ground: Theme.rail-fill;
+            }
+            // A theme's edge between the rail and the sidebar.
+            if Arrange.panes && root.rail-left > 0px && root.sidebar-shown > 0px: PaneRule { x: root.rail-left; y: 0px; height: parent.height; z: 10; }
             VerticalLayout {
                 spacing: 0px;
                 HorizontalLayout {
                     vertical-stretch: 1; spacing: 0px;
                     // Server rail.
-                    ServerRail {
+                    if Arrange.rail == 0: ServerRail {
+                        selected-name: root.dms-selected ? "" : root.sidebar-title;
                         dms-selected: root.dms-selected; dms-unread: root.dms-unread; dms-badge: root.dms-badge; servers: root.servers;
                         matrix-build: root.matrix-build;
                         navigate-dms => { root.navigate-dms(); }
@@ -2640,10 +2739,20 @@ export component YapfastWindow inherits Window {
                     }
                     // Channel sidebar: a lighter sheet held by the rail and the dock.
                     Rectangle {
-                        width: root.sidebar-shown; background: Theme.sidebar;
+                        width: root.sidebar-shown; background: Art.glass-sidebar ? transparent : Theme.sidebar-fill;
                         border-top-left-radius: ClientStyle.enabled ? 12px : 10px; border-bottom-left-radius: ClientStyle.enabled ? 0px : 10px;
                         clip: true;
+                        if Art.sidebar.length > 0 || Art.glass-sidebar: ArtLayer {
+                            x: 0px; y: 0px; width: parent.width; height: parent.height; layers: Art.sidebar; glass: Art.glass-sidebar; ground: Theme.sidebar-fill;
+                        }
+                        // A theme's art may keep the content clear of an edge;
+                        // the channel list scrolls in what's left.
                         VerticalLayout {
+                            // A theme's box frame, and room its art keeps.
+                            padding-left: (Chrome.box-sidebar ? root.box-cell : 0px) + Art.reserve-sidebar.left;
+                            padding-right: (Chrome.box-sidebar ? root.box-cell : 0px) + Art.reserve-sidebar.right;
+                            padding-top: (Chrome.box-sidebar ? root.box-line : 0px) + Art.reserve-sidebar.top;
+                            padding-bottom: (Chrome.box-sidebar ? root.box-line : 0px) + Art.reserve-sidebar.bottom;
                             spacing: 0px;
                             header-box := Rectangle {
                                 property <bool> banner: ClientStyle.enabled && root.header-server != "" && root.header-banner != "";
@@ -2667,17 +2776,17 @@ export component YapfastWindow inherits Window {
                                 }
                                 if root.header-server != "" && root.header-invite: IconButton {
                                     x: parent.width - self.width - 8px; y: 8px;
-                                    icon: @image-url("icons/user-plus.svg"); label: "Invite people"; size: 32px; glyph: 20px; tip-side: 2;
+                                    icon: IconPack.user-plus; label: "Invite people"; size: 32px; glyph: 20px; tip-side: 2;
                                     clicked => { root.open-invite(root.header-server); }
                                 }
                                 if !ClientStyle.enabled && root.dms-selected && !root.preview && root.discord-linked: IconButton {
                                     x: parent.width - 2 * self.width - 14px;
-                                    icon: @image-url("icons/user-plus.svg"); label: "Add a friend"; size: 28px; glyph: 18px; tip-side: 2;
+                                    icon: IconPack.user-plus; label: "Add a friend"; size: 28px; glyph: 18px; tip-side: 2;
                                     clicked => { root.open-add-friend(); }
                                 }
                                 if !ClientStyle.enabled && root.dms-selected && !root.preview: IconButton {
                                     x: parent.width - self.width - 10px;
-                                    icon: @image-url("icons/square-pen.svg"); label: "New message"; size: 28px; glyph: 18px; tip-side: 2;
+                                    icon: IconPack.square-pen; label: "New message"; size: 28px; glyph: 18px; tip-side: 2;
                                     clicked => { root.open-new-dm(); }
                                 }
                                 if ClientStyle.enabled && root.dms-selected: TextField {
@@ -2686,7 +2795,11 @@ export component YapfastWindow inherits Window {
                                     placeholder: "Find a conversation"; text <=> root.filter; label: "Find a conversation";
                                     edited => { root.filter-edited(); }
                                 }
-                                if !header-box.banner: Rectangle { y: parent.height - 1px; height: 1px; background: ClientStyle.enabled ? Theme.outline : Theme.edge; }
+                                if !header-box.banner && !(ListsOfChannels.on && ListsOfChannels.server-rule != transparent): Rectangle { y: parent.height - 1px; height: 1px; background: ClientStyle.enabled ? Theme.outline : Theme.edge; }
+                                if !header-box.banner && ListsOfChannels.on && ListsOfChannels.server-rule != transparent: RuleLine {
+                                    x: ListsOfChannels.server-rule-inset; y: parent.height - self.height; width: parent.width - 2 * ListsOfChannels.server-rule-inset; height: ListsOfChannels.server-rule-width;
+                                    colour: ListsOfChannels.server-rule; style: ListsOfChannels.server-rule-style;
+                                }
                             }
                             // Discord's boost goal bar under the server's name: a pill 26px
                             // tall, its fill the share of the goal the boosts reach.
@@ -2696,11 +2809,11 @@ export component YapfastWindow inherits Window {
                                 pill := Rectangle {
                                     x: 12px; y: 4px; width: parent.width - 16px; height: 26px;
                                     background: Theme.hover;
-                                    border-radius: 13px;
+                                    border-radius: Look.radius(13px);
                                     if boost-bar.share > 0: Rectangle {
                                         x: 2px; y: 2px; height: parent.height - 4px;
                                         width: (parent.width - 4px) * boost-bar.share;
-                                        border-radius: 11px;
+                                        border-radius: Look.radius(11px);
                                         background: @linear-gradient(270deg, #ff73fa66, #ff73fa1a);
                                     }
                                     Text {
@@ -2716,7 +2829,7 @@ export component YapfastWindow inherits Window {
                                     }
                                     Image {
                                         x: parent.width - 8px - self.width; y: (parent.height - self.height) / 2; width: 16px; height: 16px;
-                                        source: @image-url("icons/chevron-right.svg"); colorize: Theme.muted; accessible-role: none;
+                                        source: IconPack.chevron-right; colorize: IconPack.tint(self.source, Theme.muted); accessible-role: none;
                                     }
                                 }
                                 Rectangle { x: 8px; y: parent.height - 1px; width: parent.width - 8px; height: 1px; background: Theme.outline; }
@@ -2726,7 +2839,7 @@ export component YapfastWindow inherits Window {
                             // Discord's "N Events" row under the server's name.
                             if ClientStyle.enabled && root.header-server != "" && root.header-events-row: events-row := Rectangle {
                                 height: 60px;
-                                Image { x: 16px; y: (parent.height - self.height) / 2; width: 20px; height: 20px; source: @image-url("icons/calendar.svg"); colorize: Theme.muted; accessible-role: none; }
+                                Image { x: 16px; y: (parent.height - self.height) / 2; width: 20px; height: 20px; source: IconPack.calendar; colorize: IconPack.tint(self.source, Theme.muted); accessible-role: none; }
                                 Text {
                                     x: 44px; width: parent.width - 60px; height: parent.height;
                                     text: root.header-events == 0 ? "Events" : root.header-events == 1 ? "1 Event" : root.header-events + " Events";
@@ -2738,7 +2851,7 @@ export component YapfastWindow inherits Window {
                                     mouse-cursor: MouseCursor.pointer;
                                     clicked => { root.open-events-menu(parent.absolute-position.x + 8px, parent.absolute-position.y + parent.height - 8px); }
                                 }
-                                if events-touch.has-hover: Rectangle { background: Theme.hover; border-radius: 6px; x: 8px; width: parent.width - 16px; y: 8px; height: parent.height - 16px; z: -1; }
+                                if events-touch.has-hover: Rectangle { background: Theme.hover; border-radius: Look.radius(6px); x: 8px; width: parent.width - 16px; y: 8px; height: parent.height - 16px; z: -1; }
                                 accessible-role: button;
                                 accessible-label: root.header-events + " events";
                                 accessible-action-default => { root.open-events-menu(self.absolute-position.x + 8px, self.absolute-position.y + self.height - 8px); }
@@ -2752,54 +2865,97 @@ export component YapfastWindow inherits Window {
                                     edited => { root.filter-edited(); }
                                 }
                             }
-                            RoomList {
-                                open-add-friend => { root.open-add-friend(); }
-                                open-new-dm => { root.open-new-dm(); }
-                                rooms: root.rooms; dms-selected: root.dms-selected; discord-linked: root.discord-linked; preview: root.preview;
-                                friends-open: root.friends-open; requests-current: root.requests-current; requests-badge: root.requests-badge;
-                                browse-offered: root.browse-offered && !ClientStyle.enabled; browsing: root.browse-open;
-                                open-browse => { root.open-browse(); }
-                                voice-channel: root.voice-channel; participants: root.participants; sidebar-empty: root.sidebar-empty;
-                                select-room(id) => { root.select-room(id); }
-                                open-voice(id) => { root.open-conversation(id); }
-                                wave(user) => { root.message-from-profile(user, "\u{1F44B}"); }
-                                open-chat(id) => { root.open-chat(id); }
-                                open-friends => { root.open-friends(); }
-                                open-requests => { root.open-requests(); }
-                                open-room-menu(id, x, y) => { root.open-context-menu(id, false, x, y); }
-                                open-voice-menu(room, person, x, y) => { root.open-voice-menu(room, person, x, y); }
-                                show-voice-person(room, id) => { root.show-voice-person(room, id); }
-                                open-voice-profile(person, x, y, width, height) => {
-                                    if person.person != "" {
-                                        root.anchor(x, y, width, height, false);
-                                        root.profile-at-pointer = true;
-                                        root.show-profile(person.person);
+                            // The channels: the list scrolls itself, or in a theme's tree
+                            // the whole tree scrolls as one.
+                            side-scroll := ScrollView {
+                                vertical-stretch: 1;
+                                content-height: Arrange.rail == 3 ? side-column.preferred-height : self.visible-height;
+                                side-column := VerticalLayout {
+                                    width: side-scroll.visible-width;
+                                    height: Arrange.rail == 3 ? self.preferred-height : side-scroll.visible-height;
+                                // A theme's tree: the rows down to the open server, its
+                                // channels, then the rows after it.
+                                if Arrange.rail == 3: ServerTree {
+                                    head: true; servers: root.servers; matrix-build: root.matrix-build; folded: root.tree-folded;
+                                    dms-selected: root.dms-selected; dms-unread: root.dms-unread; dms-badge: root.dms-badge;
+                                    navigate-dms => { root.tree-folded = false; root.navigate-dms(); }
+                                    navigate-server(id) => { root.tree-folded = false; root.navigate-server(id); }
+                                    toggle-folder(id) => { root.toggle-folder(id); }
+                                    open-dm(id) => { root.open-conversation(id); }
+                                    open-server-menu(id, x, y) => { root.open-context-menu(id, false, x, y); }
+                                    fold => { root.tree-folded = !root.tree-folded; }
+                                }
+                                RoomList {
+                                    // In a theme's tree the channels lay out whole, and the tree
+                                    // scrolls as one, the servers after them right below.
+                                    whole: Arrange.rail == 3;
+                                    indent: Arrange.rail == 3 ? 16px : 0px;
+                                    visible: !(Arrange.rail == 3 && root.tree-folded);
+                                    max-height: Arrange.rail == 3 && root.tree-folded ? 0px : 100000px;
+                                    open-add-friend => { root.open-add-friend(); }
+                                    open-new-dm => { root.open-new-dm(); }
+                                    server-name: root.sidebar-title;
+                                    rooms: root.rooms; dms-selected: root.dms-selected; discord-linked: root.discord-linked; preview: root.preview;
+                                    friends-open: root.friends-open; requests-current: root.requests-current; requests-badge: root.requests-badge;
+                                    browse-offered: root.browse-offered && !ClientStyle.enabled; browsing: root.browse-open;
+                                    open-browse => { root.open-browse(); }
+                                    voice-channel: root.voice-channel; participants: root.participants; sidebar-empty: root.sidebar-empty;
+                                    select-room(id) => { root.select-room(id); }
+                                    open-voice(id) => { root.open-conversation(id); }
+                                    wave(user) => { root.message-from-profile(user, "\u{1F44B}"); }
+                                    open-chat(id) => { root.open-chat(id); }
+                                    open-friends => { root.open-friends(); }
+                                    open-requests => { root.open-requests(); }
+                                    open-room-menu(id, x, y) => { root.open-context-menu(id, false, x, y); }
+                                    open-voice-menu(room, person, x, y) => { root.open-voice-menu(room, person, x, y); }
+                                    show-voice-person(room, id) => { root.show-voice-person(room, id); }
+                                    open-voice-profile(person, x, y, width, height) => {
+                                        if person.person != "" {
+                                            root.anchor(x, y, width, height, false);
+                                            root.profile-at-pointer = true;
+                                            root.show-profile(person.person);
+                                        }
+                                    }
+                                    arranging: root.room-arranging; droppable: root.room-droppable;
+                                    start-arranging(place) => { return root.start-arranging(place); }
+                                    arrange(place) => { root.arrange-room(place); }
+                                    stop-arranging => { root.stop-arranging(); }
+                                    moving: root.person-moving; move-droppable: root.person-droppable;
+                                    start-moving(room, user) => { return root.start-moving-person(room, user); }
+                                    move-person(room) => { root.move-person(room); }
+                                    stop-moving => { root.stop-moving-person(); }
+                                    toggle-category(category) => { root.toggle-category(category); }
+                                    may-create(id) => { return root.may-create-channel(root.category-of(id)); }
+                                    create-channel(id) => {
+                                        if root.category-of(id) != "" { root.choose-menu(root.category-of(id), false, "create-channel"); }
+                                    }
+                                    open-category-menu(id, x, y) => {
+                                        if root.category-of(id) != "" { root.open-context-menu(root.category-of(id), false, x, y); }
                                     }
                                 }
-                                arranging: root.room-arranging; droppable: root.room-droppable;
-                                start-arranging(place) => { return root.start-arranging(place); }
-                                arrange(place) => { root.arrange-room(place); }
-                                stop-arranging => { root.stop-arranging(); }
-                                moving: root.person-moving; move-droppable: root.person-droppable;
-                                start-moving(room, user) => { return root.start-moving-person(room, user); }
-                                move-person(room) => { root.move-person(room); }
-                                stop-moving => { root.stop-moving-person(); }
-                                toggle-category(category) => { root.toggle-category(category); }
-                                may-create(id) => { return root.may-create-channel(root.category-of(id)); }
-                                create-channel(id) => {
-                                    if root.category-of(id) != "" { root.choose-menu(root.category-of(id), false, "create-channel"); }
+                                if Arrange.rail == 3: ServerTree {
+                                    head: false; servers: root.servers; matrix-build: root.matrix-build; folded: root.tree-folded;
+                                    dms-selected: root.dms-selected;
+                                    navigate-server(id) => { root.tree-folded = false; root.navigate-server(id); }
+                                    toggle-folder(id) => { root.toggle-folder(id); }
+                                    open-dm(id) => { root.open-conversation(id); }
+                                    open-server-menu(id, x, y) => { root.open-context-menu(id, false, x, y); }
+                                    fold => { root.tree-folded = !root.tree-folded; }
                                 }
-                                open-category-menu(id, x, y) => {
-                                    if root.category-of(id) != "" { root.open-context-menu(root.category-of(id), false, x, y); }
                                 }
                             }
+                        }
+                        // A theme's box frame around the sidebar.
+                        if Chrome.box-sidebar: BoxFrame {
+                            x: 0px; y: 0px; width: parent.width; height: parent.height; cell: root.box-cell; line: root.box-line;
+                            title: Chrome.box-title(Chrome.box-title-sidebar, root.sidebar-title, "");
                         }
                         // Discord's outline: the top and left edges meet in a 12px rounded corner,
                         // and the left line runs down to the account panel. There is no line
                         // between the sidebar and the conversation: only their grounds differ.
                         if ClientStyle.enabled: Rectangle {
                             x: 0px; y: 0px; width: parent.width + 16px; height: parent.height + 16px;
-                            border-width: 1px; border-color: Theme.outline; border-radius: 12px; background: transparent;
+                            border-width: Look.line(1px); border-color: Theme.outline; border-radius: Look.radius(12px); background: transparent;
                         }
                     }
                 }
@@ -2826,13 +2982,20 @@ export component YapfastWindow inherits Window {
                     open-call => { root.open-call(); }
                 }
                 // Inset the account card while preserving the inherited controls.
+                // A theme's glass account panel floats as the other panes do,
+                // `gap` from what's around it.
                 VerticalLayout {
-                    padding: ClientStyle.account-inset; padding-top: 0px;
+                    padding: Art.glass-account ? max(ClientStyle.account-inset, Art.gap) : ClientStyle.account-inset;
+                    padding-top: Art.glass-account ? Art.gap : 0px;
                     account-panel := Rectangle {
                         // Anywhere on the card brightens its nameplate; each part lights only itself.
                         property <bool> hot: account-touch.has-hover || avatar-touch.has-hover || mic.hovered || ear.hovered || cog.hovered;
-                        height: ClientStyle.account-height; background: Theme.panel;
-                        border-radius: ClientStyle.enabled ? 8px : 0px;
+                        height: ClientStyle.account-height; background: Art.glass-account ? transparent : Theme.account-fill;
+                        border-radius: Art.glass-account && Art.pane-radius > 0px ? Art.pane-radius : ClientStyle.enabled ? 8px : 0px;
+                        if Art.account.length > 0 || Art.glass-account: ArtLayer {
+                            x: 0px; y: 0px; width: parent.width; height: parent.height; radius: parent.border-radius;
+                            layers: Art.account; glass: Art.glass-account; ground: Theme.account-fill;
+                        }
                         // The nameplate fills the card, a pixel beyond it above and below.
                         if AccountLook.nameplate-url != "": Nameplate {
                             x: 0px; y: -1px; width: parent.width + 1px; height: parent.height + 2px;
@@ -2843,16 +3006,18 @@ export component YapfastWindow inherits Window {
                             // Discord's controls sit 3px further apart and 6px further from the edge.
                             padding-right: ClientStyle.enabled ? 14px : 8px; spacing: ClientStyle.enabled ? 5px : 2px;
                             Rectangle {
-                                width: ClientStyle.enabled ? 50px : 58px;
-                                Avatar { x: ClientStyle.enabled ? 8px : 19px; y: (parent.height - self.height) / 2; size: ClientStyle.enabled ? 40px : 34px; initial: root.account-initial; tint: root.account-tint; picture: root.account-picture; speaking: root.account-speaking; decoration-url: AccountLook.decoration-url; animate: account-panel.hot; }
+                                width: Chrome.hide-account-avatar ? 8px : ClientStyle.enabled ? 50px : 58px;
+                                visible: !Chrome.hide-account-avatar;
+                                // The own.avatar slot.
+                                Avatar { x: (ClientStyle.enabled ? 8px : 19px) + Look.own-avatar.x; y: (parent.height - self.height) / 2 + Look.own-avatar.y; opacity: Look.own-avatar.opacity; transform-scale: Look.own-avatar.scale; transform-rotation: Look.own-avatar.rotation * 1deg; size: ClientStyle.enabled ? 40px : 34px; initial: root.account-initial; tint: root.account-tint; picture: root.account-picture; speaking: root.account-speaking; decoration-url: AccountLook.decoration-url; animate: account-panel.hot; }
                                 if root.account-presence != "": StatusDot {
-                                    x: ClientStyle.enabled ? 34px : 40px; y: parent.height / 2 + 3px; presence: root.account-presence; ring: Theme.panel;
+                                    x: ClientStyle.enabled ? 34px : 40px; y: parent.height / 2 + 3px; presence: root.account-presence; ring: Theme.account;
                                 }
                                 if root.account-presence == "": Rectangle {
-                                    x: ClientStyle.enabled ? 35px : 41px; y: parent.height / 2 + 4px; width: 14px; height: 14px; border-radius: 7px; background: Theme.panel;
+                                    x: ClientStyle.enabled ? 35px : 41px; y: parent.height / 2 + 4px; width: 14px; height: 14px; border-radius: Look.radius(7px); background: Theme.account-fill;
                                     Rectangle {
-                                        width: 8px; height: 8px; border-radius: 4px;
-                                        background: root.preview ? Theme.accent : root.online ? Theme.live : Theme.faint;
+                                        width: 8px; height: 8px; border-radius: Look.radius(4px);
+                                        background: root.preview ? Theme.accent-fill : root.online ? Theme.live : Theme.faint;
                                     }
                                 }
                                 avatar-touch := TouchArea {
@@ -2862,7 +3027,7 @@ export component YapfastWindow inherits Window {
                             }
                             // With Discord linked, the avatar and name open the status menu.
                             Rectangle {
-                                horizontal-stretch: 1; y: 6px; height: parent.height - 12px; border-radius: 6px;
+                                horizontal-stretch: 1; y: 6px; height: parent.height - 12px; border-radius: Look.radius(6px);
                                 // Discord's light, see-through fill, so the nameplate shows through.
                                 background: account-touch.has-hover || avatar-touch.has-hover ? Theme.overlay.with-alpha(account-touch.pressed || avatar-touch.pressed ? 0.12 : 0.08) : transparent;
                                 animate background { duration: Theme.quick; }
@@ -2885,7 +3050,7 @@ export component YapfastWindow inherits Window {
                                 }
                             }
                             mic := DeviceToggle {
-                                icon: root.shown-muted ? @image-url("icons/mic-off.svg") : @image-url("icons/mic.svg");
+                                icon: root.shown-muted ? IconPack.mic-off : IconPack.mic;
                                 label: root.voice-active ? (root.muted ? "Unmute" : "Mute") : root.shown-muted ? "Join calls unmuted" : "Join calls muted";
                                 alert: root.shown-muted;
                                 // Discord's glyphs are white and a little larger than the default.
@@ -2899,7 +3064,7 @@ export component YapfastWindow inherits Window {
                                 }
                             }
                             ear := DeviceToggle {
-                                icon: root.shown-deafened ? @image-url("icons/headphone-off.svg") : @image-url("icons/headphones.svg");
+                                icon: root.shown-deafened ? IconPack.headphone-off : IconPack.headphones;
                                 label: root.voice-active ? (root.deafened ? "Undeafen" : "Deafen") : root.deafen-on-join ? "Join calls undeafened" : "Join calls deafened";
                                 alert: root.shown-deafened;
                                 glyph: ClientStyle.enabled ? 21px : 20px;
@@ -2913,11 +3078,11 @@ export component YapfastWindow inherits Window {
                                 }
                             }
                             if !root.preview && !root.online: IconButton {
-                                icon: @image-url("icons/refresh-cw.svg"); label: "Reconnect"; enabled: !root.busy;
+                                icon: IconPack.refresh-cw; label: "Reconnect"; enabled: !root.busy;
                                 clicked => { root.retry-sync(); }
                             }
                             cog := IconButton {
-                                icon: @image-url("icons/settings.svg"); label: "Settings"; radius: 4px;
+                                icon: IconPack.settings; label: "Settings"; radius: 4px;
                                 glyph: ClientStyle.enabled ? 24px : 20px;
                                 tint: ClientStyle.enabled ? Theme.text : Theme.secondary;
                                 clicked => { root.settings-open = true; root.refresh-devices(); }
@@ -2925,20 +3090,42 @@ export component YapfastWindow inherits Window {
                         }
                         // Discord's thin outline around the card.
                         if ClientStyle.enabled: Rectangle {
-                            width: parent.width; height: parent.height; border-radius: 8px;
-                            border-width: 1px; border-color: Theme.overlay.with-alpha(0.02); background: transparent;
+                            width: parent.width; height: parent.height; border-radius: Look.radius(8px);
+                            border-width: Look.line(1px); border-color: Theme.overlay.with-alpha(0.02); background: transparent;
                         }
                     }
                 }
             }
         }
         // Conversation.
-        Rectangle {
-            background: Theme.chat;
+        conversation := Rectangle {
+            background: Art.glass-chat ? transparent : Theme.chat-fill;
+            border-radius: Art.pane-radius; clip: Art.pane-radius > 0px;
+            if Art.chat.length > 0 || Art.glass-chat: ArtLayer {
+                x: 0px; y: 0px; width: parent.width; height: parent.height; layers: Art.chat; glass: Art.glass-chat; ground: Theme.chat-fill;
+            }
+            // Particles that fly behind the messages and the message box.
+            if Art.particles-under: ArtParticles { x: 0px; y: 0px; width: parent.width; height: parent.height; under: true; }
+            // A theme's edge between the navigation and the conversation.
+            if Arrange.panes && root.rail-left + root.sidebar-shown > 0px: PaneRule { x: 0px; y: 0px; height: parent.height; z: 10; }
             VerticalLayout {
                 spacing: 0px;
+                padding-top: Art.reserve-chat.top; padding-bottom: Art.reserve-chat.bottom;
+                padding-left: Art.reserve-chat.left; padding-right: Art.reserve-chat.right;
                 Rectangle {
                     height: ClientStyle.header-height;
+                    // A theme's own bar: its ground, art or glass, corners, border and shadow.
+                    if Trim.header.on: FrameGround {
+                        x: 0px; y: 0px; width: parent.width; height: parent.height; frame: Trim.header;
+                        if Trim.header-art.length > 0 || Trim.header-glass: ArtLayer {
+                            x: 0px; y: 0px; width: parent.width; height: parent.height; layers: Trim.header-art;
+                            glass: Trim.header-glass; ground: Trim.header.ground; radius: Trim.header.radius;
+                        }
+                    }
+                    // A theme may hide the bar's icon buttons until the pointer is on it
+                    // or one of them has the keyboard.
+                    header-touch := TouchArea {
+                    property <bool> shy: Chrome.hide-header-buttons && !self.has-hover;
                     HorizontalLayout {
                         padding-left: 16px; padding-right: 16px; spacing: 10px;
                         if root.room-direct: Middle {
@@ -2952,8 +3139,8 @@ export component YapfastWindow inherits Window {
                         }
                         // A thread follows its channel, which leads back to it.
                         if root.room-parent != "" && root.room-selected: Image {
-                            source: root.room-parent-forum ? @image-url("icons/message-square-text.svg") : @image-url("icons/hash.svg");
-                            width: 22px; image-fit: contain; colorize: Theme.muted;
+                            source: root.room-parent-forum ? IconPack.message-square-text : IconPack.hash;
+                            width: 22px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted);
                         }
                         if root.room-parent != "" && root.room-selected: parent-name := Text {
                             text: root.room-parent; font-size: 16px; font-weight: 700; vertical-alignment: center;
@@ -2965,32 +3152,68 @@ export component YapfastWindow inherits Window {
                                 clicked => { root.select-room(root.room-parent-id); }
                             }
                         }
-                        if root.room-parent != "" && root.room-selected: Image { source: @image-url("icons/chevron-right.svg"); width: 16px; image-fit: contain; colorize: Theme.faint; }
-                        if !root.room-direct && root.room-selected: Image { source: root.room-icon; width: 22px; image-fit: contain; colorize: Theme.muted; }
-                        if root.requests-open: Image { source: @image-url("icons/inbox.svg"); width: 22px; image-fit: contain; colorize: Theme.muted; }
-                        if root.friends-open: Image { source: @image-url("icons/users.svg"); width: 22px; image-fit: contain; colorize: Theme.muted; }
-                        if root.browse-open: Image { source: @image-url("icons/hash.svg"); width: 22px; image-fit: contain; colorize: Theme.muted; }
-                        Text {
-                            text: root.room-selected ? root.room-name : root.requests-open ? "Requests" : root.friends-open ? "Friends" : root.browse-open ? "Browse Channels" : root.sidebar-title;
-                            color: root.room-selected || root.requests-open || root.friends-open || root.browse-open ? Theme.text : Theme.secondary;
-                            font-size: 16px; font-weight: 700; overflow: elide; vertical-alignment: center;
+                        if root.room-parent != "" && root.room-selected: Image { source: IconPack.chevron-right; width: 16px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.faint); }
+                        if !root.room-direct && root.room-selected && !Chrome.hide-channel-icons: Image { source: root.room-icon; width: 22px; image-fit: contain; colorize: IconPack.tint(self.source, Trim.header.on ? Trim.header.text : Theme.muted); }
+                        if root.requests-open: Image { source: IconPack.inbox; width: 22px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
+                        if root.friends-open: Image { source: IconPack.users; width: 22px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
+                        if root.browse-open: Image { source: IconPack.hash; width: 22px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
+                        // The channel.name slot: the theme's heading face, its text
+                        // effect and its declared animation, moved inside a box the
+                        // layout measures as the name.
+                        Rectangle {
+                            property <string> title: root.room-selected ? (root.room-direct ? root.room-name : Chrome.header-before + root.room-name + Chrome.header-after) : root.requests-open ? "Requests" : root.friends-open ? "Friends" : root.browse-open ? "Browse Channels" : root.sidebar-title;
+                            min-width: 0px; preferred-width: channel-name.preferred-width;
                             // The name gives way to what follows it, and fills the bar when nothing does.
                             horizontal-stretch: (root.room-has-activity && root.room-direct) || root.friends-open || root.has-topic ? 0 : 1;
+                            accessible-role: text; accessible-label: root.room-selected ? root.room-name : self.title;
+                            if Art.headings.on && !Look.readable: ArtTextBehind {
+                                x: channel-name.x; y: channel-name.y; width: parent.width; height: parent.height; art: Art.headings;
+                                text: channel-name.text; font-size: channel-name.font-size; font-weight: channel-name.font-weight;
+                                font-family: channel-name.font-family; letter-spacing: channel-name.letter-spacing; overflow: elide; vertical-alignment: center;
+                                opacity: channel-name.opacity; transform-scale: channel-name.transform-scale; transform-rotation: channel-name.transform-rotation;
+                            }
+                            channel-name := Text {
+                                stroke: Art.outline(Art.headings); stroke-width: Look.readable ? 0px : Art.headings.outline; stroke-style: outside;
+                                x: Look.channel-name.x; y: Look.channel-name.y; width: parent.width; height: parent.height;
+                                text: Look.channel-text(Look.heading(parent.title));
+                                accessible-role: none;
+                                color: Trim.header.on ? Trim.header.text : root.room-selected || root.requests-open || root.friends-open || root.browse-open ? Theme.text : Theme.secondary;
+                                font-size: Look.header-size(16px); font-weight: Look.header-weight(700); overflow: elide; vertical-alignment: center;
+                                font-family: Look.header-font(""); letter-spacing: Look.header-spacing;
+                                opacity: Look.channel-name.opacity; transform-scale: Look.channel-name.scale; transform-rotation: Look.channel-name.rotation * 1deg;
+                            }
                         }
                         // A server channel's topic, after a rule, as Discord shows it:
                         // one line, cut short, and in full once clicked.
                         if root.has-topic && !ClientStyle.enabled: Middle { Rectangle { width: 1px; height: 24px; background: Theme.line; } }
                         // Discord's is a small round dot, with room either side.
-                        if root.has-topic && ClientStyle.enabled: Middle { Rectangle { width: 9px; height: 3px; Rectangle { width: 3px; height: 3px; x: 2px; border-radius: 1.5px; background: Theme.faint.with-alpha(0.75); } } }
+                        if root.has-topic && ClientStyle.enabled: Middle { Rectangle { width: 9px; height: 3px; Rectangle { width: 3px; height: 3px; x: 2px; border-radius: Look.radius(1.5px); background: Theme.faint.with-alpha(0.75); } } }
                         if root.has-topic: topic-area := Rectangle {
                             horizontal-stretch: 1; min-width: 40px;
                             accessible-role: button;
                             accessible-label: "Channel topic";
                             accessible-action-default => { root.topic-open = true; }
-                            StyledText {
+                            if Trim.topic-before == "" && Trim.topic-after == "": StyledText {
                                 width: parent.width; height: parent.height;
-                                text: root.room-topic; default-color: topic-touch.has-hover ? Theme.secondary : Theme.muted;
+                                text: root.room-topic; default-color: Trim.header.on ? Trim.header.text.transparentize(topic-touch.has-hover ? 0 : 0.2) : topic-touch.has-hover ? Theme.secondary : Theme.muted;
                                 link-color: Theme.link; default-font-size: 14px; max-lines: 1; vertical-alignment: center;
+                            }
+                            if Trim.topic-before != "" || Trim.topic-after != "": HorizontalLayout {
+                                width: parent.width; height: parent.height;
+                                spacing: 0px;
+                                // A theme's words around the topic, such as `[` and `]`.
+                                if Trim.topic-before != "": Text {
+                                    text: Trim.topic-before; color: Trim.header.on ? Trim.header.text : Theme.muted; font-size: 14px; vertical-alignment: center; accessible-role: none;
+                                }
+                                StyledText {
+                                    horizontal-stretch: 0; min-width: 0px;
+                                    text: root.room-topic; default-color: Trim.header.on ? Trim.header.text.transparentize(topic-touch.has-hover ? 0 : 0.2) : topic-touch.has-hover ? Theme.secondary : Theme.muted;
+                                    link-color: Theme.link; default-font-size: 14px; max-lines: 1; vertical-alignment: center;
+                                }
+                                if Trim.topic-after != "": Text {
+                                    text: Trim.topic-after; color: Trim.header.on ? Trim.header.text : Theme.muted; font-size: 14px; vertical-alignment: center; accessible-role: none;
+                                }
+                                Rectangle { horizontal-stretch: 1; }
                             }
                             // Over the line, whose text would take the press to select: its
                             // links open from the full topic.
@@ -3003,13 +3226,18 @@ export component YapfastWindow inherits Window {
                                 }
                             }
                         }
+                        // A theme's count of the member list, such as `12 users`.
+                        if Trim.member-count != "" && !root.room-direct && root.room-selected && Trim.members-n > 0: Text {
+                            text: Chrome.fill(Trim.member-count, "n", Trim.members-n); color: Trim.header.on ? Trim.header.text : Theme.muted; font-size: 14px;
+                            vertical-alignment: center; horizontal-stretch: 0; accessible-role: none;
+                        }
                         // What they're up to, as a bubble beside their name.
                         if root.room-direct && root.room-has-activity: Middle {
                             horizontal-stretch: 1;
                             HorizontalLayout {
                                 alignment: start;
                                 Rectangle {
-                                    height: 24px; border-radius: 12px; background: Theme.raised;
+                                    height: 24px; border-radius: Look.radius(12px); background: Theme.raised-fill;
                                     accessible-role: text; accessible-label: "Status: " + root.room-activity;
                                     HorizontalLayout {
                                         padding-left: 10px; padding-right: 10px;
@@ -3036,7 +3264,7 @@ export component YapfastWindow inherits Window {
                         if root.friends-open: Rectangle { horizontal-stretch: 1; }
                         if root.dm-friend == 1 || root.dm-friend == 3: Middle {
                             ActionButton {
-                                icon: @image-url("icons/user-plus.svg");
+                                icon: IconPack.user-plus;
                                 text: root.dm-friend == 1 ? "Add Friend" : "Accept Friend Request";
                                 label: root.dm-friend == 1 ? "Send friend request" : "Accept friend request";
                                 small: true; primary: root.dm-friend == 3;
@@ -3044,30 +3272,30 @@ export component YapfastWindow inherits Window {
                             }
                         }
                         if root.has-voice-chat: Middle {
-                            IconButton {
-                                icon: root.voice-chat ? @image-url("icons/volume-2.svg") : @image-url("icons/message-square-text.svg");
+                            IconButton { shy: header-touch.shy;
+                                icon: root.voice-chat ? IconPack.volume-2 : IconPack.message-square-text;
                                 label: root.voice-chat ? "Show voice channel" : "Open chat";
                                 tip-side: 2;
                                 clicked => { root.show-voice-chat(!root.voice-chat); }
                             }
                         }
                         if root.can-call: Middle {
-                            IconButton {
-                                icon: @image-url("icons/phone.svg"); label: root.call-going ? "Join Voice Call" : "Start Voice Call";
+                            IconButton { shy: header-touch.shy;
+                                icon: IconPack.phone; label: root.call-going ? "Join Voice Call" : "Start Voice Call";
                                 size: 32px; glyph: 20px; enabled: root.can-join; tip-side: 2;
                                 clicked => { root.start-call(); }
                             }
                         }
                         if root.can-call && !root.call-going: Middle {
-                            IconButton {
-                                icon: @image-url("icons/video.svg"); label: "Start Video Call";
+                            IconButton { shy: header-touch.shy;
+                                icon: IconPack.video; label: "Start Video Call";
                                 size: 32px; glyph: 20px; enabled: root.can-join; tip-side: 2;
                                 clicked => { root.start-video-call(); }
                             }
                         }
                         if root.can-list-threads: Middle {
-                            IconButton {
-                                icon: @image-url("icons/thread.svg"); label: "Threads";
+                            IconButton { shy: header-touch.shy;
+                                icon: IconPack.thread; label: "Threads";
                                 size: 32px; glyph: 20px; tip-side: 2;
                                 tint: root.threads-open ? Theme.text : Theme.secondary;
                                 clicked => {
@@ -3078,8 +3306,8 @@ export component YapfastWindow inherits Window {
                             }
                         }
                         if root.can-notify: Middle {
-                            IconButton {
-                                icon: root.room-muted ? @image-url("icons/bell-off.svg") : @image-url("icons/bell.svg");
+                            IconButton { shy: header-touch.shy;
+                                icon: root.room-muted ? IconPack.bell-off : IconPack.bell;
                                 label: root.room-muted ? "Notification settings, muted" : "Notification settings";
                                 size: 32px; glyph: 20px; tip-side: 2;
                                 clicked => {
@@ -3089,8 +3317,8 @@ export component YapfastWindow inherits Window {
                             }
                         }
                         if root.can-pin: Middle {
-                            IconButton {
-                                icon: @image-url("icons/pin.svg"); label: "Pinned messages";
+                            IconButton { shy: header-touch.shy;
+                                icon: IconPack.pin; label: "Pinned messages";
                                 size: 32px; glyph: 20px; tip-side: 2;
                                 tint: root.pins-open ? Theme.text : Theme.secondary;
                                 // Where the pins open from elsewhere, such as a pin's notice.
@@ -3107,8 +3335,8 @@ export component YapfastWindow inherits Window {
                             }
                         }
                         if root.can-add-people: Middle {
-                            IconButton {
-                                icon: @image-url("icons/user-plus.svg");
+                            IconButton { shy: header-touch.shy;
+                                icon: IconPack.user-plus;
                                 label: root.add-people-one-to-one ? "Add friends to DM" : "Add friends to the group";
                                 size: 32px; glyph: 20px; tip-side: 2;
                                 tint: root.add-people-open ? Theme.text : Theme.secondary;
@@ -3134,7 +3362,7 @@ export component YapfastWindow inherits Window {
                         }
                         if root.members-available && root.room-direct: Middle {
                             HeaderToggle {
-                                icon: @image-url("icons/users.svg"); text: root.members; open: root.member-list;
+                                icon: IconPack.users; text: root.members; open: root.member-list;
                                 label: root.member-list ? "Hide member list" : "Show member list";
                                 clicked => { root.toggle-members(); }
                             }
@@ -3142,8 +3370,8 @@ export component YapfastWindow inherits Window {
                         // A server channel's, as Discord's: the icon alone, bright while
                         // the list shows.
                         if root.members-available && !root.room-direct: Middle {
-                            IconButton {
-                                icon: @image-url("icons/users.svg");
+                            IconButton { shy: header-touch.shy;
+                                icon: IconPack.users;
                                 label: root.member-list ? "Hide member list" : "Show member list";
                                 size: 32px; glyph: 20px; tip-side: 2;
                                 tint: root.member-list ? Theme.text : Theme.secondary;
@@ -3152,8 +3380,8 @@ export component YapfastWindow inherits Window {
                         }
                         // A thread's, after its member list, as in Discord's toolbar.
                         if root.room-parent != "" && root.room-selected: Middle {
-                            IconButton {
-                                icon: @image-url("icons/ellipsis.svg"); label: "More";
+                            IconButton { shy: header-touch.shy;
+                                icon: IconPack.ellipsis; label: "More";
                                 size: 32px; glyph: 20px; tip-side: 2;
                                 clicked => {
                                     root.open-context-menu("thread-toolbar:" + root.room-id, false,
@@ -3162,15 +3390,15 @@ export component YapfastWindow inherits Window {
                             }
                         }
                         if root.profile-available: Middle {
-                            IconButton {
-                                icon: @image-url("icons/user.svg"); label: root.profile-panel ? "Hide profile" : "Show profile";
+                            IconButton { shy: header-touch.shy;
+                                icon: IconPack.user; label: root.profile-panel ? "Hide profile" : "Show profile";
                                 size: 32px; glyph: 20px; tip-side: 2;
                                 tint: root.profile-panel ? Theme.text : Theme.secondary;
                                 clicked => { root.toggle-profile-panel(); }
                             }
                         }
                         if root.can-search: Middle {
-                            HeaderSearch {
+                            HeaderSearch { shy: header-touch.shy;
                                 text <=> root.search-text;
                                 placeholder: root.search-placeholder;
                                 search(text) => { root.search(text); }
@@ -3179,21 +3407,49 @@ export component YapfastWindow inherits Window {
                         }
                         if !root.members-available && !root.profile-available && root.members != "": HorizontalLayout {
                             spacing: 6px;
-                            Image { source: @image-url("icons/users.svg"); width: 18px; image-fit: contain; colorize: Theme.muted; }
+                            Image { source: IconPack.users; width: 18px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
                             Text { text: root.members; color: Theme.muted; font-size: 14px; font-weight: 500; vertical-alignment: center; }
                         }
                     }
+                    }
                     Rectangle { y: parent.height - 1px; height: 1px; background: ClientStyle.enabled ? Theme.outline-chat : Theme.edge; }
                 }
-                HorizontalLayout {
+                // The conversation and the panes docked beside it; the resize
+                // handles below find their edges from where this is laid out.
+                conversation-panes := HorizontalLayout {
                     spacing: 0px;
+                    // A theme's layout may dock the member list on the left.
+                    if root.members-docked && Arrange.members == 1: Rectangle {
+                        width: root.members-shown;
+                        MemberPanel {
+                            x: Chrome.box-members ? root.box-cell : 0px; y: Chrome.box-members ? root.box-line : 0px;
+                            width: parent.width - 2 * self.x; height: parent.height - 2 * self.y;
+                        rows: root.roster; group: root.dms-selected; activity-rows: root.roster-activity; note: root.roster-note; selected: root.profile-member; boost-gems: root.boost-gems;
+                        activity-hidden <=> root.activity-cards-hidden;
+                        activity-hidden-toggled(hidden) => { root.activity-cards-hidden-toggled(hidden); }
+                        activity-clock => { root.activity-clock(); }
+                        open-profile(id, y) => { root.profile-y = y; root.profile-at-pointer = false; root.show-profile(id); }
+                        open-member-menu(id, x, y) => { root.open-context-menu(id, true, x, y); }
+                    }
+                        // A theme's box frame around the member list.
+                        if Chrome.box-members: BoxFrame {
+                            width: parent.width; height: parent.height; cell: root.box-cell; line: root.box-line;
+                            title: Chrome.box-title(Chrome.box-title-members, "members", Trim.members-n);
+                        }
+                    }
+                    Rectangle {
+                        horizontal-stretch: 1;
                     VerticalLayout {
+                        padding-left: Chrome.box-chat ? root.box-cell : 0px; padding-right: self.padding-left;
+                        // Under a box title, a line's clearance before the first row.
+                        padding-top: !Chrome.box-chat ? 0px : Chrome.box-title-chat != "" ? 2 * root.box-line : root.box-line;
+                        padding-bottom: Chrome.box-chat ? root.box-line : 0px;
                         spacing: 0px; horizontal-stretch: 1;
                         if root.preview: Rectangle {
-                            min-height: preview-content.preferred-height; background: Theme.raised; vertical-stretch: 0;
+                            min-height: preview-content.preferred-height; background: Theme.raised-fill; vertical-stretch: 0;
                             preview-content := HorizontalLayout {
                                 padding-left: 16px; padding-right: 16px; padding-top: 7px; padding-bottom: 7px; spacing: 10px;
-                                Image { source: @image-url("icons/triangle-alert.svg"); width: 16px; image-fit: contain; colorize: Theme.accent; }
+                                Image { source: IconPack.triangle-alert; width: 16px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.accent-text); }
                                 Text {
                                     text: "Local preview: sample data. Nothing leaves this computer.";
                                     color: Theme.secondary; font-size: 14px; font-weight: 500; wrap: word-wrap; vertical-alignment: center; horizontal-stretch: 1;
@@ -3215,7 +3471,12 @@ export component YapfastWindow inherits Window {
                             vertical-stretch: root.voice-panel ? 1 : !root.voice-here ? 0 : root.call-focus >= 0 ? 1.8 : 0.8;
                             min-height: root.voice-panel ? 0px : root.voice-here ? 260px : 210px;
                             max-height: root.voice-panel || root.voice-here ? 100000px : 210px;
-                            background: Theme.stage;
+                            // The stage takes the theme's `call` art and glass.
+                            background: Art.glass-call ? transparent : Theme.stage;
+                            if Art.call.length > 0 || Art.glass-call: ArtLayer {
+                                x: 0px; y: 0px; width: parent.width; height: parent.height;
+                                layers: Art.call; glass: Art.glass-call; ground: Theme.stage;
+                            }
                             if !root.voice-here && !root.voice-panel: CallInvite {
                                 call-people: root.call-people; call-note: root.call-note; call-incoming: root.call-incoming;
                                 call-room: root.call-room; can-join: root.can-join;
@@ -3269,15 +3530,15 @@ export component YapfastWindow inherits Window {
                         // follow it or copy its link.
                         if ClientStyle.enabled && root.forum-post && !root.voice-panel && !root.room-forum: Rectangle {
                             height: 45px; vertical-stretch: 0;
-                            background: Theme.chat;
+                            background: Theme.chat-fill;
                             Rectangle { y: parent.height - 1px; height: 1px; background: Theme.outline-chat; }
                             if root.forum-post-item != "": react-pill := Rectangle {
                                 x: 16px; y: 7px; height: 31px; width: react-row.preferred-width + 24px;
-                                border-radius: 8px;
-                                background: react-touch.has-hover ? Theme.field : Theme.raised;
+                                border-radius: Look.radius(8px);
+                                background: react-touch.has-hover ? Theme.field : Theme.raised-fill;
                                 react-row := HorizontalLayout {
                                     x: 12px; spacing: 8px; alignment: start;
-                                    Middle { Image { source: @image-url("icons/smile.svg"); width: 18px; height: 18px; colorize: Theme.text; accessible-role: none; } }
+                                    Middle { Image { source: IconPack.smile; width: 18px; height: 18px; colorize: IconPack.tint(self.source, Theme.text); accessible-role: none; } }
                                     Text { text: "React to post"; font-size: 14px; font-weight: 600; color: Theme.text; vertical-alignment: center; }
                                 }
                                 react-touch := TouchArea {
@@ -3297,12 +3558,12 @@ export component YapfastWindow inherits Window {
                                 alignment: end; padding-right: 16px; padding-top: 7px; padding-bottom: 7px; spacing: 4px;
                                 if root.forum-post-follow > 0: Rectangle {
                                     width: follow-row.preferred-width + 24px;
-                                    border-radius: 8px;
-                                    background: follow-touch.has-hover ? Theme.field : Theme.raised;
+                                    border-radius: Look.radius(8px);
+                                    background: follow-touch.has-hover ? Theme.field : Theme.raised-fill;
                                     follow-row := HorizontalLayout {
                                         x: 12px; spacing: 6px; alignment: start;
-                                        if root.forum-post-follow == 2: Middle { Image { source: @image-url("icons/check.svg"); width: 18px; height: 18px; colorize: Theme.text; accessible-role: none; } }
-                                        if root.forum-post-follow == 1: Middle { Image { source: @image-url("icons/plus.svg"); width: 18px; height: 18px; colorize: Theme.text; accessible-role: none; } }
+                                        if root.forum-post-follow == 2: Middle { Image { source: IconPack.check; width: 18px; height: 18px; colorize: IconPack.tint(self.source, Theme.text); accessible-role: none; } }
+                                        if root.forum-post-follow == 1: Middle { Image { source: IconPack.plus; width: 18px; height: 18px; colorize: IconPack.tint(self.source, Theme.text); accessible-role: none; } }
                                         Text { text: root.forum-post-follow == 2 ? "Following" : "Follow"; font-size: 14px; font-weight: 600; color: Theme.text; vertical-alignment: center; }
                                     }
                                     follow-touch := TouchArea {
@@ -3313,9 +3574,9 @@ export component YapfastWindow inherits Window {
                                     accessible-action-default => { root.choose-menu(root.room-id, false, root.forum-post-follow == 2 ? "leave-thread" : "join-thread"); }
                                 }
                                 Rectangle {
-                                    width: 32px; border-radius: 8px;
-                                    background: link-touch.has-hover ? Theme.field : Theme.raised;
-                                    Image { source: @image-url("icons/link.svg"); width: 18px; height: 18px; colorize: Theme.text; accessible-role: none; }
+                                    width: 32px; border-radius: Look.radius(8px);
+                                    background: link-touch.has-hover ? Theme.field : Theme.raised-fill;
+                                    Image { source: IconPack.link; width: 18px; height: 18px; colorize: IconPack.tint(self.source, Theme.text); accessible-role: none; }
                                     link-touch := TouchArea {
                                         mouse-cursor: MouseCursor.pointer;
                                         clicked => { root.choose-menu(root.room-id, false, "copy-link"); }
@@ -3355,12 +3616,20 @@ export component YapfastWindow inherits Window {
                             stay-post => { root.stay-post(); }
                             open-link(link) => { root.open-link(link); }
                         }
+                        // The messages and the composer, under them or, as a theme's layout
+                        // puts it, over them.
+                        chat-stack := Rectangle {
+                        property <bool> shown: !root.voice-panel && !root.room-forum;
+                        property <length> composer-height: root.voice-panel || root.room-forum || !root.room-selected ? 0px : composer-column.preferred-height;
+                        min-height: self.composer-height;
+                        max-height: self.shown ? 100000px : 0px;
+                        vertical-stretch: self.shown ? 1 : 0;
                         // Text conversation.
                         Rectangle {
-                            visible: !root.voice-panel && !root.room-forum;
-                            min-height: 0px;
-                            max-height: root.voice-panel || root.room-forum ? 0px : 100000px;
-                            vertical-stretch: root.voice-panel || root.room-forum ? 0 : 1;
+                            visible: chat-stack.shown;
+                            x: 0px; width: parent.width;
+                            y: Arrange.composer-top ? chat-stack.composer-height : 0px;
+                            height: parent.height - chat-stack.composer-height;
                             // Up and Down step through messages; R replies, E edits, Delete deletes,
                             // C copies, F forwards, + reacts, Enter opens the menu, Escape returns
                             // to the composer.
@@ -3425,7 +3694,7 @@ export component YapfastWindow inherits Window {
                                     timeline := ListView {
                                         width: parent.width; height: parent.height;
                                         scrolled => { root.follow-latest = false; }
-                                        for message[index] in root.messages: Rectangle {
+                                        for message[index] in root.messages: msg-row := Rectangle {
                                             property <bool> lit: root.active-item == message.item;
                                             property <bool> jumped: root.jump-item != "" && root.jump-item == message.item;
                                             property <int> jump-tick: root.jump-tick;
@@ -3502,10 +3771,142 @@ export component YapfastWindow inherits Window {
                                             property <length> head: (index == 0 && root.room-ready ? (ClientStyle.enabled && root.history-start && root.intro-kind != "" ? (root.intro-kind == "server" ? ClientStyle.intro-server-height : ClientStyle.intro-channel-height) : 42px) : 0px)
                                                 + (message.day != "" || message.unread-start ? 26px : 0px);
                                             property <length> body: self.top + (self.head > 0px ? col.padding-top + self.head : 0px);
-                                            Rectangle {
-                                                y: parent.body; height: parent.height - parent.body - parent.tail;
-                                                background: parent.jumped && root.jump-lit ? Theme.accent.transparentize(0.86) : parent.lit ? Theme.row-hover : transparent;
+                                            // A theme's `cards`: the group's card, a slice of it a row,
+                                            // closed at its first and last; only the card leans.
+                                            property <bool> group-end: index == root.messages.length - 1 || root.messages[index + 1].first;
+                                            property <bool> carded: Arrange.messages == 3 && message.notice == "";
+                                            property <length> lead: Arrange.centre(self.width, Look.chat-padding >= 0px ? Look.chat-padding : 16px);
+                                            // In `cards`, the card's right edge, stepped by its stagger.
+                                            property <length> card-right: self.width - self.lead - Arrange.cards-stagger + Arrange.stagger-left(message.group);
+                                            // Each row draws its slice of the card: the whole card
+                                            // turned, clipped to the row, so a later row's ground
+                                            // never covers an earlier row's text. Slices overlap
+                                            // by the turn's reach, so their seams don't show; the
+                                            // first and last reach past the row for the corners.
+                                            // The bands: hover (or a theme's highlighter), the jump's
+                                            // light, a mention and the keyboard's edge. In `cards` they
+                                            // lie on the card, leaning with it; in `bubbles` on the
+                                            // bubble; otherwise across the row, as a theme's `row`
+                                            // shape insets and rounds them.
+                                            property <bool> bubbled: Arrange.messages == 1 && message.notice == "";
+                                            property <bool> jump-shown: self.jumped && root.jump-lit;
+                                            property <bool> marker: Art.row-highlighter && !self.jump-shown;
+                                            property <brush> tint: self.jump-shown ? Theme.accent.transparentize(0.86) : self.lit && !self.marker ? Theme.row-hover : transparent;
+                                            property <brush> mark: message.highlighted ? (row-pointer.has-hover ? Theme.mentioned-hover : Theme.mentioned) : transparent;
+                                            // A bubble's: a wash over its own colour.
+                                            property <brush> bubble-tint: self.jump-shown ? Theme.accent.transparentize(0.86) : self.lit ? Theme.overlay.with-alpha(0.08) : transparent;
+                                            property <length> band-x: Look.row-inset-x + (Arrange.chat-max-width > 0px ? max(0px, (self.width - Arrange.chat-max-width) / 2 - 8px) : 0px);
+                                            if self.carded: slice := Rectangle {
+                                                property <length> from: parent.body + (message.first && parent.head == 0px ? col.padding-top : 0px);
+                                                property <length> to: parent.height - (parent.group-end ? parent.tail : 0px);
+                                                property <length> reach: (parent.width - 2 * parent.lead) / 2 * Math.abs(Math.sin(Arrange.lean(message.group) * 1deg)) + 2px;
+                                                // Past the card's top and bottom for its shadow and
+                                                // pictures, and past a row's edges for its shadow.
+                                                property <length> up: message.first ? self.reach + Arrange.cards-over-top : 0px;
+                                                property <length> down: msg-row.group-end ? self.reach + Arrange.cards-over-bottom : 0px;
+                                                property <length> bleed: self.reach + Arrange.cards-bleed;
+                                                property <length> top-corner: message.first ? Look.r(Look.message, 4px) : 0px;
+                                                property <length> bottom-corner: msg-row.group-end ? Look.r(Look.message, 4px) : 0px;
+                                                x: 0px; width: parent.width;
+                                                y: self.from - self.up;
+                                                height: self.to - self.y + self.down;
+                                                clip: true;
+                                                card := Rectangle {
+                                                    // A staggered card steps in from one side, by its group.
+                                                    x: msg-row.lead + Arrange.stagger-left(message.group); width: parent.width - 2 * msg-row.lead - Arrange.cards-stagger;
+                                                    y: message.first ? parent.up : -parent.bleed;
+                                                    height: parent.to - parent.from + (message.first ? 0px : parent.bleed) + (msg-row.group-end ? 0px : parent.bleed);
+                                                    background: Arrange.cards-ground;
+                                                    border-top-left-radius: parent.top-corner; border-top-right-radius: parent.top-corner;
+                                                    border-bottom-left-radius: parent.bottom-corner; border-bottom-right-radius: parent.bottom-corner;
+                                                    drop-shadow-blur: Arrange.cards-shadow-blur >= 0px ? Arrange.cards-shadow-blur : 0px;
+                                                    drop-shadow-offset-x: Arrange.cards-shadow-x; drop-shadow-offset-y: Arrange.cards-shadow-y;
+                                                    drop-shadow-color: Arrange.cards-shadow-blur >= 0px ? Arrange.cards-shadow-color : transparent;
+                                                    transform-rotation: Arrange.lean(message.group) * 1deg;
+                                                    Rectangle {
+                                                        background: msg-row.tint; animate background { duration: 400ms; }
+                                                        border-top-left-radius: parent.border-top-left-radius; border-top-right-radius: parent.border-top-left-radius;
+                                                        border-bottom-left-radius: parent.border-bottom-left-radius; border-bottom-right-radius: parent.border-bottom-left-radius;
+                                                    }
+                                                    if msg-row.marker: ArtHighlighter {
+                                                        x: 0px; y: message.first ? 0px : slice.bleed;
+                                                        width: parent.width; height: slice.to - slice.from;
+                                                        selected: msg-row.lit; colour: Art.row-highlighter-color; time: Art.row-highlighter-time;
+                                                    }
+                                                    if message.highlighted: Rectangle {
+                                                        background: msg-row.mark;
+                                                        border-top-left-radius: parent.border-top-left-radius; border-top-right-radius: parent.border-top-left-radius;
+                                                        border-bottom-left-radius: parent.border-bottom-left-radius; border-bottom-right-radius: parent.border-bottom-left-radius;
+                                                        Rectangle { x: 0px; width: 2px; background: Theme.accent-fill; border-top-left-radius: parent.border-top-left-radius; border-bottom-left-radius: parent.border-bottom-left-radius; }
+                                                    }
+                                                    if msg-row.lit && root.browsing: Rectangle { x: 0px; width: 3px; background: Theme.accent-fill; }
+                                                    if Arrange.dash-message.on: DashedOutline { x: 0px; y: 0px; dash: Arrange.dash-message; }
+                                                    // A theme's pictures on the card's top edge, on its
+                                                    // first row, and on its bottom edge, on its last.
+                                                    // A place with several pictures shows one a card,
+                                                    // picked by the card's group; never wider than it.
+                                                    for art[place] in Art.cards: art-box := Rectangle {
+                                                        property <bool> here: art.bottom ? msg-row.group-end : message.first;
+                                                        property <length> across-width: art.full ? parent.width : min(art.width, parent.width);
+                                                        property <ArtImage> chosen: art.choices.length > 0 ? art.choices[Math.mod(Math.floor(message.group / (place * 7 + 1)), art.choices.length)] : art.picture;
+                                                        visible: self.here;
+                                                        width: self.here ? self.across-width : 0px; height: self.here ? art.height : 0px;
+                                                        x: (parent.width - self.across-width) * art.across + art.dx;
+                                                        y: (art.bottom ? parent.height : 0px) - art.height / 2 + art.dy;
+                                                        transform-rotation: art.rotation * 1deg;
+                                                        if self.here: ArtPicture { x: 0px; y: 0px; width: parent.width; height: parent.height; layer: art-box.chosen; }
+                                                        // `tint_art`: the hover and mention tints lie over the
+                                                        // picture too, only where it's drawn.
+                                                        if self.here && Arrange.cards-tint-art && art-box.chosen.fit == 2: Rectangle { background: msg-row.tint; animate background { duration: 400ms; } }
+                                                        if self.here && Arrange.cards-tint-art && art-box.chosen.fit == 2 && message.highlighted: Rectangle { background: msg-row.mark; }
+                                                        if self.here && Arrange.cards-tint-art && art-box.chosen.fit != 2: Image {
+                                                            width: parent.width; height: parent.height; source: art-box.chosen.image;
+                                                            image-fit: art-box.chosen.fit == 1 ? ImageFit.contain : art-box.chosen.fit == 3 ? ImageFit.fill : ImageFit.cover;
+                                                            colorize: msg-row.tint; opacity: 1 - art-box.chosen.fade; accessible-role: none;
+                                                        }
+                                                        if self.here && Arrange.cards-tint-art && art-box.chosen.fit != 2 && message.highlighted: Image {
+                                                            width: parent.width; height: parent.height; source: art-box.chosen.image;
+                                                            image-fit: art-box.chosen.fit == 1 ? ImageFit.contain : art-box.chosen.fit == 3 ? ImageFit.fill : ImageFit.cover;
+                                                            colorize: msg-row.mark; opacity: 1 - art-box.chosen.fade; accessible-role: none;
+                                                        }
+                                                    }
+                                                    // A theme's words on the card's tab: over its first
+                                                    // picture on the top edge, or on a tab of their own.
+                                                    if Trim.tab-on && message.first: Rectangle {
+                                                        property <bool> on-art: Art.cards.length > 0 && !Art.cards[0].bottom;
+                                                        property <string> words: Trim.tab(Trim.tab-text, message.author, message.short-time);
+                                                        width: self.on-art ? Art.cards[0].width : tab-words.preferred-width + 16px;
+                                                        height: self.on-art ? Art.cards[0].height : Trim.tab-size + 8px;
+                                                        x: self.on-art ? (parent.width - Art.cards[0].width) * Art.cards[0].across + Art.cards[0].dx : 12px;
+                                                        y: self.on-art ? -Art.cards[0].height / 2 + Art.cards[0].dy : -self.height / 2;
+                                                        transform-rotation: self.on-art ? Art.cards[0].rotation * 1deg : 0deg;
+                                                        background: self.on-art ? transparent : Trim.tab-ground;
+                                                        tab-words := Text {
+                                                            x: 8px; width: parent.width - 16px;
+                                                            text: Trim.tab-upper ? parent.words.to-uppercase() : parent.words; color: Trim.tab-ink;
+                                                            font-family: Trim.tab-family; font-size: Trim.tab-size; font-weight: Trim.tab-weight;
+                                                            horizontal-alignment: center; vertical-alignment: center; overflow: elide;
+                                                            accessible-role: none;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            // A theme's stripes: every other message tinted.
+                                            if Trim.stripe-messages && Math.mod(index, 2) == 1 && !self.carded && !self.bubbled: Rectangle {
+                                                x: parent.band-x; width: parent.width - 2 * parent.band-x;
+                                                y: parent.body + Look.row-inset-y; height: parent.height - parent.body - parent.tail - 2 * Look.row-inset-y;
+                                                border-radius: Look.row-radius; background: Trim.stripe;
+                                            }
+                                            if !self.carded && !self.bubbled: Rectangle {
+                                                x: parent.band-x; width: parent.width - 2 * parent.band-x;
+                                                y: parent.body + Look.row-inset-y; height: parent.height - parent.body - parent.tail - 2 * Look.row-inset-y;
+                                                border-radius: Look.row-radius;
+                                                background: parent.tint;
                                                 animate background { duration: 400ms; }
+                                                if msg-row.marker: ArtHighlighter {
+                                                    x: 0px; y: 0px; width: parent.width; height: parent.height;
+                                                    selected: msg-row.lit; colour: Art.row-highlighter-color; time: Art.row-highlighter-time;
+                                                }
                                             }
                                             // The message being edited has Discord's edit tint (measured #29292d
                                             // on its dark theme).
@@ -3516,14 +3917,15 @@ export component YapfastWindow inherits Window {
                                             // A message that calls on this account is tinted marigold with a
                                             // marigold edge, below the history notice and the dividers above it:
                                             // a mention always, a reply to its message while it's new.
-                                            if message.highlighted: Rectangle {
-                                                y: parent.body;
-                                                height: parent.height - self.y - parent.tail;
-                                                background: row-pointer.has-hover ? Theme.mentioned-hover : Theme.mentioned;
-                                                Rectangle { x: 0px; width: 2px; background: Theme.accent; }
+                                            if message.highlighted && !self.carded && !self.bubbled: Rectangle {
+                                                x: parent.band-x; width: parent.width - 2 * parent.band-x;
+                                                y: parent.body + Look.row-inset-y; border-radius: Look.row-radius; clip: true;
+                                                height: parent.height - self.y - parent.tail - Look.row-inset-y;
+                                                background: parent.mark;
+                                                Rectangle { x: 0px; width: 2px; background: Theme.accent-fill; }
                                             }
                                             // The keyboard's message has a marigold edge.
-                                            if self.lit && root.browsing: Rectangle { x: 0px; y: parent.body; width: 3px; height: parent.height - parent.body; background: Theme.accent; }
+                                            if self.lit && root.browsing && !self.carded: Rectangle { x: parent.band-x; y: parent.body; width: 3px; height: parent.height - parent.body; background: Theme.accent-fill; }
                                             // The pointer area wraps the row, so hovering selectable text still counts.
                                             // The last hovered or clicked message keeps its actions: the list takes
                                             // the pointer when a press starts, which ends hover, so a hover-only bar
@@ -3552,9 +3954,9 @@ export component YapfastWindow inherits Window {
                                                     }
                                                 }
                                                 col := VerticalLayout {
-                                                    padding-top: message.day != "" || message.unread-start ? 12px : message.first ? ClientStyle.message-group-gap : 1px;
+                                                    padding-top: message.day != "" || message.unread-start ? 12px : message.first ? (msg-row.carded ? Arrange.cards-gap : Arrange.messages == 2 && message.notice == "" ? 4px : ClientStyle.message-group-gap) : msg-row.carded ? 0px : 1px;
                                                     // The last row leaves room for the bar over a window's end.
-                                                    padding-bottom: index == root.messages.length - 1 ? (root.detached ? 52px : 20px) : 1px;
+                                                    padding-bottom: index == root.messages.length - 1 ? (root.detached ? 52px : 20px) : msg-row.carded ? 0px : 1px;
                                                     spacing: 0px;
                                                     // History starts with what's before it: earlier messages
                                                     // loading, or the conversation's start.
@@ -3569,25 +3971,35 @@ export component YapfastWindow inherits Window {
                                                     // the first unread message, in the middle of one line, the
                                                     // date and "New" together when both are here.
                                                     if message.day != "" || message.unread-start: HorizontalLayout {
-                                                        padding-left: 16px; padding-right: 16px; padding-bottom: 6px; spacing: 10px; height: 26px;
-                                                        Rectangle { horizontal-stretch: 1; Rectangle { height: 1px; background: message.unread-start ? Theme.accent : Theme.line; } }
-                                                        if message.day != "": Text { text: message.day; color: Theme.muted; font-size: ClientStyle.enabled ? 12px : 13px; font-weight: ClientStyle.enabled ? 600 : 700; vertical-alignment: center; }
+                                                        padding-left: Arrange.centre(self.width, 16px); padding-right: self.padding-left; padding-bottom: 6px; spacing: 10px; height: 26px;
+                                                        Rectangle {
+                                                            horizontal-stretch: 1;
+                                                            if !Arrange.dash-divider.on: Rectangle { height: Look.line(1px); background: message.unread-start ? Theme.accent-fill : Theme.line; }
+                                                            if Arrange.dash-divider.on: DashedRule { dash: Arrange.dash-divider; stock-ink: message.unread-start ? Theme.accent : Theme.line; }
+                                                        }
+                                                        if message.day != "": Text { text: Chrome.day != "" ? Chrome.fill(Chrome.day, "date", message.day) : message.day; color: Theme.muted; font-size: ClientStyle.enabled ? 12px : 13px; font-weight: ClientStyle.enabled ? 600 : 700; vertical-alignment: center; }
                                                         if message.day != "" && message.unread-start: Text { text: "·"; color: Theme.muted; font-size: 13px; font-weight: 700; vertical-alignment: center; }
                                                         if message.unread-start: Rectangle {
                                                             width: new-text.preferred-width + 10px;
                                                             accessible-role: text; accessible-label: "New messages start here";
                                                             Rectangle {
-                                                                height: 18px; border-radius: 4px; background: Theme.accent;
+                                                                height: 18px; border-radius: Look.radius(4px); background: Theme.accent-fill;
                                                                 new-text := Text {
-                                                                    text: "New"; color: Theme.on-accent; font-size: 12px; font-weight: 800;
+                                                                    text: Chrome.new-label != "" ? Chrome.new-label : "New"; color: Theme.on-accent; font-size: 12px; font-weight: 800;
+                                                                    font-family: Chrome.new-label != "" ? Chrome.font : "";
                                                                     horizontal-alignment: center; vertical-alignment: center;
                                                                 }
                                                             }
                                                         }
-                                                        Rectangle { horizontal-stretch: 1; Rectangle { height: 1px; background: message.unread-start ? Theme.accent : Theme.line; } }
+                                                        Rectangle {
+                                                            horizontal-stretch: 1;
+                                                            if !Arrange.dash-divider.on: Rectangle { height: Look.line(1px); background: message.unread-start ? Theme.accent-fill : Theme.line; }
+                                                            if Arrange.dash-divider.on: DashedRule { dash: Arrange.dash-divider; stock-ink: message.unread-start ? Theme.accent : Theme.line; }
+                                                        }
                                                     }
-                                                    MessageContent {
-                                                        message: message; active-item: root.active-item; preview: root.preview; reactions-enabled: root.reactions-enabled; bot-busy-item: root.bot-busy-item; bot-failed-item: root.bot-failed-item; bot-failed-text: root.bot-failed-text;
+                                                    content := MessageContent {
+                                                        band: msg-row.bubbled ? msg-row.bubble-tint : transparent; mark: msg-row.bubbled ? msg-row.mark : transparent;
+                                                        message: message; group-end: msg-row.group-end; active-item: root.active-item; preview: root.preview; reactions-enabled: root.reactions-enabled; bot-busy-item: root.bot-busy-item; bot-failed-item: root.bot-failed-item; bot-failed-text: root.bot-failed-text;
                                                         emoji-font: root.emoji-font; message-font-size: root.message-font-size;
                                                         collapse-long: root.collapse-long;
                                                         // The view keeps the message's top: it stops following
@@ -3650,11 +4062,22 @@ export component YapfastWindow inherits Window {
                                             }
                                             // Actions, the reaction picker and delete confirmation float over the
                                             // row's top edge, so opening them never moves the timeline.
-                                            if (self.lit || root.react-item == message.item || root.menu-item == message.item || root.confirm-delete == message.item) && !message.deleted && message.delivery == "": message-bar := Rectangle {
-                                                x: parent.width - self.width - 16px; y: parent.body + (index == 0 && parent.head == 0px ? 4px : -16px);
+                                            if (self.lit || root.react-item == message.item || root.menu-item == message.item || root.confirm-delete == message.item) && !message.deleted && message.delivery == "": message-bar := ActionsFrame {
+                                                // It follows the message as a theme lays it out: in
+                                                // `bubbles` beside the bubble, after someone else's and
+                                                // before your own; in `cards` on the card's own right
+                                                // edge, stagger and all; in `irc` at the start of the
+                                                // text column. Stock, at the row's right.
+                                                x: parent.bubbled ? (message.own ? max(16px, content.bubble-left - self.width - 8px)
+                                                        : min(parent.width - self.width - 16px, content.bubble-right + 8px))
+                                                    : parent.carded ? max(parent.lead, parent.card-right - self.width - 8px)
+                                                    : Arrange.messages == 2 && message.notice == "" ? min(parent.width - self.width - 16px, content.column-left)
+                                                    : parent.width - self.width - 16px;
+                                                // In `irc`, where it covers the text column's start, it
+                                                // sits over the line above, clear of the hovered one.
+                                                y: parent.body + (index == 0 && parent.head == 0px ? 4px
+                                                    : Arrange.messages == 2 && message.notice == "" ? 4px - self.height : -16px);
                                                 width: actions.preferred-width; height: actions.preferred-height;
-                                                background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
-                                                drop-shadow-blur: 10px; drop-shadow-color: #00000059; drop-shadow-offset-y: 2px;
                                                 // Holding Shift swaps the frequent reactions for Pin, Create Thread
                                                 // and, on your own message, Reply, adds Forward, and swaps More for a
                                                 // Delete that doesn't ask, as in Discord's client; not while the
@@ -3673,24 +4096,24 @@ export component YapfastWindow inherits Window {
                                                     // Reply on someone else's, and everything else under More.
                                                     if root.confirm-delete != message.item: HorizontalLayout {
                                                         spacing: 0px;
-                                                        if message-bar.quick && message.can-pin: IconButton {
-                                                            icon: message.pinned ? @image-url("icons/pin-off.svg") : @image-url("icons/pin.svg");
+                                                        if message-bar.quick && message.can-pin: IconButton { hover-fill: Theme.actions-hover;
+                                                            icon: message.pinned ? IconPack.pin-off : IconPack.pin;
                                                             label: message.pinned ? "Unpin" : "Pin";
                                                             clicked => { root.pin-message(message.item); }
                                                         }
-                                                        if message-bar.quick && root.can-start-threads && message.can-reply && message.thread-room == "": IconButton {
-                                                            icon: @image-url("icons/thread.svg"); label: "Create Thread";
+                                                        if message-bar.quick && root.can-start-threads && message.can-reply && message.thread-room == "": IconButton { hover-fill: Theme.actions-hover;
+                                                            icon: IconPack.thread; label: "Create Thread";
                                                             clicked => { root.new-thread(message.item, "message"); }
                                                         }
-                                                        if message-bar.quick && message.own && message.can-edit && message.can-reply && root.composer-enabled: IconButton {
-                                                            icon: @image-url("icons/reply.svg"); label: "Reply";
+                                                        if message-bar.quick && message.own && message.can-edit && message.can-reply && root.composer-enabled: IconButton { hover-fill: Theme.actions-hover;
+                                                            icon: IconPack.reply; label: "Reply";
                                                             clicked => { root.reply(message.item); root.focus-composer(); }
                                                         }
                                                         if message.can-react && root.new-reactions-enabled: HorizontalLayout {
                                                             spacing: 0px;
                                                             if !message-bar.quick: HorizontalLayout {
                                                                 spacing: 0px;
-                                                                for cell in root.bar-reactions: EmojiButton {
+                                                                for cell in root.bar-reactions: EmojiButton { hover-fill: Theme.actions-hover;
                                                                     animation-key: cell.key;
                                                                     emoji: cell; font: root.emoji-font;
                                                                     clicked => { root.react(message.item, cell.key); }
@@ -3700,27 +4123,30 @@ export component YapfastWindow inherits Window {
                                                                     Rectangle { width: 1px; height: 20px; background: Theme.line; }
                                                                 }
                                                             }
-                                                            IconButton {
-                                                                icon: @image-url("icons/smile-plus.svg"); label: "Add reaction";
+                                                            IconButton { hover-fill: Theme.actions-hover;
+                                                                icon: IconPack.smile-plus; label: "Add reaction";
                                                                 clicked => {
-                                                                    root.anchor(self.absolute-position.x, self.absolute-position.y, self.width, self.height, false);
+                                                                    // Beside someone else's bubble the bar is on the
+                                                                    // bubble's right: the picker opens rightwards
+                                                                    // from it, never back over the bubble.
+                                                                    root.anchor(self.absolute-position.x, self.absolute-position.y, self.width, self.height, msg-row.bubbled && !message.own);
                                                                     root.open-picker(message.item);
                                                                 }
                                                             }
                                                         }
-                                                        if message.own && message.can-edit && root.composer-enabled: IconButton { icon: @image-url("icons/pencil.svg"); label: "Edit"; clicked => { root.edit(message.item); } }
-                                                        if !(message.own && message.can-edit) && message.can-reply && root.composer-enabled: IconButton { icon: @image-url("icons/reply.svg"); label: "Reply"; clicked => { root.reply(message.item); root.focus-composer(); } }
+                                                        if message.own && message.can-edit && root.composer-enabled: IconButton { hover-fill: Theme.actions-hover; icon: IconPack.pencil; label: "Edit"; clicked => { root.edit(message.item); } }
+                                                        if !(message.own && message.can-edit) && message.can-reply && root.composer-enabled: IconButton { hover-fill: Theme.actions-hover; icon: IconPack.reply; label: "Reply"; clicked => { root.reply(message.item); root.focus-composer(); } }
                                                         // Beside Reply, as in Discord, whether or not Shift is held.
-                                                        if message.can-forward && root.forward-allowed: IconButton {
-                                                            icon: @image-url("icons/forward.svg"); label: "Forward";
+                                                        if message.can-forward && root.forward-allowed: IconButton { hover-fill: Theme.actions-hover;
+                                                            icon: IconPack.forward; label: "Forward";
                                                             clicked => { root.start-forward(message.item); }
                                                         }
-                                                        if message-bar.deletes: IconButton {
-                                                            icon: @image-url("icons/trash-2.svg"); label: "Delete"; danger: true;
+                                                        if message-bar.deletes: IconButton { hover-fill: Theme.actions-hover;
+                                                            icon: IconPack.trash-2; label: "Delete"; danger: true;
                                                             clicked => { root.delete-now(message.item); }
                                                         }
-                                                        if !message-bar.deletes: IconButton {
-                                                            icon: @image-url("icons/ellipsis.svg"); label: "More";
+                                                        if !message-bar.deletes: IconButton { hover-fill: Theme.actions-hover;
+                                                            icon: IconPack.ellipsis; label: "More";
                                                             clicked => {
                                                                 root.anchor(self.absolute-position.x, self.absolute-position.y, self.width, self.height, false);
                                                                 root.open-menu(message);
@@ -3802,12 +4228,15 @@ export component YapfastWindow inherits Window {
                             // animations play: `animation-tick()` repaints every frame, so
                             // with them held still it holds still too.
                             if root.typing != "" && root.room-selected && !root.voice-panel: Rectangle {
-                                x: 72px - 4px; y: parent.height - self.height;
-                                width: min(parent.width - 72px - 12px, typing-text.preferred-width + 8px); height: 20px;
-                                background: Theme.chat;
+                                x: Arrange.centre(parent.width, 16px) + 56px - 4px; y: parent.height - self.height;
+                                width: min(parent.width - self.x - 16px, typing-text.preferred-width + 8px); height: 20px;
+                                // Over the conversation's art or glass it lets them show.
+                                background: Art.chat.length > 0 || Art.glass-chat ? transparent : Theme.chat-fill;
                                 typing-text := Text {
                                     x: 4px; width: parent.width - 8px;
-                                    text: root.typing; color: Theme.text; font-size: 13px; font-weight: 500;
+                                    text: Chrome.typing != "" ? Chrome.fill(Chrome.typing, "typing", root.typing) : root.typing; color: Theme.text; font-size: 13px; font-weight: 500;
+                                    font-family: Chrome.typing != "" ? Chrome.font : "";
+                                    accessible-label: root.typing;
                                     vertical-alignment: center; overflow: elide;
                                     opacity: Motion.playing ? 0.75 + 0.25 * sin(animation-tick() / 1ms * 0.25deg) : 1;
                                 }
@@ -3815,44 +4244,55 @@ export component YapfastWindow inherits Window {
                             // Under the avatars, three dots rise and brighten in turn, or
                             // sit still in a row while animations don't play.
                             if root.typing != "" && root.room-selected && !root.voice-panel: Rectangle {
-                                x: 36px - self.width / 2; y: parent.height - self.height;
+                                // The typing slot.
+                                x: Arrange.centre(parent.width, 16px) + 20px - self.width / 2 + Look.typing.x; y: parent.height - self.height + Look.typing.y;
                                 width: 32px; height: 20px;
-                                background: Theme.chat;
+                                background: Art.chat.length > 0 || Art.glass-chat ? transparent : Theme.chat-fill;
+                                opacity: Look.typing.opacity; transform-scale: Look.typing.scale; transform-rotation: Look.typing.rotation * 1deg;
                                 for dot in 3: Rectangle {
                                     property <float> wave: Motion.playing ? sin(animation-tick() / 1ms * 0.3deg - dot * 70deg) : 0;
                                     x: 4px + dot * 9px; y: (parent.height - self.height) / 2 - 1.5px * self.wave;
-                                    width: 6px; height: 6px; border-radius: 3px;
+                                    width: 6px; height: 6px; border-radius: Look.radius(3px);
                                     background: Theme.muted;
                                     opacity: 0.6 + 0.4 * self.wave;
                                 }
                             }
                         }
                         // Composer.
-                        VerticalLayout {
+                        composer-column := VerticalLayout {
                             visible: !root.voice-panel && !root.room-forum && root.room-selected;
-                            min-height: 0px;
-                            max-height: root.voice-panel || root.room-forum || !root.room-selected ? 0px : 100000px;
-                            padding-left: ClientStyle.composer-gutter; padding-right: ClientStyle.composer-gutter; padding-top: 0px; padding-bottom: 0px;
-                            spacing: 0px; vertical-stretch: 0;
+                            x: 0px; width: parent.width;
+                            y: Arrange.composer-top ? 0px : parent.height - chat-stack.composer-height;
+                            height: chat-stack.composer-height;
+                            // A theme's `chat_padding` sets the composer's sides too, so it lines up with the messages.
+                            padding-left: Arrange.centre(self.width, Look.chat-padding >= 0px ? Look.chat-padding : ClientStyle.composer-gutter); padding-right: self.padding-left;
+                            padding-top: Arrange.composer-top ? ClientStyle.composer-gutter : 0px; padding-bottom: 0px;
+                            spacing: 0px;
+                            if Trim.status != "" && Trim.status-above: status-top := Text {
+                                height: 22px;
+                                text: Trim.status-line(Trim.status, root.room-name, root.sidebar-title, root.typing, Trim.status-tick);
+                                color: Theme.secondary; font-family: Trim.small-font(Look.mono); font-size: Trim.small-size(13px);
+                                vertical-alignment: center; overflow: elide; accessible-role: none;
+                            }
                             if root.room-request: RequestBar {
                                 request-title: root.request-title;
                                 accept-request => { root.accept-request(); }
                                 ignore-request => { root.ignore-request(); }
                             }
                             if root.compose-label != "": Rectangle {
-                                height: 36px; background: Theme.sidebar;
-                                border-top-left-radius: 10px; border-top-right-radius: 10px;
+                                height: 36px; background: Theme.sidebar-fill;
+                                border-top-left-radius: Look.radius(10px); border-top-right-radius: Look.radius(10px);
                                 HorizontalLayout {
                                     padding-left: 14px; padding-right: 4px; spacing: 8px;
-                                    Image { source: @image-url("icons/reply.svg"); width: 16px; image-fit: contain; colorize: Theme.muted; }
+                                    Image { source: IconPack.reply; width: 16px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
                                     Text { text: root.compose-label; color: Theme.secondary; font-size: 14px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                                     VerticalLayout { alignment: center; PingToggle { on: root.reply-ping; toggled => { root.toggle-reply-ping(); } } }
-                                    IconButton { icon: @image-url("icons/x.svg"); label: "Cancel reply"; size: 28px; glyph: 16px; clicked => { root.cancel-compose(); } }
+                                    IconButton { icon: IconPack.x; label: "Cancel reply"; size: 28px; glyph: 16px; clicked => { root.cancel-compose(); } }
                                 }
                             }
                             if root.composer-locked && !root.room-request: Rectangle {
                                 height: ClientStyle.composer-height;
-                                background: Theme.field; border-width: 1px; border-color: Theme.outline-field; border-radius: 10px;
+                                background: Theme.field; border-width: Look.line(1px); border-color: Theme.outline-field; border-radius: Look.radius(10px);
                                 accessible-role: text; accessible-label: root.composer-locked-text;
                                 Text {
                                     x: 16px; width: parent.width - 32px; height: parent.height;
@@ -3863,16 +4303,41 @@ export component YapfastWindow inherits Window {
                             composer-box := Rectangle {
                                 visible: !root.room-request && !root.composer-locked;
                                 min-height: root.room-request || root.composer-locked ? 0px : ClientStyle.composer-height; max-height: root.room-request || root.composer-locked ? 0px : 100000px;
-                                background: ClientStyle.enabled ? Theme.composer : Theme.field;
+                                background: Art.glass-composer || Chrome.console ? transparent : ClientStyle.enabled ? Theme.composer : Theme.field;
                                 // Discord's outline: faint, and a notch lighter with the keys.
-                                border-width: 1px;
-                                border-color: composer.focused ? Theme.muted.with-alpha(0.55) : ClientStyle.enabled ? Theme.outline-field : Theme.line;
+                                // A theme's console has none: a line under it instead.
+                                border-width: Arrange.dash-composer.on || Chrome.console ? 0px : Look.bw(Look.composer, 1px);
+                                border-color: composer.focused ? Theme.composer-focus : Look.bc(Look.composer, ClientStyle.enabled ? Theme.outline-field : Theme.line);
                                 animate border-color { duration: Theme.quick; }
-                                border-radius: 10px;
-                                border-top-left-radius: root.compose-label != "" ? 0px : 10px;
-                                border-top-right-radius: root.compose-label != "" ? 0px : 10px;
+                                border-radius: Look.r(Look.composer, 10px);
+                                drop-shadow-blur: Look.sb(Look.composer, 0px); drop-shadow-offset-x: Look.sx(Look.composer, 0px);
+                                drop-shadow-offset-y: Look.sy(Look.composer, 0px); drop-shadow-color: Look.sc(Look.composer, transparent);
+                                border-top-left-radius: root.compose-label != "" ? 0px : Look.r(Look.composer, 10px);
+                                border-top-right-radius: root.compose-label != "" ? 0px : Look.r(Look.composer, 10px);
+                                if Art.composer.length > 0 || Art.glass-composer: ArtLayer {
+                                    x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.composer, 10px);
+                                    layers: Art.composer; glass: Art.glass-composer; ground: ClientStyle.enabled ? Theme.composer : Theme.field;
+                                }
+                                if Art.track: ArtEmitter { x: 0px; y: 0px; width: parent.width; height: parent.height; kind: 0; }
+                                if Chrome.console: Rectangle {
+                                    x: 0px; y: parent.height - 1px; width: parent.width; height: 1px;
+                                    background: Chrome.console-line;
+                                }
+                                // With the keys, the accent draws across it from the left.
+                                if Chrome.console: Rectangle {
+                                    x: 0px; y: parent.height - 1px; height: 1px;
+                                    width: composer.focused ? parent.width : 0px;
+                                    animate width { duration: Chrome.console-draw; easing: ease-out; }
+                                    background: Chrome.console-focus;
+                                }
+                                if Arrange.dash-composer.on && !Chrome.console: DashedOutline {
+                                    x: 0px; y: 0px; dash: Arrange.dash-composer; stock-width: Look.bw(Look.composer, 1px);
+                                    stock-ink: composer.focused ? Theme.composer-focus : Look.bc(Look.composer, Theme.outline-field);
+                                }
                                 VerticalLayout {
                                     spacing: 0px;
+                                    padding-top: Art.reserve-composer.top; padding-bottom: Art.reserve-composer.bottom;
+                                    padding-left: Art.reserve-composer.left; padding-right: Art.reserve-composer.right;
                                     // Files waiting to go with the message, in a row that scrolls sideways.
                                     if root.staged.length > 0: Flickable {
                                         height: 152px;
@@ -3895,7 +4360,7 @@ export component YapfastWindow inherits Window {
                                             // of uploading a file or starting a thread.
                                             IconButton {
                                                 // Discord's is a plain 18px plus, not a circled one.
-                                                icon: ClientStyle.enabled ? @image-url("icons/plus.svg") : @image-url("icons/circle-plus.svg");
+                                                icon: ClientStyle.enabled ? IconPack.plus : IconPack.circle-plus;
                                                 label: root.can-start-threads || root.can-create-polls ? "More options" : "Attach files";
                                                 glyph: ClientStyle.enabled ? 27px : 22px;
                                                 enabled: root.can-attach || root.can-start-threads || root.can-create-polls;
@@ -3913,7 +4378,7 @@ export component YapfastWindow inherits Window {
                                         composer := Composer {
                                             pad: ClientStyle.composer-padding; min-height: ClientStyle.composer-height;
                                             text <=> root.draft; enabled: root.composer-enabled; label: "Message";
-                                            placeholder: root.compose-label != "" ? "Write a reply" : root.room-selected ? root.composer-placeholder : "Write a message";
+                                            placeholder: root.compose-label != "" ? "Write a reply" : root.room-selected ? (Chrome.composer != "" && !root.room-direct ? Chrome.fill(Chrome.composer, "channel", root.room-name) : root.composer-placeholder) : "Write a message";
                                             edited(text) => { root.draft-edited(text); }
                                             accepted => { root.send(); }
                                             suggesting: !root.suggesting-aside && !root.suggesting-edit && ((root.command-picker-open && root.command-choices.length > 0) || root.mentions.length > 0 || root.emoji-suggestions.length > 0);
@@ -3962,7 +4427,7 @@ export component YapfastWindow inherits Window {
                                         if root.can-pick-gifs: VerticalLayout {
                                             alignment: end; padding-bottom: ClientStyle.composer-button-inset;
                                             gif-button := IconButton {
-                                                icon: @image-url("icons/gif.svg"); label: "Open GIF picker";
+                                                icon: IconPack.gif; label: "Open GIF picker";
                                                 glyph: 22px; enabled: root.composer-enabled;
                                                 tint: root.expressions-open && root.expression-tab == 0 ? Theme.text : Theme.secondary;
                                                 clicked => {
@@ -3974,7 +4439,7 @@ export component YapfastWindow inherits Window {
                                         if root.can-pick-stickers: VerticalLayout {
                                             alignment: end; padding-bottom: ClientStyle.composer-button-inset;
                                             sticker-button := IconButton {
-                                                icon: @image-url("icons/sticker.svg"); label: "Open sticker picker";
+                                                icon: IconPack.sticker; label: "Open sticker picker";
                                                 glyph: 22px; enabled: root.composer-enabled;
                                                 tint: root.expressions-open && root.expression-tab == 2 ? Theme.text : Theme.secondary;
                                                 clicked => {
@@ -3986,7 +4451,7 @@ export component YapfastWindow inherits Window {
                                         VerticalLayout {
                                             alignment: end; padding-bottom: ClientStyle.composer-button-inset;
                                             emoji-button := IconButton {
-                                                icon: @image-url("icons/smile.svg"); label: "Add an emoji";
+                                                icon: IconPack.smile; label: "Add an emoji";
                                                 glyph: 22px; enabled: root.composer-enabled;
                                                 tint: root.react-item == "yapfast:composer" && (!root.expressions-open || root.expression-tab == 1) ? Theme.text : Theme.secondary;
                                                 clicked => {
@@ -4002,23 +4467,42 @@ export component YapfastWindow inherits Window {
                                         if !ClientStyle.enabled: VerticalLayout {
                                             alignment: end; padding-bottom: ClientStyle.composer-button-inset;
                                             IconButton {
-                                                icon: @image-url("icons/send-horizontal.svg");
+                                                icon: IconPack.send-horizontal;
                                                 label: root.sending ? "Sending..." : "Send";
                                                 enabled: root.can-send; emphasis: root.can-send;
-                                                clicked => { root.send(); }
+                                                clicked => {
+                                                    if Art.track {
+                                                        Art.send-x = self.absolute-position.x + self.width / 2; Art.send-y = self.absolute-position.y + self.height / 2;
+                                                        Art.pointer-x = Art.send-x; Art.pointer-y = Art.send-y;
+                                                    }
+                                                    root.send();
+                                                }
                                             }
                                         }
                                     }
                                 }
                             }
+                            if Trim.status != "" && !Trim.status-above: status-bottom := Text {
+                                height: 22px;
+                                text: Trim.status-line(Trim.status, root.room-name, root.sidebar-title, root.typing, Trim.status-tick);
+                                color: Theme.secondary; font-family: Trim.small-font(Look.mono); font-size: Trim.small-size(13px);
+                                vertical-alignment: center; overflow: elide; accessible-role: none;
+                            }
                             // A hint under the field when there is one; otherwise as much
                             // room below it as beside it.
                             if root.composer-hint != "": HorizontalLayout {
                                 height: 22px; spacing: 6px; padding-left: 4px;
-                                if root.room-encrypted || root.preview: Image { source: @image-url("icons/lock.svg"); width: 12px; image-fit: contain; colorize: Theme.muted; }
+                                if root.room-encrypted || root.preview: Image { source: IconPack.lock; width: 12px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
                                 Text { text: root.composer-hint; color: Theme.muted; font-size: 13px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                             }
                             if root.composer-hint == "": Rectangle { height: ClientStyle.composer-gutter; }
+                        }
+                        }
+                    }
+                        // A theme's box frame around the conversation.
+                        if Chrome.box-chat: BoxFrame {
+                            width: parent.width; height: parent.height; cell: root.box-cell; line: root.box-line;
+                            title: Chrome.box-title(Chrome.box-title-chat, root.box-chat-name, "");
                         }
                     }
                     if root.search-open: SearchPanel {
@@ -4137,13 +4621,50 @@ export component YapfastWindow inherits Window {
                         collapse-long: root.collapse-long;
                         fold(item, whole) => { root.fold-message(item, whole); }
                     }
-                    if root.members-docked: MemberPanel {
-                        width: root.members-shown; rows: root.roster; group: root.dms-selected; activity-rows: root.roster-activity; note: root.roster-note; selected: root.profile-member; boost-gems: root.boost-gems;
+                    if root.members-docked && Arrange.members == 0: Rectangle {
+                        width: root.members-shown;
+                        MemberPanel {
+                            x: Chrome.box-members ? root.box-cell : 0px; y: Chrome.box-members ? root.box-line : 0px;
+                            width: parent.width - 2 * self.x; height: parent.height - 2 * self.y;
+                        rows: root.roster; group: root.dms-selected; activity-rows: root.roster-activity; note: root.roster-note; selected: root.profile-member; boost-gems: root.boost-gems;
                         activity-hidden <=> root.activity-cards-hidden;
                         activity-hidden-toggled(hidden) => { root.activity-cards-hidden-toggled(hidden); }
                         activity-clock => { root.activity-clock(); }
                         open-profile(id, y) => { root.profile-y = y; root.profile-at-pointer = false; root.show-profile(id); }
                         open-member-menu(id, x, y) => { root.open-context-menu(id, true, x, y); }
+                    }
+                        // A theme's box frame around the member list.
+                        if Chrome.box-members: BoxFrame {
+                            width: parent.width; height: parent.height; cell: root.box-cell; line: root.box-line;
+                            title: Chrome.box-title(Chrome.box-title-members, "members", Trim.members-n);
+                        }
+                    }
+                    // A theme's collapsed member list: a strip of avatars that
+                    // opens over the conversation while the pointer is on it.
+                    if root.members-docked && Arrange.members == 3: members-strip := Rectangle {
+                        width: 56px;
+                        property <bool> open;
+                        // A moment's wait each way, so a pointer passing by
+                        // doesn't open it.
+                        Timer {
+                            interval: strip-pointer.has-hover ? 120ms : 240ms;
+                            running: strip-pointer.has-hover != members-strip.open;
+                            triggered => { members-strip.open = strip-pointer.has-hover; }
+                        }
+                        strip-pointer := TouchArea {
+                            x: parent.width - self.width; width: members-strip.open ? root.members-shown : parent.width;
+                            animate width { duration: Arrange.members-motion; easing: ease-out; }
+                            MemberPanel {
+                                width: parent.width; strip: !members-strip.open;
+                                drop-shadow-blur: members-strip.open ? 16px : 0px; drop-shadow-color: #00000059;
+                                rows: root.roster; group: root.dms-selected; activity-rows: root.roster-activity; note: root.roster-note; selected: root.profile-member; boost-gems: root.boost-gems;
+                                activity-hidden <=> root.activity-cards-hidden;
+                                activity-hidden-toggled(hidden) => { root.activity-cards-hidden-toggled(hidden); }
+                                activity-clock => { root.activity-clock(); }
+                                open-profile(id, y) => { root.profile-y = y; root.profile-at-pointer = false; root.show-profile(id); }
+                                open-member-menu(id, x, y) => { root.open-context-menu(id, true, x, y); }
+                            }
+                        }
                     }
                     if root.profile-docked: Rectangle {
                         width: ClientStyle.profile-width;
@@ -4176,15 +4697,29 @@ export component YapfastWindow inherits Window {
                 background: @linear-gradient(180deg, #00000040 0%, #00000000 100%);
             }
         }
+        // A theme's layout may put the rail on the right.
+        if Arrange.rail == 1: ServerRail {
+            own-art: true; selected-name: root.dms-selected ? "" : root.sidebar-title;
+            dms-selected: root.dms-selected; dms-unread: root.dms-unread; dms-badge: root.dms-badge; servers: root.servers;
+            matrix-build: root.matrix-build;
+            navigate-dms => { root.navigate-dms(); }
+            navigate-server(id) => { root.navigate-server(id); }
+            toggle-folder(id) => { root.toggle-folder(id); }
+            open-dm(id) => { root.open-conversation(id); }
+            open-server-menu(id, x, y) => { root.open-context-menu(id, false, x, y); }
+            can-join: root.can-join-server;
+            join-server => { root.open-join-server(); }
+        }
     }
     // The edge between sidebar and conversation resizes the sidebar. A double-click
-    // restores the default width.
+    // restores the default width. It sits on the navigation's laid-out edge, so a
+    // theme's glass gap moves it too, and it spans the gap to the conversation.
     if root.workspace: TouchArea {
-        x: 72px + root.sidebar-shown - 4px; y: root.title-height; width: 8px; height: root.height - root.title-height;
+        x: navigation.absolute-position.x + navigation.width - 4px; y: navigation.absolute-position.y; width: 8px + Art.gap; height: navigation.height;
         mouse-cursor: ew-resize;
         moved => {
             if self.pressed {
-                root.sidebar-width = max(180px, min(380px, root.width - 72px - 420px - root.docked-width, root.sidebar-shown + self.mouse-x - self.pressed-x));
+                root.sidebar-width = max(180px, min(380px, root.width - root.rail-left - root.rail-right - 420px - root.docked-width, root.sidebar-shown + self.mouse-x - self.pressed-x));
             }
         }
         pointer-event(event) => {
@@ -4199,12 +4734,13 @@ export component YapfastWindow inherits Window {
         }
     }
     // So does the edge of the thread beside the conversation, below the header.
+    // Like the member list's below, it finds the thread's edge from the docked panes.
     if root.workspace && root.aside-docked: TouchArea {
-        x: root.width - root.aside-shown - 4px; y: root.title-height + ClientStyle.header-height; width: 8px; height: root.height - root.title-height - ClientStyle.header-height;
+        x: conversation-panes.absolute-position.x + conversation-panes.width - root.aside-shown - 4px; y: conversation-panes.absolute-position.y; width: 8px; height: conversation-panes.height;
         mouse-cursor: ew-resize;
         moved => {
             if self.pressed {
-                root.aside-width = max(320px, min(800px, root.width - 72px - root.sidebar-shown - 420px, root.aside-shown - (self.mouse-x - self.pressed-x)));
+                root.aside-width = max(320px, min(800px, root.width - root.rail-left - root.rail-right - root.sidebar-shown - 420px, root.aside-shown - (self.mouse-x - self.pressed-x)));
             }
         }
         pointer-event(event) => {
@@ -4219,14 +4755,17 @@ export component YapfastWindow inherits Window {
         }
     }
     // And the member list's, left of a profile docked beside it. A double
-    // click restores the style's width.
-    if root.workspace && root.members-docked: TouchArea {
-        property <length> right: root.profile-docked ? ClientStyle.profile-width : 0px;
-        x: root.width - self.right - root.members-shown - 4px; y: root.title-height + ClientStyle.header-height; width: 8px; height: root.height - root.title-height - ClientStyle.header-height;
+    // click restores the style's width. Its edge comes from where the docked
+    // panes are laid out, so whatever a theme puts around them (a glass gap, a
+    // right rail, room kept clear of its art) moves the handle with the pane.
+    if root.workspace && root.members-docked && Arrange.members == 0: TouchArea {
+        property <length> right: root.rail-right + (root.profile-docked ? ClientStyle.profile-width : 0px);
+        x: conversation-panes.absolute-position.x + conversation-panes.width - (root.profile-docked ? ClientStyle.profile-width : 0px) - root.members-shown - 4px;
+        y: conversation-panes.absolute-position.y; width: 8px; height: conversation-panes.height;
         mouse-cursor: ew-resize;
         moved => {
             if self.pressed {
-                root.members-width = max(200px, min(480px, root.width - 72px - root.sidebar-shown - self.right - 420px, root.members-shown - (self.mouse-x - self.pressed-x)));
+                root.members-width = max(200px, min(480px, root.width - root.rail-left - root.sidebar-shown - self.right - 420px, root.members-shown - (self.mouse-x - self.pressed-x)));
             }
         }
         pointer-event(event) => {
@@ -4249,7 +4788,7 @@ export component YapfastWindow inherits Window {
     property <bool> pip-left;
     property <bool> pip-bottom;
     if root.pip-shown: StreamPip {
-        property <length> left: 72px + root.sidebar-shown + 16px;
+        property <length> left: root.rail-left + root.sidebar-shown + 16px;
         property <length> right: root.width - self.width - 16px;
         property <length> top: root.title-height + ClientStyle.header-height + 16px;
         property <length> bottom: root.height - self.height - 16px;
@@ -4260,7 +4799,7 @@ export component YapfastWindow inherits Window {
         status: root.pip-kind == 1 ? root.watch-status : root.pip-kind == 2 ? root.share-status : "";
         frame: root.pip-kind == 1 ? root.watch-frame : root.pip-kind == 2 ? root.share-frame : root.participant-frames[root.pip-person];
         live: root.pip-kind == 2 && root.share-live;
-        stop-icon: root.pip-kind == 1 ? @image-url("icons/x.svg") : @image-url("icons/screen-share-off.svg");
+        stop-icon: root.pip-kind == 1 ? IconPack.x : IconPack.screen-share-off;
         stop-label: root.pip-kind == 1 ? "Stop watching" : root.pip-kind == 2 ? "Stop sharing" : "";
         viewers: root.pip-kind == 1 ? root.watch-viewers : root.pip-kind == 2 ? root.share-viewers : [];
         viewer-names: root.pip-kind == 1 ? root.watch-viewer-names : root.pip-kind == 2 ? root.share-viewer-names : "";
@@ -4379,6 +4918,7 @@ export component YapfastWindow inherits Window {
         account-name: root.account-name; account-initial: root.account-initial;
         account-tint: root.account-tint; account-picture: root.account-picture;
         may-edit-profile: root.discord-linked;
+        themes-editor: root.theme-editor && ThemesPage.tab == 3;
         edit-profile => { root.settings-open = false; root.edit-profile(); }
         settings-section <=> root.settings-section;
         discord-build: root.discord-build; preview: root.preview;
@@ -4397,23 +4937,15 @@ export component YapfastWindow inherits Window {
         }
         if root.settings-section == 7: AppearanceSettings {
             themes: root.themes; theme-id: root.theme-id;
-            editor: root.theme-editor; colours: root.theme-colours;
-            theme-name <=> root.theme-name; theme-dark <=> root.theme-dark;
-            editing-saved: root.theme-editing-saved; starts: root.theme-starts; start-index: root.theme-start;
-            can-save: root.theme-can-save;
             system-title-bar <=> root.system-title-bar; title-bar-choice: root.title-bar-choice;
             title-bar-toggled => { root.title-bar-toggled(); }
             show-nameplates <=> root.show-nameplates;
             preferences-changed => { root.preferences-changed(); }
             choose-theme(id) => { root.choose-theme(id); }
+            installed-name: root.theme-installed-name;
+            browse-themes => { root.settings-section = 10; }
             new-theme => { root.new-theme(); }
             edit-theme(id) => { root.edit-theme(id); }
-            start-chosen(index) => { root.theme-start-chosen(index); }
-            colour-edited(index, text) => { root.theme-colour-edited(index, text); }
-            dark-toggled(dark) => { root.theme-dark-toggled(dark); }
-            save-theme => { root.save-theme(); }
-            cancel-theme => { root.cancel-theme(); }
-            delete-theme => { root.delete-theme(); }
         }
         if root.settings-section == 1: VoiceSettings {
             microphones: root.microphones; microphone-index <=> root.microphone-index;
@@ -4486,6 +5018,23 @@ export component YapfastWindow inherits Window {
         }
         if root.settings-section == 9: AboutSettings {
             copy-text(text) => { root.copy-text(text); }
+        }
+        if root.settings-section == SettingsSections.themes: ThemesSettings {
+            themes: root.themes; theme-id: root.theme-id; room: root.width;
+            editor: root.theme-editor; colours: root.theme-colours;
+            theme-name <=> root.theme-name; theme-dark <=> root.theme-dark;
+            editing-saved: root.theme-editing-saved; starts: root.theme-starts; start-index: root.theme-start;
+            can-save: root.theme-can-save;
+            choose-theme(id) => { root.choose-theme(id); }
+            new-theme => { root.new-theme(); }
+            edit-theme(id) => { root.edit-theme(id); }
+            start-chosen(index) => { root.theme-start-chosen(index); }
+            colour-edited(index, text) => { root.theme-colour-edited(index, text); }
+            dark-toggled(dark) => { root.theme-dark-toggled(dark); }
+            save-theme => { root.save-theme(); }
+            cancel-theme => { root.cancel-theme(); }
+            delete-theme => { root.delete-theme(); }
+            export-theme => { root.export-theme(); }
         }
         if root.settings-section == 8: GameActivitySettings {
             shown: root.show-game; linked: root.discord-linked; executables: root.game-executables;
@@ -4697,7 +5246,9 @@ export component YapfastWindow inherits Window {
             width: 300px; limit: root.height - root.title-height - 16px;
             x: root.profile-at-pointer
                 ? root.beside(root.anchor-x, root.anchor-width, self.width)
-                : root.width - root.members-shown - 8px - self.width;
+                // Beside the member list, from where it's laid out: a
+                // theme's gap or right rail moves it too.
+                : conversation-panes.absolute-position.x + conversation-panes.width - root.members-shown - 8px - self.width;
             y: max(root.title-height + 8px, min(root.height - self.height - 8px, (root.profile-at-pointer ? root.anchor-y - 8px : root.profile-y - 16px)));
             data: root.profile;
             enlarge => { root.profile-start-tab = -1; root.enlarge-profile(); }
@@ -5078,10 +5629,16 @@ export component YapfastWindow inherits Window {
     if root.zoom-note != "": Rectangle {
         x: (root.width - self.width) / 2; y: root.title-height + 12px;
         width: zoom-text.preferred-width + 28px; height: 36px;
-        border-radius: 18px; background: Theme.tooltip;
-        drop-shadow-blur: 12px; drop-shadow-color: #00000080; drop-shadow-offset-y: 3px;
+        // A toast's shape, on the tooltip's ground, art and glass, with its text.
+        border-radius: Look.r(Look.toast, 18px); background: Art.glass-tooltip ? transparent : Theme.tooltip;
+        border-width: Look.bw(Look.toast, 0px); border-color: Look.bc(Look.toast, transparent);
+        drop-shadow-blur: Look.sb(Look.toast, 12px); drop-shadow-offset-x: Look.sx(Look.toast, 0px); drop-shadow-color: Look.sc(Look.toast, #00000080); drop-shadow-offset-y: Look.sy(Look.toast, 3px);
+        if Art.tooltip.length > 0 || Art.glass-tooltip: ArtLayer {
+            x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.toast, 18px);
+            layers: Art.tooltip; glass: Art.glass-tooltip; ground: Theme.tooltip;
+        }
         accessible-role: text; accessible-label: "Zoom " + root.zoom-note;
-        zoom-text := Text { text: root.zoom-note; color: Theme.text; font-size: 15px; font-weight: 700; }
+        zoom-text := Text { text: root.zoom-note; color: Theme.on-tooltip; font-size: 15px; font-weight: 700; }
     }
     // Who reacted, over the reaction the pointer stays on: its emoji, then
     // the names, wrapping. Clicking it opens the Reactions window there.
@@ -5101,8 +5658,14 @@ export component YapfastWindow inherits Window {
         x: max(8px, min(root.width - self.w - 8px, ReactionHover.x - self.w / 2));
         y: max(4px, ReactionHover.y - self.h - 6px);
         width: self.w; height: self.h;
-        border-radius: 6px; background: Theme.tooltip;
-        drop-shadow-blur: 12px; drop-shadow-color: #00000080; drop-shadow-offset-y: 3px;
+        // The tooltip's shape, art and glass, as the window's tooltip.
+        border-radius: Look.r(Look.tooltip, 6px); background: Art.glass-tooltip ? transparent : Theme.tooltip;
+        border-width: Look.bw(Look.tooltip, 0px); border-color: Look.bc(Look.tooltip, transparent);
+        drop-shadow-blur: Look.sb(Look.tooltip, 12px); drop-shadow-offset-x: Look.sx(Look.tooltip, 0px); drop-shadow-color: Look.sc(Look.tooltip, #00000080); drop-shadow-offset-y: Look.sy(Look.tooltip, 3px);
+        if Art.tooltip.length > 0 || Art.glass-tooltip: ArtLayer {
+            x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.tooltip, 6px);
+            layers: Art.tooltip; glass: Art.glass-tooltip; ground: Theme.tooltip;
+        }
         accessible-role: button;
         accessible-label: root.reaction-tip-text;
         accessible-action-default => { root.view-reactions(ReactionHover.item, ReactionHover.key); }
@@ -5113,7 +5676,7 @@ export component YapfastWindow inherits Window {
         }
         reaction-words := Text {
             x: 60px; y: 16px; width: parent.words-width; height: parent.height - 32px;
-            text: root.reaction-tip-text; color: Theme.text; font-size: 14px; font-weight: 500;
+            text: root.reaction-tip-text; color: Theme.on-tooltip; font-size: 14px; font-weight: 500;
             wrap: word-wrap; vertical-alignment: center;
         }
         TouchArea {
@@ -5129,7 +5692,7 @@ export component YapfastWindow inherits Window {
     // dimmed window saying where they'll go. A drop it refuses says why
     // until Got It, a click, or the next drag.
     if root.dragging || root.drop-refusal != "": Rectangle {
-        background: #000000a6;
+        background: Theme.scrim(#000000a6);
         accessible-role: groupbox;
         accessible-label: root.dragging ? "Upload to " + root.drop-destination : root.drop-refusal;
         TouchArea { clicked => { root.drop-refusal = ""; } }
@@ -5140,18 +5703,18 @@ export component YapfastWindow inherits Window {
             y: (parent.height - self.height) / 2;
             animate x { duration: 120ms; easing: ease-out; }
             width: 310px; height: drop-lines.preferred-height + 16px;
-            border-radius: 10px; background: root.drop-refusal != "" && !root.dragging ? Theme.danger : Theme.accent;
-            drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+            border-radius: Look.radius(10px); background: root.drop-refusal != "" && !root.dragging ? Theme.danger : Theme.accent-fill;
+            drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
             Rectangle {
                 x: 8px; y: 8px; width: parent.width - 16px; height: parent.height - 16px;
-                border-radius: 6px; border-width: 2px; border-color: Theme.on-accent.with-alpha(0.6);
+                border-radius: Look.radius(6px); border-width: 2px; border-color: Theme.on-accent.with-alpha(0.6);
             }
             drop-lines := VerticalLayout {
                 x: 8px; y: 8px; width: parent.width - 16px;
                 padding: 20px; padding-top: 24px; spacing: 8px;
                 HorizontalLayout {
                     alignment: center;
-                    Image { source: @image-url("icons/file.svg"); width: 40px; height: 40px; colorize: Theme.on-accent; }
+                    Image { source: IconPack.file; width: 40px; height: 40px; colorize: IconPack.tint(self.source, Theme.on-accent); }
                 }
                 if root.dragging: HorizontalLayout {
                     alignment: center;
@@ -5284,14 +5847,39 @@ export component YapfastWindow inherits Window {
             running: Tip.pop && !tip-card.shown;
             triggered => { tip-card.shown = true; }
         }
-        border-radius: 6px; background: Theme.tooltip;
-        drop-shadow-blur: 12px; drop-shadow-color: #00000080; drop-shadow-offset-y: 3px;
-        tip-text := Text { text: Tip.text; color: Theme.text; font-size: 14px; font-weight: 700; }
+        border-radius: Look.r(Look.tooltip, 6px); background: Art.glass-tooltip ? transparent : Theme.tooltip;
+        border-width: Look.bw(Look.tooltip, 0px); border-color: Look.bc(Look.tooltip, transparent);
+        drop-shadow-blur: Look.sb(Look.tooltip, 12px); drop-shadow-offset-x: Look.sx(Look.tooltip, 0px); drop-shadow-color: Look.sc(Look.tooltip, #00000080); drop-shadow-offset-y: Look.sy(Look.tooltip, 3px);
+        if Art.tooltip.length > 0 || Art.glass-tooltip: ArtLayer {
+            x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.tooltip, 6px);
+            layers: Art.tooltip; glass: Art.glass-tooltip; ground: Theme.tooltip;
+        }
+        tip-text := Text { text: Tip.text; color: Theme.on-tooltip; font-size: 14px; font-weight: 700; }
+        if Arrange.dash-tooltip.on: DashedOutline { x: 0px; y: 0px; dash: Arrange.dash-tooltip; stock-ink: Look.bc(Look.tooltip, Theme.on-tooltip); }
     }
     if VoiceCard.people.length > 0: VoiceCardView { bounds: root.height; bounds-width: root.width; }
+    // A theme's window slot: a tint over everything that takes no input, for
+    // a flicker or a glow. Nothing is built while no theme sets one.
+    if Look.window-tint != transparent: Rectangle { background: Look.window-tint; }
+    // A theme's channel change, its overlays and its particles, over
+    // everything, taking no input.
+    if Art.shot-left > 0: ArtTransition {
+        x: conversation.absolute-position.x; y: conversation.absolute-position.y; width: conversation.width; height: conversation.height;
+    }
+    if Art.chat-overlays: ArtOverlays {
+        chat: true; border-radius: Art.pane-radius;
+        x: conversation.absolute-position.x; y: conversation.absolute-position.y; width: conversation.width; height: conversation.height;
+    }
+    if Art.overlays.length > 0: ArtOverlays { x: 0px; y: 0px; width: root.width; height: root.height; }
+    if Art.particles.length > 0: ArtParticles { x: 0px; y: 0px; width: root.width; height: root.height; }
+    // A theme's review, and a theme on trial's banner, over everything.
+    if ThemesPage.review.shown: ThemeReviewDialog { }
+    if ThemesPage.trying != "": TryBanner { x: (root.width - self.width) / 2; y: 12px; }
     if BadgeTip.title != "": BadgeTipCard {
         x: max(8px, min(root.width - self.width - 8px, BadgeTip.x - self.width / 2));
         y: max(4px, BadgeTip.y - self.height - 10px);
     }
     if Autoscroll.shown: AutoscrollMarker {}
+    // A theme's cursor trail, over everything; it takes no input.
+    if CursorTrail.sprites.length > 0: CursorTrailLayer { x: 0px; y: 0px; width: root.width; height: root.height; }
 }

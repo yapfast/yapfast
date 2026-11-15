@@ -1,6 +1,7 @@
 //! What the window's callbacks do: most dispatch an action to the application.
 
 use super::*;
+use yapfast_core::themes::media::SoundSlot;
 
 use super::emoji_grid::{FETCH_ROWS, GRID_ROWS};
 
@@ -947,11 +948,18 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             // From a window of older messages, that's once the newest replace it:
             // following its end before then would load earlier pages as they go in.
             if window.get_can_send() {
+                theme_media::cue(SoundSlot::Send, FOCUSED.get());
                 if window.get_detached() {
                     adapter.borrow_mut().latest_due = true;
                 } else {
                     window.invoke_scroll_to_latest();
                 }
+            }
+            if window.get_can_send() {
+                super::theme_art::event(
+                    &window,
+                    yapfast_core::themes::package::art::Trigger::MessageSent,
+                );
             }
             adapter.borrow_mut().action(&window, Action::Send);
         });
@@ -1954,6 +1962,11 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     let weak = window.as_weak();
     window.on_react(move |item, key| {
         if let Some(window) = weak.upgrade() {
+            super::theme_art::event(
+                &window,
+                yapfast_core::themes::package::art::Trigger::ReactionAdded,
+            );
+            theme_media::cue(SoundSlot::ReactionAdd, FOCUSED.get());
             state.borrow_mut().action(
                 &window,
                 Action::React {
@@ -2059,6 +2072,8 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     });
     let state = adapter.clone();
     let weak = window.as_weak();
+    #[cfg(test)]
+    let _ = (&state, &weak);
     window.on_open_link(move |link| {
         // A blocked message shows when asked for.
         if let Some(item) = link.strip_prefix(BLOCKED_LINK) {
@@ -2168,6 +2183,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             if let Some(window) = weak.upgrade() {
                 window.set_leaving_site(links::host(masked).into());
                 window.set_leaving_link(masked.into());
+                theme::protect(&window, true);
             }
             return;
         }
@@ -2178,11 +2194,13 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         let Some(window) = weak.upgrade() else { return };
         open_web_page(&window.get_leaving_link());
         window.set_leaving_link(SharedString::default());
+        theme::protect(&window, false);
     });
     let weak = window.as_weak();
     window.on_close_leaving_link(move || {
         if let Some(window) = weak.upgrade() {
             window.set_leaving_link(SharedString::default());
+            theme::protect(&window, false);
         }
     });
     let state = adapter.clone();
@@ -2678,6 +2696,10 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         let Some(window) = weak.upgrade() else { return };
         let mut adapter = state.borrow_mut();
         if !adapter.layout.open_folders.remove(id.as_str()) {
+            // A theme's tree that opens one folder at a time closes the others.
+            if super::theme_trim::expand_one() {
+                adapter.layout.open_folders.clear();
+            }
             adapter.layout.open_folders.insert(id.into());
         }
         adapter.layout.write(&adapter.root);
@@ -2698,6 +2720,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     let weak = window.as_weak();
     window.on_open_conversation(move |id| {
         if let Some(window) = weak.upgrade() {
+            super::theme_art::channel_changing(&window);
             state.borrow_mut().action(&window, Action::Open(id.into()));
         }
     });
@@ -2730,6 +2753,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     let weak = window.as_weak();
     window.on_select_room(move |id| {
         if let Some(window) = weak.upgrade() {
+            super::theme_art::channel_changing(&window);
             state
                 .borrow_mut()
                 .action(&window, Action::SelectRoom(id.into()));

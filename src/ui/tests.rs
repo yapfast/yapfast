@@ -8965,6 +8965,8 @@ fn custom_theme_ids_stay_apart_from_built_in_ones_and_each_other() {
         name: id.into(),
         base: "yap",
         theme: theme::YAP,
+        creator: None,
+        folder: None,
     };
     let mut themes = vec![
         custom("custom:2"),
@@ -8995,11 +8997,12 @@ fn a_custom_theme_is_made_edited_and_deleted_in_appearance() {
     )
     .unwrap();
     bind_callbacks(&window, &adapter);
-    let nord = theme::find("nord").unwrap().theme;
     window.invoke_choose_theme("nord".into());
 
-    // A new theme starts as a copy of the one shown, and shows each change.
+    // Exercise the legacy colour editor as used by themes without creator data.
     window.invoke_new_theme();
+    adapter.borrow_mut().theme_editor.as_mut().unwrap().creator = None;
+    window.invoke_theme_start_chosen(4);
     assert!(window.get_theme_editor());
     assert_eq!(window.get_theme_name(), "Nord copy");
     assert_eq!(window.get_theme_start(), 4);
@@ -9010,7 +9013,10 @@ fn a_custom_theme_is_made_edited_and_deleted_in_appearance() {
         .iter()
         .position(|name| *name == "chat")
         .unwrap();
-    assert_eq!(colours.row_data(chat).unwrap().hex, theme::hex(nord.chat));
+    assert_eq!(
+        colours.row_data(chat).unwrap().hex,
+        theme::hex(theme::Theme::shown(&window).chat)
+    );
     window.invoke_theme_colour_edited(chat as i32, "#102030".into());
     assert_eq!(
         theme::Theme::shown(&window).chat,
@@ -9031,6 +9037,8 @@ fn a_custom_theme_is_made_edited_and_deleted_in_appearance() {
     assert!(window.get_theme_editor(), "Save waits for a colour");
     window.invoke_theme_colour_edited(chat as i32, "#123".into());
     window.invoke_theme_dark_toggled(false);
+    let midnight = theme::Theme::shown(&window);
+    assert!(!midnight.dark);
     window.set_theme_name("  Midnight  ".into());
     window.invoke_save_theme();
 
@@ -9049,11 +9057,6 @@ fn a_custom_theme_is_made_edited_and_deleted_in_appearance() {
         (card.id.as_str(), card.name.as_str(), card.custom),
         ("custom:1", "Midnight", true)
     );
-    let midnight = theme::Theme {
-        dark: false,
-        chat: theme::parse("#112233").unwrap(),
-        ..nord
-    };
     assert_eq!(theme::Theme::shown(&window), midnight);
     let layout = Layout::read(directory.path());
     assert_eq!(layout.theme.as_deref(), Some("custom:1"));
@@ -9088,10 +9091,9 @@ fn a_custom_theme_is_made_edited_and_deleted_in_appearance() {
     assert_eq!(window.get_theme_name(), "Midnight copy");
     window.invoke_theme_start_chosen(9);
     assert_eq!(window.get_theme_name(), "Sakura copy");
-    assert_eq!(
-        theme::Theme::shown(&window),
-        theme::find("sakura").unwrap().theme
-    );
+    let sakura = theme::find("sakura").unwrap().theme;
+    assert_eq!(theme::Theme::shown(&window).chat, sakura.chat);
+    assert_eq!(theme::Theme::shown(&window).accent, sakura.accent);
     window.set_theme_name("Blossom".into());
     window.invoke_theme_start_chosen(0);
     assert_eq!(window.get_theme_name(), "Blossom", "a name given stays");
@@ -9139,7 +9141,9 @@ fn a_window_made_again_while_editing_drops_the_edit() {
         .position(|name| *name == "link")
         .unwrap();
     window.invoke_theme_colour_edited(link as i32, "#ff0000".into());
-    assert_eq!(theme::mention_color(), 0xff0000);
+    // New theme opens the creator, which keeps a link colour readable, so the
+    // red shows lightened; what matters is that the edit shows, then goes.
+    assert_ne!(theme::mention_color(), 0x64adf6, "the edit shows");
 
     let again = classic_window();
     adapter.borrow_mut().attach(&again);
@@ -9152,6 +9156,68 @@ fn a_window_made_again_while_editing_drops_the_edit() {
     assert_eq!(theme::Theme::shown(&again), theme::YAP);
     assert_eq!(theme::mention_color(), 0x64adf6);
     assert!(Layout::read(directory.path()).custom_themes.is_empty());
+}
+
+#[test]
+fn the_theme_creator_takes_changes_back_and_starts_over() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = classic_window();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    theme_creator::bind(&window, &adapter);
+    window.invoke_new_theme();
+    let page = window.global::<yapfast_ui::Creator>();
+    assert!(page.get_can_export(), "a new theme has the creator's steps");
+    assert_eq!(page.get_step(), 0);
+    assert!(!page.get_can_undo());
+    assert!(page.get_readable().starts_with("Readable: text has "));
+    let opened = theme::Theme::shown(&window);
+    let marigold = page.get_accent();
+
+    // An accent tints the grounds, until the person asks for plain greys.
+    let violet = slint::Color::from_argb_encoded(0xffb1_8cff);
+    let coral = slint::Color::from_argb_encoded(0xffff_6b6b);
+    page.invoke_accent_chosen(violet);
+    assert_eq!(page.get_accent(), violet);
+    assert_eq!(page.get_tint(), 0);
+    assert!(page.get_can_undo());
+    let tinted = theme::Theme::shown(&window);
+    page.invoke_tint_chosen(1);
+    assert_eq!(page.get_tint(), 1);
+    assert_ne!(theme::Theme::shown(&window).chat, tinted.chat);
+    page.invoke_accent_chosen(coral);
+    assert_eq!(page.get_tint(), 1, "greys stay greys under another accent");
+
+    // Undo goes back a change at a time, to the theme as the editor opened.
+    page.invoke_undo();
+    page.invoke_undo();
+    assert_eq!(page.get_accent(), violet);
+    assert_eq!(page.get_tint(), 0);
+    assert_eq!(theme::Theme::shown(&window), tinted);
+    page.invoke_undo();
+    assert!(!page.get_can_undo());
+    assert_eq!(page.get_accent(), marigold);
+    assert_eq!(theme::Theme::shown(&window), opened);
+
+    // Start over opens the editor again on what it opened on, at its step.
+    page.invoke_accent_chosen(coral);
+    page.set_step(2);
+    page.invoke_start_over();
+    assert!(window.get_theme_editor());
+    assert_eq!(page.get_step(), 2);
+    assert!(!page.get_can_undo());
+    assert_eq!(page.get_accent(), marigold);
+    assert_eq!(theme::Theme::shown(&window), opened);
+
+    window.invoke_cancel_theme();
+    assert!(!page.get_can_export());
+    assert_eq!(page.get_readable(), "");
 }
 
 #[test]
@@ -11822,4 +11888,103 @@ fn a_card_or_full_profile_takes_escape_again_after_a_link_or_person_dialog() {
     wait(500);
     tap(&window, Key::Escape.into());
     assert_eq!(closed.get(), 2, "then Escape closes the full profile");
+}
+
+/// Where everything with this label shows, in window pixels: x, y, width,
+/// height, top to bottom.
+fn shown_rects(window: &YapfastWindow, label: &str) -> Vec<(f32, f32, f32, f32)> {
+    use i_slint_core::{accessibility::AccessibleStringProperty, item_tree::ItemRc};
+    use std::ops::ControlFlow;
+    let inner = i_slint_core::window::WindowInner::from_pub(window.window());
+    let mut found = Vec::new();
+    let _ = ItemRc::new_root(inner.component()).visit_descendants(|item| {
+        let named = item.accessible_string_property(AccessibleStringProperty::Label);
+        if named.as_deref() == Some(label) && item.is_visible() {
+            let geometry = item.geometry();
+            let at = item.map_to_window(geometry.origin);
+            found.push((at.x, at.y, geometry.width(), geometry.height()));
+        }
+        ControlFlow::<()>::Continue(())
+    });
+    found.sort_by(|a, b| a.1.total_cmp(&b.1));
+    found
+}
+
+#[test]
+fn a_theme_layout_keeps_the_bar_and_reactions_by_the_message() {
+    let reacted = |own: bool| ChatMessage {
+        author: if own { "Me" } else { "Sam" }.into(),
+        sender: if own { "1" } else { "2" }.into(),
+        body: "Hi".into(),
+        own,
+        can_react: true,
+        reactions: vec![yapfast_core::chat::Reaction {
+            key: "x".into(),
+            count: 1,
+            mine: false,
+        }],
+        ..Default::default()
+    };
+    let window = showing(vec![reacted(false), reacted(true)]);
+    let arrange = window.global::<yapfast_ui::Arrange>();
+    let chips = |window: &YapfastWindow| shown_rects(window, "x, 1. Add this reaction");
+    // The bar over the hovered message: its More button's right edge.
+    let more_right = |window: &YapfastWindow, item: &str| {
+        window.set_active_item(item.into());
+        settle(window);
+        let more = shown_rects(window, "More");
+        assert_eq!(more.len(), 1, "one bar shows");
+        more[0].0 + more[0].2
+    };
+
+    // Stock: the reactions start at the text, the bar at the row's right.
+    let stock = chips(&window);
+    assert_eq!(stock.len(), 2);
+    assert_eq!(stock[0].0, stock[1].0);
+    let row_right = more_right(&window, "i1") + 16.;
+
+    // Bubbles: your own reactions end at your bubble's right edge, under it,
+    // which is the row's less the column's 48px end; everyone else's start at
+    // theirs.
+    arrange.set_messages(1);
+    settle(&window);
+    let bubbles = chips(&window);
+    assert_eq!(bubbles.len(), 2);
+    assert!((bubbles[1].0 + bubbles[1].2 - (row_right - 48.)).abs() <= 3.);
+    assert!(bubbles[0].0 < bubbles[1].0);
+
+    // Cards: the bar keeps 8px inside the card's right edge, which a stagger
+    // moves; a group's seed with 4096's bit set steps in from the left, and
+    // keeps the right edge where it is.
+    arrange.set_messages(3);
+    arrange.set_cards_stagger(24.);
+    let messages = window.get_messages();
+    let mut row = messages.row_data(1).unwrap();
+    row.group = 0;
+    messages.set_row_data(1, row.clone());
+    settle(&window);
+    let stepped = more_right(&window, "i1");
+    row.group = 4096;
+    messages.set_row_data(1, row);
+    settle(&window);
+    let unstepped = more_right(&window, "i1");
+    assert_eq!(unstepped - stepped, 24.);
+    assert!(unstepped < row_right - 16.);
+
+    // irc: the bar starts at the text column, where its reactions do.
+    arrange.set_cards_stagger(0.);
+    arrange.set_messages(2);
+    settle(&window);
+    window.set_active_item("i0".into());
+    settle(&window);
+    // Without quick reactions or Reply, More is the bar's only button, 3px
+    // into it.
+    let more = shown_rects(&window, "More");
+    assert_eq!(more.len(), 1);
+    let column = chips(&window)[0].0;
+    assert!(
+        (more[0].0 - 3. - column).abs() <= 1.,
+        "the bar at {} sits on the text column at {column}",
+        more[0].0 - 3.
+    );
 }

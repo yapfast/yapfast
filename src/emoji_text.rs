@@ -93,6 +93,151 @@ pub fn register() {
     });
 }
 
+thread_local! {
+    /// How a theme recolours people's pictures, which emoji follow: Twemoji's
+    /// pictures as they're decoded, and its font, rebuilt once per way.
+    static MEDIA: std::cell::Cell<yapfast_core::themes::content::Media> =
+        const { std::cell::Cell::new(yapfast_core::themes::content::Media::Normal) };
+    /// The recoloured fonts registered, by the way they're recoloured.
+    static RECOLOURED: RefCell<Vec<(yapfast_core::themes::content::Media, String)>> = RefCell::default();
+    /// What runs once a recoloured font is made.
+    static PENDING: RefCell<Option<Box<dyn FnOnce()>>> = RefCell::default();
+}
+
+/// Recolours a Twemoji picture, RGBA with straight alpha, as people's
+/// pictures are while a theme recolours them.
+pub fn recolour_picture(rgba: &mut [u8]) {
+    let media = MEDIA.get();
+    if media != yapfast_core::themes::content::Media::Normal {
+        yapfast_core::themes::content::recolour(media, rgba);
+    }
+}
+
+/// The ways recoloured fonts were made, which any thread may read, so a
+/// theme made ready off the window's thread knows whether to make one.
+static MADE: std::sync::Mutex<Vec<yapfast_core::themes::content::Media>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// The most recoloured copies kept: dragging a theme's hue makes a new way
+/// each time, and each copy is the font's size in memory.
+const KEPT: usize = 2;
+
+/// A copy of Twemoji's font recoloured as `media` says, made where it's
+/// called (a theme's preparing thread), unless the window has one already.
+pub fn prepare(
+    media: yapfast_core::themes::content::Media,
+) -> Option<(yapfast_core::themes::content::Media, Vec<u8>)> {
+    if media == yapfast_core::themes::content::Media::Normal
+        || MADE.lock().is_ok_and(|made| made.contains(&media))
+    {
+        return None;
+    }
+    let font = twemoji::recoloured_font(FAMILY, &move |rgba: &mut [u8]| {
+        yapfast_core::themes::content::recolour(media, rgba)
+    });
+    Some((media, font))
+}
+
+/// Registers a copy [`prepare`] made, on the window's thread, so
+/// [`follow_media`] finds it ready.
+pub fn take_prepared(prepared: (yapfast_core::themes::content::Media, Vec<u8>)) {
+    let (media, font) = prepared;
+    if RECOLOURED.with_borrow(|fonts| fonts.iter().any(|(made, _)| *made == media)) {
+        return;
+    }
+    register();
+    let family = next_family();
+    let blob = fontique::Blob::new(std::sync::Arc::new(font));
+    if emoji_font::register_blob(&family, blob) {
+        keep(media, family);
+    }
+}
+
+/// A family name no recoloured copy has used.
+fn next_family() -> String {
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(1);
+    format!(
+        "{FAMILY} {}",
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    )
+}
+
+/// Keeps a registered copy, forgetting the oldest past [`KEPT`] (its family
+/// stays registered, but nothing asks for it again).
+fn keep(media: yapfast_core::themes::content::Media, family: String) {
+    RECOLOURED.with_borrow_mut(|fonts| {
+        fonts.push((media, family));
+        while fonts.len() > KEPT {
+            fonts.remove(0);
+        }
+        if let Ok(mut made) = MADE.lock() {
+            *made = fonts.iter().map(|(made, _)| *made).collect();
+        }
+    });
+}
+
+/// Emoji in text follow `media`: Twemoji's own font again, or a copy with
+/// its pictures recoloured, built on a thread of its own the first time
+/// (a few seconds, and the font's size in memory while it's kept), after
+/// which `ready` runs on the window's thread so text is laid out again.
+pub fn follow_media(media: yapfast_core::themes::content::Media, ready: impl FnOnce() + 'static) {
+    use yapfast_core::themes::content::Media;
+    if MEDIA.replace(media) == media {
+        return;
+    }
+    register();
+    if media == Media::Normal {
+        emoji_font::select_emoji(FAMILY);
+        ready();
+        return;
+    }
+    if let Some(family) = RECOLOURED.with_borrow(|fonts| {
+        fonts
+            .iter()
+            .find(|(made, _)| *made == media)
+            .map(|(_, family)| family.clone())
+    }) {
+        emoji_font::select_emoji(&family);
+        ready();
+        return;
+    }
+    let family = next_family();
+    // `ready` waits on this thread for the font to come back to it.
+    PENDING.with_borrow_mut(|pending| *pending = Some(Box::new(ready)));
+    std::thread::spawn(move || {
+        let font = twemoji::recoloured_font(&family, &move |rgba: &mut [u8]| {
+            yapfast_core::themes::content::recolour(media, rgba)
+        });
+        let _ = slint::invoke_from_event_loop(move || {
+            let blob = fontique::Blob::new(std::sync::Arc::new(font));
+            if emoji_font::register_blob(&family, blob) {
+                keep(media, family.clone());
+                // A theme changed again meanwhile keeps what it chose.
+                if MEDIA.get() == media {
+                    emoji_font::select_emoji(&family);
+                }
+            }
+            if let Some(ready) = PENDING.with_borrow_mut(Option::take) {
+                ready();
+            }
+        });
+    });
+}
+
+/// The family emoji are drawn in now: Twemoji's own, or its copy recoloured
+/// as the theme recolours pictures, once that is made.
+pub fn shown_family() -> String {
+    let media = MEDIA.get();
+    RECOLOURED
+        .with_borrow(|fonts| {
+            fonts
+                .iter()
+                .find(|(made, _)| *made == media)
+                .map(|(_, family)| family.clone())
+        })
+        .unwrap_or_else(|| FAMILY.to_owned())
+}
+
 /// `text` with each emoji that has a glyph drawn by it.
 pub fn text(text: &str) -> String {
     let mut out = String::with_capacity(text.len());

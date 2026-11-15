@@ -1,0 +1,481 @@
+//! A theme's `layout` on the window, through the Slint global `Arrange`
+//! (`ui/theme_layout.slint`) and `Look`'s outline width. See
+//! `docs/themes.md`.
+//!
+//! [`reset`] puts every value back to stock, which `theme_look::reset` calls
+//! first whenever a theme is drawn, cleared or hidden behind a protected
+//! screen. A theme that uses neither layer leaves every value at its
+//! default, so it costs nothing: the interface draws the stock window and
+//! the ransom callback is never asked.
+
+use std::cell::RefCell;
+use std::hash::{Hash, Hasher};
+
+use slint::{Brush, Color, ComponentHandle, ModelRc, SharedString, VecModel};
+use yapfast_core::themes::Performance;
+use yapfast_core::themes::layout::{BorderPlace, Gel, Layout, Stroke};
+use yapfast_ui::{Arrange, BubbleGel, Dash, Look, Scrap, YapfastWindow};
+
+/// What the ransom callback cuts letters from.
+#[derive(Default)]
+struct Ransom {
+    families: Vec<SharedString>,
+    papers: Vec<(Color, Color)>,
+}
+
+thread_local! {
+    static RANSOM: RefCell<Ransom> = RefCell::new(Ransom::default());
+}
+
+/// Letters a name is cut into; the rest is one plain piece.
+const MOST_LETTERS: usize = 12;
+
+/// The scraps' grounds and inks when a theme names none: newsprint, ink and a
+/// pink.
+const PAPERS: [(u32, u32); 3] = [
+    (0xfff5_f1e8, 0xff14_1414),
+    (0xff14_1414, 0xfff5_f1e8),
+    (0xffff_5fa2, 0xff14_1414),
+];
+
+/// A bubble's drawn gel as the window draws it; an empty one draws nothing.
+fn gel(gel: &Gel) -> BubbleGel {
+    let colour = |argb: Option<u32>| argb.map_or(Color::default(), Color::from_argb_encoded);
+    let mut drawn = BubbleGel {
+        shadow_blur: -1.,
+        ..BubbleGel::default()
+    };
+    if let Some(gloss) = gel.gloss {
+        // The gloss's colour at each end, its own alpha scaled by `from`
+        // and `to`.
+        let at = |share: f32| {
+            let alpha = ((gloss.colour >> 24) as f32 * share).round() as u32;
+            Color::from_argb_encoded((alpha.min(255) << 24) | (gloss.colour & 0x00ff_ffff))
+        };
+        drawn.gloss_top = at(gloss.from);
+        drawn.gloss_bottom = at(gloss.to);
+        drawn.gloss_height = gloss.height;
+        drawn.gloss_max = gloss.max;
+        drawn.gloss_inset_x = gloss.inset.0;
+        drawn.gloss_inset_y = gloss.inset.1;
+        drawn.gloss_radius = gloss.radius.unwrap_or(-1.);
+    }
+    if let Some(glow) = gel.glow {
+        drawn.glow = Color::from_argb_encoded(glow.colour);
+        drawn.glow_height = glow.height;
+    }
+    drawn.rim_light = colour(gel.rim_light);
+    drawn.rim_dark = colour(gel.rim_dark);
+    if let Some(shadow) = gel.shadow {
+        drawn.shadow = Color::from_argb_encoded(shadow.colour);
+        drawn.shadow_blur = shadow.blur;
+        drawn.shadow_x = shadow.x;
+        drawn.shadow_y = shadow.y;
+    }
+    drawn
+}
+
+/// Answers `Arrange.scraps`. Called once per window.
+pub fn init(window: &YapfastWindow) {
+    window.global::<Arrange>().on_scraps(|text| scraps(&text));
+}
+
+/// Lines a message's rule holds: more than the tallest message shows, each
+/// clipped to its own.
+const RULE_LINES: usize = 240;
+
+/// The separator once a line, for the rule down a message.
+fn rule_text(separator: &str) -> String {
+    vec![separator; RULE_LINES].join("\n")
+}
+
+/// Every value back to stock.
+pub fn reset(window: &YapfastWindow) {
+    let arrange = window.global::<Arrange>();
+    arrange.set_rail(0);
+    arrange.set_members(0);
+    arrange.set_composer_top(false);
+    arrange.set_messages(0);
+    arrange.set_chat_max_width(0.);
+    arrange.set_hide_avatars(false);
+    arrange.set_irc_time(64.);
+    arrange.set_irc_nick(128.);
+    arrange.set_irc_separator("│".into());
+    arrange.set_irc_rule(false);
+    arrange.set_irc_rule_text(SharedString::new());
+    arrange.set_bubble_max(0.72);
+    arrange.set_bubble_own_set(Color::default());
+    arrange.set_bubble_other_set(Color::default());
+    arrange.set_bubble_own_paint(Brush::default());
+    arrange.set_bubble_other_paint(Brush::default());
+    arrange.set_bubble_own_painted(false);
+    arrange.set_bubble_other_painted(false);
+    arrange.set_bubble_own_art(ModelRc::default());
+    arrange.set_bubble_other_art(ModelRc::default());
+    arrange.set_bubble_own_text_set(Color::default());
+    arrange.set_bubble_radius(16.);
+    arrange.set_bubble_own_gel(gel(&Gel::default()));
+    arrange.set_bubble_other_gel(gel(&Gel::default()));
+    arrange.set_bubble_pad_x(12.);
+    arrange.set_bubble_pad_y(6.);
+    arrange.set_cards_tilt(0.);
+    arrange.set_cards_gap(8.);
+    arrange.set_cards_padding(12.);
+    arrange.set_cards_ground_set(Color::default());
+    arrange.set_cards_shadow_blur(-1.);
+    arrange.set_cards_shadow_x(0.);
+    arrange.set_cards_shadow_y(0.);
+    arrange.set_cards_shadow_color(Color::default());
+    arrange.set_cards_over_top(0.);
+    arrange.set_cards_over_bottom(0.);
+    arrange.set_cards_bleed(0.);
+    arrange.set_cards_stagger(0.);
+    arrange.set_cards_tint_art(false);
+    arrange.set_members_motion(0);
+    for place in BorderPlace::ALL {
+        set_dash(&arrange, *place, Dash::default());
+    }
+    arrange.set_panes(false);
+    window.global::<Look>().set_outline_width(-1.);
+    arrange.set_ransom_names(false);
+    RANSOM.with_borrow_mut(|ransom| *ransom = Ransom::default());
+}
+
+/// Sets a theme's layout. `families` are the ransom fonts' registered
+/// names, in the theme's order; `names` the names face's, if it has one.
+pub fn apply(
+    window: &YapfastWindow,
+    layout: &Layout,
+    families: &[String],
+    names: Option<&str>,
+    performance: Performance,
+    reduced: bool,
+) {
+    let arrange = window.global::<Arrange>();
+    if let Some(rail) = layout.rail {
+        arrange.set_rail(rail.index());
+    }
+    if let Some(members) = layout.members {
+        arrange.set_members(members.index());
+    }
+    // The collapsed member list opens as the pointer comes on; reduced
+    // motion and Light open it at once.
+    if !reduced && performance != Performance::Light {
+        arrange.set_members_motion(180);
+    }
+    if let Some(composer) = layout.composer {
+        arrange.set_composer_top(composer.index() == 1);
+    }
+    if let Some(messages) = layout.messages {
+        arrange.set_messages(messages.index());
+    }
+    if let Some(width) = layout.chat_max_width {
+        arrange.set_chat_max_width(width);
+    }
+    arrange.set_hide_avatars(layout.chat_avatars == Some(false));
+    if let Some(width) = layout.irc.time_width {
+        arrange.set_irc_time(width);
+    }
+    if let Some(width) = layout.irc.nick_width {
+        arrange.set_irc_nick(width);
+    }
+    if let Some(separator) = &layout.irc.separator {
+        arrange.set_irc_separator(separator.as_str().into());
+    }
+    if layout.irc.rule == Some(true) {
+        arrange.set_irc_rule(true);
+        arrange.set_irc_rule_text(rule_text(layout.irc.separator.as_deref().unwrap_or("│")).into());
+    }
+    if let Some(share) = layout.bubbles.max_width {
+        arrange.set_bubble_max(share / 100.);
+    }
+    // A gradient ground is drawn as one; its first stop stands in where a
+    // single colour is needed.
+    if let Some(paint) = &layout.bubbles.own {
+        arrange.set_bubble_own_set(Color::from_argb_encoded(paint.solid()));
+        arrange.set_bubble_own_paint(super::theme_look::brush(paint));
+        arrange.set_bubble_own_painted(true);
+    }
+    if let Some(paint) = &layout.bubbles.other {
+        arrange.set_bubble_other_set(Color::from_argb_encoded(paint.solid()));
+        arrange.set_bubble_other_paint(super::theme_look::brush(paint));
+        arrange.set_bubble_other_painted(true);
+    }
+    if let Some(colour) = layout.bubbles.own_text {
+        arrange.set_bubble_own_text_set(Color::from_argb_encoded(colour));
+    }
+    if let Some(radius) = layout.bubbles.radius {
+        arrange.set_bubble_radius(radius);
+    }
+    arrange.set_bubble_own_gel(gel(&layout.bubbles.own_gel));
+    arrange.set_bubble_other_gel(gel(&layout.bubbles.other_gel));
+    if let Some((across, down)) = layout.bubbles.padding {
+        arrange.set_bubble_pad_x(across);
+        arrange.set_bubble_pad_y(down);
+    }
+    // A lean turns a card's ground, which Light leaves straight.
+    if let Some(tilt) = layout.cards.tilt
+        && performance != Performance::Light
+    {
+        arrange.set_cards_tilt(tilt);
+    }
+    if let Some(gap) = layout.cards.gap {
+        arrange.set_cards_gap(gap);
+    }
+    if let Some(padding) = layout.cards.padding {
+        arrange.set_cards_padding(padding);
+    }
+    if let Some(colour) = layout.cards.ground {
+        arrange.set_cards_ground_set(Color::from_argb_encoded(colour));
+    }
+    if let Some(stagger) = layout.cards.stagger {
+        arrange.set_cards_stagger(stagger);
+    }
+    arrange.set_cards_tint_art(layout.cards.tint_art);
+    // A card's shadow reaches past its edges by its offset and blur; each
+    // row's slice of the card draws that much more, so it shows whole.
+    if let Some(shadow) = layout.cards.shadow {
+        arrange.set_cards_shadow_blur(shadow.blur);
+        arrange.set_cards_shadow_x(shadow.x);
+        arrange.set_cards_shadow_y(shadow.y);
+        arrange.set_cards_shadow_color(Color::from_argb_encoded(shadow.colour));
+        let reach = shadow.blur + shadow.x.abs().max(shadow.y.abs());
+        arrange.set_cards_over_top((shadow.blur - shadow.y).max(0.));
+        arrange.set_cards_over_bottom((shadow.blur + shadow.y).max(0.));
+        arrange.set_cards_bleed(reach);
+    }
+    for (place, border) in &layout.borders {
+        set_dash(
+            &arrange,
+            *place,
+            Dash {
+                on: border.stroke != Stroke::Solid,
+                dotted: border.stroke == Stroke::Dotted,
+                dash: border.dash,
+                gap: border.gap,
+                width: border.width.unwrap_or(-1.),
+                ink: border
+                    .colour
+                    .map_or(Color::default(), Color::from_argb_encoded),
+            },
+        );
+    }
+    arrange.set_panes(layout.borders.contains_key(&BorderPlace::Panes));
+    if let Some(width) = layout.outline_width {
+        window.global::<Look>().set_outline_width(width);
+    }
+
+    // A ransom name is a few dozen small items a row: Light draws the stock
+    // name instead.
+    if let Some(cut) = &layout.names
+        && performance != Performance::Light
+    {
+        arrange.set_ransom_names(true);
+        let mut chosen: Vec<SharedString> = families
+            .iter()
+            .map(|family| family.as_str().into())
+            .collect();
+        if chosen.is_empty() {
+            chosen.push(names.unwrap_or("").into());
+            chosen.push(SharedString::new());
+        }
+        let papers = if cut.papers.is_empty() {
+            PAPERS.to_vec()
+        } else {
+            cut.papers.clone()
+        };
+        RANSOM.with_borrow_mut(|ransom| {
+            ransom.families = chosen;
+            ransom.papers = papers
+                .into_iter()
+                .map(|(ground, ink)| {
+                    (
+                        Color::from_argb_encoded(ground),
+                        Color::from_argb_encoded(ink),
+                    )
+                })
+                .collect();
+        });
+    }
+}
+
+fn set_dash(arrange: &Arrange<'_>, place: BorderPlace, dash: Dash) {
+    match place {
+        BorderPlace::Composer => arrange.set_dash_composer(dash),
+        BorderPlace::Actions => arrange.set_dash_actions(dash),
+        BorderPlace::Card => arrange.set_dash_card(dash),
+        BorderPlace::Menu => arrange.set_dash_menu(dash),
+        BorderPlace::Dialog => arrange.set_dash_dialog(dash),
+        BorderPlace::Tooltip => arrange.set_dash_tooltip(dash),
+        BorderPlace::Message => arrange.set_dash_message(dash),
+        BorderPlace::Embed => arrange.set_dash_embed(dash),
+        BorderPlace::Code => arrange.set_dash_code(dash),
+        BorderPlace::Tile => arrange.set_dash_tile(dash),
+        BorderPlace::Divider => arrange.set_dash_divider(dash),
+        BorderPlace::Panes => arrange.set_dash_panes(dash),
+    }
+}
+
+/// A name cut into ransom letters: each of its first letters on a scrap of
+/// its own, from the fonts in turn, leaning a little; what's past them as
+/// one scrap in the first font. A name with letters outside Latin script is
+/// one scrap whole, in the stock face, so no letter falls back to a box.
+fn scraps(text: &str) -> ModelRc<Scrap> {
+    RANSOM.with_borrow(|ransom| {
+        let mut scraps = Vec::new();
+        let (first_paper, first_ink) = ransom
+            .papers
+            .first()
+            .copied()
+            .unwrap_or((Color::default(), Color::default()));
+        let latin = text
+            .chars()
+            .all(|letter| letter.is_ascii() || ('\u{a0}'..='\u{24f}').contains(&letter));
+        if ransom.families.is_empty() || !latin {
+            scraps.push(Scrap {
+                text: text.into(),
+                family: SharedString::new(),
+                rotation: 0.,
+                paper: first_paper,
+                ink: first_ink,
+                rest: true,
+            });
+            return ModelRc::new(VecModel::from(scraps));
+        }
+        let mut letters = text.char_indices();
+        let mut index = 0usize;
+        for (at, letter) in letters.by_ref() {
+            if index == MOST_LETTERS {
+                scraps.push(Scrap {
+                    text: text[at..].into(),
+                    family: ransom.families[0].clone(),
+                    rotation: 0.,
+                    paper: first_paper,
+                    ink: first_ink,
+                    rest: true,
+                });
+                break;
+            }
+            if letter == ' ' {
+                scraps.push(Scrap {
+                    text: " ".into(),
+                    family: SharedString::new(),
+                    rotation: 0.,
+                    paper: Color::default(),
+                    ink: Color::default(),
+                    rest: false,
+                });
+                index += 1;
+                continue;
+            }
+            let seed = seed(text, index);
+            let (paper, ink) = ransom.papers[(seed as usize / 7) % ransom.papers.len()];
+            scraps.push(Scrap {
+                text: letter.to_string().into(),
+                family: ransom.families[index % ransom.families.len()].clone(),
+                // Up to 6° either way.
+                rotation: ((seed % 13) as f32 - 6.) * 0.9,
+                paper,
+                ink,
+                rest: false,
+            });
+            index += 1;
+        }
+        ModelRc::new(VecModel::from(scraps))
+    })
+}
+
+/// The same lean and scrap for a name's letter every time it's drawn.
+fn seed(text: &str, index: usize) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    text.hash(&mut hasher);
+    index.hash(&mut hasher);
+    hasher.finish()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn theme_irc_rule_runs_the_separator_down_every_line() {
+        i_slint_backend_testing::init_no_event_loop();
+        let window = YapfastWindow::new().unwrap();
+        let mut layout = Layout::default();
+        layout.irc.separator = Some(">".into());
+        layout.irc.rule = Some(true);
+        apply(&window, &layout, &[], None, Performance::Full, false);
+        let arrange = window.global::<Arrange>();
+        assert!(arrange.get_irc_rule());
+        let text = arrange.get_irc_rule_text();
+        assert_eq!(text.lines().count(), RULE_LINES);
+        assert!(text.lines().all(|line| line == ">"));
+        reset(&window);
+        assert!(!arrange.get_irc_rule() && arrange.get_irc_rule_text().is_empty());
+    }
+
+    fn letters(model: &ModelRc<Scrap>) -> Vec<String> {
+        use slint::Model as _;
+        model.iter().map(|scrap| scrap.text.to_string()).collect()
+    }
+
+    #[test]
+    fn cuts_a_name_into_letters_from_the_fonts_in_turn() {
+        RANSOM.with_borrow_mut(|ransom| {
+            ransom.families = vec!["A".into(), "B".into()];
+            ransom.papers = vec![(Color::default(), Color::default())];
+        });
+        let model = scraps("wired");
+        assert_eq!(letters(&model), ["w", "i", "r", "e", "d"]);
+        use slint::Model as _;
+        let families: Vec<String> = model.iter().map(|scrap| scrap.family.to_string()).collect();
+        assert_eq!(families, ["A", "B", "A", "B", "A"]);
+        // The same name leans the same way each time.
+        let again = scraps("wired");
+        assert_eq!(
+            model.iter().map(|scrap| scrap.rotation).collect::<Vec<_>>(),
+            again.iter().map(|scrap| scrap.rotation).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_long_or_non_latin_name_keeps_its_rest_whole() {
+        RANSOM.with_borrow_mut(|ransom| {
+            ransom.families = vec!["A".into(), "B".into()];
+            ransom.papers = vec![(Color::default(), Color::default())];
+        });
+        let long = "abcdefghijklmnopqrstuvwxyz0123";
+        let model = scraps(long);
+        let cut = letters(&model);
+        assert_eq!(cut.len(), MOST_LETTERS + 1);
+        assert_eq!(cut.last().unwrap(), "mnopqrstuvwxyz0123");
+        assert_eq!(letters(&scraps("ワイヤード")), ["ワイヤード"]);
+    }
+
+    #[test]
+    fn theme_gel_draws_nothing_unset_and_scales_the_gloss() {
+        // Unset: clear colours, no gloss band and no shadow, as stock.
+        let stock = gel(&Gel::default());
+        assert_eq!(stock.gloss_max, 0.);
+        assert_eq!(stock.shadow_blur, -1.);
+        assert_eq!(stock.rim_light, Color::default());
+        assert_eq!(stock.glow, Color::default());
+        let set = gel(&Gel {
+            gloss: Some(yapfast_core::themes::layout::Gloss {
+                colour: 0x80ff_ffff,
+                from: 1.0,
+                to: 0.5,
+                height: 0.5,
+                max: 20.,
+                inset: (3., 1.),
+                radius: None,
+            }),
+            rim_dark: Some(0xff06_307a),
+            ..Gel::default()
+        });
+        assert_eq!(set.gloss_top, Color::from_argb_encoded(0x80ff_ffff));
+        assert_eq!(set.gloss_bottom, Color::from_argb_encoded(0x40ff_ffff));
+        assert_eq!((set.gloss_inset_x, set.gloss_radius), (3., -1.));
+        assert_eq!(set.rim_dark, Color::from_argb_encoded(0xff06_307a));
+    }
+}

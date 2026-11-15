@@ -1,6 +1,12 @@
+import { Chrome } from "theme_chrome.slint";
+import { Trim } from "theme_trim.slint";
+import { IconPack, Cue } from "media.slint";
 import { ClientStyle } from "yapfast/style.slint";
 import { ListView, ScrollView } from "scrollview.slint";
-import { Theme, Tip, ReactionHover, Middle, Label, Twemoji } from "theme.slint";
+import { Theme, Tip, ReactionHover, Middle, Label, Twemoji, Look } from "theme.slint";
+import { Art, ArtLayer, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil } from "theme_art.slint";
+import { Arrange, BubbleGel, DashedOutline, RansomName } from "theme_layout.slint";
+import { ThemeContent, IlluminatedInitial } from "theme_content.slint";
 import { ActionButton, IconButton, Avatar, Motion, Picture, UprightVolumeSlider, PictureStore, EmojiAnimations, Skeleton, SpoilerCover, MenuItem, TextField, ContextMenu, MenuRow, StyledName, NameStyleRow, ServerTagChip } from "controls.slint";
 import { FavoriteStar, GifFavorites } from "gifs.slint";
 import { Composer } from "composer-field.slint";
@@ -122,13 +128,13 @@ export component PickerRail inherits Rectangle {
     callback jump(length);
     /// The section the pointer is over.
     callback hovered(EmojiCell);
-    width: 48px; background: Theme.panel;
+    width: 48px; background: Theme.panel-fill;
     ListView {
         vertical-scrollbar-policy: ScrollBarPolicy.always-off;
         for section in root.sections: HorizontalLayout {
             alignment: center; padding-top: 4px;
             section-button := Rectangle {
-                width: 36px; height: 36px; border-radius: 6px;
+                width: 36px; height: 36px; border-radius: Look.radius(6px);
                 background: touch.has-hover ? Theme.overlay.with-alpha(0.12)
                     : root.scrolled >= section.top - 1px && root.scrolled < section.end - 1px ? Theme.active
                     : transparent;
@@ -139,8 +145,8 @@ export component PickerRail inherits Rectangle {
                 if section.glyph != SectionGlyph.none: Image {
                     x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
                     width: 32px; height: 32px;
-                    source: section.glyph == SectionGlyph.clock ? @image-url("icons/clock.svg") : @image-url("icons/star-filled.svg");
-                    colorize: section.glyph == SectionGlyph.clock ? Theme.secondary : #f0b232;
+                    source: section.glyph == SectionGlyph.clock ? IconPack.clock : IconPack.star-filled;
+                    colorize: IconPack.tint(self.source, section.glyph == SectionGlyph.clock ? Theme.secondary : #f0b232);
                 }
                 if section.glyph == SectionGlyph.none: EmojiFace {
                     emoji: section.icon; font: root.font; side: 32px;
@@ -166,6 +172,8 @@ export component EmojiButton inherits Rectangle {
     in property <length> size: 32px;
     in property <length> glyph: 20px;
     in property <color> fill: transparent;
+    /// Its ground under the pointer, over the stock wash.
+    in property <color> hover-fill: transparent;
     in property <bool> tip: true;
     /// Whether this account may use the emoji here. One it may not shows
     /// greyed, with a lock over its corner, and clicking it offers Nitro.
@@ -186,8 +194,8 @@ export component EmojiButton inherits Rectangle {
     /// A locked emoji was pressed.
     callback locked;
     width: root.size; height: root.size;
-    border-radius: 6px;
-    background: pointer.has-hover ? Theme.overlay.with-alpha(0.12) : root.fill;
+    border-radius: Look.radius(6px);
+    background: pointer.has-hover ? (root.hover-fill != transparent ? root.hover-fill : Theme.overlay.with-alpha(0.12)) : root.fill;
     animate background { duration: Theme.quick; }
     border-width: focus.has-focus ? 2px : 0px;
     border-color: Theme.accent;
@@ -198,9 +206,9 @@ export component EmojiButton inherits Rectangle {
     forward-focus: focus;
     EmojiFace { emoji: root.emoji; font: root.font; side: root.glyph; animation-key: root.animation-key; }
     if !root.usable: Image {
-        source: @image-url("icons/lock.svg"); width: 14px; height: 14px;
+        source: IconPack.lock; width: 14px; height: 14px;
         x: root.width - self.width - 4px; y: root.height - self.height - 4px;
-        colorize: Theme.text;
+        colorize: IconPack.tint(self.source, Theme.text);
     }
     focus := FocusScope {
         key-pressed(event) => {
@@ -233,16 +241,16 @@ export component EmojiButton inherits Rectangle {
     // Its star keeps it among the favorites, as a sticker's does.
     if root.favoritable && (pointer.has-hover || root.favorite): Rectangle {
         x: root.width - self.width; y: 0px;
-        width: 18px; height: 18px; border-radius: 4px;
-        background: Theme.panel;
+        width: 18px; height: 18px; border-radius: Look.radius(4px);
+        background: Theme.panel-fill;
         accessible-role: button;
         accessible-label: root.favorite ? "Remove from Favorites" : "Add to Favorites";
         accessible-action-default => { root.favorited(); }
         Image {
             x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
             width: 12px; height: 12px;
-            source: root.favorite ? @image-url("icons/star-filled.svg") : @image-url("icons/star.svg");
-            colorize: root.favorite ? #f0b232 : Theme.text;
+            source: root.favorite ? IconPack.star-filled : IconPack.star;
+            colorize: IconPack.tint(self.source, root.favorite ? #f0b232 : Theme.text);
         }
         TouchArea {
             mouse-cursor: MouseCursor.pointer;
@@ -263,18 +271,32 @@ export component ReactionToggle inherits Rectangle {
     in property <bool> enabled;
     in property <string> emoji-font;
     callback clicked;
-    min-width: chip.preferred-width; height: 28px; border-radius: 8px;
-    background: root.mine ? Theme.accent-soft : Theme.raised;
-    border-width: 1px;
-    border-color: root.mine ? Theme.accent.with-alpha(0.7) : pointer.has-hover && root.enabled ? Theme.overlay.with-alpha(0.15) : transparent;
+    min-width: chip.preferred-width; height: 28px; border-radius: Look.r(Look.chip, 8px);
+    // A theme may draw reactions as text: the emoji, then `(+3)`.
+    background: Chrome.reaction-text ? transparent : root.mine ? Theme.accent-soft : Theme.raised-fill;
+    // A theme's stamp: your reaction lands with a thunk.
+    property <bool> stamping;
+    property <float> thunk;
+    animate thunk { duration: root.stamping ? 0ms : Art.stamp-time; easing: ease-out-bounce; }
+    changed mine => { if root.mine && Art.stamp { root.stamping = true; root.thunk = 1; } }
+    Timer { interval: 30ms; running: root.stamping; triggered => { root.stamping = false; root.thunk = 0; } }
+    border-width: Chrome.reaction-text ? 0px : Look.bw(Look.chip, 1px);
+    border-color: root.mine ? Theme.accent.with-alpha(0.7) : pointer.has-hover && root.enabled ? Theme.overlay.with-alpha(0.15) : Look.bc(Look.chip, transparent);
     accessible-role: button;
     accessible-label: root.key + ", " + root.count + (root.mine ? ", including you. Remove your reaction" : ". Add this reaction");
     accessible-enabled: root.enabled;
     accessible-action-default => { if root.enabled { root.clicked(); } }
     chip := HorizontalLayout {
-        padding-left: 8px; padding-right: 9px; spacing: 6px;
-        Text { text: Twemoji.text(root.label); font-family: root.emoji-font; font-size: 16px; vertical-alignment: center; }
-        Text { text: root.count; color: root.mine ? Theme.accent : Theme.secondary; font-size: 14px; font-weight: 700; vertical-alignment: center; }
+        padding-left: Chrome.reaction-text ? 2px : 8px; padding-right: Chrome.reaction-text ? 2px : 9px; spacing: Chrome.reaction-text ? 2px : 6px;
+        Text {
+            text: Twemoji.text(root.label); font-family: root.emoji-font; font-size: 16px; vertical-alignment: center;
+            transform-scale: 1 + 0.5 * root.thunk; transform-rotation: -12deg * root.thunk;
+        }
+        Text {
+            text: Chrome.reaction-text ? Chrome.fill(Chrome.reaction, "n", root.count) : root.count;
+            color: root.mine ? Theme.accent-text : Chrome.reaction-text && pointer.has-hover ? Theme.text : Theme.secondary;
+            font-size: 14px; font-weight: Chrome.reaction-text && !root.mine ? 400 : 700; vertical-alignment: center;
+        }
     }
     property <bool> tip-shown: root.item != "" && ReactionHover.item == root.item && ReactionHover.key == root.key;
     pointer := TouchArea {
@@ -398,7 +420,7 @@ component VideoControls inherits Rectangle {
         Middle {
             IconButton {
                 size: 28px; glyph: 16px; tint: #ffffff; tip-side: 0;
-                icon: VideoPlayer.playing ? @image-url("icons/pause.svg") : @image-url("icons/play.svg");
+                icon: VideoPlayer.playing ? IconPack.pause : IconPack.play;
                 label: VideoPlayer.playing ? "Pause" : "Play";
                 clicked => { VideoPlayer.toggle(); }
             }
@@ -410,8 +432,8 @@ component VideoControls inherits Rectangle {
             accessible-label: "Position";
             accessible-value: round(VideoPlayer.progress * 100) + "%";
             Rectangle {
-                height: 4px; border-radius: 2px; background: #ffffff4d;
-                Rectangle { x: 0; width: parent.width * clamp(VideoPlayer.progress, 0, 1); border-radius: 2px; background: #ffffff; }
+                height: 4px; border-radius: Look.radius(2px); background: #ffffff4d;
+                Rectangle { x: 0; width: parent.width * clamp(VideoPlayer.progress, 0, 1); border-radius: Look.radius(2px); background: #ffffff; }
             }
             TouchArea {
                 mouse-cursor: MouseCursor.pointer;
@@ -437,7 +459,7 @@ component VideoControls inherits Rectangle {
                 Rectangle {
                     y: 0; width: 28px; height: sound.rise - 4px;
                     visible: sound.open;
-                    border-radius: 6px; background: #000000cc;
+                    border-radius: Look.radius(6px); background: #000000cc;
                     accessible-role: slider;
                     accessible-label: "Volume";
                     accessible-value: round(sound.shown * 100) + "%";
@@ -446,13 +468,13 @@ component VideoControls inherits Rectangle {
                     accessible-action-set-value(value) => { VideoPlayer.change-volume(clamp(value.to-float() / 100, 0, 1)); }
                     track := Rectangle {
                         x: (parent.width - self.width) / 2; y: 14px; width: 4px; height: parent.height - 28px;
-                        border-radius: 2px; background: #ffffff4d;
+                        border-radius: Look.radius(2px); background: #ffffff4d;
                         Rectangle {
                             y: parent.height * (1 - sound.shown); height: parent.height * sound.shown;
-                            border-radius: 2px; background: #ffffff;
+                            border-radius: Look.radius(2px); background: #ffffff;
                         }
                         Rectangle {
-                            width: 12px; height: 12px; border-radius: 6px; background: #ffffff;
+                            width: 12px; height: 12px; border-radius: Look.radius(6px); background: #ffffff;
                             x: (parent.width - self.width) / 2; y: parent.height * (1 - sound.shown) - self.height / 2;
                         }
                     }
@@ -478,7 +500,7 @@ component VideoControls inherits Rectangle {
                 IconButton {
                     y: parent.height - 28px; height: 28px;
                     size: 28px; glyph: 16px; tint: #ffffff; tip-side: 2;
-                    icon: VideoPlayer.muted ? @image-url("icons/volume-x.svg") : @image-url("icons/volume-2.svg");
+                    icon: VideoPlayer.muted ? IconPack.volume-x : IconPack.volume-2;
                     label: VideoPlayer.muted ? "Unmute" : "Mute";
                     clicked => { VideoPlayer.mute(!VideoPlayer.muted); }
                 }
@@ -487,7 +509,7 @@ component VideoControls inherits Rectangle {
         Middle {
             IconButton {
                 size: 28px; glyph: 16px; tint: #ffffff; tip-side: 0;
-                icon: VideoPlayer.expanded ? @image-url("icons/minimize.svg") : @image-url("icons/maximize.svg");
+                icon: VideoPlayer.expanded ? IconPack.minimize : IconPack.maximize;
                 label: VideoPlayer.expanded ? "Exit full screen" : "Full screen";
                 clicked => { VideoPlayer.expand(!VideoPlayer.expanded); }
             }
@@ -532,19 +554,19 @@ component VideoCell inherits Rectangle {
         }
     }
     if !root.active || root.failed || (VideoPlayer.ended && !pointer.has-hover): Rectangle {
-        width: 48px; height: 48px; border-radius: 24px; background: #000000b3;
+        width: 48px; height: 48px; border-radius: Look.radius(24px); background: #000000b3;
         Path {
             width: 18px; height: 20px; x: 17px; y: 14px;
             commands: "M 0 0 L 18 10 L 0 20 Z"; fill: #ffffff;
         }
     }
     if root.active && VideoPlayer.loading && !root.failed: Rectangle {
-        width: loading.preferred-width + 20px; height: 28px; border-radius: 14px; background: #000000b3;
+        width: loading.preferred-width + 20px; height: 28px; border-radius: Look.radius(14px); background: #000000b3;
         loading := Text { text: "Loading..."; color: #ffffff; font-size: 13px; }
     }
     if root.failed: Rectangle {
         y: parent.height - self.height - 8px; width: min(parent.width - 16px, problem.preferred-width + 20px); height: 28px;
-        border-radius: 6px; background: #000000cc;
+        border-radius: Look.radius(6px); background: #000000cc;
         problem := Text { text: VideoPlayer.error; color: #ffffff; font-size: 13px; overflow: elide; }
     }
 }
@@ -670,7 +692,7 @@ export component PollView inherits HorizontalLayout {
     padding-top: 4px;
     Rectangle {
         max-width: 480px; horizontal-stretch: 100;
-        background: Theme.sidebar; border-radius: 8px; border-width: 1px; border-color: Theme.line;
+        background: Theme.sidebar-fill; border-radius: Look.radius(8px); border-width: Look.line(1px); border-color: Theme.line;
         accessible-role: groupbox;
         accessible-label: "Poll: " + root.poll.question;
         VerticalLayout {
@@ -680,8 +702,8 @@ export component PollView inherits HorizontalLayout {
             for answer in root.poll.answers: Rectangle {
                 property <bool> clickable: root.poll.interactive && (root.poll.results || root.poll.can-pick);
                 // From the text as wrapped, which a scrolling list would otherwise squeeze.
-                min-height: max(44px, answer-text.preferred-height + 16px); border-radius: 8px; clip: true;
-                background: answer-touch.has-hover && self.clickable ? Theme.active : Theme.raised;
+                min-height: max(44px, answer-text.preferred-height + 16px); border-radius: Look.radius(8px); clip: true;
+                background: answer-touch.has-hover && self.clickable ? Theme.active : Theme.raised-fill;
                 animate background { duration: Theme.quick; }
                 border-width: answer.picked ? 2px : 0px; border-color: Theme.accent;
                 accessible-role: button;
@@ -698,7 +720,7 @@ export component PollView inherits HorizontalLayout {
                     if answer.emoji != "": Text { text: Twemoji.text(answer.emoji); font-family: root.emoji-font; font-size: 20px; vertical-alignment: center; }
                     answer-text := Text { text: answer.text; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; wrap: word-wrap; horizontal-stretch: 1; }
                     if root.poll.results && answer.picked: Middle {
-                        Image { source: @image-url("icons/check.svg"); width: 16px; height: 16px; colorize: Theme.accent; accessible-label: "You voted for this answer"; }
+                        Image { source: IconPack.check; width: 16px; height: 16px; colorize: IconPack.tint(self.source, Theme.accent-text); accessible-label: "You voted for this answer"; }
                     }
                     if root.poll.results: Text { text: answer.votes; color: Theme.secondary; font-size: 13px; vertical-alignment: center; }
                     if root.poll.results: Text { text: answer.percent + "%"; color: Theme.text; font-size: 15px; font-weight: 700; min-width: 44px; horizontal-alignment: right; vertical-alignment: center; }
@@ -707,9 +729,9 @@ export component PollView inherits HorizontalLayout {
                         Rectangle {
                             width: 20px; height: 20px; border-radius: root.poll.multiselect ? 5px : 10px;
                             border-width: answer.picked ? 0px : 2px; border-color: Theme.muted;
-                            background: answer.picked ? Theme.accent : transparent;
-                            if answer.picked && root.poll.multiselect: Image { source: @image-url("icons/check.svg"); width: 14px; height: 14px; colorize: Theme.on-accent; }
-                            if answer.picked && !root.poll.multiselect: Rectangle { width: 8px; height: 8px; border-radius: 4px; background: Theme.on-accent; }
+                            background: answer.picked ? Theme.accent-fill : transparent;
+                            if answer.picked && root.poll.multiselect: Image { source: IconPack.check; width: 14px; height: 14px; colorize: IconPack.tint(self.source, Theme.on-accent); }
+                            if answer.picked && !root.poll.multiselect: Rectangle { width: 8px; height: 8px; border-radius: Look.radius(4px); background: Theme.on-accent; }
                         }
                     }
                 }
@@ -784,6 +806,9 @@ export struct MessageRow {
     tag: string, tag-badge: string, tag-server: string,
     /// Starts a group: shows the avatar and author. Later messages from the same person follow compactly.
     first: bool,
+    /// The same for every message of a group, and unlike the groups beside
+    /// it: what a theme's card lean is taken from.
+    group: int,
     /// A date divider above this message, when it starts a new day.
     day: string,
     /// The first message that was unread when the conversation was opened:
@@ -943,8 +968,8 @@ export component MessageStickerCardView inherits Rectangle {
         ? root.card.server-online + " · " + root.card.server-note
         : root.card.server-online + root.card.server-note;
     width: 288px; height: body.preferred-height;
-    background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
-    drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+    background: Theme.raised-fill; border-color: Theme.edge; border-width: Look.line(1px); border-radius: Look.radius(8px);
+    drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
     accessible-role: groupbox; accessible-label: root.card.name;
     // Clicks on the card stay on it, instead of closing it.
     TouchArea { }
@@ -979,8 +1004,8 @@ export component MessageStickerCardView inherits Rectangle {
             }
         }
         if root.card.server != "": Rectangle {
-            background: Theme.panel;
-            border-bottom-left-radius: 7px; border-bottom-right-radius: 7px;
+            background: Theme.panel-fill;
+            border-bottom-left-radius: Look.radius(7px); border-bottom-right-radius: Look.radius(7px);
             VerticalLayout {
                 padding: 16px; spacing: 8px;
                 Text {
@@ -990,7 +1015,7 @@ export component MessageStickerCardView inherits Rectangle {
                     overflow: elide;
                 }
                 Rectangle {
-                    border-radius: 6px;
+                    border-radius: Look.radius(6px);
                     background: server-hover.has-hover ? Theme.hover : transparent;
                     accessible-role: button;
                     accessible-label: root.card.server-name;
@@ -1004,7 +1029,7 @@ export component MessageStickerCardView inherits Rectangle {
                                 image-fit: contain;
                             }
                             if root.server-picture.width == 0: Rectangle {
-                                width: 32px; height: 32px; border-radius: 16px; background: Theme.overlay;
+                                width: 32px; height: 32px; border-radius: Look.radius(16px); background: Theme.overlay;
                                 Text {
                                     text: root.card.server-initial; color: Theme.text; font-size: 14px; font-weight: 600;
                                     horizontal-alignment: center; vertical-alignment: center;
@@ -1069,8 +1094,8 @@ export component EmojiCardView inherits Rectangle {
         ? root.card.server-online + " · " + root.card.server-note
         : root.card.server-online + root.card.server-note;
     width: 288px; height: body.preferred-height;
-    background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
-    drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+    background: Theme.raised-fill; border-color: Theme.edge; border-width: Look.line(1px); border-radius: Look.radius(8px);
+    drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
     accessible-role: groupbox; accessible-label: root.card.name;
     // Clicks on the card stay on it, instead of closing it.
     TouchArea { }
@@ -1112,8 +1137,8 @@ export component EmojiCardView inherits Rectangle {
             }
         }
         if root.card.server != "": Rectangle {
-            background: Theme.panel;
-            border-bottom-left-radius: 7px; border-bottom-right-radius: 7px;
+            background: Theme.panel-fill;
+            border-bottom-left-radius: Look.radius(7px); border-bottom-right-radius: Look.radius(7px);
             VerticalLayout {
                 // The card's 16px, and the title's 8px below it.
                 padding: 16px; spacing: 8px;
@@ -1126,7 +1151,7 @@ export component EmojiCardView inherits Rectangle {
                 // The server, which opens on a click: as tall as its lines, so
                 // the hover sits on them and no more.
                 Rectangle {
-                    border-radius: 6px;
+                    border-radius: Look.radius(6px);
                     background: server-hover.has-hover ? Theme.hover : transparent;
                     accessible-role: button;
                     accessible-label: root.card.server-name;
@@ -1139,7 +1164,7 @@ export component EmojiCardView inherits Rectangle {
                             width: 32px;
                             Rectangle {
                                 y: (parent.height - self.height) / 2;
-                                width: 32px; height: 32px; border-radius: 8px; clip: true;
+                                width: 32px; height: 32px; border-radius: Look.radius(8px); clip: true;
                                 background: root.server-picture.width > 0 ? transparent : Theme.field;
                                 if root.server-picture.width > 0: Image {
                                     source: root.server-picture; width: 32px; height: 32px; image-fit: cover;
@@ -1233,10 +1258,16 @@ export component EmojiPicker inherits Rectangle {
         }
         grid.content-y = -top;
     }
-    background: root.bare ? transparent : Theme.raised; border-color: Theme.edge; border-width: root.bare ? 0px : 1px;
-    border-radius: root.bare ? 0px : 10px;
-    drop-shadow-blur: root.bare ? 0px : 24px; drop-shadow-color: root.bare ? transparent : #00000080; drop-shadow-offset-y: 8px;
+    // On its own, the picker's shape, art and glass; inside the expression
+    // picker (`bare`), that panel's.
+    background: root.bare || Art.glass-picker ? transparent : Theme.raised-fill; border-color: Look.bc(Look.picker, Theme.edge); border-width: root.bare ? 0px : Look.bw(Look.picker, 1px);
+    border-radius: root.bare ? 0px : Look.r(Look.picker, 10px);
+    drop-shadow-blur: root.bare ? 0px : Look.sb(Look.picker, 24px); drop-shadow-offset-x: Look.sx(Look.picker, 0px); drop-shadow-color: root.bare ? transparent : Look.sc(Look.picker, #00000080); drop-shadow-offset-y: Look.sy(Look.picker, 8px);
     clip: true;
+    if !root.bare && (Art.picker.length > 0 || Art.glass-picker): ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.picker, 10px);
+        layers: Art.picker; glass: Art.glass-picker; ground: Theme.raised-fill;
+    }
     FocusScope {
         key-pressed(event) => {
             if event.text == Key.Escape { root.close-picker(); return accept; }
@@ -1286,8 +1317,8 @@ export component EmojiPicker inherits Rectangle {
                                 padding-left: 2px; padding-bottom: 2px; spacing: 6px; alignment: start;
                                 if row.glyph != SectionGlyph.none: Image {
                                     width: 16px; height: 16px;
-                                    source: row.glyph == SectionGlyph.clock ? @image-url("icons/clock.svg") : @image-url("icons/star-filled.svg");
-                                    colorize: row.glyph == SectionGlyph.clock ? Theme.secondary : #f0b232;
+                                    source: row.glyph == SectionGlyph.clock ? IconPack.clock : IconPack.star-filled;
+                                    colorize: IconPack.tint(self.source, row.glyph == SectionGlyph.clock ? Theme.secondary : #f0b232);
                                 }
                                 if row.glyph == SectionGlyph.none && row.icon.width > 0: Image {
                                     width: 16px; height: 16px; image-fit: contain; source: row.icon;
@@ -1320,7 +1351,7 @@ export component EmojiPicker inherits Rectangle {
             }
             // The hovered emoji, larger, with its name.
             Rectangle {
-                height: 48px; background: Theme.panel;
+                height: 48px; background: Theme.panel-fill;
                 HorizontalLayout {
                     padding-left: 14px; padding-right: 14px; spacing: 10px;
                     if root.emoji-hover.glyph != "": EmojiFace {
@@ -1345,6 +1376,8 @@ export component EmojiPicker inherits Rectangle {
 // picture, video or link adds what can be done with that. "Apps" opens a
 // submenu of the apps' message commands beside it, which run on the message.
 export component MessageMenu inherits Rectangle {
+    // Made each time the menu opens.
+    init => { Cue.menu-opened(); }
     in property <MessageRow> menu-message;
     /// Text selected in the message, as copied; empty for none.
     in property <string> selection;
@@ -1413,8 +1446,12 @@ export component MessageMenu inherits Rectangle {
     panel := Rectangle {
         x: root.flip ? root.content-width - root.menu-width : 0px; y: 0px;
         width: root.menu-width; height: root.menu-height;
-        background: Theme.menu; border-color: Theme.menu-line; border-width: 1px; border-radius: 8px;
-        drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+        background: Art.glass-menu ? transparent : Theme.menu; border-color: Theme.menu-line; border-width: Look.line(1px); border-radius: Look.radius(8px);
+        drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
+        if Art.menu.length > 0 || Art.glass-menu: ArtLayer {
+            x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.radius(8px);
+            layers: Art.menu; glass: Art.glass-menu; ground: Theme.menu;
+        }
         menu-content := VerticalLayout {
             padding: 6px; spacing: 2px;
             // Discord's quick reactions: 44px tiles, spread across the menu.
@@ -1423,71 +1460,71 @@ export component MessageMenu inherits Rectangle {
                 alignment: space-between;
                 for cell in root.menu-reactions: EmojiButton {
                     animation-key: cell.key;
-                    emoji: cell; font: root.emoji-font; size: 44px; height: 44px; glyph: 24px; fill: Theme.field;
+                    emoji: cell; font: root.emoji-font; size: 44px; height: 44px; glyph: 24px; fill: Theme.field; hover-fill: Theme.actions-hover;
                     clicked => { root.react(root.menu-message.item, cell.key); }
                 }
             }
             if root.menu-can-react: MenuItem {
-                text: "Add reaction"; icon: @image-url("icons/smile-plus.svg");
+                text: "Add reaction"; icon: IconPack.smile-plus;
                 hovered => { root.apps-open = false; }
                 clicked => { root.open-picker(root.menu-message.item); }
             }
             if root.menu-message.reactions.length > 0: MenuItem {
-                text: "View Reactions"; icon: @image-url("icons/smile.svg");
+                text: "View Reactions"; icon: IconPack.smile;
                 hovered => { root.apps-open = false; }
                 clicked => { root.view-reactions(root.menu-message.item); }
             }
             if root.menu-message.can-edit && root.composer-enabled: MenuItem {
-                text: "Edit message"; icon: @image-url("icons/pencil.svg");
+                text: "Edit message"; icon: IconPack.pencil;
                 hovered => { root.apps-open = false; }
                 clicked => { root.edit(root.menu-message.item); }
             }
             if root.menu-message.can-reply && root.composer-enabled: MenuItem {
-                text: "Reply"; icon: @image-url("icons/reply.svg");
+                text: "Reply"; icon: IconPack.reply;
                 hovered => { root.apps-open = false; }
                 clicked => { root.reply(root.menu-message.item); }
             }
             if root.menu-message.can-forward && root.forward-allowed: MenuItem {
-                text: "Forward"; icon: @image-url("icons/forward.svg");
+                text: "Forward"; icon: IconPack.forward;
                 hovered => { root.apps-open = false; }
                 clicked => { root.start-forward(root.menu-message.item); }
             }
             // A message someone wrote starts a thread, or leads to its own.
             if root.can-start-thread && root.menu-message.can-reply && root.menu-message.delivery == ""
                 && root.menu-message.thread-room == "": MenuItem {
-                text: "Create Thread"; icon: @image-url("icons/thread.svg");
+                text: "Create Thread"; icon: IconPack.thread;
                 hovered => { root.apps-open = false; }
                 clicked => { root.start-thread(root.menu-message.item); }
             }
             if root.menu-message.can-reply && root.menu-message.thread-room != "": MenuItem {
-                text: "View Thread"; icon: @image-url("icons/thread.svg");
+                text: "View Thread"; icon: IconPack.thread;
                 hovered => { root.apps-open = false; }
                 clicked => { root.view-thread(root.menu-message.thread-room); }
             }
             if root.menu-message.body != "": MenuItem {
-                text: "Copy text"; icon: @image-url("icons/copy.svg");
+                text: "Copy text"; icon: IconPack.copy;
                 hovered => { root.apps-open = false; }
                 clicked => { root.copy-text(root.menu-message.body); }
             }
             if root.selection != "": MenuItem {
-                text: "Copy selection"; icon: @image-url("icons/text-select.svg");
+                text: "Copy selection"; icon: IconPack.text-select;
                 hovered => { root.apps-open = false; }
                 clicked => { root.copy-text(root.selection); }
             }
             if root.menu-message.has-poll && root.menu-message.poll.can-end: MenuItem {
-                text: "End Poll Now"; icon: @image-url("icons/circle-stop.svg");
+                text: "End Poll Now"; icon: IconPack.circle-stop;
                 hovered => { root.apps-open = false; }
                 clicked => { root.end-poll(root.menu-message.item); }
             }
             if root.menu-message.can-pin && root.menu-message.delivery == "": MenuItem {
                 text: root.menu-message.pinned ? "Unpin message" : "Pin message";
-                icon: root.menu-message.pinned ? @image-url("icons/pin-off.svg") : @image-url("icons/pin.svg");
+                icon: root.menu-message.pinned ? IconPack.pin-off : IconPack.pin;
                 hovered => { root.apps-open = false; }
                 clicked => { root.pin-message(root.menu-message.item); }
             }
             // Opens on hover or a click, beside the menu, as Discord's does.
             if root.has-apps: MenuItem {
-                text: "Apps"; icon: @image-url("icons/slash.svg"); submenu: true;
+                text: "Apps"; icon: IconPack.slash; submenu: true;
                 highlighted: root.apps-open;
                 hovered => { root.apps-y = self.absolute-position.y - panel.absolute-position.y; root.apps-open = true; }
                 clicked => { root.apps-y = self.absolute-position.y - panel.absolute-position.y; root.apps-open = true; }
@@ -1505,29 +1542,29 @@ export component MessageMenu inherits Rectangle {
             }
             if root.link != "" || (root.media-index >= 0 && !root.preview): Rectangle { height: 1px; background: Theme.line; }
             if root.media-index >= 0 && root.link != "" && !root.media-video && !root.preview: MenuItem {
-                text: "Copy Image"; icon: @image-url("icons/image.svg");
+                text: "Copy Image"; icon: IconPack.image;
                 hovered => { root.apps-open = false; }
                 clicked => { root.copy-image(root.menu-message.item, root.media-index); }
             }
             if root.media-index >= 0 && !root.preview: MenuItem {
-                text: root.media-video ? "Save Video" : "Save Image"; icon: @image-url("icons/download.svg");
+                text: root.media-video ? "Save Video" : "Save Image"; icon: IconPack.download;
                 hovered => { root.apps-open = false; }
                 clicked => { root.save-attachment(root.menu-message.item, root.media-index); }
             }
             if root.link != "": MenuItem {
-                text: "Copy Link"; icon: @image-url("icons/link.svg");
+                text: "Copy Link"; icon: IconPack.link;
                 hovered => { root.apps-open = false; }
                 clicked => { root.copy-text(root.link); }
             }
             // A link in the text opens with a click.
             if root.media-index >= 0 && root.link != "": MenuItem {
-                text: "Open Link"; icon: @image-url("icons/external-link.svg");
+                text: "Open Link"; icon: IconPack.external-link;
                 hovered => { root.apps-open = false; }
                 clicked => { root.open-link(root.link); }
             }
             if root.menu-message.can-delete && root.composer-enabled: Rectangle { height: 1px; background: Theme.line; }
             if root.menu-message.can-delete && root.composer-enabled: MenuItem {
-                text: "Delete message"; icon: @image-url("icons/trash-2.svg"); danger: true;
+                text: "Delete message"; icon: IconPack.trash-2; danger: true;
                 hovered => { root.apps-open = false; }
                 clicked => { root.request-delete(root.menu-message.item); }
             }
@@ -1545,8 +1582,12 @@ export component MessageMenu inherits Rectangle {
         // Level with the Apps row, kept within the component.
         y: max(0px, min(root.apps-y - 6px, root.content-height - root.apps-height));
         width: root.apps-width; height: root.apps-height;
-        background: Theme.menu; border-color: Theme.menu-line; border-width: 1px; border-radius: 8px;
-        drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+        background: Art.glass-menu ? transparent : Theme.menu; border-color: Theme.menu-line; border-width: Look.line(1px); border-radius: Look.radius(8px);
+        drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
+        if Art.menu.length > 0 || Art.glass-menu: ArtLayer {
+            x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.radius(8px);
+            layers: Art.menu; glass: Art.glass-menu; ground: Theme.menu;
+        }
         TouchArea { }
         VerticalLayout {
             padding: 6px; spacing: 2px;
@@ -1592,7 +1633,7 @@ export component MessageGallery inherits HorizontalLayout {
         for cell in root.images: Rectangle {
             x: cell.x * 1px * parent.scale; y: cell.y * 1px * parent.scale;
             width: cell.width * 1px * parent.scale; height: cell.height * 1px * parent.scale;
-            border-radius: 8px; clip: true;
+            border-radius: Look.radius(8px); clip: true;
             // Discord draws a transparent picture straight on the message background.
             background: ClientStyle.enabled && !cell.loading ? transparent : Theme.sunken;
             if cell.loading: Skeleton { width: parent.width; height: parent.height; }
@@ -1621,9 +1662,9 @@ export component MessageGallery inherits HorizontalLayout {
                 menu(x, y) => { root.media-menu(root.item, cell.index, true, x, y); }
             }
             if root.active-item == root.item && !root.preview && root.delivery == "" && !cell.spoiler: Rectangle {
-                x: parent.width - self.width - 8px; y: 8px; width: 32px; height: 32px; border-radius: 6px; background: #000000b3;
+                x: parent.width - self.width - 8px; y: 8px; width: 32px; height: 32px; border-radius: Look.radius(6px); background: #000000b3;
                 IconButton {
-                    icon: @image-url("icons/download.svg"); label: "Save " + cell.name; tint: #ffffff;
+                    icon: IconPack.download; label: "Save " + cell.name; tint: #ffffff;
                     clicked => { root.save-attachment(root.item, cell.index); }
                 }
             }
@@ -1640,7 +1681,7 @@ export component MessageStickers inherits HorizontalLayout {
     padding-top: 4px; spacing: 8px;
     for cell in root.stickers: Rectangle {
         width: cell.width * 1px; height: cell.height * 1px;
-        if cell.loading: Skeleton { width: parent.width; height: parent.height; border-radius: 12px; }
+        if cell.loading: Skeleton { width: parent.width; height: parent.height; border-radius: Look.radius(12px); }
         if !cell.loading: Rectangle {
             width: parent.width; height: parent.height;
             touch := TouchArea {
@@ -1665,16 +1706,16 @@ component VoicePlayButton inherits Rectangle {
     in property <bool> enabled;
     out property <bool> focused: focus.has-focus;
     callback clicked;
-    width: 36px; height: 36px; border-radius: 18px;
-    background: @linear-gradient(135deg, Theme.accent.brighter(0.2) 0%, Theme.accent 100%);
+    width: 36px; height: 36px; border-radius: Look.radius(18px);
+    background: @linear-gradient(135deg, Theme.accent.brighter(0.2) 0%, Theme.accent-fill 100%);
     border-width: focus.has-focus ? 2px : 0px; border-color: Theme.text;
     opacity: root.enabled ? (touch.has-hover ? 0.9 : 1) : 0.5;
     accessible-role: button; accessible-label: root.playing ? "Pause" : "Play";
     accessible-enabled: root.enabled;
     accessible-action-default => { if root.enabled { root.clicked(); } }
     Image {
-        source: root.playing ? @image-url("icons/pause.svg") : @image-url("icons/play.svg");
-        width: 17px; height: 17px; colorize: #ffffff;
+        source: root.playing ? IconPack.pause : IconPack.play;
+        width: 17px; height: 17px; colorize: IconPack.tint(self.source, #ffffff);
     }
     focus := FocusScope {
         enabled: root.enabled;
@@ -1721,7 +1762,7 @@ export component FileCard inherits HorizontalLayout {
             VoicePlayer.change-volume(clamp(shown + (delta > 0 ? 0.05 : -0.05), 0, 1));
         }
         height: 52px; width: voice-card.preferred-width;
-        background: Theme.sidebar; border-radius: 26px;
+        background: Theme.sidebar-fill; border-radius: Look.radius(26px);
         accessible-role: groupbox; accessible-label: "Voice message, " + root.file.duration;
         pill-touch := TouchArea {
             voice-card := HorizontalLayout {
@@ -1744,7 +1785,7 @@ export component FileCard inherits HorizontalLayout {
                     for level[index] in root.file.waveform: Rectangle {
                         x: index * 6px; width: 3px; height: max(3px, level * 24px);
                         y: (parent.height - self.height) / 2;
-                        border-radius: 1.5px;
+                        border-radius: Look.radius(1.5px);
                         background: (index + 0.5) / root.file.waveform.length <= root.played ? Theme.text : Theme.muted;
                     }
                     TouchArea {
@@ -1795,8 +1836,8 @@ export component FileCard inherits HorizontalLayout {
                         spacing: 4px;
                         Middle {
                             Rectangle {
-                                width: speed-text.preferred-width + 12px; height: 22px; border-radius: 11px;
-                                background: speed-touch.has-hover ? Theme.hover : Theme.raised;
+                                width: speed-text.preferred-width + 12px; height: 22px; border-radius: Look.radius(11px);
+                                background: speed-touch.has-hover ? Theme.hover : Theme.raised-fill;
                                 border-width: speed-focus.has-focus ? 2px : 0px; border-color: Theme.accent;
                                 accessible-role: button; accessible-label: "Playback speed";
                                 accessible-value: VoicePlayer.speed;
@@ -1821,7 +1862,7 @@ export component FileCard inherits HorizontalLayout {
                         Middle {
                             volume := IconButton {
                                 size: 28px; glyph: 18px; tint: Theme.muted;
-                                icon: VoicePlayer.muted ? @image-url("icons/volume-x.svg") : @image-url("icons/volume-2.svg");
+                                icon: VoicePlayer.muted ? IconPack.volume-x : IconPack.volume-2;
                                 label: VoicePlayer.muted ? "Unmute" : "Mute";
                                 clicked => { VoicePlayer.mute(!VoicePlayer.muted); }
                                 changed hovered => {
@@ -1878,8 +1919,8 @@ export component FileCard inherits HorizontalLayout {
                     Rectangle {
                         y: volume-popup.up ? 0px : volume.height + volume-popup.gap;
                         height: volume-popup.slider;
-                        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
-                        drop-shadow-blur: 16px; drop-shadow-color: #00000060;
+                        background: Theme.raised-fill; border-color: Theme.edge; border-width: Look.line(1px); border-radius: Look.radius(8px);
+                        drop-shadow-blur: Look.shadow-blur(16px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000060);
                         volume-level := UprightVolumeSlider {
                             x: (parent.width - self.width) / 2; y: 6px; height: parent.height - 12px;
                             label: "Volume";
@@ -1891,15 +1932,15 @@ export component FileCard inherits HorizontalLayout {
                     Rectangle {
                         x: (parent.width - self.width) / 2;
                         y: volume-popup.up ? volume-popup.slider + volume-popup.gap : 0px;
-                        width: volume.width; height: volume.height; border-radius: 6px;
+                        width: volume.width; height: volume.height; border-radius: Look.radius(6px);
                         background: mute-touch.has-hover ? transparent.mix(Theme.overlay, 0.9) : transparent;
                         accessible-role: button;
                         accessible-label: VoicePlayer.muted ? "Unmute" : "Mute";
                         accessible-action-default => { VoicePlayer.mute(!VoicePlayer.muted); }
                         Image {
                             width: 18px; height: 18px;
-                            source: VoicePlayer.muted ? @image-url("icons/volume-x.svg") : @image-url("icons/volume-2.svg");
-                            colorize: mute-touch.has-hover ? Theme.text : Theme.muted;
+                            source: VoicePlayer.muted ? IconPack.volume-x : IconPack.volume-2;
+                            colorize: IconPack.tint(self.source, mute-touch.has-hover ? Theme.text : Theme.muted);
                         }
                         mute-touch := TouchArea {
                             mouse-cursor: MouseCursor.pointer;
@@ -1912,17 +1953,17 @@ export component FileCard inherits HorizontalLayout {
     }
     if !root.file.voice: Rectangle {
         min-height: file-card.preferred-height; max-width: 432px; horizontal-stretch: 100;
-        background: Theme.sidebar; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
+        background: Theme.sidebar-fill; border-color: Theme.edge; border-width: Look.line(1px); border-radius: Look.radius(8px);
         file-card := HorizontalLayout {
             padding: 12px; padding-right: 8px; spacing: 12px;
-            Image { source: @image-url("icons/file.svg"); width: 30px; image-fit: contain; colorize: Theme.accent; }
+            Image { source: IconPack.file; width: 30px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.accent-text); }
             VerticalLayout {
                 alignment: center; horizontal-stretch: 1;
                 Text { text: root.file.name; color: Theme.text; font-weight: 500; overflow: elide; }
                 if root.file.detail != "": Label { text: root.file.detail; }
             }
             IconButton {
-                icon: @image-url("icons/download.svg"); label: "Save " + root.file.name;
+                icon: IconPack.download; label: "Save " + root.file.name;
                 enabled: !root.preview && root.delivery == "";
                 clicked => { root.save(); }
             }
@@ -1941,21 +1982,25 @@ export component ThreadChip inherits HorizontalLayout {
     Rectangle {
         max-width: 432px; horizontal-stretch: 100;
         min-height: chip.preferred-height;
-        background: touch.has-hover ? Theme.hover : Theme.sidebar;
-        border-color: focus.has-focus ? Theme.accent : Theme.edge; border-width: focus.has-focus ? 2px : 1px;
-        border-radius: 8px;
+        background: touch.has-hover ? Theme.hover : Chrome.tree-replies ? transparent : Theme.sidebar-fill;
+        border-color: focus.has-focus ? Theme.accent : Theme.edge; border-width: focus.has-focus ? 2px : Chrome.tree-replies ? 0px : 1px;
+        border-radius: Look.radius(8px);
         accessible-role: button;
         accessible-label: "Thread " + root.name + (root.detail != "" ? ", " + root.detail : "");
         accessible-action-default => { root.clicked(); }
         chip := HorizontalLayout {
-            padding: 8px; padding-left: 12px; padding-right: 12px; spacing: 10px;
-            Image { source: @image-url("icons/thread.svg"); width: 18px; image-fit: contain; colorize: Theme.muted; }
+            padding: Chrome.tree-replies ? 2px : 8px; padding-left: Chrome.tree-replies ? 0px : 12px; padding-right: Chrome.tree-replies ? 4px : 12px; spacing: 10px;
+            // A theme's tree hangs the thread off its message as text.
+            if Chrome.tree-replies: Text {
+                text: "├─ thread:"; color: Chrome.tree-ink; font-family: Look.mono; vertical-alignment: center; accessible-role: none;
+            }
+            if !Chrome.tree-replies: Image { source: IconPack.thread; width: 18px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
             Text { text: root.name; color: Theme.text; font-weight: 700; overflow: elide; vertical-alignment: center; }
             if root.detail != "": Text {
                 text: root.detail; color: Theme.link; font-size: 14px; vertical-alignment: center;
                 horizontal-stretch: 1;
             }
-            Image { source: @image-url("icons/chevron-right.svg"); width: 16px; image-fit: contain; colorize: Theme.muted; }
+            if !Chrome.tree-replies: Image { source: IconPack.chevron-right; width: 16px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
         }
         focus := FocusScope {
             key-pressed(event) => {
@@ -1975,8 +2020,8 @@ export component ThreadChip inherits HorizontalLayout {
 
 // Discord's tag after a bot's or app's name: white on blurple.
 export component BotTag inherits Rectangle {
-    width: tag-text.preferred-width + 8px; height: 16px; border-radius: 4px;
-    background: #5865f2;
+    width: tag-text.preferred-width + 8px; height: 16px; border-radius: Look.radius(4px);
+    background: Theme.app-badge;
     accessible-role: text; accessible-label: "App";
     tag-text := Text { text: "APP"; color: #ffffff; font-size: 10px; font-weight: 700; letter-spacing: 0.3px; }
 }
@@ -2007,13 +2052,18 @@ component TextBlockView inherits VerticalLayout {
             padding-top: root.block.padding;
             padding-left: root.block.quoted ? 12px : 0px;
             if root.block.level == 5: Rectangle {
-                background: Theme.panel; border-radius: 4px; border-width: 1px; border-color: Theme.line;
+                background: Art.glass-code ? transparent : Theme.code; border-radius: Look.r(Look.code, 4px); border-width: Look.bw(Look.code, Look.line(1px)); border-color: Look.bc(Look.code, Theme.line);
+                if Art.code.length > 0 || Art.glass-code: ArtLayer {
+                    x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.code, 4px);
+                    layers: Art.code; glass: Art.glass-code; ground: Theme.code;
+                }
+                if Arrange.dash-code.on: DashedOutline { x: 0px; y: 0px; dash: Arrange.dash-code; stock-ink: Theme.line; }
                 VerticalLayout {
                     padding: root.code-size / 2;
                     StyledText {
                         min-width: 0px;
                         text: root.block.text; link-color: Theme.link; default-color: Theme.text;
-                        default-font-family: "monospace"; default-font-size: root.code-size; max-lines: root.max-lines;
+                        default-font-family: Look.mono; default-font-size: Look.code-size(root.code-size); max-lines: root.max-lines;
                     }
                 }
             }
@@ -2066,20 +2116,26 @@ export component EmbedView inherits HorizontalLayout {
     // preferred height measured it at another width and cut off the end.
     Rectangle {
         max-width: 432px; horizontal-stretch: 100;
-        background: Theme.sidebar; border-radius: 4px; clip: true;
+        background: Art.glass-embed ? transparent : Theme.embed; border-radius: Look.r(Look.embed, 4px); clip: true;
+        border-width: Look.bw(Look.embed, 0px); border-color: Look.bc(Look.embed, transparent);
+        if Art.embed.length > 0 || Art.glass-embed: ArtLayer {
+            x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.embed, 4px);
+            layers: Art.embed; glass: Art.glass-embed; ground: Theme.embed;
+        }
+        if Arrange.dash-embed.on: DashedOutline { x: 0px; y: 0px; dash: Arrange.dash-embed; stock-ink: Theme.line; }
         Rectangle { x: 0px; width: 4px; background: root.embed.has-color ? root.embed.color : Theme.edge; }
         embed-body := HorizontalLayout {
             padding: 12px; padding-left: 16px; padding-right: 16px; spacing: 16px;
             VerticalLayout {
                 spacing: 8px; horizontal-stretch: 1; alignment: start;
-                if root.embed.has-provider: StyledText { text: root.embed.provider; link-color: Theme.link; default-color: Theme.muted; default-font-size: 12px; max-lines: 1; }
-                if root.embed.has-author: StyledText { text: root.embed.author; link-color: Theme.link; default-color: Theme.text; default-font-size: 14px; }
+                if root.embed.has-provider: StyledText { text: root.embed.provider; link-color: ThemeContent.embed-link; default-color: Theme.muted; default-font-size: 12px; max-lines: 1; }
+                if root.embed.has-author: StyledText { text: root.embed.author; link-color: ThemeContent.embed-link; default-color: Theme.text; default-font-size: 14px; }
                 if root.embed.has-title: StyledText {
-                    text: root.embed.title; default-color: Theme.text; link-color: Theme.link; default-font-size: 16px;
+                    text: root.embed.title; default-color: Theme.text; link-color: ThemeContent.embed-link; default-font-size: 16px;
                     link-clicked(link) => { root.open-link(link); }
                 }
                 if root.embed.has-description && root.embed.description-blocks.length == 0: StyledText {
-                    text: root.embed.description; default-color: Theme.secondary; link-color: Theme.link; default-font-size: 14px;
+                    text: root.embed.description; default-color: Theme.secondary; link-color: ThemeContent.embed-link; default-font-size: 14px;
                     link-clicked(link) => { root.open-link(link); }
                 }
                 if root.embed.description-blocks.length > 0: TextBlocks {
@@ -2090,9 +2146,9 @@ export component EmbedView inherits HorizontalLayout {
                     spacing: 8px;
                     for field in row.fields: VerticalLayout {
                         spacing: 2px; horizontal-stretch: 1;
-                        StyledText { text: field.name; link-color: Theme.link; default-color: Theme.text; default-font-size: 14px; }
+                        StyledText { text: field.name; link-color: ThemeContent.embed-link; default-color: Theme.text; default-font-size: 14px; }
                         if field.value-blocks.length == 0: StyledText {
-                            text: field.value; default-color: Theme.secondary; link-color: Theme.link; default-font-size: 14px;
+                            text: field.value; default-color: Theme.secondary; link-color: ThemeContent.embed-link; default-font-size: 14px;
                             link-clicked(link) => { root.open-link(link); }
                         }
                         if field.value-blocks.length > 0: TextBlocks {
@@ -2111,12 +2167,12 @@ export component EmbedView inherits HorizontalLayout {
                         for cell in root.embed.images: Rectangle {
                             x: cell.x * 1px * parent.scale; y: cell.y * 1px * parent.scale;
                             width: cell.width * 1px * parent.scale; height: cell.height * 1px * parent.scale;
-                            border-radius: 4px; clip: true; background: ClientStyle.enabled && !cell.loading ? transparent : Theme.sunken;
+                            border-radius: Look.radius(4px); clip: true; background: ClientStyle.enabled && !cell.loading ? transparent : Theme.sunken;
                             if cell.loading: Skeleton { width: parent.width; height: parent.height; }
                             if !cell.loading: Picture { still: cell.image; frames: cell.frames; delays: cell.delays; width: parent.width; height: parent.height; image-fit: cover; accessible-role: image; accessible-label: cell.spoiler ? "Spoiler" : cell.name; }
                             if cell.spoiler: SpoilerCover {}
                             if root.embed.video && !cell.spoiler && !cell.video: Rectangle {
-                                width: 48px; height: 48px; border-radius: 24px; background: #000000b3;
+                                width: 48px; height: 48px; border-radius: Look.radius(24px); background: #000000b3;
                                 Path {
                                     width: 18px; height: 20px; x: 17px; y: 14px;
                                     commands: "M 0 0 L 18 10 L 0 20 Z"; fill: #ffffff;
@@ -2143,12 +2199,12 @@ export component EmbedView inherits HorizontalLayout {
                     }
                     Rectangle { horizontal-stretch: 1; }
                 }
-                if root.embed.has-footer: StyledText { text: root.embed.footer; link-color: Theme.link; default-color: Theme.muted; default-font-size: 12px; }
+                if root.embed.has-footer: StyledText { text: root.embed.footer; link-color: ThemeContent.embed-link; default-color: Theme.muted; default-font-size: 12px; }
             }
             if root.embed.has-thumbnail: VerticalLayout {
                 alignment: start;
                 Rectangle {
-                    width: 80px; height: 80px; border-radius: 4px; clip: true;
+                    width: 80px; height: 80px; border-radius: Look.radius(4px); clip: true;
                     if root.embed.thumbnail-loading: Skeleton { width: parent.width; height: parent.height; }
                     Image { source: root.embed.thumbnail; width: parent.width; height: parent.height; image-fit: contain; accessible-role: image; accessible-label: "Thumbnail"; }
                     TouchArea {
@@ -2181,8 +2237,8 @@ component CardButtonView inherits ActionButton {
     property <bool> busy: root.button.custom-id != "" && root.message-busy;
     // A purchase is made in Discord, which its store page opens.
     text: root.button.style == CardButtonStyle.premium ? "Open in Discord" : root.button.label;
-    icon: root.button.style == CardButtonStyle.link ? @image-url("icons/external-link.svg")
-        : root.button.style == CardButtonStyle.premium ? @image-url("icons/shop.svg") : root.no-icon;
+    icon: root.button.style == CardButtonStyle.link ? IconPack.external-link
+        : root.button.style == CardButtonStyle.premium ? IconPack.shop : root.no-icon;
     primary: root.button.style == CardButtonStyle.primary;
     success: root.button.style == CardButtonStyle.success;
     danger: root.button.style == CardButtonStyle.danger;
@@ -2221,8 +2277,8 @@ export component CardView inherits HorizontalLayout {
     padding-top: 4px;
     Rectangle {
         max-width: root.card.framed ? 600px : 100000px; horizontal-stretch: 100;
-        background: root.card.framed ? Theme.sidebar : transparent;
-        border-radius: 8px; clip: root.card.framed;
+        background: root.card.framed ? Theme.sidebar-fill : transparent;
+        border-radius: Look.radius(8px); clip: root.card.framed;
         border-width: root.card.framed ? 1px : 0px; border-color: Theme.edge;
         if root.card.framed && root.card.has-color: Rectangle { x: 0px; width: 4px; background: root.card.color; }
         VerticalLayout {
@@ -2240,7 +2296,7 @@ export component CardView inherits HorizontalLayout {
                     if row.has-thumbnail: VerticalLayout {
                         alignment: start;
                         Rectangle {
-                            width: 85px; height: 85px; border-radius: 8px; clip: true; background: ClientStyle.enabled && !row.thumbnail-loading ? transparent : Theme.sunken;
+                            width: 85px; height: 85px; border-radius: Look.radius(8px); clip: true; background: ClientStyle.enabled && !row.thumbnail-loading ? transparent : Theme.sunken;
                             if row.thumbnail-loading: Skeleton { width: parent.width; height: parent.height; }
                             if !row.thumbnail-spoiler: Image {
                                 source: row.thumbnail; width: parent.width; height: parent.height; image-fit: cover;
@@ -2301,7 +2357,7 @@ export component CardView inherits HorizontalLayout {
                 }
                 // As Discord's client tells of components it doesn't know.
                 if row.kind == CardRowKind.unknown: Rectangle {
-                    border-width: 1px; border-color: Theme.accent; border-radius: 12px;
+                    border-width: Look.line(1px); border-color: Theme.accent; border-radius: Look.radius(12px);
                     HorizontalLayout {
                         padding: 16px;
                         Text { text: "Yapfast can't show this part of the message yet."; color: Theme.secondary; font-size: 14px; wrap: word-wrap; }
@@ -2319,8 +2375,8 @@ export component NoConversation inherits VerticalLayout {
     HorizontalLayout {
         alignment: center;
         Rectangle {
-            width: 80px; height: 80px; border-radius: 40px; background: Theme.raised;
-            Image { source: @image-url("icons/message-circle.svg"); width: 36px; height: 36px; colorize: Theme.secondary; }
+            width: 80px; height: 80px; border-radius: Look.radius(40px); background: Theme.raised-fill;
+            Image { source: IconPack.message-circle; width: 36px; height: 36px; colorize: IconPack.tint(self.source, Theme.secondary); }
         }
     }
     Text { text: "Pick a conversation"; color: Theme.text; font-size: 22px; font-weight: 700; horizontal-alignment: center; }
@@ -2356,29 +2412,32 @@ export component HistoryEdge inherits HorizontalLayout {
         alignment: LayoutAlignment.start; spacing: 0px; padding-top: 47px; padding-bottom: 12px;
         // A server's: its welcome over its name, in two lines.
         if root.intro == "server": Text { text: root.intro-welcome; color: Theme.text; font-size: 32px; font-weight: 600; horizontal-alignment: center; overflow: elide; height: 40px; }
-        if root.intro == "server": Text { text: root.intro-title; color: Theme.text; font-size: 32px; font-weight: 600; horizontal-alignment: center; overflow: elide; height: 40px; }
+        if root.intro == "server": Text { text: Look.welcome-text(Look.heading(root.intro-title)); accessible-label: root.intro-title; color: Theme.text; font-size: 32px; font-weight: Look.heading-weight(600); font-family: Look.heading-font(""); letter-spacing: Look.spacing-headings; horizontal-alignment: center; overflow: elide; height: 40px; }
         // A channel's: a hash in a circle, then its welcome.
         if root.intro == "channel": HorizontalLayout {
             alignment: center; height: 68px;
             Rectangle {
-                width: 68px; height: 68px; border-radius: 34px; background: Theme.field;
-                Image { source: @image-url("icons/hash.svg"); width: 40px; height: 40px; colorize: Theme.text; }
+                width: 68px; height: 68px; border-radius: Look.radius(34px); background: Theme.field;
+                Image { source: IconPack.hash; width: 40px; height: 40px; colorize: IconPack.tint(self.source, Theme.text); }
             }
         }
         if root.intro == "channel": Rectangle { height: 8px; }
-        if root.intro == "channel": Text { text: root.intro-title; color: Theme.text; font-size: 32px; font-weight: 700; horizontal-alignment: center; overflow: elide; height: 40px; }
+        if root.intro == "channel": Text { text: Look.welcome-text(Look.heading(Chrome.welcome != "" ? Chrome.fill(Chrome.welcome, "channel", root.room-name) : root.intro-title)); accessible-label: root.intro-title; color: Theme.text; font-size: 32px; font-weight: Look.heading-weight(700); font-family: Look.heading-font(""); letter-spacing: Look.spacing-headings; horizontal-alignment: center; overflow: elide; height: 40px; }
         Rectangle { height: 8px; }
         Text { text: root.intro-text; color: Theme.secondary; font-size: root.intro == "server" ? 14px : 16px; horizontal-alignment: center; overflow: elide; height: 20px; }
     }
     if root.start && !root.welcome: Text {
-        text: root.room-direct ? "This is the beginning of your messages with " + root.room-name + "."
+        property <string> stock: root.room-direct ? "This is the beginning of your messages with " + root.room-name + "."
             : root.room-thread ? "This is the start of the " + root.room-name + " thread."
             : "This is the start of #" + root.room-name + ".";
+        text: Chrome.start != "" && !root.room-direct && !root.room-thread ? Chrome.fill(Chrome.start, "channel", root.room-name) : self.stock;
+        accessible-label: self.stock;
+        font-family: Chrome.start != "" ? Chrome.font : "";
         color: Theme.muted; font-size: 14px; vertical-alignment: center; overflow: elide;
     }
     if !root.start: Rectangle {
-        width: content.preferred-width; height: 30px; border-radius: 15px; clip: true;
-        background: touch.has-hover && touch.enabled ? Theme.active : Theme.raised;
+        width: content.preferred-width; height: 30px; border-radius: Look.radius(15px); clip: true;
+        background: touch.has-hover && touch.enabled ? Theme.active : Theme.raised-fill;
         accessible-role: button;
         accessible-label: root.loading ? "Loading " + root.which + " messages" : root.failed ? "Couldn't load " + root.which + " messages. Retry" : root.newer ? "Newer messages" : "Earlier messages";
         accessible-enabled: touch.enabled;
@@ -2392,8 +2451,8 @@ export component HistoryEdge inherits HorizontalLayout {
         content := HorizontalLayout {
             padding-left: 12px; padding-right: 14px; spacing: 6px;
             Image {
-                source: root.failed ? @image-url("icons/triangle-alert.svg") : @image-url("icons/history.svg");
-                width: 16px; image-fit: contain; colorize: root.failed ? Theme.danger : Theme.secondary;
+                source: root.failed ? IconPack.triangle-alert : IconPack.history;
+                width: 16px; image-fit: contain; colorize: IconPack.tint(self.source, root.failed ? Theme.danger : Theme.secondary);
             }
             Text {
                 text: root.loading ? "Loading " + root.which + " messages..." : root.failed ? "Couldn't load " + root.which + " messages. Retry" : root.newer ? "Newer messages" : "Earlier messages";
@@ -2411,9 +2470,11 @@ export component UnreadBar inherits Rectangle {
     /// The divider is above the view, rather than below it.
     in property <bool> above;
     callback jump;
-    width: content.preferred-width; height: 32px; border-radius: 16px;
-    background: touch.has-hover ? Theme.accent-hover : Theme.accent;
-    drop-shadow-blur: 12px; drop-shadow-color: #00000060; drop-shadow-offset-y: 4px;
+    // A toast's shape, on the accent.
+    width: content.preferred-width; height: 32px; border-radius: Look.r(Look.toast, 16px);
+    background: touch.has-hover ? Theme.accent-hover : Theme.accent-fill;
+    border-width: Look.bw(Look.toast, 0px); border-color: Look.bc(Look.toast, transparent);
+    drop-shadow-blur: Look.sb(Look.toast, 12px); drop-shadow-offset-x: Look.sx(Look.toast, 0px); drop-shadow-color: Look.sc(Look.toast, #00000060); drop-shadow-offset-y: Look.sy(Look.toast, 4px);
     accessible-role: button;
     accessible-label: root.label + ". Jump to the first unread message";
     accessible-action-default => { root.jump(); }
@@ -2421,8 +2482,8 @@ export component UnreadBar inherits Rectangle {
         padding-left: 14px; padding-right: 10px; spacing: 8px;
         Text { text: root.label; color: Theme.on-accent; font-size: 14px; font-weight: 700; vertical-alignment: center; }
         Image {
-            source: @image-url("icons/chevron-down.svg"); width: 16px; image-fit: contain;
-            colorize: Theme.on-accent; transform-rotation: root.above ? 180deg : 0deg;
+            source: IconPack.chevron-down; width: 16px; image-fit: contain;
+            colorize: IconPack.tint(self.source, Theme.on-accent); transform-rotation: root.above ? 180deg : 0deg;
         }
     }
     touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.jump(); } }
@@ -2432,9 +2493,14 @@ export component UnreadBar inherits Rectangle {
 // in, and goes back to the newest, as Discord's bar over the composer does.
 export component PresentBar inherits Rectangle {
     callback jump;
-    height: 36px; border-radius: 8px;
-    background: Theme.raised; border-color: Theme.edge; border-width: 1px;
-    drop-shadow-blur: 12px; drop-shadow-color: #00000060; drop-shadow-offset-y: 4px;
+    // A toast's shape, art and glass.
+    height: 36px; border-radius: Look.r(Look.toast, 8px);
+    background: Art.glass-toast ? transparent : Theme.raised-fill; border-color: Look.bc(Look.toast, Theme.edge); border-width: Look.bw(Look.toast, 1px);
+    drop-shadow-blur: Look.sb(Look.toast, 12px); drop-shadow-offset-x: Look.sx(Look.toast, 0px); drop-shadow-color: Look.sc(Look.toast, #00000060); drop-shadow-offset-y: Look.sy(Look.toast, 4px);
+    if Art.toast.length > 0 || Art.glass-toast: ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.toast, 8px);
+        layers: Art.toast; glass: Art.glass-toast; ground: Theme.raised-fill;
+    }
     accessible-role: button;
     accessible-label: "You're viewing older messages. Jump to present";
     accessible-action-default => { root.jump(); }
@@ -2445,12 +2511,12 @@ export component PresentBar inherits Rectangle {
             vertical-alignment: center; horizontal-stretch: 1; overflow: elide;
         }
         Text {
-            text: "Jump to present"; color: touch.has-hover ? Theme.accent-hover : Theme.accent;
+            text: "Jump to present"; color: touch.has-hover ? Theme.accent-hover : Theme.accent-text;
             font-size: 14px; font-weight: 700; vertical-alignment: center;
         }
         Image {
-            source: @image-url("icons/chevron-down.svg"); width: 16px; image-fit: contain;
-            colorize: touch.has-hover ? Theme.accent-hover : Theme.accent;
+            source: IconPack.chevron-down; width: 16px; image-fit: contain;
+            colorize: IconPack.tint(self.source, touch.has-hover ? Theme.accent-hover : Theme.accent-text);
         }
     }
     touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.jump(); } }
@@ -2470,8 +2536,8 @@ export component ConversationStart inherits VerticalLayout {
     padding: 24px; spacing: 8px; alignment: end;
     if root.room-selected && root.room-ready && root.room-direct: Avatar { size: 72px; initial: root.room-initial; tint: root.room-tint; picture: root.room-picture; }
     if root.room-selected && root.room-ready && !root.room-direct: Rectangle {
-        width: 68px; height: 68px; border-radius: 34px; background: Theme.raised;
-        Image { source: root.room-icon; width: 36px; height: 36px; colorize: Theme.text; }
+        width: 68px; height: 68px; border-radius: Look.radius(34px); background: Theme.raised-fill;
+        Image { source: root.room-icon; width: 36px; height: 36px; colorize: IconPack.tint(self.source, Theme.text); }
     }
     Text {
         text: !root.room-ready ? "Loading conversation..." : root.room-direct || root.room-thread ? root.room-name : "Welcome to #" + root.room-name;
@@ -2509,14 +2575,14 @@ component ViewerMenu inherits PopupWindow {
     /// The menu closed, by a choice or a key, for the viewer's keys to go on.
     callback done;
     property <MenuRow> save-row: {
-        id: "save", text: root.video ? "Save Video" : "Save Image", icon: @image-url("icons/download.svg")
+        id: "save", text: root.video ? "Save Video" : "Save Image", icon: IconPack.download
     };
-    property <MenuRow> copy-link-row: { id: "copy-link", text: "Copy Link", icon: @image-url("icons/link.svg") };
-    property <MenuRow> open-link-row: { id: "open-link", text: "Open Link", icon: @image-url("icons/external-link.svg") };
+    property <MenuRow> copy-link-row: { id: "copy-link", text: "Copy Link", icon: IconPack.link };
+    property <MenuRow> open-link-row: { id: "open-link", text: "Open Link", icon: IconPack.external-link };
     property <[MenuRow]> rows: root.link == "" ? [root.save-row]
         : root.preview ? [root.copy-link-row, root.open-link-row]
         : root.video ? [root.save-row, root.copy-link-row, root.open-link-row]
-        : [{ id: "copy-image", text: "Copy Image", icon: @image-url("icons/image.svg") }, root.save-row, root.copy-link-row, root.open-link-row];
+        : [{ id: "copy-image", text: "Copy Image", icon: IconPack.image }, root.save-row, root.copy-link-row, root.open-link-row];
     x: max(8px, min(root.room-width - content.menu-width - 8px, root.at-x));
     y: root.at-y + content.main-height <= root.room-height - 8px
         ? root.at-y : max(8px, root.at-y - content.main-height);
@@ -2562,9 +2628,14 @@ export component ImageViewer inherits Rectangle {
     property <string> menu-link;
     property <length> menu-x;
     property <length> menu-y;
-    background: #000000e6;
+    // The viewer's dim, under the theme's `lightbox` art and glass.
+    background: Art.glass-lightbox ? transparent : #000000e6;
     accessible-role: groupbox;
     accessible-label: "Image viewer";
+    if Art.lightbox.length > 0 || Art.glass-lightbox: ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        layers: Art.lightbox; glass: Art.glass-lightbox; ground: #000000e6;
+    }
     TouchArea { clicked => { root.close-image(); } }
     viewer-keys := FocusScope {
         init => { self.focus(); }
@@ -2605,31 +2676,31 @@ export component ImageViewer inherits Rectangle {
             }
             if !root.preview: Middle {
                 IconButton {
-                    icon: @image-url("icons/download.svg"); label: "Save " + root.viewer-name; tint: #ffffff;
+                    icon: IconPack.download; label: "Save " + root.viewer-name; tint: #ffffff;
                     clicked => { root.save-attachment(root.viewer-item, root.viewer-index); }
                 }
             }
-            Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Close"; tint: #ffffff; clicked => { root.close-image(); } } }
+            Middle { IconButton { icon: IconPack.x; label: "Close"; tint: #ffffff; clicked => { root.close-image(); } } }
         }
         if root.viewer-position != "": Rectangle {
-            x: 20px; y: (parent.height - self.height) / 2; width: 48px; height: 48px; border-radius: 24px;
+            x: 20px; y: (parent.height - self.height) / 2; width: 48px; height: 48px; border-radius: Look.radius(24px);
             background: previous-touch.has-hover ? #ffffff33 : #ffffff1a;
-            Image { source: @image-url("icons/chevron-left.svg"); width: 28px; height: 28px; colorize: #ffffff; }
+            Image { source: IconPack.chevron-left; width: 28px; height: 28px; colorize: IconPack.tint(self.source, #ffffff); }
             previous-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.step-image(-1); } }
             accessible-role: button; accessible-label: "Previous image";
             accessible-action-default => { root.step-image(-1); }
         }
         if root.viewer-position != "": Rectangle {
-            x: parent.width - self.width - 20px; y: (parent.height - self.height) / 2; width: 48px; height: 48px; border-radius: 24px;
+            x: parent.width - self.width - 20px; y: (parent.height - self.height) / 2; width: 48px; height: 48px; border-radius: Look.radius(24px);
             background: next-touch.has-hover ? #ffffff33 : #ffffff1a;
-            Image { source: @image-url("icons/chevron-right.svg"); width: 28px; height: 28px; colorize: #ffffff; }
+            Image { source: IconPack.chevron-right; width: 28px; height: 28px; colorize: IconPack.tint(self.source, #ffffff); }
             next-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.step-image(1); } }
             accessible-role: button; accessible-label: "Next image";
             accessible-action-default => { root.step-image(1); }
         }
         if root.viewer-note != "": Rectangle {
             x: (parent.width - self.width) / 2; y: parent.height - self.height - 20px;
-            width: viewer-note-text.preferred-width + 24px; height: 32px; border-radius: 6px; background: #000000b3;
+            width: viewer-note-text.preferred-width + 24px; height: 32px; border-radius: Look.radius(6px); background: #000000b3;
             viewer-note-text := Text { text: root.viewer-note; color: #ffffffd9; font-size: 13px; }
         }
     }
@@ -2659,9 +2730,14 @@ export component VideoViewer inherits Rectangle {
     property <string> menu-link;
     property <length> menu-x;
     property <length> menu-y;
-    background: #000000e6;
+    // The viewer's dim, under the theme's `lightbox` art and glass.
+    background: Art.glass-lightbox ? transparent : #000000e6;
     accessible-role: groupbox;
     accessible-label: "Video viewer";
+    if Art.lightbox.length > 0 || Art.glass-lightbox: ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        layers: Art.lightbox; glass: Art.glass-lightbox; ground: #000000e6;
+    }
     TouchArea { clicked => { VideoPlayer.expand(false); } }
     keys := FocusScope {
         init => { self.focus(); }
@@ -2704,12 +2780,12 @@ export component VideoViewer inherits Rectangle {
                 }
             }
             if VideoPlayer.loading && VideoPlayer.error == "": Rectangle {
-                width: loading.preferred-width + 20px; height: 28px; border-radius: 14px; background: #000000b3;
+                width: loading.preferred-width + 20px; height: 28px; border-radius: Look.radius(14px); background: #000000b3;
                 loading := Text { text: "Loading..."; color: #ffffff; font-size: 13px; }
             }
             if VideoPlayer.error != "": Rectangle {
                 width: min(parent.width - 16px, problem.preferred-width + 20px); height: 28px;
-                border-radius: 6px; background: #000000cc;
+                border-radius: Look.radius(6px); background: #000000cc;
                 problem := Text { text: VideoPlayer.error; color: #ffffff; font-size: 13px; overflow: elide; }
             }
         }
@@ -2727,11 +2803,11 @@ export component VideoViewer inherits Rectangle {
             }
             if !root.preview: Middle {
                 IconButton {
-                    icon: @image-url("icons/download.svg"); label: "Save " + VideoPlayer.name; tint: #ffffff;
+                    icon: IconPack.download; label: "Save " + VideoPlayer.name; tint: #ffffff;
                     clicked => { root.save-attachment(VideoPlayer.item, VideoPlayer.index); }
                 }
             }
-            Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Exit full screen"; tint: #ffffff; clicked => { VideoPlayer.expand(false); } } }
+            Middle { IconButton { icon: IconPack.x; label: "Exit full screen"; tint: #ffffff; clicked => { VideoPlayer.expand(false); } } }
         }
     }
     video-menu := ViewerMenu {
@@ -2877,7 +2953,9 @@ export component MessageContent inherits VerticalLayout {
     in property <string> emoji-font;
     in property <length> message-font-size;
     /// Space before the avatar, and after the text for the row's actions.
-    in property <length> start-padding: 16px;
+    in property <length> start-padding: Look.chat-padding >= 0px ? Look.chat-padding : 16px;
+    /// The author's avatar: 40px stock, a theme's own size otherwise.
+    property <length> avatar: Look.avatar-size >= 0px ? Look.avatar-size : 40px;
     in property <length> end-padding: 48px;
     callback author-card(string, string, length, length, length, length);
     callback author-menu(string, string, length, length);
@@ -2916,38 +2994,151 @@ export component MessageContent inherits VerticalLayout {
     property <length> line-height: root.message-font-size * 1.3;
     /// This message is the one being edited, in this timeline.
     property <bool> editing: root.message.item != "" && InlineEdit.item == root.message.item && InlineEdit.aside == root.aside;
+    // A theme's layout of the message (Arrange.messages): 0 flat, as
+    // stock, 1 bubbles, 2 irc, 3 cards. A notice keeps the stock row.
+    property <int> style: message.notice != "" ? 0 : Arrange.messages;
+    /// The last message of its group, where a card closes.
+    in property <bool> group-end: true;
+    /// In `bubbles`, the row's hover or jump wash and its mention tint,
+    /// laid on the bubble instead of across the row.
+    in property <brush> band: transparent;
+    in property <brush> mark: transparent;
+    property <bool> mine-right: root.style == 1 && message.own;
+    property <bool> avatars: !Arrange.hide-avatars && root.style != 2 && !root.mine-right;
+    property <length> card-pad: root.style == 3 ? Arrange.cards-padding : 0px;
+    // A staggered card steps in from one side, by its group.
+    property <length> step-left: root.style == 3 ? Arrange.stagger-left(message.group) : 0px;
+    property <length> step-right: root.style == 3 ? Arrange.cards-stagger - root.step-left : 0px;
+    property <length> lead: Arrange.centre(root.width, root.start-padding) + root.card-pad + root.step-left;
+    property <length> trail: (Arrange.chat-max-width > 0px ? max(root.end-padding, Arrange.centre(root.width, root.start-padding) + root.card-pad + 32px) : root.end-padding + root.card-pad) + root.step-right;
+    /// In `bubbles`, where the bubble starts and ends across the row, which
+    /// the hover bar sits beside.
+    out property <length> bubble-left: column.x + bubble-row.x + bubble.x;
+    out property <length> bubble-right: self.bubble-left + bubble.width;
+    /// Where the text column starts across the row: in `irc`, after the
+    /// time, the name and the separator.
+    out property <length> column-left: column.x;
+    // The text on your own bubble, and its dimmer kind for a reply's quote.
+    property <brush> own-ink: Arrange.bubble-own-text;
+    // A name's size: the theme's `names` size, scaled as the person's text
+    // size scales the body, else the body's.
+    property <length> name-size: Look.size-names >= 0px ? Look.size-names * root.message-font-size / max(1px, ClientStyle.text-size) : root.message-font-size;
+    // Names: the theme's ransom letters, unless the person styles their own.
+    property <bool> ransom-name: Arrange.ransom && message.name-style.length == 0;
+    property <bool> plain-name: ClientStyle.enabled;
     HorizontalLayout {
-        // The field ends 22 pixels from the row's edge as Discord's does, not where the actions' room ends it.
-        padding-left: root.start-padding; padding-right: root.editing ? 21px : root.end-padding; padding-top: 2px; padding-bottom: 2px; spacing: 16px;
-        Rectangle {
-            width: 40px;
-            min-height: message.first && message.notice == "" ? (root.header ? 64px : 40px) : 0px;
-            if root.header: Rectangle {
+        padding-left: root.lead; padding-right: root.editing ? 21px : root.trail;
+        padding-top: root.style == 3 && message.first ? root.card-pad : 2px;
+        padding-bottom: root.style == 3 && root.group-end ? root.card-pad : 2px;
+        spacing: root.style == 2 ? 8px : root.avatars ? 16px : 0px;
+        // Your own bubbles sit on the right.
+        if root.mine-right: Rectangle { horizontal-stretch: 1; }
+        // The terminal's log columns: the time on every line, the name on
+        // a group's first, right-aligned, then the separator.
+        if root.style == 2: Text {
+            width: Arrange.irc-time; visible: Arrange.irc-time > 0px;
+            text: Chrome.time-before + message.short-time + Chrome.time-after; color: Theme.muted; font-size: Trim.time-size(root.message-font-size * 0.875);
+            font-family: Trim.time-font(Look.mono); vertical-alignment: top; overflow: elide;
+            accessible-role: none;
+        }
+        if root.style == 2: Rectangle {
+            width: Arrange.irc-nick;
+            // A name longer than the column ends in an ellipsis; pointing at
+            // it shows the whole name.
+            // The whole name's width, unseen, to tell when it's cut.
+            if message.first: Rectangle {
+            irc-whole := Text {
+                visible: false; text: Chrome.author-before + message.author + Chrome.author-after;
+                font-size: root.message-font-size; font-weight: Look.name-weight(600); font-family: Look.name-font("");
+                accessible-role: none;
+            }
+            // A moment after the pointer rests on a cut name, as the row it
+            // lights clears tooltips when it changes.
+            Timer {
+                interval: 150ms;
+                running: nick-touch.has-hover && irc-whole.preferred-width > irc-nick.width && Tip.text != message.author;
+                triggered => {
+                    Tip.text = message.author;
+                    Tip.side = 0;
+                    Tip.x = nick-touch.absolute-position.x + nick-touch.width / 2;
+                    Tip.y = nick-touch.absolute-position.y;
+                }
+            }
+            irc-nick := Text {
+                y: 0px; width: parent.width; height: root.line-height;
+                text: Chrome.author-before + message.author + Chrome.author-after; color: message.has-color ? message.color : Theme.text;
+                font-size: root.message-font-size; font-weight: Look.name-weight(600); font-family: Look.name-font("");
+                horizontal-alignment: right; vertical-alignment: center; overflow: elide;
+                accessible-role: none;
+                nick-touch := TouchArea {
+                    mouse-cursor: message.sender != "" ? MouseCursor.pointer : MouseCursor.default;
+                    clicked => {
+                        Tip.text = "";
+                        if message.sender != "" { root.author-card(message.item, message.sender, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
+                    }
+                    changed has-hover => {
+                        if !self.has-hover && Tip.text == message.author { Tip.text = ""; }
+                    }
+                }
+            }
+            }
+        }
+        if root.style == 2 && !Arrange.irc-rule: Text {
+            text: Arrange.irc-separator; color: Theme.faint; font-size: root.message-font-size; height: root.line-height;
+            vertical-alignment: center; accessible-role: none;
+        }
+        // A theme's rule: the separator down every line, wrapped ones too.
+        if root.style == 2 && Arrange.irc-rule: Rectangle {
+            width: irc-rule-one.preferred-width; clip: true;
+            irc-rule-one := Text { visible: false; text: Arrange.irc-separator; font-size: root.message-font-size; accessible-role: none; }
+            // Three runs a third of a line apart, so a line character joins up.
+            for shift in 3: Text {
+                x: 0px; y: (root.line-height - irc-rule-one.preferred-height) / 2 + irc-rule-one.preferred-height * shift / 3;
+                text: Arrange.irc-rule-text; color: Theme.faint; font-size: root.message-font-size; wrap: no-wrap;
+                accessible-role: none;
+            }
+        }
+        // A theme's mark before a notice, such as `-->` before a join.
+        if Trim.notice-mark(message.notice) != "": Text {
+            text: Trim.notice-mark(message.notice); color: message.notice == "join" ? Theme.live : Theme.muted;
+            font-size: root.message-font-size; font-family: Look.mono; height: root.line-height;
+            vertical-alignment: center; horizontal-stretch: 0; accessible-role: none;
+        }
+        if root.avatars && Trim.notice-mark(message.notice) == "": Rectangle {
+            width: root.avatar;
+            min-height: message.first && message.notice == "" ? (root.header ? 24px + root.avatar : root.avatar) : 0px;
+            if root.header && !Chrome.tree-replies: Rectangle {
                 x: 19px; y: 11px; width: 33px; height: 13px; clip: true;
                 Rectangle {
                     x: 0px; y: 0px; width: parent.width + 12px; height: parent.height + 12px;
-                    border-width: 2px; border-color: Theme.reply-spine; border-top-left-radius: 6px;
+                    border-width: 2px; border-color: Theme.reply-spine; border-top-left-radius: Look.radius(6px);
                 }
             }
             // As Discord's client marks a notice, in place of the avatar.
-            if message.notice != "": Image {
+            if message.notice != "" && Trim.notice-mark(message.notice) == "": Image {
                 x: 12px; y: (root.message-font-size * 1.375 - 16px) / 2 + 1px; width: 16px; height: 16px;
-                source: message.notice == "pin" ? @image-url("icons/pin.svg")
-                    : message.notice == "join" ? @image-url("icons/user-plus.svg")
-                    : message.notice == "thread" ? @image-url("icons/thread.svg")
-                    : message.notice == "call" ? @image-url("icons/phone.svg")
-                    : @image-url("icons/chart-bar.svg");
-                colorize: message.notice == "join" || message.notice == "call" ? Theme.live : Theme.muted;
+                source: message.notice == "pin" ? IconPack.pin
+                    : message.notice == "join" ? IconPack.user-plus
+                    : message.notice == "thread" ? IconPack.thread
+                    : message.notice == "call" ? IconPack.phone
+                    : IconPack.chart-bar;
+                colorize: IconPack.tint(self.source, message.notice == "join" || message.notice == "call" ? Theme.live : Theme.muted);
             }
             if message.first && message.notice == "": Avatar {
-                x: 0px; y: root.header ? 24px : 2px;
+                x: 0px; y: root.header ? 24px : 2px; size: root.avatar;
                 initial: message.initial; tint: message.tint; picture: message.picture; picture-url: message.picture-url;
                 decoration-url: message.decoration-url; animate: root.active-item == message.item;
+                // A theme's illuminated initial stands in its place.
+                visible: !ThemeContent.initials || !ThemeContent.lettered(message.author, root.active-item == message.item);
+            }
+            if message.first && message.notice == "" && ThemeContent.initials
+                && ThemeContent.lettered(message.author, root.active-item == message.item): IlluminatedInitial {
+                x: 0px; y: root.header ? 24px : 2px; size: root.avatar; name: message.author;
             }
             // Clicking the author's avatar shows their card beside it;
             // a right click opens their menu. Their name does the same.
             if message.first && message.notice == "" && message.sender != "": TouchArea {
-                x: 0px; y: root.header ? 24px : 2px; width: 40px; height: 40px;
+                x: 0px; y: root.header ? 24px : 2px; width: root.avatar; height: root.avatar;
                 mouse-cursor: MouseCursor.pointer;
                 clicked => { root.author-card(message.item, message.sender, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
                 pointer-event(event) => {
@@ -2959,13 +3150,83 @@ export component MessageContent inherits VerticalLayout {
             // Right-aligned to the avatar's edge; a time with seconds runs
             // further left, into the padding.
             if !message.first && root.active-item == message.item: Text {
-                width: max(40px, self.preferred-width); x: 40px - self.width; y: 4px;
-                text: message.short-time; color: Theme.muted; font-size: 12px; font-weight: 500;
+                width: max(root.avatar, self.preferred-width); x: root.avatar - self.width; y: 4px;
+                text: Chrome.time-before + message.short-time + Chrome.time-after; color: Theme.muted; font-size: Trim.time-size(12px); font-weight: Trim.time-weight(500);
+                font-family: Trim.time-font("");
                 horizontal-alignment: right; overflow: elide;
             }
         }
+        // The text column: the message, and in `bubbles` its reactions
+        // under the bubble, on the bubble's side.
+        column := VerticalLayout {
+        horizontal-stretch: root.style == 1 ? 0 : 1;
+        spacing: 0px;
+        bubble-row := HorizontalLayout {
+        spacing: 0px;
+        if root.mine-right: Rectangle { horizontal-stretch: 1; }
+        // A bubble's ground; flat, irc and cards draw none.
+        bubble := Rectangle {
+            horizontal-stretch: root.style == 1 ? 0 : 1;
+            max-width: root.style == 1 ? max(120px, (root.width - root.lead - root.trail - (root.avatars ? root.avatar + 16px : 0px)) * Arrange.bubble-max) : 100000px;
+            background: root.style != 1 ? transparent : message.own ? Arrange.bubble-own : Arrange.bubble-other;
+            border-radius: root.style == 1 ? Arrange.bubble-radius : 0px;
+            // A theme's drawn gel: gloss, glow, rim and shadow.
+            property <BubbleGel> gel: message.own ? Arrange.bubble-own-gel : Arrange.bubble-other-gel;
+            property <bool> shadowed: root.style == 1 && self.gel.shadow-blur >= 0px;
+            drop-shadow-blur: self.shadowed ? self.gel.shadow-blur : 0px;
+            drop-shadow-color: self.shadowed ? self.gel.shadow : transparent;
+            drop-shadow-offset-x: self.shadowed ? self.gel.shadow-x : 0px;
+            drop-shadow-offset-y: self.shadowed ? self.gel.shadow-y : 0px;
+            // A theme's pictures on the bubble, such as a gel's gloss.
+            if root.style == 1 && (message.own ? Arrange.bubble-own-art.length : Arrange.bubble-other-art.length) > 0: ArtLayer {
+                x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Arrange.bubble-radius;
+                layers: message.own ? Arrange.bubble-own-art : Arrange.bubble-other-art;
+            }
+            // The gloss over the top, drawn at the bubble's size so it stays
+            // crisp on one line or forty, and the glow along the bottom.
+            if root.style == 1 && (bubble.gel.gloss-max > 0px || bubble.gel.glow != transparent): Rectangle {
+                x: 0px; y: 0px; width: parent.width; height: parent.height;
+                border-radius: Arrange.bubble-radius; clip: true;
+                if bubble.gel.glow != transparent: Rectangle {
+                    x: 0px; width: parent.width;
+                    height: min(bubble.gel.glow-height, parent.height); y: parent.height - self.height;
+                    background: @linear-gradient(0deg, bubble.gel.glow 0%, bubble.gel.glow.with-alpha(0) 100%);
+                }
+                if bubble.gel.gloss-max > 0px: Rectangle {
+                    x: bubble.gel.gloss-inset-x; y: bubble.gel.gloss-inset-y;
+                    width: max(0px, parent.width - 2 * bubble.gel.gloss-inset-x);
+                    height: min(parent.height * bubble.gel.gloss-height, bubble.gel.gloss-max);
+                    border-radius: min(min(self.height, self.width) / 2,
+                        bubble.gel.gloss-radius >= 0px ? bubble.gel.gloss-radius : max(0px, Arrange.bubble-radius - bubble.gel.gloss-inset-x));
+                    background: @linear-gradient(180deg, bubble.gel.gloss-top 0%, bubble.gel.gloss-bottom 100%);
+                }
+            }
+            if root.style == 1: Rectangle {
+                x: 0px; y: 0px; width: parent.width; height: parent.height;
+                border-radius: Arrange.bubble-radius; background: root.band;
+                animate background { duration: 400ms; }
+            }
+            if root.style == 1: Rectangle {
+                x: 0px; y: 0px; width: parent.width; height: parent.height;
+                border-radius: Arrange.bubble-radius; background: root.mark;
+            }
+            // The rim: a light line just inside the edge, brightest at the
+            // top and again along the bottom, and a line on the edge.
+            if root.style == 1 && bubble.gel.rim-light != transparent: Rectangle {
+                x: 1px; y: 1px; width: parent.width - 2px; height: parent.height - 2px;
+                border-radius: max(0px, Arrange.bubble-radius - 1px); border-width: 1px;
+                border-color: @linear-gradient(180deg, bubble.gel.rim-light 0%, bubble.gel.rim-light.transparentize(0.7) 40%,
+                    bubble.gel.rim-light.transparentize(0.85) 70%, bubble.gel.rim-light.transparentize(0.35) 100%);
+            }
+            if root.style == 1 && bubble.gel.rim-dark != transparent: Rectangle {
+                x: 0px; y: 0px; width: parent.width; height: parent.height;
+                border-radius: Arrange.bubble-radius; border-width: 1px; border-color: bubble.gel.rim-dark;
+            }
+            if root.style == 1 && Arrange.dash-message.on: DashedOutline { x: 0px; y: 0px; dash: Arrange.dash-message; }
         VerticalLayout {
-            spacing: ClientStyle.message-gap; horizontal-stretch: 1;
+            spacing: ClientStyle.message-gap;
+            padding-left: root.style == 1 ? Arrange.bubble-pad-x : 0px; padding-right: self.padding-left;
+            padding-top: root.style == 1 ? Arrange.bubble-pad-y : 0px; padding-bottom: self.padding-top;
             // Clicking the quote jumps to the message it quotes.
             if message.has-reply: Rectangle {
                 height: 22px;
@@ -2975,16 +3236,25 @@ export component MessageContent inherits VerticalLayout {
                 accessible-action-default => { if message.reply-item != "" { root.jump-to(message.reply-item); } }
                 HorizontalLayout {
                     spacing: 6px;
-                    if message.reply-author != "": Middle { Avatar { size: 16px; initial: message.reply-initial; tint: message.reply-tint; picture: message.reply-picture; picture-url: message.reply-picture-url; } }
+                    // A theme's tree points the reply at what it quotes.
+                    if Chrome.tree-replies: Text {
+                        text: "└─>"; color: Chrome.tree-ink; font-family: Look.mono; font-size: 14px;
+                        vertical-alignment: center; accessible-role: none;
+                    }
+                    if message.reply-author != "" && !Chrome.tree-replies: Middle { Avatar { size: 16px; initial: message.reply-initial; tint: message.reply-tint; picture: message.reply-picture; picture-url: message.reply-picture-url; } }
                     if message.reply-author != "": Text {
                         // Discord quotes "@Name" in the author's role colour, regular weight.
                         text: ClientStyle.enabled ? "@" + message.reply-author : message.reply-author;
-                        color: ClientStyle.enabled && message.reply-has-color ? message.reply-color : Theme.secondary;
-                        font-size: 14px; font-weight: ClientStyle.enabled ? 400 : 700; vertical-alignment: center;
+                        // On your own bubble, in its text's colour.
+                        color: root.mine-right ? root.own-ink : ClientStyle.enabled && message.reply-has-color ? message.reply-color : Theme.secondary;
+                        font-size: Trim.small-size(14px); font-weight: ClientStyle.enabled ? 400 : 700; vertical-alignment: center;
+                        font-family: Trim.small-font("");
                     }
                     Text {
-                        text: message.reply-body; font-size: ClientStyle.enabled ? 13px : 14px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
-                        color: reply-touch.has-hover ? Theme.text : ClientStyle.enabled ? Theme.secondary : Theme.muted;
+                        text: message.reply-body; font-size: Trim.small-size(ClientStyle.enabled ? 13px : 14px); vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
+                        font-family: Trim.small-font("");
+                        color: root.mine-right ? (reply-touch.has-hover ? root.own-ink : Arrange.bubble-own-text.transparentize(0.2))
+                            : reply-touch.has-hover ? Theme.text : ClientStyle.enabled ? Theme.secondary : Theme.muted;
                     }
                 }
                 reply-touch := TouchArea {
@@ -3028,37 +3298,58 @@ export component MessageContent inherits VerticalLayout {
                 }
                 Rectangle { horizontal-stretch: 1; }
             }
-            if message.first && message.notice == "": HorizontalLayout {
+            if message.first && message.notice == "" && root.style != 2 && !root.mine-right: HorizontalLayout {
                 spacing: 8px;
                 // Discord's name line is 22px tall, a little over the text's.
                 padding-bottom: ClientStyle.enabled ? 2px : 0px;
+                // A theme's marks around the name, such as `<` and `>`.
+                if Chrome.author-before != "": Text {
+                    text: Chrome.author-before; color: Theme.secondary; font-size: root.message-font-size; vertical-alignment: center;
+                    font-family: Look.name-font(""); accessible-role: none;
+                }
                 Rectangle {
-                    min-width: author-name.min-width; preferred-width: ClientStyle.enabled || message.name-style.length > 0 ? author-plain.preferred-width : author-name.preferred-width;
+                    // Ransom letters past the room left end in an ellipsis.
+                    min-width: root.ransom-name ? min(ransom.preferred-width, 120px) : author-name.min-width;
+                    preferred-width: root.ransom-name ? min(ransom.preferred-width, 16 * root.name-size) : root.plain-name || message.name-style.length > 0 ? author-plain.preferred-width : author-name.preferred-width;
                     preferred-height: author-name.preferred-height; horizontal-stretch: 0;
                     // Discord's names are medium weight, a step under bold.
+                    if Art.names.on && root.plain-name && !root.ransom-name && message.name-style.length == 0: ArtTextBehind {
+                        width: parent.width; height: parent.height; art: Art.names;
+                        text: author-plain.text; font-size: author-plain.font-size; font-weight: author-plain.font-weight;
+                        font-family: author-plain.font-family; letter-spacing: author-plain.letter-spacing; overflow: elide; vertical-alignment: center;
+                    }
                     author-plain := Text {
-                        width: parent.width; height: parent.height; visible: ClientStyle.enabled && message.name-style.length == 0;
-                        text: message.author; color: message.has-color ? message.color : Theme.text;
-                        font-size: root.message-font-size; vertical-alignment: center; overflow: elide;
+                        stroke: Art.outline(Art.names); stroke-width: Art.names.outline; stroke-style: outside;
+                        width: parent.width; height: parent.height; visible: root.plain-name && !root.ransom-name && (message.name-style.length == 0);
+                        text: Look.name-text(message.author, author-touch.has-hover); accessible-label: message.author;
+                        color: message.has-color ? message.color : Theme.text;
+                        font-size: root.name-size; vertical-alignment: center; overflow: elide;
                         // A styled name measures in its own font.
-                        font-family: message.name-style[0].family;
-                        font-weight: message.name-style[0].family != "" ? message.name-style[0].weight : 500;
+                        font-family: message.name-style[0].family != "" ? message.name-style[0].family : Look.name-font("");
+                        font-weight: message.name-style[0].family != "" ? message.name-style[0].weight : Look.name-weight(500);
+                        letter-spacing: Look.spacing-names;
                     }
                     author-name := StyledText {
-                        width: parent.width; height: parent.height; visible: !ClientStyle.enabled && message.name-style.length == 0;
-                        text: message.author-styled; link-color: Theme.link; default-color: message.has-color ? message.color : Theme.text; default-font-size: root.message-font-size; max-lines: 1; vertical-alignment: center;
+                        width: parent.width; height: parent.height; visible: !root.plain-name && !root.ransom-name && message.name-style.length == 0;
+                        text: message.author-styled; link-color: Theme.link; default-color: message.has-color ? message.color : Theme.text; default-font-size: root.name-size; max-lines: 1; vertical-alignment: center;
+                    }
+                    // Empty, and so nothing, unless the theme cuts names into letters.
+                    ransom := RansomName {
+                        x: 0px; y: 0px; width: parent.width; height: parent.height; visible: root.ransom-name;
+                        text: root.ransom-name ? message.author : ""; font-size: root.name-size; font-weight: Look.name-weight(600);
                     }
                     if message.name-style.length > 0: StyledName {
                         width: parent.width; height: parent.height;
-                        text: message.author; styles: message.name-style; ink: message.has-color ? message.color : Theme.text; font-size: root.message-font-size; font-weight: 500;
+                        text: message.author; styles: message.name-style; ink: message.has-color ? message.color : Theme.text; font-size: root.name-size; font-weight: 500;
                     }
                     // Underlined while pointed at, as a link is.
                     if author-touch.has-hover: Rectangle {
-                        y: (parent.height + root.message-font-size) / 2 + 1px; height: 1px;
+                        y: (parent.height + root.name-size) / 2 + 1px; height: 1px;
                         background: message.has-color ? message.color : Theme.text;
                     }
                     author-touch := TouchArea {
                         enabled: message.sender != "";
+                        changed has-hover => { if self.has-hover && Look.fx-name { Look.name-hover(message.author); } }
                         mouse-cursor: self.enabled ? MouseCursor.pointer : MouseCursor.default;
                         clicked => { root.author-card(message.item, message.sender, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
                         pointer-event(event) => {
@@ -3068,16 +3359,28 @@ export component MessageContent inherits VerticalLayout {
                         }
                     }
                 }
+                if Chrome.author-after != "": Text {
+                    text: Chrome.author-after; color: Theme.secondary; font-size: root.message-font-size; vertical-alignment: center;
+                    font-family: Look.name-font(""); accessible-role: none;
+                }
                 if message.tag != "": Middle { ServerTagChip { text: message.tag; badge: message.tag-badge; server: message.tag-server; font-size: root.message-font-size * 0.72; } }
                 if message.bot: Middle { BotTag { } }
-                StyledText { text: message.time-styled; link-color: Theme.link; default-color: Theme.muted; default-font-size: root.message-font-size - (ClientStyle.enabled ? 4px : 3px); max-lines: 1; vertical-alignment: center; }
+                if Chrome.time-before != "": Text {
+                    text: Chrome.time-before; color: Theme.muted; font-size: Trim.time-size(root.message-font-size - (ClientStyle.enabled ? 4px : 3px)); vertical-alignment: center; accessible-role: none;
+                    font-family: Trim.time-font("");
+                }
+                StyledText { text: message.time-styled; link-color: Theme.link; default-color: Theme.muted; default-font-size: Trim.time-size(root.message-font-size - (ClientStyle.enabled ? 4px : 3px)); max-lines: 1; vertical-alignment: center; default-font-family: Trim.time-font(""); }
+                if Chrome.time-after != "": Text {
+                    text: Chrome.time-after; color: Theme.muted; font-size: Trim.time-size(root.message-font-size - (ClientStyle.enabled ? 4px : 3px)); vertical-alignment: center; accessible-role: none;
+                    font-family: Trim.time-font("");
+                }
                 Rectangle { horizontal-stretch: 1; }
             }
             // As Discord's client marks a forward, above what it carries.
             if message.forwarded: HorizontalLayout {
                 spacing: 4px; alignment: start;
-                Image { source: @image-url("icons/forward.svg"); width: 16px; image-fit: contain; colorize: Theme.muted; }
-                Text { text: "Forwarded"; color: Theme.muted; font-size: 14px; font-italic: true; vertical-alignment: center; }
+                Image { source: IconPack.forward; width: 16px; image-fit: contain; colorize: IconPack.tint(self.source, root.mine-right ? Arrange.bubble-own-text.transparentize(0.2) : Theme.muted); }
+                Text { text: "Forwarded"; color: root.mine-right ? Arrange.bubble-own-text.transparentize(0.2) : Theme.muted; font-size: 14px; font-italic: true; vertical-alignment: center; }
             }
             // The body, cut off at its folded height while it folds, with
             // Show more under it. The view keeps the message's top.
@@ -3087,14 +3390,27 @@ export component MessageContent inherits VerticalLayout {
                 property <bool> folded: self.long && !message.expanded;
                 Rectangle {
                     height: body-fold.folded ? root.line-height * 12 : body.preferred-height;
+                    // As wide as the text would run, so a bubble fits it.
+                    preferred-width: root.style == 1 ? body.preferred-width : 0px;
                     clip: body-fold.folded;
+                    // A theme's glow on body text: the text twice more behind
+                    // it, a pixel either side, in the glow's colour.
+                    if Trim.body.on && Trim.body.glow > 0px && message.blocks.length == 0: Rectangle {
+                        x: 0px; y: 0px; width: body.width; height: body.height;
+                        for side in 2: StyledText {
+                            x: side == 0 ? -1px : 1px; y: 0px; width: parent.width; min-width: 0px;
+                            text: message.styled; default-color: Trim.body.glow-color; link-color: Trim.body.glow-color;
+                            default-font-size: message.jumbo ? root.message-font-size * 2.2 : root.message-font-size;
+                            accessible-role: none;
+                        }
+                    }
                     body := VerticalLayout {
                         y: 0px; height: self.preferred-height;
                         if message.blocks.length == 0: StyledText {
                             // An overlong word breaks, as in Discord's client, rather than widening the row.
                             min-width: 0px;
-                            text: message.styled; link-color: Theme.link;
-                            default-color: message.deleted || message.delivery != "" ? Theme.muted : message.notice != "" ? Theme.secondary : Theme.text;
+                            text: message.styled; link-color: root.mine-right ? Arrange.bubble-own-text : Theme.link;
+                            default-color: message.deleted || message.delivery != "" ? Theme.muted : message.notice != "" ? Theme.secondary : root.mine-right ? Arrange.bubble-own-text : Theme.text;
                             // Discord's large emoji are 48 pixels where text's are 22.
                             default-font-size: message.jumbo ? root.message-font-size * 2.2 : root.message-font-size;
                             // A mention's card opens beside the pointer.
@@ -3105,7 +3421,7 @@ export component MessageContent inherits VerticalLayout {
                             accessible-role: text; accessible-label: "Message from " + message.author + ": " + message.body;
                             TextBlocks {
                                 blocks: message.blocks; font-size: root.message-font-size;
-                                color: message.deleted || message.delivery != "" ? Theme.muted : Theme.text;
+                                color: message.deleted || message.delivery != "" ? Theme.muted : root.mine-right ? Arrange.bubble-own-text : Theme.text;
                                 open-link(link) => { root.link-clicked(link); }
                             }
                         }
@@ -3139,7 +3455,7 @@ export component MessageContent inherits VerticalLayout {
                 color: message.timed-out ? Theme.danger : Theme.muted; font-size: root.message-font-size;
                 font-italic: !message.timed-out; wrap: word-wrap;
             }
-            if message.edited && !message.deleted && !root.editing: Text { text: "(edited)"; color: Theme.muted; font-size: 12px; }
+            if message.edited && !message.deleted && !root.editing: Text { text: "(edited)"; color: root.mine-right ? Arrange.bubble-own-text.transparentize(0.3) : Theme.muted; font-size: 12px; }
             // Fixed-size children sit beside a spacer, so they do not cap the column's width.
             if message.images.length > 0: MessageGallery {
                 images: message.images; gallery-width: message.gallery-width; gallery-height: message.gallery-height;
@@ -3182,7 +3498,7 @@ export component MessageContent inherits VerticalLayout {
             // Under the controls, why the last one used failed, as Discord's client.
             if root.bot-failed-item != "" && root.bot-failed-item == message.item: HorizontalLayout {
                 padding-top: 4px; spacing: 6px;
-                Image { source: @image-url("icons/triangle-alert.svg"); width: 16px; colorize: Theme.danger; image-fit: contain; }
+                Image { source: IconPack.triangle-alert; width: 16px; colorize: IconPack.tint(self.source, Theme.danger); image-fit: contain; }
                 Text { text: root.bot-failed-text; color: Theme.danger; font-size: 14px; wrap: word-wrap; horizontal-stretch: 1; }
             }
             if message.thread-room != "": ThreadChip {
@@ -3191,12 +3507,16 @@ export component MessageContent inherits VerticalLayout {
             }
             // The reactions wrap onto more lines, as Discord's do: a row would
             // make the message as wide as all of them, past the timeline's edge.
-            if message.reactions.length > 0: FlexboxLayout {
+            // In `bubbles` they sit under the bubble instead; see `column`.
+            if message.reactions.length > 0 && root.style != 1: FlexboxLayout {
                 spacing: 6px; alignment: start; cross-axis-line-alignment: start; padding-top: 4px;
                 for reaction in message.reactions: ReactionToggle {
                     item: message.item; key: reaction.key; label: reaction.label; count: reaction.count; mine: reaction.mine; emoji-font: root.emoji-font;
                     enabled: message.can-react && root.reactions-enabled;
-                    clicked => { root.react(message.item, reaction.key); }
+                    clicked => {
+                        if Art.track { Art.pointer-x = self.absolute-position.x + self.width / 2; Art.pointer-y = self.absolute-position.y + self.height / 2; }
+                        root.react(message.item, reaction.key);
+                    }
                 }
             }
             if message.delivery != "" && !message.sending: HorizontalLayout {
@@ -3208,7 +3528,7 @@ export component MessageContent inherits VerticalLayout {
             // As Discord's client marks an answer only this account sees.
             if message.ephemeral: HorizontalLayout {
                 spacing: 4px; alignment: start;
-                Image { source: @image-url("icons/eye.svg"); width: 16px; image-fit: contain; colorize: Theme.muted; }
+                Image { source: IconPack.eye; width: 16px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
                 Text { text: "Only you can see this ·"; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
                 Text {
                     text: "Dismiss message"; font-size: 12px; vertical-alignment: center;
@@ -3223,5 +3543,25 @@ export component MessageContent inherits VerticalLayout {
                 }
             }
         }
+        }
+        if root.style == 1 && !message.own: Rectangle { horizontal-stretch: 1; }
+        }
+        // In `bubbles` the reactions follow the bubble: under it, on its
+        // side, your own on the right.
+        if root.style == 1 && message.reactions.length > 0: FlexboxLayout {
+            spacing: 6px; alignment: message.own ? end : start; cross-axis-line-alignment: start; padding-top: 4px;
+            vertical-stretch: 0;
+            for reaction in message.reactions: ReactionToggle {
+                item: message.item; key: reaction.key; label: reaction.label; count: reaction.count; mine: reaction.mine; emoji-font: root.emoji-font;
+                enabled: message.can-react && root.reactions-enabled;
+                clicked => {
+                    if Art.track { Art.pointer-x = self.absolute-position.x + self.width / 2; Art.pointer-y = self.absolute-position.y + self.height / 2; }
+                    root.react(message.item, reaction.key);
+                }
+            }
+        }
+        }
+        // Everyone else's bubbles sit on the left, as wide as they need.
+        if root.style == 1 && !message.own: Rectangle { horizontal-stretch: 1; }
     }
 }

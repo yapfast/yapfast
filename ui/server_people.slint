@@ -1,5 +1,8 @@
+import { IconPack } from "media.slint";
 import { ComboBox } from "std-widgets.slint";
-import { Theme, Middle, Label } from "theme.slint";
+import { Theme, Middle, Label, Look } from "theme.slint";
+import { Art, ArtLayer } from "theme_art.slint";
+import { DialogFrame } from "theme_layout.slint";
 import { ActionButton, Avatar, IconButton, TextField, TipIcon } from "controls.slint";
 import { SettingsTitle, SettingsHeading, SettingsSwitch } from "settings.slint";
 import { ListView } from "scrollview.slint";
@@ -100,10 +103,10 @@ component RoleChip inherits HorizontalLayout {
     in property <string> more;
     spacing: 4px; alignment: start;
     if root.name != "": Rectangle {
-        height: 24px; border-radius: 4px; background: Theme.overlay.with-alpha(0.08);
+        height: 24px; border-radius: Look.radius(4px); background: Theme.overlay.with-alpha(0.08);
         HorizontalLayout {
             padding-left: 6px; padding-right: 8px; spacing: 4px;
-            Middle { Rectangle { width: 10px; height: 10px; border-radius: 5px; background: root.color; } }
+            Middle { Rectangle { width: 10px; height: 10px; border-radius: Look.radius(5px); background: root.color; } }
             Text { text: root.name; color: Theme.text; font-size: 12px; vertical-alignment: center; overflow: elide; }
         }
     }
@@ -130,7 +133,7 @@ export component MembersSection inherits VerticalLayout {
         triggered => { root.sent = root.typed; root.act(0, root.typed, 0); }
     }
     spacing: 16px;
-    SettingsTitle { text: "Server Members"; }
+    SettingsTitle { title: "Server Members"; }
     HorizontalLayout {
         spacing: 12px;
         Middle {
@@ -177,7 +180,7 @@ export component MembersSection inherits VerticalLayout {
     if root.page.rows.length > 0: ListView {
         vertical-stretch: 1; min-height: 120px;
         for member in root.page.rows: Rectangle {
-            height: 56px; border-radius: 6px;
+            height: 56px; border-radius: Look.radius(6px);
             background: area.has-hover ? Theme.overlay.with-alpha(0.06) : transparent;
             accessible-role: button; accessible-label: member.name;
             accessible-action-default => { root.act(4, member.id, 0); }
@@ -217,14 +220,14 @@ export component MembersSection inherits VerticalLayout {
                 Middle { preferred-width: 0px; min-width: 0px; horizontal-stretch: 2; RoleChip { name: member.role; color: member.role-color; more: member.more-roles; } }
                 HorizontalLayout {
                     preferred-width: 0px; min-width: 0px; horizontal-stretch: 1.5; spacing: 2px; alignment: start;
-                    if member.unusual-dms: Middle { TipIcon { source: @image-url("icons/message-circle.svg"); colorize: Theme.muted; tip: "Sent excessive DMs to non-friend server members in last 24 hrs"; } }
-                    if member.timed-out != "": Middle { TipIcon { source: @image-url("icons/clock.svg"); colorize: Theme.danger; tip: member.timed-out; } }
-                    if member.spammer: Middle { TipIcon { source: @image-url("icons/triangle-alert.svg"); colorize: Theme.danger; tip: "Engaged in suspected spam activity"; } }
-                    if member.quarantined: Middle { TipIcon { source: @image-url("icons/shield.svg"); colorize: Theme.muted; tip: "User can't talk in server until they change their member name"; } }
+                    if member.unusual-dms: Middle { TipIcon { source: IconPack.message-circle; colorize: IconPack.tint(self.source, Theme.muted); tip: "Sent excessive DMs to non-friend server members in last 24 hrs"; } }
+                    if member.timed-out != "": Middle { TipIcon { source: IconPack.clock; colorize: IconPack.tint(self.source, Theme.danger); tip: member.timed-out; } }
+                    if member.spammer: Middle { TipIcon { source: IconPack.triangle-alert; colorize: IconPack.tint(self.source, Theme.danger); tip: "Engaged in suspected spam activity"; } }
+                    if member.quarantined: Middle { TipIcon { source: IconPack.shield; colorize: IconPack.tint(self.source, Theme.muted); tip: "User can't talk in server until they change their member name"; } }
                 }
                 Middle {
                     more := IconButton {
-                        icon: @image-url("icons/ellipsis.svg"); label: "More Options"; size: 32px; glyph: 18px;
+                        icon: IconPack.ellipsis; label: "More Options"; size: 32px; glyph: 18px;
                         clicked => { root.menu(member.id, self.absolute-position.x, self.absolute-position.y + self.height); }
                     }
                 }
@@ -286,7 +289,7 @@ export component InvitesSection inherits VerticalLayout {
     changed page => { root.ticks = 0; }
     Timer { interval: 1s; running: root.page.rows.length > 0; triggered => { root.ticks += 1; } }
     spacing: 16px;
-    SettingsTitle { text: "Invites"; }
+    SettingsTitle { title: "Invites"; }
     Label { text: "Create an invite link anyone can use to join, or invite friends directly."; }
     HorizontalLayout {
         spacing: 8px;
@@ -322,7 +325,7 @@ export component InvitesSection inherits VerticalLayout {
     if root.page.rows.length > 0: ListView {
         vertical-stretch: 1; min-height: 120px;
         for invite in root.page.rows: Rectangle {
-            height: 56px; border-radius: 6px;
+            height: 56px; border-radius: Look.radius(6px);
             opacity: root.page.paused ? 0.5 : 1;
             background: hover.has-hover ? Theme.overlay.with-alpha(0.06) : transparent;
             hover := TouchArea { }
@@ -350,7 +353,7 @@ export component InvitesSection inherits VerticalLayout {
                 Middle { preferred-width: 0px; min-width: 0px; horizontal-stretch: 2; RoleChip { name: invite.role; color: invite.role-color; more: invite.more-roles; } }
                 Middle {
                     IconButton {
-                        icon: @image-url("icons/x.svg"); label: "Remove"; size: 32px; glyph: 18px; danger: true;
+                        icon: IconPack.x; label: "Remove"; size: 32px; glyph: 18px; danger: true;
                         opacity: hover.has-hover || self.hovered ? 1 : 0;
                         clicked => { root.act(0, invite.code, 0); }
                     }
@@ -367,7 +370,7 @@ export component SecurityActionsDialog inherits Rectangle {
     in property <InvitesPrompt> page;
     /// 3 the hours by place, 4 pause invites, 5 pause DMs, 6 save, 7 close.
     callback act(int, int);
-    background: #000000aa;
+    background: Theme.scrim(#000000aa);
     TouchArea { clicked => { root.act(7, 0); } }
     FocusScope {
         init => { self.focus(); }
@@ -378,12 +381,20 @@ export component SecurityActionsDialog inherits Rectangle {
         Rectangle {
             width: 480px; height: box.preferred-height;
             x: (root.width - self.width) / 2; y: (root.height - self.height) / 2;
-            background: Theme.chat; border-radius: 8px;
+            background: Art.glass-dialog ? transparent : Theme.chat-fill; border-radius: Look.r(Look.dialog, 8px);
+            // A dialog's shape, art and glass.
+            border-width: Look.bw(Look.dialog, 0px); border-color: Look.bc(Look.dialog, transparent);
+            drop-shadow-blur: Look.sb(Look.dialog, 0px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, transparent); drop-shadow-offset-y: Look.sy(Look.dialog, 0px);
+            if Art.dialog.length > 0 || Art.glass-dialog: ArtLayer {
+                x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.dialog, 8px);
+                layers: Art.dialog; glass: Art.glass-dialog; ground: Theme.chat-fill;
+            }
+            DialogFrame { x: 0px; y: 0px; z: 100; }
             accessible-role: groupbox; accessible-label: "Security Actions";
             TouchArea { }
             box := VerticalLayout {
                 padding: 16px; spacing: 14px;
-                Text { text: "Security Actions"; color: Theme.text; font-size: 20px; font-weight: 700; }
+                Text { text: "Security Actions"; color: Theme.text; font-size: Look.title-size(20px); font-weight: Look.heading-weight(700); font-family: Look.heading-font(""); }
                 VerticalLayout {
                     ComboBox {
                         model: ["1 hour", "2 hours", "4 hours", "6 hours", "12 hours", "24 hours"];

@@ -617,7 +617,7 @@ fn token(name: &str) -> String {
 }
 
 /// Where a colour named as `layout.json` has it is in [`Theme::colour`].
-fn token_index(token: &str) -> Option<usize> {
+pub(super) fn token_index(token: &str) -> Option<usize> {
     Theme::NAMES.iter().position(|name| {
         name.bytes()
             .map(|byte| if byte == b'_' { b'-' } else { byte })
@@ -662,7 +662,18 @@ pub struct Custom {
     /// any it doesn't name, such as one added since it was saved.
     pub base: &'static str,
     pub theme: Theme,
+    /// What the theme creator was told, for a theme made there: its look
+    /// beyond colours lives in a package folder made from it
+    /// (`theme_look::creator_folder`).
+    pub creator: Option<Spec>,
+    /// A folder of the theme's own beyond its colours, relative to the data
+    /// folder or absolute: a `theme.json` with any other layers (type, art,
+    /// sounds, …) and the files they name, such as imported fonts and a
+    /// background picture. Export bundles it; see docs/themes.md.
+    pub folder: Option<String>,
 }
+
+pub use yapfast_core::themes::creator::Spec;
 
 /// A custom theme in `layout.json`: each colour as text, by its name in
 /// `ui/theme.slint`.
@@ -674,6 +685,10 @@ struct Stored {
     base: String,
     dark: Option<bool>,
     colours: std::collections::BTreeMap<String, String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    creator: Option<Spec>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    folder: Option<String>,
 }
 
 impl From<Stored> for Custom {
@@ -694,6 +709,8 @@ impl From<Stored> for Custom {
             name: stored.name,
             base: base.id,
             theme,
+            creator: stored.creator,
+            folder: stored.folder.filter(|folder| !folder.trim().is_empty()),
         }
     }
 }
@@ -711,6 +728,8 @@ impl From<&Custom> for Stored {
             base: custom.base.to_owned(),
             dark: Some(custom.theme.dark),
             colours,
+            creator: custom.creator.clone(),
+            folder: custom.folder.clone(),
         }
     }
 }
@@ -794,6 +813,15 @@ thread_local! {
     /// name, links and time.
     static TEXT: Cell<u32> = const { Cell::new(0xf2f3f5) };
     static MUTED: Cell<u32> = const { Cell::new(0x949ba4) };
+    /// An installed theme's `mention-chip` colour, `0xrrggbb`, which stands
+    /// in for the link colour in mentions.
+    static CHIP: Cell<Option<u32>> = const { Cell::new(None) };
+}
+
+/// Sets the installed theme's mention chips' colour, or none; the next
+/// [`Theme::apply`] rebuilds rows when it changes what they show.
+pub fn set_mention_chip(rgb: Option<u32>) {
+    CHIP.set(rgb.map(|rgb| rgb & 0xff_ffff));
 }
 
 pub fn mention_color() -> u32 {
@@ -808,6 +836,50 @@ pub fn muted_color() -> u32 {
     MUTED.get()
 }
 
+/// What a protected dialog is: the window shows the stock theme while any
+/// of them is open, whichever closes last.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Protected {
+    /// The question before leaving for a link.
+    Link,
+    /// Signing in.
+    SignIn,
+    /// A theme's review, before it's installed.
+    ThemeReview,
+}
+
+thread_local! {
+    /// The protected dialogs open now, one bit each.
+    static OPEN: Cell<u8> = const { Cell::new(0) };
+}
+
+/// Shows the stock look while a dialog no theme may restyle is open, such as
+/// the question before leaving for a link, and the chosen theme again once it
+/// closes: an installed theme's shape, type, motion and colours give way to
+/// the stock ones, see `theme_look::protect`.
+pub fn protect(window: &YapfastWindow, open: bool) {
+    protect_for(window, Protected::Link, open);
+}
+
+/// As [`protect`], for one kind of protected dialog: the window shows stock
+/// from the first one opening to the last one closing.
+pub fn protect_for(window: &YapfastWindow, dialog: Protected, open: bool) {
+    let bit = 1u8 << dialog as u8;
+    let before = OPEN.get();
+    let after = if open { before | bit } else { before & !bit };
+    OPEN.set(after);
+    if (before != 0) == (after != 0) {
+        return;
+    }
+    show_protected(window, after != 0);
+}
+
+fn show_protected(window: &YapfastWindow, open: bool) {
+    if let Some(theme) = super::theme_look::protect(window, open) {
+        theme.set(&window.global::<yapfast_ui::Theme>());
+    }
+}
+
 impl Theme {
     /// Shows the window in these colours. Returns whether colours that rows
     /// carry in their markup change, as rows built before have the old ones.
@@ -816,7 +888,9 @@ impl Theme {
         let rgb = |colour: Color| colour.as_argb_encoded() & 0xff_ffff;
         // Bonfire draws a mention's text as Discord's dark theme does, a light
         // blurple; the other themes use their link colour.
-        let mention_colour = if self.dark && rgb(self.link) == rgb(BONFIRE.link) {
+        let mention_colour = if let Some(chip) = CHIP.get() {
+            chip
+        } else if self.dark && rgb(self.link) == rgb(BONFIRE.link) {
             0xc9cdfb
         } else {
             rgb(self.link)
@@ -833,6 +907,7 @@ impl Theme {
 pub fn cards(custom: &[Custom]) -> ModelRc<yapfast_ui::ThemeCard> {
     let card = |id: &str, name: &str, custom: bool, theme: &Theme| yapfast_ui::ThemeCard {
         id: id.into(),
+        bubbles: false,
         name: name.into(),
         custom,
         rail: theme.rail,
@@ -846,13 +921,22 @@ pub fn cards(custom: &[Custom]) -> ModelRc<yapfast_ui::ThemeCard> {
     let cards: Vec<_> = BUILT_IN
         .iter()
         .map(|built_in| card(built_in.id, built_in.name, false, &built_in.theme))
-        .chain(
-            custom
-                .iter()
-                .map(|custom| card(&custom.id, &custom.name, true, &custom.theme)),
-        )
+        .chain(custom.iter().map(|custom| yapfast_ui::ThemeCard {
+            bubbles: custom.creator.as_ref().is_some_and(|spec| {
+                spec.messages == yapfast_core::themes::creator::Messages::Bubbles
+            }),
+            ..card(&custom.id, &custom.name, true, &custom.theme)
+        }))
         .collect();
     ModelRc::new(VecModel::from(cards))
+}
+
+/// Shows the cards in Appearance, and the person's own in Settings → Themes.
+pub fn show_cards(window: &YapfastWindow, custom: &[Custom]) {
+    window.set_themes(cards(custom));
+    window
+        .global::<yapfast_ui::ThemesPage>()
+        .set_own_count(i32::try_from(custom.len()).unwrap_or(i32::MAX));
 }
 
 /// Appearance's theme editor while it's open: the theme as edited so far,
@@ -863,6 +947,9 @@ pub struct Editor {
     pub base: &'static str,
     pub theme: Theme,
     rows: Rc<VecModel<yapfast_ui::ThemeColour>>,
+    /// The theme creator's choices, while Simple makes the theme: Save
+    /// keeps them, and a package made from them, with the theme.
+    pub creator: Option<Spec>,
 }
 
 impl Editor {
@@ -872,13 +959,14 @@ impl Editor {
             base,
             theme,
             rows: Rc::default(),
+            creator: None,
         };
         editor.fill();
         editor
     }
 
     /// Writes every row again, which also gives each field its text anew.
-    fn fill(&self) {
+    pub fn fill(&self) {
         let rows: Vec<_> = Theme::NAMES
             .iter()
             .enumerate()

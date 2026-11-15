@@ -1,3 +1,4 @@
+import { Cue } from "media.slint";
 // Layered graphite: the rail is darkest, the conversation lightest. Marigold marks
 // selection, primary actions and messages that mention you, red mention counts and
 // destructive actions, green live voice;
@@ -26,9 +27,11 @@ export global Theme {
     in-out property <color> outline-field: #2c2d34;
     /// The ground of a context menu: on a dark theme Discord's panel, a step
     /// above the raised surfaces (40, 40, 45 on its own dark theme).
-    out property <color> menu: self.dark ? self.raised.mix(#ffffff, 0.98) : self.raised;
+    in property <color> menu-set; in property <bool> menu-on;
+    out property <color> menu: self.menu-on ? self.menu-set : self.dark ? self.raised.mix(#ffffff, 0.98) : self.raised;
     /// A context menu's outline (53, 53, 59 on Discord's dark theme).
-    out property <color> menu-line: self.dark ? self.line.mix(#000000, 0.95) : self.line;
+    in property <color> menu-line-set; in property <bool> menu-line-on;
+    out property <color> menu-line: self.menu-line-on ? self.menu-line-set : self.dark ? self.line.mix(#000000, 0.95) : self.line;
     in-out property <color> text: #eef0f4;
     in-out property <color> secondary: #b5b8c1;
     in-out property <color> muted: #8d919c;
@@ -44,8 +47,10 @@ export global Theme {
     in-out property <color> danger-hover: #f46f77;
     /// A destructive menu row's text and icon, Discord's lighter red on a dark theme.
     /// Discord's composer: a hair lighter than a plain field, with a dimmer placeholder.
-    out property <color> composer: self.dark ? self.field.mix(#ffffff, 0.99) : self.field;
-    out property <color> placeholder: self.dark ? self.muted.mix(self.field, 0.66) : self.muted;
+    in property <color> composer-set; in property <bool> composer-on;
+    out property <color> composer: self.composer-on ? self.composer-set : self.dark ? self.field.mix(#ffffff, 0.99) : self.field;
+    in property <color> placeholder-set; in property <bool> placeholder-on;
+    out property <color> placeholder: self.placeholder-on ? self.placeholder-set : self.dark ? self.muted.mix(self.field, 0.66) : self.muted;
     out property <color> danger-text: self.dark ? #fa777c : self.danger;
     /// Text and icons on a danger fill: badges, the LIVE pill, leaving a call.
     in-out property <color> on-danger: #ffffff;
@@ -68,7 +73,329 @@ export global Theme {
     in-out property <color> avatar: #6b7280;
     /// Whether the theme is dark, for the std-widgets that follow the system's scheme.
     in-out property <bool> dark: true;
-    out property <duration> quick: 120ms;
+    /// How long a hover's colour change takes; a theme's motion sets it.
+    in-out property <duration> quick: 120ms;
+
+    // Colours only an installed theme sets, each following another colour
+    // until it does (see src/ui/theme_look.rs).
+    /// The accent drawn as text or an icon on a surface, where a pale or
+    /// dark accent fill wouldn't read.
+    in property <color> accent-text-set; in property <bool> accent-text-on;
+    out property <color> accent-text: self.accent-text-on ? self.accent-text-set : self.accent;
+    /// The tooltip's text.
+    in property <color> on-tooltip-set; in property <bool> on-tooltip-on;
+    out property <color> on-tooltip: self.on-tooltip-on ? self.on-tooltip-set : self.text;
+    /// Selected text's ground.
+    in property <color> selection-set; in property <bool> selection-on;
+    out property <color> selection: self.selection-on ? self.selection-set : self.accent.with-alpha(0.35);
+    /// The ring around what has the keyboard's focus.
+    in property <color> focus-ring-set; in property <bool> focus-ring-on;
+    out property <color> focus-ring: self.focus-ring-on ? self.focus-ring-set : self.accent;
+    /// A scrollbar's thumb, and its track while the pointer is on it.
+    in property <color> scrollbar-set; in property <bool> scrollbar-on;
+    out property <color> scrollbar: self.scrollbar-on ? self.scrollbar-set : self.dark ? #FFFFFF14 : #00000073;
+    in property <color> scrollbar-track-set; in property <bool> scrollbar-track-on;
+    out property <color> scrollbar-track: self.scrollbar-track-on ? self.scrollbar-track-set : self.dark ? #2C2C2C : #f0f0f0;
+    /// The message box's outline while it has the keys.
+    in property <color> composer-focus-set; in property <bool> composer-focus-on;
+    out property <color> composer-focus: self.composer-focus-on ? self.composer-focus-set : self.muted.with-alpha(0.55);
+    /// A selected row's ground (a channel, a settings page) and the pill
+    /// beside a selected or unread server.
+    in property <color> row-selected-set; in property <bool> row-selected-on;
+    out property <color> row-selected: self.row-selected-on ? self.row-selected-set : self.active;
+    in property <color> pill-set; in property <bool> pill-on;
+    out property <color> pill: self.pill-on ? self.pill-set : self.text;
+    /// A switch's track and knob while it's off.
+    in property <color> toggle-off-set; in property <bool> toggle-off-on;
+    out property <color> toggle-off: self.toggle-off-on ? self.toggle-off-set : self.field;
+    in property <color> knob-off-set; in property <bool> knob-off-on;
+    out property <color> knob-off: self.knob-off-on ? self.knob-off-set : self.secondary;
+    /// The grounds of code blocks and of embeds.
+    in property <color> code-set; in property <bool> code-on;
+    out property <color> code: self.code-on ? self.code-set : self.panel;
+    in property <color> embed-set; in property <bool> embed-on;
+    out property <color> embed: self.embed-on ? self.embed-set : self.sidebar;
+    /// Whether the theme sets `hover`, which menus' rows then take over their
+    /// stock wash.
+    in property <bool> hover-on;
+    /// The member list's ground: the conversation's, or the sidebar's
+    /// without Discord's look.
+    in property <color> members-set; in property <bool> members-on;
+    /// The APP tag after a bot's name: Discord's blurple.
+    in property <color> app-badge-set; in property <bool> app-badge-on;
+    out property <color> app-badge: self.app-badge-on ? self.app-badge-set : #5865f2;
+    /// What dims the window behind a dialog.
+    in property <color> scrim-set; in property <bool> scrim-on;
+    /// The dim behind a dialog: a theme's own colour, or what each dialog
+    /// draws.
+    public pure function scrim(stock: color) -> color { self.scrim-on ? self.scrim-set : stock }
+    /// The bar of actions over a message: its ground (`raised`), and a
+    /// button's ground under the pointer there and in the message menu's
+    /// reactions (the stock wash).
+    in property <color> actions-set; in property <bool> actions-on;
+    out property <brush> actions-fill: self.actions-on ? self.actions-set : self.raised-fill;
+    in property <color> actions-hover-set; in property <bool> actions-hover-on;
+    out property <color> actions-hover: self.actions-hover-on ? self.actions-hover-set : transparent;
+    /// Text and icons on a selected row, for an inverse-video selection.
+    in property <color> row-selected-text-set; in property <bool> row-selected-text-on;
+    out property <color> row-selected-text: self.row-selected-text-on ? self.row-selected-text-set : self.text;
+    /// The round buttons over a profile card's banner, under the pointer,
+    /// and their icons.
+    in property <color> card-button-set; in property <bool> card-button-on;
+    out property <color> card-button: self.card-button-on ? self.card-button-set : #00000080;
+    in property <color> card-button-hover-set; in property <bool> card-button-hover-on;
+    out property <color> card-button-hover: self.card-button-hover-on ? self.card-button-hover-set : #000000b3;
+    in property <color> card-button-icon-set; in property <bool> card-button-icon-on;
+    out property <color> card-button-icon: self.card-button-icon-on ? self.card-button-icon-set : #ffffff;
+
+    // Surfaces a theme may paint with a gradient. Each is its colour until a
+    // theme sets a brush.
+    in property <brush> rail-paint; in property <bool> rail-painted;
+    out property <brush> rail-fill: self.rail-painted ? self.rail-paint : self.rail;
+    in property <brush> sidebar-paint; in property <bool> sidebar-painted;
+    out property <brush> sidebar-fill: self.sidebar-painted ? self.sidebar-paint : self.sidebar;
+    in property <brush> chat-paint; in property <bool> chat-painted;
+    out property <brush> chat-fill: self.chat-painted ? self.chat-paint : self.chat;
+    in property <brush> panel-paint; in property <bool> panel-painted;
+    out property <brush> panel-fill: self.panel-painted ? self.panel-paint : self.panel;
+    /// The account panel's ground at the bottom left: the panel's until a
+    /// theme sets `account`.
+    in property <color> account-set; in property <bool> account-on;
+    out property <color> account: self.account-on ? self.account-set : self.panel;
+    out property <brush> account-fill: self.account-on ? self.account-set : self.panel-fill;
+    in property <brush> raised-paint; in property <bool> raised-painted;
+    out property <brush> raised-fill: self.raised-painted ? self.raised-paint : self.raised;
+    in property <brush> accent-paint; in property <bool> accent-painted;
+    out property <brush> accent-fill: self.accent-painted ? self.accent-paint : self.accent;
+}
+
+/// A surface's shape as a theme sets it. A negative radius, border or blur
+/// leaves the stock value; a transparent colour leaves the stock colour.
+export struct Shape {
+    radius: length,
+    border: length,
+    border-color: color,
+    shadow-blur: length,
+    shadow-x: length,
+    shadow-y: length,
+    shadow-color: color,
+}
+
+/// Where a declared animation has moved a slot: its opacity, offset, scale
+/// and rotation in degrees.
+export struct SlotMotion {
+    opacity: float,
+    x: length,
+    y: length,
+    scale: float,
+    rotation: float,
+}
+
+// What an installed theme sets beyond colours: shape, type, spacing, motion,
+// declared animations and text effects. Every default is the stock value, so
+// a window without a theme draws exactly as before, and a protected dialog
+// (sign-in, permissions, install review) is drawn with these reset. Names
+// are public API under theme_api 1; docs/themes.md lists them.
+export global Look {
+    // Shape, for the surfaces a theme names.
+    in property <Shape> button: { radius: -1px, border: -1px, shadow-blur: -1px };
+    in property <Shape> field: { radius: -1px, border: -1px, shadow-blur: -1px };
+    in property <Shape> composer: { radius: -1px, border: -1px, shadow-blur: -1px };
+    in property <Shape> card: { radius: -1px, border: -1px, shadow-blur: -1px };
+    in property <Shape> menu: { radius: -1px, border: -1px, shadow-blur: -1px };
+    in property <Shape> dialog: { radius: -1px, border: -1px, shadow-blur: -1px };
+    in property <Shape> tooltip: { radius: -1px, border: -1px, shadow-blur: -1px };
+    in property <Shape> chip: { radius: -1px, border: -1px, shadow-blur: -1px };
+    in property <Shape> message: { radius: -1px, border: -1px, shadow-blur: -1px };
+    in property <Shape> rail-icon: { radius: -1px, border: -1px, shadow-blur: -1px };
+    /// An avatar's radius is a share of its size, in hundredths: 50 a circle.
+    in property <Shape> avatar: { radius: -1px, border: -1px, shadow-blur: -1px };
+    in property <Shape> tile: { radius: -1px, border: -1px, shadow-blur: -1px };
+    /// Code blocks and embeds: their corners and outline.
+    in property <Shape> code: { radius: -1px, border: -1px, shadow-blur: -1px };
+    in property <Shape> embed: { radius: -1px, border: -1px, shadow-blur: -1px };
+    /// Switches: track and knob; 999 is the stock pill.
+    in property <Shape> toggle: { radius: -1px, border: -1px, shadow-blur: -1px };
+    /// The bar of actions over a message.
+    in property <Shape> actions: { radius: -1px, border: -1px, shadow-blur: -1px };
+    /// A message row's hover, mention and jump bands: their corners and
+    /// how far they keep from the column's sides and the row's top and
+    /// bottom. Unset, the corners follow `message`.
+    in property <Shape> row: { radius: -1px, border: -1px, shadow-blur: -1px };
+    /// The round buttons over a profile card's banner.
+    in property <Shape> card-button: { radius: -1px, border: -1px, shadow-blur: -1px };
+    /// The tiles on a call's stage, and what shows a stream or a shared
+    /// screen (its tile and the picture in picture).
+    in property <Shape> call: { radius: -1px, border: -1px, shadow-blur: -1px };
+    in property <Shape> stream: { radius: -1px, border: -1px, shadow-blur: -1px };
+    /// Notes over the window and the conversation: a toast, the
+    /// zoom level, the new messages and jump to present bars.
+    in property <Shape> toast: { radius: -1px, border: -1px, shadow-blur: -1px };
+    /// The emoji, GIF and sticker pickers.
+    in property <Shape> picker: { radius: -1px, border: -1px, shadow-blur: -1px };
+    /// Popouts from the header and the title bar: pins, threads, the topic,
+    /// adding people, the inbox.
+    in property <Shape> popout: { radius: -1px, border: -1px, shadow-blur: -1px };
+    /// Scrollbars: the thumb's radius, and its width at rest and under the
+    /// pointer; negative leaves stock (a round thumb, 2px and 6px).
+    in property <Shape> scrollbar: { radius: -1px, border: -1px, shadow-blur: -1px };
+    in property <length> scrollbar-width: -1px;
+    in property <length> scrollbar-hover-width: -1px;
+    /// Room kept above a profile card's banner for chrome its art draws.
+    in property <length> card-inset-top;
+    /// An installed or created theme is applied, not a stock palette: its
+    /// profile cards keep the banner inside their border, under their corners.
+    in property <bool> packaged;
+    in property <length> row-inset-x;
+    in property <length> row-inset-y;
+    out property <length> row-radius: self.row.radius >= 0px ? self.row.radius : self.r(self.message, 0px);
+    // Every other corner by its stock size: small (4px and under), medium
+    // (up to 8px) and large.
+    in property <length> radius-small: -1px;
+    in property <length> radius-medium: -1px;
+    in property <length> radius-large: -1px;
+    // Every other shadow: a theme's one shadow, or each stock one.
+    in property <bool> shadows-on;
+    in property <length> shadows-blur;
+    in property <length> shadows-x;
+    in property <length> shadows-y;
+    in property <color> shadows-color;
+
+    /// A stock corner radius, as the theme's size classes have it.
+    public pure function radius(stock: length) -> length {
+        stock <= 0px ? stock
+            : stock <= 4px ? (self.radius-small >= 0px ? self.radius-small : stock)
+            : stock <= 8px ? (self.radius-medium >= 0px ? self.radius-medium : stock)
+            : (self.radius-large >= 0px ? self.radius-large : stock)
+    }
+    public pure function shadow-blur(stock: length) -> length { self.shadows-on ? self.shadows-blur : stock }
+    public pure function shadow-x(stock: length) -> length { self.shadows-on ? self.shadows-x : stock }
+    public pure function shadow-y(stock: length) -> length { self.shadows-on ? self.shadows-y : stock }
+    public pure function shadow-color(stock: color) -> color { self.shadows-on ? self.shadows-color : stock }
+    /// A named surface's radius, border and shadow over the stock values.
+    public pure function r(shape: Shape, stock: length) -> length { shape.radius >= 0px ? shape.radius : self.radius(stock) }
+    public pure function bw(shape: Shape, stock: length) -> length { shape.border >= 0px ? shape.border : self.line(stock) }
+    /// Every outline and rule the stock window draws a pixel wide takes a
+    /// theme's `layout.outline_width`; negative leaves stock.
+    in property <length> outline-width: -1px;
+    public pure function line(stock: length) -> length { self.outline-width >= 0px && stock > 0px && stock <= 1px ? self.outline-width : stock }
+    public pure function bc(shape: Shape, stock: brush) -> brush { shape.border >= 0px && shape.border-color != transparent ? shape.border-color : stock }
+    public pure function sb(shape: Shape, stock: length) -> length { shape.shadow-blur >= 0px ? shape.shadow-blur : self.shadow-blur(stock) }
+    public pure function sx(shape: Shape, stock: length) -> length { shape.shadow-blur >= 0px ? shape.shadow-x : self.shadow-x(stock) }
+    public pure function sy(shape: Shape, stock: length) -> length { shape.shadow-blur >= 0px ? shape.shadow-y : self.shadow-y(stock) }
+    public pure function sc(shape: Shape, stock: color) -> color { shape.shadow-blur >= 0px ? shape.shadow-color : self.shadow-color(stock) }
+
+    // Type: a typeface per role, registered from the theme's own files, and
+    // its size, weight and letter spacing. Empty and negative leave stock.
+    in property <string> font-body;
+    in property <string> font-headings;
+    in property <string> font-names;
+    in property <string> font-code;
+    in property <string> font-labels;
+    in property <length> size-headings: -1px;
+    in property <length> size-names: -1px;
+    in property <length> size-code: -1px;
+    in property <length> size-labels: -1px;
+    in property <int> weight-body: -1;
+    in property <int> weight-headings: -1;
+    /// The open conversation's and the server's names, and page and dialog
+    /// titles, apart from other headings; negative follows headings.
+    in property <length> size-header: -1px;
+    in property <length> size-title: -1px;
+    in property <int> weight-names: -1;
+    in property <int> weight-labels: -1;
+    in property <length> spacing-body;
+    in property <length> spacing-headings;
+    in property <length> spacing-names;
+    in property <length> spacing-labels;
+    in property <bool> headings-upper;
+    out property <string> mono: self.font-code != "" ? self.font-code : "monospace";
+    public pure function heading-font(stock: string) -> string { self.font-headings != "" ? self.font-headings : stock }
+    public pure function heading-size(stock: length) -> length { self.size-headings >= 0px ? self.size-headings : stock }
+    public pure function header-size(stock: length) -> length { self.size-header >= 0px ? self.size-header : self.heading-size(stock) }
+    public pure function title-size(stock: length) -> length { self.size-title >= 0px ? self.size-title : self.heading-size(stock) }
+    public pure function heading-weight(stock: int) -> int { self.weight-headings >= 0 ? self.weight-headings : stock }
+    public pure function heading(text: string) -> string { self.headings-upper ? text.to-uppercase() : text }
+    public pure function name-font(stock: string) -> string { self.font-names != "" ? self.font-names : stock }
+    public pure function name-size(stock: length) -> length { self.size-names >= 0px ? self.size-names : stock }
+    public pure function name-weight(stock: int) -> int { self.weight-names >= 0 ? self.weight-names : stock }
+    public pure function label-font(stock: string) -> string { self.font-labels != "" ? self.font-labels : stock }
+    public pure function label-size(stock: length) -> length { self.size-labels >= 0px ? self.size-labels : stock }
+    public pure function label-weight(stock: int) -> int { self.weight-labels >= 0 ? self.weight-labels : stock }
+    public pure function code-size(stock: length) -> length { self.size-code >= 0px ? self.size-code : stock }
+    /// Readable text is on for the theme shown: the open conversation's and
+    /// the server's names over the lists, which are names to read, take the
+    /// stock face, weight and spacing; decorative titles keep the theme's.
+    in property <bool> readable;
+    public pure function header-font(stock: string) -> string { self.readable ? stock : self.heading-font(stock) }
+    public pure function header-weight(stock: int) -> int { self.readable ? stock : self.heading-weight(stock) }
+    out property <length> header-spacing: self.readable ? 0px : self.spacing-headings;
+
+    // Spacing beyond ClientStyle's: the message avatar, the chat's side
+    // padding and the member list's rows. Negative leaves stock.
+    in property <length> avatar-size: -1px;
+    in property <length> chat-padding: -1px;
+    in property <length> member-row-height: -1px;
+
+    // Motion. `hover` 0 fade (stock), 1 none, 2 lift, 3 glow, 4 scale;
+    // `press` 0 none, 1 scale, 2 sink; `open` 0 grow (stock), 1 none,
+    // 2 fade, 3 zoom, 4 pop; `close-instant` closes popups at once.
+    in property <int> hover;
+    in property <int> press;
+    in property <int> open;
+    in property <bool> close-instant;
+    /// The curve things move on, by its index in Curve::ALL.
+    in property <int> curve: 3;
+    in property <duration> popup: 100ms;
+    out property <easing> curve-easing: self.curve == 0 ? linear : self.curve == 1 ? ease : self.curve == 2 ? ease-in
+        : self.curve == 4 ? ease-in-out : self.curve == 5 ? ease-out-back : self.curve == 6 ? ease-out-bounce
+        : self.curve == 7 ? ease-out-elastic : ease-out-quad;
+    /// A button's or row's lift, glow and scale for its hover and press.
+    public pure function lift(hovered: bool, pressed: bool) -> length {
+        (hovered && self.hover == 2 && !pressed ? -1px : 0px) + (pressed && self.press == 2 ? 1px : 0px)
+    }
+    public pure function grow(hovered: bool, pressed: bool) -> float {
+        pressed && self.press == 1 ? 0.96 : hovered && self.hover == 4 ? 1.04 : 1
+    }
+    public pure function halo(hovered: bool) -> length { hovered && (self.hover == 2 || self.hover == 3) ? (self.hover == 3 ? 14px : 8px) : 0px }
+    public pure function halo-color(hovered: bool, glow: color) -> color {
+        hovered && self.hover == 3 ? glow.with-alpha(0.55) : hovered && self.hover == 2 ? #00000055 : transparent
+    }
+
+    // Declared animations, by slot; src/ui/theme_look.rs moves them.
+    in property <SlotMotion> home: { opacity: 1, scale: 1 };
+    in property <SlotMotion> unread: { opacity: 1, scale: 1 };
+    in property <SlotMotion> mention: { opacity: 1, scale: 1 };
+    in property <SlotMotion> typing: { opacity: 1, scale: 1 };
+    in property <SlotMotion> channel-name: { opacity: 1, scale: 1 };
+    in property <SlotMotion> server-name: { opacity: 1, scale: 1 };
+    in property <SlotMotion> profile-name: { opacity: 1, scale: 1 };
+    in property <SlotMotion> own-avatar: { opacity: 1, scale: 1 };
+    /// A layer over the whole window that takes no input.
+    in property <color> window-tint: transparent;
+
+    // Text effects: whether each text slot plays one, and the text it shows
+    // at `tick`, which advances only while one is playing.
+    in property <bool> fx-channel;
+    in property <bool> fx-server;
+    in property <bool> fx-profile;
+    in property <bool> fx-settings;
+    in property <bool> fx-welcome;
+    in property <int> fx-tick;
+    /// The text slot (its index in TextSlot::ALL), the text, and the tick.
+    pure callback fx(int, string, int) -> string;
+    public pure function channel-text(text: string) -> string { self.fx-channel ? self.fx(0, text, self.fx-tick) : text }
+    public pure function server-text(text: string) -> string { self.fx-server ? self.fx(1, text, self.fx-tick) : text }
+    public pure function profile-text(text: string) -> string { self.fx-profile ? self.fx(2, text, self.fx-tick) : text }
+    public pure function settings-text(text: string) -> string { self.fx-settings ? self.fx(3, text, self.fx-tick) : text }
+    public pure function welcome-text(text: string) -> string { self.fx-welcome ? self.fx(4, text, self.fx-tick) : text }
+    /// A name under the pointer decrypts once (`art.events.name_hover`):
+    /// `name-hover` starts it as the pointer comes onto the name.
+    in property <bool> fx-name;
+    callback name-hover(string);
+    public pure function name-text(text: string, hovered: bool) -> string { self.fx-name && hovered ? self.fx(5, text, self.fx-tick) : text }
+    /// What's playing in a theme's top bar, decrypting as it changes.
+    public pure function bar-text(text: string, on: bool) -> string { on && text != "" ? self.fx(6, text, self.fx-tick) : text }
 }
 
 // One tooltip for the whole window, drawn above everything else.
@@ -138,6 +465,9 @@ export global Looks {
     in-out property <bool> name-styles: true;
     in-out property <bool> server-tags: true;
     in-out property <bool> profile-frames: true;
+    /// Settings → Appearance → Readable text: every theme draws reading
+    /// text in the stock face, without text effects.
+    in-out property <bool> readable-text;
 }
 
 export global Badges {
@@ -152,10 +482,15 @@ export global Popup {
     /// fading card into a layer as large as what changed, which is the
     /// whole window under a dimmed backdrop, so there the card only grows.
     in property <bool> fade: true;
-    out property <duration> duration: 100ms;
-    /// The card's size and opacity for how far it's open, from 0 to 1.
-    public pure function scale(amount: float) -> float { 0.8 + 0.2 * amount }
-    public pure function opacity(amount: float) -> float { root.fade ? amount : (amount > 0 ? 1 : 0) }
+    /// A theme's open transition sets how long and on what curve.
+    out property <duration> duration: Look.open == 1 ? 0ms : Look.popup;
+    /// The card's size and opacity for how far it's open, from 0 to 1: it
+    /// grows from 80% (stock), shows at once, only fades, grows from 95%, or
+    /// overshoots on its curve, as a theme's `motion.open` says.
+    public pure function scale(amount: float) -> float {
+        Look.open == 1 || Look.open == 2 ? 1 : Look.open == 3 ? 0.95 + 0.05 * amount : 0.8 + 0.2 * amount
+    }
+    public pure function opacity(amount: float) -> float { root.fade && Look.open != 1 ? amount : (amount > 0 ? 1 : 0) }
 }
 
 // The way in and out of a popup shown with `if`: `amount` goes from 0 to
@@ -166,6 +501,6 @@ export component PopupMotion {
     out property <float> amount;
     out property <bool> shown: self.open || self.amount > 0;
     init => { if self.open { self.amount = 1; } }
-    changed open => { self.amount = self.open ? 1 : 0; }
-    animate amount { duration: Popup.duration; easing: ease-out-quad; }
+    changed open => { self.amount = self.open ? 1 : 0; Cue.popped(self.open); }
+    animate amount { duration: !self.open && Look.close-instant ? 0ms : Popup.duration; easing: Look.open == 4 ? ease-out-back : Look.curve-easing; }
 }

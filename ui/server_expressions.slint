@@ -1,4 +1,7 @@
-import { Theme, Middle, Label } from "theme.slint";
+import { IconPack } from "media.slint";
+import { Theme, Middle, Label, Look } from "theme.slint";
+import { Art, ArtLayer } from "theme_art.slint";
+import { DialogFrame } from "theme_layout.slint";
 import { ActionButton, Avatar, IconButton, TextField, PictureStore } from "controls.slint";
 import { SettingsTitle, SettingsHeading } from "settings.slint";
 import { ListView } from "scrollview.slint";
@@ -92,7 +95,7 @@ export component EmojiSection inherits VerticalLayout {
     callback act(int, string, string);
     callback upload;
     spacing: 16px;
-    SettingsTitle { text: "Emoji"; }
+    SettingsTitle { title: "Emoji"; }
     Label {
         text: "Add up to " + root.page.slots + " custom emojis that anyone can use in this server. Animated GIF emojis may be used by members with Discord Nitro. Emoji names must be at least 2 characters long and can only contain alphanumeric characters and underscores. Emoji must be under 256 KB in size.";
     }
@@ -110,7 +113,7 @@ export component EmojiSection inherits VerticalLayout {
         for row in root.page.rows: Rectangle {
             height: row.heading != "" ? 72px : 52px;
             background: row.heading == "" && hover.has-hover ? Theme.overlay.with-alpha(0.06) : transparent;
-            border-radius: 6px;
+            border-radius: Look.radius(6px);
             hover := TouchArea { }
             if row.heading != "": VerticalLayout {
                 padding-top: 16px; padding-left: 8px; padding-right: 8px; spacing: 8px;
@@ -158,7 +161,7 @@ export component EmojiSection inherits VerticalLayout {
                 }
                 Middle {
                     IconButton {
-                        icon: @image-url("icons/x.svg"); label: "Delete"; size: 32px; glyph: 18px; danger: true;
+                        icon: IconPack.x; label: "Delete"; size: 32px; glyph: 18px; danger: true;
                         enabled: row.may-change;
                         opacity: row.may-change && (hover.has-hover || self.hovered) ? 1 : 0;
                         clicked => { root.act(1, row.id, ""); }
@@ -175,7 +178,7 @@ export component EmojiUploadDialog inherits Rectangle {
     in property <EmojiPrompt> page;
     /// 2 the name typed, 3 upload, 4 cancel.
     callback act(int, string);
-    background: #000000aa;
+    background: Theme.scrim(#000000aa);
     TouchArea { clicked => { if !root.page.saving { root.act(4, ""); } } }
     // The field follows the name as Discord's makes it.
     property <string> wanted: root.page.name;
@@ -188,14 +191,22 @@ export component EmojiUploadDialog inherits Rectangle {
         Rectangle {
             width: 440px; height: box.preferred-height;
             x: (root.width - self.width) / 2; y: (root.height - self.height) / 2;
-            background: Theme.chat; border-radius: 8px;
+            background: Art.glass-dialog ? transparent : Theme.chat-fill; border-radius: Look.r(Look.dialog, 8px);
+            // A dialog's shape, art and glass.
+            border-width: Look.bw(Look.dialog, 0px); border-color: Look.bc(Look.dialog, transparent);
+            drop-shadow-blur: Look.sb(Look.dialog, 0px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, transparent); drop-shadow-offset-y: Look.sy(Look.dialog, 0px);
+            if Art.dialog.length > 0 || Art.glass-dialog: ArtLayer {
+                x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.dialog, 8px);
+                layers: Art.dialog; glass: Art.glass-dialog; ground: Theme.chat-fill;
+            }
+            DialogFrame { x: 0px; y: 0px; z: 100; }
             accessible-role: groupbox; accessible-label: "Upload Emoji";
             TouchArea { }
             box := VerticalLayout {
                 padding: 16px; spacing: 14px;
-                Text { text: "Upload Emoji"; color: Theme.text; font-size: 20px; font-weight: 700; }
+                Text { text: "Upload Emoji"; color: Theme.text; font-size: Look.title-size(20px); font-weight: Look.heading-weight(700); font-family: Look.heading-font(""); }
                 Rectangle {
-                    height: 144px; border-radius: 8px; background: Theme.sunken;
+                    height: 144px; border-radius: Look.radius(8px); background: Theme.sunken;
                     HorizontalLayout {
                         alignment: center; spacing: 24px;
                         for size in [128px, 48px, 22px]: Middle {
@@ -234,7 +245,7 @@ component StickerTileView inherits Rectangle {
     in property <StickerTile> tile;
     callback edit;
     callback delete;
-    border-radius: 8px;
+    border-radius: Look.radius(8px);
     background: hover.has-hover ? Theme.overlay.with-alpha(0.08) : Theme.overlay.with-alpha(0.03);
     accessible-role: groupbox; accessible-label: root.tile.name;
     hover := TouchArea { }
@@ -248,8 +259,8 @@ component StickerTileView inherits Rectangle {
         x: parent.width - self.preferred-width - 4px; y: 4px; width: self.preferred-width; height: 28px;
         spacing: 2px;
         opacity: hover.has-hover || edit.hovered || delete.hovered ? 1 : 0;
-        edit := IconButton { icon: @image-url("icons/pencil.svg"); label: "Edit"; size: 28px; glyph: 16px; fill: Theme.raised; clicked => { root.edit(); } }
-        delete := IconButton { icon: @image-url("icons/x.svg"); label: "Delete"; size: 28px; glyph: 16px; danger: true; fill: Theme.raised; clicked => { root.delete(); } }
+        edit := IconButton { icon: IconPack.pencil; label: "Edit"; size: 28px; glyph: 16px; fill: Theme.raised; clicked => { root.edit(); } }
+        delete := IconButton { icon: IconPack.x; label: "Delete"; size: 28px; glyph: 16px; danger: true; fill: Theme.raised; clicked => { root.delete(); } }
     }
 }
 
@@ -261,17 +272,17 @@ export component StickersSection inherits VerticalLayout {
     /// 0 open the form for a new sticker, 1 edit one by id, 7 delete one.
     callback act(int, string);
     spacing: 16px;
-    SettingsTitle { text: "Stickers"; }
+    SettingsTitle { title: "Stickers"; }
     Label { text: "Stickers can be static (JPG, PNG) or animated (APNG, GIF). Stickers must be exactly 320 x 320 pixels and no larger than 512 KB. We will automatically resize static JPG, PNG and animated GIF stickers for you."; }
     for card in root.page.cards: Rectangle {
-        border-radius: 8px; background: Theme.overlay.with-alpha(0.03);
-        border-width: 1px; border-color: Theme.line;
+        border-radius: Look.radius(8px); background: Theme.overlay.with-alpha(0.03);
+        border-width: Look.line(1px); border-color: Theme.line;
         height: inner.preferred-height;
         inner := VerticalLayout {
             padding: 16px; spacing: 12px;
             HorizontalLayout {
                 spacing: 8px;
-                if !card.unlocked: Middle { Image { source: @image-url("icons/lock.svg"); width: 16px; height: 16px; colorize: Theme.secondary; } }
+                if !card.unlocked: Middle { Image { source: IconPack.lock; width: 16px; height: 16px; colorize: IconPack.tint(self.source, Theme.secondary); } }
                 Text { text: card.title; color: Theme.text; font-size: 16px; font-weight: 700; vertical-alignment: center; }
                 Rectangle { horizontal-stretch: 1; }
                 Text { text: card.status; color: Theme.secondary; font-size: 14px; vertical-alignment: center; }
@@ -290,14 +301,14 @@ export component StickersSection inherits VerticalLayout {
                 }
                 if card.next && root.page.may-upload: Rectangle {
                     x: mod(card.tiles.length, inner.columns) * 152px; y: floor(card.tiles.length / inner.columns) * 172px;
-                    width: 140px; height: 160px; border-radius: 8px;
+                    width: 140px; height: 160px; border-radius: Look.radius(8px);
                     border-width: 2px; border-color: add.has-hover ? Theme.secondary : Theme.line;
                     accessible-role: button; accessible-label: "Upload Sticker";
                     accessible-action-default => { root.act(0, ""); }
                     add := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.act(0, ""); } }
                     VerticalLayout {
                         alignment: center; spacing: 8px;
-                        HorizontalLayout { alignment: center; Image { source: @image-url("icons/circle-plus.svg"); width: 32px; height: 32px; colorize: Theme.secondary; } }
+                        HorizontalLayout { alignment: center; Image { source: IconPack.circle-plus; width: 32px; height: 32px; colorize: IconPack.tint(self.source, Theme.secondary); } }
                         Text { text: "Upload Sticker"; color: Theme.secondary; font-size: 14px; font-weight: 600; horizontal-alignment: center; }
                     }
                 }
@@ -314,7 +325,7 @@ export component StickerDialog inherits Rectangle {
     /// 6 cancel.
     callback act(int, string);
     callback browse;
-    background: #000000aa;
+    background: Theme.scrim(#000000aa);
     TouchArea { clicked => { if !root.page.saving { root.act(6, ""); } } }
     // The fields follow the form as the core cuts it.
     property <string> wanted-name: root.page.name;
@@ -333,14 +344,22 @@ export component StickerDialog inherits Rectangle {
         Rectangle {
             width: 520px; height: box.preferred-height;
             x: (root.width - self.width) / 2; y: (root.height - self.height) / 2;
-            background: Theme.chat; border-radius: 8px;
+            background: Art.glass-dialog ? transparent : Theme.chat-fill; border-radius: Look.r(Look.dialog, 8px);
+            // A dialog's shape, art and glass.
+            border-width: Look.bw(Look.dialog, 0px); border-color: Look.bc(Look.dialog, transparent);
+            drop-shadow-blur: Look.sb(Look.dialog, 0px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, transparent); drop-shadow-offset-y: Look.sy(Look.dialog, 0px);
+            if Art.dialog.length > 0 || Art.glass-dialog: ArtLayer {
+                x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.dialog, 8px);
+                layers: Art.dialog; glass: Art.glass-dialog; ground: Theme.chat-fill;
+            }
+            DialogFrame { x: 0px; y: 0px; z: 100; }
             accessible-role: groupbox; accessible-label: "Upload Sticker";
             TouchArea { }
             box := VerticalLayout {
                 padding: 16px; spacing: 14px;
-                Text { text: root.page.editing ? "Edit Sticker" : "Upload Sticker"; color: Theme.text; font-size: 20px; font-weight: 700; }
+                Text { text: root.page.editing ? "Edit Sticker" : "Upload Sticker"; color: Theme.text; font-size: Look.title-size(20px); font-weight: Look.heading-weight(700); font-family: Look.heading-font(""); }
                 Rectangle {
-                    height: 180px; border-radius: 8px; background: Theme.sunken;
+                    height: 180px; border-radius: Look.radius(8px); background: Theme.sunken;
                     if root.page.preview-url != "": UrlPicture { width: 160px; height: 160px; url: root.page.preview-url; accessible-role: image; accessible-label: "Preview"; }
                     if root.page.preview-url == "" && root.page.has-file: Image { width: 160px; height: 160px; source: root.page.preview; image-fit: contain; accessible-role: image; accessible-label: "Preview"; }
                     if root.page.preview-url == "" && !root.page.has-file: Text { text: "Preview"; color: Theme.muted; font-size: 14px; }

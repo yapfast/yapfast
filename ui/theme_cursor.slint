@@ -1,0 +1,26 @@
+// A theme's cursor trail (`cursors.trail`): sprites cut from one sheet that
+// fade behind the pointer while it moves. src/ui/theme_cursor.rs moves them,
+// at most 60 times a second and only while some are alive; with none the
+// layer isn't made. It takes no input.
+
+/// One sprite: where its centre is, how large and how opaque it shows, and
+/// the square of the sheet it's cut from, in the sheet's pixels.
+export struct TrailSprite { x: length, y: length, size: length, opacity: float, cx: int, cy: int, cw: int }
+
+export global CursorTrail {
+    in property <[TrailSprite]> sprites;
+    in property <image> sheet;
+}
+
+export component CursorTrailLayer inherits Rectangle {
+    accessible-role: none;
+    for sprite in CursorTrail.sprites: Image {
+        x: sprite.x - sprite.size / 2; y: sprite.y - sprite.size / 2;
+        width: sprite.size; height: sprite.size;
+        source: CursorTrail.sheet;
+        source-clip-x: sprite.cx; source-clip-y: sprite.cy;
+        source-clip-width: sprite.cw; source-clip-height: sprite.cw;
+        opacity: sprite.opacity;
+        accessible-role: none;
+    }
+}

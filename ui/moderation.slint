@@ -1,4 +1,7 @@
-import { Theme, Middle, Label, Tip } from "theme.slint";
+import { IconPack } from "media.slint";
+import { Theme, Middle, Label, Tip, Look } from "theme.slint";
+import { Art, ArtLayer } from "theme_art.slint";
+import { DialogFrame } from "theme_layout.slint";
 import { ActionButton, Avatar, TextField } from "controls.slint";
 import { Picker, SettingsTitle, SettingsHeading, SettingsSwitch } from "settings.slint";
 import { ListView } from "scrollview.slint";
@@ -106,7 +109,7 @@ component SafetyChoices inherits VerticalLayout {
         property <bool> usable: root.enabled && option.enabled;
         property <bool> on: option.value == root.chosen;
         height: line.preferred-height;
-        border-radius: 6px;
+        border-radius: Look.radius(6px);
         background: self.on ? Theme.overlay.with-alpha(0.08) : area.has-hover && self.usable ? Theme.overlay.with-alpha(0.05) : transparent;
         opacity: option.enabled ? 1 : 0.5;
         accessible-role: checkbox; accessible-label: option.title; accessible-checked: self.on;
@@ -117,9 +120,9 @@ component SafetyChoices inherits VerticalLayout {
             padding: 10px; spacing: 12px;
             Middle {
                 Rectangle {
-                    width: 20px; height: 20px; border-radius: 10px;
+                    width: 20px; height: 20px; border-radius: Look.radius(10px);
                     border-width: 2px; border-color: choice.on ? Theme.accent : Theme.secondary;
-                    if choice.on: Rectangle { width: 10px; height: 10px; border-radius: 5px; background: Theme.accent; }
+                    if choice.on: Rectangle { width: 10px; height: 10px; border-radius: Look.radius(5px); background: Theme.accent-fill; }
                 }
             }
             VerticalLayout {
@@ -144,7 +147,7 @@ export component SafetySection inherits VerticalLayout {
     /// by its value.
     callback choose(int, int);
     spacing: 16px;
-    SettingsTitle { text: "Safety Setup"; }
+    SettingsTitle { title: "Safety Setup"; }
     VerticalLayout {
         spacing: 8px;
         SettingsHeading { text: "VERIFICATION LEVEL"; }
@@ -165,7 +168,7 @@ export component SafetySection inherits VerticalLayout {
             toggled(on) => { root.choose(2, on ? 1 : 0); }
         }
         if root.page.mfa-note != "": Rectangle {
-            border-radius: 6px; background: Theme.sunken;
+            border-radius: Look.radius(6px); background: Theme.sunken;
             height: note.preferred-height + 20px;
             note := Text {
                 x: 12px; width: parent.width - 24px;
@@ -193,7 +196,7 @@ export component BansSection inherits VerticalLayout {
     /// 0 the search's text, 1 search, 2 go to a page, 3 show a ban by id.
     callback act(int, string, int);
     spacing: 16px;
-    SettingsTitle { text: "Server Ban List"; }
+    SettingsTitle { title: "Server Ban List"; }
     Label { text: "Bans by default are by account and IP.\nA user can circumvent an IP ban by using a proxy.\nBan circumvention can be made very hard by enabling phone verification in Safety Setup."; }
     HorizontalLayout {
         spacing: 8px;
@@ -217,7 +220,7 @@ export component BansSection inherits VerticalLayout {
     if root.page.rows.length > 0: ListView {
         vertical-stretch: 1; min-height: 120px;
         for ban in root.page.rows: Rectangle {
-            height: 60px; border-radius: 6px;
+            height: 60px; border-radius: Look.radius(6px);
             background: area.has-hover ? Theme.overlay.with-alpha(0.06) : transparent;
             accessible-role: button; accessible-label: ban.name;
             accessible-action-default => { root.act(3, ban.id, 0); }
@@ -255,7 +258,7 @@ export component BanDialog inherits Rectangle {
     in property <BansPrompt> page;
     callback unban;
     callback close;
-    background: #000000aa;
+    background: Theme.scrim(#000000aa);
     TouchArea { clicked => { root.close(); } }
     FocusScope {
         init => { self.focus(); }
@@ -266,12 +269,20 @@ export component BanDialog inherits Rectangle {
         Rectangle {
             width: 440px; height: box.preferred-height;
             x: (root.width - self.width) / 2; y: (root.height - self.height) / 2;
-            background: Theme.chat; border-radius: 8px;
+            background: Art.glass-dialog ? transparent : Theme.chat-fill; border-radius: Look.r(Look.dialog, 8px);
+            // A dialog's shape, art and glass.
+            border-width: Look.bw(Look.dialog, 0px); border-color: Look.bc(Look.dialog, transparent);
+            drop-shadow-blur: Look.sb(Look.dialog, 0px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, transparent); drop-shadow-offset-y: Look.sy(Look.dialog, 0px);
+            if Art.dialog.length > 0 || Art.glass-dialog: ArtLayer {
+                x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.dialog, 8px);
+                layers: Art.dialog; glass: Art.glass-dialog; ground: Theme.chat-fill;
+            }
+            DialogFrame { x: 0px; y: 0px; z: 100; }
             accessible-role: groupbox; accessible-label: root.page.open-name;
             TouchArea { }
             box := VerticalLayout {
                 padding: 16px; spacing: 12px;
-                Text { text: root.page.open-name; color: Theme.text; font-size: 20px; font-weight: 700; overflow: elide; }
+                Text { text: root.page.open-name; color: Theme.text; font-size: Look.title-size(20px); font-weight: Look.heading-weight(700); font-family: Look.heading-font(""); overflow: elide; }
                 VerticalLayout {
                     spacing: 4px;
                     Text { text: "Ban Reason"; color: Theme.text; font-size: 15px; font-weight: 500; }
@@ -318,7 +329,7 @@ export component AuditLogSection inherits VerticalLayout {
     spacing: 16px;
     HorizontalLayout {
         spacing: 16px;
-        Middle { horizontal-stretch: 1; SettingsTitle { text: "Audit Log"; } }
+        Middle { horizontal-stretch: 1; SettingsTitle { title: "Audit Log"; } }
         // Discord's client ignores a filter while it's fetching.
         AuditFilter {
             label: "Filter by User"; options: root.page.users; chosen: root.page.user;
@@ -356,13 +367,13 @@ export component AuditLogSection inherits VerticalLayout {
             property <bool> open: index == root.page.open;
             padding-bottom: 8px;
             Rectangle {
-                border-radius: 8px; border-width: 1px; border-color: Theme.line;
+                border-radius: Look.radius(8px); border-width: Look.line(1px); border-color: Theme.line;
                 background: Theme.overlay.with-alpha(0.02);
                 VerticalLayout {
                     Rectangle {
                         height: head.preferred-height;
                         background: area.has-hover && row.expandable ? Theme.overlay.with-alpha(0.04) : transparent;
-                        border-radius: 8px;
+                        border-radius: Look.radius(8px);
                         accessible-role: button;
                         accessible-label: row.time;
                         accessible-expandable: row.expandable;
@@ -378,8 +389,8 @@ export component AuditLogSection inherits VerticalLayout {
                             }
                             if row.expandable: Middle {
                                 Image {
-                                    source: open ? @image-url("icons/chevron-down.svg") : @image-url("icons/chevron-right.svg");
-                                    width: 18px; height: 18px; colorize: Theme.muted;
+                                    source: open ? IconPack.chevron-down : IconPack.chevron-right;
+                                    width: 18px; height: 18px; colorize: IconPack.tint(self.source, Theme.muted);
                                 }
                             }
                         }
@@ -397,7 +408,7 @@ export component AuditLogSection inherits VerticalLayout {
                             padding-left: line.number == "" ? 52px : 0px;
                             if line.number != "": Text {
                                 text: line.number + "—"; font-size: 14px; font-weight: 600;
-                                color: row.kind == 0 ? Theme.live : row.kind == 2 ? Theme.danger : Theme.accent;
+                                color: row.kind == 0 ? Theme.live : row.kind == 2 ? Theme.danger : Theme.accent-text;
                             }
                             StyledText {
                                 horizontal-stretch: 1; text: line.text;

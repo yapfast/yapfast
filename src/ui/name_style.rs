@@ -25,9 +25,9 @@ fn contrast_needed(effect: u8) -> f64 {
     }
 }
 
-type Rgb = (f64, f64, f64);
+pub(super) type Rgb = (f64, f64, f64);
 
-fn unpack(rgb: u32) -> Rgb {
+pub(super) fn unpack(rgb: u32) -> Rgb {
     (
         f64::from((rgb >> 16) as u8),
         f64::from((rgb >> 8) as u8),
@@ -35,13 +35,13 @@ fn unpack(rgb: u32) -> Rgb {
     )
 }
 
-fn pack((r, g, b): Rgb) -> u32 {
+pub(super) fn pack((r, g, b): Rgb) -> u32 {
     let byte = |value: f64| u32::from(value.round().clamp(0., 255.) as u8);
     byte(r) << 16 | byte(g) << 8 | byte(b)
 }
 
 /// Hue in degrees, saturation and lightness from 0 to 1.
-fn to_hsl((r, g, b): Rgb) -> (f64, f64, f64) {
+pub(super) fn to_hsl((r, g, b): Rgb) -> (f64, f64, f64) {
     let (r, g, b) = (r / 255., g / 255., b / 255.);
     let (max, min) = (r.max(g).max(b), r.min(g).min(b));
     let lightness = (max + min) / 2.;
@@ -60,7 +60,7 @@ fn to_hsl((r, g, b): Rgb) -> (f64, f64, f64) {
     (hue * 60., saturation, lightness)
 }
 
-fn from_hsl(hue: f64, saturation: f64, lightness: f64) -> Rgb {
+pub(super) fn from_hsl(hue: f64, saturation: f64, lightness: f64) -> Rgb {
     let chroma = (1. - (2. * lightness - 1.).abs()) * saturation;
     let sector = hue.rem_euclid(360.) / 60.;
     let x = chroma * (1. - (sector % 2. - 1.).abs());
@@ -96,7 +96,7 @@ fn contrast(a: Rgb, b: Rgb) -> f64 {
 /// `colour` made lighter on a dark `ground` and darker on a light one, five
 /// percent of lightness at a time and at most ten times, until it has `ratio`
 /// against `ground`.
-fn readable(color: u32, ground: u32, ratio: f64) -> u32 {
+pub(super) fn readable(color: u32, ground: u32, ratio: f64) -> u32 {
     let ground = unpack(ground);
     let lighter = luminance(ground) <= 0.5;
     let mut color = unpack(color);
@@ -195,7 +195,11 @@ thread_local! {
 /// on a light one, or nothing for no style. Rows wearing the same style share
 /// them.
 pub(super) fn row(style: Option<&NameStyle>, name: &str) -> ModelRc<NameStyleRow> {
-    let Some(style) = style.filter(|style| !style.colors().is_empty()) else {
+    // A theme's `content` may draw every name its own way.
+    let Some(style) = style
+        .filter(|style| !style.colors().is_empty())
+        .filter(|_| !super::theme_content::plain_names())
+    else {
         return ModelRc::default();
     };
     let named = if style.effect == 8 { name } else { "" };

@@ -1,12 +1,22 @@
+import { Look } from "../theme.slint";
+
 // Yapfast presentation values. Keep shared widget behavior in the shared components.
 // Disabled for comparisons with the inherited interface.
 export global ClientStyle {
     in-out property <bool> enabled: true;
     // An open-licensed, bundled face gives every platform the same text metrics.
     in-out property <string> native-font: "DM Sans";
-    out property <string> font-family: self.enabled ? self.native-font : "Atkinson Hyperlegible Next";
-    out property <length> text-size: self.enabled ? 15px : 16px;
-    out property <length> sidebar-width: self.enabled ? 304px : 240px;
+    // Sizes an installed theme chose, in place of those below; negative
+    // leaves them. src/ui/theme_look.rs sets them.
+    in property <length> text-size-theme: -1px;
+    in property <length> sidebar-width-theme: -1px;
+    in property <length> members-width-theme: -1px;
+    in property <length> channel-row-height-theme: -1px;
+    in property <length> message-gap-theme: -1px;
+    in property <length> message-group-gap-theme: -1px;
+    out property <string> font-family: Look.font-body != "" ? Look.font-body : self.enabled ? self.native-font : "Atkinson Hyperlegible Next";
+    out property <length> text-size: self.text-size-theme >= 0px ? self.text-size-theme : self.enabled ? 15px : 16px;
+    out property <length> sidebar-width: self.sidebar-width-theme >= 0px ? self.sidebar-width-theme : self.enabled ? 304px : 240px;
     // Discord's header rows: 48px between its outline and the line under them, 50px with both.
     out property <length> header-height: self.enabled ? 50px : 48px;
     out property <length> account-inset: self.enabled ? 8px : 0px;
@@ -16,12 +26,12 @@ export global ClientStyle {
     out property <length> folder-tile: 48px;
     out property <length> folder-radius: self.enabled ? 16px : 16px;
     // Discord's member list: its 1px edge and 264px of rows.
-    out property <length> members-width: self.enabled ? 265px : 240px;
+    out property <length> members-width: self.members-width-theme >= 0px ? self.members-width-theme : self.enabled ? 265px : 240px;
     out property <length> profile-width: self.enabled ? 320px : 300px;
     out property <length> dm-row-height: 42px;
-    out property <length> channel-row-height: self.enabled ? 32px : 34px;
-    out property <length> message-gap: self.enabled ? 0px : 3px;
-    out property <length> message-group-gap: self.enabled ? 16px : 14px;
+    out property <length> channel-row-height: self.channel-row-height-theme >= 0px ? self.channel-row-height-theme : self.enabled ? 32px : 34px;
+    out property <length> message-gap: self.message-gap-theme >= 0px ? self.message-gap-theme : self.enabled ? 0px : 3px;
+    out property <length> message-group-gap: self.message-group-gap-theme >= 0px ? self.message-group-gap-theme : self.enabled ? 16px : 14px;
     out property <length> profile-inset: self.enabled ? 8px : 0px;
     out property <length> composer-height: self.enabled ? 58px : 48px;
     out property <length> composer-padding: self.enabled ? 18px : 12px;

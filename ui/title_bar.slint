@@ -1,3 +1,4 @@
+import { IconPack } from "media.slint";
 import { Theme } from "theme.slint";
 
 // One of the title bar's window buttons: a glyph on a ground that shows on hover.
@@ -14,7 +15,7 @@ component WindowButton inherits Rectangle {
     accessible-action-default => { root.clicked(); }
     Image {
         source: root.icon; width: 16px; height: 16px;
-        colorize: pointer.has-hover ? Theme.text : root.dim ? Theme.faint : Theme.secondary;
+        colorize: IconPack.tint(self.source, pointer.has-hover ? Theme.text : root.dim ? Theme.faint : Theme.secondary);
     }
     pointer := TouchArea {
         clicked => { root.clicked(); }
@@ -64,16 +65,16 @@ export component TitleBar inherits Rectangle {
     HorizontalLayout {
         alignment: end;
         WindowButton {
-            icon: @image-url("icons/minus.svg"); label: "Minimize"; dim: !root.focused;
+            icon: IconPack.minus; label: "Minimize"; dim: !root.focused;
             clicked => { root.minimize-window(); }
         }
         WindowButton {
-            icon: root.maximized ? @image-url("icons/restore.svg") : @image-url("icons/square.svg");
+            icon: root.maximized ? IconPack.restore : IconPack.square;
             label: root.maximized ? "Restore" : "Maximize"; dim: !root.focused;
             clicked => { root.maximize-window(); }
         }
         WindowButton {
-            icon: @image-url("icons/x.svg"); label: "Close"; dim: !root.focused;
+            icon: IconPack.x; label: "Close"; dim: !root.focused;
             clicked => { root.close-window(); }
         }
     }

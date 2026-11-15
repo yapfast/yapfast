@@ -1,4 +1,7 @@
-import { Theme } from "theme.slint";
+import { IconPack } from "media.slint";
+import { Theme, Look } from "theme.slint";
+import { Art, ArtLayer } from "theme_art.slint";
+import { DialogFrame } from "theme_layout.slint";
 import { ScrollView, ListView } from "scrollview.slint";
 import { ActionButton, IconButton, TextField } from "controls.slint";
 import { TextBlock, TextBlocks } from "messages.slint";
@@ -42,8 +45,8 @@ export component BotSelectDropdown inherits Rectangle {
         x: max(8px, min(BotSelectAnchor.x, root.width - root.panel-width - 8px));
         y: root.above ? BotSelectAnchor.y - root.gap - root.panel-height : min(BotSelectAnchor.y + BotSelectAnchor.height + root.gap, root.height - root.panel-height - 8px);
         width: root.panel-width; height: root.panel-height;
-        background: Theme.raised; border-radius: 8px; border-width: 1px; border-color: Theme.edge;
-        drop-shadow-blur: 16px; drop-shadow-color: #00000055; clip: true;
+        background: Theme.raised-fill; border-radius: Look.radius(8px); border-width: Look.line(1px); border-color: Theme.edge;
+        drop-shadow-blur: Look.shadow-blur(16px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000055); clip: true;
         accessible-role: list; accessible-label: root.heading;
         TouchArea { }
         FocusScope {
@@ -67,7 +70,7 @@ export component BotSelectDropdown inherits Rectangle {
                     options-layout := VerticalLayout {
                         spacing: 2px; alignment: start;
                         for choice in root.choices: Rectangle {
-                            min-height: 40px; border-radius: 4px;
+                            min-height: 40px; border-radius: Look.radius(4px);
                             background: choice-touch.has-hover ? Theme.hover : choice.selected && root.max-values == 1 ? Theme.sunken : transparent;
                             accessible-role: list-item;
                             accessible-label: choice.label + (choice.description != "" ? ", " + choice.description : "");
@@ -84,14 +87,14 @@ export component BotSelectDropdown inherits Rectangle {
                                 if root.max-values > 1: VerticalLayout {
                                     alignment: center;
                                     Rectangle {
-                                        width: 20px; height: 20px; border-radius: 5px; border-width: 2px;
+                                        width: 20px; height: 20px; border-radius: Look.radius(5px); border-width: 2px;
                                         border-color: choice.selected ? Theme.accent : Theme.secondary;
-                                        background: choice.selected ? Theme.accent : transparent;
-                                        if choice.selected: Image { source: @image-url("icons/check.svg"); width: 14px; height: 14px; colorize: Theme.on-accent; }
+                                        background: choice.selected ? Theme.accent-fill : transparent;
+                                        if choice.selected: Image { source: IconPack.check; width: 14px; height: 14px; colorize: IconPack.tint(self.source, Theme.on-accent); }
                                     }
                                 }
                                 if root.max-values == 1 && choice.selected: Image {
-                                    source: @image-url("icons/check.svg"); width: 18px; image-fit: contain; colorize: Theme.accent;
+                                    source: IconPack.check; width: 18px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.accent-text);
                                 }
                             }
                             choice-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.toggle(choice.index); } }
@@ -109,9 +112,9 @@ component Mark inherits Rectangle {
     in property <bool> round;
     width: 20px; height: 20px; border-radius: root.round ? 10px : 5px; border-width: 2px;
     border-color: root.on ? Theme.accent : Theme.secondary;
-    background: root.on && !root.round ? Theme.accent : transparent;
-    if root.on && root.round: Rectangle { width: 10px; height: 10px; border-radius: 5px; background: Theme.accent; }
-    if root.on && !root.round: Image { source: @image-url("icons/check.svg"); width: 14px; height: 14px; colorize: Theme.on-accent; }
+    background: root.on && !root.round ? Theme.accent-fill : transparent;
+    if root.on && root.round: Rectangle { width: 10px; height: 10px; border-radius: Look.radius(5px); background: Theme.accent-fill; }
+    if root.on && !root.round: Image { source: IconPack.check; width: 14px; height: 14px; colorize: IconPack.tint(self.source, Theme.on-accent); }
 }
 
 // An option of a radio group, a checkbox group, or a checkbox's own row.
@@ -122,7 +125,7 @@ component MarkRow inherits Rectangle {
     in property <bool> round;
     in property <bool> enabled: true;
     callback clicked;
-    border-radius: 6px; background: touch.has-hover && root.enabled ? Theme.hover : transparent;
+    border-radius: Look.radius(6px); background: touch.has-hover && root.enabled ? Theme.hover : transparent;
     accessible-label: root.label + (root.description != "" ? ", " + root.description : "");
     accessible-checkable: true; accessible-checked: root.on; accessible-enabled: root.enabled;
     accessible-action-default => { if root.enabled { root.clicked(); } }
@@ -156,12 +159,18 @@ export component BotModalDialog inherits Rectangle {
     callback open-link(string);
     callback submit;
     callback close;
-    background: #00000099;
+    background: Theme.scrim(#00000099);
     TouchArea { enabled: !root.saving; clicked => { root.close(); } }
     Rectangle {
         width: min(520px, root.width - 40px); height: min(modal-layout.preferred-height, root.height - 48px);
-        background: Theme.raised; border-radius: 12px; border-width: 1px; border-color: Theme.edge;
-        drop-shadow-blur: 28px; drop-shadow-color: #00000077;
+        // A dialog's shape, art and glass.
+        background: Art.glass-dialog ? transparent : Theme.raised-fill; border-radius: Look.r(Look.dialog, 12px); border-width: Look.bw(Look.dialog, 1px); border-color: Look.bc(Look.dialog, Theme.edge);
+        drop-shadow-blur: Look.sb(Look.dialog, 28px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000077); drop-shadow-offset-y: Look.sy(Look.dialog, 0px);
+        if Art.dialog.length > 0 || Art.glass-dialog: ArtLayer {
+            x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.dialog, 12px);
+            layers: Art.dialog; glass: Art.glass-dialog; ground: Theme.raised-fill;
+        }
+        DialogFrame { x: 0px; y: 0px; z: 100; }
         accessible-role: groupbox; accessible-label: root.heading;
         TouchArea { }
         FocusScope {
@@ -171,7 +180,7 @@ export component BotModalDialog inherits Rectangle {
                 padding: 20px; spacing: 20px;
                 HorizontalLayout {
                     Text { text: root.heading; color: Theme.text; font-size: 18px; font-weight: 700; horizontal-stretch: 1; wrap: word-wrap; vertical-alignment: center; }
-                    IconButton { icon: @image-url("icons/x.svg"); enabled: !root.saving; label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
+                    IconButton { icon: IconPack.x; enabled: !root.saving; label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
                 }
                 ScrollView {
                     min-height: 0px; preferred-height: fields-layout.preferred-height;
@@ -203,7 +212,7 @@ export component BotModalDialog inherits Rectangle {
                                 edited(value) => { root.field-edited(index, value); }
                             }
                             if field.kind == 4 && field.paragraph: Rectangle {
-                                height: 100px; background: Theme.sunken; border-radius: 6px;
+                                height: 100px; background: Theme.sunken; border-radius: Look.radius(6px);
                                 TextInput {
                                     x: 10px; y: 8px; width: parent.width - 20px; height: parent.height - 16px;
                                     read-only: root.saving;
@@ -238,27 +247,27 @@ export component BotModalDialog inherits Rectangle {
                             if field.kind == 19: VerticalLayout {
                                 spacing: 6px;
                                 for file[file-index] in field.files: Rectangle {
-                                    height: 40px; border-radius: 6px; background: Theme.sunken;
+                                    height: 40px; border-radius: Look.radius(6px); background: Theme.sunken;
                                     accessible-role: groupbox; accessible-label: file;
                                     HorizontalLayout {
                                         padding-left: 10px; padding-right: 4px; spacing: 8px;
-                                        Image { source: @image-url("icons/file.svg"); width: 18px; image-fit: contain; colorize: Theme.secondary; }
+                                        Image { source: IconPack.file; width: 18px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.secondary); }
                                         Text { text: file; color: Theme.text; font-size: 14px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                                         IconButton {
-                                            icon: @image-url("icons/x.svg"); label: "Remove " + file; size: 28px; glyph: 16px; enabled: !root.saving;
+                                            icon: IconPack.x; label: "Remove " + file; size: 28px; glyph: 16px; enabled: !root.saving;
                                             clicked => { root.remove-file(index, file-index); }
                                         }
                                     }
                                 }
                                 if field.files.length < field.max-files: Rectangle {
-                                    height: 56px; border-radius: 8px; border-width: 1px;
+                                    height: 56px; border-radius: Look.radius(8px); border-width: Look.line(1px);
                                     border-color: upload-touch.has-hover && !root.saving ? Theme.accent : Theme.edge;
                                     background: Theme.sunken;
                                     accessible-role: button; accessible-label: "Choose files for " + field.label;
                                     accessible-action-default => { if !root.saving { root.choose-files(index); } }
                                     HorizontalLayout {
                                         alignment: center; spacing: 8px;
-                                        Image { source: @image-url("icons/circle-plus.svg"); width: 20px; image-fit: contain; colorize: Theme.secondary; }
+                                        Image { source: IconPack.circle-plus; width: 20px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.secondary); }
                                         Text { text: "Choose files"; color: Theme.text; font-size: 14px; font-weight: 500; vertical-alignment: center; }
                                         Text { text: "Up to " + field.max-files; color: Theme.secondary; font-size: 13px; vertical-alignment: center; }
                                     }
