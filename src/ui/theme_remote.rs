@@ -89,14 +89,18 @@ async fn download(repository: Repository) -> Result<(String, Vec<u8>), String> {
     Ok((commit, archive))
 }
 
+/// A fetched theme's previews, decoded as the review draws them.
+pub type Previews = Vec<slint::SharedPixelBuffer<slint::Rgba8Pixel>>;
+
 /// Fetches the theme in a repository at the commit its ref is at, and checks
 /// it as an install would. With a listing, the commit is the one it lists
-/// and its files have to be the ones it pins.
+/// and its files have to be the ones it pins. Its previews come decoded at
+/// the review's size, off the UI thread.
 pub async fn fetch(
     runtime: Arc<BackgroundRuntime>,
     repository: Repository,
     listing: Option<Listing>,
-) -> Result<Fetched, String> {
+) -> Result<(Fetched, Previews), String> {
     let (commit, archive) = runtime
         .spawn(download(repository.clone()))
         .await
@@ -125,7 +129,14 @@ pub async fn fetch(
                 }
                 fetched.listed = true;
             }
-            Ok(fetched)
+            let previews = fetched
+                .package()
+                .preview
+                .iter()
+                .filter_map(|path| fetched.files.files.get(path))
+                .filter_map(|bytes| super::theme_look::decode_preview(bytes))
+                .collect();
+            Ok((fetched, previews))
         })
         .await
         .map_err(|_| STOPPED.to_owned())?

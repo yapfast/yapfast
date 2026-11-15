@@ -2741,7 +2741,7 @@ pub fn find(window: &YapfastWindow, runtime: Arc<BackgroundRuntime>, url: String
         let page = window.global::<ThemesPage>();
         page.set_finding(false);
         match result {
-            Ok(fetched) => show_review(&window, fetched),
+            Ok((fetched, previews)) => show_review(&window, fetched, previews),
             Err(error) => page.set_error(error.into()),
         }
     });
@@ -2842,9 +2842,14 @@ pub fn install_review(window: &YapfastWindow) -> Result<String, String> {
         .with_borrow_mut(|state| state.review.take())
         .ok_or("nothing to install")?;
     close_review(window);
+    install_fetched(&fetched)
+}
+
+/// Installs a theme read from a URL or the marketplace. Returns its layout id.
+fn install_fetched(fetched: &Fetched) -> Result<String, String> {
     let themes = themes().ok_or("no data folder")?;
     themes
-        .install(&fetched)
+        .install(fetched)
         .map_err(|error| format!("{error:#}"))?;
     reload_installed();
     Ok(format!("{INSTALLED}{}", fetched.package().id))
@@ -2854,15 +2859,7 @@ pub fn close_review(window: &YapfastWindow) {
     window
         .global::<ThemesPage>()
         .set_review(ThemeReview::default());
-    STATE.with_borrow_mut(|state| {
-        if !state
-            .trial
-            .as_ref()
-            .is_some_and(|trial| trial.installed.is_none())
-        {
-            state.review = None;
-        }
-    });
+    STATE.with_borrow_mut(|state| state.review = None);
     theme::protect_for(window, theme::Protected::ThemeReview, false);
 }
 
