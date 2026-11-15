@@ -520,13 +520,13 @@ impl Hooks for Spot<'_> {
 /// step `zoom::Wheel` makes of it, a notch or 60 px of a touchpad), as
 /// Slint's `zoom_keys` takes it, and nothing under it scrolls.
 pub struct CtrlWheel {
-    on: fn(crate::zoom::Step) -> Message,
+    on: fn(yapfast_core::zoom::Step) -> Message,
 }
 
 impl CtrlWheel {
     pub fn new<'a>(
         child: impl Into<Element<'a, Message>>,
-        on: fn(crate::zoom::Step) -> Message,
+        on: fn(yapfast_core::zoom::Step) -> Message,
     ) -> Wrap<'a, Self> {
         Wrap::new(child, Self { on })
     }
@@ -535,7 +535,7 @@ impl CtrlWheel {
 #[derive(Default)]
 pub struct CtrlWheelState {
     control: bool,
-    wheel: crate::zoom::Wheel,
+    wheel: yapfast_core::zoom::Wheel,
 }
 
 impl Hooks for CtrlWheel {

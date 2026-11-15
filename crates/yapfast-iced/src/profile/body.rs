@@ -106,12 +106,11 @@ impl App {
             body = body.push(self.badge_rows(shown));
         }
         if !mode.large() && !look.activities.is_empty() {
-            let now = yapfast_core::clock::now_ms() / 1000;
             let mut activities = column![].spacing(12);
             for activity in &look.activities {
                 let menu = (mode == Mode::Card && !look.bot && !self.client.state().preview)
                     .then_some(look.own);
-                activities = activities.push(self.activity_card_view(activity, &inks, now, menu));
+                activities = activities.push(self.activity_card_view(activity, &inks, menu));
             }
             body = body.push(activities);
         }

@@ -10,7 +10,7 @@ use iced::{
 use super::look::{ActivityLook, Inks, clock};
 use crate::{
     app::{App, Message},
-    controls::{Kind, action, bar, ink_style},
+    controls::{Kind, action, ink_style},
     fonts::{BOLD, SEMIBOLD},
     looks::Status,
     people::StatusInk,
@@ -25,12 +25,11 @@ const RING: f32 = 26.0;
 const RING_AT: f32 = 44.0;
 
 impl App {
-    /// An activity's card at `now` (Unix seconds).
+    /// An activity's card; its times move as the clock does.
     pub fn activity_card_view<'a>(
         &'a self,
         activity: &'a ActivityLook,
         inks: &Inks,
-        now: u64,
         menu: Option<bool>,
     ) -> Element<'a, Message> {
         let mut head = row![
@@ -93,30 +92,31 @@ impl App {
                 );
             }
         }
+        // Its times move by themselves, each second: no message, no view.
+        let second = std::time::Duration::from_secs(1);
         match (activity.start, activity.end) {
             // A song, with its start and end, shows how far it's got on a
             // bar, with how long it is either side.
             (Some(start), Some(end)) if end > start => {
                 let length = end - start;
-                let played = now.saturating_sub(start).min(length);
-                let share = played as f32 / length.max(1) as f32;
+                let played = move || now_seconds().saturating_sub(start).min(length);
                 let track = if inks.themed {
                     Color { a: 0.2, ..inks.ink }
                 } else {
                     self.theme.raised
                 };
                 let ink = inks.ink;
-                let done = (share * 1000.0).round() as u16;
-                let filled = container(row![
-                    bar(ink, Length::FillPortion(done.max(1)), 3).style(move |_| rounded(ink, 1.5)),
-                    Space::new().width(Length::FillPortion(1000 - done.min(999))),
-                ])
-                .width(Length::Fill)
-                .style(move |_| rounded(track, 1.5));
+                let filled = crate::widgets::gauge(second, move |renderer, bounds| {
+                    let share = played() as f32 / length.max(1) as f32;
+                    progress(renderer, bounds, share, track, ink);
+                })
+                .height(3);
                 lines = lines.push(
                     row![
-                        text(clock(played)).size(12).color(inks.ink2),
-                        container(filled).width(Length::Fill),
+                        crate::widgets::live_text(second, move || clock(played()))
+                            .size(12)
+                            .color(inks.ink2),
+                        filled,
                         text(clock(length)).size(12).color(inks.ink2),
                     ]
                     .spacing(8)
@@ -125,16 +125,20 @@ impl App {
             }
             (Some(start), _) => {
                 lines = lines.push(
-                    text(format!("{} elapsed", clock(now.saturating_sub(start))))
-                        .size(12)
-                        .color(inks.ink3),
+                    crate::widgets::live_text(second, move || {
+                        format!("{} elapsed", clock(now_seconds().saturating_sub(start)))
+                    })
+                    .size(12)
+                    .color(inks.ink3),
                 );
             }
             (None, Some(end)) => {
                 lines = lines.push(
-                    text(format!("{} left", clock(end.saturating_sub(now))))
-                        .size(12)
-                        .color(inks.ink3),
+                    crate::widgets::live_text(second, move || {
+                        format!("{} left", clock(end.saturating_sub(now_seconds())))
+                    })
+                    .size(12)
+                    .color(inks.ink3),
                 );
             }
             (None, None) => {}
@@ -197,5 +201,42 @@ impl App {
             }
         }
         container(pictures).width(LARGE).height(LARGE).into()
+    }
+}
+
+/// Now, in Unix seconds, as the activities' times count.
+fn now_seconds() -> u64 {
+    yapfast_core::clock::now_ms() / 1000
+}
+
+/// A song's bar: its `track` across `bounds`, `share` of it filled with
+/// `ink`, both round at their ends.
+fn progress(
+    renderer: &mut crate::widgets::Renderer,
+    bounds: Rectangle,
+    share: f32,
+    track: Color,
+    ink: Color,
+) {
+    use iced::advanced::{Renderer as _, renderer::Quad};
+    let round = iced::Border::default().rounded(bounds.height / 2.0);
+    renderer.fill_quad(
+        Quad {
+            bounds,
+            border: round,
+            ..Default::default()
+        },
+        track,
+    );
+    let width = bounds.width * share.clamp(0.0, 1.0);
+    if width > 0.0 {
+        renderer.fill_quad(
+            Quad {
+                bounds: Rectangle { width, ..bounds },
+                border: round,
+                ..Default::default()
+            },
+            ink,
+        );
     }
 }

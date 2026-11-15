@@ -69,8 +69,13 @@ impl App {
         ]
         .spacing(6)
         .align_y(Alignment::Center);
-        if let Some(time) = self.call_time() {
-            head = head.push(text(time).size(13).color(theme.muted));
+        // The clock moves by itself, each second: no message, no view.
+        if let Some((_, since)) = &self.call.since {
+            head = head.push(
+                crate::widgets::live_text(Duration::from_secs(1), move || elapsed(since.elapsed()))
+                    .size(13)
+                    .color(theme.muted),
+            );
         }
         // The status, as the signal, opens the connection's details.
         let mut words = column![self.link_touch(head, false)];
@@ -372,12 +377,6 @@ impl App {
         )
         .gap(6)
         .into()
-    }
-
-    /// How long the call has lasted, as 12:05, while it's connected.
-    pub fn call_time(&self) -> Option<String> {
-        let (_, since) = self.call.since.as_ref()?;
-        Some(elapsed(since.elapsed()))
     }
 
     /// The call's clock starts as it connects and stops as it ends, by

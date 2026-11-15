@@ -18,9 +18,8 @@ use iced::{
 };
 use iced_test::{Simulator, selector::Candidate, simulator::click};
 use yapfast_core::{
-    application::{Action, Compose, DiscordLink, Navigation},
+    application::{Action, Compose, Navigation},
     chat::{Event, MfaMethod},
-    discord_link::Progress,
     runtime::BackgroundRuntime,
 };
 
@@ -451,6 +450,7 @@ fn a_pasted_token_goes_once_the_account_is_linked() {
 #[test]
 #[cfg(not(feature = "matrix"))]
 fn linking_shows_the_code_then_who_scanned_it() {
+    use yapfast_core::{application::DiscordLink, discord_link::Progress};
     let folder = tempfile::tempdir_in(local()).expect("test folder");
     let mut app = start(&folder, false);
     // As "Show the code" starts it, without reaching Discord.
@@ -545,6 +545,7 @@ fn a_saved_account_restoring_at_start_shows_only_the_notice_until_it_fails() {
 fn change(app: &mut App, change: impl FnOnce(&mut yapfast_core::application::AppState)) {
     change(&mut app.client.app.state);
     app.client.app.state.list_changes += 1;
+    app.client.app.state.people_changes += 1;
     let _ = app.sync();
 }
 

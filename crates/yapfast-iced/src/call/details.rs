@@ -17,10 +17,11 @@ use iced::{
 };
 use yapfast_core::voice::LinkStats;
 
+use yapfast_core::call_details as words;
+
 use super::{Event, Popup};
 use crate::{
     app::{App, Message},
-    call_details as words,
     controls::{self, Kind},
     fonts::BOLD,
     pictures::Icon,
@@ -70,9 +71,14 @@ impl App {
         voice.active() && voice.link.is_some()
     }
 
+    /// The details, or the signal's tooltip, show.
+    pub fn link_shown(&self) -> bool {
+        self.call.popup == Some(Popup::Link) || self.call.details.pointed
+    }
+
     /// The details read again from the call, while they show.
     pub(super) fn read_link(&mut self) {
-        let shown = self.call.popup == Some(Popup::Link) || self.call.details.pointed;
+        let shown = self.link_shown();
         self.call.details.stats = shown
             .then(|| {
                 self.client
@@ -386,7 +392,7 @@ const PRIVATE_NOTE: &str = "Only you and the others in this call can hear you. N
 /// stretched to the widget's, the line `stroke` px wide whatever the
 /// stretch. Its lines are axis-aligned, so they're quads: no path to fill.
 pub struct Steps {
-    steps: Vec<crate::call_details::Step>,
+    steps: Vec<yapfast_core::call_details::Step>,
     units: Size,
     ink: Color,
     stroke: f32,
@@ -395,7 +401,7 @@ pub struct Steps {
 
 impl Steps {
     pub fn new(
-        steps: Vec<crate::call_details::Step>,
+        steps: Vec<yapfast_core::call_details::Step>,
         units: Size,
         ink: Color,
         height: f32,

@@ -76,7 +76,14 @@ fn a_mutual_servers_card_shows_it_and_goes_there() {
         .expect("Riley in the preview");
     app.client
         .dispatch(Action::ShowProfile { user, large: true });
-    let profile = app.client.app.state.profile.as_mut().expect("open");
+    let profile = app
+        .client
+        .app
+        .state
+        .profile
+        .as_mut()
+        .map(std::sync::Arc::make_mut)
+        .expect("open");
     profile.profile.servers = vec![ProfileServer {
         id: id.clone(),
         name: name.clone(),
@@ -168,7 +175,14 @@ fn a_profile_without_a_banner_takes_its_avatars_colour() {
         .map(|member| member.id.clone())
         .expect("Riley in the preview");
     let _ = app.open_card(user, Point::new(500.0, 200.0));
-    let view = app.client.app.state.profile.as_mut().expect("open");
+    let view = app
+        .client
+        .app
+        .state
+        .profile
+        .as_mut()
+        .map(std::sync::Arc::make_mut)
+        .expect("open");
     view.profile.banner = None;
     view.profile.accent = None;
     view.profile.theme = None;

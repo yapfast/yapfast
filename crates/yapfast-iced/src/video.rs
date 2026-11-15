@@ -15,9 +15,12 @@
 //! frame made (`set_frame_wake`): a camera's, from the thread that decodes
 //! it, and a worker's (a watched stream, the screen shared, a message's
 //! video), from the thread that reads the worker's reports, which says
-//! each frame. Only a new frame sends a message, which redraws the window
-//! once for all the frames found together. With no video on screen it
-//! waits.
+//! each frame. The frames found together become the newest of their
+//! sources in [`Shared`], which [`Video`] draws from, and the window is
+//! redrawn once, with no message: iced builds and lays out no view for
+//! them. Only a source's first frame (its tile shows video in place of the
+//! avatar) and a message's video (its bar shows how far it's got) send a
+//! message. With no video on screen it waits.
 
 use std::{
     any::Any,
@@ -363,10 +366,16 @@ impl Sources {
     }
 }
 
+/// A source's newest frame and its size in pixels.
+type Newest = (Handle, (u32, u32));
+
 /// What the window and [`frames`] share.
 #[derive(Default)]
 pub struct Shared {
     sources: Mutex<Sources>,
+    /// Each source's newest frame, by key, with its size: what [`Video`]
+    /// draws.
+    newest: Mutex<HashMap<String, Newest>>,
     /// The mapped sources whose last frame went out and the window hasn't
     /// taken in, by key: a slot isn't taken back from the window until it
     /// has.
@@ -379,18 +388,33 @@ pub struct Shared {
 
 /// A new frame for the window: whose, and its handle and size.
 #[derive(Clone, Debug)]
-pub struct Fresh {
-    pub key: String,
-    pub handle: Handle,
-    pub size: (u32, u32),
+struct Fresh {
+    key: String,
+    handle: Handle,
+    size: (u32, u32),
     /// For a worker's frame, how far into a message's video it is, in
     /// milliseconds (0 for a stream's).
-    pub time: Option<u64>,
+    time: Option<u64>,
+}
+
+/// What new frames ask of the window.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Found {
+    /// Only a redraw: each is the newest of a source already showing.
+    Redraw,
+    /// A view: a source shows its first frame, or a message's video has
+    /// got this far (milliseconds), which its bar shows.
+    View(Option<u64>),
 }
 
 impl Shared {
     /// Looks for frames from these from now on; none stops the task looking.
     pub fn set(&self, sources: Sources) {
+        // The frames of what no longer shows go.
+        self.newest.lock().expect("video frames").retain(|key, _| {
+            sources.feeds.iter().any(|(id, _)| id == key)
+                || sources.mapped.iter().any(|(id, _)| id == key)
+        });
         let mut current = self.sources.lock().expect("video sources");
         if current.same(&sources) {
             return;
@@ -398,6 +422,35 @@ impl Shared {
         *current = sources;
         self.waiting.lock().expect("video waiting").clear();
         self.changed.notify_one();
+    }
+
+    /// A source's newest frame and its size.
+    pub fn frame(&self, key: &str) -> Option<(Handle, (u32, u32))> {
+        self.newest.lock().expect("video frames").get(key).cloned()
+    }
+
+    /// Whether a source has a frame to show.
+    pub fn has(&self, key: &str) -> bool {
+        self.newest.lock().expect("video frames").contains_key(key)
+    }
+
+    /// Takes the frames found in as their sources' newest, and says what
+    /// the window must do for them.
+    fn found(&self, found: Vec<Fresh>) -> Found {
+        let mut newest = self.newest.lock().expect("video frames");
+        let mut asked = Found::Redraw;
+        for fresh in found {
+            let clip = fresh.key.starts_with("clip:");
+            let first = newest
+                .insert(fresh.key, (fresh.handle, fresh.size))
+                .is_none();
+            if clip {
+                asked = Found::View(fresh.time);
+            } else if first && asked == Found::Redraw {
+                asked = Found::View(None);
+            }
+        }
+        asked
     }
 
     /// The window took a worker's frame in, by its key.
@@ -462,8 +515,9 @@ impl Shared {
     }
 }
 
-/// New frames as they come, all those found together in one item.
-pub fn frames(shared: Arc<Shared>) -> impl Stream<Item = Vec<Fresh>> + Send + 'static {
+/// New frames as they come, all those found together taken in as their
+/// sources' newest, and what that asks of the window.
+pub fn frames(shared: Arc<Shared>) -> impl Stream<Item = Found> + Send + 'static {
     stream::unfold(shared, |shared| async move {
         loop {
             let idle = shared.sources.lock().expect("video sources").is_empty();
@@ -474,9 +528,21 @@ pub fn frames(shared: Arc<Shared>) -> impl Stream<Item = Vec<Fresh>> + Send + 's
             future::select(pin!(shared.changed.notified()), pin!(FRAME_MADE.notified())).await;
             let found = shared.take();
             if !found.is_empty() {
-                return Some((found, shared));
+                let asked = shared.found(found);
+                return Some((asked, shared));
             }
         }
+    })
+}
+
+/// The window's frames, as [`frames`] finds them: a redraw for each, and a
+/// message only where the view must change ([`Found::View`]).
+pub fn follow(shared: Arc<Shared>) -> iced::Task<Message> {
+    iced::Task::run(frames(shared), |found| found).then(|found| match found {
+        Found::Redraw => iced_runtime::task::effect(iced_runtime::Action::Window(
+            iced_runtime::window::Action::RedrawAll,
+        )),
+        Found::View(time) => iced::Task::done(Message::Frames(time)),
     })
 }
 
@@ -488,8 +554,9 @@ pub fn frames(shared: Arc<Shared>) -> impl Stream<Item = Vec<Fresh>> + Send + 's
 /// drawn by the renderer's hook: one to one when the core made it at the
 /// tile's size, else scaled.
 pub struct Video {
-    handle: Handle,
-    size: (u32, u32),
+    /// Where its frame is, by its source's key: the newest as it's drawn.
+    shared: Arc<Shared>,
+    key: String,
     ground: Color,
     /// The tile's round corners, cut by drawing what's behind the tile over
     /// them: the radius and the colour behind.
@@ -500,10 +567,11 @@ pub struct Video {
 }
 
 impl Video {
-    pub fn new(handle: Handle, size: (u32, u32), ground: Color) -> Self {
+    /// The newest frame of the source `key` in `shared`, as it's drawn.
+    pub fn new(shared: &Arc<Shared>, key: impl Into<String>, ground: Color) -> Self {
         Self {
-            handle,
-            size,
+            shared: shared.clone(),
+            key: key.into(),
             ground,
             corners: None,
             scale: 1.0,
@@ -595,10 +663,22 @@ impl Widget<Message, Theme, Renderer> for Video {
     ) {
         use iced::advanced::{Renderer as _, image::Renderer as _};
         let tile = layout.bounds();
+        let Some((handle, size)) = self.shared.frame(&self.key) else {
+            renderer.fill_quad(
+                renderer::Quad {
+                    bounds: tile,
+                    ..Default::default()
+                },
+                self.ground,
+            );
+            return;
+        };
+        // On screen: a worker's next frame may be taken.
+        self.shared.taken(&self.key);
         // In the window's pixels, which the frame was made in.
         let pixels = self.scale;
         let (tile_width, tile_height) = (tile.width * pixels, tile.height * pixels);
-        let (width, height) = (self.size.0.max(1) as f32, self.size.1.max(1) as f32);
+        let (width, height) = (size.0.max(1) as f32, size.1.max(1) as f32);
         let mut scale = (tile_width / width).min(tile_height / height);
         // The core makes a camera's frame at the tile's size, rounded down
         // to even sides: up to two pixels short, it's drawn one to one, in
@@ -650,7 +730,7 @@ impl Widget<Message, Theme, Renderer> for Video {
         }
         renderer.draw_image(
             raster::Image {
-                handle: self.handle.clone(),
+                handle,
                 filter_method: raster::FilterMethod::Linear,
                 rotation: iced::Radians(0.0),
                 border_radius: Default::default(),
@@ -693,5 +773,40 @@ impl Widget<Message, Theme, Renderer> for Video {
 impl<'a> From<Video> for Element<'a, Message> {
     fn from(video: Video) -> Self {
         Element::new(video)
+    }
+}
+
+#[cfg(test)]
+mod frame_tests {
+    use super::*;
+
+    fn fresh(key: &str, time: Option<u64>) -> Fresh {
+        Fresh {
+            key: key.into(),
+            handle: Handle::from_rgba(1, 1, vec![0; 4]),
+            size: (1, 1),
+            time,
+        }
+    }
+
+    #[test]
+    fn only_a_first_frame_or_a_messages_video_asks_for_a_view() {
+        let shared = Shared::default();
+        assert_eq!(shared.found(vec![fresh("bob", None)]), Found::View(None));
+        assert!(shared.has("bob"));
+        // The next only redraws, the newest drawn from here.
+        assert_eq!(shared.found(vec![fresh("bob", None)]), Found::Redraw);
+        assert_eq!(
+            shared.found(vec![fresh("clip:i/0", Some(40))]),
+            Found::View(Some(40)),
+            "its bar shows how far it's got"
+        );
+        assert_eq!(
+            shared.found(vec![fresh("bob", None), fresh("clip:i/0", Some(80))]),
+            Found::View(Some(80))
+        );
+        // What no longer shows goes.
+        shared.set(Sources::default());
+        assert!(!shared.has("bob") && shared.frame("clip:i/0").is_none());
     }
 }

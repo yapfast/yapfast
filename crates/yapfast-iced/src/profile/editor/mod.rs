@@ -129,6 +129,8 @@ pub struct Editor {
     bio: Draft,
     /// The Display Name Style window, while it's open.
     pub(crate) style: Option<crate::profile::name_style::Window>,
+    /// The core's editor and lists changes its card was made at.
+    made: (u64, u64),
 }
 
 impl Editor {
@@ -144,6 +146,7 @@ impl Editor {
             tag_query: String::new(),
             bio: Draft::default(),
             style: None,
+            made: (0, 0),
         }
     }
 
@@ -267,11 +270,21 @@ impl App {
             self.profiles.editor = None;
             return;
         };
-        let view = preview(state, core);
+        // The preview is made from the editor and the servers' tags alone.
+        let made = (state.profile_editor_changes, state.list_changes);
+        if self
+            .profiles
+            .editor
+            .as_ref()
+            .is_some_and(|editor| editor.made == made)
+        {
+            return;
+        }
+        let view = Arc::new(preview(state, core));
         let link = rgb(self.theme.link);
         let editor = self.profiles.editor.take();
-        let editor = match editor {
-            Some(editor) if editor.shown.look.view == view => editor,
+        let mut editor = match editor {
+            Some(editor) if *editor.shown.look.view == *view => editor,
             Some(mut editor) => {
                 editor.shown.look = crate::profile::look::Look::new(state, &view, None, &[], link);
                 editor
@@ -291,6 +304,7 @@ impl App {
             }
         }
         *editor.shown.picked.borrow_mut() = picked;
+        editor.made = made;
         // The bio's field follows the core while it isn't being written.
         if editor.editing != Some(Text::Bio) && editor.bio.text() != core.bio {
             editor.bio.reset(&core.bio);

@@ -89,8 +89,16 @@ impl App {
     pub fn active_now_sync(&mut self) {
         if self.dm_screen() != Some(DmScreen::Friends) || !self.active_now_fits() {
             self.active_now.clear();
+            self.active_now_made = None;
             return;
         }
+        // Made from the friends and the voice channels' people alone.
+        let state = self.client.state();
+        let made = Some((state.people_changes, state.list_changes));
+        if self.active_now_made == made {
+            return;
+        }
+        self.active_now_made = made;
         let cards = cards(self.client.state());
         if cards != self.active_now {
             self.active_now = cards;
@@ -101,15 +109,6 @@ impl App {
     /// it isn't drawn, so its cards aren't made, timed or fetched for.
     pub fn active_now_fits(&self) -> bool {
         self.window.width - self.chat_left() >= ROOM
-    }
-
-    /// Whether a card shows a time that moves each second.
-    pub fn active_now_ticks(&self) -> bool {
-        self.active_now.iter().any(|card| {
-            card.rows
-                .iter()
-                .any(|row| row.kind == RowKind::Detail && row.start.is_some())
-        })
     }
 
     /// Whether a card shows a time that moves each minute.
@@ -234,7 +233,7 @@ impl App {
         for entry in &card.rows {
             body = body
                 .push(bar(theme.line, Length::Fill, 1))
-                .push(self.active_row(entry, now));
+                .push(self.active_row(entry));
         }
         let (raised, edge) = (theme.raised, theme.edge);
         container(body)
@@ -244,7 +243,7 @@ impl App {
             .into()
     }
 
-    fn active_row<'a>(&'a self, entry: &'a CardRow, now: u64) -> Element<'a, Message> {
+    fn active_row<'a>(&'a self, entry: &'a CardRow) -> Element<'a, Message> {
         let theme = &self.theme;
         let mut words = column![
             text(entry.title.as_str())
@@ -262,13 +261,16 @@ impl App {
                     .wrapping(text::Wrapping::None),
             );
         }
+        // Its time moves by itself, each second: no message, no view.
         if entry.kind == RowKind::Detail
             && let Some(start) = entry.start
         {
             words = words.push(
-                text(elapsed(now.saturating_sub(start)))
-                    .size(12)
-                    .color(theme.muted),
+                crate::widgets::live_text(std::time::Duration::from_secs(1), move || {
+                    elapsed((yapfast_core::clock::now_ms() / 1000).saturating_sub(start))
+                })
+                .size(12)
+                .color(theme.muted),
             );
         }
         let mut line = row![

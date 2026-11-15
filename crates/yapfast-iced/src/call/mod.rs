@@ -80,9 +80,9 @@ pub struct Call {
     /// The call was connected as the window last looked: it unmutes or
     /// deafens on joining once.
     pub ready: bool,
-    /// The microphone's level while the input menu shows it.
+    /// The microphone's level while the input menu shows it, read as
+    /// its meter is drawn.
     pub meter: Option<InputMeter>,
-    pub level: f32,
     /// A call ringing this account, while it rings.
     pub ringer: Option<yapfast_core::ring::Ringer>,
     /// Since when the call has been connected, by its room, and the
@@ -137,7 +137,6 @@ pub enum Event {
     /// whether it's the drag's last.
     DeviceVolume(bool, u32, bool),
     Suppressor(yapfast_core::noise::Suppressor),
-    Meter,
     /// A soundboard sound played for everyone, heard here first, or starred.
     Play(String),
     Preview(String),
@@ -254,12 +253,6 @@ impl App {
             }
             Event::Suppressor(suppressor) => {
                 self.choose_suppressor(suppressor);
-                return Task::none();
-            }
-            Event::Meter => {
-                if let Some(meter) = &self.call.meter {
-                    self.call.level = meter.level();
-                }
                 return Task::none();
             }
             Event::Play(sound) => Action::Voice(Command::Soundboard(sound)),
@@ -471,7 +464,8 @@ impl App {
         }
     }
 
-    /// The microphone's level is being shown, and wants its tick.
+    /// The microphone's level is being read.
+    #[cfg(test)]
     pub fn metering(&self) -> bool {
         self.call.meter.is_some()
     }

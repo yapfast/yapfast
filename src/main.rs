@@ -15,22 +15,13 @@ compile_error!("build `iced` or `iced-gpu` with --no-default-features, without `
 #[cfg(any(feature = "desktop", feature = "platform"))]
 mod autostart;
 mod build_info;
-#[cfg(feature = "desktop")]
-mod call_details;
 #[cfg(any(feature = "desktop", feature = "platform"))]
 mod copy;
 #[cfg(feature = "desktop")]
 mod custom_emoji;
 #[cfg(all(any(feature = "desktop", feature = "platform"), target_os = "linux"))]
 mod desktop_entry;
-#[cfg(feature = "desktop")]
-#[cfg_attr(
-    not(test),
-    allow(dead_code, reason = "tiny-skia's order is the iced client's")
-)]
-mod dominant_colour;
 #[cfg(any(feature = "desktop", feature = "platform"))]
-#[cfg_attr(not(feature = "desktop"), allow(dead_code))]
 mod drop;
 #[cfg(feature = "desktop")]
 mod emoji;
@@ -72,9 +63,6 @@ mod twemoji;
 mod ui;
 #[cfg(any(feature = "desktop", feature = "platform"))]
 mod update;
-// Read by the Slint window here; the iced client compiles the same file.
-#[cfg(feature = "desktop")]
-mod zoom;
 
 use anyhow::{Context, Result, bail};
 use yapfast_core::{cli, logging, runtime::BackgroundRuntime};

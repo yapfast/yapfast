@@ -1,11 +1,11 @@
 //! The call's connection in words and lines, as both clients show it in
 //! the voice details popout: the pings, the loss, the graph's steps, the
 //! privacy code's groups and how a shared screen goes out. No toolkit in
-//! it: the Slint client takes it as a module, the iced client by its path.
+//! it: both clients use it as it is.
 
 use std::fmt::Write;
 
-use yapfast_core::voice::{LinkStats, StreamStats};
+use crate::voice::{LinkStats, StreamStats};
 
 /// The graph's box, as `CallLinkCard`'s path takes it, and the pings it
 /// spans: five minutes of them, as the call keeps.

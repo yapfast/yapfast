@@ -380,7 +380,8 @@ fn the_full_profiles_tabs_and_dates_are_discords() {
     state.discord_names = Some(yapfast_core::yapfast_discord::service::SharedNames::new(
         std::sync::Arc::new(std::sync::RwLock::new(names)),
     ));
-    let look = |view: &ProfileView| Look::new(&state, view, None, &[], 0);
+    let look =
+        |view: &ProfileView| Look::new(&state, &std::sync::Arc::new(view.clone()), None, &[], 0);
 
     // Anyone else's card and full profile name what the account shares with
     // them, as the client words it, and when they became friends.
@@ -500,7 +501,12 @@ fn a_cards_effect_plays_only_under_the_pointer_and_its_frame_shows() {
                 loop_delay: 0,
             }],
         }));
-        let profile = &mut state.profile.as_mut().expect("open").profile;
+        let profile = &mut state
+            .profile
+            .as_mut()
+            .map(Arc::make_mut)
+            .expect("open")
+            .profile;
         profile.effect = Some("9".into());
         profile.frame = Arc::from(vec![ProfileFrameLayer {
             src: "frame-staple".into(),
@@ -545,7 +551,13 @@ fn a_cards_frame_that_came_and_went_is_asked_for_again_as_it_shows() {
         .map(|member| member.id.clone())
         .expect("Riley in the preview");
     let framed = |state: &mut yapfast_core::application::AppState| {
-        state.profile.as_mut().expect("open").profile.frame = Arc::from(vec![ProfileFrameLayer {
+        state
+            .profile
+            .as_mut()
+            .map(Arc::make_mut)
+            .expect("open")
+            .profile
+            .frame = Arc::from(vec![ProfileFrameLayer {
             src: FRAME.into(),
             kind: "staple".into(),
             anchor: "top".into(),
@@ -711,7 +723,13 @@ fn a_note_typed_on_a_profile_is_kept_as_it_changes_without_enter() {
     let _ = app.open_card(user, Point::new(400.0, 200.0));
     // A Discord user's, whose notes Discord keeps.
     change(&mut app, |state| {
-        state.profile.as_mut().expect("the card").profile.id = "77".into();
+        state
+            .profile
+            .as_mut()
+            .map(Arc::make_mut)
+            .expect("the card")
+            .profile
+            .id = "77".into();
     });
     let _ = app.update(Message::Profile(profile::Event::Note(
         "met at RustConf".into(),
@@ -740,7 +758,13 @@ fn view_full_bio_shows_when_the_bio_is_taller_than_three_lines_as_laid_out() {
     let bio = |app: &mut App, bio: &str| {
         let bio = bio.to_owned();
         change(app, move |state| {
-            state.profile.as_mut().expect("the card").profile.bio = bio;
+            state
+                .profile
+                .as_mut()
+                .map(Arc::make_mut)
+                .expect("the card")
+                .profile
+                .bio = bio;
         });
     };
     // Wide letters on one line: few by count, four lines as laid out.
@@ -815,7 +839,7 @@ fn active_now_is_made_only_while_the_friends_screen_has_room_for_it() {
     assert!(!app.active_now.is_empty(), "wide, Ann's card is made");
     width(&mut app, 1100.0);
     assert!(app.active_now.is_empty(), "too narrow to show, none is");
-    assert!(!app.active_now_minutes() && !app.active_now_ticks());
+    assert!(!app.active_now_minutes());
     width(&mut app, 1500.0);
     assert!(!app.active_now.is_empty(), "wide again");
 }

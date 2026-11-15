@@ -354,7 +354,18 @@ fn a_new_setting_is_tagged_until_its_page_is_left() {
 /// Every key the core tags has its tag in the iced client's pages.
 #[test]
 fn every_tagged_setting_has_its_tag() {
-    let pages = include_str!("../settings/pages.rs");
+    let pages = [
+        include_str!("../settings/pages/mod.rs"),
+        include_str!("../settings/pages/about.rs"),
+        include_str!("../settings/pages/account.rs"),
+        include_str!("../settings/pages/advanced.rs"),
+        include_str!("../settings/pages/discord.rs"),
+        include_str!("../settings/pages/games.rs"),
+        include_str!("../settings/pages/messages.rs"),
+        include_str!("../settings/pages/notifications.rs"),
+        include_str!("../settings/pages/sounds.rs"),
+    ]
+    .concat();
     for tag in &yapfast_core::new_tags::NEW {
         assert!(
             pages.contains(&format!("self.fresh(\"{}\")", tag.key)),

@@ -548,10 +548,10 @@ impl App {
         {
             return;
         }
-        let view = ProfileView {
+        let view = Arc::new(ProfileView {
             profile: chat::Profile::clone(profile),
             ..Default::default()
-        };
+        });
         let look = Look::new(state, &view, None, &[], link);
         self.profiles.account = Some((profile.clone(), Shown::new(look)));
     }
@@ -584,7 +584,7 @@ impl App {
             None => self.client.state().pictures.get(url)?,
         };
         let order = crate::pictures::byte_order(picture);
-        let colour = crate::dominant_colour::dominant(&picture.rgba, order)?;
+        let colour = yapfast_core::dominant_colour::dominant(&picture.rgba, order)?;
         *shown.avatar_colour.borrow_mut() = Some((url.to_owned(), colour));
         Some(colour)
     }
@@ -749,15 +749,6 @@ impl App {
         };
         look::Inks::new(&self.theme, look.profile().theme, plain)
     }
-
-    /// Whether a shown profile times an activity, which a clock brings up
-    /// to date each second.
-    pub fn profile_ticks(&self) -> bool {
-        [&self.profiles.shown, &self.profiles.panel]
-            .into_iter()
-            .flatten()
-            .any(|shown| shown.look.activities.iter().any(look::ActivityLook::timed))
-    }
 }
 
 /// The card's frame: its ground (a theme's gradient, or plain), corners and
@@ -799,13 +790,14 @@ pub(crate) fn frame_style(
 fn make_shown(
     app: &yapfast_core::application::Application,
     shown: Option<Shown>,
-    view: Option<&ProfileView>,
+    view: Option<&Arc<ProfileView>>,
     live: Option<look::Live>,
     link: u32,
 ) -> Option<Shown> {
     let view = view?;
+    // The core shares a view while it stays the same.
     let same = |shown: &Shown| {
-        shown.look.view == *view
+        Arc::ptr_eq(&shown.look.view, view)
             && shown.look.relation == app.state.relation(&view.profile.id)
             && shown.look.live == live
     };

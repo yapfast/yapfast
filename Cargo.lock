@@ -12552,6 +12552,7 @@ dependencies = [
  "chrono",
  "emojis",
  "iced",
+ "iced_runtime",
  "iced_test",
  "iced_tiny_skia",
  "pulldown-cmark",

@@ -1,4 +1,4 @@
-//! Zooming the Slint window (`crate::zoom`): winit's events read into
+//! Zooming the Slint window (`yapfast_core::zoom`): winit's events read into
 //! zoom's steps, and the level applied to Slint's window. Slint draws
 //! everything in logical pixels, so the zoom multiplies the display's own
 //! scale factor.
@@ -8,7 +8,7 @@ use slint::winit_030::winit::{
     keyboard::{Key, KeyCode, PhysicalKey},
 };
 
-use crate::zoom::{self, KeyPlace, Step, Wheel};
+use yapfast_core::zoom::{self, KeyPlace, Step, Wheel};
 
 /// Follows Ctrl and the keys and wheel that zoom.
 #[derive(Default)]

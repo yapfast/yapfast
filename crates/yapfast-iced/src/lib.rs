@@ -12,8 +12,9 @@
 //! viewport, keyed so their widget state follows them), pictures are the
 //! core's own buffers in the renderer's format ([`pictures`]), and moving
 //! pictures advance inside their widget on the window's redraws, so a frame
-//! costs no message and no rebuild of the view. Clocks (a call's length,
-//! an activity's time) don't yet: each tick is a message and a new view.
+//! costs no message and no rebuild of the view. Meters, clocks and video
+//! frames are read as they're drawn and only redraw the window
+//! ([`widgets::Gauge`], [`widgets::LiveText`], [`video`]).
 //!
 //! Where things are: [`app`] holds the window's state, its messages and the
 //! view's layers; [`sync`] takes in what changed in the core's state; each
@@ -39,11 +40,6 @@ mod browse;
 mod browse_channels;
 mod browser;
 mod call;
-// The voice details' words and graph, which the Slint client shows too:
-// one file, compiled into both; `path` is the Slint client's alone.
-#[path = "../../../src/call_details.rs"]
-#[allow(dead_code)]
-mod call_details;
 mod cards;
 mod channel_settings;
 mod client;
@@ -54,14 +50,6 @@ mod controls;
 mod conversation;
 mod desktop;
 mod dialogs;
-// The avatar's colour behind a profile's banner, as the Slint client works
-// it out: one file, compiled into both.
-#[path = "../../../src/dominant_colour.rs"]
-#[cfg_attr(
-    not(feature = "cpu"),
-    allow(dead_code, reason = "tiny-skia's order is the CPU build's")
-)]
-mod dominant_colour;
 mod edit;
 mod elide;
 mod field;
@@ -123,12 +111,6 @@ mod video;
 mod viewer;
 mod widgets;
 mod window_bar;
-// The root crate's zoom levels and keys, which the Slint window steps through
-// too: one file, compiled into both. Its wheel isn't read here: iced's lists
-// would scroll as the window zooms.
-#[path = "../../../src/zoom.rs"]
-#[allow(dead_code)]
-mod zoom;
 
 #[cfg(test)]
 mod tests;

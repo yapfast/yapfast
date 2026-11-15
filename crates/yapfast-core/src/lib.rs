@@ -16,6 +16,7 @@ mod audio_io;
 pub use audio_io::set_windows_effects;
 pub mod backend;
 pub mod blocks;
+pub mod call_details;
 #[cfg(feature = "matrix")]
 pub mod calls;
 pub mod camera;
@@ -41,6 +42,7 @@ pub mod discord_text;
 mod discord_video;
 #[cfg(feature = "discord")]
 mod discord_voice;
+pub mod dominant_colour;
 pub mod emoji;
 #[cfg(feature = "discord")]
 pub mod encode;
@@ -95,6 +97,7 @@ pub mod voice_demo;
 mod voice_message;
 pub mod voice_roster;
 pub mod volume;
+pub mod zoom;
 
 /// Install the TLS provider before starting Matrix or calling services.
 pub fn init_tls() -> anyhow::Result<()> {

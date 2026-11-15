@@ -15,7 +15,7 @@ use iced::{
 use yapfast_core::{
     application::{
         Action, InviteInput, InvitesPage, MEMBER_PAGE_SIZES, MEMBER_SORTS, MemberInput,
-        MembersPage, PAUSE_HOURS, ServerSettings, SettingsPage,
+        MembersPage, PAUSE_HOURS, ServerSettings,
     },
     chat::{JoinMethod, ListedMember, Permission, ServerRole},
     clock,
@@ -307,14 +307,6 @@ fn join_method(joined: &JoinMethod) -> (String, bool) {
 }
 
 impl App {
-    /// Whether Invites shows rows, whose countdowns tick each second.
-    pub fn invites_ticking(&self) -> bool {
-        matches!(
-            self.server_settings().and_then(|core| core.page.as_ref()),
-            Some(SettingsPage::Invites(page)) if !page.invites.is_empty()
-        )
-    }
-
     pub(super) fn members_local(&mut self, event: Event) -> Task<Message> {
         let Some(screen) = self.server_screen.as_mut() else {
             return Task::none();
@@ -715,7 +707,7 @@ impl App {
         let list = column(
             page.invites
                 .iter()
-                .map(|listed| self.invite_row(listed, &roles, alpha, now)),
+                .map(|listed| self.invite_row(listed, &roles, alpha)),
         )
         .width(Length::Fill);
         parts
@@ -735,7 +727,6 @@ impl App {
         listed: &'a yapfast_core::chat::ServerInvite,
         roles: &[ServerRole],
         alpha: f32,
-        now: u64,
     ) -> Element<'a, Message> {
         let theme = &self.theme;
         let ink = |colour: Color| faded(colour, alpha);
@@ -746,6 +737,7 @@ impl App {
                 inviter.avatar.as_str(),
             )
         });
+        let expires = listed.expires;
         let uses = if listed.max_uses > 0 {
             format!("{}/{}", listed.uses, listed.max_uses)
         } else {
@@ -787,12 +779,17 @@ impl App {
                 INVITE_COLUMNS[1].1,
             ),
             cell(uses, 14, ink(theme.text), INVITE_COLUMNS[2].1),
-            cell(
-                countdown(listed.expires, now),
-                14,
-                ink(theme.text),
-                INVITE_COLUMNS[3].1,
-            ),
+            // It counts down by itself, each second: no message, no view.
+            container(
+                crate::widgets::live_text(std::time::Duration::from_secs(1), move || {
+                    countdown(expires, clock::now_ms() / 1000)
+                })
+                .size(14)
+                .color(ink(theme.text)),
+            )
+            .width(Length::FillPortion(INVITE_COLUMNS[3].1))
+            .clip(true)
+            .into(),
             container(role_chip(theme, &listed.roles, roles, alpha))
                 .width(Length::FillPortion(INVITE_COLUMNS[4].1))
                 .clip(true)

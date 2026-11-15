@@ -758,7 +758,6 @@ fn members_and_invites_list_as_discords_pages_do() {
     ] {
         assert!(shows(&app, words), "{words}");
     }
-    assert!(app.invites_ticking(), "the countdowns tick");
     let mut countdown = None;
     interact(&mut app, |ui| countdown = super::starting(ui, "01:0"));
     assert!(countdown.is_some(), "a day and an hour left");

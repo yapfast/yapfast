@@ -85,7 +85,7 @@ pub struct Measuring<'a> {
 
 /// What the rail, the sidebar, the header and the history's edge are made
 /// from, as one number: the rooms' and servers' changes, where the window
-/// is, the smaller lists the sidebar shows, the topic, the history's state.
+/// is, the people lists' changes, the topic, the history's state.
 pub fn lists_key(state: &yapfast_core::application::AppState, theme: &str) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::hash::DefaultHasher::new();
@@ -116,15 +116,7 @@ pub fn lists_key(state: &yapfast_core::application::AppState, theme: &str) -> u6
         ),
     )
         .hash(&mut hasher);
-    (
-        &state.friends,
-        &state.discord_friends,
-        &state.friend_requests,
-        &state.discord_blocked,
-        &state.pinned,
-        theme,
-    )
-        .hash(&mut hasher);
+    (state.people_changes, theme).hash(&mut hasher);
     hasher.finish()
 }
 

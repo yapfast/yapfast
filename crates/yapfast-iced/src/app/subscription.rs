@@ -103,35 +103,15 @@ impl App {
                 _ => None,
             }));
         }
-        // A shown activity's time, each second; with the window closed to
-        // the tray, no clock shows.
+        // With the window closed to the tray, nothing shows.
         let shown = self.shell.window.is_some();
-        if shown && (self.profile_ticks() || self.active_now_ticks() || self.invites_ticking()) {
-            subscriptions.push(iced::time::every(Duration::from_secs(1)).map(|_| Message::Second));
-        }
-        // The microphone's level while the input menu shows it, the call's
-        // clock, and the corner picture's drag.
-        if self.metering() {
-            subscriptions.push(
-                iced::time::every(Duration::from_millis(50))
-                    .map(|_| Message::Call(crate::call::Event::Meter)),
-            );
-        }
-        // Settings: the gate's meter while it shows, the push-to-talk key
-        // while it's recorded.
-        if self.gate_metered() {
-            subscriptions.push(
-                iced::time::every(crate::settings::voice::METER_EVERY).map(|_| {
-                    Message::Settings(crate::settings::Event::Voice(
-                        crate::settings::voice::Event::Meter,
-                    ))
-                }),
-            );
-        }
+        // Settings: the push-to-talk key while it's recorded.
         if self.recording_talk_key() {
             subscriptions.push(crate::settings::voice::record_keys());
         }
-        if shown && self.call.since.is_some() {
+        // The connection's details, copied out each second while they or
+        // the signal's tooltip show; the call's clock moves by itself.
+        if shown && self.call.since.is_some() && self.link_shown() {
             subscriptions.push(
                 iced::time::every(Duration::from_secs(1))
                     .map(|_| Message::Call(crate::call::Event::Second)),

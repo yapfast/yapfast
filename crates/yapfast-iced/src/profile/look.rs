@@ -58,9 +58,9 @@ impl Offer {
 /// A profile as its card, the DM's panel and the full profile show it.
 #[derive(Debug)]
 pub struct Look {
-    /// The view it was made of, and how this account stood with them,
-    /// which a new one is compared with.
-    pub view: ProfileView,
+    /// The view it was made of, shared with the core, and how this account
+    /// stood with them, which a new one is compared with.
+    pub view: Arc<ProfileView>,
     pub relation: Relation,
     /// What the DM list said of them, over the profile's, for the panel
     /// beside their DM.
@@ -121,7 +121,7 @@ pub struct ActivityLook {
 impl Look {
     pub fn new(
         state: &AppState,
-        view: &ProfileView,
+        view: &Arc<ProfileView>,
         live: Option<Live>,
         choices: &[MenuChoice],
         link: u32,
@@ -359,13 +359,6 @@ fn activity_look(activity: &Activity) -> ActivityLook {
         end: activity.end.map(|ms| ms / 1000),
         url: text(&activity.url),
         link: text(&activity.link),
-    }
-}
-
-impl ActivityLook {
-    /// It counts time, which a clock brings up to date each second.
-    pub fn timed(&self) -> bool {
-        self.start.is_some() || self.end.is_some()
     }
 }
 

@@ -109,7 +109,7 @@ build.
   sums or at the pointer needn't know it's there, and `App::window` is
   that room's size. Alt+Left and Alt+Right, and the mouse's back and
   forward buttons, go back and forward too, whichever bar there is.
-- Zoom: Ctrl with + or - steps through the shared `zoom.rs` levels, no
+- Zoom: Ctrl with + or - steps through the core's `zoom` levels, no
   further in than the window's room allows, and Ctrl+0 goes back to 100%;
   Ctrl and the wheel step too (a notch, or 60 px of a touchpad), taken
   round the whole window (`widgets::CtrlWheel`) so nothing under the
@@ -306,7 +306,8 @@ gate's meter and the recording. Each change is kept at once in
 hands it; the Slint client reads what this one writes, and the other way
 round.
 
-- My account (`pages.rs`): the account's card, where its login is kept,
+- My account (`pages/`, a file a page, with the preferences' changes in
+  its `mod.rs`): the account's card, where its login is kept,
   Reconnect while offline, Edit profile, the custom status, and Sign out
   (Back to sign in in the preview).
 - Voice & video (`voice.rs`): the microphone, speakers and camera, each a
@@ -320,8 +321,8 @@ round.
   Nitro, opens the sounds Discord has as the call's soundboard does,
   `App::sound_board`, a click choosing one), the room's echo and, on Windows,
   Windows' own effects; the input mode, and either the gate's sensitivity
-  over the microphone's level as the gate hears it (read twenty times a
-  second only while it shows) or push to talk's key and release delay. Where no global key works
+  over the microphone's level as the gate hears it (read as it's drawn,
+  twenty times a second, only while it shows) or push to talk's key and release delay. Where no global key works
   (the root crate's `push_to_talk` says why), the window's own key events
   hold it while the window has the focus, as the Slint client's: an event
   filter hands each key's scan code to the root crate with no message.
@@ -405,7 +406,8 @@ dialog over the page, then the settings.
 - Boost Perks: the server's level, the progress bar's switch, and the
   banner and invite background at 16 by 9, each with the level that
   unlocks it.
-- Roles (`roles.rs`, the Slint client's `RolesSection`): @everyone's card,
+- Roles (`roles/`: the list, the editor and its members' tab each a
+  file; the Slint client's `RolesSection`): @everyone's card,
   the search with Create Role, and the roles in their order with how many
   hold each, Edit (View for a locked one) and More (Move Up, Move Down,
   Duplicate Role, Delete). A role at or above this account's highest is
@@ -434,8 +436,8 @@ dialog over the page, then the settings.
   page size, how many in all, and the pager.
 - Invites: Pause or Enable Invites (Security Actions: how long, invites,
   DMs, Save once changed), Create Invite Link (the invite dialog), and
-  the invites with their inviter, code, uses, a countdown ticking each
-  second while there are rows, and roles; dimmed while paused, the X under
+  the invites with their inviter, code, uses, a countdown read each
+  second as it's drawn, and roles; dimmed while paused, the X under
   the pointer revokes.
 - Safety Setup (`moderation.rs`): the verification levels and content
   filters as the kit's radio `options`, in Discord's colours, and those a
@@ -887,7 +889,7 @@ member list, the DMs, and the lists still to come build on it.
   bubble, activities, the bio laid out, the mutual line, the tabs). The
   card (`body.rs`) is the Slint client's `ProfileCard`: the banner (moving
   ones play; with no banner, accent or theme, the avatar's dominant colour,
-  as the root's `dominant_colour.rs` works it out for both clients), the avatar on its ring with its decoration and presence, the
+  as the core's `dominant_colour` works it out for both clients), the avatar on its ring with its decoration and presence, the
   status's bubble, Add Friend or Friends and More over the banner, the
   name drawn once in its style, the username, pronouns and server tag,
   badges twelve to a row (their tooltips after half a second's rest; a
@@ -909,8 +911,8 @@ member list, the DMs, and the lists still to come build on it.
   what's coming while Discord hasn't said, and Discord's words while a tab is empty. A one-to-one DM has the
   card docked beside it, with what the DM list knows of them now, and
   View Full Profile at its foot; the header's profile button shows or
-  hides it, kept in `layout.json`. Activities' times move each second
-  while one shows. A profile's effect (`cosmetic.rs`, the Slint client's
+  hides it, kept in `layout.json`. Activities' times and a song's bar
+  move each second as they're drawn. A profile's effect (`cosmetic.rs`, the Slint client's
   `ProfileEffect`) lies over the card, the docked one and the full
   profile's left: its still at rest, and while the pointer is on the card
   and moving pictures play, its layers each from its start for its
@@ -1034,7 +1036,8 @@ parts of `ui/yapfast.slint`, with the adapter's logic beside them.
   be joined. A click on the channel in the sidebar joins it without
   showing it, as Discord's client does; a second click, or the dock's
   channel line, shows the call.
-- The stage (`call/stage.rs`, ported from the Slint client's tile layout)
+- The stage (`call/stage/`, ported from the Slint client's tile layout;
+  `layout.rs` places the tiles with no window in it)
   lays the tiles out in a grid, or one large with the rest in a row under
   it; a click on a tile makes it large, and a click beside it the grid
   again. The tiles scroll when there are more than fit. Each tile is a
@@ -1047,10 +1050,12 @@ parts of `ui/yapfast.slint`, with the adapter's logic beside them.
 - The controls under the stage, in the Slint client's order: mute and
   deafen (each with its device menu), the camera, Go Live, the soundboard,
   and leave.
-- The device menus (`call/popups.rs`): the device to use (one chosen that
+- The device menus (`call/popups/`: the device menus, the share menu,
+  the soundboard and someone's voice menu each a file): the device to use (one chosen that
   went away shows as not connected), its volume, which plays while it's
   dragged and is kept in `layout.json` when let go, and on the input side
-  the microphone's level, measured only while the menu shows, and the
+  the microphone's level, measured only while the menu shows and read
+  as it's drawn, and the
   noise suppression kind.
 - Go Live's menu lists the screens with a picture of each (from a stream
   worker started for them and gone once they're in), the windows, the
@@ -1086,7 +1091,7 @@ parts of `ui/yapfast.slint`, with the adapter's logic beside them.
   encoder, codec, size, bitrate sent and aimed for, keyframes asked for and
   packets resent; and how the call is secured. What they show is copied
   out of the call only while they or the tooltip show, again each second.
-  Their words and graph are the root's `call_details.rs`, which the Slint
+  Their words and graph are the core's `call_details`, which the Slint
   client uses too.
 - A DM's call (`call/dm.rs`) shows above its messages, taking more room
   while a tile is large: the stage and controls while in it, else who is
@@ -1197,6 +1202,13 @@ what costs is kept out of the view:
 - The backend's events come on its receiver, batched, as messages
   (`app::batches`); nothing polls. Fonts the shaper wants, the control file and
   the window's size as it opens and is resized come as subscriptions.
+- After each batch of the backend's events, `sync.rs` takes in only what
+  changed, by what the core gives to tell: the core counts changes to its
+  rooms and servers (`list_changes`), to the people lists (friends,
+  requests, those blocked, pinned DMs: `people_changes`) and to the
+  profile editor (`profile_editor_changes`), and shares messages and the
+  profiles shown by `Arc`, so what's made of them is kept while those
+  stay the same.
 - Lists are virtualized by hand: `widgets::Rows` holds only the rows near
   its viewport, each keyed by its id, so its widget state follows it as
   rows come and go. A message's text is laid out once, when it comes, and
@@ -1211,6 +1223,11 @@ what costs is kept out of the view:
   view. They play as Messages' Animate setting says (`App::plays`):
   always, never, or while the window has the focus; held still, each
   shows its first frame.
+- What moves on its own (`widgets/live.rs`): meters are `Gauge`s that
+  read the level as they're drawn and clocks (the call's length, an
+  activity's time, an invite's countdown) `LiveText`s that read their
+  text so, each drawn again on a timer of its own while it shows; neither
+  sends a message, so no view is built for them.
 - Fonts: DM Sans and its italic, the packed Twemoji (the root `build.rs` makes it for this
   build too), the display-name fonts on first use, and for other scripts a
   system font loaded the first time a script is shaped (`fonts.rs`).
@@ -1222,7 +1239,10 @@ what costs is kept out of the view:
   (`picture::set_frame_wake`): a camera's as it's decoded, and a stream
   worker's as the worker says so on its reports' pipe, a line per frame it
   writes only for a client that asked to be woken. Nothing looks for
-  frames on a timer.
+  frames on a timer. A new frame only redraws the window: `Video` reads
+  its source's newest frame as it's drawn (`video::Shared::frame`), and
+  only a source's first frame (which brings its tile's face) or a
+  message's video (whose bar shows its time) builds the view again.
 
 Each part of the window has its module: `signin`, `mfa`, `rail`,
 `sidebar`, `account`, `header`, `banners`, `timeline`, `message`, `cards`, `bot_select`, `browse`, `browse_channels`, `found`, `popovers`, `search`, `thread`, `image_viewer`, `composer`, `edit`, `suggest`, `commands`, `typing`, `uploads`, `forward`, `members`,
@@ -1370,6 +1390,9 @@ When a second screen needs what a first one built, it moves here:
   `Anchor::Span` under a button or above it) and `Above`, `PlateRow`, `Watch`, `RightPress` and
   `Holds` (a child that keeps the pointer's moves over it from what it floats over; `Rows`
   hands events to its last row first, as a stack does).
+- `widgets::gauge` and `widgets::live_text`: a box painted from what it
+  reads as it's drawn (a meter) and a line of text read so (a clock),
+  each drawn again every so often while it shows, with no message.
   `Rows::measured` lays rows out at their content's height and hands the
   heights that differ to the app with no message, apart from those below
   the view of someone reading earlier messages. `Corner` holds a bar at a
@@ -1585,7 +1608,7 @@ Settings with a theme being edited, a camera's frames, made again as the
 window comes back), quitting without one, the tray's dot, a notification's
 click and the release's, a later start's link, the own title bar's place
 and inbox, clicks under it landing, Back and Forward, and the zoom by keys and by
-Ctrl and the wheel, a saved one held to the window's room at start. `call/stage.rs` tests the tiles' layout (and the pixels a tile's frames are
+Ctrl and the wheel, a saved one held to the window's room at start. `call/stage/layout.rs` tests the tiles' layout (and the pixels a tile's frames are
 made at), the stage's slots and the corner, `call/dock.rs` the call's time and
 `viewer.rs` the fit. The tests
 make the Twemoji font from `vendor/twemoji` with the root crate's own

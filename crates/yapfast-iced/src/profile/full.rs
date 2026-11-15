@@ -285,10 +285,9 @@ impl App {
     fn activity_tab<'a>(&'a self, shown: &'a Shown, inks: &Inks) -> Element<'a, Message> {
         let look = &shown.look;
         let profile = look.profile();
-        let now = yapfast_core::clock::now_ms() / 1000;
         let mut list = column![].spacing(8);
         for activity in &look.activities {
-            list = list.push(self.activity_card_view(activity, inks, now, None));
+            list = list.push(self.activity_card_view(activity, inks, None));
         }
         if !profile.recent.is_empty() {
             list = list.push(

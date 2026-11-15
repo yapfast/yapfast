@@ -11,13 +11,12 @@ use iced::{
     keyboard::{self, key},
     window,
 };
-use yapfast_core::{application::Action, chat::Alert, sounds::Sound, voice};
+use yapfast_core::{application::Action, chat::Alert, sounds::Sound, voice, zoom};
 
 use crate::{
     after,
     app::{App, Message},
     desktop::{self, ABOUT, Heard, Notifier, Tell, Tray, TrayChoice},
-    zoom,
 };
 
 /// The least size the window lays out in, as the Slint client's window.

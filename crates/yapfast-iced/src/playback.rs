@@ -448,14 +448,11 @@ impl App {
             .filter(|video| video.item == message.item && video.index == index);
         let failed = playing.and_then(|video| video.error.as_deref());
         let pointed = self.pointed.clip.as_deref() == Some(key.as_str());
-        let frame = playing.and_then(|_| self.frames.get(&format!("clip:{key}")));
+        let source = format!("clip:{key}");
         let mut layers = stack![poster].width(size.width).height(size.height);
-        if failed.is_none()
-            && let Some((handle, frame_size)) = frame
-        {
-            layers = layers.push(
-                Video::new(handle.clone(), *frame_size, Color::BLACK).scale(self.device_scale()),
-            );
+        if failed.is_none() && playing.is_some() && self.video.has(&source) {
+            layers = layers
+                .push(Video::new(&self.video, source, Color::BLACK).scale(self.device_scale()));
         }
         let ended = playing.is_some_and(|video| video.ended);
         if playing.is_none() || failed.is_some() || (ended && !pointed) {

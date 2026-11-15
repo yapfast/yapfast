@@ -171,7 +171,7 @@ def send(commands, timeout=60):
 
 
 def zoom_level(text):
-    """One of Yapfast's zoom levels, as src/zoom.rs lists them; Yapfast ignores others."""
+    """One of Yapfast's zoom levels, as crates/yapfast-core/src/zoom.rs lists them; Yapfast ignores others."""
     percent = round(float(text) * 100)
     if abs(float(text) * 100 - percent) > .01 or not (
             50 <= percent <= 150 and percent % 5 == 0 or 150 < percent <= 200 and percent % 10 == 0):

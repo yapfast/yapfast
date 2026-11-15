@@ -26,7 +26,7 @@ use super::{Drop, Event as SettingsEvent, Settings};
 use crate::{
     app::{App, Message},
     call::device_rows,
-    controls::{Kind, action, bar, choices, slider},
+    controls::{Kind, action, choices, slider},
     fonts::SEMIBOLD,
     form::{self, switch},
     layout::InputMode,
@@ -38,8 +38,8 @@ use crate::{
 /// size it's filmed at.
 pub const CAMERA_TEST: &str = "camera:settings";
 const PREVIEW: (u32, u32) = (400, 225);
-/// How often the gate's meter is read while it shows.
-pub const METER_EVERY: std::time::Duration = std::time::Duration::from_millis(50);
+/// How often the gate's meter is drawn anew while it shows.
+const METER_EVERY: std::time::Duration = std::time::Duration::from_millis(50);
 
 const SUPPRESSORS: [Suppressor; 3] = [
     Suppressor::DeepFilterNet,
@@ -56,10 +56,8 @@ pub struct Voice {
     /// The camera being tried, and why it couldn't start.
     pub camera: Option<(yapfast_core::camera::Camera, Feed)>,
     pub camera_note: String,
-    /// The Discord gate's meter while its slider shows, and what it read.
+    /// The Discord gate's meter while its slider shows, read as it's drawn.
     pub gate: Option<yapfast_core::discord_audio::GateMeter>,
-    pub level: f32,
-    pub sending: bool,
     /// The soundboard's volume while its slider is dragged.
     pub soundboard: Option<u32>,
     /// Entrance sounds: the server chosen ("All servers" first), and the
@@ -89,7 +87,6 @@ pub enum Event {
     SoundboardVolume(u32, bool),
     EntranceServer(usize),
     Entrance(Option<String>),
-    Meter,
     /// Push to talk's watcher told where its key works, by the watch's
     /// count.
     Told(u64, String),
@@ -141,13 +138,6 @@ impl App {
             (false, true) => settings.voice.gate = None,
             _ => {}
         }
-    }
-
-    /// Whether the gate's meter is read now.
-    pub fn gate_metered(&self) -> bool {
-        self.settings
-            .as_ref()
-            .is_some_and(|settings| settings.voice.gate.is_some())
     }
 
     /// Whether the next key is push to talk's.
@@ -336,15 +326,6 @@ impl App {
                     settings.open = None;
                 }
                 self.client.dispatch(Action::SetJoinSound { server, sound });
-            }
-            Event::Meter => {
-                if let Some(settings) = &mut self.settings
-                    && let Some(gate) = &settings.voice.gate
-                {
-                    settings.voice.level = gate.level().max(-100.0);
-                    settings.voice.sending = gate.sending();
-                }
-                return Task::none();
             }
             Event::Told(count, words) => {
                 if count == self.talk.count {
@@ -550,16 +531,11 @@ impl App {
     fn camera_preview<'a>(&'a self, settings: &'a Settings) -> Element<'a, Message> {
         iced::widget::responsive(move |size| {
             let testing = settings.voice.camera.is_some();
-            let frame =
-                testing
-                    .then(|| self.frames.get(CAMERA_TEST))
-                    .flatten()
-                    .map(|(handle, size)| {
-                        Element::from(
-                            Video::new(handle.clone(), *size, Color::BLACK)
-                                .scale(self.device_scale()),
-                        )
-                    });
+            let frame = (testing && self.video.has(CAMERA_TEST)).then(|| {
+                Element::from(
+                    Video::new(&self.video, CAMERA_TEST, Color::BLACK).scale(self.device_scale()),
+                )
+            });
             let grey = crate::style::hex(0xb5b8c1);
             let body = frame.unwrap_or_else(|| {
                 let note = if !settings.voice.camera_note.is_empty() {
@@ -854,35 +830,28 @@ impl App {
             .input_sensitivity
             .unwrap_or(yapfast_core::noise::DEFAULT_SENSITIVITY as i32)
             .clamp(-80, 0);
-        let level = settings.voice.level;
-        let sending = settings.voice.sending;
-        let at = |decibels: f32| ((decibels + 80.0) / 80.0).clamp(0.0, 1.0);
-        let (live, loud, danger, field) = (theme.live, theme.loud, theme.danger, theme.field);
-        let (orange, red, shown) = (at(-18.0), at(-6.0), at(level));
-        let meter = iced::widget::responsive(move |size| {
-            let width = size.width;
-            let segment = |from: f32, to: f32, color: Color| -> Element<'_, Message> {
-                container(bar(color, ((to - from).max(0.0)) * width, 8))
-                    .padding(iced::Padding {
-                        left: from * width,
-                        ..iced::Padding::ZERO
-                    })
-                    .into()
-            };
-            container(
-                iced::widget::stack![
-                    bar(field, Length::Fill, 8),
-                    segment(0.0, shown.min(orange), live),
-                    segment(orange, shown.min(red), loud),
-                    segment(red, shown, danger),
-                ]
-                .height(8),
-            )
-            .padding([5, 0])
-            .clip(true)
-            .into()
+        // The gate's level and whether it sends, read as they're drawn,
+        // twenty times a second: no message, no view.
+        let gate = settings.voice.gate.as_ref();
+        let inks = GateInks {
+            live: theme.live,
+            loud: theme.loud,
+            danger: theme.danger,
+            field: theme.field,
+        };
+        let meter = crate::widgets::gauge(METER_EVERY, move |renderer, bounds| {
+            let level = gate.map_or(-100.0, |gate| gate.level().max(-100.0));
+            gate_level(renderer, bounds, level, inks);
         })
         .height(18);
+        let sending = move || gate.is_some_and(yapfast_core::discord_audio::GateMeter::sending);
+        let (live, muted) = (theme.live, theme.muted);
+        let sending_line = crate::widgets::live_text(METER_EVERY, move || {
+            if sending() { "Sending" } else { "Not sending" }.to_owned()
+        })
+        .size(13)
+        .font(SEMIBOLD)
+        .ink(move || if sending() { live } else { muted });
         let knob = theme.text;
         let track = iced::widget::slider(0..=80u32, (decibels + 80) as u32, |value| {
             voice_message(Event::Sensitivity(value, false))
@@ -926,10 +895,7 @@ impl App {
                         .font(SEMIBOLD)
                         .color(theme.secondary)
                         .width(Length::Fill),
-                    text(if sending { "Sending" } else { "Not sending" })
-                        .size(13)
-                        .font(SEMIBOLD)
-                        .color(if sending { theme.live } else { theme.muted }),
+                    sending_line,
                     text(format!("{decibels} dB"))
                         .size(13)
                         .font(SEMIBOLD)
@@ -947,6 +913,53 @@ impl App {
 
 fn voice_message(event: Event) -> Message {
     Message::Settings(SettingsEvent::Voice(event))
+}
+
+/// The gate meter's colours: green up to -18 dB, orange to -6 dB, red
+/// above, on the field's ground.
+#[derive(Clone, Copy)]
+struct GateInks {
+    live: Color,
+    loud: Color,
+    danger: Color,
+    field: Color,
+}
+
+/// The gate's `level` (dB, -80 to 0) as the Slint client's
+/// `SensitivitySlider` draws it: an 8 px bar across the middle of `bounds`.
+fn gate_level(
+    renderer: &mut crate::widgets::Renderer,
+    bounds: iced::Rectangle,
+    level: f32,
+    inks: GateInks,
+) {
+    use iced::advanced::{Renderer as _, renderer::Quad};
+    let at = |decibels: f32| ((decibels + 80.0) / 80.0).clamp(0.0, 1.0);
+    let (orange, red, shown) = (at(-18.0), at(-6.0), at(level));
+    let bar = iced::Rectangle {
+        y: bounds.y + (bounds.height - 8.0) / 2.0,
+        height: 8.0,
+        ..bounds
+    };
+    let mut fill = |from: f32, to: f32, color: Color| {
+        if to > from {
+            renderer.fill_quad(
+                Quad {
+                    bounds: iced::Rectangle {
+                        x: bar.x + from * bar.width,
+                        width: (to - from) * bar.width,
+                        ..bar
+                    },
+                    ..Default::default()
+                },
+                color,
+            );
+        }
+    };
+    fill(0.0, 1.0, inks.field);
+    fill(0.0, shown.min(orange), inks.live);
+    fill(orange, shown.min(red), inks.loud);
+    fill(red, shown, inks.danger);
 }
 
 /// The servers an entrance sound can be chosen for: every server (none),

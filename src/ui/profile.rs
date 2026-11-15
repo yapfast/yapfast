@@ -949,11 +949,14 @@ pub(super) fn avatar_color(url: Option<&str>, avatar: &slint::Image) -> Option<u
     })
 }
 
-/// [`crate::dominant_colour::dominant`] of a picture; none while it's
+/// [`yapfast_core::dominant_colour::dominant`] of a picture; none while it's
 /// empty or not a pixel buffer.
 pub(super) fn dominant_color(picture: &slint::Image) -> Option<u32> {
     let pixels = picture.to_rgba8()?;
-    crate::dominant_colour::dominant(pixels.as_bytes(), crate::dominant_colour::Order::Rgba)
+    yapfast_core::dominant_colour::dominant(
+        pixels.as_bytes(),
+        yapfast_core::dominant_colour::Order::Rgba,
+    )
 }
 
 /// A server tag's letters for Slint, or nothing for one who wears none.

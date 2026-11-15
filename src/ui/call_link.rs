@@ -6,7 +6,9 @@
 use yapfast_core::voice::LinkStats;
 
 use super::*;
-use crate::call_details::{average, encoder, graph, groups, milliseconds, path, picture, rate};
+use yapfast_core::call_details::{
+    average, encoder, graph, groups, milliseconds, path, picture, rate,
+};
 
 pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
     let state = Rc::downgrade(adapter);
@@ -35,11 +37,11 @@ pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
 /// Shows `stats`, with the privacy code only while `others` are in the call
 /// to compare it with, as Discord's client does.
 fn show(link: &CallLink<'_>, stats: &LinkStats, others: bool) {
-    let last = crate::call_details::last_ping(stats);
+    let last = yapfast_core::call_details::last_ping(stats);
     link.set_ping(last.unwrap_or_default().into());
     let average = average(&stats.pings).map(milliseconds);
     link.set_average(average.unwrap_or_default().into());
-    let loss = crate::call_details::loss(stats);
+    let loss = yapfast_core::call_details::loss(stats);
     link.set_loss(loss.unwrap_or_default().into());
     let (steps, top) = graph(&stats.pings);
     link.set_graph(path(&steps).into());

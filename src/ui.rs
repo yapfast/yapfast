@@ -34,7 +34,9 @@ use yapfast_core::{
 };
 
 use crate::drop::Drag;
-use crate::{autostart, custom_emoji, emoji, emoji_text, graphics, zoom};
+use yapfast_core::zoom;
+
+use crate::{autostart, custom_emoji, emoji, emoji_text, graphics};
 
 mod active_now;
 mod app_commands;

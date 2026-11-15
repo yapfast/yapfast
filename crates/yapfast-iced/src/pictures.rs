@@ -58,13 +58,13 @@ pub fn install() {
 
 /// The order of a picture's bytes: tiny-skia's where [`install`] made its
 /// buffer, else the core's own RGBA (the GPU build's, and the tests').
-pub fn byte_order(picture: &Picture) -> crate::dominant_colour::Order {
+pub fn byte_order(picture: &Picture) -> yapfast_core::dominant_colour::Order {
     #[cfg(feature = "cpu")]
     if picture.rgba.buffer::<NativePixels>().is_some() {
-        return crate::dominant_colour::Order::Bgra;
+        return yapfast_core::dominant_colour::Order::Bgra;
     }
     let _ = picture;
-    crate::dominant_colour::Order::Rgba
+    yapfast_core::dominant_colour::Order::Rgba
 }
 
 /// A picture's pixels as a byte slice that keeps the picture alive.

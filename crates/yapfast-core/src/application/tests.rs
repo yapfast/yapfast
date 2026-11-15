@@ -2383,14 +2383,14 @@ fn someones_menu_blocks_and_unblocks_them_but_never_this_account() {
 
     // Blocking from a profile asks first, naming them as their profile does,
     // and then says it came from the profile's menu.
-    app.state.profile = Some(ProfileView {
+    app.state.profile = Some(Arc::new(ProfileView {
         profile: Profile {
             id: "5".into(),
             name: "Eve".into(),
             ..Default::default()
         },
         ..Default::default()
-    });
+    }));
     assert!(
         app.dispatch(Action::AskPerson {
             user: "5".into(),
@@ -2410,14 +2410,14 @@ fn someones_menu_blocks_and_unblocks_them_but_never_this_account() {
         }))] if user == "5"
     ));
     // Not this account, whatever asks, even with its own profile open.
-    app.state.profile = Some(ProfileView {
+    app.state.profile = Some(Arc::new(ProfileView {
         profile: Profile {
             id: "1".into(),
             name: "Alice".into(),
             ..Default::default()
         },
         ..Default::default()
-    });
+    }));
     assert!(
         app.dispatch(Action::AskPerson {
             user: "1".into(),
@@ -5628,7 +5628,7 @@ fn discord_dialogs_stop_waiting_when_the_backend_cant_answer() {
             .as_ref()
             .is_some_and(|editor| editor.saving)
     );
-    app.state.profile = Some(ProfileView {
+    app.state.profile = Some(Arc::new(ProfileView {
         profile: Profile {
             id: "2".into(),
             ..Default::default()
@@ -5638,7 +5638,7 @@ fn discord_dialogs_stop_waiting_when_the_backend_cant_answer() {
         kept: false,
         note: None,
         ..Default::default()
-    });
+    }));
     app.stopped();
     let editor = app.state.status_editor.as_ref().expect("still open");
     assert!(!editor.saving && editor.error.is_some());
@@ -6081,7 +6081,7 @@ fn profile_effects_are_kept_a_few_at_a_time_and_their_pictures_go_with_the_card(
     assert_eq!(app.state.profile_effects.len(), 8);
     assert_eq!(app.state.profile_effects.last().unwrap().sku, "5");
     // Open on a profile naming effect 9, only its still picture is asked for.
-    app.state.profile = Some(ProfileView {
+    app.state.profile = Some(Arc::new(ProfileView {
         profile: Profile {
             id: "1".into(),
             effect: Some("9".into()),
@@ -6093,7 +6093,7 @@ fn profile_effects_are_kept_a_few_at_a_time_and_their_pictures_go_with_the_card(
         kept: false,
         note: None,
         ..Default::default()
-    });
+    }));
     app.dispatch(Action::CloseAside);
     assert!(app.requested_pictures.contains("9-still.png#effect"));
     assert!(!app.requested_pictures.contains("9-layer.png#effect"));
@@ -6134,7 +6134,7 @@ fn a_cards_frame_and_moving_banner_go_with_it() {
     let layer = "https://cdn.discordapp.com/media/v1/collectibles-shop/9/a/static";
     let banner = "https://cdn.discordapp.com/banners/1/a_77.png?size=600";
     let moving = "https://cdn.discordapp.com/banners/1/a_77.gif?size=600";
-    app.state.profile = Some(ProfileView {
+    app.state.profile = Some(Arc::new(ProfileView {
         profile: Profile {
             id: "1".into(),
             banner: Some(banner.into()),
@@ -6148,7 +6148,7 @@ fn a_cards_frame_and_moving_banner_go_with_it() {
             ..Default::default()
         },
         ..Default::default()
-    });
+    }));
     for url in [layer, moving].into_iter().map(String::from) {
         app.requested_pictures.insert(url.clone());
         app.apply(Event::Picture {
@@ -12782,7 +12782,7 @@ fn the_profile_editor_names_its_boards_games_once() {
 /// A full profile on screen with a public wishlist at 90, and a game on its board.
 fn full_profile_with_tabs(large: bool) -> Application {
     let mut app = Application::default();
-    app.state.profile = Some(ProfileView {
+    app.state.profile = Some(Arc::new(ProfileView {
         profile: Profile {
             id: "2".into(),
             wishlist_place: Some(chat::WishlistPlace {
@@ -12803,7 +12803,7 @@ fn full_profile_with_tabs(large: bool) -> Application {
         },
         large,
         ..Default::default()
-    });
+    }));
     app
 }
 
@@ -12830,7 +12830,7 @@ fn someone_elses_lists_are_asked_for_only_when_a_full_profiles_tab_opens() {
         id: "91".into(),
         wishlist: chat::Wishlist::Hidden,
     });
-    let wishlist = |app: &Application| app.state.profile.clone().unwrap().profile.wishlist;
+    let wishlist = |app: &Application| app.state.profile.as_ref().unwrap().profile.wishlist.clone();
     assert_eq!(wishlist(&app), chat::Wishlist::Loading);
     app.apply(Event::Wishlist {
         id: "90".into(),
@@ -12861,7 +12861,7 @@ fn someone_elses_lists_are_asked_for_only_when_a_full_profiles_tab_opens() {
         user: "2".into(),
         widgets: named,
     });
-    let profile = app.state.profile.clone().unwrap().profile;
+    let profile = app.state.profile.as_ref().unwrap().profile.clone();
     assert!(profile.board_named);
     assert_eq!(profile.widgets[0].games[0].name, "Made-up Racers");
 }
@@ -12871,7 +12871,7 @@ fn someone_elses_lists_are_asked_for_only_when_a_full_profiles_tab_opens() {
 fn a_profile_coming_after_a_tab_opened_keeps_what_it_asked_and_asks_what_it_didnt() {
     let mut app = full_profile_with_tabs(true);
     {
-        let view = app.state.profile.as_mut().unwrap();
+        let view = app.state.profile.as_mut().map(Arc::make_mut).unwrap();
         view.loading = true;
         view.profile.wishlist_place = None;
     }

@@ -11,7 +11,6 @@ use crate::{
     picker::{self, Target},
     select::Select,
     signin,
-    video::Fresh,
 };
 
 /// The open timeline's messages, as the core shares them.
@@ -162,10 +161,9 @@ pub enum Message {
     Friends(crate::friends::Event),
     /// Something done in the Reactions window.
     Reactions(crate::reactions::Event),
-    /// A second passed while a profile times an activity.
-    Second,
-    /// New video frames.
-    Frames(Vec<Fresh>),
+    /// New video frames the view shows differently: a source's first, or
+    /// a message's video's, with how far it's got (milliseconds).
+    Frames(Option<u64>),
     /// Something done to the call or in it (`call/`).
     Call(crate::call::Event),
     /// Something done in Settings (`settings/`).
@@ -199,7 +197,7 @@ pub enum Message {
     /// A key pressed with Ctrl, which may zoom.
     Zoom(keyboard::Key, keyboard::key::Physical),
     /// Ctrl and the wheel.
-    ZoomStep(crate::zoom::Step),
+    ZoomStep(yapfast_core::zoom::Step),
     /// The window's own title bar (`window_bar.rs`).
     Bar(crate::window_bar::Event),
 }

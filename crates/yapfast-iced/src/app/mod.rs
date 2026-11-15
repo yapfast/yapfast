@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use iced::{Point, Size, Task, advanced::image::Handle, keyboard, widget::operation};
+use iced::{Point, Size, Task, keyboard, widget::operation};
 use yapfast_core::{application::Action, chat::ChatMember};
 
 use crate::{
@@ -235,16 +235,18 @@ pub struct App {
     /// cards while the friends list shows.
     pub friends: crate::friends::Friends,
     pub active_now: Vec<crate::active_now::Card>,
+    /// The core's people and lists changes Active Now's cards were made
+    /// at, while they show.
+    pub active_now_made: Option<(u64, u64)>,
     /// The Reactions window's scroll and pointer.
     pub reactions: crate::reactions::Reactions,
     /// The person dialog's field and tick.
     pub person: crate::person::Dialog,
-    /// Video: what [`video::frames`] looks at; the newest frame of each
-    /// camera (by participant id), of the watched stream ("stream:" and
-    /// the streamer's id), of this account's screen and of a message's
-    /// video, with its size.
+    /// Video: what [`video::frames`] looks at, and the newest frame of
+    /// each camera (by participant id), of the watched stream ("stream:"
+    /// and the streamer's id), of this account's screen and of a message's
+    /// video, with its size, which `video::Video` draws.
     pub video: Arc<video::Shared>,
-    pub frames: HashMap<String, (Handle, (u32, u32))>,
     /// The call's own state: what's large, what's open, the corner.
     pub call: crate::call::Call,
     /// Settings while it's open, and which build this is, which it shows.
@@ -324,7 +326,7 @@ impl App {
         client.share_typing = layout.prefs.share_typing.unwrap_or(true);
         // The window opens at its size in the desktop's pixels whatever
         // the zoom, as the Slint client's, and its layout gets fewer.
-        let zoom = crate::zoom::saved(layout.zoom);
+        let zoom = yapfast_core::zoom::saved(layout.zoom);
         let shell = crate::shell::Shell {
             zoom,
             own_title_bar: crate::window_bar::own(layout.system_title_bar),
@@ -421,10 +423,10 @@ impl App {
             cards: Default::default(),
             friends: Default::default(),
             active_now: Vec::new(),
+            active_now_made: None,
             reactions: Default::default(),
             person: Default::default(),
             video: Default::default(),
-            frames: HashMap::new(),
             call: Default::default(),
             settings: None,
             server_screen: None,
@@ -467,7 +469,7 @@ impl App {
         // Started on a saved account: see `SignIn::starting`.
         app.sign_in.starting = !app.workspace() && app.client.state().busy;
         let frames = Task::batch([
-            Task::run(video::frames(app.video.clone()), Message::Frames),
+            video::follow(app.video.clone()),
             Task::run(fitted, Message::Fitted),
         ]);
         let sync = app.sync();
@@ -707,9 +709,8 @@ impl App {
             Message::Profile(event) => self.profile_event(event),
             Message::Friends(event) => self.friends_event(event),
             Message::Reactions(event) => self.reactions_event(event),
-            Message::Second => Task::none(),
-            Message::Frames(found) => {
-                self.frames_found(found);
+            Message::Frames(clip_time) => {
+                self.frames_found(clip_time);
                 Task::none()
             }
             Message::Call(event) => self.call_event(event),

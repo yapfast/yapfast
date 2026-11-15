@@ -93,13 +93,14 @@ mod cosmetic;
 mod drag;
 mod fold;
 mod layers;
+mod live;
 mod picture;
 mod pointer;
 mod rows;
 
 pub use self::{
-    autoscroll::*, colour::*, cosmetic::*, drag::*, fold::*, layers::*, picture::*, pointer::*,
-    rows::*,
+    autoscroll::*, colour::*, cosmetic::*, drag::*, fold::*, layers::*, live::*, picture::*,
+    pointer::*, rows::*,
 };
 
 // ---------------------------------------------------------------------------

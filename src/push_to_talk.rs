@@ -3,8 +3,10 @@
 //! mouse hook on Windows. Where none of these works, the key works while
 //! Yapfast's window has the focus, and settings say so. Each tells
 //! [`yapfast_core::push_to_talk::hold`] when the key goes down or comes up.
+#[cfg(feature = "desktop")]
+use std::sync::Mutex;
 use std::sync::{
-    Arc, Mutex,
+    Arc,
     atomic::{AtomicU32, Ordering},
 };
 
@@ -280,10 +282,12 @@ pub fn window_event(event: &WindowEvent) {
 }
 
 /// Watches the key in every app it can, until dropped. The iced client
-/// keeps it without asking it anything.
-#[cfg_attr(not(feature = "desktop"), allow(dead_code))]
+/// keeps it without asking it anything, so only the Slint client's holds
+/// the key and where it works.
 pub struct Watcher {
+    #[cfg(feature = "desktop")]
     key: Keybind,
+    #[cfg(feature = "desktop")]
     reach: Arc<Mutex<Reach>>,
     #[cfg(target_os = "linux")]
     _global: Option<linux::Global>,
@@ -299,16 +303,21 @@ impl Watcher {
         runtime: &BackgroundRuntime,
         told: impl Fn(Reach) + Send + Sync + 'static,
     ) -> Self {
+        #[cfg(feature = "desktop")]
         let reach = Arc::new(Mutex::new(Reach::Asking));
+        #[cfg(feature = "desktop")]
         let shared = reach.clone();
         let scancode = key.scancode;
         TALK_KEY.store(scancode, Ordering::Relaxed);
         let report = Arc::new(move |now: Reach| {
             let focused = matches!(now, Reach::Focused(_));
             FOCUSED_KEY.store(if focused { scancode } else { NONE }, Ordering::Relaxed);
-            *shared
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner()) = now.clone();
+            #[cfg(feature = "desktop")]
+            {
+                *shared
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = now.clone();
+            }
             told(now);
         });
         #[cfg(target_os = "linux")]
@@ -326,7 +335,9 @@ impl Watcher {
             ));
         }
         Self {
+            #[cfg(feature = "desktop")]
             key,
+            #[cfg(feature = "desktop")]
             reach,
             #[cfg(any(target_os = "linux", windows))]
             _global: global,
