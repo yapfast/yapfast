@@ -1740,11 +1740,11 @@ export component YapfastWindow inherits Window {
         root.search-focus-tick += 1;
         return true;
     }
-    /// Escape in the header's search. In an empty field it does what Escape
-    /// does anywhere; after ending a search (`cleared`), that was its work.
-    /// Either way typing returns to the composer used last, if there is one.
+    /// Escape in the header's search leaves the search and nothing else:
+    /// typing returns to the composer used last, if there is one, and a reply
+    /// or an edit pending there stays, for that composer's own Escape to
+    /// cancel. One Escape undoes one thing, as in Telegram and Element.
     function leave-search(cleared: bool) -> bool {
-        if !cleared { root.escape-composing(); }
         root.type-into-composer();
         return true;
     }

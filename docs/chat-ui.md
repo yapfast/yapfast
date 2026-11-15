@@ -59,8 +59,8 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   else that covers it, the key isn't taken and goes on to whatever has the
   keyboard. Escape in the field ends the search and returns typing to the
   composer used last, the docked thread's if it was that one, where there
-  is one to write in; in an empty field it first does what Escape does
-  anywhere, cancelling a reply or an edit. A keyboard layout without Latin
+  is one to write in. It leaves a reply or an edit pending there alone: one
+  Escape undoes one thing, so the next, in the composer, cancels it. A keyboard layout without Latin
   letters, such as a Russian one, uses the key in F's place, as Ctrl+K
   does K's.
 - Restore each server's last selected channel and the last selected DM. Yapfast

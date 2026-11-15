@@ -11686,10 +11686,14 @@ fn the_search_takes_the_keyboard_and_escape_gives_it_back() {
         ("ab".into(), "".into())
     );
 
-    // In an empty search, Escape is the Escape of anywhere: it cancels the
-    // reply, and the composer has the keyboard again.
+    // In an empty search too, Escape only leaves the search: the reply
+    // stays, and the composer has the keyboard again. The next Escape, the
+    // composer's own, cancels the reply.
     assert!(window.invoke_focus_search());
     settle();
+    tap(&window, Key::Escape.into());
+    settle();
+    assert_eq!(cancelled.get(), 0);
     tap(&window, Key::Escape.into());
     settle();
     assert_eq!(cancelled.get(), 1);
