@@ -1454,6 +1454,9 @@ struct Layout {
     theme_performance: yapfast_core::themes::Performance,
     /// Installed themes' animations, effects and motion stay still.
     reduce_motion: bool,
+    /// A theme's transition plays on a channel change; off unless turned
+    /// on.
+    theme_transitions: bool,
     /// The person's choices for installed themes' sounds, by the theme's id,
     /// where they aren't the defaults.
     theme_sounds: std::collections::BTreeMap<String, theme_media::Prefs>,
@@ -1742,6 +1745,7 @@ impl Layout {
             .get_enabled()
             .then_some("bonfire");
         theme_look::set_motion(window, self.theme_performance, self.reduce_motion);
+        theme_art::set_transitions(self.theme_transitions);
         theme_look::set_plain_names(self.plain_names);
         for (id, choices) in &self.theme_options {
             theme_look::set_choices(id, choices.clone());
@@ -1750,6 +1754,7 @@ impl Layout {
         let page = window.global::<yapfast_ui::ThemesPage>();
         page.set_performance(self.theme_performance.index());
         page.set_reduce_motion(self.reduce_motion);
+        page.set_transitions(self.theme_transitions);
         // An installed theme, or `--theme-dev`'s folder, over its base; the
         // default when this run asked for it or the theme can't be shown.
         // Themes made with the creator show from their own packages.

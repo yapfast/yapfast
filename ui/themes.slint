@@ -87,6 +87,8 @@ export global ThemesPage {
     /// How much of an installed theme runs: 0 Full, 1 Balanced, 2 Light.
     in property <int> performance: 1;
     in-out property <bool> reduce-motion;
+    /// A theme's transition on a channel change, off unless turned on.
+    in-out property <bool> transitions;
     in-out property <string> url;
     in property <bool> finding;
     in property <string> error;
@@ -101,7 +103,10 @@ export global ThemesPage {
     callback revert-theme();
     callback performance-chosen(int);
     callback reduce-motion-toggled(bool);
+    callback transitions-toggled(bool);
     callback apply(string);
+    /// Shows the default theme until Yapfast starts again, as Ctrl+Shift+T.
+    callback turn-off();
     callback try(string);
     callback remove(string);
     callback roll-back(string);
@@ -462,6 +467,12 @@ export component ThemesSettings inherits Rectangle {
                         description: "Themes' animations, text effects and hover motion stay still, whatever the setting above.";
                         checked <=> ThemesPage.reduce-motion;
                         toggled(on) => { ThemesPage.reduce-motion-toggled(on); }
+                    }
+                    SettingsSwitch {
+                        text: "Transitions between channels";
+                        description: "A theme's fade or dissolve when you change channel or server, at Full. Off, a channel shows at once.";
+                        checked <=> ThemesPage.transitions;
+                        toggled(on) => { ThemesPage.transitions-toggled(on); }
                     }
                 }
                 if ThemesPage.content != "": VerticalLayout {

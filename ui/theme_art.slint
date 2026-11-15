@@ -654,20 +654,24 @@ export component ArtTransition inherits Rectangle {
         source: Art.shot; x: -root.left-x; y: -root.top-y; width: Art.window-width; height: Art.window-height;
         image-fit: fill; opacity: Art.shot-left * Art.shot-strength; accessible-role: none;
     }
-    // Pixel dissolve: 12 × 8 blocks, each gone at its own moment.
-    for block in (Art.shot-kind == 2 ? 96 : 0): Rectangle {
+    // Pixel dissolve: 12 × 8 blocks, each gone at its own moment. Each
+    // block draws only its own part of the snapshot, so the window's pixels
+    // are drawn once, not once a block.
+    property <float> per-x: Art.shot.width / max(1, Art.window-width / 1px);
+    property <float> per-y: Art.shot.height / max(1, Art.window-height / 1px);
+    for block in (Art.shot-kind == 2 ? 96 : 0): Image {
         property <int> across: Math.mod(block, 12);
         property <int> down: Math.floor(block / 12);
         // A fixed scatter of the blocks' order.
         property <float> order: Math.mod(block * 37 + 11, 96) / 96;
         x: root.width * self.across / 12; y: root.height * self.down / 8;
         width: root.width / 12 + 1px; height: root.height / 8 + 1px;
-        clip: true;
         visible: Art.shot-left > self.order;
-        Image {
-            source: Art.shot; x: -root.left-x - parent.x; y: -root.top-y - parent.y;
-            width: Art.window-width; height: Art.window-height; image-fit: fill;
-            opacity: Art.shot-strength; accessible-role: none;
-        }
+        source: Art.shot; image-fit: fill;
+        source-clip-x: Math.round((root.left-x + self.x) / 1px * root.per-x);
+        source-clip-y: Math.round((root.top-y + self.y) / 1px * root.per-y);
+        source-clip-width: Math.round(self.width / 1px * root.per-x);
+        source-clip-height: Math.round(self.height / 1px * root.per-y);
+        opacity: Art.shot-strength; accessible-role: none;
     }
 }

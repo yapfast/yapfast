@@ -105,6 +105,17 @@ struct State {
 }
 
 thread_local! {
+    /// Settings → Themes → Transitions: a theme's channel-change transition
+    /// plays only when the person turns it on.
+    static TRANSITIONS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Whether a theme's transitions play on a channel change.
+pub fn set_transitions(on: bool) {
+    TRANSITIONS.set(on);
+}
+
+thread_local! {
     static STATE: RefCell<State> = RefCell::new(State::default());
 }
 
@@ -1658,6 +1669,11 @@ fn step_particles(window: &YapfastWindow, step: f32) {
 /// as the theme's transition says. Only Full plays it, never with reduced
 /// motion.
 pub fn channel_changing(window: &YapfastWindow) {
+    // Off unless turned on, and nothing to see while Settings covers the
+    // window: no snapshot, which is a full render of its own.
+    if !TRANSITIONS.get() || window.get_settings_open() {
+        return;
+    }
     let wanted = STATE.with_borrow(|state| {
         let art = state.art.as_ref()?;
         if state.performance != Performance::Full || state.reduced {

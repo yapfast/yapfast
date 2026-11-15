@@ -865,6 +865,12 @@ pub(super) fn bind_themes(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>
         adapter.layout.write(&adapter.root);
         theme_cursor::set_on(on);
     });
+    on!(page, on_transitions_toggled(on) => |adapter, window| {
+        let _ = window;
+        adapter.layout.theme_transitions = on;
+        adapter.layout.write(&adapter.root);
+        theme_art::set_transitions(on);
+    });
     on!(page, on_reduce_motion_toggled(on) => |adapter, window| {
         adapter.layout.reduce_motion = on;
         adapter.layout.write(&adapter.root);

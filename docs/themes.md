@@ -390,7 +390,18 @@ time it was held, so a pulse or a spin resumes at the same phase, and
 particles go on from where they were.
 
 *Reduce motion* keeps every theme animation, text effect and hover motion still
-whatever the setting. A theme's cost is shown before it's installed, measured
+whatever the setting. *Transitions between channels* is off unless turned
+on: with it, at Full, a theme's `transition` plays over the conversation when
+the channel or server changes (one snapshot of the window, drawn once; the
+dissolve cuts it into blocks of the same picture), and none is taken while
+Settings covers the window.
+
+The Themes page reads nothing slow while it opens. An installed theme's cost
+line is kept in `lock.json` from its install, and its thumbnail (at most
+672 × 378, from its first preview) in `<data>/theme-thumbs/<store>.png`;
+both are made on a thread of their own when missing, and the card shows its
+colours until then. A search filters only the marketplace's cards, and Apply
+only marks the applied card. A theme's cost is shown before it's installed, measured
 from its files: the memory its fonts hold once registered and its sounds
 once decoded (with its icons' files), how many animations it declares and
 how many are heavy, the most redraws a second they ask for, its text
