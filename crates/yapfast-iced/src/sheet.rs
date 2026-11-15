@@ -10,7 +10,7 @@ use std::borrow::Cow;
 
 use iced::{
     Alignment, Border, Color, Element, Length, Padding,
-    widget::{Space, button, column, container, mouse_area, opaque, row, scrollable, stack, text},
+    widget::{button, column, container, opaque, row, scrollable, stack, text},
 };
 
 use crate::{
@@ -19,7 +19,7 @@ use crate::{
     fonts::{BOLD, MEDIUM},
     form,
     pictures::Icon,
-    style::{corners, fill, rounded, scrollbar},
+    style::{corners, rounded, scrollbar},
 };
 
 /// How far the card sits in from the window's edges each side, as the
@@ -388,15 +388,8 @@ pub fn backdrop<'a>(
         .max_width(WIDEST)
         .height(Length::Fill)
         .clip(true);
-    let dim = mouse_area(
-        container(Space::new())
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .style(|_| fill(DIM)),
-    )
-    .on_press(close);
     opaque(stack![
-        opaque(dim),
+        controls::dimmed(close, DIM),
         container(opaque(card))
             .padding(margin)
             .center_x(Length::Fill)

@@ -358,7 +358,7 @@ impl App {
                 return self.ask();
             }
             Event::Point(id, entered) => {
-                crate::app::point(&mut self.pointed_rail, id, entered);
+                crate::app::point(&mut self.pointed.rail, id, entered);
                 return Task::none();
             }
             Event::Home => self
@@ -443,7 +443,7 @@ impl App {
     /// The DM home: the app's logo, as Discord puts its own there.
     fn home_tile(&self) -> Element<'_, Message> {
         let home = &self.rail_home;
-        let pointed = self.pointed_rail.as_deref() == Some("");
+        let pointed = self.pointed.rail.as_deref() == Some("");
         let face = self.glyph_tile(Icon::Logo, home.selected || pointed);
         let marks = Marks {
             selected: home.selected,
@@ -489,7 +489,7 @@ impl App {
         tip: &'static str,
         message: Message,
     ) -> Element<'_, Message> {
-        let pointed = self.pointed_rail.as_deref() == Some(id);
+        let pointed = self.pointed.rail.as_deref() == Some(id);
         let face = self.glyph_tile(icon, pointed);
         let marks = Marks {
             pointed,
@@ -590,7 +590,7 @@ impl App {
         item: &'a RailItem,
         height: f32,
     ) -> Element<'a, Message> {
-        let pointed = self.pointed_rail.as_deref() == Some(item.id.as_str());
+        let pointed = self.pointed.rail.as_deref() == Some(item.id.as_str());
         if item.kind == Kind::Divider {
             return if index == 0 {
                 Space::new().into()

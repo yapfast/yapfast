@@ -732,7 +732,7 @@ impl App {
                 Padding::ZERO.top(top_space(look) - if look.divided() { DIVIDER } else { 0.0 }),
             ));
         }
-        let pointed = self.pointed_message.as_deref() == Some(message.item.as_str());
+        let pointed = self.pointed.message.as_deref() == Some(message.item.as_str());
         let jumped = self.jump_lit.as_deref() == Some(message.item.as_str());
         let edited = self.editing.as_deref() == Some(message.item.as_str());
         let ground = if edited {

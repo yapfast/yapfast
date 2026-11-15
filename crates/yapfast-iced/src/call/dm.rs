@@ -4,9 +4,13 @@
 //! over everything (`IncomingCall`); and the question before leaving one
 //! call for another (`SwitchDialog`).
 
+use std::time::Duration;
+
 use iced::{
-    Alignment, Border, Element, Length, Padding,
+    Alignment, Border, Color, Element, Length, Padding,
+    advanced::{Shell, renderer},
     widget::{Space, column, container, opaque, row, text},
+    window,
 };
 use yapfast_core::chat::ChatRoom;
 
@@ -18,6 +22,7 @@ use crate::{
     fonts::BOLD,
     pictures::Icon,
     style::{card_shadow, fill, rounded},
+    widgets::{At, Hooks, Inner, Renderer, Wrap},
 };
 
 /// A DM's call panel above its messages: the least it takes while in the
@@ -152,7 +157,7 @@ impl App {
             format!("{} calling", who_is_here(&room.people))
         };
         // A ring that pulses while it rings.
-        let ring = crate::widgets::Pulse::new(
+        let ring = Pulse::new(
             container(self.avatar(room.avatar.as_deref(), &room.name, 72.0, 36.0, 1.0)).center(92),
             theme.live,
             3.0,
@@ -336,5 +341,105 @@ impl App {
             layers.push(switch);
         }
         layers
+    }
+}
+
+/// A round ring of `color`, `width` px, under its child, its opacity
+/// pulsing between 0.05 and 0.85 once a second as the Slint client's
+/// ringing card's (`0.45 + 0.4 × sin`), drawn anew every [`PULSE_FRAME`]
+/// while it shows: a call ringing.
+pub struct Pulse {
+    color: Color,
+    width: f32,
+}
+
+impl Pulse {
+    pub fn new<'a>(
+        child: impl Into<Element<'a, Message>>,
+        color: Color,
+        width: f32,
+    ) -> Wrap<'a, Self> {
+        Wrap::new(child, Self { color, width })
+    }
+}
+
+/// How often the ring is drawn anew: a fade over a second needs no more
+/// than 30 frames a second, whatever the screen's rate.
+const PULSE_FRAME: Duration = Duration::from_millis(33);
+
+/// When it began, and the time of the frame being drawn.
+#[derive(Default)]
+pub struct PulseState {
+    began: Option<std::time::Instant>,
+    now: Option<std::time::Instant>,
+}
+
+/// The ring's opacity `elapsed` into its pulse.
+pub fn pulse_opacity(elapsed: Duration) -> f32 {
+    let degrees = elapsed.as_secs_f32() * 1000.0 * 0.36;
+    0.45 + 0.4 * degrees.to_radians().sin()
+}
+
+impl Hooks for Pulse {
+    type State = PulseState;
+
+    fn update(
+        &mut self,
+        state: &mut PulseState,
+        event: &iced::Event,
+        _: At,
+        shell: &mut Shell<'_, Message>,
+        child: &mut Inner<'_, '_>,
+    ) {
+        if let iced::Event::Window(window::Event::RedrawRequested(now)) = event {
+            state.began.get_or_insert(*now);
+            state.now = Some(*now);
+            shell.request_redraw_at(*now + PULSE_FRAME);
+        }
+        child.update(shell);
+    }
+
+    fn draw(
+        &self,
+        state: &PulseState,
+        renderer: &mut Renderer,
+        at: At,
+        child: &mut dyn FnMut(&mut Renderer),
+    ) {
+        use iced::advanced::Renderer as _;
+        let elapsed = match (state.began, state.now) {
+            (Some(began), Some(now)) => now.duration_since(began),
+            _ => Duration::ZERO,
+        };
+        let bounds = at.bounds;
+        renderer.fill_quad(
+            renderer::Quad {
+                bounds,
+                border: Border {
+                    color: Color {
+                        a: self.color.a * pulse_opacity(elapsed),
+                        ..self.color
+                    },
+                    width: self.width,
+                    radius: (bounds.width.min(bounds.height) / 2.0).into(),
+                },
+                ..Default::default()
+            },
+            Color::TRANSPARENT,
+        );
+        child(renderer);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_ring_pulses_once_a_second() {
+        use std::time::Duration;
+        let at = |ms| super::pulse_opacity(Duration::from_millis(ms));
+        assert!((at(0) - 0.45).abs() < 0.001);
+        assert!((at(250) - 0.85).abs() < 0.001);
+        assert!((at(750) - 0.05).abs() < 0.001);
+        assert!((at(1000) - 0.45).abs() < 0.001);
     }
 }

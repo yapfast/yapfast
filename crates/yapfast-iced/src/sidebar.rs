@@ -608,7 +608,7 @@ impl App {
                 if !entered {
                     self.voice_card_off = false;
                 }
-                crate::app::point(&mut self.pointed_side, id, entered);
+                crate::app::point(&mut self.pointed.side, id, entered);
                 // A DM's nameplate and moving decoration come as it's
                 // pointed at.
                 return self.ask();
@@ -1272,7 +1272,7 @@ impl App {
     ) -> Element<'a, Message> {
         let theme = &self.theme;
         let id = format!("heading:{fold}");
-        let pointed = self.pointed_side.as_deref() == Some(id.as_str());
+        let pointed = self.pointed.side.as_deref() == Some(id.as_str());
         let ink = if pointed {
             theme.secondary
         } else {
@@ -1355,7 +1355,7 @@ impl App {
         message: Message,
     ) -> Element<'a, Message> {
         let theme = &self.theme;
-        let pointed = self.pointed_side.as_deref() == Some(id);
+        let pointed = self.pointed.side.as_deref() == Some(id);
         let ink = if selected {
             theme.text
         } else if pointed {
@@ -1392,7 +1392,7 @@ impl App {
         menu: Option<String>,
     ) -> Element<'a, Message> {
         let theme = &self.theme;
-        let pointed = self.pointed_side.as_deref() == Some(id.as_str());
+        let pointed = self.pointed.side.as_deref() == Some(id.as_str());
         let ground = if selected {
             theme.active
         } else if pointed {
@@ -1493,7 +1493,7 @@ impl App {
             return self.dm_row(room);
         }
         let theme = &self.theme;
-        let pointed = self.pointed_side.as_deref() == Some(room.id.as_str());
+        let pointed = self.pointed.side.as_deref() == Some(room.id.as_str());
         let (ink, opacity) = self.row_ink(room, pointed);
         // While a drag is on, rows it can't land among dim.
         let (ink, opacity) = if self.arrange_dimmed(Some(&room.id), room.voice) {
@@ -1638,7 +1638,7 @@ impl App {
     /// pointed at or selected, as Discord's client draws it only then.
     fn dm_row<'a>(&'a self, room: &'a Room) -> Element<'a, Message> {
         let theme = &self.theme;
-        let pointed = self.pointed_side.as_deref() == Some(room.id.as_str());
+        let pointed = self.pointed.side.as_deref() == Some(room.id.as_str());
         let (ink, opacity) = self.row_ink(room, pointed);
         let row_ground = if room.selected {
             theme.active
@@ -1807,7 +1807,7 @@ impl App {
     ) -> Element<'a, Message> {
         let theme = &self.theme;
         let id = format!("person:{room}:{}", person.id);
-        let pointed = self.pointed_side.as_deref() == Some(id.as_str());
+        let pointed = self.pointed.side.as_deref() == Some(id.as_str());
         let opacity = if person.elsewhere && !pointed {
             0.5
         } else {

@@ -25,7 +25,7 @@ use yapfast_core::{
     },
 };
 
-use super::{interact, local, shows, start};
+use super::{interact, local, present, shows, start};
 use crate::app::{App, Message};
 
 /// The server's id in the core.
@@ -251,7 +251,8 @@ fn roles_lock_what_ranks_above_her_and_the_permissions_she_lacks() {
     interact(&mut app, |ui| {
         ui.click("Permissions").expect("the Permissions tab");
     });
-    assert!(shows(&app, "Administrator"));
+    // Far down its list, past the window's foot.
+    assert!(present(&app, "Administrator"));
     let on = |app: &App, bit: u64| match page(app) {
         SettingsPage::Roles(page) => page.open.as_ref().expect("Crew open").permissions & bit != 0,
         _ => panic!("not Roles"),

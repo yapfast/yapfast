@@ -243,7 +243,7 @@ impl App {
             .voice_volume
             .as_ref()
             .is_some_and(|(open, count)| open == item && *count > 0);
-        if self.pointed_voice.as_ref() == Some(item) || volume_open {
+        if self.pointed.voice.as_ref() == Some(item) || volume_open {
             let tuning = state.voice_tuning;
             let (rest, lit, text_ink) = (theme.raised, theme.hover, theme.text);
             let speed = button(
@@ -425,7 +425,7 @@ impl App {
                 return Task::none();
             }
             Event::Point(item, entered) => {
-                crate::app::point(&mut self.pointed_voice, item, entered);
+                crate::app::point(&mut self.pointed.voice, item, entered);
                 return Task::none();
             }
         }
@@ -450,7 +450,7 @@ impl App {
             .as_ref()
             .filter(|video| video.item == message.item && video.index == index);
         let failed = playing.and_then(|video| video.error.as_deref());
-        let pointed = self.pointed_clip.as_deref() == Some(key.as_str());
+        let pointed = self.pointed.clip.as_deref() == Some(key.as_str());
         let frame = playing.and_then(|_| self.frames.get(&format!("clip:{key}")));
         let mut layers = stack![poster].width(size.width).height(size.height);
         if failed.is_none()
@@ -743,7 +743,7 @@ impl App {
                 return Task::batch([self.sync(), self.refocus()]);
             }
             Clip::Point(key, entered) => {
-                crate::app::point(&mut self.pointed_clip, key, entered);
+                crate::app::point(&mut self.pointed.clip, key, entered);
                 return Task::none();
             }
         }

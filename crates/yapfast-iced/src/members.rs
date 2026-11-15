@@ -139,7 +139,7 @@ impl App {
     /// timeout's clock, the activity line, and the nameplate behind it all.
     fn member_row<'a>(&'a self, index: usize, look: &'a MemberLook) -> Element<'a, Message> {
         let theme = &self.theme;
-        let pointed = self.pointed_member.as_ref() == Some(&look.id);
+        let pointed = self.pointed.member.as_ref() == Some(&look.id);
         // The member whose card is open.
         let selected = self.card.as_ref().is_some_and(|card| card.user == look.id);
         let offline = look.offline();

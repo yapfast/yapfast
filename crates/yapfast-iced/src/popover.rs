@@ -261,7 +261,7 @@ impl overlay::Overlay<Message, Theme, Renderer> for Open<'_, '_> {
         let above = base.y - self.gap - MARGIN;
         let below = bounds.height - (base.y + base.height + self.gap) - MARGIN;
         let over = match self.side {
-            Side::Above => above >= below.min(120.0) || above >= 120.0,
+            Side::Above => above >= below.min(120.0),
             Side::Below => below < 120.0 && above > below,
         };
         let room = if over { above } else { below }.max(0.0);

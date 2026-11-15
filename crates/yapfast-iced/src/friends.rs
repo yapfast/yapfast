@@ -331,7 +331,7 @@ impl App {
         spot: Option<(&'a str, &'a str, &'a str)>,
     ) -> Element<'a, Message> {
         let theme = &self.theme;
-        let pointed = self.pointed_member.as_deref() == Some(friend.id.as_str());
+        let pointed = self.pointed.member.as_deref() == Some(friend.id.as_str());
         let surface = if pointed { theme.hover } else { theme.chat };
         let presence = friend.presence.unwrap_or(Presence::Offline);
         let face = Face {
@@ -577,7 +577,7 @@ impl App {
         // Slint's Discord badge on the avatar shows only with its
         // setting, which this client doesn't have yet.
         let avatar = face;
-        let pointed = self.pointed_member.as_deref() == Some(request.id);
+        let pointed = self.pointed.member.as_deref() == Some(request.id);
         let ground = if pointed {
             theme.row_hover
         } else {

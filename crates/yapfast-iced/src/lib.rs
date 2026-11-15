@@ -12,7 +12,8 @@
 //! viewport, keyed so their widget state follows them), pictures are the
 //! core's own buffers in the renderer's format ([`pictures`]), and moving
 //! pictures advance inside their widget on the window's redraws, so a frame
-//! costs no message and no rebuild of the view.
+//! costs no message and no rebuild of the view. Clocks (a call's length,
+//! an activity's time) don't yet: each tick is a message and a new view.
 //!
 //! Where things are: [`app`] holds the window's state, its messages and the
 //! view's layers; [`sync`] takes in what changed in the core's state; each

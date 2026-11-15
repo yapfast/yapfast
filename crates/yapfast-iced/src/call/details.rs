@@ -11,7 +11,8 @@
 //! second of the call's clock.
 
 use iced::{
-    Alignment, Border, Element, Length, Size, Task,
+    Alignment, Border, Color, Element, Length, Point, Rectangle, Size, Task, Theme,
+    advanced::{Layout, Widget, layout, mouse, renderer, widget::Tree},
     widget::{Space, column, container, mouse_area, row, stack, text, tooltip},
 };
 use yapfast_core::voice::LinkStats;
@@ -24,7 +25,7 @@ use crate::{
     fonts::BOLD,
     pictures::Icon,
     style::{faded, raised_shadow, rounded},
-    widgets::Steps,
+    widgets::Renderer,
 };
 
 /// The popout's width, and its graph's height.
@@ -383,3 +384,93 @@ fn connection_note(loss_known: bool) -> String {
 const STREAM_NOTE: &str = "The bitrate follows what Discord estimates your connection carries. Fast motion at a low bitrate looks blocky to viewers.";
 const PRIVACY_NOTE: &str = "A new code is generated when people join or leave this call. Compare it with the others in the call: everyone sees the same numbers.";
 const PRIVATE_NOTE: &str = "Only you and the others in this call can hear you. Nobody else, not even Discord, can listen in.";
+
+/// A line of steps drawn across its box (a graph of the call's pings): each
+/// step's run at its height, joined by risers, in a box of its own units
+/// stretched to the widget's, the line `stroke` px wide whatever the
+/// stretch. Its lines are axis-aligned, so they're quads: no path to fill.
+pub struct Steps {
+    steps: Vec<crate::call_details::Step>,
+    units: Size,
+    ink: Color,
+    stroke: f32,
+    height: f32,
+}
+
+impl Steps {
+    pub fn new(
+        steps: Vec<crate::call_details::Step>,
+        units: Size,
+        ink: Color,
+        height: f32,
+    ) -> Self {
+        Self {
+            steps,
+            units,
+            ink,
+            stroke: 2.0,
+            height,
+        }
+    }
+}
+
+impl Widget<Message, Theme, Renderer> for Steps {
+    fn size(&self) -> Size<Length> {
+        Size::new(Length::Fill, Length::Fixed(self.height))
+    }
+
+    fn layout(&mut self, _: &mut Tree, _: &Renderer, limits: &layout::Limits) -> layout::Node {
+        layout::Node::new(limits.resolve(Length::Fill, self.height, Size::ZERO))
+    }
+
+    fn draw(
+        &self,
+        _tree: &Tree,
+        renderer: &mut Renderer,
+        _theme: &Theme,
+        _style: &renderer::Style,
+        layout: Layout<'_>,
+        _cursor: mouse::Cursor,
+        _viewport: &Rectangle,
+    ) {
+        use iced::advanced::Renderer as _;
+        let bounds = layout.bounds();
+        let (sx, sy) = (
+            bounds.width / self.units.width,
+            bounds.height / self.units.height,
+        );
+        let half = self.stroke / 2.0;
+        let mut line = |x: f32, y: f32, width: f32, height: f32| {
+            renderer.fill_quad(
+                renderer::Quad {
+                    bounds: Rectangle::new(Point::new(x, y), Size::new(width, height)),
+                    ..Default::default()
+                },
+                self.ink,
+            );
+        };
+        let mut last: Option<f32> = None;
+        for step in &self.steps {
+            let x0 = bounds.x + step.x0 * sx;
+            let x1 = bounds.x + step.x1 * sx;
+            let y = bounds.y + step.y * sy;
+            if let Some(was) = last {
+                let (top, bottom) = (was.min(y), was.max(y));
+                line(
+                    x0 - half,
+                    top - half,
+                    self.stroke,
+                    bottom - top + self.stroke,
+                );
+            }
+            line(x0 - half, y - half, x1 - x0 + self.stroke, self.stroke);
+            last = Some(y);
+        }
+    }
+}
+
+impl<'a> From<Steps> for Element<'a, Message> {
+    fn from(steps: Steps) -> Self {
+        Element::new(steps)
+    }
+}

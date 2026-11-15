@@ -120,8 +120,9 @@ build.
   each px squared, at most 12000), until the next press, a key or the
   wheel; held and moved away, until it's let go. The pointer's events go
   to nothing under it meanwhile, the press that ends it included, and a
-  circle with arrows marks the click. It scrolls on each frame it asks for
-  while it goes on and asks for none after; the timeline and the thread
+  circle with arrows marks the click. It scrolls the list found at the
+  press on each frame it asks for, and asks for frames only while the
+  pointer is far enough from the click to scroll; the timeline and the thread
   beside, anchored to their foot, scroll the other way round.
 - Updates (`settings/updates.rs`): with the check on, a look at the
   releases at start and every six hours, and Check now on About; a newer
@@ -1058,8 +1059,8 @@ parts of `ui/yapfast.slint`, with the adapter's logic beside them.
   while a tile is large: the stage and controls while in it, else who is
   in it with Join the call, or Accept and Decline while it rings. A call
   ringing in a DM that isn't open shows a card at the window's top, its
-  ring round the caller pulsing once a second (`widgets::Pulse`, drawn
-  anew each frame only while it rings), and
+  ring round the caller pulsing once a second (`call::dm::Pulse`, drawn
+  anew 30 times a second only while it rings), and
   switching calls asks first (Escape cancels, Enter confirms). The DM's
   header starts a call or a video call.
 - While the call isn't on screen, the stream watched, this account's
@@ -1155,7 +1156,7 @@ iced builds the whole view again after every message and lays it out, so
 what costs is kept out of the view:
 
 - The backend's events come on its receiver, batched, as messages
-  (`app.rs`); nothing polls. Fonts the shaper wants, the control file and
+  (`app::batches`); nothing polls. Fonts the shaper wants, the control file and
   the window's size as it opens and is resized come as subscriptions.
 - Lists are virtualized by hand: `widgets::Rows` holds only the rows near
   its viewport, each keyed by its id, so its widget state follows it as
@@ -1188,12 +1189,19 @@ Each part of the window has its module: `signin`, `mfa`, `rail`,
 `sidebar`, `account`, `header`, `banners`, `timeline`, `message`, `cards`, `bot_select`, `browse`, `browse_channels`, `found`, `popovers`, `search`, `thread`, `image_viewer`, `composer`, `edit`, `suggest`, `commands`, `typing`, `uploads`, `forward`, `members`,
 `people`, `person`, `profile` (with `editor`), `friends`, `active_now`, `reactions`, `picker` (with its tabs `emoji`, `gifs`, `stickers`), `menus`, `places`, `dialogs`, `call` (with `stage`, `dock`, `popups`, `dm`, `corner`), `settings` (with `pages`, `voice`, `appearance`, `updates`), `shell` and `window_bar` (with `desktop`, the desktop's parts), `server_settings` (with `profile`, `roles`, `people`, `moderation`, `expressions`, `ownership`), `channel_settings`, `server_dialogs`, `status`, `switcher`; `form` and `sheet` are the settings' kit; `theme` holds
 the colours and `layout` what's kept in `layout.json`.
-`sync.rs` takes in what changed in the core's state after each message.
-`widgets.rs`, `field.rs` (the composer's text field), `select.rs`
+`app` holds the window's state and what each message does (its
+messages in `app::message`, what it listens to in `app::subscription`, the
+layers the view stacks in `app::view`); `sync.rs` takes in what changed
+in the core's state after each message.
+`widgets/`, `field.rs` (the composer's text field), `select.rs`
 (selectable text) and `video.rs` are the client's own widgets. Overlays
 (the card, suggestions, the picker, menus, a dialog) are layers of one
 stack, each over a layer that takes a click outside; a menu or a dialog
 takes the keys by moving focus to an id nothing has (`app::NOBODY`).
+What's open is one list, `app::layers::LAYERS`: the first open layer that takes
+the keys has them (a dialog, settings, the menu), Escape that nothing took
+closes the first open one that closes on it, and while one with a field
+that keeps Escape is open, the window takes a captured Escape too.
 
 ## The kit
 
@@ -1206,6 +1214,9 @@ When a second screen needs what a first one built, it moves here:
 - `controls::field`: the single-line field (`TextField`).
 - `controls::edged`: an edge drawn over what it holds, so a card whose
   parts round their own grounds to its corners keeps its outline.
+- `controls::outside` and `controls::dimmed`: the layer under an overlay
+  that takes a click outside it, clear or dimmed (dialogs by 60%,
+  settings cards by 70%, dialogs over them by 67%, as Slint's).
 - `controls::lit_style`: a button with no face, or a fixed one, lit under
   the pointer: icon buttons, list rows; `controls::ink_style` a button that
   is only its text, brightening under the pointer.
@@ -1246,8 +1257,6 @@ When a second screen needs what a first one built, it moves here:
   from and to for its owner to move.
 - `widgets::Autoscroll`: round the whole window, a middle click's
   autoscroll of the list under it (see the shell's Autoscroll).
-- `widgets::Pulse`: a ring over its child whose opacity pulses once a
-  second, drawn anew each frame while it shows (the ringing card).
 - `widgets::CtrlWheel`: round the whole window, the wheel with Ctrl held
   zooms and scrolls nothing under it.
 - `widgets::Drags`: a row that a press moved 4 px drags and a press let
@@ -1276,8 +1285,6 @@ When a second screen needs what a first one built, it moves here:
   shadow.
 - `controls::tab`: a tab with a bar under it while chosen (the full
   profile's, the voice details').
-- `widgets::Steps`: a line of steps stretched across its box, as quads (the
-  ping's graph).
 - `controls::bar`: a box of one colour, for lines between parts of the
   window, bars and dots; `controls::placed` puts a layer of a stack at a
   point.
@@ -1310,7 +1317,7 @@ When a second screen needs what a first one built, it moves here:
   selectable pieces (`select::Piece`), which follow their links.
 - `style.rs`: container grounds (`fill`, `rounded`, `corners`), the two
   shadows, the scrollbar.
-- `widgets.rs`: `Pic`, `Animated`, `Framed` (a profile frame's layers
+- `widgets/`: `Pic`, `Animated`, `Framed` (a profile frame's layers
   under and over a child, past its sides), `ColourPad` (a colour's
   saturation, brightness and hue, kept as `Hsv`), the virtualized `Rows` (rows across
   the list, or with `Rows::place` boxes of their own), the anchored
@@ -1321,6 +1328,13 @@ When a second screen needs what a first one built, it moves here:
   the view of someone reading earlier messages. `Corner` holds a bar at a
   row's top right over its edge, `Fold` cuts a long child with a link
   under it, and `Scrub` says where along it it's pressed and dragged.
+  A widget around one child is a `Wrap` with its `Hooks`, which say only
+  what it adds (its layout, an event before or after the child, its
+  drawing round the child's, a shift of the child's space); the child gets
+  everything else, its overlay included, so its tooltips show through.
+  `widgets::moved_to` reads where a move took the pointer, from the
+  cursor as the widget sees it. `gradient_quad` fills a quad with a
+  linear gradient.
 - `media.rs`: `Shot`, a picture in a box (its own size, cut to cover,
   fitted within, blurred under a cover), and `Gallery`, a message's
   pictures laid out.
@@ -1419,7 +1433,12 @@ which drives the window through `iced_test`'s headless simulator on the
 core's preview: it builds the view, clicks and types into it, and hands the
 messages that come out to `App::update`. They find widgets by their text or
 their id, as iced has no accessible labels yet; the client's own text
-widgets report their text for this. The tasks `update` returns (focus, the
+widgets report their text for this, as it shows (an elided one's start
+and ellipsis, a folded message without its cut-off parts). `shows` counts
+a text only inside the window and the lists it's in and not under a
+dimmed layer (`controls::DIMMED`); `present` counts any in the tree; a
+tooltip, which iced's operations don't reach, is told by what hovering
+draws (`hover_draws`). The tasks `update` returns (focus, the
 clipboard, timers) don't run in them, and the simulator keeps widget state
 only while it lives, so a field is clicked in the same simulator it's typed
 into. They cover the theme's switch and what it keeps, the sign-in screen

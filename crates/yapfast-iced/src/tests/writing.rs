@@ -202,7 +202,7 @@ fn alt_up_steps_into_the_messages_and_r_replies_to_the_one_stepped_on() {
         Some(&newest),
         "the newest is stepped on"
     );
-    assert_eq!(app.pointed_message.as_ref(), Some(&newest), "and lit");
+    assert_eq!(app.pointed.message.as_ref(), Some(&newest), "and lit");
     window_key(&mut app, keyboard::Key::Named(key::Named::ArrowUp));
     let stepped = app.keyed.clone().expect("still stepping");
     assert_ne!(stepped, newest, "Up steps to an earlier message");
@@ -305,30 +305,37 @@ fn a_voice_messages_volume_opens_over_its_mute_and_the_wheel_turns_it() {
 fn show_more_under_a_long_message_unfolds_it() {
     let (mut app, _folder) = preview();
     app.layout.collapse_long = true;
-    interact(&mut app, |ui| {
-        ui.click(Id::new(COMPOSER)).expect("the composer");
-        for line in 1..=20 {
-            ui.typewrite(&format!("line {line}"));
-            chord(ui, key::Named::Enter, keyboard::Modifiers::SHIFT);
-        }
-        ui.typewrite("the end");
-        ui.tap_key(keyboard::Key::Named(key::Named::Enter));
+    // Quoted and plain lines in turn, each a part of its own.
+    let mut lines: Vec<String> = (1..=20)
+        .map(|line| {
+            let quote = if line % 2 == 1 { "> " } else { "" };
+            format!("{quote}line {line}")
+        })
+        .collect();
+    lines.push("> the end".into());
+    super::change(&mut app, |state| {
+        state.messages =
+            std::sync::Arc::new(vec![std::sync::Arc::new(yapfast_core::chat::ChatMessage {
+                item: "long".into(),
+                author: "Sam".into(),
+                body: lines.join("\n"),
+                formatted: true,
+                timestamp: 1,
+                ..Default::default()
+            })]);
     });
-    let item = app
-        .client
-        .state()
-        .messages
-        .last()
-        .expect("sent")
-        .item
-        .clone();
+    assert!(shows(&app, "line 2"));
+    assert!(!shows(&app, "the end"), "cut off");
     // The body's cut-off lines lie under Show more: the press is its.
     interact(&mut app, |ui| {
         ui.click("Show more").expect("Show more");
     });
     assert!(
-        app.revealed.contains(&crate::message::fold_key(&item)),
+        app.revealed.contains(&crate::message::fold_key("long")),
         "unfolded"
     );
+    // Laid out again at its whole height, as the rows measure it.
+    interact(&mut app, |_| {});
     assert!(shows(&app, "Show less"));
+    assert!(shows(&app, "the end"));
 }

@@ -1,0 +1,296 @@
+//! The layers the view stacks: the window itself, then whatever is open
+//! over it (the profile card, mention suggestions, the emoji picker, a
+//! menu, the modal), each with a backdrop that takes a click outside; and
+//! the theme it's drawn in.
+
+use iced::{
+    Element, Length, Point,
+    widget::{Space, Stack, column, container, row, stack},
+};
+
+use crate::{
+    controls::outside,
+    fonts,
+    picker::{self, Target},
+    theme::Theme,
+    widgets::{Anchor, Place},
+};
+
+use super::{App, Message};
+
+/// The zoom level's note, this far below the window's top or its bar.
+const ZOOM_NOTE_TOP: f32 = 12.0;
+
+impl App {
+    pub fn view(&self) -> Element<'_, Message> {
+        // Whatever this returns, what it no longer shows goes at its end.
+        let _viewing = self.pictures.view();
+        if !self.workspace() {
+            return self.frame_layers(self.sign_in_view()).into();
+        }
+        // The window's own background is the theme's chat (`window_style`).
+        // The rail and the sidebar on the rail's ground, the account's card
+        // across the foot of both.
+        let rail = self.theme.rail;
+        let mut foot = column![];
+        if let Some(dock) = self.dock_view() {
+            foot = foot.push(dock);
+        }
+        let navigation = container(column![
+            row![self.rail_view(), self.sidebar_view()].height(Length::Fill),
+            foot.push(self.account_view()),
+        ])
+        .width(crate::rail::WIDTH + crate::sidebar::WIDTH)
+        .height(Length::Fill)
+        .style(move |_| crate::style::fill(rail));
+        let base: Element<'_, Message> = row![navigation, self.conversation()]
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into();
+        // Always a stack, so the window's widget state stays as overlays
+        // come and go: the card, the suggestions, the picker, a menu, the
+        // modal, each over the last.
+        let mut layers = stack![base];
+        // A role's card, under the card of someone on it.
+        if let Some(role) = self.role_card_layers() {
+            layers = layers.extend(role);
+        }
+        if let Some(card) = self.card_view() {
+            layers = layers
+                .push(outside(Message::CloseProfile, false))
+                .push(card);
+        }
+        // The picker for a dialog's emoji opens over the dialog.
+        let mut over_dialogs = None;
+        if let Some(picker) = &self.picker
+            && let Some(shown) = self.picker_view()
+        {
+            let size = picker.size();
+            let place = match &picker.target {
+                // Over the emoji button, its right edge level with the button's.
+                Target::Composer => {
+                    let right = self.chat_right() - 8.0 - 4.0;
+                    let bottom = self.composer_buttons_top() - 8.0;
+                    Place::new(shown, Point::new(right - size.width, bottom), 8.0)
+                        .anchor(Anchor::Bottom)
+                }
+                // Over the edit's field, at the timeline's right.
+                Target::Edit => {
+                    let right = self.chat_right() - 16.0;
+                    let bottom = self.edit_top().unwrap_or(self.composer_top()) - 8.0;
+                    Place::new(shown, Point::new(right - size.width, bottom), 8.0)
+                        .anchor(Anchor::Bottom)
+                }
+                Target::React(_, at) | Target::Status(at) | Target::Poll(_, at) => {
+                    Place::new(shown, *at, 8.0).anchor(Anchor::Pointer)
+                }
+            };
+            if matches!(picker.target, Target::Status(_) | Target::Poll(..)) {
+                over_dialogs = Some(place);
+            } else {
+                layers = layers
+                    .push(outside(Message::Picker(picker::Event::Close), false))
+                    .push(place);
+            }
+        }
+        for layer in self.call_layers() {
+            layers = layers.push(layer);
+        }
+        if let Some(viewer) = self.clip_viewer() {
+            layers = layers.push(viewer);
+        }
+        if let Some(popup) = self.call_popup_view() {
+            layers = layers
+                .push(outside(Message::Call(crate::call::Event::Close), false))
+                .push(popup);
+        }
+        if let Some(settings) = self.settings_view() {
+            layers = layers.push(settings);
+        }
+        if let Some(settings) = self.server_settings_view() {
+            layers = layers.push(settings);
+        }
+        if let Some(settings) = self.channel_settings_view() {
+            layers = layers.push(settings);
+        }
+        // Over the settings, as a member's from Members.
+        if let Some(full) = self.full_profile_view() {
+            layers = layers.push(full);
+        }
+        if let Some(editor) = self.profile_editor_view() {
+            layers = layers.push(editor);
+        }
+        // A mutual server's, over the profile that lists it.
+        if let Some(server) = self.server_card_layers() {
+            layers = layers.extend(server);
+        }
+        if let Some(expression) = self.expression_card_layers() {
+            layers = layers.extend(expression);
+        }
+        if let Some(popover) = self.popover_view() {
+            layers = layers
+                .push(outside(Message::Status(crate::status::Event::Close), false))
+                .push(popover);
+        }
+        if let Some(dialog) = self.status_dialog_view() {
+            layers = layers.push(dialog);
+        }
+        for dialog in [
+            self.new_dm_view(),
+            self.poll_draft_view(),
+            self.switcher_view(),
+            self.server_dialog_view(),
+            self.link_dialog_view(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            layers = layers.push(dialog);
+        }
+        if let Some(place) = over_dialogs {
+            layers = layers
+                .push(outside(Message::Picker(picker::Event::Close), false))
+                .push(place);
+        }
+        if let Some(popover) = self.popover_layer() {
+            layers = layers.push(popover);
+        }
+        if let Some(modal) = self.modal_view() {
+            layers = layers.push(modal);
+        }
+        if let Some(viewer) = self.image_viewer() {
+            layers = layers.push(viewer);
+        }
+        if let Some(menu) = self.menu_view() {
+            layers = layers.push(outside(Message::CloseMenu, false)).push(menu);
+        }
+        if let Some(window) = self.reactions_view() {
+            layers = layers.push(window);
+        }
+        if let Some(modal) = self.delete_view() {
+            layers = layers.push(modal);
+        }
+        if let Some(dialog) = self.person_view() {
+            layers = layers.push(dialog);
+        }
+        if let Some(dialog) = self.add_friend_view() {
+            layers = layers.push(dialog);
+        }
+        if let Some(forward) = self.forward_view() {
+            layers = layers.push(forward);
+        }
+        if let Some(leaving) = self.leaving_view() {
+            layers = layers.push(leaving);
+        }
+        if let Some(drop) = self.drop_view() {
+            layers = layers.push(drop);
+        }
+        if let Some(prompt) = self.mfa_view() {
+            layers = layers.push(prompt);
+        }
+        let content = crate::widgets::RightPress::spot(
+            layers.width(Length::Fill).height(Length::Fill),
+            &self.pressed,
+        );
+        let content = crate::widgets::CtrlWheel::new(content, Message::ZoomStep);
+        // A middle click scrolls the list under it towards the pointer.
+        let theme = &self.theme;
+        let arrow = |icon| self.icon(icon, 10, crate::theme::rgb(theme.secondary));
+        let content = crate::widgets::Autoscroll::new(
+            content,
+            &[crate::timeline::TIMELINE, crate::thread::LIST],
+            crate::widgets::AutoscrollLook {
+                ground: theme.raised,
+                edge: theme.line,
+                dot: theme.secondary,
+                up: arrow(crate::pictures::Icon::ChevronUp),
+                down: arrow(crate::pictures::Icon::ChevronDown),
+            },
+        );
+        self.frame_layers(content).into()
+    }
+
+    /// The window's content under the title bar, when Yapfast draws one,
+    /// where it takes the window's place (`self.window` is its size), and
+    /// over it the zoom level's note, the inbox, the bar and the edges that
+    /// resize the window.
+    fn frame_layers<'a>(&'a self, content: impl Into<Element<'a, Message>>) -> Stack<'a, Message> {
+        let mut layers = stack![crate::widgets::Below::new(content, self.bar_height())];
+        if let Some(note) = self.zoom_note_view() {
+            layers = layers.push(note);
+        }
+        if let Some(inbox) = self.inbox_view() {
+            layers = layers.push(inbox);
+        }
+        if let Some(bar) = self.window_bar() {
+            layers = layers.push(column![bar, Space::new().height(Length::Fill)]);
+        }
+        if let Some(edges) = self.resize_edges() {
+            layers = layers.push(edges);
+        }
+        layers
+    }
+
+    /// The zoom level, a moment after it changes, as the Slint client's.
+    fn zoom_note_view(&self) -> Option<Element<'_, Message>> {
+        self.shell.zoom_note?;
+        let theme = &self.theme;
+        let tip = theme.tooltip;
+        let note = container(
+            iced::widget::text(format!("{:.0}%", self.shell.zoom * 100.0))
+                .size(15)
+                .font(fonts::BOLD)
+                .color(theme.text),
+        )
+        .padding([0, 14])
+        .height(36)
+        .align_y(iced::Alignment::Center)
+        .style(move |_| iced::widget::container::Style {
+            shadow: crate::style::raised_shadow(),
+            ..crate::style::rounded(tip, 18.0)
+        });
+        Some(
+            column![
+                Space::new().height(self.bar_height() + ZOOM_NOTE_TOP),
+                container(note).center_x(Length::Fill)
+            ]
+            .into(),
+        )
+    }
+
+    pub fn window_style(&self, _: &iced::Theme) -> iced::theme::Style {
+        iced::theme::Style {
+            background_color: self.theme.chat,
+            text_color: self.theme.text,
+        }
+    }
+
+    pub fn theme(&self) -> iced::Theme {
+        self.theme.iced()
+    }
+
+    /// Shows the window in another theme, built in or the person's own, and
+    /// keeps the choice, as Appearance does. Returns whether there's such a
+    /// theme. Pictures stay as they are; only what the client drew in the
+    /// old colours (icons, dots, the card's name) is drawn again, and the
+    /// member list's styled names take the theme's palette.
+    pub fn choose_theme(&mut self, id: &str) -> bool {
+        let Some(theme) = self.themes.find(id) else {
+            return false;
+        };
+        self.themes.choose(self.client.root(), &theme.id);
+        self.show_theme(theme);
+        true
+    }
+
+    /// Shows the window in `theme` without keeping it, as the theme
+    /// editor shows what's edited.
+    pub fn show_theme(&mut self, theme: Theme) {
+        if theme == self.theme {
+            return;
+        }
+        self.theme = theme;
+        self.pictures.marks.borrow_mut().clear();
+        self.show_roster(false);
+    }
+}

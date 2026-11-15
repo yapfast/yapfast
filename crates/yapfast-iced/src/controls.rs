@@ -321,14 +321,26 @@ pub fn tip_style(theme: &Theme) -> impl Fn(&iced::Theme) -> container::Style + u
 /// nothing under it gets one: clear under a menu, the picker or the card,
 /// dimmed by [`DIM`] under a dialog.
 pub fn outside<'a>(message: Message, dim: bool) -> Element<'a, Message> {
+    if dim {
+        return dimmed(message, DIM);
+    }
     let layer = container(Space::new())
         .width(Length::Fill)
         .height(Length::Fill);
-    let layer = if dim {
-        layer.style(|_| fill(DIM))
-    } else {
-        layer
-    };
+    opaque(mouse_area(layer).on_press(message))
+}
+
+/// The id of every dimmed layer, by which the tests tell what's under one.
+pub const DIMMED: &str = "dimmed";
+
+/// The window dimmed by `dim` under a dialog or a settings card, which a
+/// click on sends `message`; nothing under it takes one.
+pub fn dimmed<'a>(message: Message, dim: Color) -> Element<'a, Message> {
+    let layer = container(Space::new())
+        .id(Id::new(DIMMED))
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .style(move |_| fill(dim));
     opaque(mouse_area(layer).on_press(message))
 }
 
@@ -340,21 +352,60 @@ pub fn edged<'a>(
     edge: Color,
     radius: f32,
 ) -> Element<'a, Message> {
-    iced::widget::stack![
-        content.into(),
-        container(Space::new())
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .style(move |_| container::Style {
+    iced::widget::stack![content.into(), Outline { edge, radius }].into()
+}
+
+/// An edge alone, over what it's stacked on: it takes no event and shows
+/// to an operation as nothing, as it hides nothing.
+struct Outline {
+    edge: Color,
+    radius: f32,
+}
+
+impl iced::advanced::Widget<Message, iced::Theme, iced::Renderer> for Outline {
+    fn size(&self) -> iced::Size<Length> {
+        iced::Size::new(Length::Fill, Length::Fill)
+    }
+
+    fn layout(
+        &mut self,
+        _tree: &mut iced::advanced::widget::Tree,
+        _renderer: &iced::Renderer,
+        limits: &iced::advanced::layout::Limits,
+    ) -> iced::advanced::layout::Node {
+        iced::advanced::layout::Node::new(limits.max())
+    }
+
+    fn draw(
+        &self,
+        _tree: &iced::advanced::widget::Tree,
+        renderer: &mut iced::Renderer,
+        _theme: &iced::Theme,
+        _style: &iced::advanced::renderer::Style,
+        layout: iced::advanced::Layout<'_>,
+        _cursor: iced::advanced::mouse::Cursor,
+        _viewport: &iced::Rectangle,
+    ) {
+        use iced::advanced::Renderer as _;
+        renderer.fill_quad(
+            iced::advanced::renderer::Quad {
+                bounds: layout.bounds(),
                 border: Border {
-                    color: edge,
+                    color: self.edge,
                     width: 1.0,
-                    radius: radius.into(),
+                    radius: self.radius.into(),
                 },
                 ..Default::default()
-            }),
-    ]
-    .into()
+            },
+            Color::TRANSPARENT,
+        );
+    }
+}
+
+impl<'a> From<Outline> for Element<'a, Message> {
+    fn from(outline: Outline) -> Self {
+        Element::new(outline)
+    }
 }
 
 /// A menu's panel, as the Slint client's `ContextMenu`: the menu's ground

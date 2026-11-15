@@ -310,15 +310,8 @@ pub fn panel<'a>(
     if let Some(height) = height {
         card = card.height(height);
     }
-    let dim = iced::widget::mouse_area(
-        container(Space::new())
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .style(|_| crate::style::fill(PANEL_DIM)),
-    )
-    .on_press(on_outside);
     opaque(stack![
-        opaque(dim),
+        crate::controls::dimmed(on_outside, PANEL_DIM),
         container(opaque(card)).center(Length::Fill)
     ])
 }

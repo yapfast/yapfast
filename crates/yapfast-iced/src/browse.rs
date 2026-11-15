@@ -44,7 +44,7 @@ impl App {
             return Task::none();
         };
         self.keyed = Some(message.item.clone());
-        self.pointed_message = Some(message.item.clone());
+        self.pointed.message = Some(message.item.clone());
         self.reveal_row(index)
     }
 
@@ -60,7 +60,7 @@ impl App {
     /// Stops stepping, as Escape or the composer taking the keys does.
     pub fn leave_messages(&mut self) {
         if self.keyed.take().is_some() {
-            self.pointed_message = None;
+            self.pointed.message = None;
         }
     }
 

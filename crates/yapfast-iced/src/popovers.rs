@@ -230,9 +230,12 @@ impl App {
                     .state()
                     .thread_list()
                     .is_some_and(|list| list.more && list.search.is_none() && !list.loading);
-                if more && top > 0.0 && top + seen >= whole - NEAR_END {
-                    self.client.dispatch(Action::MoreThreads);
+                // A scroll that asks for nothing more changes nothing to
+                // take in.
+                if !(more && top > 0.0 && top + seen >= whole - NEAR_END) {
+                    return Task::none();
                 }
+                self.client.dispatch(Action::MoreThreads);
             }
             Event::CreateThread => {
                 self.client.dispatch(Action::ShowThreads(false));
@@ -480,7 +483,6 @@ impl App {
     /// A popover's frame, as the Slint client's `Popover`: its icon,
     /// heading and detail over a line, Close, and what it holds; as tall
     /// as what it holds, or as its place with `fill`.
-    #[allow(clippy::too_many_arguments)]
     pub fn popover_frame<'a>(
         &'a self,
         fill_place: bool,

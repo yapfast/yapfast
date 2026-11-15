@@ -194,7 +194,10 @@ impl Pipeline {
 /// drawn from the handle's bytes: no converted copy in the cache, nothing to
 /// convert again after a frame whose damage missed the image (the cache
 /// keeps only images drawn in the last frame). Only the Yapfast port makes
-/// `Rgba` handles, and it makes them in this format.
+/// `Rgba` handles, and it makes them in this format (`pictures::handle`,
+/// `pictures::shared`, its fitter's copies, video frames). A handle of
+/// straight RGBA bytes made anywhere else would draw with red and blue
+/// swapped and nothing would say so.
 fn native(handle: &raster::Handle) -> Option<tiny_skia::PixmapRef<'_>> {
     match handle {
         raster::Handle::Rgba {

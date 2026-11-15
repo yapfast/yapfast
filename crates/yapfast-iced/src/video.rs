@@ -155,6 +155,11 @@ impl AsRef<[u8]> for FrameBytes {
     fn as_ref(&self) -> &[u8] {
         // SAFETY: the renderer reads a frame only while it's on screen or
         // the one before, when the feed doesn't write it; see `FrameMemory`.
+        // `Bytes::from_owner` takes this slice once, as the handle is made,
+        // so the GPU build's upload must read it in the same window: the
+        // patched iced_wgpu uploads pictures up to 4K in the frame that
+        // draws them (vendor/iced_wgpu/README.yapfast.md), not later on its
+        // worker.
         unsafe { &*self.0.pixels.get() }
     }
 }

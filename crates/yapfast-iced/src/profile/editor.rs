@@ -696,11 +696,11 @@ impl App {
                 && core.accent().is_ok();
             middle = middle.push(
                 form::Unsaved {
-                    pad: pad,
+                    pad,
                     radius: 0.0,
                     saving: core.saving,
                     may_reset: ready,
-                    may_save: may_save,
+                    may_save,
                     shake: form::Shake::default(),
                     undo: message(Event::Undo),
                     save: message(Event::Save),

@@ -46,8 +46,9 @@ pub struct Menu {
     /// A message's menu in the timeline, opened before its room's apps'
     /// commands came: its Apps row goes in once they have.
     pub apps_due: bool,
-    /// The quick reactions above the rows.
-    pub reactions: bool,
+    /// The quick reactions above the rows, the most used first, taken as
+    /// it opens; none for a menu without them.
+    pub reactions: Vec<String>,
     /// The place whose menu it is (`places.rs`), and whether it's a
     /// server's header menu.
     pub place: Option<String>,
@@ -81,7 +82,7 @@ impl Menu {
             lit: None,
             item: None,
             apps_due: false,
-            reactions: false,
+            reactions: Vec::new(),
             place: None,
             header: false,
             location: crate::person::CONTEXT_MENU,
@@ -370,7 +371,11 @@ impl App {
         self.menu = Some(Menu {
             item: Some(message.item.clone()),
             apps_due,
-            reactions: message.can_react,
+            reactions: if message.can_react {
+                self.client.app.frequent_reactions(QUICK)
+            } else {
+                Vec::new()
+            },
             ..Menu::new(at, rows)
         });
         // Its Apps follow the permissions as they are now.
@@ -768,7 +773,7 @@ impl App {
             .volumes
             .as_ref()
             .map(|volumes| self.volumes_view(volumes));
-        if menu.reactions
+        if !menu.reactions.is_empty()
             && let Some(item) = &menu.item
         {
             let mut quick = row![].spacing(4).padding(Padding {
@@ -780,9 +785,9 @@ impl App {
             // As the Slint client's quick reactions: the field's ground,
             // lifted under the pointer.
             let (ground, lifted) = (theme.field, blend(theme.field, theme.wash(0.12)));
-            for key in self.client.app.frequent_reactions(QUICK) {
+            for key in &menu.reactions {
                 quick = quick.push(self.emoji_button(
-                    &key,
+                    key,
                     24,
                     44.0,
                     (Some(ground), lifted),
@@ -795,7 +800,7 @@ impl App {
         // menu widens to its widest row.
         let (slot, width) = (menu.slot(), menu.fit(None));
         // The child of the rows' column the open submenu lines up with.
-        let mut children = usize::from(menu.reactions && menu.item.is_some());
+        let mut children = usize::from(!menu.reactions.is_empty() && menu.item.is_some());
         let mut sub_child = None;
         for (index, entry) in menu.rows.iter().enumerate() {
             if entry.separated && index > 0 {

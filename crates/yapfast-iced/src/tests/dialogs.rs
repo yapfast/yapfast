@@ -47,8 +47,28 @@ fn the_custom_status_starts_from_the_one_set_and_saves_whats_written() {
     interact(&mut app, |ui| {
         ui.click("Save").expect("Save");
     });
-    // There's no Discord here: the core sent it, and its backend said why
-    // it couldn't.
+    // The core sent what was written, clearing in an hour...
+    let sent = app
+        .client
+        .sent
+        .iter()
+        .rev()
+        .find_map(|command| match command {
+            yapfast_core::chat::Command::Discord(
+                yapfast_core::chat::DiscordCommand::SetCustomStatus(status),
+            ) => Some(status.clone()),
+            _ => None,
+        });
+    let status = sent.flatten().expect("a status sent");
+    assert_eq!(status.text, "Away");
+    assert_eq!(status.emoji.as_deref(), Some("🧪"));
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("after 1970")
+        .as_millis() as u64;
+    let left = status.expires_at_ms.expect("it clears") as i64 - now as i64;
+    assert!((left - 3_600_000).abs() < 60_000, "{left} ms left");
+    // ...and, with no Discord here, its backend said why it couldn't.
     let editor = app.client.state().status_editor.clone().expect("open");
     assert!(
         editor.saving
@@ -89,9 +109,12 @@ fn the_quick_switcher_finds_a_place_and_goes_there() {
     press(&mut app, key::Named::Enter);
     let state = app.client.state();
     assert!(state.switcher.is_none(), "it closes");
+    let there = match &state.navigation {
+        yapfast_core::application::Navigation::Server(server) => *server == first,
+        _ => false,
+    };
     assert!(
-        state.selected.as_deref() == Some(first.as_str())
-            || state.servers.iter().any(|server| server.id == first),
+        state.selected.as_deref() == Some(first.as_str()) || there,
         "it went there"
     );
     // Nothing found says so; Escape closes it.

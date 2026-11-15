@@ -10,7 +10,7 @@
 //! follows it in a row follows the text, and a name too long for the room
 //! is cut at the last glyph that leaves room for the ellipsis. The text is
 //! shaped again only when it, its size or its room changes; operations
-//! that look for text find it whole.
+//! that look for text find what shows of it.
 
 use std::borrow::Cow;
 
@@ -102,6 +102,8 @@ struct State {
     room: f32,
     version: iced::advanced::graphics::text::Version,
     shown: Paragraph,
+    /// What shows when it's cut: its start and the ellipsis.
+    cut: Option<String>,
     width: f32,
 }
 
@@ -169,6 +171,7 @@ impl Widget<Message, Theme, Renderer> for Elide<'_> {
             room: -1.0,
             version: Default::default(),
             shown: Paragraph::default(),
+            cut: None,
             width: 0.0,
         })
     }
@@ -211,6 +214,7 @@ impl Widget<Message, Theme, Renderer> for Elide<'_> {
             let unbounded = Size::new(f32::INFINITY, f32::INFINITY);
             let whole = Paragraph::with_text(state.text(&self.content, unbounded, line_height));
             let natural = whole.min_width();
+            state.cut = None;
             state.shown = if natural <= room + 0.5 {
                 whole
             } else {
@@ -219,7 +223,9 @@ impl Widget<Message, Theme, Renderer> for Elide<'_> {
                 let end = self.content.floor_char_boundary(cut_at(&whole, room, tail));
                 let kept = self.content[..end].trim_end();
                 let cut = format!("{kept}{ELLIPSIS}");
-                Paragraph::with_text(state.text(&cut, unbounded, line_height))
+                let shown = Paragraph::with_text(state.text(&cut, unbounded, line_height));
+                state.cut = Some(cut);
+                shown
             };
             state.width = state.shown.min_width().min(room);
         }
@@ -257,15 +263,18 @@ impl Widget<Message, Theme, Renderer> for Elide<'_> {
         );
     }
 
-    /// Its whole text, for operations that look for text.
+    /// What shows of it, for operations that look for text: cut, its
+    /// start and the ellipsis.
     fn operate(
         &mut self,
-        _tree: &mut Tree,
+        tree: &mut Tree,
         layout: Layout<'_>,
         _renderer: &Renderer,
         operation: &mut dyn Operation,
     ) {
-        operation.text(None, layout.bounds(), &self.content);
+        let state = tree.state.downcast_ref::<State>();
+        let shown = state.cut.as_deref().unwrap_or(&self.content);
+        operation.text(None, layout.bounds(), shown);
     }
 }
 
@@ -278,7 +287,7 @@ impl<'a> From<Elide<'a>> for Element<'a, Message> {
 #[cfg(test)]
 mod tests {
     use iced::{Settings, Size, widget::container};
-    use iced_test::Simulator;
+    use iced_test::{Simulator, selector::Candidate};
 
     use super::elide;
     use crate::app::Message;
@@ -291,7 +300,19 @@ mod tests {
             let line: iced::Element<'_, Message> =
                 container(elide(content)).width(room as f32).into();
             let mut ui = Simulator::with_size(Settings::default(), Size::new(400.0, 100.0), line);
-            let shown = ui.find(content.replace('\n', " ").as_str());
+            // Whole on one line, or its start and the ellipsis.
+            let whole = content.replace('\n', " ");
+            let shown = ui.find(|candidate: Candidate<'_>| match candidate {
+                Candidate::Text { content, .. }
+                    if content == whole
+                        || content
+                            .strip_suffix(super::ELLIPSIS)
+                            .is_some_and(|start| whole.starts_with(start)) =>
+                {
+                    Some(())
+                }
+                _ => None,
+            });
             assert!(shown.is_ok(), "one line at {room} px");
         }
     }

@@ -307,7 +307,10 @@ impl Widget<Message, Theme, Renderer> for Piece<'_> {
     }
 
     /// Its text, for operations that look for text, as iced's own text
-    /// widgets report theirs.
+    /// widgets report theirs. A focus operation follows most messages and
+    /// walks every piece in view, so one run's text goes as it is and
+    /// several are joined in one buffer kept for it, not a new string each
+    /// time.
     fn operate(
         &mut self,
         _tree: &mut Tree,
@@ -315,8 +318,18 @@ impl Widget<Message, Theme, Renderer> for Piece<'_> {
         _renderer: &Renderer,
         operation: &mut dyn Operation,
     ) {
-        let text: String = self.spans.iter().map(|span| &*span.text).collect();
-        operation.text(None, layout.bounds(), &text);
+        thread_local! {
+            static JOINED: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
+        }
+        if let [span] = &self.spans[..] {
+            operation.text(None, layout.bounds(), &span.text);
+            return;
+        }
+        JOINED.with_borrow_mut(|joined| {
+            joined.clear();
+            joined.extend(self.spans.iter().map(|span| &*span.text));
+            operation.text(None, layout.bounds(), joined);
+        });
     }
 
     fn update(

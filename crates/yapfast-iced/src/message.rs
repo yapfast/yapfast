@@ -310,7 +310,7 @@ impl App {
                 size: AVATAR,
                 opacity: 1.0,
                 decoration,
-                play: self.pointed_message.as_ref() == Some(&message.item),
+                play: self.pointed.message.as_ref() == Some(&message.item),
                 dot: None,
             });
             layers = layers.push(placed(
@@ -318,7 +318,7 @@ impl App {
                 0.0,
                 if header { 24.0 } else { 2.0 },
             ));
-        } else if self.pointed_message.as_ref() == Some(&message.item) {
+        } else if self.pointed.message.as_ref() == Some(&message.item) {
             // Right-aligned to the avatar's edge.
             let clock = self
                 .sent_time(index, message)

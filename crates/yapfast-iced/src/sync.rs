@@ -253,15 +253,12 @@ impl App {
         tasks.push(self.roster(switched));
         // The feed came or changed whom it may show.
         let state = self.client.state();
-        let feed = (
-            Arc::as_ptr(&state.activity_feed) as *const () as usize,
-            state
-                .activity_people
-                .as_ref()
-                .map_or(0, |(_, people)| Arc::as_ptr(people) as *const () as usize),
-        );
-        if feed != self.activity_for {
-            self.activity_for = feed;
+        let people = state.activity_people.as_ref().map(|(_, people)| people);
+        let (feed, made_from) = &self.activity_for;
+        if !Arc::ptr_eq(feed, &state.activity_feed)
+            || made_from.as_ref().map(Arc::as_ptr) != people.map(Arc::as_ptr)
+        {
+            self.activity_for = (state.activity_feed.clone(), people.cloned());
             self.make_activity_cards();
         }
         let state = self.client.state();
@@ -647,7 +644,7 @@ impl App {
                 want(room.status.emoji.as_deref());
                 want(room.decoration.as_deref());
                 want(room.tag.as_ref().and_then(|(_, badge)| badge.as_deref()));
-                if room.selected || self.pointed_side.as_deref() == Some(room.id.as_str()) {
+                if room.selected || self.pointed.side.as_deref() == Some(room.id.as_str()) {
                     if let Some((plate, _)) = &room.nameplate {
                         want(Some(plate));
                         want(Some(&looks::animated_url(plate)));
@@ -675,7 +672,7 @@ impl App {
             want(Some(&url));
         }
         // A custom emoji among the reactions the hover bar and menus offer.
-        if self.pointed_message.is_some() || self.menu.is_some() {
+        if self.pointed.message.is_some() || self.menu.is_some() {
             for key in self.client.app.frequent_reactions(crate::menus::QUICK) {
                 if let Some((_, id)) = key.split_once(':') {
                     want(self.custom_emoji(id).as_deref());
@@ -730,7 +727,7 @@ impl App {
                     .tag(message.tag.as_ref())
                     .and_then(|tag| tag.badge.as_deref()),
             );
-            if self.pointed_message.as_ref() == Some(&message.item) {
+            if self.pointed.message.as_ref() == Some(&message.item) {
                 want(decoration.map(looks::animated_url).as_deref());
             }
         }
@@ -745,7 +742,7 @@ impl App {
                     want(look.role_icon.as_deref());
                     want(look.tag.as_ref().and_then(|(_, badge)| badge.as_deref()));
                     want(look.status.emoji.as_deref());
-                    if self.pointed_member.as_ref() == Some(&look.id) {
+                    if self.pointed.member.as_ref() == Some(&look.id) {
                         want(
                             look.decoration
                                 .as_deref()

@@ -711,3 +711,66 @@ mod tests {
 
     const LIVE_TEST: u32 = 0x3ecf7e;
 }
+
+/// The vendored tiny-skia renderer (vendor/iced_tiny_skia) keeps a round
+/// quad inside its layer's clip, which its patches 2, 3 and 11 draw
+/// without a mask. Only the CPU build has that renderer; the GPU one has no
+/// such patches to test.
+#[cfg(all(test, feature = "cpu"))]
+mod renderer_tests {
+    use iced::{
+        Border, Color, Font, Pixels, Rectangle, Size,
+        advanced::{
+            Renderer as _,
+            renderer::{Headless as _, Quad},
+        },
+    };
+
+    /// The pixel at `x`, `y` of a screenshot `width` wide.
+    fn pixel(rgba: &[u8], width: u32, x: u32, y: u32) -> [u8; 4] {
+        let at = ((y * width + x) * 4) as usize;
+        [rgba[at], rgba[at + 1], rgba[at + 2], rgba[at + 3]]
+    }
+
+    #[test]
+    fn a_round_quad_stays_inside_its_layers_clip() {
+        let clip = Rectangle::new(iced::Point::new(10.0, 10.0), Size::new(40.0, 20.0));
+        // Rounded, bordered and both; at whole and fractional scales; and
+        // as wide as a line of text that doesn't wrap.
+        let cases = [(4.0, 0.0), (4.0, 1.0), (0.0, 1.0)]
+            .into_iter()
+            .flat_map(|look| [(look, 1.0, 100.0), (look, 1.5, 100.0), (look, 1.25, 5000.0)]);
+        for ((radius, border), scale, width) in cases {
+            let mut renderer = iced_tiny_skia::Renderer::new(Font::default(), Pixels(16.0));
+            renderer.with_layer(clip, |renderer| {
+                renderer.fill_quad(
+                    Quad {
+                        bounds: Rectangle::new(
+                            iced::Point::new(20.0, 12.0),
+                            Size::new(width, 16.0),
+                        ),
+                        border: Border {
+                            color: Color::from_rgb(1.0, 0.0, 0.0),
+                            width: border,
+                            radius: radius.into(),
+                        },
+                        ..Quad::default()
+                    },
+                    Color::WHITE,
+                );
+            });
+            let rgba = renderer.screenshot(Size::new(200, 60), scale, Color::BLACK);
+            let at = |x: f32| ((x * scale) as u32, (20.0 * scale) as u32);
+            let (x, y) = at(30.0);
+            assert_eq!(pixel(&rgba, 200, x, y)[..3], [255, 255, 255], "inside");
+            for outside in [52.0, 80.0, 130.0] {
+                let (x, y) = at(outside);
+                assert_eq!(
+                    pixel(&rgba, 200, x, y)[..3],
+                    [0, 0, 0],
+                    "at {outside}, outside the clip: radius {radius}, border {border}, scale {scale}, width {width}"
+                );
+            }
+        }
+    }
+}

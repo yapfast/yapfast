@@ -14,11 +14,16 @@
 
 use std::{collections::VecDeque, path::PathBuf, time::Duration};
 
-use iced::futures::{Stream, stream};
+use iced::{
+    Task,
+    futures::{Stream, stream},
+};
 use yapfast_core::{
     application::Action,
     chat::{ProfilePicture, ServerPicture},
 };
+
+use crate::app::{App, Message};
 
 /// How often the file is read: as the Slint client reads it.
 const EVERY: Duration = Duration::from_millis(500);
@@ -43,12 +48,26 @@ pub fn commands(path: PathBuf) -> impl Stream<Item = String> + Send + 'static {
             let Ok(text) = std::fs::read_to_string(&path) else {
                 continue;
             };
-            for command in text.lines().skip(handled) {
-                handled += 1;
-                waiting.push_back(command.to_owned());
-            }
+            waiting.extend(finished_lines(&text, &mut handled));
         }
     })
+}
+
+/// The lines of `text` past its first `handled` bytes that are written to
+/// their end: a line caught half written waits for the next read.
+fn finished_lines(text: &str, handled: &mut usize) -> Vec<String> {
+    let Some(new) = text.get(*handled..) else {
+        return Vec::new();
+    };
+    let mut lines = Vec::new();
+    for line in new.split_inclusive('\n') {
+        let Some(command) = line.strip_suffix('\n') else {
+            break;
+        };
+        *handled += line.len();
+        lines.push(command.trim_end_matches('\r').to_owned());
+    }
+    lines
 }
 
 /// What a command asks of the window.
@@ -145,9 +164,60 @@ pub fn allocator_stats() {
     }
 }
 
+impl App {
+    /// A line of the test display's control file.
+    pub(crate) fn control(&mut self, command: &str) -> Task<Message> {
+        tracing::info!(command, "test window control");
+        match parse(command) {
+            Command::Stats => allocator_stats(),
+            Command::Trim => trim(),
+            Command::Quit => return self.quit(),
+            Command::Close => return self.close_requested(),
+            Command::Destroy => {
+                // The window goes without its memory given back: a `trim`
+                // after shows what closing frees.
+                return self.drop_window();
+            }
+            Command::Open => return self.open_window(),
+            Command::Hide => {
+                if let Some(id) = self.shell.window {
+                    return iced::window::set_mode(id, iced::window::Mode::Hidden);
+                }
+            }
+            Command::Show => {
+                if let Some(id) = self.shell.window {
+                    return iced::window::set_mode(id, iced::window::Mode::Windowed);
+                }
+            }
+            Command::Act(action) => {
+                self.client.dispatch(action);
+                return self.sync();
+            }
+            Command::Theme(id) => {
+                if !self.choose_theme(&id) {
+                    tracing::warn!(id, "no such theme");
+                }
+            }
+            Command::Unknown => tracing::warn!(command, "unknown window control"),
+        }
+        Task::none()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_line_caught_half_written_waits_for_its_end() {
+        let mut handled = 0;
+        assert_eq!(super::finished_lines("stats\ntri", &mut handled), ["stats"]);
+        assert_eq!(
+            super::finished_lines("stats\ntrim\n", &mut handled),
+            ["trim"]
+        );
+        assert!(super::finished_lines("stats\ntrim\n", &mut handled).is_empty());
+    }
 
     #[test]
     fn the_sessions_commands_are_read_as_the_slint_client_reads_them() {

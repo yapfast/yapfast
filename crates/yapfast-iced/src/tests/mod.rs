@@ -125,8 +125,41 @@ fn interact(app: &mut App, act: impl FnOnce(&mut Simulator<'_, Message>)) {
     }
 }
 
-/// Whether the window shows `text`.
+/// Whether the window shows `text`: some text reading it is inside the
+/// window and the lists it's in, and no dimmed layer drawn after it (a
+/// dialog's, a settings card's) lies over it.
 fn shows(app: &App, text: &str) -> bool {
+    let window = iced::Rectangle::with_size(app.shell.frame);
+    let mut ui = Simulator::with_size(Settings::default(), window.size(), app.view());
+    let dimmed = Id::new(crate::controls::DIMMED);
+    // Each text in view that reads it, and whether a dim came after it.
+    let mut found: Vec<(iced::Rectangle, bool)> = Vec::new();
+    let _ = ui.find(|candidate: Candidate<'_>| {
+        let bounds = candidate
+            .visible_bounds()
+            .and_then(|bounds| bounds.intersection(&window));
+        let reads = match &candidate {
+            Candidate::Text { content, .. } => *content == text,
+            Candidate::TextInput { state, .. } => state.text() == text,
+            _ => false,
+        };
+        match (bounds, &candidate) {
+            (Some(bounds), _) if reads => found.push((bounds, false)),
+            (Some(bounds), Candidate::Container { id: Some(id), .. }) if **id == dimmed => {
+                for (shown, under) in &mut found {
+                    *under |= bounds.contains(shown.center());
+                }
+            }
+            _ => {}
+        }
+        None::<()>
+    });
+    found.iter().any(|(_, under)| !under)
+}
+
+/// Whether the window holds `text` anywhere, shown or not: in a list
+/// scrolled away, under a dialog, cut off.
+fn present(app: &App, text: &str) -> bool {
     let mut ui = Simulator::with_size(Settings::default(), app.shell.frame, app.view());
     ui.find(text).is_ok()
 }
@@ -847,8 +880,10 @@ fn the_unread_bar_jumps_to_the_new_divider_out_of_view() {
         ui.simulate(click());
     });
     let _ = app.sync();
-    assert!(shows(&app, "Message number 10"), "the view went to it");
-    assert!(shows(&app, "New"));
+    // The rows round it are built; the scroll there is a task, which
+    // doesn't run here, so the list itself stays where it was.
+    assert!(present(&app, "Message number 10"), "the view went to it");
+    assert!(present(&app, "New"));
     assert!(app.from_end > 0.0);
 }
 
@@ -1062,6 +1097,7 @@ mod server_dialogs;
 mod settings;
 mod shell;
 mod threads;
+mod widgets;
 mod writing;
 
 /// The time now, in Unix milliseconds.
