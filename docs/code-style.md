@@ -12,6 +12,21 @@
 
 The configuration files define the rules. Keep this document in sync with changes to them.
 
+## Tool selection
+
+The primary goal is short local feedback cycles and low CI overhead. Prefer native tools,
+reuse prepared environments, and avoid running separate programs for overlapping checks.
+
+| Tool                                                         | Reason                                                                                                                                                                                       |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [prek](https://prek.j178.dev/)                               | Rust hook runner distributed as a single binary. Built-in text and syntax checks avoid separate Python hook processes. Cached tool environments avoid repeated installation.                 |
+| [Ruff](https://docs.astral.sh/ruff/)                         | Native Rust implementation with caching. One tool provides Python lint, import sorting and formatting, replacing separate Flake8, isort and Black installations for the configured checks.   |
+| [clang-format](https://clang.llvm.org/docs/ClangFormat.html) | Native C/C++ formatter with configurable style. Formatting does not require compiling the application or resolving its native build dependencies.                                            |
+| [Taplo](https://taplo.tamasfe.dev/)                          | Dedicated Rust TOML formatter. Handles manifests directly without adding a TOML plugin to the JavaScript toolchain.                                                                          |
+| [Prettier](https://prettier.io/docs/)                        | One formatter covers documentation, data and web files; the XML plugin covers XML. Chosen for format coverage and consistent output, with the cost of a Node.js environment managed by prek. |
+| rustfmt                                                      | Standard Rust formatter supplied by the pinned toolchain. No additional Rust formatting dependency.                                                                                          |
+| EditorConfig                                                 | Applies shared defaults in supporting editors. No additional hook command.                                                                                                                   |
+
 ## Text files
 
 - UTF-8, LF, one final newline.
