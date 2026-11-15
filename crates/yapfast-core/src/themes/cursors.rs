@@ -282,6 +282,12 @@ pub(super) fn read_cursors(
 pub const MAX_FRAMES: usize = 64;
 /// The most frame files a theme's cursors name, every size counted.
 pub const MAX_FRAME_FILES: usize = 1024;
+/// The most frames all of a theme's animated cursors have together, each
+/// sequence's counted: a frame shared by two sequences with different
+/// hotspots is held twice.
+pub const MAX_TOTAL_FRAMES: usize = 1024;
+/// The most the animated cursors may hold decoded, 96 MiB.
+pub const MAX_CURSOR_MEMORY: u64 = 96 << 20;
 /// The shortest a frame shows: 60 a second.
 pub const MIN_FRAME_MS: u32 = 16;
 /// The largest trail sprite sheet, in pixels on either side.
@@ -520,9 +526,10 @@ impl Animated {
     /// Every frame file it names, every size, once each.
     pub fn files(&self) -> Vec<PathBuf> {
         let mut files: Vec<PathBuf> = Vec::new();
+        let mut seen: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
         let mut add = |paths: &[PathBuf]| {
             for path in paths {
-                if !files.contains(path) {
+                if seen.insert(path.clone()) {
                     files.push(path.clone());
                 }
             }
@@ -1286,6 +1293,22 @@ pub fn animated_problems<'a>(
     bytes: impl Fn(&Path) -> Option<&'a [u8]>,
 ) -> Vec<String> {
     let mut problems = Vec::new();
+    let frames = animated.frames().len();
+    if frames > MAX_TOTAL_FRAMES {
+        // Too many to look at each: what's held would be too much anyway.
+        problems.push(format!(
+            "the animated cursors have {frames} frames together, more than {MAX_TOTAL_FRAMES}"
+        ));
+        return problems;
+    }
+    let memory = animated_memory(animated, &bytes);
+    if memory > MAX_CURSOR_MEMORY {
+        problems.push(format!(
+            "the animated cursors would hold {} MB decoded, more than {} MB",
+            memory >> 20,
+            MAX_CURSOR_MEMORY >> 20
+        ));
+    }
     let files = animated.files();
     if files.len() > MAX_FRAME_FILES {
         problems.push(format!(
@@ -1574,6 +1597,48 @@ pub fn scaled_hotspot(hotspot: (u32, u32), first: (u32, u32), shown: (u32, u32))
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cursors_that_would_hold_too_much_are_refused() {
+        let sheet = png(2048, 2048);
+        let frame = Frame {
+            files: vec![PathBuf::from("s.png")],
+            cell: Some(Cell {
+                index: 0,
+                width: 256,
+                height: 256,
+            }),
+        };
+        let sequence = |hotspot| Sequence {
+            frames: vec![frame.clone(); 64],
+            ms: vec![50; 64],
+            looped: false,
+            hotspot,
+        };
+        let mut animated = Animated::default();
+        // Each kind's sequence its own hotspot: held once per sequence.
+        for (index, kind) in Kind::ALL.iter().take(12).enumerate() {
+            animated.kinds.insert(*kind, sequence((index as u32, 1)));
+        }
+        let bytes = |_: &Path| Some(sheet.as_slice());
+        let problems = animated_problems(&animated, bytes);
+        assert!(
+            problems
+                .iter()
+                .any(|problem| problem.contains("MB decoded")),
+            "{problems:?}"
+        );
+        for kind in Kind::ALL.iter().skip(12).take(10) {
+            animated.kinds.insert(*kind, sequence((0, 0)));
+        }
+        let problems = animated_problems(&animated, bytes);
+        assert!(
+            problems
+                .iter()
+                .any(|problem| problem.contains("frames together")),
+            "{problems:?}"
+        );
+    }
 
     fn png(width: u32, height: u32) -> Vec<u8> {
         let mut bytes = Vec::new();
