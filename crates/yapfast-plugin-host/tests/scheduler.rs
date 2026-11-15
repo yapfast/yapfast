@@ -2018,3 +2018,14 @@ fn a_plugin_that_didnt_write_yf_input_is_not_called_for_one() {
         harness.log()
     );
 }
+
+#[test]
+fn plugin_call_refuses_the_exports_the_host_drives() {
+    use yapfast_plugin_host::scheduler::callable;
+    for function in ["yf_event", "yf_activate", "yf_deactivate", "_start", "_initialize", ""] {
+        assert!(!callable(function), "{function}");
+    }
+    for function in ["lookup", "emoji_for", "call"] {
+        assert!(callable(function), "{function}");
+    }
+}

@@ -1287,6 +1287,22 @@ impl<B: Backend + 'static> Shared<B> {
     /// parent for, run where the callee's instance is.
     fn invoke(&self, task: &Task, function: &str, args_base64: &str) {
         let slot = task.owner();
+        // The ABI's own exports are the host's to call. A dependent calling
+        // `yf_event` could hand the callee forged host answers, and one
+        // calling `yf_activate` or `_start` could run its setup again.
+        if !callable(function) {
+            let _ = self.reply(
+                task.id,
+                &FromHelper::Invoked {
+                    answer_base64: None,
+                    fault: Some(Fault {
+                        kind: FaultKind::BadAnswer,
+                        reason: format!("`{function}` is the plugin API's own export, not one another plugin may call"),
+                    }),
+                },
+            );
+            return;
+        }
         if self.ensure_active(slot).is_none() {
             let _ = self.reply(
                 task.id,
@@ -2375,4 +2391,10 @@ impl State {
             return None;
         }
     }
+}
+
+/// Whether one plugin may call `function` on another through `plugin.call`:
+/// anything but the exports the host drives and the module's start-up code.
+pub fn callable(function: &str) -> bool {
+    !(function.is_empty() || function.starts_with("yf_") || function.starts_with('_'))
 }
