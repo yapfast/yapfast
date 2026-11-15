@@ -1690,8 +1690,9 @@ export component YapfastWindow inherits Window {
     property <bool> aside-composer-last;
     changed aside-docked => { root.aside-composer-last = root.aside-docked; }
     property <int> aside-typing-tick;
-    /// A key was typed with nothing focused: focuses the composer it goes to,
-    /// with its caret at the end; whether there is one.
+    /// A key was typed with nothing focused, or the header's search was left:
+    /// focuses the composer typing goes to, the one used last, with its caret
+    /// at the end; whether there is one.
     public function type-into-composer() -> bool {
         if !root.workspace || root.composer-covered { return false; }
         if root.aside-docked && root.aside-composer-last {
@@ -1730,11 +1731,21 @@ export component YapfastWindow inherits Window {
     // field each time this counts up.
     property <int> sign-in-focus;
     public function focus-sign-in() { root.sign-in-focus += 1; }
-    out property <int> search-focus-tick;
-    /// Focuses the conversation's search bar in the header; whether one is available.
+    property <int> search-focus-tick;
+    /// Focuses the conversation's search in the header, selecting what it
+    /// holds; whether there is one to focus: not where the conversation has
+    /// no search, nor under anything that covers it.
     public function focus-search() -> bool {
         if !root.workspace || root.composer-covered || !root.can-search { return false; }
         root.search-focus-tick += 1;
+        return true;
+    }
+    /// Escape in the header's search. In an empty field it does what Escape
+    /// does anywhere; after ending a search (`cleared`), that was its work.
+    /// Either way typing returns to the composer used last, if there is one.
+    function leave-search(cleared: bool) -> bool {
+        if !cleared { root.escape-composing(); }
+        root.type-into-composer();
         return true;
     }
     public function timeline-at-end() -> bool { return root.follow-latest; }
@@ -3283,8 +3294,7 @@ export component YapfastWindow inherits Window {
                                 focus-tick: root.search-focus-tick;
                                 search(text) => { root.search(text); }
                                 clear => { root.search-text = ""; root.search(""); }
-                                // Back to typing, where there is somewhere to type.
-                                escape => { if root.composer-enabled && !root.composer-missing { root.focus-composer(); } }
+                                escape(cleared) => { return root.leave-search(cleared); }
                             }
                         }
                         if !root.members-available && !root.profile-available && root.members != "": HorizontalLayout {

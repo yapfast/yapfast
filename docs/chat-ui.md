@@ -53,10 +53,16 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   The arrow keys or Tab choose, and Enter or a click goes there: a server
   opens on its channel shown last. Unread places show bold, and mentions as
   a count.
-- Ctrl+F focuses the conversation search bar in the header, as in
-  Discord, wherever the focus is, but not over the settings or a dialog;
-  Escape clears the search, closes it and returns focus to the composer. A
-  keyboard layout without Latin letters uses the key in F's place.
+- Ctrl+F focuses the conversation's search in the header, as in Discord,
+  wherever the focus is, selecting what the field holds. Where the
+  conversation has no search, or under the settings, a dialog or anything
+  else that covers it, the key isn't taken and goes on to whatever has the
+  keyboard. Escape in the field ends the search and returns typing to the
+  composer used last, the docked thread's if it was that one, where there
+  is one to write in; in an empty field it first does what Escape does
+  anywhere, cancelling a reply or an edit. A keyboard layout without Latin
+  letters, such as a Russian one, uses the key in F's place, as Ctrl+K
+  does K's.
 - Restore each server's last selected channel and the last selected DM. Yapfast
   keeps each server's channel in `layout.json`, so after a restart a server
   opens its last channel; a server opened for the first time shows its top one.
@@ -320,14 +326,29 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   Yapfast's window has the focus, as in Discord: on another screen they hold
   still on the frame they were showing, and go on from there when the
   window has the focus again. Animated emoji stop too when nobody has
-  touched the window for 15 seconds and while it is minimised, and go on
-  from the frame they stopped on. Settings' "Play GIFs, emoji and stickers",
-  at Always, plays them unfocused, but not while minimised, and at Never
-  keeps them all still. The clock they share wakes for the next frame of
-  what's in view, so emoji that scrolled away, though still kept, don't wake
-  it, and it stops while they hold still; only a tick that shows some
-  animation a new frame draws again; in the emoji picker only an animated emoji's button follows it, so
-  a frame redraws that button, not the grid.
+  touched the window for 15 seconds, and while it is closed to the tray,
+  and go on from the frame they stopped on. Settings' "Play GIFs, emoji and
+  stickers", at Always, plays them unfocused, and at Never keeps them all
+  still. A skeleton's sweep is not among them: it moves only in a focused
+  window used in the last 15 seconds, at any setting but Never
+  (`Motion.watched`).
+- The clock animated emoji share moves only for the ones that show: those in
+  the messages on screen, which the refresh names, and any whose frame a
+  draw took since the window last painted, wherever that is: the composer,
+  a reply, a topic, the hover bar's cells, the picker's grid. A change of
+  frame draws again everything that drew one, so an emoji the next paint
+  leaves out has left the screen and stops counting; until the window can
+  paint, what its last paint drew still counts. Emoji kept for later, such as
+  the hover bar's while no bar is open or those that scrolled away, wake
+  nothing. One timer wakes for the next frame of what shows and stops when
+  nothing does; a draw of a kept emoji starts it again
+  (`yapfast_emoji::on_wake`). Each time the timer fires or is set again the
+  clock moves by the time that passed, so setting it for a faster emoji that
+  scrolled in loses none of a slow frame's wait. Only a tick that shows some
+  animation a new frame draws again; in the emoji picker only an animated
+  emoji's button follows it, so a frame redraws that button, not the grid.
+  Text whose emoji had no frames when it was drawn is drawn again when they
+  arrive.
 - Who reacted, as in Discord's client: half a second on a reaction shows a
   tooltip, ":tada: reacted by Ann, Bo, Cy, and 2 others", naming the first
   three by their name there, once they come (`Command::Reactors`, three at a

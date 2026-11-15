@@ -818,13 +818,15 @@ struct Sound {
     controls: channel::Receiver<Control>,
 }
 
+/// Writes a stream's picture into the shared frame, turned upright as its
+/// sender said and scaled down if it doesn't fit; returns the size shown.
 fn show_stream_picture(
     writer: &mut Writer,
     picture: I420<'_>,
     turn: Turn,
     maximum: (u32, u32),
     scratch: &mut Vec<u8>,
-    turned: &mut Vec<u8>,
+    strip: &mut Vec<u8>,
 ) -> (u32, u32) {
     let (width, height) = turn.upright(picture.width, picture.height);
     let size = if writer.fits(width, height) && width <= maximum.0 && height <= maximum.1 {
@@ -833,7 +835,7 @@ fn show_stream_picture(
         fit(width, height, maximum.0, maximum.1)
     };
     writer.write(size.0, size.1, |pixels| {
-        picture.to_rgba_turned(scratch, turned, pixels, size, turn);
+        picture.to_rgba(scratch, strip, pixels, size, turn);
     });
     size
 }
@@ -860,9 +862,10 @@ fn watch(
         .ok()
     });
     let mut decoder: Option<Decoder> = None;
-    // A frame that doesn't fit scales through this, a picture of the size
-    // shown; one that does goes straight into the shared frame.
-    let (mut scratch, mut turned) = (vec![], vec![]);
+    // A frame that doesn't fit scales through `scratch`, a picture of the
+    // size shown; one that does goes straight into the shared frame. One a
+    // phone sends turned goes through `strip`, a few rows of it.
+    let (mut scratch, mut strip) = (vec![], vec![]);
     let mut shown = false;
     let mut failures = 0u64;
     while !stop.load(Ordering::Relaxed) {
@@ -916,7 +919,7 @@ fn watch(
             },
             (max_width, max_height),
             &mut scratch,
-            &mut turned,
+            &mut strip,
         );
         if !shown {
             shown = true;
@@ -1811,7 +1814,7 @@ mod tests {
         for maximum in [(8, 8), (8, 4)] {
             let frames = Frames::create(maximum.0, maximum.1).unwrap();
             let mut writer = Writer::open(&frames.path().unwrap()).unwrap();
-            let (mut scratch, mut turned) = (vec![], vec![]);
+            let (mut scratch, mut strip) = (vec![], vec![]);
             // Landscape, both portrait directions, upside down, then back.
             for turns in [0, 1, 3, 2, 0] {
                 let size = show_stream_picture(
@@ -1820,7 +1823,7 @@ mod tests {
                     Turn { turns, flip: false },
                     maximum,
                     &mut scratch,
-                    &mut turned,
+                    &mut strip,
                 );
                 let expected = if turns % 2 == 1 {
                     if maximum.1 == 4 { (2, 4) } else { (4, 8) }

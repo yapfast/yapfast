@@ -17,13 +17,18 @@
 //! One animation is registered under the key the emoji picker names it by, and
 //! under its glyph's code point, which is what message text and reaction labels
 //! draw. Both name one [`Animation`], so text and the picker move in step.
+//!
+//! Only an emoji that shows moves the clock's revision, and so draws again: one
+//! the application named in view ([`set_in_view`]), or one whose frame a draw
+//! took since the window last painted, wherever its glyph or its cell is. The
+//! rest keep their frames for when they show again and cost nothing meanwhile.
 
 use alloc::boxed::Box;
-use alloc::collections::{BTreeMap, BTreeSet};
-use alloc::string::String;
+use alloc::collections::BTreeMap;
 use alloc::rc::Rc;
+use alloc::string::String;
 use alloc::vec::Vec;
-use core::cell::RefCell;
+use core::cell::{Cell, RefCell};
 use core::pin::Pin;
 use core::time::Duration;
 
@@ -92,7 +97,11 @@ impl Animation {
             return None;
         }
         let at = elapsed % self.ends;
-        Some(self.starts.partition_point(|start| *start <= at).saturating_sub(1))
+        Some(
+            self.starts
+                .partition_point(|start| *start <= at)
+                .saturating_sub(1),
+        )
     }
 
     /// How long the animation runs before it starts again, in milliseconds.
@@ -128,35 +137,71 @@ impl Animation {
     }
 }
 
+/// One emoji's animation as the registry keeps it, found by its key and by its
+/// glyph.
+struct Entry {
+    animation: Rc<Animation>,
+    /// The code point text draws it as, which `by_glyph` finds it by.
+    glyph: Cell<Option<char>>,
+    /// The application named it among what is in view. True from the start, so
+    /// an application that names nothing animates all it registers.
+    in_view: Cell<bool>,
+    /// How many times the revision had moved when a draw last took its frame.
+    drawn: Cell<Option<u64>>,
+}
+
 #[derive(Default)]
 struct Registered {
     /// Each emoji's animation by the key the picker names it by.
-    by_key: BTreeMap<String, Rc<Animation>>,
-    /// The key an emoji's glyph draws, by its code point.
-    by_glyph: BTreeMap<char, String>,
-    /// Cached frames may stay registered after their last item leaves the view.
-    /// None preserves the default behavior for callers without a viewport.
-    active: Option<BTreeSet<String>>,
+    by_key: BTreeMap<String, Rc<Entry>>,
+    /// The same, by the code point its glyph is.
+    by_glyph: BTreeMap<char, Rc<Entry>>,
     /// The animation's time, in milliseconds.
     elapsed: u32,
     playing: bool,
+    /// How many times the revision has moved.
+    redraws: u64,
+    /// `redraws` when the window last began to paint. A move of the revision
+    /// makes everything that drew a frame draw again, so what that paint left
+    /// out is no longer on screen.
+    painted: u64,
+    /// The application asked when the next frame is due and none was, so it
+    /// waits for nothing; the next draw of a frame wakes it.
+    resting: Cell<bool>,
 }
 
 impl Registered {
-    /// Visit the visible keys directly, rather than scanning every cached emoji
-    /// at each tick. Callers without a viewport still use all registered frames.
+    /// Whether the emoji shows: named in view, or drawn since the last paint.
+    fn plays(&self, entry: &Entry) -> bool {
+        entry.in_view.get() || entry.drawn.get().is_some_and(|at| at >= self.painted)
+    }
+
+    /// The animations that show, which are all the clock moves for.
     fn animations(&self) -> impl Iterator<Item = &Animation> {
-        let all = self.by_key.values().take(if self.active.is_none() {
-            self.by_key.len()
-        } else {
-            0
-        });
-        let active = self
-            .active
-            .iter()
-            .flat_map(|keys| keys.iter())
-            .filter_map(|key| self.by_key.get(key));
-        all.chain(active).map(Rc::as_ref)
+        self.by_key
+            .values()
+            .filter(|entry| self.plays(entry))
+            .map(|entry| entry.animation.as_ref())
+    }
+
+    /// The frame `entry` shows now, for a draw, and whether the application
+    /// rests and has this to wake for.
+    fn draw(&self, entry: &Entry) -> (Option<Image>, bool) {
+        entry.drawn.set(Some(self.redraws));
+        let wake = self.playing && entry.animation.frames.len() > 1 && self.resting.replace(false);
+        (entry.animation.frame_at(self.elapsed).cloned(), wake)
+    }
+
+    /// Takes `entry`'s glyph away, unless another emoji has it by now.
+    fn forget_glyph(&mut self, entry: &Rc<Entry>) {
+        if let Some(glyph) = entry.glyph.get()
+            && self
+                .by_glyph
+                .get(&glyph)
+                .is_some_and(|named| Rc::ptr_eq(named, entry))
+        {
+            self.by_glyph.remove(&glyph);
+        }
     }
 }
 
@@ -165,61 +210,93 @@ std::thread_local! {
     /// Moves with the clock. What draws a frame depends on it, so a tick draws
     /// those items again; a paused clock never moves it.
     static REVISION: Pin<Box<Property<u32>>> = Box::pin(Property::new(0));
+    /// Moves when a glyph gains an animation. Text that drew such a glyph
+    /// with no frame to draw depends on it, so the frames' arrival draws it.
+    static ARRIVALS: Pin<Box<Property<u32>>> = Box::pin(Property::new(0));
+    /// What [`on_wake`] was given.
+    static WAKER: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
 }
 
 /// Registers `animation` for the emoji with this picker key, and for `glyph`
 /// when message text draws it, in place of what was there.
 pub fn insert(key: &str, glyph: Option<char>, animation: Rc<Animation>) {
     REGISTRY.with_borrow_mut(|registered| {
-        if let Some(old) = registered.by_key.get(key)
-            && let Some(glyph) = registered
-                .by_glyph
-                .iter()
-                .find(|(_, k)| *k == key)
-                .map(|(glyph, _)| *glyph)
-        {
-            let _ = old;
-            registered.by_glyph.remove(&glyph);
+        let entry = Rc::new(Entry {
+            animation,
+            glyph: Cell::new(glyph),
+            in_view: Cell::new(true),
+            drawn: Cell::new(None),
+        });
+        if let Some(replaced) = registered.by_key.insert(String::from(key), entry.clone()) {
+            // The same emoji at another size: it shows where it showed.
+            registered.forget_glyph(&replaced);
+            entry.in_view.set(replaced.in_view.get());
+            entry.drawn.set(replaced.drawn.get());
         }
         if let Some(glyph) = glyph {
-            registered.by_glyph.insert(glyph, String::from(key));
+            registered.by_glyph.insert(glyph, entry);
         }
-        registered.by_key.insert(String::from(key), animation);
     });
+    if glyph.is_some() {
+        arrived();
+    }
     redraw();
 }
 
 /// Moves the revision, so what draws a frame draws again.
 fn redraw() {
+    REGISTRY.with_borrow_mut(|registered| registered.redraws += 1);
     REVISION.with(|revision| {
         let next = revision.as_ref().get_untracked().wrapping_add(1);
         revision.as_ref().set(next);
     });
 }
 
+/// Draws the text again whose glyph had no frames when it was drawn.
+fn arrived() {
+    ARRIVALS.with(|arrivals| {
+        let next = arrivals.as_ref().get_untracked().wrapping_add(1);
+        arrivals.as_ref().set(next);
+    });
+}
+
 /// Names the glyph an emoji's frames draw, as text draws it, for one whose font
 /// was made after its frames were registered, or made again since.
 pub fn set_glyph(key: &str, glyph: char) {
-    REGISTRY.with_borrow_mut(|registered| {
-        if registered.by_key.contains_key(key) {
-            registered.by_glyph.insert(glyph, String::from(key));
+    let named = REGISTRY.with_borrow_mut(|registered| {
+        let Some(entry) = registered.by_key.get(key) else {
+            return false;
+        };
+        if entry.glyph.get() == Some(glyph) {
+            return false;
         }
+        let entry = entry.clone();
+        registered.forget_glyph(&entry);
+        entry.glyph.set(Some(glyph));
+        registered.by_glyph.insert(glyph, entry);
+        true
     });
+    if named {
+        arrived();
+    }
 }
 
 /// Takes the emoji's animation away: its glyph and the picker's still draw
 /// again.
 pub fn remove(key: &str) {
-    REGISTRY.with_borrow_mut(|registered| {
-        registered.by_key.remove(key);
-        registered.by_glyph.retain(|_, k| k != key);
+    let removed = REGISTRY.with_borrow_mut(|registered| {
+        let removed = registered.by_key.remove(key)?;
+        registered.forget_glyph(&removed);
+        Some(())
     });
-    redraw();
+    if removed.is_some() {
+        redraw();
+    }
 }
 
 /// Moves the clock, while playing, and draws what shows a frame again: only
-/// when some animation's frame changed, as the clock ticks at the pace of the
-/// fastest and most ticks move none, and every draw walks the whole window.
+/// when some animation that shows changed frame, as most ticks move none and
+/// a draw costs far more than a tick.
 pub fn advance(delta: Duration) {
     let moved = REGISTRY.with_borrow_mut(|registered| {
         if !registered.playing || registered.by_key.is_empty() {
@@ -247,12 +324,30 @@ pub fn set_playing(playing: bool) {
     REGISTRY.with_borrow_mut(|registered| registered.playing = playing);
 }
 
-/// Limits clock-driven redraws to emoji currently shown, keeping decoded frames
-/// registered for reuse when the user scrolls back.
-pub fn set_active<'a>(keys: impl IntoIterator<Item = &'a str>) {
-    REGISTRY.with_borrow_mut(|registered| {
-        registered.active = Some(keys.into_iter().map(String::from).collect());
+/// Names the emoji in view, by asking of each registered key whether it is.
+/// Those play whether or not a draw has shown them yet; the rest play only
+/// while something draws them. Nothing is copied or kept: the answers are.
+pub fn set_in_view(mut in_view: impl FnMut(&str) -> bool) {
+    REGISTRY.with_borrow(|registered| {
+        for (key, entry) in &registered.by_key {
+            entry.in_view.set(in_view(key));
+        }
     });
+}
+
+/// The window begins to paint. The renderer calls it for every frame, so the
+/// emoji whose frames this paint takes are known from those it leaves out.
+pub fn begin_paint() {
+    REGISTRY.with_borrow_mut(|registered| registered.painted = registered.redraws);
+}
+
+/// Calls `waker` when a draw takes the frame of an emoji that plays, after
+/// [`next_frame_delay`] last found none due: the application then waits for
+/// nothing, and a draw is the only word it gets of an emoji that shows
+/// somewhere it did not name, such as text it does not list. Called from
+/// inside the paint, so `waker` must only arrange for the work.
+pub fn on_wake(waker: impl Fn() + 'static) {
+    WAKER.set(Some(Rc::new(waker)));
 }
 
 /// Whether the clock moves. False until the application says otherwise, so a
@@ -284,8 +379,8 @@ pub fn is_empty() -> bool {
     REGISTRY.with_borrow(|registered| registered.by_key.is_empty())
 }
 
-/// The shortest delay among active animations with multiple frames. Cached
-/// offscreen emoji and single-frame pictures do not need to drive the clock.
+/// The shortest delay among the animations that show and have more than one
+/// frame. Kept emoji out of view and single pictures do not drive the clock.
 pub fn shortest_delay() -> Option<u32> {
     REGISTRY.with_borrow(|registered| {
         registered
@@ -297,32 +392,56 @@ pub fn shortest_delay() -> Option<u32> {
     })
 }
 
-/// Time until an active emoji changes frame, so the application can sleep
+/// Time until an emoji that shows changes frame, so the application can sleep
 /// through long or uneven frame delays without polling or skipping boundaries.
+/// With none due the application rests, and [`on_wake`] tells it of the next.
 pub fn next_frame_delay() -> Option<u32> {
     REGISTRY.with_borrow(|registered| {
-        registered.animations()
+        let next = registered
+            .animations()
             .filter_map(|animation| animation.next_delay_at(registered.elapsed))
             .filter(|delay| *delay > 0)
-            .min()
+            .min();
+        registered.resting.set(next.is_none());
+        next
     })
 }
 
 /// The frame an emoji the picker names with `key` draws now, if any.
 pub fn frame_of_key(key: &str) -> Option<Image> {
-    REGISTRY.with_borrow(|registered| {
-        let animation = registered.by_key.get(key)?;
-        animation.frame_at(registered.elapsed).cloned()
-    })
+    let found = REGISTRY.with_borrow(|registered| {
+        let entry = registered.by_key.get(key)?;
+        Some(registered.draw(entry))
+    });
+    drawn(found?)
 }
 
 /// The frame the emoji with this glyph draws now, if any.
 pub fn frame_of_glyph(glyph: char) -> Option<Image> {
-    REGISTRY.with_borrow(|registered| {
-        let key = registered.by_glyph.get(&glyph)?;
-        let animation = registered.by_key.get(key)?;
-        animation.frame_at(registered.elapsed).cloned()
-    })
+    let found = REGISTRY.with_borrow(|registered| {
+        let entry = registered.by_glyph.get(&glyph)?;
+        Some(registered.draw(entry))
+    });
+    let Some(found) = found else {
+        // Drawn again once frames arrive for it.
+        ARRIVALS.with(|arrivals| {
+            arrivals.as_ref().get();
+        });
+        return None;
+    };
+    drawn(found)
+}
+
+/// Hands a draw its frame, waking the application first if it rests.
+fn drawn((frame, wake): (Option<Image>, bool)) -> Option<Image> {
+    if wake {
+        // Out of the registry's borrow: the waker is the application's code.
+        let waker = WAKER.with_borrow(Clone::clone);
+        if let Some(waker) = waker {
+            waker();
+        }
+    }
+    frame
 }
 
 #[cfg(test)]
@@ -343,7 +462,10 @@ mod tests {
     fn the_frame_is_the_one_its_delay_covers() {
         let animation = Animation::new(frames(3), &[100, 50, 50]);
         assert_eq!(animation.ends(), 200);
-        assert_eq!(animation.frame_at(0).map(|frame| frame.size().width), Some(2));
+        assert_eq!(
+            animation.frame_at(0).map(|frame| frame.size().width),
+            Some(2)
+        );
         // Each frame's own time, then the wrap.
         assert!(core::ptr::eq(
             animation.frame_at(0).expect("a frame"),
@@ -407,19 +529,20 @@ mod tests {
     fn a_paused_clock_does_not_move() {
         let animation = Rc::new(Animation::new(frames(2), &[10, 10]));
         insert("clock:1", None, animation);
+        let registered = revision();
         // Nothing is playing until the application says so.
         assert!(!playing());
         advance(Duration::from_millis(30));
         assert_eq!(elapsed(), 0);
-        assert_eq!(revision(), 0);
+        assert_eq!(revision(), registered);
         set_playing(true);
         advance(Duration::from_millis(30));
         assert_eq!(elapsed(), 30);
-        assert_eq!(revision(), 1);
+        assert_eq!(revision(), registered + 1);
         set_playing(false);
         advance(Duration::from_millis(30));
         assert_eq!(elapsed(), 30, "a pause freezes rather than skips");
-        assert_eq!(revision(), 1);
+        assert_eq!(revision(), registered + 1);
         assert_eq!(shortest_delay(), Some(10));
         remove("clock:1");
     }

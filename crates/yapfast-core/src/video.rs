@@ -476,6 +476,10 @@ mod tests {
         }
     }
 
+    /// A video shows as its display matrix says, a pixel at (x, y) at
+    /// (ax + cy, bx + dy): turned by quarters, flipped, or both, whichever
+    /// decoder its pictures come from, at its own size and scaled. Every
+    /// pixel is the one the same video shows without the matrix.
     #[test]
     fn applies_video_display_rotation() {
         fn first(video: &mut Video, width: u32, height: u32) -> Vec<u8> {
@@ -487,38 +491,125 @@ mod tests {
                 }
             }
         }
-        let data = fixture("video-aac.mp4");
-        for (width, height) in [(160, 90), (32, 18)] {
+        // The file, the one it was made from, and its matrix: a, b, c, d.
+        for (name, original, [a, b, c, d]) in [
+            ("video-rotate-90.mp4", "video-aac.mp4", [0, -1, 1, 0]),
+            ("video-rotate-180.mp4", "video-aac.mp4", [-1, 0, 0, -1]),
+            ("video-rotate-270.mp4", "video-aac.mp4", [0, 1, -1, 0]),
+            ("gif-h264-flip-h.mp4", "gif-h264.mp4", [-1, 0, 0, 1]),
+            ("gif-h264-flip-v.mp4", "gif-h264.mp4", [1, 0, 0, -1]),
+            (
+                "gif-h264-rotate-90-flip.mp4",
+                "gif-h264.mp4",
+                [0, -1, -1, 0],
+            ),
+            ("gif-h264-rotate-270-flip.mp4", "gif-h264.mp4", [0, 1, 1, 0]),
+            // Not quarter turns: it shows as it's stored.
+            ("gif-h264-rotate-45.mp4", "gif-h264.mp4", [1, 0, 0, 1]),
+            // Its transparency turns with it.
+            (
+                "gif-vp9-alpha-rotate-90.webm",
+                "gif-vp9-alpha.webm",
+                [0, -1, 1, 0],
+            ),
+            // As an iPhone held upright records.
+            #[cfg(hevcdec)]
+            (
+                "gif-hevc-10bit-rotate-90.mp4",
+                "gif-hevc-10bit.mp4",
+                [0, -1, 1, 0],
+            ),
+        ] {
+            let (data, turned) = (fixture(original), fixture(name));
             let mut original = Video::open(std::io::Cursor::new(&data), false).unwrap();
-            let pixels = first(&mut original, width, height);
-            for degrees in [90, 180, 270] {
-                let data = fixture(&format!("video-rotate-{degrees}.mp4"));
-                let mut video = Video::open(std::io::Cursor::new(&data), true).unwrap();
-                let (out_width, out_height) = if degrees == 180 {
-                    assert_eq!((video.width, video.height), (160, 90));
-                    (width, height)
-                } else {
-                    assert_eq!((video.width, video.height), (90, 160));
+            let mut video = Video::open(std::io::Cursor::new(&turned), true).unwrap();
+            let sideways = a == 0;
+            let stored = (original.width, original.height);
+            let upright = |(width, height)| {
+                if sideways {
                     (height, width)
-                };
-                assert_eq!(video.sound, Some((44_100, 2)));
-                let rotated = first(&mut video, out_width, out_height);
-                for y in 0..height {
-                    for x in 0..width {
-                        // The metadata angle is counterclockwise.
-                        let (rx, ry) = match degrees {
-                            90 => (y, width - 1 - x),
-                            180 => (width - 1 - x, height - 1 - y),
-                            270 => (height - 1 - y, x),
-                            _ => unreachable!(),
-                        };
-                        let from = ((y * width + x) * 4) as usize;
-                        let to = ((ry * out_width + rx) * 4) as usize;
-                        assert_eq!(&rotated[to..to + 4], &pixels[from..from + 4]);
+                } else {
+                    (width, height)
+                }
+            };
+            assert_eq!((video.width, video.height), upright(stored), "{name}");
+            let sound = name.starts_with("video-").then_some((44_100, 2));
+            assert_eq!(video.sound, sound, "{name}");
+            // At its size, halved, and at an odd size, whose last rows of
+            // colour serve one row of the picture; moving back between.
+            for (width, height) in [stored, (stored.0 / 2, stored.1 / 2), (31, 17)] {
+                original.seek(0).unwrap();
+                let pixels = first(&mut original, width, height);
+                let (out_width, out_height) = upright((width, height));
+                video.seek(0).unwrap();
+                let shown = first(&mut video, out_width, out_height);
+                for y in 0..height as i32 {
+                    for x in 0..width as i32 {
+                        let (mut to_x, mut to_y) = (a * x + c * y, b * x + d * y);
+                        if a < 0 || c < 0 {
+                            to_x += out_width as i32 - 1;
+                        }
+                        if b < 0 || d < 0 {
+                            to_y += out_height as i32 - 1;
+                        }
+                        let from = ((y * width as i32 + x) * 4) as usize;
+                        let to = ((to_y * out_width as i32 + to_x) * 4) as usize;
+                        assert_eq!(
+                            &shown[to..to + 4],
+                            &pixels[from..from + 4],
+                            "{name} at {width}×{height}, ({x}, {y})"
+                        );
                     }
                 }
-                video.seek(0).unwrap();
-                assert_eq!(first(&mut video, out_width, out_height), rotated);
+            }
+        }
+    }
+
+    /// Anyone can post a damaged file, or one made to break a decoder. Its
+    /// pictures show as far as they decode, then the video ends or fails,
+    /// H264 and HEVC alike, on one thread or several.
+    #[test]
+    fn a_damaged_video_ends_or_fails() {
+        for name in [
+            "video-aac.mp4",
+            #[cfg(hevcdec)]
+            "video-hevc-opus.mp4",
+        ] {
+            let whole = fixture(name);
+            // The pictures and sound are in the `mdat` box, after its size
+            // and name.
+            let mdat = whole.windows(4).position(|name| name == b"mdat").unwrap();
+            let size = u32::from_be_bytes(whole[mdat - 4..mdat].try_into().unwrap()) as usize;
+            let (start, end) = (mdat + 4, (mdat - 4 + size).min(whole.len()));
+            for (step, threads) in [(0, 1), (41, 1), (211, 4), (997, 4)] {
+                let mut data = whole.clone();
+                if step == 0 {
+                    // Cut short in the middle of a picture.
+                    data.truncate(start + (end - start) * 2 / 3);
+                } else {
+                    for byte in data[start..end].iter_mut().skip(step).step_by(step) {
+                        *byte ^= 0xa5;
+                    }
+                }
+                let Some(mut video) = Video::open_with(std::io::Cursor::new(&data), true, threads)
+                else {
+                    continue;
+                };
+                let mut rgba = vec![0; (video.width * video.height * 4) as usize];
+                let mut ended = false;
+                for _ in 0..10_000 {
+                    match video.decode() {
+                        Ok(Next::Picture(_)) => {
+                            let _ = video.picture(&mut rgba, video.width, video.height);
+                        }
+                        Ok(Next::Sound(_)) => {}
+                        Ok(Next::End) | Err(_) => {
+                            ended = true;
+                            break;
+                        }
+                    }
+                }
+                assert!(ended, "{name}, every {step} bytes");
             }
         }
     }

@@ -655,10 +655,11 @@ impl Adapter {
 
     /// Drives the animated emoji: the frames the rows and the picker show are
     /// wanted, decoded ahead of the draw, and the clock moves only while
-    /// something plays and the window is focused, used and not minimised.
+    /// something plays and the window is focused and used.
     pub(super) fn show_emoji_animations(&mut self, window: &YapfastWindow) {
         let state = &self.app.state;
-        let mut shown: Vec<(String, Option<char>, String)> = self
+        // Those in the messages on screen play from now on.
+        let in_view = self
             .app
             .visible_message_emoji()
             .filter(|emoji| emoji.animated)
@@ -666,10 +667,13 @@ impl Adapter {
                 (
                     emoji::custom_key(emoji),
                     custom_emoji::glyph(&emoji.id),
-                    emoji.picture.clone(),
+                    emoji.picture.as_str(),
                 )
-            })
-            .collect();
+            });
+        // The rest are kept as ready, and play while they are drawn: the
+        // card, the bars and menus over messages and the soundboard hold
+        // their emoji whether or not they are open.
+        let mut kept: Vec<emoji_animation::Shown> = Vec::new();
         // The card shows one emoji, which may be from a message no longer on
         // screen, and a call's soundboard shows its sounds' own.
         let card = self.emoji_card.as_ref().and_then(|target| target.custom());
@@ -681,19 +685,23 @@ impl Adapter {
                 .find(|emoji| emoji.id == id)
         });
         if let Some(emoji) = on_card.filter(|emoji| emoji.animated) {
-            shown.push((
+            kept.push((
                 emoji::custom_key(emoji),
                 custom_emoji::glyph(&emoji.id),
-                emoji.picture.clone(),
+                emoji.picture.as_str(),
             ));
         }
         // The bars and menus over messages show their emoji as cells too, and
-        // what each decodes is the picture the account may use here.
-        let mut cells: Vec<String> = Vec::new();
+        // what each decodes is the picture the account may use here. Only a
+        // custom emoji's key has a colon, so bars of Unicode emoji, as most
+        // are, make nothing here.
+        let mut cells: Vec<SharedString> = Vec::new();
         for model in [&self.models.bar_reactions, &self.models.menu_reactions] {
             for index in 0..model.row_count() {
-                if let Some(cell) = model.row_data(index) {
-                    cells.push(cell.key.to_string());
+                if let Some(cell) = model.row_data(index)
+                    && cell.key.contains(':')
+                {
+                    cells.push(cell.key);
                 }
             }
         }
@@ -703,10 +711,11 @@ impl Adapter {
             .iter()
             .filter_map(|key| key.rsplit_once(':').map(|(_, id)| id))
             .collect();
-        for emoji in self.app.emoji_by_id(&ids) {
-            let key = emoji::custom_key(&emoji);
-            if emoji.usable && emoji.animated && cells.contains(&key) {
-                shown.push((key, custom_emoji::glyph(&emoji.id), emoji.picture));
+        let usable = self.app.emoji_by_id(&ids);
+        for emoji in &usable {
+            let key = emoji::custom_key(emoji);
+            if emoji.usable && emoji.animated && cells.iter().any(|cell| *cell == key) {
+                kept.push((key, custom_emoji::glyph(&emoji.id), &emoji.picture));
             }
         }
         for sound in state
@@ -717,10 +726,10 @@ impl Adapter {
             .flat_map(|group| &group.sounds)
         {
             if let Some(picture) = &sound.picture {
-                shown.push((format!("sound:{picture}"), None, picture.clone()));
+                kept.push((format!("sound:{picture}"), None, picture));
             }
         }
-        self.animations.show(shown, &state.pictures);
+        self.animations.show(in_view, kept, &state.pictures);
         self.run_emoji_animations(window);
     }
 
@@ -728,11 +737,12 @@ impl Adapter {
     /// work, including after the last close stopped the timer.
     pub(super) fn run_emoji_animations(&mut self, window: &YapfastWindow) {
         // Idle holds the clock as an unfocused window does, whatever the Animate
-        // setting says; a minimised window has lost focus, and `playing` is
-        // already false for it.
+        // setting says.
         let playing = window.global::<Motion>().get_playing() && !self.is_inactive();
-        self.animations.run(window, &self.app.state.pictures);
-        self.animations.sync(window, playing, self.weak.clone());
+        let now = std::time::Instant::now();
+        self.animations.run(window, &self.app.state.pictures, now);
+        self.animations
+            .sync(window, playing, self.weak.clone(), now);
     }
 
     /// The card an emoji in a message opened, built again while it is open, so

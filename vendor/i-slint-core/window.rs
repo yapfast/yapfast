@@ -2094,6 +2094,8 @@ impl WindowInner {
         ) -> T,
     ) -> Option<T> {
         crate::properties::evaluate_no_tracking(|| self.ensure_tree_instantiated());
+        // Yapfast: the animated emoji this paint draws are the ones on screen.
+        crate::yapfast_emoji::begin_paint();
         #[cfg(feature = "shared-parley")]
         if let Some(cache) = self.window_adapter().renderer().text_layout_cache() {
             cache.begin_frame();

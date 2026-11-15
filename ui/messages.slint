@@ -2440,8 +2440,9 @@ export component HistoryEdge inherits HorizontalLayout {
         accessible-label: root.loading ? (root.newer ? @tr("Loading newer messages") : @tr("Loading earlier messages")) : root.failed ? (root.newer ? @tr("Couldn't load newer messages. Retry") : @tr("Couldn't load earlier messages. Retry")) : root.newer ? @tr("Newer messages") : @tr("Earlier messages");
         accessible-enabled: touch.enabled;
         accessible-action-default => { if touch.enabled { root.earlier(); } }
-        // The shimmer of the skeletons that stand in for other things loading.
-        if root.loading: Rectangle {
+        // The shimmer of the skeletons that stand in for other things loading,
+        // which sweeps while they do: only while someone may be looking.
+        if root.loading && Motion.watched: Rectangle {
             width: 120px; height: parent.height;
             x: Math.mod(animation-tick() / 1ms, 1500) / 1500 * (parent.width + self.width) - self.width;
             background: @linear-gradient(90deg, Theme.shimmer.with-alpha(0) 0%, Theme.shimmer 50%, Theme.shimmer.with-alpha(0) 100%);

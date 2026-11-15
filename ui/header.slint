@@ -60,8 +60,8 @@ export struct PickRow {
     chosen: bool,
 }
 
-// The conversation's search, in its header: Enter searches, and the cross,
-// or Escape, ends the search.
+// A search field, as in the conversation's header: Enter searches, and the
+// cross, or Escape, ends the search.
 export component HeaderSearch inherits Rectangle {
     in-out property <string> text;
     in property <string> placeholder;
@@ -72,7 +72,11 @@ export component HeaderSearch inherits Rectangle {
     changed focus-tick => { input.focus(); input.select-all(); }
     callback search(string);
     callback clear;
-    callback escape;
+    /// Escape, after it ended a search (`cleared`) or in an empty field:
+    /// whether whoever shows the field took it, and the field lets go of the
+    /// keyboard. Otherwise the field keeps it, and an Escape that ended no
+    /// search passes on, to close a popover the field is in.
+    callback escape(cleared: bool) -> bool;
     init => { if root.autofocus { input.focus(); } }
     // Discord's box: 243px with a faint outline, wider while it's used. In a
     // row short of room it gives way, down to 120px, before what follows it
@@ -107,13 +111,15 @@ export component HeaderSearch inherits Rectangle {
             accessible-label: root.placeholder;
             accepted => { root.search(self.text); }
             key-pressed(event) => {
-                if event.text == Key.Escape {
-                    input.clear-focus();
-                    if root.text != "" { root.clear(); }
-                    root.escape();
+                if event.text != Key.Escape { return reject; }
+                if root.text != "" {
+                    root.clear();
+                    if root.escape(true) { input.clear-focus(); }
                     return accept;
                 }
-                return reject;
+                if !root.escape(false) { return reject; }
+                input.clear-focus();
+                return accept;
             }
             cursor-position-changed(position) => {
                 if position.x + self.scroll < 0px {

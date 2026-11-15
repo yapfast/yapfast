@@ -1134,35 +1134,72 @@ async fn receive_stream(
 mod tests {
     use super::*;
 
+    /// A phone's stream says how each frame turns upright on the frame's
+    /// last packet, and only when it has something to say: what it said
+    /// last holds for the frames after, until it says otherwise.
     #[test]
     fn mobile_stream_orientation_changes_and_returns_upright() {
         let mut video = Video::new(Codec::H264);
         let mut packetizer = Packetizer::new(7, Codec::H264);
         let mut data = vec![0, 0, 0, 1, 0x65];
         data.resize(3000, 1); // Several RTP packets per frame.
-        for (timestamp, update, expected) in [
-            (0, Some(1), 1),
-            (3000, None, 1),
-            (6000, Some(3), 3),
-            (9000, Some(0), 0),
-            (12000, None, 0),
-        ] {
-            let packets = packetizer.packets(&data, timestamp, true);
-            assert!(packets.len() > 1);
+        let turned = |turns, flip| Orientation { turns, flip };
+        // Each frame: the byte its last packet carries, whether that packet
+        // arrives, and how the frame, or the next, is then shown.
+        for (frame, (said, arrives, expected)) in [
+            // A stream that never says shows as it comes.
+            (None, true, turned(0, false)),
+            (Some(1), true, turned(1, false)),
+            (None, true, turned(1, false)),
+            (Some(3), true, turned(3, false)),
+            // Flipped, and with the camera's bit and the reserved ones set,
+            // which change nothing shown.
+            (Some(0x06), true, turned(2, true)),
+            (Some(0xf9), true, turned(1, false)),
+            // The packet that says is lost with its frame: the next frames
+            // show as before, until one says again.
+            (Some(2), false, turned(1, false)),
+            (None, true, turned(1, false)),
+            (Some(2), true, turned(2, false)),
+            // Upright again, said once.
+            (Some(0), true, turned(0, false)),
+            (None, true, turned(0, false)),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let packets = packetizer.packets(&data, frame as u32 * 3000, true);
+            assert!(packets.len() > 2);
+            let last = packets.len() - 1;
             for (index, bytes) in packets.iter().enumerate() {
                 let mut packet = rtp::parse(bytes).unwrap();
-                if index == packets.len() - 1 {
-                    packet.orientation = update.map(Orientation::from_cvo);
+                if index == last {
+                    if !arrives {
+                        break;
+                    }
+                    packet.orientation = said.map(Orientation::from_cvo);
                 }
                 let pushed = video.push(&packet);
-                if index == packets.len() - 1 {
-                    assert!(pushed.frame.is_some());
-                    assert_eq!(video.orientation.turns, expected);
-                } else {
-                    assert!(pushed.frame.is_none());
+                if index < last {
+                    assert!(pushed.frame.is_none(), "frame {frame}");
+                } else if said.is_some() {
+                    assert!(pushed.frame.is_some(), "frame {frame}");
                 }
             }
+            assert_eq!(video.orientation, expected, "frame {frame}");
         }
+        // Said in the middle of a frame, it holds for that frame too.
+        let packets = packetizer.packets(&data, 60_000, true);
+        for (index, bytes) in packets.iter().enumerate() {
+            let mut packet = rtp::parse(bytes).unwrap();
+            if index == 1 {
+                packet.orientation = Some(Orientation::from_cvo(3));
+            }
+            if video.push(&packet).frame.is_some() {
+                assert_eq!(video.orientation, turned(3, false));
+            }
+        }
+        // Each stream has its own.
         assert_eq!(Video::new(Codec::H264).orientation, Orientation::default());
     }
 

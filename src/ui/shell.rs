@@ -425,6 +425,9 @@ impl Adapter {
         if let Some(dialog) = self.dialog.take() {
             dialog.abort();
         }
+        // Nothing draws the emoji now; the next window's refresh starts the
+        // clock again if it shows any.
+        self.animations.stop();
         self.window = slint::Weak::default();
     }
 

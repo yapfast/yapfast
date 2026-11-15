@@ -341,8 +341,9 @@ fn navigate(
     });
 }
 
-/// The letter key `letter`: that letter in the keyboard's layout, or in a
-/// layout without Latin letters, the key in its place.
+/// Whether a key is the letter `letter`'s: that letter in the keyboard's
+/// layout, or in a layout without Latin letters, such as a Russian one, the
+/// key in its place, `code`.
 fn is_letter(
     logical: &slint::winit_030::winit::keyboard::Key,
     physical: slint::winit_030::winit::keyboard::PhysicalKey,
@@ -358,30 +359,6 @@ fn is_letter(
     }
 }
 
-/// The letter key `letter`: that letter in the keyboard's layout, or in a
-/// layout without Latin letters, the key in its place.
-fn is_letter_key(
-    key: &slint::winit_030::winit::event::KeyEvent,
-    letter: &str,
-    code: slint::winit_030::winit::keyboard::KeyCode,
-) -> bool {
-    is_letter(&key.logical_key, key.physical_key, letter, code)
-}
-
-/// The K key: the letter K in the keyboard's layout, or in a layout
-/// without Latin letters, the key in its place.
-fn is_k(key: &slint::winit_030::winit::event::KeyEvent) -> bool {
-    use slint::winit_030::winit::keyboard::KeyCode;
-    is_letter_key(key, "k", KeyCode::KeyK)
-}
-
-/// The F key: the letter F in the keyboard's layout, or in a layout
-/// without Latin letters, the key in its place.
-fn is_f(key: &slint::winit_030::winit::event::KeyEvent) -> bool {
-    use slint::winit_030::winit::keyboard::KeyCode;
-    is_letter_key(key, "f", KeyCode::KeyF)
-}
-
 /// Follows the native window's focus, for notifications, zooms the window
 /// with Ctrl and +, - and 0 or the scroll wheel, keeping the level in the
 /// layout, opens the quick switcher with Ctrl+K, focuses the search bar
@@ -391,7 +368,7 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
         EventResult,
         winit::{
             event::{ElementState, MouseButton, WindowEvent},
-            keyboard::{Key, NamedKey},
+            keyboard::{Key, KeyCode, NamedKey},
         },
     };
     let saved = zoom::saved(adapter.borrow().layout.zoom);
@@ -644,7 +621,7 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                 if let WindowEvent::KeyboardInput { event: key, .. } = event
                     && key.state == ElementState::Pressed
                     && keys.control_only()
-                    && is_k(key)
+                    && is_letter(&key.logical_key, key.physical_key, "k", KeyCode::KeyK)
                     && let Some(window) = weak.upgrade()
                     && window.get_workspace()
                     && !window.get_settings_open()
@@ -662,26 +639,18 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                     }
                     return EventResult::PreventDefault;
                 }
-                // Ctrl+F focuses the conversation search bar, wherever the
-                // focus is, as in Discord; not over the settings or a link
-                // that asks before it opens.
+                // Ctrl+F focuses the conversation's search, wherever the
+                // focus is, as in Discord. The window says whether it has
+                // one to focus, which it hasn't under the settings, a dialog
+                // or anything else that covers the conversation: then the
+                // key goes on to whatever has the keyboard.
                 if let WindowEvent::KeyboardInput { event: key, .. } = event
                     && key.state == ElementState::Pressed
                     && keys.control_only()
-                    && is_f(key)
+                    && is_letter(&key.logical_key, key.physical_key, "f", KeyCode::KeyF)
                     && let Some(window) = weak.upgrade()
-                    && window.get_workspace()
-                    && !window.get_settings_open()
-                    && window.get_leaving_link().is_empty()
+                    && window.invoke_focus_search()
                 {
-                    if !key.repeat {
-                        let weak = weak.clone();
-                        slint::Timer::single_shot(Duration::ZERO, move || {
-                            if let Some(window) = weak.upgrade() {
-                                window.invoke_focus_search();
-                            }
-                        });
-                    }
                     return EventResult::PreventDefault;
                 }
                 let outcome = keys.event(event);
@@ -829,6 +798,8 @@ thread_local! {
     static DRAGGED: RefCell<Option<TakeDrag>> = const { RefCell::new(None) };
     /// Whether Yapfast's window has the keyboard focus, so notifications can wait.
     static FOCUSED: Cell<bool> = const { Cell::new(false) };
+    /// Nobody has used the window for a while; see [`away`].
+    static IDLE: Cell<bool> = const { Cell::new(false) };
     /// Settings offer starting at sign-in: the platform can, and this isn't the preview.
     static AUTOSTART: Cell<bool> = const { Cell::new(false) };
     /// Settings offer claiming Discord's protocol links: the platform
@@ -1494,6 +1465,12 @@ fn show_motion(window: &YapfastWindow) {
         Animate::Never => false,
     };
     window.global::<Motion>().set_playing(playing);
+    // What only decorates, such as a skeleton's sweep, asks for a frame at
+    // every tick for as long as it shows, which may be for ever: it moves
+    // only in a window in front and in use, whatever the setting says, so
+    // one behind a game never draws for it.
+    let watched = playing && FOCUSED.get() && !IDLE.get();
+    window.global::<Motion>().set_watched(watched);
     let never = ANIMATE.get() == Animate::Never;
     window.global::<Motion>().set_never(never);
     // The interface's own motion stops with them: see Theme.still.

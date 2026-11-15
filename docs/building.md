@@ -290,21 +290,26 @@ files named here are in `crates/yapfast-core/native/`.
   common audio codecs but no HEVC decoder. `decode.c` decodes watched VP8
   and H264 streams with it, and `av1.c` watched AV1 with its dav1d.
   `video.c` plays video files: libavformat demuxes, libavcodec decodes
-  H264 and the sound, libvpx VP8 and VP9, dav1d AV1, and libyuv converts to
-  RGBA. It also decodes the soundboard's MP3
+  H264 and the sound, libvpx VP8 and VP9, dav1d AV1, and libyuv scales,
+  converts to RGBA and turns upright. It also decodes the soundboard's MP3
   and Ogg sounds, which have no pictures. `vp8.c` and `clip.c` encode VP8 and VP9
-  with libvpx, `picture.c` scales with libyuv, and `camera.cc` captures
-  through libwebrtc's capture module.
+  with libvpx, `picture.c` scales and turns cameras' and streams' pictures
+  with libyuv, and `camera.cc` captures through libwebrtc's capture module.
 - `vendor/ffmpeg-src` holds only the GPU encoders, which `hwenc.c` drives,
-  and the HEVC decoder for watched H265 streams, in `hevc.c`, and video
-  attachments, in `video_hevc.c`. HEVC file playback is enabled on targets
-  where this library is built (currently Windows and Linux x86-64).
+  and the HEVC decoder, for watched H265 streams, in `hevc.c`, and for video
+  files, in `video_hevc.c`, which `video.c` drives. HEVC files play where
+  this library is built: Windows and Linux on x86-64.
 - `vendor/x264-src` encodes H264 on the CPU, in `h264.c`, for Go Live and
   the camera.
 
-File demuxing and audio use libwebrtc's FFmpeg; HEVC pictures use the
-separate decoder. Only plain values cross between the two FFmpeg builds,
-whose structs and symbols must stay separate. Check a symbol in the archive:
+A file is demuxed and its sound decoded by libwebrtc's FFmpeg, whatever its
+pictures; HEVC pictures alone go to `vendor/ffmpeg-src`'s decoder. The two
+FFmpegs' structs differ, and the second's symbols are prefixed, so only the
+plain values in `video_hevc.h` cross between `video.c` and `video_hevc.c`:
+packets' bytes and times one way, planes the other. That header also has
+what both share: the error codes, the largest picture decoded, and the one
+reading of a decoded frame, compiled against each FFmpeg in turn. Check a
+symbol in the archive:
 
 ```sh
 nm $LK_CUSTOM_WEBRTC/lib/libwebrtc.a | grep ' T avformat_open_input'

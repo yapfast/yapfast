@@ -83,6 +83,9 @@ impl Adapter {
     }
 
     fn tell_away(&mut self, window: &YapfastWindow) {
+        // What moves only while someone may be looking stops, or goes on.
+        super::IDLE.set(self.away.inactive);
+        super::show_motion(window);
         let since = self.away.inactive.then(|| {
             let last = SystemTime::now() - self.away.last.elapsed();
             last.duration_since(UNIX_EPOCH)

@@ -154,19 +154,14 @@ pub(super) fn want_shown_animations(adapter: &mut Adapter, window: &YapfastWindo
         .iter()
         .filter_map(|key| key.rsplit_once(':').map(|(_, id)| id))
         .collect();
-    let jobs: Vec<(String, Option<char>, String)> = adapter
-        .app
-        .emoji_by_id(&ids)
-        .into_iter()
-        .filter(|emoji| emoji.animated)
-        .map(|emoji| {
-            (
-                emoji::custom_key(&emoji),
-                custom_emoji::glyph(&emoji.id),
-                emoji.picture,
-            )
-        })
-        .collect();
+    let near = adapter.app.emoji_by_id(&ids);
+    let jobs = near.iter().filter(|emoji| emoji.animated).map(|emoji| {
+        (
+            emoji::custom_key(emoji),
+            custom_emoji::glyph(&emoji.id),
+            emoji.picture.as_str(),
+        )
+    });
     let pictures = &adapter.app.state.pictures;
     adapter.animations.also(jobs, pictures);
     // Picker actions and picture arrivals are deliberately quiet: they do

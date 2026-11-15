@@ -401,6 +401,11 @@ export global PictureStore {
 // Discord, so GIFs on another screen hold still where they are.
 export global Motion {
     in property <bool> playing: true;
+    /// Someone may be looking: animations play, the window has the focus and
+    /// it was used in the last 15 seconds. What only decorates, such as a
+    /// skeleton's sweep, moves while this holds, whatever the setting says:
+    /// it stands for nothing a person asked to see play.
+    in property <bool> watched: true;
     /// Animations are turned off in the settings: what would move into
     /// view shows at once, or always.
     in property <bool> never;
@@ -1083,10 +1088,12 @@ export component CallButton inherits VerticalLayout {
     }
 }
 
-// Stands in for something on its way, such as a picture or the messages.
-// Its band sweeps only while animations play: media can stay unloaded
-// indefinitely, and the sweep asks for a frame each tick, which a window
-// nobody looks at mustn't.
+// Stands in for something on its way, such as a picture or the messages,
+// with a light sweeping across it as in Discord. The band sweeps only while
+// someone may be looking (`Motion.watched`): media can stay unloaded for
+// ever, and the sweep asks for a frame each tick, which a window behind
+// another, or one nobody has touched for a while, mustn't. Without the band
+// the skeleton is its fill alone, and draws once.
 export component Skeleton inherits Rectangle {
     // A step off its ground: lighter on a dark theme, darker on a light one,
     // whose raised surfaces are near white and would hide the white sweep.
@@ -1094,7 +1101,7 @@ export component Skeleton inherits Rectangle {
     clip: true;
     accessible-role: image;
     accessible-label: @tr("Loading");
-    if Motion.playing: Rectangle {
+    if Motion.watched: Rectangle {
         width: max(120px, parent.width * 0.5); height: parent.height;
         x: Math.mod(animation-tick() / 1ms, 1500) / 1500 * (parent.width + self.width) - self.width;
         background: @linear-gradient(90deg, Theme.shimmer.with-alpha(0) 0%, Theme.shimmer 50%, Theme.shimmer.with-alpha(0) 100%);

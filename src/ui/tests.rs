@@ -658,6 +658,59 @@ fn the_typing_line_holds_still_while_animations_dont_play() {
     assert!(animating(true), "the dots move while animations play");
 }
 
+#[test]
+fn a_skeleton_sweeps_only_while_someone_may_be_looking() {
+    use i_slint_core::item_tree::ItemRc;
+    use std::ops::ControlFlow;
+    let window = showing(Vec::new());
+    // The channel's messages are on their way, so their skeleton shows.
+    window.set_room_ready(false);
+    // Lays every item out, as a frame would, and says whether that asked
+    // for another frame, as the sweep's `animation-tick()` does.
+    let animating = |watched| {
+        window.global::<Motion>().set_watched(watched);
+        // The clock moves on, so what the last frame asked for is forgotten.
+        i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(20));
+        let inner = i_slint_core::window::WindowInner::from_pub(window.window());
+        // A frame first makes and unmakes what an `if` holds, as the band is.
+        inner.ensure_tree_instantiated();
+        let _ = ItemRc::new_root(inner.component()).visit_descendants(|item| {
+            let _ = item.geometry();
+            ControlFlow::<()>::Continue(())
+        });
+        window.window().has_active_animations()
+    };
+    assert!(animating(true), "the band sweeps in a window in front");
+    assert!(!animating(false), "and asks for no frame behind another");
+    assert!(animating(true), "it sweeps again when the window is back");
+}
+
+/// A skeleton's sweep follows `Motion.watched`: only with animations playing
+/// in a focused window someone used lately, whatever the setting.
+#[test]
+fn decoration_moves_only_in_a_window_in_front_and_in_use() {
+    init_backend();
+    let window = classic_window();
+    let motion = |animate, focused, idle| {
+        ANIMATE.set(animate);
+        FOCUSED.set(focused);
+        IDLE.set(idle);
+        show_motion(&window);
+        let motion = window.global::<Motion>();
+        (motion.get_playing(), motion.get_watched())
+    };
+    assert_eq!(motion(Animate::Focused, true, false), (true, true));
+    assert_eq!(motion(Animate::Focused, false, false), (false, false));
+    // Always plays what was asked to play in a window behind another, and
+    // sweeps nothing there: a skeleton may never load.
+    assert_eq!(motion(Animate::Always, true, false), (true, true));
+    assert_eq!(motion(Animate::Always, false, false), (true, false));
+    assert_eq!(motion(Animate::Always, true, true), (true, false));
+    assert_eq!(motion(Animate::Focused, true, true), (true, false));
+    assert_eq!(motion(Animate::Never, true, false), (false, false));
+    i_slint_core::yapfast_emoji::set_playing(false);
+}
+
 /// Presses and lets go of a key, as typed.
 fn tap(window: &YapfastWindow, text: SharedString) {
     use slint::platform::WindowEvent;
@@ -11538,55 +11591,158 @@ fn the_mouse_side_buttons_go_back_and_forward() {
     }
 }
 
+/// Ctrl+K and Ctrl+F go by the letter in the keyboard's layout, and in a
+/// layout without Latin letters, by the key in the letter's place.
 #[test]
-fn f_and_k_keys_are_recognized() {
+fn letter_shortcuts_follow_the_layout_or_the_keys_place() {
     use slint::winit_030::winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
-    let is_f_key = |logical: Key, physical: KeyCode| {
-        is_letter(&logical, PhysicalKey::Code(physical), "f", KeyCode::KeyF)
+    let is = |letter: &str, code: KeyCode, logical: Key, pressed: KeyCode| {
+        is_letter(&logical, PhysicalKey::Code(pressed), letter, code)
     };
-    let is_k_key = |logical: Key, physical: KeyCode| {
-        is_letter(&logical, PhysicalKey::Code(physical), "k", KeyCode::KeyK)
-    };
-    // Logical matches
-    assert!(is_f_key(Key::Character("f".into()), KeyCode::KeyF));
-    assert!(is_f_key(Key::Character("F".into()), KeyCode::KeyF));
-    assert!(is_k_key(Key::Character("k".into()), KeyCode::KeyK));
-    assert!(is_k_key(Key::Character("K".into()), KeyCode::KeyK));
-
-    // Non-Latin layout fallback to physical key
-    assert!(is_f_key(Key::Character("а".into()), KeyCode::KeyF));
-    assert!(is_k_key(Key::Character("л".into()), KeyCode::KeyK));
-
-    // Different keys
-    assert!(!is_f_key(Key::Character("k".into()), KeyCode::KeyK));
-    assert!(!is_k_key(Key::Character("f".into()), KeyCode::KeyF));
-    assert!(!is_f_key(
+    let f =
+        |logical: &str, pressed| is("f", KeyCode::KeyF, Key::Character(logical.into()), pressed);
+    let k =
+        |logical: &str, pressed| is("k", KeyCode::KeyK, Key::Character(logical.into()), pressed);
+    assert!(f("f", KeyCode::KeyF) && f("F", KeyCode::KeyF));
+    assert!(k("k", KeyCode::KeyK) && k("K", KeyCode::KeyK));
+    // A Russian layout: А is on F's key, and Л on K's.
+    assert!(f("а", KeyCode::KeyF) && f("А", KeyCode::KeyF));
+    assert!(k("л", KeyCode::KeyK));
+    assert!(!f("л", KeyCode::KeyK) && !k("а", KeyCode::KeyF));
+    // A Latin layout that moves the letters: the letter counts, not the key.
+    assert!(f("f", KeyCode::KeyY) && !f("u", KeyCode::KeyF));
+    assert!(!f("k", KeyCode::KeyK) && !k("f", KeyCode::KeyF));
+    // Other keys, and other scripts' digits and signs on the key.
+    assert!(!is(
+        "f",
+        KeyCode::KeyF,
         Key::Named(NamedKey::ArrowLeft),
         KeyCode::ArrowLeft
     ));
+    assert!(f("ф", KeyCode::KeyF) && !f("ф", KeyCode::KeyA));
 }
 
+/// Ctrl+F's search really takes the keyboard, where the conversation has a
+/// search and nothing covers it, and Escape gives it back to the composer.
 #[test]
-fn focus_search_focuses_when_search_is_available() {
-    i_slint_backend_testing::init_no_event_loop();
-    let window = classic_window();
-    window.set_workspace(true);
-    assert_eq!(window.get_search_focus_tick(), 0);
+fn the_search_takes_the_keyboard_and_escape_gives_it_back() {
+    use slint::platform::Key;
+    let settle = i_slint_core::properties::ChangeTracker::run_change_handlers;
+    let window = one_message("Hi");
+    type_anywhere(&window);
+    let searched = Rc::new(RefCell::new(Vec::new()));
+    let seen = searched.clone();
+    window.on_search(move |text| seen.borrow_mut().push(text.to_string()));
+    window.invoke_focus_composer();
 
-    // Not available when can_search is false
+    // No search here: the keyboard stays where it is.
     window.set_can_search(false);
     assert!(!window.invoke_focus_search());
-    assert_eq!(window.get_search_focus_tick(), 0);
-
-    // Available when can_search is true
     window.set_can_search(true);
-    assert!(window.invoke_focus_search());
-    assert_eq!(window.get_search_focus_tick(), 1);
+    // Nor under the settings or a dialog.
+    for cover in [
+        YapfastWindow::set_settings_open,
+        YapfastWindow::set_leave_open,
+    ] {
+        cover(&window, true);
+        assert!(!window.invoke_focus_search());
+        cover(&window, false);
+    }
+    settle();
+    tap(&window, "a".into());
+    assert_eq!(
+        (window.get_draft(), window.get_search_text()),
+        ("a".into(), "".into())
+    );
 
-    // Blocked when covered by settings
-    window.set_settings_open(true);
-    assert!(!window.invoke_focus_search());
-    assert_eq!(window.get_search_focus_tick(), 1);
+    assert!(window.invoke_focus_search());
+    settle();
+    tap(&window, "c".into());
+    tap(&window, "a".into());
+    assert_eq!(
+        (window.get_draft(), window.get_search_text()),
+        ("a".into(), "ca".into())
+    );
+    // Again, it selects what's there, which typing replaces.
+    assert!(window.invoke_focus_search());
+    settle();
+    tap(&window, "t".into());
+    assert_eq!(window.get_search_text(), "t");
+
+    // Escape ends the search, and typing is back in the composer, a reply
+    // in it left alone.
+    let cancelled = Rc::new(Cell::new(0));
+    let count = cancelled.clone();
+    window.on_cancel_compose(move || count.set(count.get() + 1));
+    window.set_compose_label("Replying to Sam".into());
+    tap(&window, Key::Escape.into());
+    settle();
+    assert_eq!(window.get_search_text(), "");
+    assert_eq!(*searched.borrow(), [""]);
+    assert_eq!(cancelled.get(), 0);
+    tap(&window, "b".into());
+    assert_eq!(
+        (window.get_draft(), window.get_search_text()),
+        ("ab".into(), "".into())
+    );
+
+    // In an empty search, Escape is the Escape of anywhere: it cancels the
+    // reply, and the composer has the keyboard again.
+    assert!(window.invoke_focus_search());
+    settle();
+    tap(&window, Key::Escape.into());
+    settle();
+    assert_eq!(cancelled.get(), 1);
+    assert_eq!(*searched.borrow(), [""]);
+    tap(&window, "c".into());
+    assert_eq!(
+        (window.get_draft(), window.get_search_text()),
+        ("abc".into(), "".into())
+    );
+
+    // Beside a thread whose composer was used last, it goes back to that one.
+    window.set_compose_label("".into());
+    window.set_aside_composer_enabled(true);
+    window.set_aside_open(true);
+    settle();
+    // A key that writes nothing has the panel built before it's focused.
+    tap(&window, Key::Shift.into());
+    window.invoke_focus_aside_composer();
+    settle();
+    tap(&window, "x".into());
+    assert_eq!(window.get_aside_draft(), "x");
+    for typed in ["", "q"] {
+        assert!(window.invoke_focus_search());
+        settle();
+        if !typed.is_empty() {
+            tap(&window, typed.into());
+            assert_eq!(window.get_search_text(), typed);
+        }
+        tap(&window, Key::Escape.into());
+        settle();
+        tap(&window, "y".into());
+    }
+    assert_eq!(window.get_aside_draft(), "xyy");
+    assert_eq!(
+        (window.get_draft(), window.get_search_text()),
+        ("abc".into(), "".into())
+    );
+
+    // Where nobody can write, the search still lets go of the keyboard.
+    window.set_aside_open(false);
+    window.set_composer_enabled(false);
+    settle();
+    assert!(window.invoke_focus_search());
+    settle();
+    tap(&window, "z".into());
+    assert_eq!(window.get_search_text(), "z");
+    tap(&window, Key::Escape.into());
+    settle();
+    tap(&window, "w".into());
+    assert_eq!(
+        (window.get_draft(), window.get_search_text()),
+        ("abc".into(), "".into())
+    );
 }
 
 #[cfg(feature = "discord")]

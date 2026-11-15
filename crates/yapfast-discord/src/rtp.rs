@@ -2019,6 +2019,17 @@ mod tests {
         assert_eq!(turned(0xbede, &[]), None);
         // A value running past the block is no orientation, not a panic.
         assert_eq!(turned(0xbede, &[0x5f, 0]), None);
+        assert_eq!(turned(0x1000, &[4, 9, 1, 0]), None);
+        // Nor is a two-byte element with no value.
+        assert_eq!(turned(0x1000, &[4, 0, 0, 0]), None);
+        // The reserved bits change nothing: half a turn, unflipped.
+        assert_eq!(
+            turned(0xbede, &[0x40, 0xfa]),
+            Some(Orientation {
+                turns: 2,
+                flip: false
+            })
+        );
         // Yapfast's own packets carry none.
         let mut packetizer = Packetizer::new(5, Codec::H264);
         let own = packetizer.packets(&[0, 0, 0, 1, 0x65, 1, 2], 0, true);

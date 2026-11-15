@@ -17,3 +17,6 @@ ffmpeg -v error -y -i testing/fixtures/gif-h264.mp4 \
   -x265-params 'log-level=error:pools=1' -tag:v hev1 -an \
   testing/fixtures/gif-hevc-10bit.mp4
 ```
+
+The same stream on its side, `gif-hevc-10bit-rotate-90.mp4`, is in
+`rotation.md`.

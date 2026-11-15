@@ -19,6 +19,7 @@ fn main() {
         "hevc.c",
         "video_hevc.c",
         "video_hevc.h",
+        "turn.h",
     ] {
         println!("cargo:rerun-if-changed=native/{file}");
     }

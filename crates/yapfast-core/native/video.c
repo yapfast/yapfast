@@ -1,11 +1,12 @@
 /* Video files: demuxed by FFmpeg's libavformat; pictures decoded by
- * libavcodec (H264), the separate HEVC shim, libvpx (VP8, VP9) or dav1d
- * (AV1), and scaled and converted to RGBA by libyuv; sound decoded by
- * libavcodec (AAC, Opus, MP3, Vorbis, FLAC, PCM). Except HEVC, these are
- * in Yapfast's libwebrtc archive. The
- * caller supplies the file through two functions, so it can arrive while it
- * plays. Pictures show in 4:2:0, 4:2:2 or 4:4:4 at 8 or 10 bits, or in
- * 4:2:0 at 12, as far as libyuv goes. */
+ * libavcodec (H264), libvpx (VP8, VP9) or dav1d (AV1), and scaled, converted
+ * to RGBA and turned upright by libyuv; sound decoded by libavcodec (AAC,
+ * Opus, MP3, Vorbis, FLAC, PCM): all in Yapfast's libwebrtc archive, whose
+ * FFmpeg has no HEVC decoder. HEVC pictures come from vendor/ffmpeg-src's,
+ * through video_hevc.c, where that is built. The caller supplies the file
+ * through two functions, so it can arrive while it plays. Pictures show in
+ * 4:2:0, 4:2:2 or 4:4:4 at 8 or 10 bits, or in 4:2:0 at 12, as far as libyuv
+ * goes. */
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -22,16 +23,22 @@
 #include "vpx/vp8dx.h"
 #include "vpx/vpx_decoder.h"
 
+#include "turn.h"
 #include "video_hevc.h"
 
 enum { DECODER_AVCODEC, DECODER_VPX, DECODER_DAV1D, DECODER_HEVC };
 
-/* The widest or tallest picture Yapfast decodes. A file can claim any size,
- * and each picture would take that much memory. */
-enum { MAX_SIDE = 8192 };
+enum { MAX_SIDE = YAPFAST_VIDEO_MAX_SIDE };
 
 /* What yapfast_video_next returns. */
-enum { END = 0, PICTURE = 1, SOUND = 2, HELD = 3, FAILED = -1, UNSUPPORTED = -2 };
+enum {
+  END = 0,
+  PICTURE = 1,
+  SOUND = 2,
+  HELD = 3,
+  FAILED = YAPFAST_VIDEO_FAILED,
+  UNSUPPORTED = YAPFAST_VIDEO_UNSUPPORTED
+};
 
 /* The most pictures' packets, and bytes of them, held back while reading on
  * to the sound: in a file, sound can trail its pictures by a second or so. */
@@ -134,10 +141,11 @@ struct yapfast_video {
   /* The alpha plane scaled to the size asked for. */
   uint8_t *scaled_alpha;
   size_t scaled_alpha_size;
-  /* Orthogonal display matrix, applied after colour conversion. */
-  int xx, xy, yx, yy;
-  uint8_t *oriented;
-  size_t oriented_size;
+  /* How the file's display matrix says its pictures turn upright. */
+  struct yapfast_turn turn;
+  /* The few rows of RGBA a turned picture is converted through. */
+  uint8_t *strip;
+  size_t strip_size;
 };
 
 static int read_packet(void *opaque, uint8_t *buffer, int size) {
@@ -186,7 +194,7 @@ void yapfast_video_free(struct yapfast_video *video) {
   free(video->samples);
   free(video->scaled);
   free(video->scaled_alpha);
-  free(video->oriented);
+  free(video->strip);
   free(video);
 }
 
@@ -262,26 +270,25 @@ static void open_sound(struct yapfast_video *video) {
  * or an Ogg file. */
 enum { PICTURES_ONLY = 0, WITH_SOUND = 1, SOUND_ONLY = 2 };
 
-/* MP4/MOV camera recordings often store landscape pixels and a portrait
- * display matrix. Read plain matrix entries rather than mixing FFmpeg ABIs. */
+/* Reads how the pictures turn upright from the stream's display matrix: a
+ * phone's camera stores them as its sensor lies and says how it was held.
+ * A matrix that isn't quarter turns and flips leaves them as they are. */
 static void orientation(struct yapfast_video *video, const AVCodecParameters *parameters) {
-  video->xx = video->yy = 1;
   for (int index = 0; index < parameters->nb_coded_side_data; index++) {
     const AVPacketSideData *side = &parameters->coded_side_data[index];
     if (side->type != AV_PKT_DATA_DISPLAYMATRIX || side->size < 9 * sizeof(int32_t)) continue;
+    /* 16.16 fixed point: a pixel at (x, y) shows at (ax + cy, bx + dy). */
     int32_t matrix[9];
     memcpy(matrix, side->data, sizeof matrix);
-    /* Only quarter turns and reflections, without perspective. */
+    int32_t a = matrix[0], b = matrix[1], c = matrix[3], d = matrix[4];
+    const int32_t one = 1 << 16;
     if (matrix[2] || matrix[5] || matrix[8] != (1 << 30)) return;
-    int a = matrix[0], b = matrix[1], c = matrix[3], d = matrix[4];
-    if (!((a == 0 && d == 0 && (b == 65536 || b == -65536) &&
-           (c == 65536 || c == -65536)) ||
-          (b == 0 && c == 0 && (a == 65536 || a == -65536) &&
-           (d == 65536 || d == -65536)))) return;
-    video->xx = a / 65536;
-    video->xy = c / 65536;
-    video->yx = b / 65536;
-    video->yy = d / 65536;
+    if (b == 0 && c == 0 && (a == one || a == -one) && (d == one || d == -one)) {
+      /* Flipped left to right is flipped top to bottom, then half a turn. */
+      video->turn = (struct yapfast_turn){.rotation = a < 0 ? 180 : 0, .flip = a != d};
+    } else if (a == 0 && d == 0 && (b == one || b == -one) && (c == one || c == -one)) {
+      video->turn = (struct yapfast_turn){.rotation = b > 0 ? 90 : 270, .flip = b == c};
+    }
     return;
   }
 }
@@ -361,8 +368,9 @@ struct yapfast_video *yapfast_video_open(void *source, yapfast_read read, yapfas
   }
   video->start = video->format->start_time == AV_NOPTS_VALUE ? 0 : video->format->start_time;
   orientation(video, parameters);
-  info->width = video->xy ? parameters->height : parameters->width;
-  info->height = video->xy ? parameters->width : parameters->height;
+  int sideways = yapfast_turn_sideways(video->turn);
+  info->width = sideways ? parameters->height : parameters->width;
+  info->height = sideways ? parameters->width : parameters->height;
   if (video->format->duration != AV_NOPTS_VALUE) {
     info->duration_ms = video->format->duration / (AV_TIME_BASE / 1000);
   } else if (stream->duration != AV_NOPTS_VALUE) {
@@ -410,54 +418,35 @@ static int receive_picture(struct yapfast_video *video, int64_t *time_ms) {
   /* Until a new picture comes, there's none: the last may be freed. */
   *planes = (struct planes){0};
   switch (video->decoder) {
+    case DECODER_HEVC:
+    case DECODER_AVCODEC: {
+      struct yapfast_frame frame;
+      int received;
 #ifdef YAPFAST_FILE_HEVC
-    case DECODER_HEVC: {
-      struct yapfast_hevc_frame frame;
-      int received = yapfast_file_hevc_receive(video->hevc, &frame);
+      if (video->decoder == DECODER_HEVC) {
+        received = yapfast_file_hevc_receive(video->hevc, &frame);
+      } else
+#endif
+      {
+        av_frame_unref(video->frame);
+        received = avcodec_receive_frame(video->context, video->frame);
+        if (received == AVERROR(EAGAIN) || received == AVERROR_EOF) return 0;
+        received = received < 0 ? FAILED : yapfast_frame_read(video->frame, &frame);
+      }
       if (received <= 0) return received;
       *planes = (struct planes){
-          .width = frame.width, .height = frame.height, .depth = frame.depth,
+          .width = frame.width,
+          .height = frame.height,
+          .depth = frame.depth,
           .layout = layout(frame.x_shift, frame.y_shift),
-          .bt709 = bt709(frame.bt709, frame.height), .full_range = frame.full_range,
+          .bt709 = bt709(frame.bt709, frame.height),
+          .full_range = frame.full_range,
       };
       for (int plane = 0; plane < 3; plane++) {
         planes->data[plane] = frame.data[plane];
         planes->stride[plane] = frame.stride[plane];
       }
       *time_ms = milliseconds(video, video->stream, frame.timestamp);
-      return 1;
-    }
-#endif
-    case DECODER_AVCODEC: {
-      AVFrame *frame = video->frame;
-      av_frame_unref(frame);
-      int received = avcodec_receive_frame(video->context, frame);
-      if (received == AVERROR(EAGAIN) || received == AVERROR_EOF) return 0;
-      if (received < 0) return FAILED;
-      /* Three planes, in this machine's byte order. */
-      const AVPixFmtDescriptor *format = av_pix_fmt_desc_get(frame->format);
-      if (!format || format->nb_components != 3 || !(format->flags & AV_PIX_FMT_FLAG_PLANAR) ||
-          (format->flags & (AV_PIX_FMT_FLAG_RGB | AV_PIX_FMT_FLAG_BE | AV_PIX_FMT_FLAG_FLOAT))) {
-        return UNSUPPORTED;
-      }
-      int jpeg = frame->format == AV_PIX_FMT_YUVJ420P || frame->format == AV_PIX_FMT_YUVJ422P ||
-                 frame->format == AV_PIX_FMT_YUVJ444P;
-      *planes = (struct planes){
-          .width = frame->width,
-          .height = frame->height,
-          .depth = format->comp[0].depth,
-          .layout = layout(format->log2_chroma_w, format->log2_chroma_h),
-          .bt709 = bt709(frame->colorspace == AVCOL_SPC_UNSPECIFIED
-                             ? -1
-                             : frame->colorspace == AVCOL_SPC_BT709,
-                         frame->height),
-          .full_range = frame->color_range == AVCOL_RANGE_JPEG || jpeg,
-      };
-      for (int plane = 0; plane < 3; plane++) {
-        planes->data[plane] = frame->data[plane];
-        planes->stride[plane] = frame->linesize[plane];
-      }
-      *time_ms = milliseconds(video, video->stream, frame->best_effort_timestamp);
       return 1;
     }
     case DECODER_VPX: {
@@ -635,9 +624,10 @@ static int feed(struct yapfast_video *video) {
     video->held_count--;
   } else if (video->read_all) {
     video->sent_all = 1;
+    /* If telling it fails, what the decoder already has still comes out. */
     if (video->decoder == DECODER_AVCODEC) avcodec_send_packet(video->context, NULL);
 #ifdef YAPFAST_FILE_HEVC
-    if (video->hevc) return yapfast_file_hevc_send(video->hevc, NULL, 0, 0, 0, 0);
+    if (video->decoder == DECODER_HEVC) yapfast_file_hevc_end(video->hevc);
 #endif
     return 0;
   } else {
@@ -752,42 +742,105 @@ static const scale_16 SCALE_16[] = {I420Scale_16, I422Scale_16, I444Scale_16};
 static const to_argb_8 TO_ARGB_8[] = {I420ToARGBMatrix, I422ToARGBMatrix, I444ToARGBMatrix};
 static const to_argb_16 TO_ARGB_10[] = {I010ToARGBMatrix, I210ToARGBMatrix, I410ToARGBMatrix};
 
-/* Puts the picture's alpha, when it has one, into `rgba`, `width` by `height`. */
-static int apply_alpha(struct yapfast_video *video, unsigned char *rgba, int width, int height) {
+/* The picture's alpha plane at `width` by `height`, scaled if need be, and
+ * its stride: 0 with one or without, when `alpha` is NULL, or FAILED. */
+static int alpha_plane(struct yapfast_video *video, int width, int height, const uint8_t **alpha,
+                       int *stride) {
   const struct planes *planes = &video->planes;
-  const uint8_t *alpha = planes->alpha;
-  int stride = planes->alpha_stride;
-  if (!alpha) return 0;
-  if (width != planes->width || height != planes->height) {
-    size_t size = (size_t)width * (size_t)height;
-    if (video->scaled_alpha_size < size) {
-      uint8_t *grown = realloc(video->scaled_alpha, size);
-      if (!grown) return FAILED;
-      video->scaled_alpha = grown;
-      video->scaled_alpha_size = size;
-    }
-    ScalePlane(alpha, stride, planes->width, planes->height, video->scaled_alpha, width, width,
-               height, kFilterBox);
-    alpha = video->scaled_alpha;
-    stride = width;
+  *alpha = planes->alpha;
+  *stride = planes->alpha_stride;
+  if (!*alpha || (width == planes->width && height == planes->height)) return 0;
+  size_t size = (size_t)width * (size_t)height;
+  if (video->scaled_alpha_size < size) {
+    uint8_t *grown = realloc(video->scaled_alpha, size);
+    if (!grown) return FAILED;
+    video->scaled_alpha = grown;
+    video->scaled_alpha_size = size;
   }
-  for (int row = 0; row < height; row++) {
-    const uint8_t *from = alpha + (ptrdiff_t)row * stride;
-    unsigned char *to = rgba + (ptrdiff_t)row * width * 4 + 3;
-    for (int column = 0; column < width; column++) to[column * 4] = from[column];
-  }
+  ScalePlane(*alpha, *stride, planes->width, planes->height, video->scaled_alpha, width, width,
+             height, kFilterBox);
+  *alpha = video->scaled_alpha;
+  *stride = width;
   return 0;
 }
 
-/* Writes the picture yapfast_video_next gave last into `rgba`, `width * 4`
- * bytes a row, scaled to `width` by `height`. */
-static int unrotated_picture(struct yapfast_video *video, unsigned char *rgba, int width, int height) {
+/* A picture ready to convert: its planes at the size asked for. */
+struct source {
+  const uint8_t *y, *u, *v;
+  int y_stride, u_stride, v_stride;
+  int width;
+  int layout;
+  int depth;
+  const struct YuvConstants *matrix;
+  /* NULL without. */
+  const uint8_t *alpha;
+  int alpha_stride;
+};
+
+/* Converts `rows` rows of `source` from `first` down, an even row, to RGBA
+ * in `rgba`, `width * 4` bytes a row, bottom up with `flip`. */
+static int convert(const struct source *source, int first, int rows, int flip, uint8_t *rgba) {
+  int width = source->width;
+  ptrdiff_t chroma = source->layout == LAYOUT_420 ? first / 2 : first;
+  const uint8_t *y = source->y + first * (ptrdiff_t)source->y_stride;
+  const uint8_t *u = source->u + chroma * source->u_stride;
+  const uint8_t *v = source->v + chroma * source->v_stride;
+  /* libyuv writes bottom up for a negative height. */
+  int height = flip ? -rows : rows;
+  /* libyuv's ABGR is R, G, B, A in memory: its ARGB with U and V swapped. */
+  if (source->depth == 8) {
+    if (TO_ARGB_8[source->layout](y, source->y_stride, v, source->v_stride, u, source->u_stride,
+                                  rgba, width * 4, source->matrix, width, height)) {
+      return FAILED;
+    }
+    if (!source->alpha) return 0;
+    for (int row = 0; row < rows; row++) {
+      const uint8_t *from = source->alpha + (ptrdiff_t)(first + row) * source->alpha_stride;
+      uint8_t *to = rgba + (ptrdiff_t)(flip ? rows - 1 - row : row) * width * 4 + 3;
+      for (int column = 0; column < width; column++) to[column * 4] = from[column];
+    }
+    return 0;
+  }
+  /* yapfast_video_next gives 12-bit pictures only in 4:2:0. libyuv counts a
+   * deeper picture's strides in samples. */
+  to_argb_16 to_argb = source->depth == 10 ? TO_ARGB_10[source->layout] : I012ToARGBMatrix;
+  return to_argb((const uint16_t *)y, source->y_stride / 2, (const uint16_t *)v,
+                 source->v_stride / 2, (const uint16_t *)u, source->u_stride / 2, rgba, width * 4,
+                 source->matrix, width, height)
+             ? FAILED
+             : 0;
+}
+
+/* Writes the picture yapfast_video_next gave last into `rgba`, turned
+ * upright and scaled to `width` by `height`, `width * 4` bytes a row. It is
+ * scaled as it's stored, then converted: straight into `rgba`, or, when it
+ * turns, a strip of rows at a time, each turned into its place there. */
+int yapfast_video_picture(struct yapfast_video *video, unsigned char *rgba, int width, int height) {
   const struct planes *planes = &video->planes;
-  const uint8_t *y = planes->data[0], *u = planes->data[1], *v = planes->data[2];
-  int y_stride = planes->stride[0], u_stride = planes->stride[1], v_stride = planes->stride[2];
-  if (!y) return FAILED;
+  struct yapfast_turn turn = video->turn;
+  if (!planes->data[0]) return FAILED;
+  if (width <= 0 || height <= 0 || width > MAX_SIDE || height > MAX_SIDE) return FAILED;
+  /* The size before turning. */
+  if (yapfast_turn_sideways(turn)) {
+    int swap = width;
+    width = height;
+    height = swap;
+  }
+  struct source source = {
+      .y = planes->data[0],
+      .u = planes->data[1],
+      .v = planes->data[2],
+      .y_stride = planes->stride[0],
+      .u_stride = planes->stride[1],
+      .v_stride = planes->stride[2],
+      .width = width,
+      .layout = planes->layout,
+      .depth = planes->depth,
+      .matrix = planes->bt709 ? (planes->full_range ? &kYvuF709Constants : &kYvuH709Constants)
+                              : (planes->full_range ? &kYvuJPEGConstants : &kYvuI601Constants),
+  };
   int layout = planes->layout;
-  /* A sample's bytes. libyuv counts a deeper picture's strides in samples. */
+  /* A sample's bytes. */
   int bytes = planes->depth > 8 ? 2 : 1;
   if (width != planes->width || height != planes->height) {
     int chroma_width = layout == LAYOUT_444 ? width : (width + 1) / 2;
@@ -803,61 +856,35 @@ static int unrotated_picture(struct yapfast_video *video, unsigned char *rgba, i
     uint8_t *scaled_y = video->scaled, *scaled_u = scaled_y + luma, *scaled_v = scaled_u + chroma;
     int failed =
         bytes == 1
-            ? SCALE_8[layout](y, y_stride, u, u_stride, v, v_stride, planes->width, planes->height,
-                              scaled_y, width, scaled_u, chroma_width, scaled_v, chroma_width,
-                              width, height, kFilterBox)
-            : SCALE_16[layout]((const uint16_t *)y, y_stride / 2, (const uint16_t *)u,
-                               u_stride / 2, (const uint16_t *)v, v_stride / 2, planes->width,
+            ? SCALE_8[layout](source.y, source.y_stride, source.u, source.u_stride, source.v,
+                              source.v_stride, planes->width, planes->height, scaled_y, width,
+                              scaled_u, chroma_width, scaled_v, chroma_width, width, height,
+                              kFilterBox)
+            : SCALE_16[layout]((const uint16_t *)source.y, source.y_stride / 2,
+                               (const uint16_t *)source.u, source.u_stride / 2,
+                               (const uint16_t *)source.v, source.v_stride / 2, planes->width,
                                planes->height, (uint16_t *)scaled_y, width, (uint16_t *)scaled_u,
                                chroma_width, (uint16_t *)scaled_v, chroma_width, width, height,
                                kFilterBox);
     if (failed) return FAILED;
-    y = scaled_y, u = scaled_u, v = scaled_v;
-    y_stride = width * bytes, u_stride = chroma_width * bytes, v_stride = chroma_width * bytes;
+    source.y = scaled_y, source.u = scaled_u, source.v = scaled_v;
+    source.y_stride = width * bytes;
+    source.u_stride = source.v_stride = chroma_width * bytes;
   }
-  const struct YuvConstants *matrix =
-      planes->bt709 ? (planes->full_range ? &kYvuF709Constants : &kYvuH709Constants)
-                    : (planes->full_range ? &kYvuJPEGConstants : &kYvuI601Constants);
-  /* libyuv's ABGR is R, G, B, A in memory: its ARGB with U and V swapped. */
-  if (bytes == 1) {
-    if (TO_ARGB_8[layout](y, y_stride, v, v_stride, u, u_stride, rgba, width * 4, matrix, width,
-                          height)) {
-      return FAILED;
-    }
-    return apply_alpha(video, rgba, width, height);
-  }
-  /* yapfast_video_next gives 12-bit pictures only in 4:2:0. */
-  to_argb_16 to_argb = planes->depth == 10 ? TO_ARGB_10[layout] : I012ToARGBMatrix;
-  return to_argb((const uint16_t *)y, y_stride / 2, (const uint16_t *)v, v_stride / 2,
-                 (const uint16_t *)u, u_stride / 2, rgba, width * 4, matrix, width, height)
-             ? FAILED
-             : 0;
-}
-
-/* Scale in the encoded orientation, then transform RGBA (including alpha).
- * Swapping the reported dimensions as well keeps portrait videos undistorted. */
-int yapfast_video_picture(struct yapfast_video *video, unsigned char *rgba, int width, int height) {
-  if (video->xx == 1 && video->yy == 1) return unrotated_picture(video, rgba, width, height);
-  if (width <= 0 || height <= 0 || width > MAX_SIDE || height > MAX_SIDE) return FAILED;
-  size_t size = (size_t)width * (size_t)height * 4;
-  if (video->oriented_size < size) {
-    uint8_t *grown = realloc(video->oriented, size);
+  if (alpha_plane(video, width, height, &source.alpha, &source.alpha_stride) < 0) return FAILED;
+  if (turn.rotation == 0) return convert(&source, 0, height, turn.flip, rgba);
+  size_t strip = (size_t)width * 4 * YAPFAST_STRIP_ROWS;
+  if (video->strip_size < strip) {
+    uint8_t *grown = realloc(video->strip, strip);
     if (!grown) return FAILED;
-    video->oriented = grown;
-    video->oriented_size = size;
+    video->strip = grown;
+    video->strip_size = strip;
   }
-  int source_width = video->xy ? height : width;
-  int source_height = video->xy ? width : height;
-  if (unrotated_picture(video, video->oriented, source_width, source_height) < 0) return FAILED;
-  int offset_x = (video->xx < 0 || video->xy < 0) ? width - 1 : 0;
-  int offset_y = (video->yx < 0 || video->yy < 0) ? height - 1 : 0;
-  for (int y = 0; y < source_height; y++) {
-    for (int x = 0; x < source_width; x++) {
-      int to_x = video->xx * x + video->xy * y + offset_x;
-      int to_y = video->yx * x + video->yy * y + offset_y;
-      memcpy(rgba + ((size_t)to_y * width + to_x) * 4,
-             video->oriented + ((size_t)y * source_width + x) * 4, 4);
-    }
+  for (int first = 0; first < height; first += YAPFAST_STRIP_ROWS) {
+    int rows = FFMIN(YAPFAST_STRIP_ROWS, height - first);
+    if (convert(&source, first, rows, turn.flip, video->strip) < 0) return FAILED;
+    yapfast_turn_strip(video->strip, width, height, turn.flip ? height - first - rows : first,
+                       rows, rgba, turn.rotation);
   }
   return 0;
 }

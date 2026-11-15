@@ -5,8 +5,12 @@
 //! cannot be decoded while drawing without stalling the frame. The rows a
 //! refresh builds name the animated emoji on screen instead, and those go to
 //! the front of the queue while a worker elsewhere decodes them at the size
-//! jumbo text draws. This module is only the bookkeeping around that, with no
-//! thread, no timer and no window, so it is tested on its own.
+//! jumbo text draws. [`Queue`] and [`Cache`] are only the bookkeeping around
+//! that, with no thread, no timer and no window, so they are tested on their
+//! own; [`Animations`] has the decoder's thread and the timer that moves the
+//! clock the frames are drawn by.
+
+use std::time::Instant;
 
 use super::*;
 
@@ -147,8 +151,10 @@ pub(super) struct Cache {
     /// Counts every showing, so the smallest count is the emoji shown longest
     /// ago: the whole of a least-recently-shown cache.
     shown: u64,
-    /// The emoji a refresh showed, which eviction leaves alone.
-    pinned: HashSet<String>,
+    /// The emoji a refresh showed, which eviction leaves alone, each with
+    /// whether it is in view: in a message on screen, rather than in a bar or
+    /// a menu that may not be open.
+    pinned: HashMap<String, bool>,
     /// The emoji whose frames could not be decoded, so they are not asked for
     /// again on every refresh.
     stills: HashSet<String>,
@@ -169,7 +175,7 @@ impl Cache {
         Self {
             entries: HashMap::new(),
             shown: 0,
-            pinned: HashSet::new(),
+            pinned: HashMap::new(),
             stills: HashSet::new(),
             bytes: 0,
         }
@@ -204,15 +210,23 @@ impl Cache {
         Some(kept.frames.clone())
     }
 
-    /// Pins what a refresh just showed, so eviction never takes it.
-    ///
-    /// Every refresh pins the whole visible set, so this replaces the pinned
-    /// set rather than adding to it. A pinned set larger than the budget
-    /// stays: an emoji dropping back to its still while it is on screen is
-    /// worse than the memory, and it is what a budget alone would do.
-    pub(super) fn pin<'a>(&mut self, keys: impl IntoIterator<Item = &'a str>) {
+    /// Lets go of every pin, as a refresh does before it pins what it shows:
+    /// each refresh names the whole visible set, so the pinned set is
+    /// replaced rather than added to.
+    pub(super) fn unpin(&mut self) {
         self.pinned.clear();
-        self.pinned.extend(keys.into_iter().map(str::to_owned));
+    }
+
+    /// Pins an emoji a refresh just showed, so eviction never takes it, with
+    /// whether it is in view. The key is the one the refresh made, not a
+    /// copy of it.
+    ///
+    /// A pinned set larger than the budget stays: an emoji dropping back to
+    /// its still while it is on screen is worse than the memory, and it is
+    /// what a budget alone would do.
+    pub(super) fn pin(&mut self, key: String, in_view: bool) {
+        // In a message and in the hover bar at once, it is in view.
+        *self.pinned.entry(key).or_default() |= in_view;
     }
 
     /// Drops the frames shown longest ago until the budget is met again,
@@ -242,7 +256,7 @@ impl Cache {
     fn longest_unshown(&self) -> Option<String> {
         self.entries
             .iter()
-            .filter(|(key, _)| !self.pinned.contains(*key))
+            .filter(|(key, _)| !self.pinned.contains_key(*key))
             .min_by_key(|(_, kept)| kept.shown)
             .map(|(key, _)| key.clone())
     }
@@ -300,6 +314,18 @@ struct Decoded {
 /// cores and the emoji a refresh shows next do not queue behind a long one.
 const DECODING_AT_ONCE: usize = 1;
 
+/// How often the timer looks for frames a decoder has on the way, in
+/// milliseconds.
+const POLL: u32 = 30;
+
+/// The shortest the timer waits, in milliseconds: a frame of a 60 Hz screen.
+const SHORTEST: u32 = 16;
+
+/// An emoji a refresh names: its key, the glyph message text draws it as, and
+/// its picture's address, which is copied only for one whose frames are
+/// wanted.
+pub(super) type Shown<'a> = (String, Option<char>, &'a str);
+
 /// The animated emoji on screen: what they need decoded, what is kept, and the
 /// clock they all draw from.
 pub(super) struct Animations {
@@ -315,11 +341,19 @@ pub(super) struct Animations {
     /// The side frames decode at: 48px as jumbo text draws them, for the
     /// screen's scale, and never past 96.
     side: u32,
-    /// Moves the clock while anything plays; stopped otherwise, so a window
-    /// with no animated emoji on screen has no wakeups.
+    /// Wakes for the next frame of what shows, and for frames on their way
+    /// from a decoder; stopped otherwise, so a window with no animated emoji
+    /// on screen has no wakeups.
     timer: slint::Timer,
-    /// How often the clock moves, for the fastest animation on screen.
+    /// How long the timer waits, in milliseconds; 0 while it is stopped.
     interval: u64,
+    /// Until when the registry's clock has been moved; none while the timer
+    /// is stopped, when no time passes for the animations. The clock moves by
+    /// what passed since, whenever the timer fires or is set again, so the
+    /// part of a frame already waited is never lost.
+    caught_up: Option<Instant>,
+    /// The registry knows whom to wake when a draw shows an emoji that plays.
+    wakes: bool,
 }
 
 impl Animations {
@@ -335,75 +369,76 @@ impl Animations {
             side: 48,
             timer: slint::Timer::default(),
             interval: 0,
+            caught_up: None,
+            wakes: false,
         }
     }
 
     /// Names the animated emoji a refresh shows: those kept are pinned so
     /// eviction leaves them, and those missing are wanted for decoding.
-    pub(super) fn show(
+    ///
+    /// `in_view` are in the messages on screen, and play from now on. `kept`
+    /// are in a bar, a menu or a card that may not be showing: their frames
+    /// are as ready, and they play while something draws them, which the
+    /// registry sees for itself.
+    pub(super) fn show<'a>(
         &mut self,
-        shown: impl IntoIterator<Item = (String, Option<char>, String)>,
+        in_view: impl IntoIterator<Item = Shown<'a>>,
+        kept: impl IntoIterator<Item = Shown<'a>>,
         pictures: &HashMap<String, Arc<Picture>>,
     ) {
-        let mut keys: Vec<String> = Vec::new();
-        let mut wanted: Vec<(String, Option<char>, String)> = Vec::new();
-        for (key, glyph, address) in shown {
+        let in_view = in_view.into_iter().map(|shown| (shown, true));
+        let kept = kept.into_iter().map(|shown| (shown, false));
+        self.cache.unpin();
+        for ((key, glyph, address), in_view) in in_view.chain(kept) {
             // The font may have been made after the frames were kept, or made
-            // again since, so run of text that draws this emoji is named here.
+            // again since, so the glyph that draws this emoji is named here.
             if let Some(glyph) = glyph {
                 i_slint_core::yapfast_emoji::set_glyph(&key, glyph);
             }
-            if self.cache.get(&key).is_some()
-                || self.cache.is_still(&key)
-                || self.decoding.contains(&key)
+            // One whose picture has not arrived shows its still, and the
+            // next refresh wants it again once it has.
+            if self.cache.get(&key).is_none()
+                && !self.cache.is_still(&key)
+                && !self.decoding.contains(&key)
+                && pictures.contains_key(address)
             {
-                keys.push(key);
-                continue;
+                self.queue.want(Job {
+                    key: key.clone(),
+                    glyph,
+                    address: address.to_owned(),
+                });
             }
-            if !pictures.contains_key(&address) {
-                // Its picture has not arrived; the still shows, and the next
-                // refresh wants it again once it has.
-                keys.push(key);
-                continue;
-            }
-            keys.push(key.clone());
-            wanted.push((key, glyph, address));
+            self.cache.pin(key, in_view);
         }
-        self.cache.pin(keys.iter().map(String::as_str));
         self.cache.evict();
-        for (key, glyph, address) in wanted {
-            self.queue.want(Job {
-                key,
-                glyph,
-                address,
-            });
-        }
         self.prune_waiting();
+        self.name_in_view();
     }
 
     /// Wants frames for emoji shown somewhere that pins nothing, such as the
     /// picker's visible cells: they scroll away, so they are decoded in turn
-    /// but never hold another emoji's place in the cache.
-    pub(super) fn also(
+    /// but never hold another emoji's place in the cache. They play while
+    /// their cells draw them, as what is kept does.
+    pub(super) fn also<'a>(
         &mut self,
-        shown: impl IntoIterator<Item = (String, Option<char>, String)>,
+        shown: impl IntoIterator<Item = Shown<'a>>,
         pictures: &HashMap<String, Arc<Picture>>,
     ) {
         self.picker.clear();
         for (key, glyph, address) in shown {
-            self.picker.insert(key.clone());
-            if self.cache.get(&key).is_some()
-                || self.cache.is_still(&key)
-                || self.decoding.contains(&key)
-                || !pictures.contains_key(&address)
+            if self.cache.get(&key).is_none()
+                && !self.cache.is_still(&key)
+                && !self.decoding.contains(&key)
+                && pictures.contains_key(address)
             {
-                continue;
+                self.queue.want(Job {
+                    key: key.clone(),
+                    glyph,
+                    address: address.to_owned(),
+                });
             }
-            self.queue.want(Job {
-                key,
-                glyph,
-                address,
-            });
+            self.picker.insert(key);
         }
         self.prune_waiting();
     }
@@ -411,20 +446,27 @@ impl Animations {
     /// Queued work and late results belong only to messages or to the
     /// picker's current rows, not every row it has ever passed.
     fn prune_waiting(&mut self) {
-        let (messages, picker) = (&self.cache.pinned, &self.picker);
+        let (pinned, picker) = (&self.cache.pinned, &self.picker);
         self.queue
             .waiting
-            .retain(|job| messages.contains(&job.key) || picker.contains(&job.key));
-        i_slint_core::yapfast_emoji::set_active(messages.iter().chain(picker).map(String::as_str));
+            .retain(|job| pinned.contains_key(&job.key) || picker.contains(&job.key));
     }
 
-    /// The picker closed. Its unpinned frames must leave the renderer too,
-    /// and a decoder already running must not register them again later.
+    /// Tells the registry which of its emoji are in the messages on screen,
+    /// by answering for each it keeps: no set is built and no key copied,
+    /// on a path every refresh and every scroll of the timeline takes.
+    fn name_in_view(&self) {
+        let pinned = &self.cache.pinned;
+        i_slint_core::yapfast_emoji::set_in_view(|key| pinned.get(key) == Some(&true));
+    }
+
     /// Whether the picker's ready rows animate `key`.
     pub(super) fn animates_in_picker(&self, key: &str) -> bool {
         self.picker.contains(key)
     }
 
+    /// The picker closed. Its unpinned frames must leave the renderer too,
+    /// and a decoder already running must not register them again later.
     pub(super) fn hide_picker(&mut self) {
         self.picker.clear();
         self.prune_waiting();
@@ -457,9 +499,11 @@ impl Animations {
     /// Keeps the frames that arrived, and gives the registry each emoji's
     /// animation, so text and the picker draw them from now on.
     pub(super) fn drain(&mut self) {
+        let mut arrived = false;
         while let Ok(decoded) = self.decoded.try_recv() {
             self.decoding.remove(&decoded.key);
-            if !self.cache.pinned.contains(&decoded.key) && !self.picker.contains(&decoded.key) {
+            let in_view = self.cache.pinned.get(&decoded.key).copied();
+            if in_view.is_none() && !self.picker.contains(&decoded.key) {
                 continue;
             }
             if decoded.frames.is_empty() {
@@ -483,25 +527,29 @@ impl Animations {
             i_slint_core::yapfast_emoji::insert(&decoded.key, decoded.glyph, animation);
             self.cache.insert(decoded.key, decoded.glyph, frames);
             self.cache.evict();
+            arrived = true;
+        }
+        if arrived {
+            // The registry takes what it is given as in view until told.
+            self.name_in_view();
         }
     }
 
-    /// Takes what arrived from the decoders, starts what is wanted next, and
-    /// draws what shows a frame again. Called each tick and each refresh, so a
-    /// decode that finishes is seen at once rather than at the next change.
-    pub(super) fn run(&mut self, window: &YapfastWindow, pictures: &HashMap<String, Arc<Picture>>) {
+    /// Moves the clock by the time that passed, takes what arrived from the
+    /// decoders, starts what is wanted next, and draws what shows a frame
+    /// again. Called each tick and each refresh, so a decode that finishes is
+    /// seen at once rather than at the next change.
+    pub(super) fn run(
+        &mut self,
+        window: &YapfastWindow,
+        pictures: &HashMap<String, Arc<Picture>>,
+        now: Instant,
+    ) {
+        self.catch_up(now);
         self.start(pictures);
         self.drain();
-        if self.decoding.is_empty()
-            && self.queue.len() == 0
-            && i_slint_core::yapfast_emoji::shortest_delay().is_none()
-        {
-            self.timer.stop();
-            self.interval = 0;
-        }
         // Only a frame that changed, or one that came or went, draws again:
-        // the clock ticks faster than most frames change, and each draw walks
-        // the whole window.
+        // the timer also wakes for decoders, and each draw walks the window.
         let revision = i_slint_core::yapfast_emoji::revision() as i32;
         let global = window.global::<EmojiAnimations>();
         if global.get_revision() != revision {
@@ -510,57 +558,108 @@ impl Animations {
         }
     }
 
-    /// Sets whether the clock may move, and starts or stops the timer. Paused
-    /// animations need no timer once pending decodes have been collected.
+    /// Moves the registry's clock by the whole milliseconds since it was last
+    /// moved, and leaves the rest of a millisecond for the next time.
+    fn catch_up(&mut self, now: Instant) {
+        let Some(then) = self.caught_up else {
+            return;
+        };
+        let passed = now.saturating_duration_since(then).as_millis();
+        let passed = Duration::from_millis(u64::try_from(passed).unwrap_or(u64::MAX));
+        if !passed.is_zero() {
+            i_slint_core::yapfast_emoji::advance(passed);
+            self.caught_up = Some(then + passed);
+        }
+    }
+
+    /// Sets whether the clock may move, and has the timer wake for what is
+    /// next: the frame after the one that shows, or frames on their way from
+    /// a decoder. With neither it stops, as it does for paused animations
+    /// once their decodes have been collected.
+    ///
+    /// [`Animations::run`] comes first, so the clock is at `now` and the
+    /// wait is what is left of the frame, not the whole of it.
     pub(super) fn sync(
         &mut self,
         window: &YapfastWindow,
         playing: bool,
         adapter: std::rc::Weak<RefCell<Adapter>>,
+        now: Instant,
     ) {
         i_slint_core::yapfast_emoji::set_playing(playing);
         self.side = frame_side(window.window().scale_factor());
-        let decoding = !self.decoding.is_empty() || self.queue.len() > 0;
-        let delay = playing
-            .then(i_slint_core::yapfast_emoji::next_frame_delay)
-            .flatten();
-        if !decoding && delay.is_none() {
-            self.timer.stop();
-            self.interval = 0;
-            return;
+        if !self.wakes {
+            self.wakes = true;
+            wake_when_drawn(adapter.clone());
         }
         // Poll only while a worker has frames on the way. Once they arrive,
-        // slow animations wake at their own pace instead of twenty times a second.
-        let interval = match (decoding, delay) {
-            (true, delay) => delay.unwrap_or(30).min(30),
-            (false, Some(delay)) => delay,
-            (false, None) => unreachable!(),
+        // slow animations wake at their own pace instead of polling.
+        let decoding = !self.decoding.is_empty() || self.queue.len() > 0;
+        let poll = decoding.then_some(POLL);
+        let frame = if playing {
+            i_slint_core::yapfast_emoji::next_frame_delay()
+        } else {
+            None
         };
-        let interval = u64::from(interval.max(16));
-        if self.timer.running() && self.interval == interval {
+        let Some(wait) = poll.into_iter().chain(frame).min() else {
+            self.stop();
+            return;
+        };
+        let interval = u64::from(wait.max(SHORTEST));
+        if self.timer.running() {
+            // The closure stays, so a wait that changes at every frame, as
+            // what is left of one does, makes nothing.
+            if self.interval != interval {
+                self.interval = interval;
+                self.timer.set_interval(Duration::from_millis(interval));
+            }
             return;
         }
         self.interval = interval;
-        let (weak, clock) = (
-            window.as_weak(),
-            Rc::new(Cell::new(std::time::Instant::now())),
-        );
+        self.caught_up = Some(now);
+        let weak = window.as_weak();
         self.timer.start(
             slint::TimerMode::Repeated,
-            std::time::Duration::from_millis(interval),
+            Duration::from_millis(interval),
             move || {
-                let now = std::time::Instant::now();
-                let delta = now.saturating_duration_since(clock.replace(now));
-                i_slint_core::yapfast_emoji::advance(delta);
                 let (Some(adapter), Some(window)) = (adapter.upgrade(), weak.upgrade()) else {
                     return;
                 };
-                // A completed decode can change both the required cadence and
-                // whether a paused window needs this timer at all.
+                // Moves the clock, and sets this timer for what is next: a
+                // decode that finished changes both how long to wait and
+                // whether a paused window needs the timer at all.
                 adapter.borrow_mut().run_emoji_animations(&window);
             },
         );
     }
+
+    /// Stops the timer, and time for the animations with it.
+    pub(super) fn stop(&mut self) {
+        self.timer.stop();
+        self.interval = 0;
+        self.caught_up = None;
+    }
+}
+
+/// Has the registry wake the adapter when a draw shows an emoji that plays
+/// while the timer rests: one in text no refresh names, such as the
+/// composer's, a reply's or a topic's, whose frames another place had decoded.
+/// The draw is inside the paint, so the work waits for the event loop.
+fn wake_when_drawn(adapter: std::rc::Weak<RefCell<Adapter>>) {
+    i_slint_core::yapfast_emoji::on_wake(move || {
+        let adapter = adapter.clone();
+        slint::Timer::single_shot(Duration::ZERO, move || {
+            let Some(adapter) = adapter.upgrade() else {
+                return;
+            };
+            let Ok(mut adapter) = adapter.try_borrow_mut() else {
+                return;
+            };
+            if let Some(window) = adapter.window.upgrade() {
+                adapter.run_emoji_animations(&window);
+            }
+        });
+    });
 }
 
 /// The side frames decode at: 48px, as jumbo text draws an emoji, for the
@@ -619,10 +718,7 @@ fn frames_reach_the_registry() {
     let mut animations = Animations::new();
     animations.side = 16;
     let pictures = HashMap::from([("pic".to_owned(), picture)]);
-    animations.show(
-        vec![(key.to_owned(), Some(glyph), "pic".to_owned())],
-        &pictures,
-    );
+    animations.show(vec![(key.to_owned(), Some(glyph), "pic")], [], &pictures);
     animations.start(&pictures);
     // The worker decodes on its own thread; the tick waits for it the same way.
     for _ in 0..200 {
@@ -833,8 +929,8 @@ mod tests {
         let message = "close-keeps-message:1";
         let picker = "close-drops-picker:2";
         let pictures = HashMap::new();
-        animations.show([(message.into(), None, "message.png".into())], &pictures);
-        animations.also([(picker.into(), None, "picker.gif".into())], &pictures);
+        animations.show([(message.into(), None, "message.png")], [], &pictures);
+        animations.also([(picker.into(), None, "picker.gif")], &pictures);
         for key in [message, picker] {
             animations
                 .done
@@ -959,12 +1055,15 @@ mod tests {
         i_slint_backend_testing::init_no_event_loop();
         let window = YapfastWindow::new().unwrap();
         let mut animations = Animations::new();
+        // One instant throughout: the test moves the clock by hand.
+        let now = Instant::now();
         let pictures = HashMap::new();
         animations.show(
             [
-                ("slow:1".into(), None, "slow.gif".into()),
-                ("fast:1".into(), None, "fast.gif".into()),
+                ("slow:1".into(), None, "slow.gif"),
+                ("fast:1".into(), None, "fast.gif"),
             ],
+            [],
             &pictures,
         );
         for (key, delay) in [("slow:1", 1000), ("fast:1", 20)] {
@@ -978,12 +1077,12 @@ mod tests {
                 })
                 .unwrap();
         }
-        animations.run(&window, &pictures);
-        animations.sync(&window, true, Default::default());
+        animations.run(&window, &pictures, now);
+        animations.sync(&window, true, Default::default(), now);
         assert_eq!(animations.interval, 20);
-        animations.show([("slow:1".into(), None, "slow.gif".into())], &pictures);
-        animations.run(&window, &pictures);
-        animations.sync(&window, true, Default::default());
+        animations.show([("slow:1".into(), None, "slow.gif")], [], &pictures);
+        animations.run(&window, &pictures, now);
+        animations.sync(&window, true, Default::default(), now);
         assert_eq!(animations.interval, 1000);
         assert!(animations.cache.contains("fast:1"));
         let revision = i_slint_core::yapfast_emoji::revision();
@@ -999,9 +1098,11 @@ mod tests {
         i_slint_backend_testing::init_no_event_loop();
         let window = YapfastWindow::new().unwrap();
         let mut animations = Animations::new();
+        // One instant throughout: the test moves the clock by hand.
+        let now = Instant::now();
         let pictures = HashMap::new();
         let key = "offscreen-clock:1";
-        animations.show([(key.into(), None, "animation.gif".into())], &pictures);
+        animations.show([(key.into(), None, "animation.gif")], [], &pictures);
         animations
             .done
             .send(Decoded {
@@ -1011,12 +1112,12 @@ mod tests {
                 delays: vec![50, 50],
             })
             .unwrap();
-        animations.run(&window, &pictures);
+        animations.run(&window, &pictures, now);
         i_slint_core::yapfast_emoji::set_playing(true);
         assert_eq!(i_slint_core::yapfast_emoji::shortest_delay(), Some(50));
 
-        animations.show(std::iter::empty(), &pictures);
-        animations.run(&window, &pictures);
+        animations.show([], [], &pictures);
+        animations.run(&window, &pictures, now);
         let revision = i_slint_core::yapfast_emoji::revision();
         i_slint_core::yapfast_emoji::advance(Duration::from_millis(50));
         assert_eq!(i_slint_core::yapfast_emoji::revision(), revision);
@@ -1026,21 +1127,327 @@ mod tests {
             "scrolling back reuses the frames"
         );
 
-        animations.show([(key.into(), None, "animation.gif".into())], &pictures);
-        animations.run(&window, &pictures);
+        animations.show([(key.into(), None, "animation.gif")], [], &pictures);
+        animations.run(&window, &pictures, now);
         assert_eq!(animations.queue.len(), 0);
         assert!(animations.decoding.is_empty());
         i_slint_core::yapfast_emoji::advance(Duration::from_millis(50));
         assert_ne!(i_slint_core::yapfast_emoji::revision(), revision);
-        animations.sync(&window, true, Default::default());
+        animations.sync(&window, true, Default::default(), now);
         assert!(animations.timer.running());
-        animations.sync(&window, false, Default::default());
+        animations.sync(&window, false, Default::default(), now);
         assert!(!animations.timer.running(), "paused animations do not poll");
-        animations.sync(&window, true, Default::default());
+        animations.sync(&window, true, Default::default(), now);
         assert!(
             animations.timer.running(),
             "focus resumes cached animations"
         );
+    }
+
+    /// Two frames of 2 by 2 pixels on their way back from a decoder.
+    fn decoded(key: &str, glyph: Option<char>, delays: [u32; 2]) -> Decoded {
+        Decoded {
+            key: key.into(),
+            glyph,
+            frames: vec![vec![0; 16], vec![255; 16]],
+            delays: delays.to_vec(),
+        }
+    }
+
+    #[test]
+    fn setting_the_timer_again_keeps_the_time_already_waited() {
+        use i_slint_core::yapfast_emoji as registry;
+        i_slint_backend_testing::init_no_event_loop();
+        let window = YapfastWindow::new().unwrap();
+        let mut animations = Animations::new();
+        animations.side = 2;
+        let pictures = HashMap::new();
+        let slow = || ("rearm-slow:1".to_owned(), None, "slow.gif");
+        let fast = || ("rearm-fast:2".to_owned(), None, "fast.gif");
+        let start = Instant::now();
+        let at = |millis| start + Duration::from_millis(millis);
+        let step = |animations: &mut Animations, now| {
+            animations.run(&window, &pictures, now);
+            animations.sync(&window, true, Default::default(), now);
+        };
+
+        animations.show([slow()], [], &pictures);
+        let send = animations.done.clone();
+        send.send(decoded("rearm-slow:1", None, [1000, 1000]))
+            .unwrap();
+        step(&mut animations, start);
+        assert_eq!(animations.interval, 1000);
+        assert_eq!(registry::elapsed(), 0, "time starts with the timer");
+
+        // 600 ms into the slow frame a faster emoji scrolls in.
+        animations.show([slow(), fast()], [], &pictures);
+        send.send(decoded("rearm-fast:2", None, [50, 50])).unwrap();
+        step(&mut animations, at(600));
+        assert_eq!(
+            registry::elapsed(),
+            600,
+            "the wait so far reached the clock"
+        );
+        assert_eq!(animations.interval, 50);
+
+        // It scrolls away: the slow frame has what is left of it to wait,
+        // not the whole of it again.
+        animations.show([slow()], [], &pictures);
+        step(&mut animations, at(630));
+        assert_eq!(registry::elapsed(), 630);
+        assert_eq!(animations.interval, 370);
+
+        let revision = registry::revision();
+        step(&mut animations, at(1000));
+        assert_ne!(
+            registry::revision(),
+            revision,
+            "the slow frame changed on time"
+        );
+        assert_eq!(animations.interval, 1000);
+
+        // The part of a millisecond a tick leaves over counts at the next.
+        step(&mut animations, start + Duration::from_micros(1_000_900));
+        assert_eq!(registry::elapsed(), 1000);
+        step(&mut animations, start + Duration::from_micros(1_001_100));
+        assert_eq!(registry::elapsed(), 1001);
+
+        // Paused, the timer stops, and time with it.
+        animations.run(&window, &pictures, at(1100));
+        animations.sync(&window, false, Default::default(), at(1100));
+        assert!(!animations.timer.running());
+        step(&mut animations, at(5000));
+        assert_eq!(
+            registry::elapsed(),
+            1100,
+            "none passed while it was stopped"
+        );
+        assert_eq!(animations.interval, 900);
+    }
+
+    #[test]
+    fn an_emoji_drawn_where_no_refresh_names_it_plays_while_it_is_drawn() {
+        use i_slint_core::yapfast_emoji as registry;
+        i_slint_backend_testing::init_no_event_loop();
+        let window = YapfastWindow::new().unwrap();
+        let mut animations = Animations::new();
+        animations.side = 2;
+        let pictures = HashMap::new();
+        let (key, glyph) = ("drawn-elsewhere:1", '\u{10ffe4}');
+        let now = Instant::now();
+        let step = |animations: &mut Animations, now| {
+            animations.run(&window, &pictures, now);
+            animations.sync(&window, true, Default::default(), now);
+            animations.timer.running()
+        };
+
+        // A message showed it, so its frames were decoded and are kept.
+        animations.show([(key.into(), Some(glyph), "a.gif")], [], &pictures);
+        animations
+            .done
+            .send(decoded(key, Some(glyph), [50, 50]))
+            .unwrap();
+        assert!(step(&mut animations, now));
+        // The message scrolled away, and nothing a refresh names shows it.
+        animations.show([], [], &pictures);
+        assert!(!step(&mut animations, now), "kept, and not on screen");
+        assert!(animations.cache.contains(key));
+
+        // The composer draws its glyph: the paint takes its frame.
+        registry::begin_paint();
+        assert!(registry::frame_of_glyph(glyph).is_some());
+        assert!(
+            step(&mut animations, now),
+            "drawn, so the clock moves for it"
+        );
+        let revision = registry::revision();
+        let later = now + Duration::from_millis(50);
+        assert!(step(&mut animations, later));
+        assert_ne!(
+            registry::revision(),
+            revision,
+            "and it shows its next frame"
+        );
+
+        // The draft was sent: the paint that frame asked for leaves it out.
+        registry::begin_paint();
+        assert!(!step(&mut animations, later), "nothing draws it any more");
+    }
+
+    #[test]
+    fn what_is_kept_for_a_bar_or_a_menu_plays_only_while_drawn() {
+        use i_slint_core::yapfast_emoji as registry;
+        let mut animations = Animations::new();
+        animations.side = 2;
+        let pictures = HashMap::new();
+        let (message, bar) = ("kept-message:1", "kept-bar:2");
+        animations.show(
+            [(message.into(), None, "message.gif")],
+            [(bar.into(), None, "bar.gif")],
+            &pictures,
+        );
+        for (key, delay) in [(message, 400), (bar, 20)] {
+            animations
+                .done
+                .send(decoded(key, None, [delay, delay]))
+                .unwrap();
+        }
+        animations.drain();
+        registry::set_playing(true);
+        assert!(
+            animations.cache.contains(bar),
+            "ready for when the bar opens"
+        );
+        assert_eq!(
+            registry::next_frame_delay(),
+            Some(400),
+            "a closed bar's emoji wakes nothing"
+        );
+        // The bar opens over a message, and its cell takes the frame.
+        registry::begin_paint();
+        assert!(registry::frame_of_key(bar).is_some());
+        assert_eq!(registry::next_frame_delay(), Some(20));
+        // Both pinned: a refresh that names them again takes neither.
+        animations.show(
+            [(message.into(), None, "message.gif")],
+            [(bar.into(), None, "bar.gif")],
+            &pictures,
+        );
+        animations.cache.evict_to(0);
+        assert!(animations.cache.contains(bar) && animations.cache.contains(message));
+        // One in a message and in the bar at once is in view.
+        animations.show(
+            [(bar.into(), None, "bar.gif")],
+            [(bar.into(), None, "bar.gif")],
+            &pictures,
+        );
+        registry::advance(Duration::from_millis(20));
+        registry::begin_paint();
+        assert_eq!(registry::next_frame_delay(), Some(20));
+    }
+
+    #[test]
+    fn only_what_shows_moves_the_clocks_revision() {
+        use i_slint_core::yapfast_emoji as registry;
+        let animation = |delay| {
+            let frames = small(2);
+            Rc::new(registry::Animation::new(
+                frames.images().to_vec(),
+                &[delay, delay],
+            ))
+        };
+        registry::insert("shows-fast:1", None, animation(10));
+        registry::insert("shows-slow:2", None, animation(400));
+        registry::set_playing(true);
+        assert_eq!(
+            registry::next_frame_delay(),
+            Some(10),
+            "all show until some are named"
+        );
+        registry::set_in_view(|key| key == "shows-slow:2");
+        assert_eq!(registry::next_frame_delay(), Some(400));
+        let before = registry::revision();
+        registry::advance(Duration::from_millis(390));
+        assert_eq!(registry::revision(), before, "the fast one is kept, unseen");
+        assert_eq!(registry::next_frame_delay(), Some(10));
+        registry::advance(Duration::from_millis(10));
+        assert_eq!(registry::revision(), before + 1);
+        registry::set_in_view(|_| false);
+        assert_eq!(registry::next_frame_delay(), None);
+        assert_eq!(registry::shortest_delay(), None);
+        // Removing what is not there draws nothing again.
+        registry::remove("shows-gone:3");
+        assert_eq!(registry::revision(), before + 1);
+        registry::remove("shows-fast:1");
+        registry::remove("shows-slow:2");
+    }
+
+    #[test]
+    fn a_draw_wakes_the_application_once_and_a_paint_without_it_ends_it() {
+        use i_slint_core::yapfast_emoji as registry;
+        let glyph = '\u{10ffe5}';
+        let frames = small(2);
+        let animation = Rc::new(registry::Animation::new(
+            frames.images().to_vec(),
+            &[50, 50],
+        ));
+        registry::insert("wakes:1", Some(glyph), animation);
+        let woken = Rc::new(Cell::new(0));
+        registry::on_wake({
+            let woken = woken.clone();
+            move || woken.set(woken.get() + 1)
+        });
+        registry::set_in_view(|_| false);
+        registry::set_playing(true);
+        assert_eq!(registry::next_frame_delay(), None, "kept, and not shown");
+
+        registry::begin_paint();
+        assert!(registry::frame_of_glyph(glyph).is_some());
+        assert_eq!(woken.get(), 1, "the draw wakes the application");
+        assert_eq!(registry::next_frame_delay(), Some(50), "drawn, so it plays");
+        assert!(registry::frame_of_glyph(glyph).is_some());
+        assert_eq!(woken.get(), 1, "awake already");
+
+        // A paint of something else draws no text again, and ends nothing.
+        registry::begin_paint();
+        assert_eq!(registry::next_frame_delay(), Some(50));
+
+        let before = registry::revision();
+        registry::advance(Duration::from_millis(50));
+        assert_eq!(registry::revision(), before + 1, "its frame changed");
+        // Until the window paints, what the last paint drew still shows: a
+        // window that cannot paint yet loses no emoji.
+        assert_eq!(registry::next_frame_delay(), Some(50));
+        registry::begin_paint();
+        assert!(registry::frame_of_glyph(glyph).is_some());
+        assert_eq!(registry::next_frame_delay(), Some(50), "drawn again");
+
+        // The text went away: the paint after the next frame leaves it out.
+        registry::advance(Duration::from_millis(50));
+        registry::begin_paint();
+        assert_eq!(registry::next_frame_delay(), None);
+        assert_eq!(woken.get(), 1);
+        let before = registry::revision();
+        registry::advance(Duration::from_millis(500));
+        assert_eq!(registry::revision(), before, "nothing shows, nothing draws");
+
+        // A paused window's draws wake nothing.
+        registry::set_playing(false);
+        assert!(registry::frame_of_key("wakes:1").is_some());
+        assert_eq!(woken.get(), 1);
+        registry::set_playing(true);
+        assert_eq!(registry::next_frame_delay(), Some(50), "its cell drew it");
+        registry::remove("wakes:1");
+        assert!(registry::frame_of_glyph(glyph).is_none());
+    }
+
+    #[test]
+    fn a_glyph_follows_its_emoji() {
+        use i_slint_core::yapfast_emoji as registry;
+        let (first, second) = ('\u{10ffe6}', '\u{10ffe7}');
+        let animation = || {
+            let frames = small(2);
+            Rc::new(registry::Animation::new(
+                frames.images().to_vec(),
+                frames.delays(),
+            ))
+        };
+        registry::insert("named:1", None, animation());
+        assert!(registry::frame_of_glyph(first).is_none());
+        registry::set_glyph("named:1", first);
+        assert!(registry::frame_of_glyph(first).is_some());
+        // Its font was made again, and its glyph with it.
+        registry::set_glyph("named:1", second);
+        assert!(registry::frame_of_glyph(first).is_none());
+        assert!(registry::frame_of_glyph(second).is_some());
+        // Frames at another size take the glyph they are given.
+        registry::insert("named:1", Some(first), animation());
+        assert!(registry::frame_of_glyph(second).is_none());
+        assert!(registry::frame_of_glyph(first).is_some());
+        registry::set_glyph("unknown:2", second);
+        assert!(registry::frame_of_glyph(second).is_none());
+        registry::remove("named:1");
+        assert!(registry::frame_of_glyph(first).is_none());
     }
 
     #[test]
@@ -1048,7 +1455,7 @@ mod tests {
         let mut animations = Animations::new();
         let pictures = HashMap::new();
         let key = "scroll-left-animation:1";
-        animations.also([(key.into(), None, "animation.gif".into())], &pictures);
+        animations.also([(key.into(), None, "animation.gif")], &pictures);
         animations.queue.want(job(key, "animation.gif"));
         animations.also(std::iter::empty(), &pictures);
         assert_eq!(animations.queue.len(), 0);
@@ -1071,13 +1478,14 @@ mod tests {
         let mut cache = Cache::new();
         cache.insert("a".to_owned(), Some('a'), small(1));
         cache.insert("b".to_owned(), Some('b'), small(1));
-        cache.pin(["b"]);
+        cache.pin("b".to_owned(), false);
         cache.evict_to(0);
         assert!(cache.contains("b"), "on screen, so it keeps its frames");
         assert!(!cache.contains("a"));
         assert_eq!(cache.bytes(), 16, "over the budget, and pinned");
         // A refresh pins what it showed, so the pinned set replaces the last.
-        cache.pin(["a"]);
+        cache.unpin();
+        cache.pin("a".to_owned(), true);
         cache.evict_to(0);
         assert!(!cache.contains("b"));
         assert_eq!(cache.bytes(), 0);

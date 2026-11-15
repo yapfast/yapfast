@@ -317,9 +317,17 @@ Yapfast is back, rather than showing an error.
   which moving back to it would hold up while playing. MP4, MOV and WebM
   play, with H264, VP8, VP9 or AV1 pictures in 4:2:0, 4:2:2 or 4:4:4 at
   8 or 10 bits, or 4:2:0 at 12, and AAC, Opus, MP3, Vorbis or FLAC sound;
-  HEVC, which iPhones record, plays too, through Yapfast's own FFmpeg
-  (`vendor/ffmpeg-src`), since libwebrtc's lacks it. A video recorded turned
-  shows upright, by its rotation matrix.
+  HEVC, which iPhones record, plays too, where `vendor/ffmpeg-src` is built
+  (Linux and Windows on x86-64): its decoder, through `native/video_hevc.c`,
+  as libwebrtc's FFmpeg has none. Whatever the codec, no picture is decoded
+  wider or taller than 8192 pixels, a damaged packet is skipped, and a file
+  that can't be decoded further stops with an error.
+  A video shows as its display matrix says, as a phone held upright records
+  one on its side: turned by quarters, flipped, or both, at the turned size.
+  `native/video.c` scales the picture as it's stored and converts it to RGBA
+  sixteen rows at a time, libyuv turning each strip into its place in the
+  frame shown (`native/turn.h`), so a turned video holds no second picture.
+  A matrix that isn't quarter turns and flips is ignored.
   A WebM's transparency shows, at 8 bits: it's a second video, in each block's
   BlockAdditional, whose brightness is the picture's alpha, which
   `native/video.c` decodes with a second libvpx decoder when a packet has one.
@@ -495,9 +503,13 @@ Yapfast is back, rather than showing an error.
   regular weight, before 13px text in the secondary colour.
 - A picture in a message sits straight on the message background: a
   transparent PNG or GIF shows no backdrop, as in Discord. Only the
-  loading skeleton draws a fill. A skeleton's band sweeps only while animations play, so
-  in a window that isn't in front an unloaded image, GIF or video does not
-  continuously request redraws.
+  loading skeleton draws a fill. A skeleton's band, and the one across the
+  button that loads earlier or newer messages, sweeps only while someone may
+  be looking (`Motion.watched`): animations play, the window has the focus
+  and it was used in the last 15 seconds. "Play GIFs, emoji and stickers" at
+  Always doesn't change that, since a picture, GIF or video may never load,
+  and its sweep would ask for a frame at every tick behind whatever is in
+  front. Without the band a skeleton is its fill alone, drawn once.
 - The context menus (channel, server, member and message) use Discord's
   shades (`Theme.menu`, `Theme.menu-line`, `Theme.danger-text`), a 255px
   minimum width, icons only on the rows Discord gives them, and a greyed

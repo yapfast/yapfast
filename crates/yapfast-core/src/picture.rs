@@ -28,11 +28,14 @@ unsafe extern "C" {
     fn yapfast_i420_to_rgba(
         picture: *const RawPicture,
         scratch: *mut c_uchar,
+        strip: *mut c_uchar,
         rgba: *mut c_uchar,
-        stride: c_int,
         width: c_int,
         height: c_int,
+        rotation: c_int,
+        flip: c_int,
     );
+    fn yapfast_strip_bytes(width: c_int) -> usize;
 }
 
 /// An I420 picture's planes, borrowed from whoever made it.
@@ -96,10 +99,20 @@ impl<'a> I420<'a> {
         }
     }
 
-    /// Writes the picture scaled to `width` by `height` as RGBA into `rgba`,
-    /// `width * 4` bytes a row, scaling through `scratch`, which it sizes
-    /// once and keeps for the next picture.
-    pub fn to_rgba(&self, scratch: &mut Vec<u8>, rgba: &mut [u8], width: u32, height: u32) {
+    /// Writes the picture as RGBA into `rgba`, turned upright by `turn` and
+    /// scaled to `width` by `height`, the upright size, `width * 4` bytes a
+    /// row. Scaling goes through `scratch`, sized once and kept for the next
+    /// picture. A turned picture is converted a few rows at a time through
+    /// `strip`, which holds those rows only, and turned from there straight
+    /// into `rgba`; an upright one needs no strip, and lets go of it.
+    pub fn to_rgba(
+        &self,
+        scratch: &mut Vec<u8>,
+        strip: &mut Vec<u8>,
+        rgba: &mut [u8],
+        (width, height): (u32, u32),
+        turn: Turn,
+    ) {
         assert!(rgba.len() >= width as usize * height as usize * 4);
         // libyuv reads each plane at its stride, trusting it to be there.
         let (w, h) = (self.width as usize, self.height as usize);
@@ -109,53 +122,34 @@ impl<'a> I420<'a> {
             let stride = self.strides[index] as usize;
             assert!(stride >= widths[index] && plane.len() >= stride * rows[index]);
         }
+        // The size before turning: on its side for a quarter turn.
+        let (width, height) = turn.upright(width, height);
         if (width, height) != (self.width, self.height) {
             let chroma = width.div_ceil(2) as usize * height.div_ceil(2) as usize;
             scratch.resize(width as usize * height as usize + 2 * chroma, 0);
         }
+        let (rotation, flip) = turn.rotation();
+        if rotation == 0 {
+            *strip = vec![];
+        } else {
+            // SAFETY: it only multiplies.
+            strip.resize(unsafe { yapfast_strip_bytes(width as c_int) }, 0);
+        }
         let raw = self.raw();
         // SAFETY: the planes outlive the call, `scratch` holds an I420
-        // picture of the target size when it's needed, and `rgba` its RGBA.
+        // picture of the target size when it's needed, `strip` the rows a
+        // turn goes through, and `rgba` the turned picture's RGBA.
         unsafe {
             yapfast_i420_to_rgba(
                 &raw,
                 scratch.as_mut_ptr(),
+                strip.as_mut_ptr(),
                 rgba.as_mut_ptr(),
-                (width * 4) as c_int,
                 width as c_int,
                 height as c_int,
+                rotation,
+                c_int::from(flip),
             );
-        }
-    }
-
-    /// Scales to the upright dimensions, turns, then optionally flips.
-    /// Both temporary buffers are reused across frames.
-    pub(crate) fn to_rgba_turned(
-        self,
-        scratch: &mut Vec<u8>,
-        turned: &mut Vec<u8>,
-        rgba: &mut [u8],
-        size: (u32, u32),
-        turn: Turn,
-    ) {
-        let (width, height) = size;
-        let rgba = &mut rgba[..width as usize * height as usize * 4];
-        if turn.turns % 2 == 1 {
-            turned.resize(rgba.len(), 0);
-            self.to_rgba(scratch, turned, height, width);
-            turn_quarter(turned, height, width, turn.turns, rgba);
-        } else {
-            // No rotation buffer needed while upright or upside down.
-            *turned = vec![];
-            self.to_rgba(scratch, rgba, width, height);
-            if turn.turns == 2 {
-                rgba.as_chunks_mut::<4>().0.reverse();
-            }
-        }
-        if turn.flip {
-            for row in rgba.chunks_exact_mut(width as usize * 4) {
-                row.as_chunks_mut::<4>().0.reverse();
-            }
         }
     }
 }
@@ -195,25 +189,17 @@ impl Turn {
             (width, height)
         }
     }
-}
 
-/// Turns `width` by `height` RGBA pixels a quarter clockwise (`turns` 1) or
-/// three quarters (3) into `upright`, `height` by `width`.
-fn turn_quarter(pixels: &[u8], width: u32, height: u32, turns: u8, upright: &mut [u8]) {
-    let (width, height) = (width as usize, height as usize);
-    let from = pixels.as_chunks::<4>().0;
-    let to = &mut upright.as_chunks_mut::<4>().0[..width * height];
-    // The upright picture is `height` wide: its row y is the source's
-    // column y, read bottom up for a clockwise turn, top down otherwise.
-    for (y, row) in to.chunks_exact_mut(height).enumerate() {
-        for (x, pixel) in row.iter_mut().enumerate() {
-            let (column, line) = if turns == 1 {
-                (y, height - 1 - x)
-            } else {
-                (width - 1 - y, x)
-            };
-            *pixel = from[line * width + column];
-        }
+    /// The same turn as `native/turn.h` takes it: degrees clockwise, after
+    /// a flip top to bottom. A flip left to right after `turns` quarters is
+    /// one top to bottom before the turn that ends half a turn further.
+    fn rotation(self) -> (c_int, bool) {
+        let turns = if self.flip {
+            6 - self.turns % 4
+        } else {
+            self.turns
+        };
+        (c_int::from(turns % 4) * 90, self.flip)
     }
 }
 
@@ -424,20 +410,20 @@ impl Feed {
     /// As [`Self::sink`], each picture turned upright as it says first, as
     /// a phone's camera sends them, and made at the size the upright
     /// picture fits where it shows. An upright picture costs nothing more;
-    /// one turned a quarter is scaled into a buffer of the shown size, kept
-    /// while pictures come turned, and turned from there into the frame.
+    /// a turned one goes through a strip of a few rows, kept while pictures
+    /// come turned, never through a second picture.
     pub fn turning_sink(&self, mirror: bool) -> impl FnMut(&I420<'_>, Turn) + Send + 'static {
         let feed = self.clone();
-        let (mut scratch, mut turned) = (vec![], vec![]);
+        let (mut scratch, mut strip) = (vec![], vec![]);
         move |picture, turn| {
             let (upright_width, upright_height) = turn.upright(picture.width, picture.height);
             let Some((width, height)) = feed.size_for(upright_width, upright_height) else {
                 return;
             };
             feed.write(width, height, |rgba| {
-                picture.to_rgba_turned(
+                picture.to_rgba(
                     &mut scratch,
-                    &mut turned,
+                    &mut strip,
                     rgba,
                     (width, height),
                     Turn {
@@ -551,8 +537,9 @@ mod tests {
             v: &v,
             strides: [4, 2, 2],
         };
-        let (mut scratch, mut rgba) = (vec![], vec![0; 16]);
-        picture.to_rgba(&mut scratch, &mut rgba, 2, 2);
+        let (mut scratch, mut strip, mut rgba) = (vec![], vec![], vec![0; 16]);
+        picture.to_rgba(&mut scratch, &mut strip, &mut rgba, (2, 2), Turn::default());
+        assert!(strip.is_empty());
         assert!(
             rgba.chunks(4)
                 .all(|pixel| pixel[0].abs_diff(128) < 4 && pixel[3] == 255),
@@ -561,21 +548,65 @@ mod tests {
         assert_eq!(fit(1920, 1080, (640, 640)), (640, 360));
     }
 
+    /// Every turn and flip, at the picture's size and scaled, taller than
+    /// one strip: each pixel lands where turning the upright picture puts it.
     #[test]
     fn turns_pictures_upright() {
-        // 3 by 2, pixels numbered across then down:
-        //   0 1 2
-        //   3 4 5
-        let pixels: Vec<u8> = (0..6u8).flat_map(|n| [n, 0, 0, 255]).collect();
-        let turned = |turns| {
-            let mut upright = vec![0; 24];
-            turn_quarter(&pixels, 3, 2, turns, &mut upright);
-            upright.chunks(4).map(|pixel| pixel[0]).collect::<Vec<_>>()
+        // 6 by 40, each 2 by 2 block a grey of its own, so 4:2:0 loses nothing.
+        let (width, height) = (6usize, 40usize);
+        let y: Vec<u8> = (0..width * height)
+            .map(|at| (16 + (at / width / 2) * 3 + at % width / 2) as u8 * 3)
+            .collect();
+        let chroma = vec![128u8; width * height / 4];
+        let picture = I420 {
+            width: width as u32,
+            height: height as u32,
+            y: &y,
+            u: &chroma,
+            v: &chroma,
+            strides: [6, 3, 3],
         };
-        // A quarter clockwise, 2 by 3:  3 0 / 4 1 / 5 2.
-        assert_eq!(turned(1), [3, 0, 4, 1, 5, 2]);
-        // Three quarters:  2 5 / 1 4 / 0 3.
-        assert_eq!(turned(3), [2, 5, 1, 4, 0, 3]);
+        let (mut scratch, mut strip) = (vec![], vec![]);
+        for (w, h) in [(width, height), (width / 2, height / 2)] {
+            let mut plain = vec![0; w * h * 4];
+            let size = (w as u32, h as u32);
+            picture.to_rgba(&mut scratch, &mut strip, &mut plain, size, Turn::default());
+            for turns in 0..4u8 {
+                for flip in [false, true] {
+                    let turn = Turn { turns, flip };
+                    let (tw, th) = turn.upright(size.0, size.1);
+                    let (tw, th) = (tw as usize, th as usize);
+                    let mut turned = vec![0; w * h * 4];
+                    picture.to_rgba(
+                        &mut scratch,
+                        &mut strip,
+                        &mut turned,
+                        (tw as u32, th as u32),
+                        turn,
+                    );
+                    assert_eq!(
+                        strip.is_empty(),
+                        turn == Turn {
+                            turns: 2,
+                            flip: true
+                        } || turn == Turn::default()
+                    );
+                    for (at, pixel) in plain.chunks_exact(4).enumerate() {
+                        let (x, y) = (at % w, at / w);
+                        // Quarter turns clockwise, then the flip.
+                        let (x, y) = match turns {
+                            0 => (x, y),
+                            1 => (h - 1 - y, x),
+                            2 => (w - 1 - x, h - 1 - y),
+                            _ => (y, w - 1 - x),
+                        };
+                        let x = if flip { tw - 1 - x } else { x };
+                        let to = (y * tw + x) * 4;
+                        assert_eq!(&turned[to..to + 4], pixel, "{turn:?} at {w}×{h}");
+                    }
+                }
+            }
+        }
         assert_eq!(
             Turn {
                 turns: 1,
