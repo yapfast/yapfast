@@ -1962,6 +1962,11 @@ fn keep_effects_moving(window: &YapfastWindow) {
     });
 }
 
+/// The colours a protected dialog shows the window in, whatever theme is on.
+fn stock_colours() -> theme::Theme {
+    theme::find("bonfire").map_or(theme::YAP, |built_in| built_in.theme)
+}
+
 /// A protected dialog opened or closed: while one is open, the window shows
 /// the stock theme, shape and motion.
 pub fn protect(window: &YapfastWindow, open: bool) -> Option<theme::Theme> {
@@ -1975,7 +1980,7 @@ pub fn protect(window: &YapfastWindow, open: bool) -> Option<theme::Theme> {
     }
     paint(window);
     if open {
-        Some(theme::find("bonfire").map_or(theme::YAP, |built_in| built_in.theme))
+        Some(stock_colours())
     } else {
         STATE.with_borrow(|state| {
             state
@@ -2264,7 +2269,7 @@ pub fn install_listed(window: &YapfastWindow, runtime: Arc<BackgroundRuntime>, i
         let Some(window) = weak.upgrade() else { return };
         show_market_state(&window);
         match result {
-            Ok(fetched) => show_review(&window, fetched),
+            Ok((fetched, previews)) => show_review(&window, fetched, previews),
             Err(error) => window.global::<ThemesPage>().set_error(error.into()),
         }
     });
