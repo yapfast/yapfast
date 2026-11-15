@@ -163,11 +163,9 @@ pub fn reset(window: &YapfastWindow) {
     art.set_popout(none());
     art.set_aside(none());
     art.set_lightbox(none());
-    art.set_cards(ModelRc::new(VecModel::<CardArt>::default()));
-    art.set_overlays(ModelRc::new(VecModel::<ArtOverlay>::default()));
+    art.set_cards(ModelRc::default());
+    art.set_overlays(ModelRc::default());
     art.set_chat_overlays(false);
-    art.set_t(0.);
-    art.set_t_steps(0.);
     for set in [
         yapfast_ui::Art::set_glass_rail,
         yapfast_ui::Art::set_glass_sidebar,
@@ -224,7 +222,6 @@ pub fn reset(window: &YapfastWindow) {
     art.set_shot_kind(0);
     art.set_shot_left(0.);
     STATE.with_borrow_mut(|state| {
-        state.clock = None;
         state.particles.clear();
         state.model = None;
         state.shot = None;
@@ -233,6 +230,19 @@ pub fn reset(window: &YapfastWindow) {
         state.steps.clear();
         state.step_at.clear();
     });
+}
+
+/// Stops the art clock, its time back at the start: nothing of a theme's
+/// moves. A repaint of the same theme keeps the clock, and what moves goes
+/// on at the phase it was at.
+pub fn stop_clock(window: &YapfastWindow) {
+    STATE.with_borrow_mut(|state| {
+        state.clock = None;
+        state.last = None;
+    });
+    let art = window.global::<yapfast_ui::Art>();
+    art.set_t(0.);
+    art.set_t_steps(0.);
 }
 
 /// Forgets the theme's art and its decoded pictures.
@@ -586,7 +596,6 @@ pub fn apply(
         state.steps = steps;
     });
     start_clock(window);
-    event(window, Trigger::ThemeApplied);
 }
 
 /// Whether a moving picture moves smoothly (it drifts), or only steps
@@ -1387,7 +1396,7 @@ fn start_clock(window: &YapfastWindow) {
         needed && !state.reduced && clock_rate(state.performance) > 0
     });
     if !needed {
-        STATE.with_borrow_mut(|state| state.clock = None);
+        stop_clock(window);
         return;
     }
     STATE.with_borrow_mut(|state| {

@@ -914,7 +914,14 @@ fn apply_package(
         });
         state.failed = None;
     });
+    super::theme_timing::step("fonts and media loaded");
     paint(window);
+    // Once a theme is shown, not each time it's painted again.
+    super::theme_art::event(
+        window,
+        yapfast_core::themes::package::art::Trigger::ThemeApplied,
+    );
+    super::theme_timing::step("painted");
     if checked {
         // The thread that made it ready left its decoding's memory free.
         super::trim();
@@ -1038,9 +1045,11 @@ pub fn clear(window: &YapfastWindow) {
         state.fx_timer = None;
     });
     super::theme::set_mention_chip(None);
+    super::theme_art::stop_clock(window);
     super::theme_art::forget();
     super::theme_lists::forget();
     reset(window);
+    settle_rows();
     super::theme_media::forget();
     super::theme_cursor::forget();
 }
@@ -1158,6 +1167,8 @@ fn paint_now(window: &YapfastWindow) {
     super::theme_pace::set_theme(window, performance, unfocused);
     let protected = STATE.with_borrow(|state| state.protected);
     if protected {
+        super::theme_art::stop_clock(window);
+        STATE.with_borrow_mut(|state| state.clock = None);
         return;
     }
     if STATE.with_borrow(|state| state.applied.is_some()) {
@@ -1653,8 +1664,10 @@ fn start_clock(window: &YapfastWindow) {
         STATE.with_borrow_mut(|state| state.clock = None);
         return;
     };
-    STATE.with_borrow_mut(|state| {
-        state.clock = Some((super::theme_pace::Ticker::new(), rate));
+    // A repaint keeps the clock: what moves goes on from its phase.
+    STATE.with_borrow_mut(|state| match &mut state.clock {
+        Some((_, kept)) => *kept = rate,
+        None => state.clock = Some((super::theme_pace::Ticker::new(), rate)),
     });
     run_clock(window);
 }
