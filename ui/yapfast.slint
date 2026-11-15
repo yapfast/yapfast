@@ -1725,6 +1725,13 @@ export component YapfastWindow inherits Window {
     // field each time this counts up.
     property <int> sign-in-focus;
     public function focus-sign-in() { root.sign-in-focus += 1; }
+    out property <int> search-focus-tick;
+    /// Focuses the conversation's search bar in the header; whether one is available.
+    public function focus-search() -> bool {
+        if !root.workspace || root.composer-covered || !root.can-search { return false; }
+        root.search-focus-tick += 1;
+        return true;
+    }
     public function timeline-at-end() -> bool { return root.follow-latest; }
     // Yapfast's window has the keyboard focus.
     in property <bool> window-focused;
@@ -3173,8 +3180,10 @@ export component YapfastWindow inherits Window {
                             HeaderSearch {
                                 text <=> root.search-text;
                                 placeholder: root.search-placeholder;
+                                focus-tick: root.search-focus-tick;
                                 search(text) => { root.search(text); }
                                 clear => { root.search-text = ""; root.search(""); }
+                                escape => { root.focus-composer(); }
                             }
                         }
                         if !root.members-available && !root.profile-available && root.members != "": HorizontalLayout {

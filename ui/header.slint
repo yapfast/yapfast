@@ -67,8 +67,12 @@ export component HeaderSearch inherits Rectangle {
     in property <string> placeholder;
     /// Takes the keyboard as it shows.
     in property <bool> autofocus;
+    /// Focuses the search field each time this counts up.
+    in property <int> focus-tick;
+    changed focus-tick => { input.focus(); input.select-all(); }
     callback search(string);
     callback clear;
+    callback escape;
     init => { if root.autofocus { input.focus(); } }
     // Discord's box: 243px with a faint outline, wider while it's used.
     width: input.has-focus || root.text != "" ? 300px : ClientStyle.enabled ? 240px : 180px;
@@ -98,7 +102,12 @@ export component HeaderSearch inherits Rectangle {
             accessible-label: root.placeholder;
             accepted => { root.search(self.text); }
             key-pressed(event) => {
-                if event.text == Key.Escape && root.text != "" { root.clear(); return accept; }
+                if event.text == Key.Escape {
+                    input.clear-focus();
+                    if root.text != "" { root.clear(); }
+                    root.escape();
+                    return accept;
+                }
                 return reject;
             }
             cursor-position-changed(position) => {
