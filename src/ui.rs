@@ -219,6 +219,8 @@ pub fn run(
     if let Some(reason) = theme_look::take_failure() {
         adapter.borrow_mut().app.state.notice = Some(reason);
     }
+    // The theme shown at start offers its options, as one chosen later does.
+    adapter.borrow().show_theme_options(&window);
     watch_window(&window, &adapter);
     adapter.borrow_mut().watch_away();
     adapter.borrow_mut().watch_keybinds(&window);
@@ -2801,6 +2803,8 @@ impl Adapter {
     fn attach(&mut self, window: &YapfastWindow) {
         self.models.attach(window);
         self.layout.apply(window);
+        // The theme Layout::apply showed: Settings → Themes offers its options.
+        self.show_theme_options(window);
         updates::show(window, &self.layout, &self.updates);
         self.watch_keybinds(window);
         self.show_protocol(window);
