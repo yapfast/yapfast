@@ -20,8 +20,8 @@ pub const SETTLE_WAIT: Duration = Duration::from_millis(100);
 /// what it says) go on only when they matter: a step of [`SETTLE_STEP`],
 /// its end reached or left, its size or its content's changed, or
 /// [`SETTLE_WAIT`] since the last, and the last once it stops. Each report
-/// that goes on builds the whole view again; a list scrolled by the wheel
-/// says where it is many times a frame, and its rows built beyond its
+/// that goes on builds the whole view again; a scrolling list says where it is
+/// on every frame it moves, and its rows built beyond its
 /// edges already cover a step.
 pub struct Settle {
     pick: fn(&Message) -> Option<&Viewport>,

@@ -7,11 +7,12 @@
 //! restart is pressed; once the update is ready, the window ends so `main`
 //! can finish it.
 
+use crate::widgets::scroll_view;
 use std::time::Duration;
 
 use iced::{
     Element, Length, Task,
-    widget::{column, container, row, scrollable, text},
+    widget::{column, container, row, text},
 };
 
 use super::{Event as SettingsEvent, Section};
@@ -289,7 +290,7 @@ impl App {
                         format!("WHAT'S NEW IN {}", shown.latest.to_uppercase())
                     ),
                     container(
-                        scrollable(
+                        scroll_view(
                             container(text(shown.notes.clone()).size(13).color(theme.secondary))
                                 .padding(12)
                         )

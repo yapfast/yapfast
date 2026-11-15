@@ -6,9 +6,10 @@
 //! the sticker form. What each holds, and what this account may change
 //! ([`ExpressionRules`]), is the core's.
 
+use crate::widgets::scroll_view;
 use iced::{
     Alignment, Border, Color, Element, Length, Padding, Size, Task,
-    widget::{Space, button, column, container, mouse_area, row, scrollable, text, text_input},
+    widget::{Space, button, column, container, mouse_area, row, text, text_input},
 };
 use yapfast_core::{
     application::{
@@ -311,7 +312,7 @@ impl App {
             };
             rows.push(key, tops[index], line.height(), view);
         }
-        let list = scrollable(rows)
+        let list = scroll_view(rows)
             .on_scroll(|viewport| local_event(Event::Scrolled(Scroll::of(viewport))))
             .style(scrollbar(theme))
             .height(Length::Fill);
@@ -890,7 +891,7 @@ impl App {
         };
         Some(dialogs::panel(
             theme,
-            scrollable(body).style(scrollbar(theme)).into(),
+            scroll_view(body).style(scrollbar(theme)).into(),
             STICKER_DIALOG,
             None,
             outside,

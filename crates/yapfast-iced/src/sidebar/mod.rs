@@ -7,9 +7,10 @@
 //! voice channel under it. The list is virtualized: only rows near its
 //! viewport are built.
 
+use crate::widgets::scroll_view;
 use iced::{
     Color, Element, Length, Point, Task,
-    widget::{column, container, scrollable, scrollable::Viewport, stack},
+    widget::{column, container, scrollable::Viewport, stack},
 };
 use yapfast_core::application::{Action, DmScreen, Navigation};
 
@@ -225,7 +226,7 @@ impl App {
             let place = self.side_places.of_row.get(index).copied().flatten();
             rows.push(key(&row.key()), at, height, self.side_row(row, place));
         }
-        let list = scrollable(rows)
+        let list = scroll_view(rows)
             .id(LIST)
             .on_scroll(|viewport| Message::Side(Event::Scrolled(viewport)))
             .height(Length::Fill)

@@ -6,11 +6,12 @@
 //! editor's bar over the page's foot. Settings' own card shares the
 //! [`backdrop`] and the [`nav_row`].
 
+use crate::widgets::scroll_view;
 use std::borrow::Cow;
 
 use iced::{
     Alignment, Border, Color, Element, Length, Padding,
-    widget::{button, column, container, opaque, row, scrollable, stack, text},
+    widget::{button, column, container, opaque, row, stack, text},
 };
 
 use crate::{
@@ -141,7 +142,7 @@ impl<'a> Sheet<'a> {
                 .height(Length::Fill)
                 .into()
         } else {
-            scrollable(container(column_).padding(padding).width(Length::Fill))
+            scroll_view(container(column_).padding(padding).width(Length::Fill))
                 .id(iced::widget::Id::new(PAGE))
                 .style(scrollbar(theme))
                 .height(Length::Fill)
@@ -192,7 +193,7 @@ impl<'a> Sheet<'a> {
         }
         let sidebar = theme.sidebar;
         let nav = container(
-            scrollable(
+            scroll_view(
                 column(
                     self.nav
                         .into_iter()

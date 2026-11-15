@@ -11,6 +11,7 @@
 //! room's limits; the previews are made off the window's thread, at 240 px
 //! at most, and go when their file does.
 
+use crate::widgets::scroll_view;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use iced::{
@@ -386,7 +387,7 @@ impl App {
             tiles = tiles.push(self.staged_tile(index, file, can_spoil, aside));
         }
         Some(
-            scrollable(container(tiles).padding(Padding {
+            scroll_view(container(tiles).padding(Padding {
                 top: 10.0,
                 right: 10.0,
                 bottom: 2.0,

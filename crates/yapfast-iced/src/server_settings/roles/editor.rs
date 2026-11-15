@@ -1,9 +1,10 @@
 //! One role's editor: its tabs, Display (name, colours, icon) and
 //! Permissions.
 
+use crate::widgets::scroll_view;
 use iced::{
     Alignment, Border, Color, Element, Length, Padding,
-    widget::{Space, button, column, container, row, scrollable, text, tooltip},
+    widget::{Space, button, column, container, row, text, tooltip},
 };
 use yapfast_core::{
     application::{
@@ -530,7 +531,7 @@ impl App {
             }
         }
         let list: Element<'a, Message> = if any {
-            scrollable(rows)
+            scroll_view(rows)
                 .style(scrollbar(theme))
                 .height(Length::Fill)
                 .into()

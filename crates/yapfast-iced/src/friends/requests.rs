@@ -2,9 +2,10 @@
 //! on one row with their latest message, then those sent, and spam folded
 //! away, as the Slint client's `request_rows` lays them out.
 
+use crate::widgets::scroll_view;
 use iced::{
     Alignment, Border, Color, Element, Length, Padding,
-    widget::{Space, button, column, container, mouse_area, row, scrollable, text},
+    widget::{Space, button, column, container, mouse_area, row, text},
 };
 use yapfast_core::{chat::ChatRoom, discord};
 
@@ -200,7 +201,7 @@ impl App {
                 }
             }
         }
-        scrollable(list)
+        scroll_view(list)
             .height(Length::Fill)
             .style(scrollbar(&self.theme))
             .into()

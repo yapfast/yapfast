@@ -8,11 +8,12 @@
 //! window keeps only the paragraphs' editors and the text laid out, which
 //! go as it closes.
 
+use crate::widgets::scroll_view;
 use std::path::PathBuf;
 
 use iced::{
     Alignment, Border, Color, Element, Length, Padding, Task,
-    widget::{Space, button, column, container, row, scrollable, text, text_editor},
+    widget::{Space, button, column, container, row, text, text_editor},
 };
 use yapfast_core::application::{Action, ModalField};
 
@@ -189,7 +190,7 @@ impl App {
         }
         let mut body = column![
             head,
-            scrollable(fields)
+            scroll_view(fields)
                 .height(Length::Shrink)
                 .style(scrollbar(theme)),
         ]

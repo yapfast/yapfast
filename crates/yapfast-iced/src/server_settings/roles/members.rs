@@ -1,8 +1,9 @@
 //! A role's Manage Members tab and Add members over the settings.
 
+use crate::widgets::scroll_view;
 use iced::{
     Alignment, Color, Element, Length, Padding, Task,
-    widget::{Space, button, column, container, operation, row, scrollable, text},
+    widget::{Space, button, column, container, operation, row, text},
 };
 use yapfast_core::{
     application::{ADD_MEMBERS_LIMIT, RoleInput, RoleLock, RolesPage},
@@ -186,7 +187,7 @@ impl App {
                 &adding.query,
                 RoleInput::FindCandidates
             ),
-            scrollable(list)
+            scroll_view(list)
                 .style(scrollbar(theme))
                 .height(Length::Fill),
             row![

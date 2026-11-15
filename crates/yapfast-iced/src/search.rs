@@ -5,11 +5,12 @@
 //! clicked, or its Jump, shows it; Close, Escape or clearing the box ends
 //! the search, and its cards go.
 
+use crate::widgets::scroll_view;
 use std::sync::Arc;
 
 use iced::{
     Alignment, Border, Color, Element, Length, Padding, Task,
-    widget::{column, container, row, scrollable, text, text_input},
+    widget::{column, container, row, text, text_input},
 };
 use yapfast_core::{application::Action, discord};
 
@@ -289,7 +290,7 @@ impl App {
             body = body.push(container(text(note).size(14).color(theme.secondary)).padding(16));
         }
         body = body.push(
-            scrollable(list)
+            scroll_view(list)
                 .height(Length::Fill)
                 .style(scrollbar(theme)),
         );

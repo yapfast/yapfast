@@ -14,9 +14,10 @@
 //! ([`Screen`]: the bar's shake, whether Add's search had the keys) and
 //! lets go of it when the settings close.
 
+use crate::widgets::scroll_view;
 use iced::{
     Alignment, Element, Length, Padding, Task,
-    widget::{Space, button, column, container, operation, row, scrollable, text},
+    widget::{Space, button, column, container, operation, row, text},
 };
 use yapfast_core::{
     application::{
@@ -535,7 +536,7 @@ impl App {
             }
         }
         let mut right = column![
-            scrollable(list)
+            scroll_view(list)
                 .style(scrollbar(theme))
                 .height(Length::Fill)
         ]
@@ -598,7 +599,7 @@ impl App {
         }));
         column![
             head,
-            scrollable(rows)
+            scroll_view(rows)
                 .style(scrollbar(theme))
                 .height(Length::Fill)
         ]
@@ -838,7 +839,7 @@ impl App {
                 .size(14)
                 .padding([10.9, 12.0])
                 .on_input(|text| input(ChannelInput::FindMembers(text))),
-            scrollable(list)
+            scroll_view(list)
                 .style(scrollbar(theme))
                 .height(Length::Fill),
             row![

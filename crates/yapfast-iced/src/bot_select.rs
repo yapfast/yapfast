@@ -7,9 +7,10 @@
 //! Escape. What it lists and sends is the core's (`OpenSelect`,
 //! `ToggleSelect`, `SearchSelect`, `CloseSelect`).
 
+use crate::widgets::scroll_view;
 use iced::{
     Alignment, Border, Element, Length, Task,
-    widget::{Space, button, column, container, row, scrollable, text},
+    widget::{Space, button, column, container, row, text},
 };
 use yapfast_core::application::Action;
 
@@ -172,7 +173,7 @@ impl App {
                     .align_y(Alignment::Center),
             );
         }
-        panel = panel.push(scrollable(list).style(scrollbar(theme)));
+        panel = panel.push(scroll_view(list).style(scrollbar(theme)));
         let (raised, edge) = (theme.raised, theme.edge);
         iced::widget::opaque(
             container(panel)

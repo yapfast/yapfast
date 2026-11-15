@@ -84,7 +84,7 @@ impl Engine {
         if let Background::Gradient(Gradient::Linear(linear)) = background
             && (quad.border.width == 0.0 || quad.border.color.a == 0.0)
             && quad.shadow.color.a == 0.0
-            && let Some((x, y, width, height)) = whole_pixels(physical_bounds)
+            && let Some((x, y, width, height)) = whole_pixels(physical_bounds, transformation.scale_factor())
         {
             let (start, end) = linear.angle.to_distance(&quad.bounds);
             let (start, end) = (start * transformation, end * transformation);
@@ -275,7 +275,7 @@ impl Engine {
         // (`mask_u8`), the picker's whole panel every frame it scrolled.
         if let Background::Color(color) = background
             && (quad.border.width == 0.0 || quad.border.color.a == 0.0)
-            && let Some((x, y, width, height)) = whole_pixels(physical_bounds)
+            && let Some((x, y, width, height)) = whole_pixels(physical_bounds, transformation.scale_factor())
         {
             let straight = [color.b, color.g, color.r, color.a];
             crate::blit::gradient(
@@ -298,12 +298,19 @@ impl Engine {
         // inside it, as the stroke would leave it.
         let scale = transformation.scale_factor();
         let border = quad.border.width * scale;
+        // Patch 25: a scaled border is put on whole pixels too, a pixel at
+        // the least.
+        let border = if (scale - 1.0).abs() >= 0.001 && border > 0.0 {
+            border.round().max(1.0)
+        } else {
+            border
+        };
         if let Background::Color(color) = background
             && color.a >= 1.0
             && quad.border.color.a >= 1.0
             && border > 0.0
             && (border - border.round()).abs() < 0.01
-            && let Some((x, y, width, height)) = whole_pixels(physical_bounds)
+            && let Some((x, y, width, height)) = whole_pixels(physical_bounds, transformation.scale_factor())
             && (border.round() as i32) * 2 < width.min(height)
         {
             let border = border.round() as i32;
@@ -809,11 +816,27 @@ impl Engine {
         }
     }
 
-    pub fn trim(&mut self) {
+    /// After a frame of `layers` at `scale_factor`.
+    pub fn trim(&mut self, _layers: &[crate::Layer], _scale_factor: f32) {
         self.text_pipeline.trim_cache();
 
+        // Yapfast port (patch 24): the pictures in the frame's layers keep
+        // their scaled copies, drawn this time or not.
         #[cfg(feature = "image")]
-        self.raster_pipeline.trim_cache();
+        {
+            let shown = _layers
+                .iter()
+                .flat_map(|layer| &layer.images)
+                .filter_map(|image| match image {
+                    Image::Raster { image, bounds, .. } => {
+                        Some(crate::raster::shown_at(image, *bounds, _scale_factor))
+                    }
+                    #[allow(unreachable_patterns)]
+                    _ => None,
+                })
+                .collect();
+            self.raster_pipeline.trim_cache(&shown);
+        }
 
         #[cfg(feature = "svg")]
         self.vector_pipeline.trim_cache();
@@ -821,8 +844,20 @@ impl Engine {
 }
 
 /// Yapfast port: `bounds` as whole pixels, when they're whole pixels.
-fn whole_pixels(bounds: Rectangle) -> Option<(i32, i32, i32, i32)> {
+/// `bounds` (in the frame's pixels) as whole pixels, when they are: x, y,
+/// width, height. Yapfast port (patch 25): at a scale other than 1 (a
+/// zoom, a desktop's 125%), whose quads seldom fall on whole pixels, each
+/// edge is put on the nearest pixel's, as the pictures are, so neighbours
+/// still meet. Stock, every such quad went through the anti-aliased path
+/// and the clip mask.
+fn whole_pixels(bounds: Rectangle, scale: f32) -> Option<(i32, i32, i32, i32)> {
     let values = [bounds.x, bounds.y, bounds.width, bounds.height];
+    if (scale - 1.0).abs() >= 0.001 {
+        let (left, top) = (bounds.x.round() as i32, bounds.y.round() as i32);
+        let right = (bounds.x + bounds.width).round() as i32;
+        let bottom = (bounds.y + bounds.height).round() as i32;
+        return (right > left && bottom > top).then_some((left, top, right - left, bottom - top));
+    }
     values
         .iter()
         .all(|value| (value - value.round()).abs() < 0.01)
@@ -1387,6 +1422,24 @@ mod tests {
         }
         let kept = engine.shadows.iter().map(|(_, sliced)| sliced.pixels.len()).sum();
         (frame, kept)
+    }
+
+    #[test]
+    fn a_quad_scaled_off_whole_pixels_is_put_on_them_edge_by_edge() {
+        let at = |x, y, width, height| Rectangle { x, y, width, height };
+        // At 1 only whole pixels are taken.
+        assert_eq!(whole_pixels(at(10.0, 20.0, 30.0, 40.0), 1.0), Some((10, 20, 30, 40)));
+        assert_eq!(whole_pixels(at(10.5, 20.0, 30.0, 40.0), 1.0), None);
+        // At 1.1, each edge goes to its nearest pixel's, so two quads that
+        // meet still meet.
+        let left = at(11.0, 22.0, 27.5, 13.2) * Transformation::scale(1.1);
+        let right = at(38.5, 22.0, 20.0, 13.2) * Transformation::scale(1.1);
+        let (x, _, width, _) = whole_pixels(left, 1.1).expect("whole");
+        let (next, _, _, _) = whole_pixels(right, 1.1).expect("whole");
+        assert_eq!((x, x + width), (12, 42));
+        assert_eq!(next, x + width);
+        // Less than a pixel across rounds to nothing.
+        assert_eq!(whole_pixels(at(10.1, 0.0, 0.2, 5.0), 1.25), None);
     }
 
     #[test]

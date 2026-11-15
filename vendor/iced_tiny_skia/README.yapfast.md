@@ -107,6 +107,41 @@ marked `Yapfast port` in the source and numbered there:
     card) fills nothing and only its border is drawn. Stock, its whole
     area went through the anti-aliased path and the clip mask. A test
     draws one clipped.
+22. `timing.rs` (new), `window/compositor.rs` `present`: a hook the app
+    sets once (`timing::set_hook`), only while its frame trace is on, is
+    told of each frame presented: waiting for a buffer the compositor let
+    go of, the damage diff, the draw, the present, and the damaged regions
+    and their area, and the area patch 23 told the compositor of. Without
+    a hook no clock is read.
+23. `window/compositor.rs` `present`, `physical`: the compositor is told
+    only what differs from the frame presented last (`present_with_damage`
+    with those regions in the buffer's pixels), as Slint's software
+    renderer tells it its dirty region. Stock presented the whole window as
+    damaged on every frame, so a compositor that copies a shared-memory
+    buffer into its texture on each commit (Hyprland does so on its main
+    thread, Weston at each repaint) copied the whole window for a scrolled
+    member list. The draw's own damage is against the buffer's older frame
+    (two back, with two buffers), so the compositor's is worked out against
+    the last one presented, unless the buffer is that one.
+
+24. `raster.rs` `Resized`, `blit.rs` `resized`, `engine.rs` `trim`: a
+    picture drawn unrotated at a size other than its own (every picture at
+    a zoom other than 100% or a desktop scale of 125%) is put on whole
+    pixels, its corner on the nearest and its size rounded (so a list
+    scrolled by fractions of a pixel doesn't change it), scaled once to
+    them (bilinear, in integers, as tiny-skia's filter samples) and copied
+    in like one at its own size from then on. The copy is kept while the
+    picture is in the frame's layers at that size, drawn or not, and goes
+    with the first frame it isn't. Stock, and with patches 2
+    and 10, such a picture went through tiny-skia's pattern pipeline in
+    f32 on every frame: at 110% a scrolled frame of a picture-heavy channel
+    took 17 ms to draw rather than 1. Tests in `blit.rs`.
+25. `engine.rs` `whole_pixels`: at a scale other than 1, a quad that patches
+    8 and 12 would fill directly but for not lying on whole pixels has each
+    edge put on its nearest pixel's (so quads that meet still meet), and
+    its border a whole number of pixels, one at
+    least. Stock, each went through the anti-aliased path and the clip
+    mask. A test in `engine.rs`.
 
 Unmarked lines are iced's. Updating iced means taking the new
 iced_tiny_skia and carrying each marked change over.

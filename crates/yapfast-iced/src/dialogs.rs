@@ -2,10 +2,11 @@
 //! the frame every dialog is drawn in ([`dialog`]), and Delete's
 //! confirmation. While one is open nothing under it takes a click or a key.
 
+use crate::widgets::scroll_view;
 use iced::{
     Alignment, Element, Length, Task,
     keyboard::key,
-    widget::{Space, column, container, opaque, row, scrollable, stack, text},
+    widget::{Space, column, container, opaque, row, stack, text},
 };
 
 use crate::{
@@ -245,7 +246,7 @@ impl App {
         width: f32,
         close: Message,
     ) -> Element<'a, Message> {
-        let body = scrollable(column(body).spacing(12).padding(20))
+        let body = scroll_view(column(body).spacing(12).padding(20))
             .width(Length::Fill)
             .style(crate::style::scrollbar(&self.theme));
         dialog(&self.theme, body.into(), width, close)

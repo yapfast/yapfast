@@ -20,9 +20,10 @@ pub mod updates;
 pub use pages::message_size;
 pub mod voice;
 
+use crate::widgets::scroll_view;
 use iced::{
     Alignment, Color, Element, Length, Task,
-    widget::{Space, button, column, container, row, scrollable, text},
+    widget::{Space, button, column, container, row, text},
 };
 use yapfast_core::application::Action;
 use yapfast_core::new_tags::{self, Page};
@@ -428,7 +429,7 @@ impl App {
             .align_y(Alignment::Center),
             line
         ];
-        let body = scrollable(
+        let body = scroll_view(
             container(container(page).max_width(form::COLUMN))
                 .padding(iced::Padding {
                     top: form::PAGE_TOP,
@@ -552,7 +553,7 @@ impl App {
                 entries = entries.push(self.nav_row(section, settings.section() == section));
             }
         }
-        let list = scrollable(container(entries).padding(iced::Padding {
+        let list = scroll_view(container(entries).padding(iced::Padding {
             left: 16.0,
             right: 16.0,
             bottom: 16.0,

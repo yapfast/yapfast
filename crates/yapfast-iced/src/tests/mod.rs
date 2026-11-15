@@ -1010,7 +1010,7 @@ fn a_link_preview_and_a_file_show_in_their_cards() {
 }
 
 /// Scrolls the timeline `pixels` up from where the window shows it, as
-/// the wheel does over it.
+/// a touchpad does over it.
 fn scroll_up(app: &mut App, pixels: f32) {
     let middle = Point::new(
         crate::rail::WIDTH + crate::sidebar::WIDTH + 200.0,
@@ -1018,9 +1018,7 @@ fn scroll_up(app: &mut App, pixels: f32) {
     );
     interact(app, |ui| {
         ui.point_at(middle);
-        ui.simulate([iced::Event::Mouse(mouse::Event::WheelScrolled {
-            delta: mouse::ScrollDelta::Pixels { x: 0.0, y: pixels },
-        })]);
+        ui.simulate(crate::widgets::swipe(pixels));
     });
 }
 

@@ -6,6 +6,7 @@
 //! the foot that names what's pointed at, and the masonry GIFs are placed
 //! in.
 
+use crate::widgets::scroll_view;
 use iced::{
     Alignment, Border, Color, Element, Length, Padding, Rectangle, Size,
     widget::{Id, button, column, container, row, scrollable, text},
@@ -219,7 +220,7 @@ pub fn rail<'a>(
     // It scrolls when its sections outgrow it, with no bar, as the Slint
     // client's `PickerRail`.
     let hidden = scrollable::Scrollbar::new().width(0).scroller_width(0);
-    container(scrollable(rail).direction(scrollable::Direction::Vertical(hidden)))
+    container(scroll_view(rail).direction(scrollable::Direction::Vertical(hidden)))
         .width(RAIL)
         .height(Length::Fill)
         .style(move |_| crate::style::fill(panel))
@@ -271,7 +272,7 @@ pub fn pinned<'a>(
 
 /// The grid's scrollable, reporting where it's scrolled to.
 pub fn grid<'a>(rows: Rows<'a>, theme: &Theme) -> Element<'a, Message> {
-    scrollable(rows)
+    scroll_view(rows)
         .id(Id::new(GRID))
         .on_scroll(|viewport| Message::Picker(Event::Scrolled(viewport)))
         .width(Length::Fill)

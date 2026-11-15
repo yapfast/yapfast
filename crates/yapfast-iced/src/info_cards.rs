@@ -7,10 +7,11 @@
 //! `yapfast_core::emoji::card` works it out). Each closes on Escape or a
 //! click outside; what they show is the core's.
 
+use crate::widgets::scroll_view;
 use iced::{
     Alignment, Border, Element, Length, Padding, Point, Rectangle, Size, Task,
     border::Radius,
-    widget::{button, column, container, opaque, row, scrollable, stack, text},
+    widget::{button, column, container, opaque, row, stack, text},
 };
 use yapfast_core::{
     application::{Action, Navigation},
@@ -458,7 +459,7 @@ impl App {
                 );
             }
             let tall = (members.len() as f32 * ROLE_ROW).min(ROLE_LIST);
-            card = card.push(scrollable(list).height(tall).style(scrollbar(theme)));
+            card = card.push(scroll_view(list).height(tall).style(scrollbar(theme)));
         }
         let limit = self.window.height - 16.0;
         let card = frame(theme, theme.raised, ROLE_WIDTH, 8.0, card).max_height(limit);

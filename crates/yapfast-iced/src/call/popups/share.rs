@@ -1,12 +1,13 @@
 //! Go Live's menu (`ShareMenu`): the screens with a picture of each and
 //! the windows, from a listing that comes as the menu opens.
 
+use crate::widgets::scroll_view;
 use std::sync::Arc;
 
 use iced::{
     Alignment, Border, Element, Length, Padding, Task,
     advanced::image::Handle,
-    widget::{button, column, container, operation, row, scrollable, text},
+    widget::{button, column, container, operation, row, text},
 };
 use yapfast_core::voice::{Command, Resolution, StreamQuality};
 
@@ -388,7 +389,7 @@ impl App {
         let spot = self.call.spot.get();
         let tallest = (spot.y - 6.0 - 8.0 - 12.0 - 52.0).max(80.0);
         column![
-            container(scrollable(choices).height(Length::Shrink)).max_height(tallest),
+            container(scroll_view(choices).height(Length::Shrink)).max_height(tallest),
             container(start).padding(Padding {
                 top: 10.0,
                 left: 4.0,

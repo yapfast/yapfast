@@ -6,11 +6,10 @@
 //! sent, and spam folded away; and the dialog that adds a friend by
 //! username.
 
+use crate::widgets::scroll_view;
 use iced::{
     Alignment, Border, Element, Length, Padding, Point, Task,
-    widget::{
-        Space, button, column, container, mouse_area, operation, row, scrollable, stack, text,
-    },
+    widget::{Space, button, column, container, mouse_area, operation, row, stack, text},
 };
 use yapfast_core::{
     application::{Action, AddFriend, DmScreen, Navigation},
@@ -320,7 +319,7 @@ impl App {
                 self.friend_row(friend, spots.get(friend.id.as_str()).copied()),
             );
         }
-        let list = scrollable(rows)
+        let list = scroll_view(rows)
             .id(iced::widget::Id::new(LIST))
             .on_scroll(|viewport| Message::Friends(Event::Scrolled(Scroll::of(viewport))))
             .height(Length::Fill)

@@ -422,10 +422,32 @@ scripts/ui-session do 'record start tour' 'glide 400 600' 'click 170 264 glide' 
 `testing/record_host.rs` takes the frames through Weston's capture protocol
 and ffmpeg encodes them to `.local/ui-session/videos/tour.mp4`, which later
 starts keep. `--zoom` opens Yapfast at that zoom level, `--cursor` shows the
-pointer, `glide` and `click … glide` move it as a hand would, and `scroll
-PIXELS SECONDS` scrolls smoothly. Weston's headless display repaints about
+pointer, `glide` and `click … glide` move it as a hand would, `scroll
+PIXELS SECONDS` scrolls smoothly as a touchpad whose fingers stay down,
+`fling PIXELS SECONDS` as one at a steady speed whose fingers then lift,
+and `wheel NOTCHES SECONDS` turns a mouse wheel notch by notch. Weston's headless display repaints about
 58.5 times a second at most, so about one frame in 40 repeats the one
 before.
+
+To see how smoothly a list moves, `start --refresh HZ` gives the display
+another refresh rate, and `steps` records every repaint's row sums instead
+of a video:
+
+```sh
+scripts/ui-session start --discord --size 1920x1080 --refresh 180 --bin target/fast/yapfast
+scripts/ui-session do 'move 900 500' 'steps start notch 400 1300' 'wheel -1' 'sleep 1' 'steps stop'
+testing/frame_steps.py .local/ui-session/videos/notch.rows --from 60 --to 1000
+```
+
+`testing/frame_steps.py` matches each repaint's rows against the one
+before and prints how far the list moved on each repaint, the time between
+repaints and between moves, the repaints that showed no move while it
+moved, and how even the steps were. Weston's headless output times its
+repaints in whole milliseconds and waits at least one more, so a busy
+display repaints every `floor(1000 / HZ) + 1` ms or a little over: 180
+gives about 164 repaints a second, 250 about 196. The iced client's own
+timings come from its frame trace (`YAPFAST_LOG=debug`, target
+`yapfast::frames`; see [the iced client](iced-client.md)).
 
 ## Networks
 

@@ -4,9 +4,10 @@
 //! What it lists, and the forwarding itself, are the core's
 //! (`AppState::forward_places`, `Action::Forward`).
 
+use crate::widgets::scroll_view;
 use iced::{
     Alignment, Border, Element, Length, Task,
-    widget::{Space, button, column, container, row, scrollable, text},
+    widget::{Space, button, column, container, row, text},
 };
 use yapfast_core::{
     application::{Action, FORWARD_LIMIT},
@@ -140,7 +141,7 @@ impl App {
             };
             list = list.push(container(text(empty).size(14).color(theme.secondary)).padding(8));
         }
-        let list = scrollable(list).height(LIST).style(scrollbar(theme));
+        let list = scroll_view(list).height(LIST).style(scrollbar(theme));
         let line = theme.line;
         let quote = row![
             container(Space::new())

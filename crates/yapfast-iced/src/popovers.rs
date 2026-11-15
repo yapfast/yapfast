@@ -6,11 +6,12 @@
 //! open; the window keeps only where it opens from and the rows it built,
 //! which go as it closes.
 
+use crate::widgets::scroll_view;
 use std::hash::{Hash, Hasher};
 
 use iced::{
     Alignment, Border, Element, Length, Padding, Task,
-    widget::{Space, button, column, container, operation, row, scrollable, stack, text},
+    widget::{Space, button, column, container, operation, row, stack, text},
 };
 use yapfast_core::{
     application::Action,
@@ -605,7 +606,7 @@ impl App {
                         Message::Popover(Event::Jump(found.message.item.clone())),
                     )
                 });
-                scrollable(column(cards).spacing(8).padding(12))
+                scroll_view(column(cards).spacing(8).padding(12))
                     .style(scrollbar(&self.theme))
                     .into()
             }
@@ -639,7 +640,7 @@ impl App {
             ink: theme.text,
         };
         let body =
-            scrollable(container(self.body_view(&topic.body, usize::MAX, 0, look)).padding(16))
+            scroll_view(container(self.body_view(&topic.body, usize::MAX, 0, look)).padding(16))
                 .style(scrollbar(theme));
         let name = self.header.name.as_str();
         let panel = self.popover_frame(
@@ -756,7 +757,7 @@ impl App {
                         .center_x(Length::Fill),
                 );
             }
-            scrollable(rows)
+            scroll_view(rows)
                 .on_scroll(|viewport| {
                     Message::Popover(Event::ThreadsScrolled(
                         viewport.absolute_offset().y,
@@ -940,7 +941,7 @@ impl App {
         }
         let mut body = column![
             field,
-            scrollable(list)
+            scroll_view(list)
                 .height(Length::Fill)
                 .style(scrollbar(theme)),
         ]

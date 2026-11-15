@@ -4,6 +4,7 @@
   scripts/ui-session start [--discord [--fake-args '--servers 3 --dms 50']] [--live]
                            [--size 1120x760] [--renderer software|gpu] [--tray]
                            [--zoom 1.2] [--cursor [SIZE]] [--desktop] [--profile fast|measure]
+                           [--refresh 60]
                            [--bin PATH | --no-build]
                            [-- YAPFAST_ARGS...]
   scripts/ui-session do 'click X Y' 'type Hello' 'key enter' 'shot NAME' ...
@@ -36,6 +37,11 @@ Yapfast's own title bar on Linux. The display is then 240x160 larger than --size
 for Weston's panel and room around the window, and coordinates are the display's.
 --cursor shows the pointer, 24 pixels tall unless SIZE says; without it
 screenshots and videos have none.
+--refresh gives the display a refresh rate in Hz, 60 unless it says, such as 180
+for a 180 Hz monitor. Weston's headless output times its repaints in whole
+milliseconds and waits at least 1 ms more, so a busy display repaints every
+floor(1000/HZ) + 1 ms or a little over: 17 ms at 60, 6 ms (about 164 a second)
+at 180, 5 ms at 200 to 249. Clients get their frame callbacks at each repaint.
 start also builds testing/record_host.rs, which `record` runs.
 
 do commands, run in order; the first error stops the rest:
@@ -46,7 +52,11 @@ do commands, run in order; the first error stops the rest:
       second; by default in .3 to 1 s, by the distance
   press X Y [middle] | release [middle]   hold the left (or middle) button
       down, for what happens meanwhile
-  scroll PIXELS [SECONDS] (negative scrolls up), at once or eased over SECONDS
+  scroll PIXELS [SECONDS] (negative scrolls up), at once or eased over SECONDS,
+      as a touchpad's fingers that stay down
+  fling PIXELS SECONDS   a touchpad's scroll at one speed, then the fingers lift
+  wheel NOTCHES [SECONDS]   a mouse wheel's notches (negative scrolls up),
+      one at a time, spread over SECONDS
   key NAME|CODE, with modifiers as ctrl+a (names: enter esc tab backspace
       delete space up down left right home end pageup pagedown f10 menu,
       a-z, 0-9)
@@ -79,6 +89,10 @@ do commands, run in order; the first error stops the rest:
       repaints for each capture, still window or not, at most about 58.5
       times a second, so about one frame in 40 repeats. stop, or the
       session's end, finishes the file. Videos stay across start
+  steps start NAME X0 X1 | steps stop   records no video but, for every repaint,
+      when it came and each row's pixels summed between columns X0 and X1, to
+      .local/ui-session/videos/NAME.rows; testing/frame_steps.py NAME.rows then
+      tells how far a list moved on each repaint and which repaints missed
 Without arguments, do reads one command per line from standard input.
 
 Logs: .local/ui-session/{yapfast,fake,session,build,record}.log. Yapfast's PID is in
@@ -179,6 +193,19 @@ def zoom_level(text):
     return percent / 100
 
 
+def repaint_window(refresh):
+    """A repaint window of the headless output's whole frame timer and more,
+    so Weston repaints a busy display on every frame; see --refresh."""
+    return int(1000 / refresh) + 1
+
+
+def refresh_rate(text):
+    hertz = float(text)
+    if not 1 <= hertz <= 1000:
+        raise argparse.ArgumentTypeError('a refresh rate from 1 to 1000 Hz')
+    return hertz
+
+
 def start(args):
     if running():
         raise SystemExit('A UI session is already running; stop it first.')
@@ -218,7 +245,8 @@ def start(args):
               '--record', str(STATE / 'record-host'),
               *(['--cursor', str(args.cursor)] if args.cursor else []), '--', *yapfast_args]
     display = (f'scripts/run-framework-isolated --audio --alsa-plugins "$YAPFAST_FRAMEWORK_ALSA_PLUGINS" '
-               f'--no-services {"" if args.desktop else "--kiosk "}--width {width} --height {height} --repaint-window 17 '
+               f'--no-services {"" if args.desktop else "--kiosk "}--width {width} --height {height} '
+               f'--refresh-rate {round(args.refresh * 1000)} --repaint-window {repaint_window(args.refresh)} '
                f'--compositor-log {shlex.quote(str(STATE / "weston.log"))} -- {shlex.join(driver)}')
     session = subprocess.Popen(['nix-shell', '--impure', 'testing/display/shell.nix', '--run', display],
                                cwd=ROOT, stdin=subprocess.DEVNULL, stdout=(STATE / 'session.log').open('wb'),
@@ -277,6 +305,8 @@ starting.add_argument('--profile', choices=['fast', 'measure'], default='fast',
                       help='Cargo profile to build with; measure optimizes the interface too')
 starting.add_argument('--tray', action='store_true', help='run a stand-in tray on the private bus')
 starting.add_argument('--desktop', action='store_true', help="Weston's desktop shell rather than kiosk: the window isn't full screen")
+starting.add_argument('--refresh', type=refresh_rate, default=60.0, metavar='HZ',
+                      help="the display's refresh rate, 60 unless given; see above")
 starting.add_argument('--zoom', type=zoom_level, help="open Yapfast zoomed to this level, such as 1.2")
 starting.add_argument('--cursor', type=int, nargs='?', const=24, metavar='SIZE',
                       help='show the pointer, this many pixels tall (24)')

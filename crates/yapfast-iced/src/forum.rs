@@ -8,6 +8,7 @@
 //! message with files, Post making it. The cards are built again only
 //! when what they show changed, and go as the forum closes.
 
+use crate::widgets::scroll_view;
 use std::{
     hash::{Hash, Hasher},
     sync::Arc,
@@ -15,7 +16,7 @@ use std::{
 
 use iced::{
     Alignment, Element, Length, Padding, Size, Task,
-    widget::{Space, button, column, container, row, scrollable, stack, text},
+    widget::{Space, button, column, container, row, stack, text},
 };
 use yapfast_core::{
     application::{Action, ForumInfo, ForumPost, POST_TAGS},
@@ -377,7 +378,7 @@ impl App {
                 );
             }
             page = page.push(
-                scrollable(list)
+                scroll_view(list)
                     .on_scroll(|viewport| {
                         Message::Forum(Event::Scrolled(
                             viewport.absolute_offset().y,
@@ -654,7 +655,7 @@ impl App {
         );
         let form: Element<'_, Message> = column![
             head,
-            scrollable(fields)
+            scroll_view(fields)
                 .height(Length::Fill)
                 .style(scrollbar(theme)),
         ]
@@ -719,7 +720,7 @@ impl App {
                 },
             );
             guide = guide
-                .push(container(scrollable(body).style(scrollbar(theme))).max_height(GUIDELINES));
+                .push(container(scroll_view(body).style(scrollbar(theme))).max_height(GUIDELINES));
         }
         let (ground, edge) = (theme.sidebar, theme.line);
         container(guide)

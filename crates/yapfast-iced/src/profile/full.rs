@@ -3,9 +3,10 @@
 //! shared, each with Discord's words while it's empty and rows the shape of
 //! what's coming while Discord hasn't said.
 
+use crate::widgets::scroll_view;
 use iced::{
     Alignment, Color, Element, Length, Padding,
-    widget::{Space, button, column, container, mouse_area, row, scrollable, stack, text},
+    widget::{Space, button, column, container, mouse_area, row, stack, text},
 };
 use yapfast_core::chat::{Presence, Wishlist};
 
@@ -35,7 +36,7 @@ impl App {
         let inks = self.inks(look, Mode::Side);
         let side_width = (width * 0.4 - 8.0).max(340.0);
         let side = container(
-            scrollable(self.profile_body(shown, Mode::Side, side_width, true))
+            scroll_view(self.profile_body(shown, Mode::Side, side_width, true))
                 .height(Length::Fill)
                 .style(scrollbar(&self.theme)),
         )
@@ -181,7 +182,7 @@ impl App {
                 list.into()
             }
         };
-        scrollable(content)
+        scroll_view(content)
             .height(Length::Fill)
             .style(scrollbar(&self.theme))
             .into()

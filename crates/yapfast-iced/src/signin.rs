@@ -8,9 +8,10 @@
 //! over the conversation until the device is verified. Everything goes to
 //! the core as the Slint client's callbacks send it.
 
+use crate::widgets::scroll_view;
 use iced::{
     Alignment, Border, Color, Element, Length, Padding, Task,
-    widget::{Space, column, container, operation, row, scrollable, stack, text},
+    widget::{Space, column, container, operation, row, stack, text},
 };
 use yapfast_core::application::{Action, DiscordLink};
 
@@ -313,7 +314,7 @@ impl App {
                 ..rounded(chat, 12)
             }
         });
-        let page = scrollable(
+        let page = scroll_view(
             container(card)
                 .padding(Padding {
                     top: 0.0,

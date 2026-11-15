@@ -5,11 +5,12 @@
 //! Discord's `NowPlayingViewStore` makes them, only while the friends list
 //! shows.
 
+use crate::widgets::scroll_view;
 use std::collections::HashMap;
 
 use iced::{
     Alignment, Element, Length, Padding,
-    widget::{Space, button, column, container, row, scrollable, stack, text},
+    widget::{Space, button, column, container, row, stack, text},
 };
 use yapfast_core::{
     application::{AppState, DmScreen},
@@ -171,7 +172,7 @@ impl App {
                 cards = cards.push(self.active_card(card, now));
             }
             page = page.push(
-                scrollable(cards)
+                scroll_view(cards)
                     .height(Length::Fill)
                     .style(scrollbar(theme)),
             );

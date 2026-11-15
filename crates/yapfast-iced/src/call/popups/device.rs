@@ -2,9 +2,10 @@
 //! and on the input side the microphone's level (`InputLevel`) and noise
 //! suppression.
 
+use crate::widgets::scroll_view;
 use iced::{
     Alignment, Border, Color, Element, Length, Padding,
-    widget::{column, container, row, scrollable, text},
+    widget::{column, container, row, text},
 };
 use yapfast_core::{
     meter::InputMeter,
@@ -187,7 +188,7 @@ impl App {
                     list = list.push(self.popup_row(label, None, None, check, press));
                 }
                 let shown = devices.len().clamp(1, DEVICES_SHOWN) as f32;
-                menu = menu.push(scrollable(list).height(shown * controls::ITEM + 4.0));
+                menu = menu.push(scroll_view(list).height(shown * controls::ITEM + 4.0));
             }
         }
         let volume = if input {

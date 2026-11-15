@@ -10,6 +10,7 @@ use std::collections::hash_map;
 pub struct Pipeline {
     cache: RefCell<Cache>,
     opaque: RefCell<Opaque>,
+    resized: RefCell<Resized>,
 }
 
 impl Pipeline {
@@ -17,6 +18,7 @@ impl Pipeline {
         Self {
             cache: RefCell::new(Cache::default()),
             opaque: RefCell::new(Opaque::default()),
+            resized: RefCell::new(Resized::default()),
         }
     }
 
@@ -98,33 +100,54 @@ impl Pipeline {
             return;
         }
 
-        // Yapfast port: a picture drawn at its own size, unrotated, on whole
-        // pixels is copied in with source-over, its corners cut to
-        // `border_radius` (which tiny-skia's path ignores). tiny-skia's
-        // pattern pipeline costs several times more per pixel. Round 3:
-        // partly transparent ones too (faded offline avatars, nameplates).
-        if transform.sx == 1.0
-            && transform.sy == 1.0
-            && transform.kx == 0.0
+        // Yapfast port: a picture drawn unrotated is put on whole pixels and
+        // copied in with source-over, its corners cut to `border_radius`
+        // (which tiny-skia's path ignores): at its own size as it is, else
+        // scaled to the pixels it covers (patch 24), as at a zoom other
+        // than 100%. tiny-skia's pattern pipeline costs several times more
+        // per pixel. Round 3: partly transparent ones too (faded offline
+        // avatars, nameplates).
+        if transform.kx == 0.0
             && transform.ky == 0.0
-            && (bounds.width - image.width() as f32).abs() < 0.01
-            && (bounds.height - image.height() as f32).abs() < 0.01
+            && transform.sx > 0.0
+            && transform.sy > 0.0
         {
             // Patch 19: whether it's opaque is found once, not row by row
             // for every frame it's drawn in.
             let opaque = self.opaque.borrow_mut().of(handle.id(), image.data());
-            crate::blit::blit(
-                image.data(),
-                image.width(),
-                image.height(),
-                (bounds.x + transform.tx).round() as i32,
-                (bounds.y + transform.ty).round() as i32,
-                clip_bounds,
-                border_radius,
-                (opacity.clamp(0.0, 1.0) * 256.0).round() as u32,
-                opaque,
-                pixels,
-            );
+            let (left, top, right, bottom) = whole_span(bounds, transform);
+            let opacity = (opacity.clamp(0.0, 1.0) * 256.0).round() as u32;
+            let radius = border_radius.map(|radius| radius * transform.sx);
+            if (right - left, bottom - top) == (image.width() as i32, image.height() as i32) {
+                crate::blit::blit(
+                    image.data(),
+                    image.width(),
+                    image.height(),
+                    left,
+                    top,
+                    clip_bounds,
+                    radius,
+                    opacity,
+                    opaque,
+                    pixels,
+                );
+            } else if right > left && bottom > top {
+                let (width, height) = ((right - left) as u32, (bottom - top) as u32);
+                let mut resized = self.resized.borrow_mut();
+                let copy = resized.of(
+                    (
+                        handle.id(),
+                        width,
+                        height,
+                        filter_method == raster::FilterMethod::Nearest,
+                    ),
+                    image,
+                );
+                crate::blit::blit(
+                    copy, width, height, left, top, clip_bounds, radius, opacity, opaque,
+                    pixels,
+                );
+            }
             return;
         }
 
@@ -190,9 +213,12 @@ impl Pipeline {
         );
     }
 
-    pub fn trim_cache(&mut self) {
+    /// After a frame: `shown` are the pictures in its layers, each by its
+    /// handle and the size it's drawn at ([`shown_at`]).
+    pub fn trim_cache(&mut self, shown: &FxHashSet<Shown>) {
         self.cache.borrow_mut().trim();
         self.opaque.borrow_mut().trim();
+        self.resized.borrow_mut().trim(shown);
     }
 }
 
@@ -244,6 +270,78 @@ impl Opaque {
 
     fn trim(&mut self) {
         self.known.retain(|key, _| self.hits.contains(key));
+        self.hits.clear();
+    }
+}
+
+/// Yapfast port (patch 24): pictures drawn at a size other than their own
+/// (all of them at a zoom other than 100%), each scaled once to the whole
+/// pixels it covers and copied in from then on, kept while it's in the
+/// frame's layers at that size. Scaling them through tiny-skia's pattern pipeline on every
+/// frame made a scrolled frame of a picture-heavy channel at 110% cost
+/// 17 ms rather than 1. A picture drawn at its own size has no copy.
+#[derive(Debug, Default)]
+struct Resized {
+    copies: FxHashMap<Shown, Vec<u8>>,
+    hits: FxHashSet<Shown>,
+}
+
+/// Yapfast port (patch 24): a picture as drawn: its handle, the whole
+/// pixels it covers across and down, and whether it's sampled nearest.
+pub type Shown = (raster::Id, u32, u32, bool);
+
+/// The whole pixels (left, top, right, bottom) a picture at `bounds`
+/// covers under `transform` (unrotated): its corner on the nearest pixel,
+/// its size rounded. Its size doesn't change with where it is, so a list
+/// scrolled by fractions of a pixel (any at 110%) neither scales it anew
+/// nor has its edges flicker by a pixel.
+fn whole_span(bounds: Rectangle, transform: tiny_skia::Transform) -> (i32, i32, i32, i32) {
+    let left = (bounds.x * transform.sx + transform.tx).round() as i32;
+    let top = (bounds.y * transform.sy + transform.ty).round() as i32;
+    (
+        left,
+        top,
+        left + (bounds.width * transform.sx).round() as i32,
+        top + (bounds.height * transform.sy).round() as i32,
+    )
+}
+
+/// Yapfast port (patch 24): a picture at `bounds` in a frame at `scale`, as
+/// [`Resized`] keeps its copy.
+pub fn shown_at(image: &raster::Image, bounds: Rectangle, scale: f32) -> Shown {
+    let (left, top, right, bottom) =
+        whole_span(bounds, tiny_skia::Transform::from_scale(scale, scale));
+    (
+        image.handle.id(),
+        (right - left).max(0) as u32,
+        (bottom - top).max(0) as u32,
+        image.filter_method == raster::FilterMethod::Nearest,
+    )
+}
+
+impl Resized {
+    /// `image`'s pixels as `shown`, scaled the first time.
+    fn of(&mut self, shown: Shown, image: tiny_skia::PixmapRef<'_>) -> &[u8] {
+        let _ = self.hits.insert(shown);
+        let (_, width, height, nearest) = shown;
+        self.copies.entry(shown).or_insert_with(|| {
+            crate::blit::resized(
+                image.data(),
+                image.width(),
+                image.height(),
+                width,
+                height,
+                nearest,
+            )
+        })
+    }
+
+    /// Lets go of the copies of pictures the frame doesn't show as they
+    /// were made: drawn in it, or in its layers outside what it drew (a
+    /// frame that redraws a moving GIF alone keeps the copies round it).
+    fn trim(&mut self, shown: &FxHashSet<Shown>) {
+        self.copies
+            .retain(|key, _| self.hits.contains(key) || shown.contains(key));
         self.hits.clear();
     }
 }

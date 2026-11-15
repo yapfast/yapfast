@@ -2,11 +2,12 @@
 //! history's edge and Discord's welcome, the conversation's start, and
 //! the bars that jump to the first unread message and to the present.
 
+use crate::widgets::scroll_view;
 use std::sync::Arc;
 
 use iced::{
     Alignment, Color, Element, Length, Padding,
-    widget::{Space, button, column, container, mouse_area, row, scrollable, stack, text},
+    widget::{Space, button, column, container, mouse_area, row, stack, text},
 };
 use yapfast_core::chat::ChatMessage;
 
@@ -75,7 +76,7 @@ impl App {
                 self.timeline_row(index),
             );
         }
-        let list = scrollable(column![Space::new().height(lead), rows])
+        let list = scroll_view(column![Space::new().height(lead), rows])
             .id(TIMELINE)
             .anchor_bottom()
             .on_scroll(Message::Timeline)

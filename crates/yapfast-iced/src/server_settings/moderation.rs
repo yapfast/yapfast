@@ -7,11 +7,10 @@
 //! server's bans a page at a time, found by username or id, a ban's dialog
 //! lifting it.
 
+use crate::widgets::scroll_view;
 use iced::{
     Alignment, Border, Color, Element, Length, Padding,
-    widget::{
-        Space, button, column, container, rich_text, row, scrollable, span, text, text::Span,
-    },
+    widget::{Space, button, column, container, rich_text, row, span, text, text::Span},
 };
 use yapfast_core::{
     application::{
@@ -311,7 +310,7 @@ impl App {
             for ban_ in shown {
                 rows = rows.push(self.ban_row(&ban_.user));
             }
-            scrollable(rows)
+            scroll_view(rows)
                 .style(scrollbar(theme))
                 .height(Length::Fill)
                 .into()
@@ -547,7 +546,7 @@ impl App {
                 );
             }
             let wants = page.older && !fetching;
-            scrollable(rows)
+            scroll_view(rows)
                 .on_scroll(move |viewport| {
                     let end = viewport.content_bounds().height - viewport.bounds().height;
                     if wants && viewport.absolute_offset().y >= end - NEAR_END {

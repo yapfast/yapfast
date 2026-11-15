@@ -58,6 +58,7 @@ mod form;
 mod forum;
 mod forward;
 mod found;
+mod frames;
 mod friends;
 mod header;
 mod image_viewer;
@@ -249,6 +250,7 @@ pub fn run(
     desktop::install(options.desktop);
     pictures::install();
     video::install();
+    frames::install();
     fonts::install(options.twemoji);
     let _ = EXECUTOR.set(runtime.block_on(async { tokio::runtime::Handle::current() }));
     // As the Slint client starts: the preview, a saved session, or the

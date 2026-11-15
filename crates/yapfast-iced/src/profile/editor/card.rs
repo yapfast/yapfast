@@ -2,9 +2,10 @@
 //! status's thought, the names, the bio, and this account's own actions
 //! and Nitro's offer under it.
 
+use crate::widgets::scroll_view;
 use iced::{
     Alignment, Border, Color, Element, Length, Padding, Point, Rectangle, Size,
-    widget::{Id, Space, button, column, container, row, scrollable, stack, text},
+    widget::{Id, Space, button, column, container, row, stack, text},
 };
 use yapfast_core::{
     application::{BIO_LIMIT, NAME_LIMIT, PRONOUNS_LIMIT, ProfileEditor, ProfileText},
@@ -104,7 +105,7 @@ impl App {
         if let Some(error) = &core.error {
             body = body.push(form::error(theme, error.as_str()));
         }
-        let scroll = scrollable(column![self.editor_top(editor, core, inks, pad), body])
+        let scroll = scroll_view(column![self.editor_top(editor, core, inks, pad), body])
             .height(Length::Fill)
             .style(scrollbar(theme));
         let mut middle = column![scroll];

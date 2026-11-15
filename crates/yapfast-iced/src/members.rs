@@ -4,9 +4,10 @@
 //! (`looks::MemberLook`), virtualized. A click opens someone's card, a
 //! right click their menu (`person.rs`).
 
+use crate::widgets::scroll_view;
 use iced::{
     Alignment, Border, Color, Element, Length, Padding, Point, Rectangle, Size, Task, Vector,
-    widget::{Space, column, container, mouse_area, row, scrollable, text, tooltip},
+    widget::{Space, column, container, mouse_area, row, text, tooltip},
 };
 use yapfast_core::{
     application::{Action, AppState},
@@ -96,7 +97,7 @@ impl App {
         // chat's ground, an outline down its left edge.
         let (ground, edge) = (self.theme.chat, self.theme.outline_chat);
         let list = crate::widgets::Settle::new(
-            scrollable(rows)
+            scroll_view(rows)
                 .on_scroll(Message::Members)
                 .height(Length::Fill)
                 .style(scrollbar(&self.theme)),

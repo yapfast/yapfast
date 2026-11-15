@@ -1,9 +1,10 @@
 //! What the editor customizes beside the card: the avatar, decoration,
 //! effect, nameplate and banner tiles, the theme, and the name's styles.
 
+use crate::widgets::scroll_view;
 use iced::{
     Alignment, Border, Color, Element, Length, Padding, Point, Size,
-    widget::{Space, button, column, container, row, scrollable, stack, text},
+    widget::{Space, button, column, container, row, stack, text},
 };
 use yapfast_core::{
     application::{ProfileEditor, ProfileText},
@@ -206,7 +207,7 @@ impl App {
                 .width(Length::Fill)
                 .height(1)
                 .style(move |_| rounded(line, 0)),
-            scrollable(list)
+            scroll_view(list)
                 .height(Length::Fill)
                 .style(scrollbar(theme)),
         ])

@@ -17,12 +17,13 @@ mod full;
 pub mod look;
 pub mod name_style;
 
+use crate::widgets::scroll_view;
 use std::{cell::RefCell, collections::HashMap, sync::Arc};
 
 use iced::{
     Element, Length, Point, Task,
     advanced::{graphics::text::Version, image::Handle},
-    widget::{column, container, mouse_area, opaque, scrollable, stack},
+    widget::{column, container, mouse_area, opaque, stack},
 };
 use yapfast_core::{
     application::{Action, ProfileTab, ProfileView},
@@ -453,7 +454,7 @@ impl App {
             .filter(|shown| !shown.look.view.large)?;
         let body = self.profile_body(shown, Mode::Card, WIDTH, self.profiles.pointed);
         let limit = self.window.height - 16.0;
-        let content = container(scrollable(body).style(scrollbar(&self.theme)))
+        let content = container(scroll_view(body).style(scrollbar(&self.theme)))
             .width(WIDTH)
             .max_height(limit);
         let content = self.dressed(shown, Mode::Card, WIDTH, content.into());
@@ -494,7 +495,7 @@ impl App {
             PANEL_WIDTH - 2.0 * PANEL_INSET,
             self.profiles.panel_pointed,
         );
-        let scroll = scrollable(body)
+        let scroll = scroll_view(body)
             .height(Length::Fill)
             .style(scrollbar(theme));
         let foot = container(

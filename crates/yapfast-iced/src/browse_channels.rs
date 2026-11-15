@@ -5,9 +5,10 @@
 //! that opens it; a category's Follow category switch follows every
 //! channel in it, whose boxes then change only with it.
 
+use crate::widgets::scroll_view;
 use iced::{
     Alignment, Element, Length, Padding, Task,
-    widget::{button, column, container, row, scrollable, text, tooltip},
+    widget::{button, column, container, row, text, tooltip},
 };
 use yapfast_core::application::{Action, BrowsedChannel, BrowsedKind};
 
@@ -112,7 +113,7 @@ impl App {
             );
         }
         page = page.push(
-            scrollable(list.padding(Padding::ZERO.bottom(16)))
+            scroll_view(list.padding(Padding::ZERO.bottom(16)))
                 .height(Length::Fill)
                 .style(scrollbar(theme)),
         );

@@ -91,9 +91,7 @@ fn authorizing_an_app_says_what_it_asks_for_and_where_it_goes() {
         let head = head.visible_bounds().expect("in view");
         assert!(head.y >= 0.0, "{head:?}");
         ui.point_at(head.center());
-        ui.simulate([iced::Event::Mouse(iced::mouse::Event::WheelScrolled {
-            delta: iced::mouse::ScrollDelta::Pixels { x: 0.0, y: -2000.0 },
-        })]);
+        ui.simulate(crate::widgets::swipe(-2000.0));
         let foot = ui.find("Authorize").expect("the foot");
         let foot = foot.visible_bounds().expect("scrolled into view");
         assert!(foot.y + foot.height <= 200.0, "{foot:?}");

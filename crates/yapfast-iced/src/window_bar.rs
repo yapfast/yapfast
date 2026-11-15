@@ -11,10 +11,11 @@
 //! chooses. A window is made with the frame or without; changing it makes
 //! the window again, as the Slint client does for a maximized one.
 
+use crate::widgets::scroll_view;
 use iced::{
     Alignment, Element, Length, Point, Size, Task,
     mouse::Interaction,
-    widget::{Space, button, column, container, mouse_area, row, scrollable, stack, text, tooltip},
+    widget::{Space, button, column, container, mouse_area, row, stack, text, tooltip},
     window,
 };
 
@@ -685,7 +686,7 @@ impl App {
                     container(self.inbox_line(entry)).padding([0.0, INBOX_PAD]),
                 );
             }
-            scrollable(rows)
+            scroll_view(rows)
                 .on_scroll(|viewport| {
                     Message::Bar(Event::InboxScrolled(crate::sync::Scroll::of(viewport)))
                 })

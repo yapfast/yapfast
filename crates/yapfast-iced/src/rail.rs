@@ -6,14 +6,12 @@
 //! unread), its mentions in a red badge, a speaker while this account is in
 //! a call there, and its name in a tooltip to the right.
 
+use crate::widgets::scroll_view;
 use std::collections::{BTreeSet, HashMap};
 
 use iced::{
     Alignment, Color, Element, Length, Padding, Task,
-    widget::{
-        Space, column, container, mouse_area, scrollable, scrollable::Viewport, stack, text,
-        tooltip,
-    },
+    widget::{Space, column, container, mouse_area, scrollable::Viewport, stack, text, tooltip},
 };
 use yapfast_core::{
     application::{Action, AppState, Navigation},
@@ -399,7 +397,7 @@ impl App {
                 self.rail_row(index, item, height),
             );
         }
-        let list = scrollable(rows)
+        let list = scroll_view(rows)
             .on_scroll(|viewport| Message::Rail(Event::Scrolled(viewport)))
             .height(Length::Fill)
             .style(scrollbar(theme));

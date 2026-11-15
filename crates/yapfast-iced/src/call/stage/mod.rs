@@ -6,9 +6,10 @@
 //! it, a line on how the call is. A voice channel this account isn't in
 //! shows its Join instead.
 
+use crate::widgets::scroll_view;
 use iced::{
     Alignment, Color, Element, Length, Padding, Rectangle, Size,
-    widget::{Space, button, column, container, mouse_area, pin, row, scrollable, stack, text},
+    widget::{Space, button, column, container, mouse_area, pin, row, stack, text},
 };
 use yapfast_core::voice::{self, SharePhase};
 
@@ -437,7 +438,7 @@ impl App {
                 .clip(true)
                 .into();
         }
-        scrollable(grid)
+        scroll_view(grid)
             .width(size.width)
             .height(size.height)
             .on_scroll(|viewport| Message::Call(Event::Scrolled(viewport.absolute_offset().y)))

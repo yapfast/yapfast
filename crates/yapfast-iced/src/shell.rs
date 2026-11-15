@@ -528,6 +528,9 @@ impl App {
 
     /// The zoom, which iced multiplies the display's own scale by.
     pub fn scale_factor(&self, _: window::Id) -> f32 {
+        // iced hands a touchpad's moves on in the window's pixels; asked
+        // for as each view is laid out, so this follows both scales.
+        crate::widgets::set_pixel_scale(self.device_scale());
         self.shell.zoom
     }
 

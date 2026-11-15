@@ -6,11 +6,12 @@
 //! Invites lists the server's invites counting down, each revoked from its
 //! row, with Security Actions' pause.
 
+use crate::widgets::scroll_view;
 use std::time::Duration;
 
 use iced::{
     Alignment, Color, Element, Length, Padding, Task,
-    widget::{Space, button, column, container, row, scrollable, text, tooltip},
+    widget::{Space, button, column, container, row, text, tooltip},
 };
 use yapfast_core::{
     application::{
@@ -443,7 +444,7 @@ impl App {
                 );
             }
             parts = parts.push(
-                scrollable(rows)
+                scroll_view(rows)
                     .on_scroll(|viewport| local(Event::Scrolled(Scroll::of(viewport))))
                     .style(scrollbar(theme))
                     .height(Length::Fill),
@@ -713,7 +714,7 @@ impl App {
         parts
             .push(headings)
             .push(
-                scrollable(list)
+                scroll_view(list)
                     .style(scrollbar(theme))
                     .height(Length::Fill),
             )

@@ -1,9 +1,10 @@
 //! The soundboard (`Soundboard`): the sounds of each server this
 //! account may play, which also lists the entrance sounds to choose from.
 
+use crate::widgets::scroll_view;
 use iced::{
     Alignment, Border, Color, Element, Length, Padding,
-    widget::{Space, button, column, container, mouse_area, row, scrollable, text},
+    widget::{Space, button, column, container, mouse_area, row, text},
 };
 use yapfast_core::voice::{self};
 
@@ -112,7 +113,7 @@ impl App {
         let room = (SOUNDBOARD_TALLEST - 80.0).max(SOUND_ROW);
         column![
             top,
-            scrollable(rows).height(if listed > room {
+            scroll_view(rows).height(if listed > room {
                 Length::Fixed(room)
             } else {
                 Length::Shrink

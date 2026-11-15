@@ -9,11 +9,12 @@
 //! ([`colour_row`]). Every colour is the theme's and every size one of the
 //! constants here.
 
+use crate::widgets::scroll_view;
 use std::borrow::Cow;
 
 use iced::{
     Alignment, Border, Color, Element, Length, Task,
-    widget::{Space, button, column, container, row, scrollable, text, text_input},
+    widget::{Space, button, column, container, row, text, text_input},
 };
 
 use crate::{
@@ -533,7 +534,7 @@ impl<'a> Dropdown<'a> {
             }
             iced::widget::opaque(
                 container(
-                    scrollable(rows)
+                    scroll_view(rows)
                         .style(crate::style::scrollbar(theme))
                         .height(Length::Shrink),
                 )

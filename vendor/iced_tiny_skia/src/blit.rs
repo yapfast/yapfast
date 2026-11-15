@@ -129,6 +129,73 @@ pub fn blit(
     }
 }
 
+/// Yapfast port (patch 24): `source`, `width` by `height` premultiplied
+/// pixels, scaled to `to_width` by `to_height`: each pixel's centre sampled
+/// between the four source pixels round it (`nearest`: the one it falls
+/// in), as tiny-skia's bilinear filter samples, in the same byte order.
+pub fn resized(
+    source: &[u8],
+    width: u32,
+    height: u32,
+    to_width: u32,
+    to_height: u32,
+    nearest: bool,
+) -> Vec<u8> {
+    if width == 0 || height == 0 || to_width == 0 || to_height == 0 {
+        return Vec::new();
+    }
+    // Where each target column or row samples, in 16.16 source pixels:
+    // the target pixel's centre mapped back, less half a source pixel
+    // between centres (the pixel it falls in, for `nearest`): the source
+    // pixel before it, the one after and how far towards it, of 256.
+    let samples = |from: u32, to: u32| -> Vec<(usize, usize, u32)> {
+        let step = (i64::from(from) << 16) / i64::from(to);
+        let start = step / 2 - if nearest { 0 } else { 0x8000 };
+        let last = i64::from(from - 1) << 16;
+        (0..i64::from(to))
+            .map(|at| {
+                let at = (start + at * step).clamp(0, last);
+                let index = (at >> 16) as usize;
+                let weight = if nearest { 0 } else { ((at >> 8) & 0xff) as u32 };
+                (index, (index + 1).min(from as usize - 1), weight)
+            })
+            .collect()
+    };
+    let (columns, rows) = (samples(width, to_width), samples(height, to_height));
+    let pixel = |row: usize, column: usize| {
+        let at = (row * width as usize + column) * 4;
+        u32::from_le_bytes([source[at], source[at + 1], source[at + 2], source[at + 3]])
+    };
+    let mut pixels = Vec::with_capacity(to_width as usize * to_height as usize * 4);
+    for &(above, below, down) in &rows {
+        for &(left, right, across) in &columns {
+            let top = lerp(pixel(above, left), pixel(above, right), across);
+            let mixed = if down == 0 {
+                top
+            } else {
+                lerp(top, lerp(pixel(below, left), pixel(below, right), across), down)
+            };
+            pixels.extend_from_slice(&mixed.to_le_bytes());
+        }
+    }
+    pixels
+}
+
+/// Two premultiplied pixels mixed, `weight` / 256 of the way to `to`.
+#[inline(always)]
+fn lerp(from: u32, to: u32, weight: u32) -> u32 {
+    if weight == 0 || from == to {
+        return from;
+    }
+    // Rounded: each lane's sum is at most 255 * 256 + 128, inside its 16
+    // bits.
+    let keep = 256 - weight;
+    let mix = |from: u32, to: u32| (from * keep + to * weight + 0x0080_0080) >> 8 & 0x00ff_00ff;
+    let even = mix(from & 0x00ff_00ff, to & 0x00ff_00ff);
+    let odd = mix((from >> 8) & 0x00ff_00ff, (to >> 8) & 0x00ff_00ff);
+    even | odd << 8
+}
+
 /// How much of the cell `cell_x`, `cell_y` from a corner's edges a round
 /// corner of `radius` covers, 0 to 256.
 fn coverage(radius: f32, cell_x: i32, cell_y: i32) -> u32 {
@@ -348,6 +415,40 @@ pub fn gradient(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn pixels(values: &[u32]) -> Vec<u8> {
+        values.iter().flat_map(|value| value.to_le_bytes()).collect()
+    }
+
+    fn values(bytes: &[u8]) -> Vec<u32> {
+        bytes
+            .chunks_exact(4)
+            .map(|pixel| u32::from_le_bytes(pixel.try_into().expect("four bytes")))
+            .collect()
+    }
+
+    #[test]
+    fn a_picture_resized_samples_between_the_pixels_round_each_centre() {
+        let (black, white) = (0xff00_0000_u32, 0xffff_ffff_u32);
+        let source = pixels(&[black, white, black, white]);
+        // At its own size it's the same.
+        assert_eq!(resized(&source, 2, 2, 2, 2, false), source);
+        // Twice as wide: the outer pixels are the edges', the inner ones a
+        // quarter and three quarters of the way across.
+        let row = values(&resized(&source, 2, 2, 4, 2, false));
+        assert_eq!(row[0], black);
+        assert_eq!(row[3], white);
+        assert_eq!(row[1], 0xff40_4040);
+        assert_eq!(row[2], 0xffbf_bfbf);
+        assert_eq!(row[..4], row[4..]);
+        // Nearest takes the pixel each centre falls in.
+        let nearest = values(&resized(&source, 2, 2, 4, 2, true));
+        assert_eq!(nearest[..4], [black, black, white, white]);
+        // One colour stays that colour, see-through or not.
+        let half = 0x8040_2010_u32;
+        let flat = values(&resized(&pixels(&[half; 6]), 3, 2, 7, 5, false));
+        assert!(flat.iter().all(|&pixel| pixel == half));
+    }
 
     #[test]
     fn a_fill_lays_its_colour_over_or_in_place_inside_the_frame() {

@@ -7,6 +7,7 @@ use crate::{Layer, Renderer, Settings};
 
 use std::collections::VecDeque;
 use std::num::NonZeroU32;
+use std::time::Instant;
 
 pub struct Compositor {
     context: softbuffer::Context<Box<dyn compositor::Display>>,
@@ -156,11 +157,15 @@ pub fn present(
     on_pre_present: impl FnOnce(),
 ) -> Result<(), compositor::SurfaceError> {
     let physical_size = viewport.physical_size();
+    // Yapfast port (patch 22): the frame's timings, while a hook asks.
+    let hook = crate::timing::hook();
+    let start = hook.map(|_| Instant::now());
 
     let mut buffer = surface
         .window
         .buffer_mut()
         .map_err(|_| compositor::SurfaceError::Lost)?;
+    let waited = start.map(|_| Instant::now());
 
     let last_layers = {
         let age = buffer.age();
@@ -188,6 +193,31 @@ pub fn present(
         })
         .unwrap_or_else(|| vec![Rectangle::with_size(viewport.logical_size())]);
 
+    // Yapfast port (patch 23): the compositor is told what differs from
+    // the frame it shows, the one presented last, not the whole window.
+    // `damage` is against the buffer's own older frame, which may differ.
+    let bounds = Rectangle::with_size(viewport.logical_size());
+    let shown = if buffer.age() == 1 {
+        Some(damage.clone())
+    } else {
+        surface
+            .layer_stack
+            .front()
+            .filter(|(_, previous_background)| *previous_background == background_color)
+            .map(|(previous, _)| {
+                damage::diff(
+                    previous,
+                    renderer.layers(),
+                    |layer| vec![layer.bounds],
+                    Layer::damage,
+                )
+            })
+    }
+    .map(|shown| physical(&merged(damage::group(shown, bounds)), viewport));
+
+    let diffed = start.map(|_| Instant::now());
+    let (mut regions, mut area) = (0, 0.0);
+
     if damage.is_empty() {
         if let Some(last_layers) = last_layers {
             surface.layer_stack.push_front(last_layers.clone());
@@ -209,6 +239,11 @@ pub fn present(
         )
         .expect("Create pixel map");
 
+        if hook.is_some() {
+            regions = damage.len();
+            area = damage.iter().map(Rectangle::area).sum();
+        }
+
         renderer.draw(
             &mut pixels,
             &mut surface.clip_mask,
@@ -218,8 +253,34 @@ pub fn present(
         );
     }
 
+    let drawn = start.map(|_| Instant::now());
+    let shown_area = hook.and(shown.as_ref()).map(|shown| {
+        shown
+            .iter()
+            .map(|rect| u64::from(rect.width.get()) * u64::from(rect.height.get()))
+            .sum()
+    });
     on_pre_present();
-    buffer.present().map_err(|_| compositor::SurfaceError::Lost)
+    let presented = match shown {
+        Some(shown) => buffer.present_with_damage(&shown),
+        None => buffer.present(),
+    }
+    .map_err(|_| compositor::SurfaceError::Lost);
+    if let (Some(hook), Some(start), Some(waited), Some(diffed), Some(drawn)) =
+        (hook, start, waited, diffed, drawn)
+    {
+        hook(&crate::timing::Frame {
+            start,
+            wait: waited - start,
+            diff: diffed - waited,
+            draw: drawn - diffed,
+            present: drawn.elapsed(),
+            regions,
+            area,
+            shown: shown_area,
+        });
+    }
+    presented
 }
 
 pub fn screenshot(
@@ -270,6 +331,30 @@ pub fn screenshot(
     )
 }
 
+/// Yapfast port (patch 23): `regions`, in logical pixels, as the buffer's
+/// pixels they touch, within it.
+fn physical(regions: &[Rectangle], viewport: &Viewport) -> Vec<softbuffer::Rect> {
+    let scale = viewport.scale_factor();
+    let size = viewport.physical_size();
+    regions
+        .iter()
+        .filter_map(|region| {
+            let x = ((region.x * scale).floor().max(0.0) as u32).min(size.width);
+            let y = ((region.y * scale).floor().max(0.0) as u32).min(size.height);
+            let right =
+                (((region.x + region.width) * scale).ceil().max(0.0) as u32).min(size.width);
+            let bottom =
+                (((region.y + region.height) * scale).ceil().max(0.0) as u32).min(size.height);
+            Some(softbuffer::Rect {
+                x,
+                y,
+                width: NonZeroU32::new(right.saturating_sub(x))?,
+                height: NonZeroU32::new(bottom.saturating_sub(y))?,
+            })
+        })
+        .collect()
+}
+
 /// Yapfast port: the damaged regions with any two merged whose union adds
 /// no more than iced's own threshold (20,000 px) beyond what they cover
 /// together. `damage::group` merges each region only into the one before
@@ -296,4 +381,29 @@ fn merged(mut regions: Vec<Rectangle>) -> Vec<Rectangle> {
         }
     }
     regions
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rect(rect: &softbuffer::Rect) -> (u32, u32, u32, u32) {
+        (rect.x, rect.y, rect.width.get(), rect.height.get())
+    }
+
+    #[test]
+    fn damage_is_told_in_the_buffers_pixels_within_it() {
+        let viewport = Viewport::with_physical_size(Size::new(300, 200), 1.5);
+        let regions = [
+            // A fractional region takes in every pixel it touches.
+            Rectangle::new(crate::core::Point::new(10.2, 20.0), Size::new(10.0, 4.6)),
+            // Past the edge, it stops at it.
+            Rectangle::new(crate::core::Point::new(-5.0, 120.0), Size::new(50.0, 50.0)),
+            // Outside, or of no size, it goes.
+            Rectangle::new(crate::core::Point::new(400.0, 10.0), Size::new(10.0, 10.0)),
+            Rectangle::new(crate::core::Point::new(10.0, 10.0), Size::new(0.0, 10.0)),
+        ];
+        let shown: Vec<_> = physical(&regions, &viewport).iter().map(rect).collect();
+        assert_eq!(shown, [(15, 30, 16, 7), (0, 180, 68, 20)]);
+    }
 }

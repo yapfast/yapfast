@@ -40,6 +40,20 @@ asks for the other. `--data-dir`, `--preview`, `--stream-worker`,
 `--background`, `--release-discord-links` and a `LINK` work as in the
 default build.
 
+Each frame the CPU renderer presents tells the compositor only what
+differs from the frame before (a scrolled list's part of the window, say),
+as the Slint client's renderer does, so a compositor that copies the
+window's buffer into a texture on each commit copies no more than that.
+
+`YAPFAST_LOG=debug` also turns on the frame trace (`frames.rs`, log
+target `yapfast::frames`): for each frame the CPU renderer presents, how
+long it waited for a buffer, told what changed, drew and presented, the
+area drawn and the area the compositor was told changed; and for each
+frame a list's motion takes a step on, when that frame was asked for, how
+late the step was taken, where the list was and how far it moved. Times
+are microseconds since the window began, so a frame's lines line up. Off,
+it reads no clock.
+
 `desktop` and `iced` can't be on together, and the build says so: each
 brings its own window toolkit and its own copy of the windowing stack, and
 `main.rs` starts one front end. A build of both would carry two of
@@ -119,6 +133,26 @@ build.
   desktop's pixels whatever the level, and a level kept on a larger screen
   starts no further in than the first window's room allows, as the Slint
   client's, the kept level staying for the larger screen.
+- Scrolling (`widgets::scroll_view`, every list that scrolls), as the
+  Slint client's lists, with Slint's constants: a wheel's notch moves 60
+  px over 180 ms, fast at first and slowing on Flutter's power curve; a
+  notch while one moves adds what was left of it; a wheel spun past 12
+  notches a second scrolls each notch farther, in proportion, at most six
+  times, its recent notches weighing less by e every 200 ms. A touchpad
+  moves the list with the fingers, less their first event and 8 px, and
+  once they lift faster than 50 px a second it goes on at their speed
+  (the last three moves' speeds blended 0.6, 0.35 and 0.05, oldest first)
+  and slows to a stop on Android's fling spline. iced hands the wheel on
+  without winit's phases: a notch comes as lines and a touchpad as
+  pixels, the fingers lifting as a move of nothing, which is how the
+  phases are told. What's inside a list has the wheel first (a field, a
+  smaller list) and the list what's left, except while the fingers move
+  it or while the pointer stays where it last scrolled it, for 800 ms. A
+  press on it stops it; put somewhere (a jump, the end, another room) it
+  drops its motion, and moved by (rows measured above what's read) it
+  keeps on. Frames are asked for only while it moves. A list held to its
+  foot (the timeline, the thread beside) counts the other way round. No
+  rubber band at the ends, as Slint's on Linux and Windows.
 - Autoscroll (`widgets::Autoscroll`, round the whole window, as Slint's
   `yapfast_autoscroll`): a middle click on a list that has more than
   fits scrolls it towards the pointer, still within 10 px of the click and
@@ -1217,8 +1251,8 @@ what costs is kept out of the view:
   kept with its row. The timeline's and the member list's scroll reports
   go on only when they matter (`widgets::Settle`): a step well inside the
   rows built beyond the edges, an end reached or left, a new size, and the
-  last a moment after the list stops; a wheel scroll reports many times a
-  frame, and each report builds the view again. The member list keeps the
+  last a moment after the list stops; a scrolling list reports on every
+  frame it moves, and each report builds the view again. The member list keeps the
   look of each member who didn't change as the roster changes.
 - Pictures are the core's own buffers in tiny-skia's format, premultiplied
   BGRA (`pictures.rs`, `chat::set_pixel_buffers`), handed to iced without a
@@ -1323,6 +1357,14 @@ When a second screen needs what a first one built, it moves here:
   the pointer, lifted on a ground of its own, the rows between pushing
   aside for it, and where it's let go, rounded to whole rows, is sent as
   from and to for its owner to move.
+- `widgets::scroll_view`: the one scrollable, built as iced's
+  `scrollable` (`id`, sizes, `style`, `on_scroll`, `direction`,
+  `anchor_bottom`), whose wheel and touchpad move it as Slint's do
+  (`widgets::flick`, the motion, tested alone). A `Smooth` round iced's
+  scrollable takes the wheel's events a `Claim` round what it holds
+  marks as nobody's, and moves the scrollable on the window's frames
+  through an operation (`scroll_by`), so the scrollable's own reports go
+  on as they did; `swipe` is a touchpad's move for tests.
 - `widgets::Autoscroll`: round the whole window, a middle click's
   autoscroll of the list under it (see the shell's Autoscroll).
 - `widgets::CtrlWheel`: round the whole window, the wheel with Ctrl held
@@ -1409,7 +1451,8 @@ When a second screen needs what a first one built, it moves here:
   under it, and `Scrub` says where along it it's pressed and dragged.
   A widget around one child is a `Wrap` with its `Hooks`, which say only
   what it adds (its layout, an event before or after the child, its
-  drawing round the child's, a shift of the child's space); the child gets
+  drawing round the child's, a shift of the child's space, an operation
+  passed on); the child gets
   everything else, its overlay included, so its tooltips show through.
   `widgets::moved_to` reads where a move took the pointer, from the
   cursor as the widget sees it. `gradient_quad` fills a quad with a
@@ -1507,7 +1550,10 @@ shrinking overlay leaves no shadow behind, keep each shadow worked out as
 its nine slices and copy it in directly, write a region's clear and
 plain fills into the frame directly, copy an opaque picture without
 reading its alpha, start a region at the last opaque quad that covers it
-whole, fill nothing for a quad of no colour (an outline over a card), and
+whole, fill nothing for a quad of no colour (an outline over a card), draw
+a picture at a size other than its own (all of them at a zoom other than
+100%) from a copy scaled once to the whole pixels it covers and kept while
+it's on screen, put quads on whole pixels at such a zoom, and
 keep one scaler context for every glyph, so fonts' hinting is set up once
 rather than for each text drawn; the wgpu ones fix two shader mistakes
 and upload large pictures in the frame.

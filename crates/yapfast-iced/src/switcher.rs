@@ -5,6 +5,7 @@
 //! keep only which place Enter goes to, and Escape or a click outside
 //! closes each.
 
+use crate::widgets::scroll_view;
 use iced::{
     Alignment, Border, Element, Length, Padding, Task,
     widget::{Space, button, column, container, operation, row, scrollable, stack, text},
@@ -320,7 +321,7 @@ impl App {
             );
         }
         body = body.push(
-            scrollable(list)
+            scroll_view(list)
                 .id(LIST)
                 .on_scroll(|viewport| message(Event::Scrolled(viewport.absolute_offset().y)))
                 .height(self.switcher_list_height())
@@ -442,7 +443,7 @@ impl App {
         let body = column![
             head,
             field,
-            scrollable(list).height(height).style(scrollbar(theme)),
+            scroll_view(list).height(height).style(scrollbar(theme)),
         ]
         .spacing(12)
         .padding(20);
@@ -625,7 +626,7 @@ impl App {
         let room = (self.window.height - 48.0 - 40.0 - 40.0 - 60.0).max(120.0);
         let body = column![
             head,
-            scrollable(form.padding(Padding {
+            scroll_view(form.padding(Padding {
                 top: 12.0,
                 right: 12.0,
                 ..Padding::ZERO

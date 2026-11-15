@@ -9,6 +9,7 @@
 //! from [`ASIDE`] so the messages they send say which timeline they're
 //! in. Its state goes when it closes, and with it its pictures' copies.
 
+use crate::widgets::scroll_view;
 use std::{sync::Arc, time::Instant};
 
 use iced::{
@@ -713,7 +714,7 @@ impl App {
                 self.timeline_row(ASIDE + index),
             );
         }
-        let list = scrollable(column![Space::new().height(lead), rows])
+        let list = scroll_view(column![Space::new().height(lead), rows])
             .id(LIST)
             .anchor_bottom()
             .on_scroll(|viewport| Message::Thread(Event::Scrolled(viewport)))
@@ -856,7 +857,7 @@ impl App {
         .view(self);
         let body: Element<'_, Message> = column![
             self.panel_head(head),
-            scrollable(fields)
+            scroll_view(fields)
                 .height(Length::Fill)
                 .style(scrollbar(theme)),
             composer,

@@ -98,10 +98,11 @@ mod picture;
 mod pointer;
 mod rows;
 mod settle;
+mod smooth;
 
 pub use self::{
     autoscroll::*, colour::*, cosmetic::*, drag::*, fold::*, layers::*, live::*, picture::*,
-    pointer::*, rows::*, settle::*,
+    pointer::*, rows::*, settle::*, smooth::*,
 };
 
 // ---------------------------------------------------------------------------
@@ -176,6 +177,16 @@ pub trait Hooks {
     /// Whether the child's overlay shows.
     fn overlays(&self) -> bool {
         true
+    }
+
+    /// An operation over it; `child` runs one over the child.
+    fn operate(
+        &mut self,
+        _state: &mut Self::State,
+        operation: &mut dyn Operation,
+        child: &mut dyn FnMut(&mut dyn Operation),
+    ) {
+        child(operation);
     }
 }
 
@@ -316,20 +327,29 @@ impl<H: Hooks> Widget<Message, Theme, Renderer> for Wrap<'_, H> {
     ) {
         let child = Self::child_layout(layout);
         let shift = self.hooks.shift();
-        if shift == Vector::ZERO {
-            self.child
-                .as_widget_mut()
-                .operate(&mut tree.children[0], child, renderer, operation);
-            return;
-        }
-        // Told as a scrollable that can't scroll, moved by the shift, so
-        // what an operation finds (the tests' clicks, for one) is where it
-        // shows.
-        operation.scrollable(None, layout.bounds(), child.bounds(), -shift, &mut Still);
-        operation.traverse(&mut |operation| {
-            self.child
-                .as_widget_mut()
-                .operate(&mut tree.children[0], child, renderer, operation);
+        let Tree {
+            state, children, ..
+        } = tree;
+        let Self {
+            child: element,
+            hooks,
+        } = self;
+        hooks.operate(state.downcast_mut(), operation, &mut |operation| {
+            if shift == Vector::ZERO {
+                element
+                    .as_widget_mut()
+                    .operate(&mut children[0], child, renderer, operation);
+                return;
+            }
+            // Told as a scrollable that can't scroll, moved by the shift, so
+            // what an operation finds (the tests' clicks, for one) is where it
+            // shows.
+            operation.scrollable(None, layout.bounds(), child.bounds(), -shift, &mut Still);
+            operation.traverse(&mut |operation| {
+                element
+                    .as_widget_mut()
+                    .operate(&mut children[0], child, renderer, operation);
+            });
         });
     }
 

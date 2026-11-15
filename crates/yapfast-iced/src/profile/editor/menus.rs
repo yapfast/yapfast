@@ -1,9 +1,10 @@
 //! The editor's menus: a picture's (change, remove), the server tag's
 //! picker and its list, and the pencil that opens them.
 
+use crate::widgets::scroll_view;
 use iced::{
     Alignment, Border, Color, Element, Length, Padding,
-    widget::{button, column, container, opaque, row, scrollable, text},
+    widget::{button, column, container, opaque, row, text},
 };
 use yapfast_core::{application::ProfileEditor, chat::ProfilePicture};
 
@@ -207,7 +208,7 @@ impl App {
                         .size(13)
                         .padding(7)
                         .on_input(|query| message(Event::TagQuery(query))),
-                    scrollable(rows)
+                    scroll_view(rows)
                         .height(Length::Shrink)
                         .style(scrollbar(theme)),
                 ]

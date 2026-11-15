@@ -6,10 +6,11 @@
 //! Left or Escape closes it. A row whose submenu is a choice of how (a
 //! mute's times) does its own thing when clicked itself.
 
+use crate::widgets::scroll_view;
 use iced::{
     Element, Length, Padding, Point, Task,
     keyboard::key,
-    widget::{Space, column, container, mouse_area, opaque, operation, row, scrollable},
+    widget::{Space, column, container, mouse_area, opaque, operation, row},
 };
 use yapfast_core::application::{Action, ThreadFrom};
 
@@ -841,7 +842,7 @@ impl App {
         // A menu taller than the window scrolls, as the Slint client's
         // does past its tallest.
         let panel = container(
-            scrollable(panel)
+            scroll_view(panel)
                 .height(Length::Shrink)
                 .on_scroll(|viewport| Message::MenuScrolled(viewport.absolute_offset().y))
                 .style(crate::style::scrollbar(theme)),

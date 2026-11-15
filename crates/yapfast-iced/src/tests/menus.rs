@@ -265,9 +265,7 @@ fn a_submenu_opens_beside_its_row_and_follows_the_keys() {
     let _ = app.open_place_menu(SERVER, Point::new(100.0, 20.0), false);
     let mut ui = Simulator::with_size(Settings::default(), app.shell.frame, app.view());
     ui.point_at(Point::new(150.0, 100.0));
-    ui.simulate([iced::Event::Mouse(iced::mouse::Event::WheelScrolled {
-        delta: iced::mouse::ScrollDelta::Pixels { x: 0.0, y: -40.0 },
-    })]);
+    ui.simulate(crate::widgets::swipe(-40.0));
     let scrolled: Vec<f32> = ui
         .into_messages()
         .filter_map(|message| match message {

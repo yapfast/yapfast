@@ -355,12 +355,13 @@ mod autoscroll_tests {
         Point, Settings, Size,
         advanced::image::Handle,
         mouse::{Button, Event as Mouse},
-        widget::{Id, Space, column, scrollable},
+        widget::{Id, Space, column},
     };
     use iced_test::{Simulator, selector::Candidate};
 
     use super::{Autoscroll, AutoscrollLook, autoscroll_speed};
     use crate::app::Message;
+    use crate::widgets::{scroll_view, swipe};
 
     /// A scrollable's offset in `ui`.
     fn offset(ui: &mut Simulator<'_, Message>, name: &'static str) -> f32 {
@@ -380,8 +381,8 @@ mod autoscroll_tests {
         // A page 1000 px tall in 300, its list 200 px into it, 100 px tall
         // and holding 400.
         let space = |height: f32| Space::new().width(300).height(height);
-        let list = scrollable(space(400.0)).id("list").width(300).height(100);
-        let page = scrollable(column![space(200.0), list, space(700.0)])
+        let list = scroll_view(space(400.0)).id("list").width(300).height(100);
+        let page = scroll_view(column![space(200.0), list, space(700.0)])
             .id("page")
             .width(300)
             .height(300);
@@ -397,9 +398,7 @@ mod autoscroll_tests {
         let mut ui = Simulator::with_size(Settings::default(), Size::new(300.0, 300.0), view);
         // The page scrolled 150 px down shows the list from 50 px.
         ui.point_at(Point::new(150.0, 150.0));
-        ui.simulate([iced::Event::Mouse(Mouse::WheelScrolled {
-            delta: iced::mouse::ScrollDelta::Pixels { x: 0.0, y: -150.0 },
-        })]);
+        ui.simulate(swipe(-150.0));
         assert_eq!(offset(&mut ui, "page"), 150.0);
         let at = Point::new(150.0, 100.0);
         ui.point_at(at);

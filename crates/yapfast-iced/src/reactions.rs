@@ -4,9 +4,10 @@
 //! account's own reaction, or as a moderator anyone's, can be taken off.
 //! A poll's voters show in it too, by answer.
 
+use crate::widgets::scroll_view;
 use iced::{
     Alignment, Element, Length, Padding, Task,
-    widget::{Space, button, column, container, mouse_area, row, scrollable, text},
+    widget::{Space, button, column, container, mouse_area, row, text},
 };
 use yapfast_core::application::Action;
 
@@ -149,7 +150,7 @@ impl App {
         }
         let side = if window.poll { 220.0 } else { 98.0 };
         let pills = row![
-            scrollable(pills)
+            scroll_view(pills)
                 .width(side - 1.0)
                 .height(Length::Fill)
                 .style(scrollbar(theme)),
@@ -214,7 +215,7 @@ impl App {
             people = people
                 .push(container(text(error.as_str()).size(14).color(theme.secondary)).padding(16));
         }
-        let people = scrollable(people)
+        let people = scroll_view(people)
             .width(Length::Fill)
             .height(Length::Fill)
             .on_scroll(|viewport| Message::Reactions(Event::Scrolled(Scroll::of(viewport))))

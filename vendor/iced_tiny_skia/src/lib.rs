@@ -10,6 +10,8 @@ mod settings;
 mod text;
 // Yapfast port (patch 13): the app draws its video frames itself; see video.rs.
 pub mod video;
+// Yapfast port (patch 22): frame timings for the app's trace.
+pub mod timing;
 
 #[cfg(feature = "image")]
 mod raster;
@@ -199,7 +201,7 @@ impl Renderer {
             }
         }
 
-        self.engine.trim();
+        self.engine.trim(self.layers.as_slice(), scale_factor);
     }
 }
 
