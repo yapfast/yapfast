@@ -19,7 +19,7 @@
 //! draw. Both name one [`Animation`], so text and the picker move in step.
 
 use alloc::boxed::Box;
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::String;
 use alloc::rc::Rc;
 use alloc::vec::Vec;
@@ -116,6 +116,9 @@ struct Registered {
     by_key: BTreeMap<String, Rc<Animation>>,
     /// The key an emoji's glyph draws, by its code point.
     by_glyph: BTreeMap<char, String>,
+    /// Cached frames may stay registered after their last item leaves the view.
+    /// None preserves the default behavior for callers without a viewport.
+    active: Option<BTreeSet<String>>,
     /// The animation's time, in milliseconds.
     elapsed: u32,
     playing: bool,
@@ -195,8 +198,9 @@ pub fn advance(delta: Duration) {
         let after = registered.elapsed;
         registered
             .by_key
-            .values()
-            .any(|animation| animation.index_at(before) != animation.index_at(after))
+            .iter()
+            .filter(|(key, _)| registered.active.as_ref().is_none_or(|keys| keys.contains(*key)))
+            .any(|(_, animation)| animation.index_at(before) != animation.index_at(after))
     });
     if moved {
         redraw();
@@ -207,6 +211,14 @@ pub fn advance(delta: Duration) {
 /// with the window's focus, its idleness and the Animate setting.
 pub fn set_playing(playing: bool) {
     REGISTRY.with_borrow_mut(|registered| registered.playing = playing);
+}
+
+/// Limits clock-driven redraws to emoji currently shown, keeping decoded frames
+/// registered for reuse when the user scrolls back.
+pub fn set_active<'a>(keys: impl IntoIterator<Item = &'a str>) {
+    REGISTRY.with_borrow_mut(|registered| {
+        registered.active = Some(keys.into_iter().map(String::from).collect());
+    });
 }
 
 /// Whether the clock moves. False until the application says otherwise, so a
@@ -238,14 +250,18 @@ pub fn is_empty() -> bool {
     REGISTRY.with_borrow(|registered| registered.by_key.is_empty())
 }
 
-/// The shortest delay among the registered animations: how often the clock has
-/// to move for the fastest of them. None when nothing is registered.
+/// The shortest delay among active animations with multiple frames. Cached
+/// offscreen emoji and single-frame pictures do not need to drive the clock.
 pub fn shortest_delay() -> Option<u32> {
     REGISTRY.with_borrow(|registered| {
         registered
             .by_key
-            .values()
-            .map(|animation| animation.shortest_delay())
+            .iter()
+            .filter(|(key, animation)| {
+                animation.frames.len() > 1
+                    && registered.active.as_ref().is_none_or(|keys| keys.contains(*key))
+            })
+            .map(|(_, animation)| animation.shortest_delay())
             .filter(|delay| *delay > 0)
             .min()
     })

@@ -415,6 +415,7 @@ impl Animations {
         self.queue
             .waiting
             .retain(|job| messages.contains(&job.key) || picker.contains(&job.key));
+        i_slint_core::yapfast_emoji::set_active(messages.iter().chain(picker).map(String::as_str));
     }
 
     /// The picker closed. Its unpinned frames must leave the renderer too,
@@ -493,7 +494,7 @@ impl Animations {
         self.drain();
         if self.decoding.is_empty()
             && self.queue.len() == 0
-            && i_slint_core::yapfast_emoji::is_empty()
+            && i_slint_core::yapfast_emoji::shortest_delay().is_none()
         {
             self.timer.stop();
             self.interval = 0;
@@ -509,9 +510,8 @@ impl Animations {
         }
     }
 
-    /// Sets whether the clock may move, and starts or stops the timer: it runs
-    /// while anything animates, or while frames are on their way, and it is
-    /// the clock itself that holds still when playback is off.
+    /// Sets whether the clock may move, and starts or stops the timer. Paused
+    /// animations need no timer once pending decodes have been collected.
     pub(super) fn sync(
         &mut self,
         window: &YapfastWindow,
@@ -522,7 +522,7 @@ impl Animations {
         self.side = frame_side(window.window().scale_factor());
         let waiting = !self.decoding.is_empty()
             || self.queue.len() > 0
-            || !i_slint_core::yapfast_emoji::is_empty();
+            || (playing && i_slint_core::yapfast_emoji::shortest_delay().is_some());
         if !waiting {
             self.timer.stop();
             self.interval = 0;
@@ -950,6 +950,55 @@ mod tests {
             "reopening restarts the timer without a refresh"
         );
         assert!(!adapter.animations.decoding.is_empty());
+    }
+
+    #[test]
+    fn cached_offscreen_emoji_stop_redrawing_and_resume_without_decoding() {
+        i_slint_backend_testing::init_no_event_loop();
+        let window = YapfastWindow::new().unwrap();
+        let mut animations = Animations::new();
+        let pictures = HashMap::new();
+        let key = "offscreen-clock:1";
+        animations.show([(key.into(), None, "animation.gif".into())], &pictures);
+        animations
+            .done
+            .send(Decoded {
+                key: key.into(),
+                glyph: None,
+                frames: vec![vec![0; 16], vec![255; 16]],
+                delays: vec![50, 50],
+            })
+            .unwrap();
+        animations.run(&window, &pictures);
+        i_slint_core::yapfast_emoji::set_playing(true);
+        assert_eq!(i_slint_core::yapfast_emoji::shortest_delay(), Some(50));
+
+        animations.show(std::iter::empty(), &pictures);
+        animations.run(&window, &pictures);
+        let revision = i_slint_core::yapfast_emoji::revision();
+        i_slint_core::yapfast_emoji::advance(Duration::from_millis(50));
+        assert_eq!(i_slint_core::yapfast_emoji::revision(), revision);
+        assert!(i_slint_core::yapfast_emoji::shortest_delay().is_none());
+        assert!(
+            animations.cache.contains(key),
+            "scrolling back reuses the frames"
+        );
+
+        animations.show([(key.into(), None, "animation.gif".into())], &pictures);
+        animations.run(&window, &pictures);
+        assert_eq!(animations.queue.len(), 0);
+        assert!(animations.decoding.is_empty());
+        i_slint_core::yapfast_emoji::advance(Duration::from_millis(50));
+        assert_ne!(i_slint_core::yapfast_emoji::revision(), revision);
+        animations.sync(&window, true, Default::default());
+        assert!(animations.timer.running());
+        animations.sync(&window, false, Default::default());
+        assert!(!animations.timer.running(), "paused animations do not poll");
+        animations.sync(&window, true, Default::default());
+        assert!(
+            animations.timer.running(),
+            "focus resumes cached animations"
+        );
     }
 
     #[test]
