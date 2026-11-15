@@ -148,9 +148,12 @@ def main():
         shutil.copy2(executable, package / "yapfast.exe")
         # The plugin system's helper: the app starts it, and a package without
         # it has the feature and nothing to run a plugin with.
+        # Every flavour has the plugins feature, so a package without its
+        # helper would ship a Plugins page that says plugins can't run.
         helper = executable.with_name("yapfast-plugins.exe")
-        if helper.is_file():
-            shutil.copy2(helper, package / "yapfast-plugins.exe")
+        if not helper.is_file():
+            raise SystemExit(f"{helper} is missing; build the workspace's default members, not only yapfast")
+        shutil.copy2(helper, package / "yapfast-plugins.exe")
         shutil.copy2(ROOT / "LICENSE", package / "LICENSE.txt")
         # The source snapshot goes beside the packages, on the release page,
         # rather than into every install; SOURCE.txt says where.
