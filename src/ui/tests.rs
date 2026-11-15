@@ -11860,5 +11860,8 @@ fn the_member_list_counts_online_and_all_members_from_its_group_headings() {
     let (online, total) = refresh::member_counts(&members);
     assert_eq!((online.as_str(), total.as_str()), ("15", "45"));
     let (online, total) = refresh::member_counts(&[member(None)]);
-    assert!(online.is_empty() && total.is_empty(), "no headings, no counts");
+    assert!(
+        online.is_empty() && total.is_empty(),
+        "no headings, no counts"
+    );
 }
