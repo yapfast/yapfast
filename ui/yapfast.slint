@@ -5244,7 +5244,9 @@ export component YapfastWindow inherits Window {
             width: 300px; limit: root.height - root.title-height - 16px;
             x: root.profile-at-pointer
                 ? root.beside(root.anchor-x, root.anchor-width, self.width)
-                : root.width - root.members-shown - 8px - self.width;
+                // Beside the member list, from where it's laid out: a
+                // theme's gap or right rail moves it too.
+                : conversation-panes.absolute-position.x + conversation-panes.width - root.members-shown - 8px - self.width;
             y: max(root.title-height + 8px, min(root.height - self.height - 8px, (root.profile-at-pointer ? root.anchor-y - 8px : root.profile-y - 16px)));
             data: root.profile;
             enlarge => { root.profile-start-tab = -1; root.enlarge-profile(); }
