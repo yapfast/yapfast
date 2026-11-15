@@ -2711,7 +2711,7 @@ export component YapfastWindow inherits Window {
         // A theme's glass may float the panes apart over its window art.
         spacing: Art.gap; padding: Art.gap;
         // Navigation: the rail and the sidebar, with the voice and account dock across both.
-        Rectangle {
+        navigation := Rectangle {
             width: root.rail-left + root.sidebar-shown; background: Art.glass-rail ? transparent : Theme.rail-fill;
             border-radius: Art.pane-radius; clip: Art.pane-radius > 0px;
             if root.rail-left > 0px && (Art.rail.length > 0 || Art.glass-rail): ArtLayer {
@@ -3413,7 +3413,9 @@ export component YapfastWindow inherits Window {
                     }
                     Rectangle { y: parent.height - 1px; height: 1px; background: ClientStyle.enabled ? Theme.outline-chat : Theme.edge; }
                 }
-                HorizontalLayout {
+                // The conversation and the panes docked beside it; the resize
+                // handles below find their edges from where this is laid out.
+                conversation-panes := HorizontalLayout {
                     spacing: 0px;
                     // A theme's layout may dock the member list on the left.
                     if root.members-docked && Arrange.members == 1: Rectangle {
@@ -4709,9 +4711,10 @@ export component YapfastWindow inherits Window {
         }
     }
     // The edge between sidebar and conversation resizes the sidebar. A double-click
-    // restores the default width.
+    // restores the default width. It sits on the navigation's laid-out edge, so a
+    // theme's glass gap moves it too, and it spans the gap to the conversation.
     if root.workspace: TouchArea {
-        x: root.rail-left + root.sidebar-shown - 4px; y: root.title-height + root.rail-top; width: 8px; height: root.height - root.title-height - root.rail-top;
+        x: navigation.absolute-position.x + navigation.width - 4px; y: navigation.absolute-position.y; width: 8px + Art.gap; height: navigation.height;
         mouse-cursor: ew-resize;
         moved => {
             if self.pressed {
@@ -4730,8 +4733,9 @@ export component YapfastWindow inherits Window {
         }
     }
     // So does the edge of the thread beside the conversation, below the header.
+    // Like the member list's below, it finds the thread's edge from the docked panes.
     if root.workspace && root.aside-docked: TouchArea {
-        x: root.width - root.rail-right - root.aside-shown - 4px; y: root.title-height + root.rail-top + ClientStyle.header-height; width: 8px; height: root.height - root.title-height - root.rail-top - ClientStyle.header-height;
+        x: conversation-panes.absolute-position.x + conversation-panes.width - root.aside-shown - 4px; y: conversation-panes.absolute-position.y; width: 8px; height: conversation-panes.height;
         mouse-cursor: ew-resize;
         moved => {
             if self.pressed {
@@ -4750,10 +4754,13 @@ export component YapfastWindow inherits Window {
         }
     }
     // And the member list's, left of a profile docked beside it. A double
-    // click restores the style's width.
+    // click restores the style's width. Its edge comes from where the docked
+    // panes are laid out, so whatever a theme puts around them (a glass gap, a
+    // right rail, room kept clear of its art) moves the handle with the pane.
     if root.workspace && root.members-docked && Arrange.members == 0: TouchArea {
         property <length> right: root.rail-right + (root.profile-docked ? ClientStyle.profile-width : 0px);
-        x: root.width - self.right - root.members-shown - 4px; y: root.title-height + root.rail-top + ClientStyle.header-height; width: 8px; height: root.height - root.title-height - root.rail-top - ClientStyle.header-height;
+        x: conversation-panes.absolute-position.x + conversation-panes.width - (root.profile-docked ? ClientStyle.profile-width : 0px) - root.members-shown - 4px;
+        y: conversation-panes.absolute-position.y; width: 8px; height: conversation-panes.height;
         mouse-cursor: ew-resize;
         moved => {
             if self.pressed {
