@@ -701,11 +701,14 @@ export component VoiceSettings inherits VerticalLayout {
         spacing: 8px;
         SettingsHeading { text: "MICROPHONE TEST"; }
         HorizontalLayout {
+            spacing: 16px; alignment: start;
             ActionButton {
+                min-width: 160px; max-width: 160px; horizontal-stretch: 0;
                 text: root.microphone-testing ? "Stop testing" : "Test microphone"; small: true;
                 clicked => { root.microphone-testing = !root.microphone-testing; }
             }
             VerticalLayout {
+                min-width: 0; horizontal-stretch: 1;
                 spacing: 6px;
                 HorizontalLayout {
                     height: 24px; spacing: 3px;
