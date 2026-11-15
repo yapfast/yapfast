@@ -309,6 +309,13 @@ impl Application {
         if !plugins.decorates() {
             return;
         }
+        // An answer lands in the slots, and with none there is nowhere to
+        // draw it: a store-installed plugin has no slots yet (the interface
+        // builds them from the dev folder only), so asking would cost a helper
+        // round trip per row on screen for an answer that is dropped.
+        if self.state.plugin_slots.is_none() {
+            return;
+        }
         // The timeline is the open room's, which is the room these rows are in:
         // `Action::VisibleMessages` only reports the selected conversation.
         let timeline = &self.state.messages;
