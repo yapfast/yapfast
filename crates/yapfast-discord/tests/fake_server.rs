@@ -3408,11 +3408,13 @@ async fn asks_again_when_address_discovery_is_lost() {
     assert_eq!(asks(), serde_json::json!({"dropped": 10, "answered": 2}));
 }
 
-/// A call's audio, as [`Hearer`] hears it, and why its connection dropped.
+/// A call's audio, as [`Hearer`] hears it, why its connection dropped, and
+/// how often it connected where it moved.
 #[derive(Default)]
 struct Dropping {
     heard: Hearer,
     dropped: std::sync::Mutex<Vec<String>>,
+    moved: std::sync::atomic::AtomicUsize,
 }
 
 impl Listener for Dropping {
@@ -3421,6 +3423,10 @@ impl Listener for Dropping {
     }
     fn disconnected(&self, reason: &str) {
         self.dropped.lock().unwrap().push(reason.to_owned());
+    }
+    fn connected(&self) {
+        self.moved
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -3508,6 +3514,86 @@ async fn a_call_follows_a_move_to_another_voice_server() {
     })
     .await;
     assert_eq!(listener.dropped.lock().unwrap().len(), 1);
+    call.leave();
+}
+
+/// As in a user's log: someone drags Alice into another channel, a locked
+/// one there, and the old voice server ends the call with 4022 rather than
+/// 4014, naming no new server until some 100 ms later. Discord ended that
+/// session, so resuming it fails with 4006 and her old token no longer
+/// identifies; the call waits for the new server instead, and carries on
+/// there. So it does when Discord then moves the call to another voice
+/// server without a channel change, ending the old connection first.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn a_call_follows_a_move_that_ends_its_session() {
+    let fixture = Fixture::start("a_call_follows_a_move_that_ends_its_session").await;
+    let (discord, server, guild) = (&fixture.discord, fixture.server, &fixture.guild);
+    let listener = Arc::new(Dropping::default());
+    let (_, mut call) = join_lounge(&fixture, listener.clone()).await;
+    let mut live = discord.live();
+    let to = discord
+        .snapshots()
+        .borrow()
+        .servers
+        .iter()
+        .flat_map(|server| &server.voice_channels)
+        .find(|found| found.name == "Create Room")
+        .map(|found| found.id.clone())
+        .unwrap();
+    let bob: u64 = fixture.bob.parse().unwrap();
+    let heard = |listener: &Dropping| listener.heard.0.lock().unwrap().get(&bob).copied();
+    for (moving, closed) in [
+        (format!("/_control/voice-move?channel={to}&close=4022"), 1),
+        ("/_control/voice-move?close=4022".to_owned(), 2),
+    ] {
+        post_control(server, &moving, "");
+        let moved = live_where(&mut live, |event| match event {
+            Live::VoiceMoved {
+                guild: moved,
+                server,
+            } if moved == *guild => Some(server),
+            _ => None,
+        })
+        .await;
+        until("the old connection closed", || {
+            listener.dropped.lock().unwrap().len() == closed
+        })
+        .await;
+        assert!(
+            listener.dropped.lock().unwrap()[closed - 1].contains("4022"),
+            "{:?}",
+            listener.dropped.lock().unwrap()
+        );
+        timeout(WAIT, call.move_to(&moved, &to))
+            .await
+            .expect("timed out moving the call")
+            .unwrap();
+        // Bob's tone comes through on the server the call moved to.
+        listener.heard.0.lock().unwrap().clear();
+        post_control(server, "/_control/bob-speak", "");
+        until("Bob's tone was heard", || {
+            heard(&listener).unwrap_or(0) > 3_000
+        })
+        .await;
+    }
+    // Neither ended session was resumed, and the old token never
+    // identified again.
+    let resumes: serde_json::Value =
+        serde_json::from_str(&control(server, "GET", "/_control/voice-resumes", "")).unwrap();
+    assert_eq!(resumes, serde_json::json!([]));
+    let identified: Vec<String> =
+        serde_json::from_str(&control(server, "GET", "/_control/voice-identifies", "")).unwrap();
+    assert_eq!(
+        identified,
+        [
+            "fake-voice-token",
+            "fake-voice-token-moved",
+            "fake-voice-token-moved"
+        ]
+    );
+    assert_eq!(listener.dropped.lock().unwrap().len(), 2);
+    assert_eq!(listener.moved.load(std::sync::atomic::Ordering::Relaxed), 2);
     call.leave();
 }
 
@@ -4033,9 +4119,10 @@ async fn calls_in_dms() {
         .id
         .clone();
     let assigned = discord.join(PRIVATE, &dm).await.unwrap();
+    let listener = Arc::new(Dropping::default());
     let mut call = timeout(
         WAIT,
-        Call::connect(&assigned, PRIVATE, &dm, std::sync::Arc::new(Quiet)),
+        Call::connect(&assigned, PRIVATE, &dm, listener.clone()),
     )
     .await
     .expect("timed out connecting to the DM call")
@@ -4084,6 +4171,22 @@ async fn calls_in_dms() {
         bob.parse().unwrap(),
     )
     .await;
+
+    // Discord moves the DM call to another voice server, ending the old
+    // connection with 4022 first: the call waits for the new one, and
+    // connects there.
+    post_control(server, "/_control/voice-move", "");
+    let moved = live_where(&mut live, |event| match event {
+        Live::VoiceMoved { guild, server } if guild == PRIVATE => Some(server),
+        _ => None,
+    })
+    .await;
+    timeout(WAIT, call.move_to(&moved, &dm))
+        .await
+        .expect("timed out moving the DM call")
+        .unwrap();
+    assert!(listener.dropped.lock().unwrap()[0].contains("4022"));
+    assert_eq!(listener.moved.load(std::sync::atomic::Ordering::Relaxed), 1);
 
     // Going live in a DM call names the stream by the call.
     let mine = discord.go_live(PRIVATE, &dm).await.unwrap();

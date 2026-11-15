@@ -41,7 +41,18 @@ pub struct Hearing {
     deafened: AtomicBool,
     heard: Mutex<HashMap<u64, Instant>>,
     sounds: Mutex<Vec<Playing>>,
-    ended: UnboundedSender<String>,
+    connection: UnboundedSender<Connection>,
+}
+
+/// What the call's thread says of its voice connection, in the order it
+/// happened.
+pub enum Connection {
+    /// Gone, for this reason: the call waits a while for Discord to name the
+    /// server it moved the call to.
+    Dropped(String),
+    /// Connected where Discord moved the call: a drop said before no longer
+    /// counts.
+    Moved,
 }
 
 /// A soundboard sound playing: 48 kHz interleaved stereo, how far it has
@@ -56,13 +67,13 @@ struct Playing {
 const SOUNDS_AT_ONCE: usize = 8;
 
 impl Hearing {
-    pub fn new(ended: UnboundedSender<String>) -> Self {
+    pub fn new(connection: UnboundedSender<Connection>) -> Self {
         Self {
             output: Mutex::default(),
             deafened: AtomicBool::new(false),
             heard: Mutex::default(),
             sounds: Mutex::default(),
-            ended,
+            connection,
         }
     }
 
@@ -147,7 +158,11 @@ impl Listener for Hearing {
     }
 
     fn disconnected(&self, reason: &str) {
-        let _ = self.ended.send(reason.to_owned());
+        let _ = self.connection.send(Connection::Dropped(reason.to_owned()));
+    }
+
+    fn connected(&self) {
+        let _ = self.connection.send(Connection::Moved);
     }
 
     /// The call's thread decodes and mixes everyone each 20 ms; held up,
@@ -1429,8 +1444,8 @@ mod tests {
 
     #[test]
     fn hearing_tracks_who_spoke() {
-        let (ended, _) = tokio::sync::mpsc::unbounded_channel();
-        let hearing = Hearing::new(ended);
+        let (connection, _) = tokio::sync::mpsc::unbounded_channel();
+        let hearing = Hearing::new(connection);
         let speech = vec![8_000i16; FRAME * 2];
         let hiss = vec![10i16; FRAME * 2];
         hearing.tick(&[(1, &speech), (2, &hiss)]);

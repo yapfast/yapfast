@@ -26,14 +26,37 @@ davey's change for Go Live groups is described in
 
 Discord may move a call to another voice server, saying so with a new
 `VOICE_SERVER_UPDATE` while the call is connected. Yapfast connects the call
-there and it goes on. The old server may drop the connection before that
-word comes, so a dropped connection waits five seconds for it before the
-call ends. Someone moving the account to a channel on another voice server
-goes that way: its voice state names the channel, the old server closes the
-connection with 4014, and `VOICE_SERVER_UPDATE` follows some 40 ms later.
-The call's connection, closed with 4014, keeps its media and waits those
-five seconds for the move; being disconnected from voice gets no new
-server, and the call ends then. A stream moves the same way, with a new `STREAM_CREATE` and
+there and it goes on, as in Discord's client: the microphone, the speakers,
+mute and deafen, the camera and the cameras asked for carry over, and DAVE
+starts over in the new connection's group. The old server may end the
+connection before that word comes, so a connection Discord ended waits
+five seconds for it before the call ends. Someone moving the account
+to a channel on another voice server, a locked or full one too, goes that
+way: its voice state names the channel, the old server closes the
+connection with 4014 or 4022, and `VOICE_SERVER_UPDATE` follows some
+40 to 100 ms later. Yapfast checks nothing about the channel before
+following, as Discord decided the move.
+
+Discord's close codes ([docs.discord.food](https://docs.discord.food/topics/opcodes-and-status-codes),
+Voice Close Event Codes) say not to reconnect after 4014, which disconnects
+this client, 4021, a rate limit, and 4022, which disconnects everyone: the
+channel was deleted, the call ended, or the voice server changed. The
+session is gone then: resuming fails with 4006, and the old token no longer
+identifies. So after these, and after 4006 itself, the call's connection
+(`recovery` in `call_connection.rs`) doesn't try either: it keeps its media
+and waits the five seconds for the move, still taking orders, so the move
+finds it waiting. Being disconnected from voice, or a deleted channel, gets
+no new server, and the call ends then. A connection that dropped otherwise
+resumes, as below, and a move that comes meanwhile takes over from the
+resume. The core hears of a drop and of the call connecting where it moved
+(`Listener::disconnected`, `Listener::connected`), in that order, so a drop
+told before a move it already followed doesn't end the call five seconds
+later. `a_call_follows_a_move_that_ends_its_session` checks a move with
+4022 into another channel and to another server, against the fake, which
+then refuses a resume with 4006 and the old token, and `calls_in_dms` a DM
+call's.
+
+A stream moves the same way, with a new `STREAM_CREATE` and
 `STREAM_SERVER_UPDATE`: sharing sends to the new server, after waiting up to
 five seconds for it when the old connection ends, and watching connects again.
 
@@ -219,8 +242,13 @@ compares packets' arrival times with their timestamps, so with a timestamp
 that stopped during pauses, every packet after a pause looked as late as the
 pause was long, and the start of speech was held back by up to half the pause
 (`decision_logic.cc`, `packet_arrival_history.cc` in NetEq's source). When the
-voice gateway drops, the connection resumes with op 7, and connects again
-from scratch if resuming fails.
+voice gateway drops without a code that ends the session, or with 4015, a
+voice server that crashed, the connection resumes with op 7, at once the
+first time and a second longer after each drop that follows, and connects
+again from scratch if resuming fails. A fourth drop in a row, with no
+connection holding a minute between, or a connection that can't be brought
+back, waits for a move as a session Discord ended does (see above), and
+ends the call without one.
 
 ### Playing what others say
 

@@ -101,10 +101,12 @@ pub(crate) struct Sending {
 }
 
 impl Sending {
-    pub fn new(camera: Camera, connection: &Connection) -> Self {
+    /// Sends on the connection's video SSRC, `video`, and on the next
+    /// connection's once announced there.
+    pub fn new(camera: Camera, video: u32) -> Self {
         Self {
             camera,
-            packetizer: Packetizer::new(connection.video, SEND_CODEC),
+            packetizer: Packetizer::new(video, SEND_CODEC),
             history: rtp::History::default(),
             packets: 0,
             octets: 0,

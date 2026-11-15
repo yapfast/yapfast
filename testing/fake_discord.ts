@@ -82,9 +82,14 @@
 // one that isn't live, or Alice's own, with 404 Unknown Stream.
 // /_control/voice-move moves Alice's call in the server to another voice
 // server, or with ?channel=ID moves her to that channel on another voice
-// server, as a member who drags her there does; POST /_control/voice-kick
-// disconnects her from voice. GET /_control/voice-identifies lists the tokens voice
-// connections identified with. POST /_control/elsewhere has Alice join the
+// server, as a member who drags her there does; &close=4022 has the old
+// server end her call with 4022 first, as in a user's log, and name the new
+// one 100 ms later. In a DM call it moves the call to another voice
+// server, ending it with 4022 first. POST /_control/voice-kick
+// disconnects her from voice. A call Discord ended with 4014 or 4022 can't
+// be resumed: op 7 then closes with 4006. GET /_control/voice-identifies lists the tokens voice
+// connections identified with, and GET /_control/voice-resumes the token of
+// each resume (op 7) and whether it resumed. POST /_control/elsewhere has Alice join the
 // Lounge on another client, whose session her voice state then names, and
 // ends her calls here; ?leave leaves it there. Op 4 with no channel takes
 // her out of voice whichever session sent it, as Discord may, so a client
@@ -3736,6 +3741,18 @@ const MOVED_VOICE_TOKEN = "fake-voice-token-moved";
 const voiceIdentifies: string[] = [];
 /** Voice connections, open until they close. */
 const voiceSockets = new Set<Socket>();
+/** The SSRCs of calls Discord ended, with 4014 or 4022, which can't be
+ *  resumed. */
+const endedCalls = new Set<number>();
+/** Each resume (op 7) of a call, for GET /_control/voice-resumes. */
+const voiceResumes: { token: string; resumed: boolean }[] = [];
+
+/** Ends a call's connection as Discord does when it disconnects her or
+ *  moves the call: resuming it fails from then on. */
+function endCall(ws: Socket, code: 4014 | 4022) {
+  if (ws.data.ssrc) endedCalls.add(ws.data.ssrc);
+  ws.close(code, "Disconnected.");
+}
 /** The token Alice's voice session holds now: a connection identifying
  *  with the one before is no longer valid, as on Discord. */
 let voiceToken = VOICE_TOKEN;
@@ -4926,7 +4943,8 @@ function voiceMessage(ws: Socket, text: string) {
         ws.close(4006, "Session is no longer valid.");
         return;
       }
-      if (d.token === VOICE_TOKEN && voiceToken !== VOICE_TOKEN) {
+      // A move gives a new token, and the one before stops working at once.
+      if ((d.token === VOICE_TOKEN || d.token === MOVED_VOICE_TOKEN) && d.token !== voiceToken) {
         ws.close(4006, "Session is no longer valid.");
         return;
       }
@@ -4934,7 +4952,7 @@ function voiceMessage(ws: Socket, text: string) {
       ws.data.voiceToken = String(d.token);
       voiceIdentifies.push(String(d.token));
       if (d.token === MOVED_VOICE_TOKEN) {
-        for (const old of voiceSockets) if (old.data.voiceToken === VOICE_TOKEN) old.close(4014, "Disconnected.");
+        for (const old of voiceSockets) if (old.data.voiceToken === VOICE_TOKEN) endCall(old, 4014);
       }
       if (String(d.token).startsWith("stream-token-")) ws.data.stream = String(d.token).slice("stream-token-".length);
       else callSessions.set(String(d.session_id), ws.data.ssrc);
@@ -5025,7 +5043,9 @@ function voiceMessage(ws: Socket, text: string) {
       const ssrc = callSessions.get(String(d.session_id));
       const old = ssrc ? [...voiceSockets].find((other) => other !== ws && other.data.ssrc === ssrc) : undefined;
       const call = ssrc ? callAudio.get(ssrc) : undefined;
-      if (!ssrc || !call || String(d.token) !== call.token) {
+      const resumes = !!ssrc && !!call && String(d.token) === call.token && !endedCalls.has(ssrc);
+      voiceResumes.push({ token: String(d.token), resumed: resumes });
+      if (!resumes) {
         ws.close(4006, "Session is no longer valid.");
         return;
       }
@@ -8396,7 +8416,7 @@ const ENV_IDS = 1_450_000_000_000_000_000n;
  *  and channels. */
 const GENERIC_CONTROLS = new Set([
   "media-requests", "history", "forwards", "gif-selects", "nitro", "profile", "profile-reset", "server-profile", "health", "presence", "logouts",
-  "voice-identifies", "voice-changes", "call-audio", "call-video", "voice-link", "voice-drop", "voice-move", "voice-kick",
+  "voice-identifies", "voice-resumes", "voice-changes", "call-audio", "call-video", "voice-link", "voice-drop", "voice-move", "voice-kick",
   "stream-move", "sessions", "other-session", "cookies", "list-requests", "audit-log", "slow", "gateway-reconnect", "qr-scan",
   "qr-confirm", "qr-captcha", "qr-cancel", "qr-expire", "voice-audio", "video", "stream-codec", "reactor-pages",
   "reactor-removals", "thread-searches", "thread-creates", "thread-members", "typed", "acks", "invites",
@@ -9060,6 +9080,7 @@ const server = Bun.serve<SocketData>({
     }
     if (path === "/_control/logouts") return Response.json(logouts);
     if (path === "/_control/voice-identifies") return Response.json(voiceIdentifies);
+    if (path === "/_control/voice-resumes") return Response.json(voiceResumes);
     if (path === "/_control/voice-changes") return Response.json(voiceChanges);
     if (path === "/_control/channel-info") return Response.json(channelInfoRequests);
     if (req.method === "POST" && path === "/_control/voice-reset") {
@@ -9149,26 +9170,36 @@ const server = Bun.serve<SocketData>({
       // names the new one, and the old one closes with 4014 once she's there.
       // Someone moving her to ?channel=ID on another voice server goes as on
       // Discord: her voice state says where, the old server closes her call
-      // with 4014, and the new one is named 40 ms later.
+      // with 4014, and the new one is named 40 ms later. With &close=4022,
+      // as in a user's log, the old server closes it first, channel or not,
+      // and the new one is named 100 ms later. Her old token stops working
+      // at the move. A DM call moves the same way, closing with 4022.
       const state = voice.get(ALICE);
-      if (!state?.guild) return new Response("Alice isn't in a server's voice channel\n", { status: 409 });
+      if (!state) return new Response("Alice isn't in a call\n", { status: 409 });
+      const to = url.searchParams.get("channel");
+      if (!state.guild && to) return new Response("a DM call has no other channel\n", { status: 409 });
+      const server = state.guild
+        ? { guild_id: state.guild, token: MOVED_VOICE_TOKEN }
+        : { guild_id: null, channel_id: state.channel, token: callToken(state.channel) };
       const name = () => {
-        voiceToken = MOVED_VOICE_TOKEN;
         for (const ws of sockets) {
           if (ws.data.session !== state.session) continue;
-          send(ws, 0, { guild_id: state.guild, token: MOVED_VOICE_TOKEN, endpoint: voiceEndpoint(ws) }, "VOICE_SERVER_UPDATE");
+          send(ws, 0, { ...server, endpoint: voiceEndpoint(ws) }, "VOICE_SERVER_UPDATE");
         }
       };
-      const to = url.searchParams.get("channel");
-      if (!to) {
+      if (state.guild) voiceToken = MOVED_VOICE_TOKEN;
+      if (to) {
+        state.channel = to;
+        announce(ALICE);
+      }
+      const close = Number(url.searchParams.get("close") ?? (to ? 4014 : state.guild ? 0 : 4022));
+      if (close !== 4014 && close !== 4022) {
         name();
         return new Response("moved Alice's call\n");
       }
-      state.channel = to;
-      announce(ALICE);
-      for (const ws of voiceSockets) if (!ws.data.stream && ws.data.callKey) ws.close(4014, "Disconnected.");
-      setTimeout(name, 40);
-      return new Response(`moved Alice to ${to}\n`);
+      for (const ws of voiceSockets) if (!ws.data.stream && ws.data.callKey) endCall(ws, close);
+      setTimeout(name, close === 4022 ? 100 : 40);
+      return new Response(to ? `moved Alice to ${to}\n` : "moved Alice's call\n");
     }
     if (req.method === "POST" && path === "/_control/voice-kick") {
       // Someone disconnects Alice from voice: her voice state has no
@@ -9177,7 +9208,7 @@ const server = Bun.serve<SocketData>({
       if (!before?.guild) return new Response("Alice isn't in a server's voice channel\n", { status: 409 });
       voice.delete(ALICE);
       moved(ALICE, before, origin);
-      for (const ws of voiceSockets) if (!ws.data.stream && ws.data.callKey) ws.close(4014, "Disconnected.");
+      for (const ws of voiceSockets) if (!ws.data.stream && ws.data.callKey) endCall(ws, 4014);
       return new Response("disconnected Alice from voice\n");
     }
     if (req.method === "POST" && path === "/_control/elsewhere") {
@@ -9191,7 +9222,7 @@ const server = Bun.serve<SocketData>({
       } else {
         if (before) endStream(streamKey(before.guild, before.channel, ALICE), "user_requested");
         voice.set(ALICE, { guild: GUILD, channel: LOUNGE, self_mute: false, self_deaf: false, session: OTHER_CLIENT });
-        for (const ws of voiceSockets) if (!ws.data.stream && ws.data.callKey) ws.close(4014, "Disconnected.");
+        for (const ws of voiceSockets) if (!ws.data.stream && ws.data.callKey) endCall(ws, 4014);
       }
       moved(ALICE, before, origin);
       return new Response(url.searchParams.has("leave") ? "Alice left on another client\n" : "Alice joined the Lounge on another client\n");

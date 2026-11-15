@@ -81,8 +81,10 @@ async fn send_out(ws: &mut Socket, out: Vec<Out>) -> Result<()> {
 }
 
 /// The voice gateway closed, with Discord's close code if it gave one:
-/// 4014 means this account was disconnected from the call, 4006 that its
-/// session is no longer valid.
+/// 4014 means this account was disconnected from the call, 4022 that
+/// everyone was, as when the call moves to another voice server, 4006 that
+/// its session is no longer valid. `call_connection::recovery` says what a
+/// call does after each.
 #[derive(Debug)]
 pub(crate) struct Closed {
     pub code: Option<u16>,

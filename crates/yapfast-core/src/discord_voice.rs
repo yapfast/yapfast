@@ -13,7 +13,7 @@ use yapfast_discord::{
 
 use crate::{
     camera::{self, Opening},
-    discord_audio::{self, Capture, Hearing, Speakers},
+    discord_audio::{self, Capture, Connection, Hearing, Speakers},
     discord_video::{Filming, Watching as Cameras},
     ring::{Ringer, Tone},
     soundboard::Soundboard,
@@ -333,8 +333,8 @@ pub(crate) async fn call(
         .to_owned();
     snapshots.send_replace(state.clone());
 
-    let (ended, mut endings) = mpsc::unbounded_channel();
-    let hearing = Arc::new(Hearing::new(ended));
+    let (connection, mut connections) = mpsc::unbounded_channel();
+    let hearing = Arc::new(Hearing::new(connection));
     // From before joining, so that a move while connecting is heard.
     let mut live = discord.live();
     let mut joining: Joining = Box::pin(async {
@@ -1041,13 +1041,19 @@ pub(crate) async fn call(
                     }
                     _ => {}
                 },
-                Some(reason) = endings.recv() => {
+                Some(connection) = connections.recv() => match connection {
                     // Discord ends the connection when it moves the call,
                     // perhaps before it says where to.
-                    tracing::warn!(%reason, "Discord voice disconnected");
-                    dropped = true;
-                    lost.as_mut().reset(tokio::time::Instant::now() + MOVE_GRACE);
-                }
+                    Connection::Dropped(reason) => {
+                        tracing::warn!(%reason, "Discord voice disconnected");
+                        dropped = true;
+                        lost.as_mut().reset(tokio::time::Instant::now() + MOVE_GRACE);
+                    }
+                    // A drop said before the move, as when Discord names
+                    // the new server before closing the old one, may come
+                    // after the move was followed; this comes after it.
+                    Connection::Moved => dropped = false,
+                },
                 () = &mut lost, if dropped => {
                     bail!(tr!("Discord voice disconnected. Join again to reconnect."));
                 }

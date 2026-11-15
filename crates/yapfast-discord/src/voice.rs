@@ -42,8 +42,14 @@ pub trait Listener: Send + Sync + 'static {
     /// Every 20 ms: each speaking user's decoded audio, as interleaved stereo
     /// at 48 kHz, by Discord user id.
     fn tick(&self, voices: &[(u64, &[i16])]);
-    /// The voice connection dropped.
+    /// The voice connection is gone, for this reason: Discord ended the
+    /// session, as it does when it moves the call, or it couldn't be
+    /// resumed. The call waits [`MOVE_GRACE`] for [`Call::move_to`] before it
+    /// ends; it also ends with this when connecting where it moved fails.
     fn disconnected(&self, reason: &str);
+    /// The call connected to the voice server Discord moved it to, after
+    /// [`Self::disconnected`] or not.
+    fn connected(&self) {}
     /// Once, on the call's thread, before it connects. The thread decodes
     /// and mixes what plays, so this can raise its priority.
     fn on_call_thread(&self) {}

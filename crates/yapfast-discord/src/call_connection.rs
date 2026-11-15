@@ -145,11 +145,47 @@ pub(crate) fn start(
     Ok((orders, connected))
 }
 
-/// Why the media loop stopped.
+/// Why the media loop stopped, and what the call does next.
 enum Ended {
     Left,
     Moved(Identity, oneshot::Sender<Result<()>>),
+    /// The connection dropped; [`recovery`] says what follows.
     Dropped(anyhow::Error),
+    /// The connection is gone, for this reason, and the call waits for
+    /// Discord to name the voice server it moved the call to.
+    Lost(String),
+    /// Connected, again or for the first time: the media goes on.
+    Connected,
+}
+
+/// What a call does when its voice gateway closes.
+#[derive(Debug, PartialEq)]
+enum Recovery {
+    /// Resumes the session with op 7, or connects to the same voice server
+    /// again if that fails.
+    Resume,
+    /// Waits for Discord to name the server the call moved to, for
+    /// [`MOVE_GRACE`]; without one, the call has ended.
+    AwaitMove,
+}
+
+/// How a call recovers from its `drops`th drop in a row, which the voice
+/// gateway closed with `code`, if it gave one. Discord's close codes
+/// (docs.discord.food, Voice Close Event Codes) say not to reconnect after
+/// 4014, which disconnects this client, as being moved or kicked does;
+/// 4021, a rate limit; and 4022, which disconnects everyone: the channel was
+/// deleted, the call ended, or the voice server changed, as for a channel
+/// on another server or a call Discord moves. 4006 says the session is no
+/// longer valid. After any of these, resuming only fails with 4006, and
+/// connecting again with the old token fails too; a move comes as a new
+/// VOICE_SERVER_UPDATE instead, some 100 ms later. A drop with no such code,
+/// or 4015, a voice server that crashed, resumes.
+fn recovery(code: Option<u16>, drops: u32) -> Recovery {
+    match code {
+        Some(4006 | 4014 | 4021 | 4022) => Recovery::AwaitMove,
+        _ if drops > RETRIES => Recovery::AwaitMove,
+        _ => Recovery::Resume,
+    }
 }
 
 async fn run(
@@ -179,24 +215,47 @@ async fn run(
         }
     };
     let mut drops = 0;
+    let mut ended = Ended::Connected;
     loop {
-        let up = std::time::Instant::now();
-        let mut ended = media
-            .run(&mut connection, &listener, &sending, &mut orders)
-            .await;
-        // Disconnected from the call: kicked from voice, or moved to a
-        // channel on another voice server, which Discord names just after.
-        // The call waits a while for the move before it ends.
-        if let Ended::Dropped(error) = &ended
-            && closed(error) == Some(4014)
-        {
-            listener.disconnected(&format!("{error:#}"));
-            ended = media.wait_for_move(&connection, &mut orders).await;
-        }
-        match ended {
-            Ended::Left => {
-                let _ = connection.ws.close(None).await;
-                return;
+        ended = match ended {
+            Ended::Connected => {
+                let up = std::time::Instant::now();
+                let ended = media
+                    .run(&mut connection, &listener, &sending, &mut orders)
+                    .await;
+                // Drops count in a row: a connection that held a while
+                // starts the count again, so a long call survives the odd
+                // blip.
+                if let Ended::Dropped(_) = ended {
+                    if up.elapsed() >= STEADY {
+                        drops = 0;
+                    }
+                    drops += 1;
+                }
+                ended
+            }
+            Ended::Dropped(error) => match recovery(closed(&error), drops) {
+                Recovery::Resume => {
+                    tracing::info!(
+                        error = format!("{error:#}"),
+                        "the call's voice connection dropped"
+                    );
+                    media
+                        .reconnect(&mut connection, &identity, drops, &mut orders)
+                        .await
+                        .unwrap_or_else(|again| Ended::Lost(format!("{error:#}; then {again:#}")))
+                }
+                Recovery::AwaitMove => Ended::Lost(format!("{error:#}")),
+            },
+            // Kicked from voice, the call ended, or moved to another voice
+            // server, which Discord names just after; or the connection
+            // couldn't be brought back. Orders still come meanwhile, so a
+            // move finds the call waiting for it.
+            Ended::Lost(reason) => {
+                listener.disconnected(&reason);
+                media
+                    .wait_for_move(connection.video, &mut orders, MOVE_GRACE)
+                    .await
             }
             Ended::Moved(to, reply) => {
                 let _ = connection.ws.close(None).await;
@@ -206,7 +265,9 @@ async fn run(
                         identity = to;
                         media.reset();
                         drops = 0;
+                        listener.connected();
                         let _ = reply.send(Ok(()));
+                        Ended::Connected
                     }
                     Err(error) => {
                         let reason = format!("{error:#}");
@@ -216,44 +277,11 @@ async fn run(
                     }
                 }
             }
-            Ended::Dropped(error) => {
-                // Drops count in a row: a connection that held a while starts
-                // the count again, so a long call survives the odd blip.
-                if up.elapsed() >= STEADY {
-                    drops = 0;
-                }
-                drops += 1;
-                // The session ended: final.
-                if closed(&error) == Some(4006) || drops > RETRIES {
-                    listener.disconnected(&format!("{error:#}"));
-                    return;
-                }
-                tracing::info!(
-                    error = format!("{error:#}"),
-                    "the call's voice connection dropped"
-                );
-                // The first try goes at once, so a blip passes unheard; the
-                // rest wait longer each time, rather than hammering a voice
-                // server that's struggling.
-                tokio::time::sleep(RESUME_WAIT * (drops - 1)).await;
-                if let Err(resume) = connection.resume(&identity).await {
-                    tracing::info!(
-                        error = format!("{resume:#}"),
-                        "couldn't resume the call; connecting again"
-                    );
-                    match Connection::open(&identity, codecs(), &[]).await {
-                        Ok(again) => {
-                            connection = again;
-                            media.reset();
-                        }
-                        Err(again) => {
-                            listener.disconnected(&format!("{error:#}; then {again:#}"));
-                            return;
-                        }
-                    }
-                }
+            Ended::Left => {
+                let _ = connection.ws.close(None).await;
+                return;
             }
-        }
+        };
     }
 }
 
@@ -509,7 +537,7 @@ impl Media {
                         None | Some(Order::Leave) => return Ok(Ended::Left),
                         Some(Order::Move(to, reply)) => return Ok(Ended::Moved(to, reply)),
                         Some(Order::Film(Some(camera))) => {
-                            let mut filming = call_video::Sending::new(camera, connection);
+                            let mut filming = call_video::Sending::new(camera, connection.video);
                             filming.announce(connection).await?;
                             self.filming = Some(filming);
                         }
@@ -604,29 +632,96 @@ impl Media {
     }
 
     /// Waits, with no connection, for the call to move to another voice
-    /// server, for [`MOVE_GRACE`]; orders meanwhile apply once it's there.
-    /// Without a move it has ended.
+    /// server, for `grace`; orders meanwhile apply once it's there. Without
+    /// a move it has ended.
     async fn wait_for_move(
         &mut self,
-        connection: &Connection,
+        video: u32,
         orders: &mut mpsc::UnboundedReceiver<Order>,
+        grace: Duration,
     ) -> Ended {
-        let given_up = tokio::time::sleep(MOVE_GRACE);
+        let given_up = tokio::time::sleep(grace);
         tokio::pin!(given_up);
         loop {
             tokio::select! {
-                order = orders.recv() => match order {
-                    None | Some(Order::Leave) => return Ended::Left,
-                    Some(Order::Move(to, reply)) => return Ended::Moved(to, reply),
-                    // Announced on the new connection.
-                    Some(Order::Film(camera)) => {
-                        self.filming = camera.map(|camera| call_video::Sending::new(camera, connection));
-                    }
-                    Some(Order::Want(wants)) => self.watching.want(wants),
+                order = orders.recv() => if let Some(ended) = self.order_unconnected(order, video) {
+                    return ended;
                 },
                 () = &mut given_up => return Ended::Left,
             }
         }
+    }
+
+    /// Resumes the session after the connection dropped, the `drops`th time
+    /// in a row, or connects to the voice server again if it can't, and
+    /// says the call goes on. Orders still come meanwhile: a move or
+    /// leaving ends the attempt there and then, as Discord may name the
+    /// server it moved the call to while the old one is being asked.
+    async fn reconnect(
+        &mut self,
+        connection: &mut Connection,
+        identity: &Identity,
+        drops: u32,
+        orders: &mut mpsc::UnboundedReceiver<Order>,
+    ) -> Result<Ended> {
+        let video = connection.video;
+        let filming = self.filming.is_some();
+        let again = {
+            let attempt = async {
+                // The first try goes at once, so a blip passes unheard; the
+                // rest wait longer each time, rather than hammering a voice
+                // server that's struggling.
+                tokio::time::sleep(RESUME_WAIT * (drops - 1)).await;
+                match connection.resume(identity).await {
+                    Ok(()) => Ok(None),
+                    Err(resume) => {
+                        tracing::info!(
+                            error = format!("{resume:#}"),
+                            "couldn't resume the call; connecting again"
+                        );
+                        Connection::open(identity, codecs(), &[]).await.map(Some)
+                    }
+                }
+            };
+            tokio::pin!(attempt);
+            loop {
+                tokio::select! {
+                    again = &mut attempt => break again?,
+                    order = orders.recv() => if let Some(ended) = self.order_unconnected(order, video) {
+                        return Ok(ended);
+                    },
+                }
+            }
+        };
+        match again {
+            Some(again) => {
+                *connection = again;
+                self.reset();
+            }
+            // The resumed session still has the camera, unless it was
+            // turned off meanwhile. A connection that failed again ends the
+            // media at once.
+            None if filming && self.filming.is_none() => {
+                let _ = call_video::Sending::clear(connection).await;
+            }
+            None => {}
+        }
+        Ok(Ended::Connected)
+    }
+
+    /// An order while the call has no connection, which a move or leaving
+    /// ends. The camera, and what's wanted of others', are announced once
+    /// it's connected; `video` is the video SSRC until then.
+    fn order_unconnected(&mut self, order: Option<Order>, video: u32) -> Option<Ended> {
+        match order {
+            None | Some(Order::Leave) => return Some(Ended::Left),
+            Some(Order::Move(to, reply)) => return Some(Ended::Moved(to, reply)),
+            Some(Order::Film(camera)) => {
+                self.filming = camera.map(|camera| call_video::Sending::new(camera, video));
+            }
+            Some(Order::Want(wants)) => self.watching.want(wants),
+        }
+        None
     }
 
     /// Notes whether frames leave end-to-end encrypted, and the group's
@@ -1381,6 +1476,67 @@ mod tests {
             );
             assert_eq!(speaker.waiting.len(), START - 1 - tick / 3);
         }
+    }
+
+    /// A session Discord ended, as a move ends it with 4014 or 4022, waits
+    /// for the new server rather than resuming, which would only fail with
+    /// 4006; a drop that keeps coming back stops resuming too.
+    #[test]
+    fn a_session_discord_ended_waits_for_a_move_rather_than_resuming() {
+        for code in [4006, 4014, 4021, 4022] {
+            assert_eq!(recovery(Some(code), 1), Recovery::AwaitMove, "{code}");
+        }
+        // Closed without a code, by the network or a voice server that
+        // crashed or timed the session out.
+        for code in [None, Some(1006), Some(4009), Some(4015)] {
+            assert_eq!(recovery(code, 1), Recovery::Resume, "{code:?}");
+            assert_eq!(recovery(code, RETRIES), Recovery::Resume, "{code:?}");
+            assert_eq!(recovery(code, RETRIES + 1), Recovery::AwaitMove, "{code:?}");
+        }
+    }
+
+    fn identity(token: &str) -> Identity {
+        Identity {
+            endpoint: "voice.example".into(),
+            server_id: "1".into(),
+            user_id: "2".into(),
+            session_id: "s".into(),
+            token: token.into(),
+            streams: json!([]),
+            user: 2,
+            group: 3,
+        }
+    }
+
+    /// A call that lost its connection still takes orders while it waits:
+    /// the camera turned on goes out on the next connection, a move ends
+    /// the wait, and without one the call ends once the grace is over, or
+    /// as soon as it's left.
+    #[tokio::test]
+    async fn a_lost_call_takes_orders_until_it_moves() {
+        let (frames, _) = channel::sync_channel(1);
+        let mut media = Media::new(frames, Arc::default()).unwrap();
+        let (orders, mut ordered) = mpsc::unbounded_channel();
+        let (_camera, camera) = call_video::camera(640, 360, 30);
+        orders.send(Order::Film(Some(camera))).unwrap();
+        let (reply, _replied) = oneshot::channel();
+        orders.send(Order::Move(identity("moved"), reply)).unwrap();
+        let ended = media
+            .wait_for_move(5, &mut ordered, Duration::from_secs(10))
+            .await;
+        assert!(matches!(ended, Ended::Moved(to, _) if to.token == "moved"));
+        assert!(media.filming.is_some());
+
+        let grace = Duration::from_millis(50);
+        let started = std::time::Instant::now();
+        let ended = media.wait_for_move(5, &mut ordered, grace).await;
+        assert!(matches!(ended, Ended::Left) && started.elapsed() >= grace);
+        orders.send(Order::Film(None)).unwrap();
+        drop(orders);
+        let ended = media
+            .wait_for_move(5, &mut ordered, Duration::from_secs(10))
+            .await;
+        assert!(matches!(ended, Ended::Left) && media.filming.is_none());
     }
 
     #[test]
