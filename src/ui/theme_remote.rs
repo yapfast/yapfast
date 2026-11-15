@@ -13,6 +13,8 @@ use yapfast_core::themes::install::Fetched;
 use yapfast_core::themes::remote::{self, Catalog, Listing, Repository};
 
 const STOPPED: &str = "Fetching the theme stopped partway; try again.";
+const NO_REPOSITORY: &str =
+    "GitHub has no such repository, branch or folder; a theme's repository has to be public";
 
 /// Asks for `url`, and reads its answer whole if it's at most `limit` bytes.
 async fn get(
@@ -20,6 +22,7 @@ async fn get(
     url: &str,
     limit: u64,
     accept: Option<&str>,
+    missing: &str,
 ) -> Result<Vec<u8>, String> {
     let mut request = client.get(url);
     if let Some(accept) = accept {
@@ -33,10 +36,7 @@ async fn get(
     if status == reqwest::StatusCode::NOT_FOUND
         || status == reqwest::StatusCode::UNPROCESSABLE_ENTITY
     {
-        return Err(
-            "GitHub has no such repository, branch or folder; a theme's repository has to be public"
-                .into(),
-        );
+        return Err(missing.to_owned());
     }
     if !status.is_success() {
         return Err(format!("GitHub answered {status}; try again later"));
@@ -73,6 +73,7 @@ async fn download(repository: Repository) -> Result<(String, Vec<u8>), String> {
                 &repository.commit_url(),
                 256,
                 Some("application/vnd.github.sha"),
+                NO_REPOSITORY,
             )
             .await?,
         )?,
@@ -82,6 +83,7 @@ async fn download(repository: Repository) -> Result<(String, Vec<u8>), String> {
         &repository.archive_url(&commit),
         remote::MAX_ARCHIVE_BYTES,
         None,
+        NO_REPOSITORY,
     )
     .await?;
     Ok((commit, archive))
@@ -139,16 +141,17 @@ pub async fn catalog(runtime: Arc<BackgroundRuntime>) -> Result<Catalog, String>
                 remote::CATALOG_URL,
                 remote::MAX_CATALOG_BYTES,
                 None,
+                "The theme catalog isn't published yet",
             )
             .await
-            .map_err(|error| format!("The marketplace couldn't be loaded. {error}"))?;
+            .map_err(|error| format!("The marketplace couldn't be loaded. {error}."))?;
             remote::read_catalog(&bytes)
         })
         .await
         .map_err(|_| "Loading the marketplace stopped partway; try again.".to_owned())?
 }
 
-/// A listed theme's preview, decoded at most 960 pixels wide off the UI
+/// A listed theme's preview, shrunk to the gallery's thumbnail off the UI
 /// thread; `None` if it couldn't be had.
 pub async fn preview(
     runtime: Arc<BackgroundRuntime>,
@@ -157,7 +160,7 @@ pub async fn preview(
     let bytes = runtime
         .spawn(async move {
             let client = crate::update::client().ok()?;
-            get(&client, &url, remote::MAX_PREVIEW_BYTES, None)
+            get(&client, &url, remote::MAX_PREVIEW_BYTES, None, "")
                 .await
                 .ok()
         })
