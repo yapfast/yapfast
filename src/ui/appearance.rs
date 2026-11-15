@@ -124,10 +124,14 @@ impl Adapter {
         );
     }
 
-    /// Ctrl+Shift+T: the default theme until Yapfast starts again; the
-    /// chosen theme stays chosen.
+    /// Ctrl+Shift+T, or Turn off theme: the default theme from now on, at
+    /// start too. The theme that was showing becomes the one Back returns to.
     pub(super) fn default_theme_for_session(&mut self, window: &YapfastWindow) {
         theme_look::default_for_session(window);
+        if let Some(shown) = self.layout.theme.take() {
+            self.layout.previous_theme = Some(shown);
+        }
+        self.layout.write(&self.root);
         let default = window
             .global::<ClientStyle>()
             .get_enabled()
@@ -137,7 +141,7 @@ impl Adapter {
         self.set_theme(window, &chosen);
         self.show_previous_theme(window);
         self.app.state.notice = Some(
-            "Showing the default theme until Yapfast starts again (Ctrl+Shift+T). Choose any theme in Settings → Appearance."
+            "Theme turned off (Ctrl+Shift+T). Choose any theme in Settings → Themes."
                 .to_owned(),
         );
         self.refresh(window);
