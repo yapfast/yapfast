@@ -239,6 +239,9 @@ impl Backend for ExtismBackend {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .remove(plugin);
+        // Its deadline trigger goes too, or the map keeps one per plugin
+        // ever loaded, holding a cancel handle to a store that is gone.
+        self.forget(plugin);
     }
 
     fn activate(&self, plugin: &PluginId) -> Result<Option<String>, Fault> {
