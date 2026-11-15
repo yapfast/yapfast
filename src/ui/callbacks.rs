@@ -2258,7 +2258,30 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     let weak = window.as_weak();
     window.on_record_talk_key(move |on| {
         if let Some(window) = weak.upgrade() {
+            window.set_voice_key_recording(-1);
+            window.set_voice_key_error("".into());
+            crate::push_to_talk::recording(on);
             window.set_talk_recording(on);
+        }
+    });
+    let weak = window.as_weak();
+    window.on_record_voice_key(move |index| {
+        if let Some(window) = weak.upgrade() {
+            let on = window.get_voice_key_recording() != index;
+            window.set_talk_recording(false);
+            window.set_voice_key_recording(if on { index } else { -1 });
+            window.set_voice_key_error("".into());
+            crate::push_to_talk::recording(on);
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_clear_voice_key(move |index| {
+        if let Some(window) = weak.upgrade() {
+            window.set_talk_recording(false);
+            window.set_voice_key_recording(-1);
+            crate::push_to_talk::recording(false);
+            state.borrow_mut().set_voice_key(&window, index, None);
         }
     });
     let state = adapter.clone();

@@ -332,6 +332,28 @@ impl Shell {
     }
 }
 
+pub(super) fn toggle_mute() {
+    let Some(shell) = SHELL.with(|shell| shell.borrow().upgrade()) else {
+        return;
+    };
+    let muted = {
+        let adapter = shell.adapter.borrow();
+        if !adapter.app.state.voice.active() {
+            return;
+        }
+        adapter.app.state.voice.muted
+    };
+    shell.act(Action::Voice(voice::Command::Mute(!muted)));
+}
+
+pub(super) fn show_push_mute(held: bool) {
+    if let Some(shell) = SHELL.with(|shell| shell.borrow().upgrade())
+        && let Some(window) = shell.window()
+    {
+        window.set_push_muted(held);
+    }
+}
+
 /// Makes the window again where it was, on Appearance as the setting that
 /// asked for it, for a change Slint can't make to the shown window.
 pub(super) fn remake_window() {

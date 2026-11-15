@@ -3,13 +3,15 @@
 //! mouse hook on Windows. Where none of these works, the key works while
 //! Yapfast's window has the focus, and settings say so. Each tells
 //! [`yapfast_core::push_to_talk::hold`] when the key goes down or comes up.
-use std::sync::{
-    Arc, Mutex,
-    atomic::{AtomicBool, AtomicU32, Ordering},
+use std::{
+    collections::BTreeSet,
+    sync::{
+        Arc, LazyLock, Mutex,
+        atomic::{AtomicBool, AtomicU8, Ordering},
+    },
 };
 
 use serde::{Deserialize, Serialize};
-#[cfg(windows)]
 use slint::winit_030::winit::event::MouseButton;
 use slint::winit_030::winit::{
     event::{ElementState, KeyEvent, WindowEvent},
@@ -20,9 +22,7 @@ use yapfast_core::runtime::BackgroundRuntime;
 
 /// Mouse buttons share the saved scan-code field, tagged above Windows' 16-bit
 /// scan codes so existing keyboard bindings keep their meaning.
-#[cfg(windows)]
 const MOUSE_4: u32 = 0xFFFF_0004;
-#[cfg(windows)]
 const MOUSE_5: u32 = 0xFFFF_0005;
 
 /// A key recorded in settings.
@@ -37,21 +37,26 @@ pub struct Keybind {
     /// GlobalShortcuts portal takes as the shortcut it would like.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trigger: Option<String>,
+    #[serde(default)]
+    pub modifiers: u8,
 }
 
 impl Keybind {
     /// The key a key press names, unless it has no scan code.
     pub fn recorded(event: &KeyEvent) -> Option<Self> {
         let scancode = event.physical_key.to_scancode()?;
-        Some(Self {
-            scancode,
-            name: name(event),
-            trigger: trigger(event),
-        })
+        Some(
+            Self {
+                scancode,
+                name: name(event),
+                trigger: trigger(event),
+                modifiers: 0,
+            }
+            .with_modifiers(),
+        )
     }
 
-    /// Mouse 4 or 5 pressed in the window on Windows.
-    #[cfg(windows)]
+    /// Mouse 4 or 5 pressed in the window.
     pub fn recorded_mouse(event: &WindowEvent) -> Option<Self> {
         let WindowEvent::MouseInput {
             state: ElementState::Pressed,
@@ -66,12 +71,100 @@ impl Keybind {
             MouseButton::Forward => (MOUSE_5, "Mouse 5"),
             _ => return None,
         };
-        Some(Self {
-            scancode,
-            name: name.into(),
-            trigger: None,
-        })
+        Some(
+            Self {
+                scancode,
+                name: name.into(),
+                trigger: None,
+                modifiers: 0,
+            }
+            .with_modifiers(),
+        )
     }
+
+    fn with_modifiers(mut self) -> Self {
+        self.modifiers = MODIFIERS.load(Ordering::Relaxed) & !modifier(self.scancode);
+        for (flag, label, trigger) in [
+            (SUPER, "Win", "LOGO"),
+            (ALT, "Alt", "ALT"),
+            (SHIFT, "Shift", "SHIFT"),
+            (CTRL, "Ctrl", "CTRL"),
+        ] {
+            if self.modifiers & flag != 0 {
+                self.name = format!("{label}+{}", self.name);
+                self.trigger = self.trigger.map(|key| format!("{trigger}+{key}"));
+            }
+        }
+        self
+    }
+}
+
+const CTRL: u8 = 1;
+const SHIFT: u8 = 2;
+const ALT: u8 = 4;
+const SUPER: u8 = 8;
+static MODIFIERS: AtomicU8 = AtomicU8::new(0);
+
+pub fn is_modifier(event: &KeyEvent) -> bool {
+    event
+        .physical_key
+        .to_scancode()
+        .is_some_and(|key| modifier(key) != 0)
+}
+
+fn modifier(key: u32) -> u8 {
+    #[cfg(windows)]
+    let keys = [
+        (CTRL, [0x1D, 0xE01D]),
+        (SHIFT, [0x2A, 0x36]),
+        (ALT, [0x38, 0xE038]),
+        (SUPER, [0xE05B, 0xE05C]),
+    ];
+    #[cfg(not(windows))]
+    let keys = [
+        (CTRL, [29, 97]),
+        (SHIFT, [42, 54]),
+        (ALT, [56, 100]),
+        (SUPER, [125, 126]),
+    ];
+    keys.into_iter()
+        .find_map(|(flag, keys)| keys.contains(&key).then_some(flag))
+        .unwrap_or(0)
+}
+
+type Input = Arc<dyn Fn(u32, bool) -> bool + Send + Sync>;
+
+fn input_handler(key: &Keybind, handler: Handler) -> Input {
+    let key = key.clone();
+    let state = Mutex::new((BTreeSet::new(), false));
+    Arc::new(move |code, down| {
+        if code != NONE && code != key.scancode && modifier(code) == 0 {
+            return false;
+        }
+        let mut state = state.lock().unwrap_or_else(|p| p.into_inner());
+        if code == NONE {
+            state.0.clear();
+            if state.1 {
+                state.1 = false;
+                handler(false);
+            }
+            return false;
+        }
+        if down {
+            state.0.insert(code);
+        } else {
+            state.0.remove(&code);
+        }
+        let modifiers =
+            state.0.iter().fold(0, |flags, key| flags | modifier(*key)) & !modifier(key.scancode);
+        let held = state.0.contains(&key.scancode) && modifiers == key.modifiers;
+        let consumed = code == key.scancode && (held || state.1);
+        if state.1 != held {
+            state.1 = held;
+            handler(held);
+        }
+        consumed
+    })
 }
 
 /// The key without Shift or Caps Lock, so a letter reads as itself.
@@ -186,6 +279,23 @@ pub enum Reach {
 }
 
 impl Reach {
+    pub fn shortcut_note(&self) -> String {
+        match self {
+            Self::Asking => "Asking your desktop to enable this shortcut...".into(),
+            Self::Everywhere(None) => {
+                "Works while another app is in front, including games.".into()
+            }
+            Self::Everywhere(Some(key)) if key.is_empty() => {
+                "Approve or assign this shortcut in your desktop's global shortcut settings.".into()
+            }
+            Self::Everywhere(Some(key)) => {
+                format!("Global shortcut assigned by your desktop: {key}")
+            }
+            Self::Focused(why) => {
+                format!("{why}. This shortcut works only while Yapfast is in front.")
+            }
+        }
+    }
     /// What settings say under the key.
     pub fn note(&self) -> String {
         match self {
@@ -204,58 +314,105 @@ impl Reach {
     }
 }
 
-/// The key's scan code while the window's own key events stand in for a
-/// global key; [`NONE`] otherwise.
-static FOCUSED_KEY: AtomicU32 = AtomicU32::new(NONE);
 const NONE: u32 = u32::MAX;
-/// The key's scan code while push to talk watches it, and whether the window's
-/// latest key press was it.
-static TALK_KEY: AtomicU32 = AtomicU32::new(NONE);
-static PRESSED_TALK_KEY: AtomicBool = AtomicBool::new(false);
+#[cfg(test)]
+static FOCUSED_KEY: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(NONE);
 
-/// Whether the key press Slint is handling is the push-to-talk key, which
-/// shouldn't also type into the composer.
-pub fn pressed_talk_key() -> bool {
-    PRESSED_TALK_KEY.load(Ordering::Relaxed)
+type Handler = Arc<dyn Fn(bool) + Send + Sync>;
+static RECORDING: AtomicBool = AtomicBool::new(false);
+
+pub fn recording(on: bool) {
+    RECORDING.store(on, Ordering::Relaxed);
+    if on {
+        yapfast_core::push_to_talk::hold(false);
+        yapfast_core::push_to_talk::push_mute(false);
+        for binding in WINDOW_BINDINGS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .iter()
+        {
+            (binding.input)(NONE, false);
+        }
+    }
+}
+struct WindowBinding {
+    id: &'static str,
+    focused: Arc<AtomicBool>,
+    input: Input,
+}
+static WINDOW_BINDINGS: LazyLock<Mutex<Vec<WindowBinding>>> =
+    LazyLock::new(|| Mutex::new(Vec::new()));
+
+fn event_key(event: &WindowEvent) -> Option<(u32, bool)> {
+    match event {
+        WindowEvent::KeyboardInput { event, .. } => event
+            .physical_key
+            .to_scancode()
+            .map(|key| (key, event.state == ElementState::Pressed)),
+        WindowEvent::MouseInput { state, button, .. } => {
+            let key = match button {
+                MouseButton::Back => MOUSE_4,
+                MouseButton::Forward => MOUSE_5,
+                _ => return None,
+            };
+            Some((key, *state == ElementState::Pressed))
+        }
+        _ => None,
+    }
 }
 
 /// Holds the key from the window's own events while no global key works.
 /// Losing the focus lets it go, as the key's release won't come.
-pub fn window_event(event: &WindowEvent) {
-    if let WindowEvent::KeyboardInput { event, .. } = event
-        && event.state == ElementState::Pressed
-    {
-        let key = TALK_KEY.load(Ordering::Relaxed);
-        PRESSED_TALK_KEY.store(
-            key != NONE && event.physical_key.to_scancode() == Some(key),
+pub fn window_event(event: &WindowEvent) -> bool {
+    if let WindowEvent::ModifiersChanged(modifiers) = event {
+        let modifiers = modifiers.state();
+        MODIFIERS.store(
+            (u8::from(modifiers.control_key()) * CTRL)
+                | (u8::from(modifiers.shift_key()) * SHIFT)
+                | (u8::from(modifiers.alt_key()) * ALT)
+                | (u8::from(modifiers.super_key()) * SUPER),
             Ordering::Relaxed,
         );
     }
-    let key = FOCUSED_KEY.load(Ordering::Relaxed);
-    if key == NONE {
-        return;
+    if matches!(event, WindowEvent::Focused(false)) {
+        MODIFIERS.store(0, Ordering::Relaxed);
     }
-    match event {
-        WindowEvent::KeyboardInput { event, .. }
-            if !event.repeat && event.physical_key.to_scancode() == Some(key) =>
-        {
-            yapfast_core::push_to_talk::hold(event.state == ElementState::Pressed);
-        }
-        #[cfg(windows)]
-        WindowEvent::MouseInput { state, button, .. }
-            if (key == MOUSE_4 && *button == MouseButton::Back)
-                || (key == MOUSE_5 && *button == MouseButton::Forward) =>
-        {
-            yapfast_core::push_to_talk::hold(*state == ElementState::Pressed);
-        }
-        WindowEvent::Focused(false) => yapfast_core::push_to_talk::hold(false),
-        _ => {}
+    if RECORDING.load(Ordering::Relaxed) {
+        return false;
     }
+    let bindings = WINDOW_BINDINGS.lock().unwrap_or_else(|p| p.into_inner());
+    let mut consumed = false;
+    for binding in bindings.iter() {
+        if let Some((key, held)) = event_key(event) {
+            consumed |= (binding.input)(key, held);
+        } else if matches!(event, WindowEvent::Focused(false))
+            && binding.focused.load(Ordering::Relaxed)
+        {
+            (binding.input)(NONE, false);
+        }
+    }
+    #[cfg(test)]
+    {
+        let key = FOCUSED_KEY.load(Ordering::Relaxed);
+        if key != NONE {
+            if let Some((code, held)) = event_key(event) {
+                if key == code {
+                    yapfast_core::push_to_talk::hold(held);
+                }
+            } else if matches!(event, WindowEvent::Focused(false)) {
+                yapfast_core::push_to_talk::hold(false);
+            }
+        }
+    }
+    consumed
 }
 
 /// Watches the key in every app it can, until dropped.
 pub struct Watcher {
     key: Keybind,
+    id: &'static str,
+    handler: Handler,
+    active: Arc<Mutex<bool>>,
     reach: Arc<Mutex<Reach>>,
     #[cfg(target_os = "linux")]
     _global: Option<linux::Global>,
@@ -271,24 +428,69 @@ impl Watcher {
         runtime: &BackgroundRuntime,
         told: impl Fn(Reach) + Send + Sync + 'static,
     ) -> Self {
+        Self::start_with(
+            key,
+            "push-to-talk",
+            runtime,
+            Arc::new(yapfast_core::push_to_talk::hold),
+            told,
+        )
+    }
+
+    pub fn start_with(
+        key: Keybind,
+        id: &'static str,
+        runtime: &BackgroundRuntime,
+        handler: Handler,
+        told: impl Fn(Reach) + Send + Sync + 'static,
+    ) -> Self {
+        let active = Arc::new(Mutex::new(true));
+        let enabled = active.clone();
+        let reset = handler.clone();
+        let callback = handler;
+        let handler: Handler = Arc::new(move |held| {
+            let enabled = enabled.lock().unwrap_or_else(|p| p.into_inner());
+            if *enabled && (!held || !RECORDING.load(Ordering::Relaxed)) {
+                callback(held);
+            }
+        });
+        let input = input_handler(&key, handler.clone());
+        let focused = Arc::new(AtomicBool::new(false));
+        WINDOW_BINDINGS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push(WindowBinding {
+                id,
+                focused: focused.clone(),
+                input: input.clone(),
+            });
         let reach = Arc::new(Mutex::new(Reach::Asking));
         let shared = reach.clone();
-        let scancode = key.scancode;
-        TALK_KEY.store(scancode, Ordering::Relaxed);
+        let fallback = focused;
+        let on_error = input.clone();
+        let reporting = active.clone();
         let report = Arc::new(move |now: Reach| {
             let focused = matches!(now, Reach::Focused(_));
-            FOCUSED_KEY.store(if focused { scancode } else { NONE }, Ordering::Relaxed);
+            if focused {
+                on_error(NONE, false);
+            }
+            let active = reporting.lock().unwrap_or_else(|p| p.into_inner());
+            if !*active {
+                return;
+            }
+            fallback.store(focused, Ordering::Relaxed);
             *shared
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner()) = now.clone();
             told(now);
         });
         #[cfg(target_os = "linux")]
-        let global = linux::Global::start(&key, runtime, report);
+        let global =
+            linux::Global::start_with(&key, id, runtime, report, handler.clone(), input.clone());
         #[cfg(windows)]
         let global = {
             let _ = runtime;
-            windows::Hook::start(scancode, report)
+            windows::Hook::start_with(key.scancode, report, input.clone())
         };
         #[cfg(not(any(target_os = "linux", windows)))]
         {
@@ -299,6 +501,9 @@ impl Watcher {
         }
         Self {
             key,
+            id,
+            handler: reset,
+            active,
             reach,
             #[cfg(any(target_os = "linux", windows))]
             _global: global,
@@ -319,9 +524,12 @@ impl Watcher {
 
 impl Drop for Watcher {
     fn drop(&mut self) {
-        FOCUSED_KEY.store(NONE, Ordering::Relaxed);
-        TALK_KEY.store(NONE, Ordering::Relaxed);
-        yapfast_core::push_to_talk::hold(false);
+        *self.active.lock().unwrap_or_else(|p| p.into_inner()) = false;
+        WINDOW_BINDINGS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .retain(|b| b.id != self.id);
+        (self.handler)(false);
     }
 }
 
@@ -354,7 +562,7 @@ mod linux {
         zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Value},
     };
 
-    use super::{Keybind, Reach, Report};
+    use super::{Handler, Input, Keybind, Reach, Report};
 
     /// A global key on Wayland or X11; stops when dropped.
     pub enum Global {
@@ -365,7 +573,14 @@ mod linux {
     impl Global {
         /// Wayland's desktops grab keys through the portal; X11 lets any
         /// client hear every key.
-        pub fn start(key: &Keybind, runtime: &BackgroundRuntime, report: Report) -> Option<Self> {
+        pub fn start_with(
+            key: &Keybind,
+            id: &'static str,
+            runtime: &BackgroundRuntime,
+            report: Report,
+            handler: Handler,
+            input: Input,
+        ) -> Option<Self> {
             let wayland =
                 std::env::var_os("WAYLAND_DISPLAY").is_some_and(|value| !value.is_empty());
             if wayland {
@@ -373,7 +588,7 @@ mod linux {
                 let trigger = key.trigger.clone();
                 return Some(Global::Portal {
                     _session: runtime.spawn(async move {
-                        if let Err(error) = portal(trigger, &report).await {
+                        if let Err(error) = portal_with(trigger, id, &report, handler).await {
                             tracing::info!(
                                 error = format!("{error:#}"),
                                 "no global push-to-talk key through the portal"
@@ -385,7 +600,7 @@ mod linux {
                     }),
                 });
             }
-            match X11::start(key.scancode, report.clone()) {
+            match X11::start_with(report.clone(), input) {
                 Ok(x11) => {
                     report(Reach::Everywhere(None));
                     Some(Global::X11 { _events: x11 })
@@ -405,13 +620,29 @@ mod linux {
     const PORTAL: &str = "org.freedesktop.portal.Desktop";
     const PATH: &str = "/org/freedesktop/portal/desktop";
     const SHORTCUTS: &str = "org.freedesktop.portal.GlobalShortcuts";
-    /// The one shortcut Yapfast binds.
+    #[cfg(test)]
     const SHORTCUT: &str = "push-to-talk";
 
     /// Binds the key through the GlobalShortcuts portal and holds it as the
     /// desktop says, until the task is dropped, which ends the session with
     /// the connection.
+    #[cfg(test)]
     async fn portal(trigger: Option<String>, report: &Report) -> Result<()> {
+        portal_with(
+            trigger,
+            SHORTCUT,
+            report,
+            Arc::new(yapfast_core::push_to_talk::hold),
+        )
+        .await
+    }
+
+    async fn portal_with(
+        trigger: Option<String>,
+        id: &'static str,
+        report: &Report,
+        handler: Handler,
+    ) -> Result<()> {
         let connection = Connection::session().await?;
         // Names Yapfast to the portal, which outside a sandbox can't tell
         // the app otherwise; older portals don't have it.
@@ -457,7 +688,14 @@ mod linux {
             _ => bail!("the portal gave no session"),
         };
 
-        let mut wanted = HashMap::from([("description", Value::from("Push to talk"))]);
+        let mut wanted = HashMap::from([(
+            "description",
+            Value::from(match id {
+                "toggle-mute" => "Toggle mute",
+                "push-to-mute" => "Push to mute",
+                _ => "Push to talk",
+            }),
+        )]);
         if let Some(trigger) = &trigger {
             wanted.insert("preferred_trigger", Value::from(trigger.as_str()));
         }
@@ -468,41 +706,42 @@ mod linux {
                 PATH,
                 Some(SHORTCUTS),
                 "BindShortcuts",
-                &(&session, vec![(SHORTCUT, wanted)], "", options),
+                &(&session, vec![(id, wanted)], "", options),
             )
             .await?;
         let results = response(&mut signals, &request("bind")).await?;
-        report(Reach::Everywhere(Some(described(&results))));
+        report(Reach::Everywhere(Some(described_for(&results, id))));
 
         while let Some(message) = signals.next().await {
             let message = message?;
             let header = message.header();
-            let held = match header.member().map(|member| member.as_str()) {
-                Some("Activated") => true,
-                Some("Deactivated") => false,
-                Some("ShortcutsChanged") => {
-                    if let Ok((path, shortcuts)) = message
+            let held =
+                match header.member().map(|member| member.as_str()) {
+                    Some("Activated") => true,
+                    Some("Deactivated") => false,
+                    Some("ShortcutsChanged") => {
+                        if let Ok((path, shortcuts)) = message
                         .body()
                         .deserialize::<(ObjectPath, Vec<(String, HashMap<String, OwnedValue>)>)>()
                         && path == *session
                     {
-                        report(Reach::Everywhere(Some(trigger_description(&shortcuts))));
+                        report(Reach::Everywhere(Some(trigger_description_for(&shortcuts, id))));
                     }
-                    continue;
-                }
-                Some("Closed") if header.path().is_some_and(|path| *path == *session) => {
-                    bail!("the desktop closed the shortcut's session");
-                }
-                _ => continue,
-            };
-            if let Ok((path, id, ..)) =
+                        continue;
+                    }
+                    Some("Closed") if header.path().is_some_and(|path| *path == *session) => {
+                        bail!("the desktop closed the shortcut's session");
+                    }
+                    _ => continue,
+                };
+            if let Ok((path, shortcut_id, ..)) =
                 message
                     .body()
                     .deserialize::<(ObjectPath, &str, u64, HashMap<String, OwnedValue>)>()
                 && path == *session
-                && id == SHORTCUT
+                && shortcut_id == id
             {
-                yapfast_core::push_to_talk::hold(held);
+                handler(held);
             }
         }
         Err(anyhow!("the session bus closed"))
@@ -537,20 +776,23 @@ mod linux {
 
     /// The shortcut the desktop bound, in its words; empty when it bound
     /// none yet.
-    fn described(results: &HashMap<String, OwnedValue>) -> String {
+    fn described_for(results: &HashMap<String, OwnedValue>, id: &str) -> String {
         results
             .get("shortcuts")
             .and_then(|value| {
                 Vec::<(String, HashMap<String, OwnedValue>)>::try_from(value.try_clone().ok()?).ok()
             })
-            .map(|shortcuts| trigger_description(&shortcuts))
+            .map(|shortcuts| trigger_description_for(&shortcuts, id))
             .unwrap_or_default()
     }
 
-    fn trigger_description(shortcuts: &[(String, HashMap<String, OwnedValue>)]) -> String {
+    fn trigger_description_for(
+        shortcuts: &[(String, HashMap<String, OwnedValue>)],
+        wanted: &str,
+    ) -> String {
         shortcuts
             .iter()
-            .find(|(id, _)| id == SHORTCUT)
+            .find(|(id, _)| id == wanted)
             .and_then(|(_, details)| {
                 match details.get("trigger_description").map(|value| &**value) {
                     Some(Value::Str(text)) => Some(text.to_string()),
@@ -569,7 +811,19 @@ mod linux {
     }
 
     impl X11 {
+        #[cfg(test)]
         fn start(scancode: u32, report: Report) -> Result<Self> {
+            Self::start_with(
+                report,
+                Arc::new(move |code, held| {
+                    if code == scancode || code == super::NONE {
+                        yapfast_core::push_to_talk::hold(held);
+                    }
+                    false
+                }),
+            )
+        }
+        fn start_with(report: Report, handler: Input) -> Result<Self> {
             let (connection, screen) = x11rb::connect(None)?;
             let root = connection.setup().roots[screen].root;
             let version = connection.xinput_xi_query_version(2, 2)?.reply()?;
@@ -596,7 +850,10 @@ mod linux {
                 &[xinput::EventMask {
                     deviceid: xinput::Device::ALL_MASTER.into(),
                     mask: vec![
-                        xinput::XIEventMask::RAW_KEY_PRESS | xinput::XIEventMask::RAW_KEY_RELEASE,
+                        xinput::XIEventMask::RAW_KEY_PRESS
+                            | xinput::XIEventMask::RAW_KEY_RELEASE
+                            | xinput::XIEventMask::RAW_BUTTON_PRESS
+                            | xinput::XIEventMask::RAW_BUTTON_RELEASE,
                     ],
                 }],
             )?;
@@ -604,23 +861,49 @@ mod linux {
             let connection = Arc::new(connection);
             let stop = Arc::new(AtomicBool::new(false));
             let (waiting, stopped) = (connection.clone(), stop.clone());
-            // X11 keycodes are evdev's plus 8.
-            let keycode = scancode + 8;
+            // Seed modifiers already held when a binding is installed.
+            let keys = connection.query_keymap()?.reply()?.keys;
+            for code in 8..256u32 {
+                if super::modifier(code - 8) != 0
+                    && keys[(code / 8) as usize] & (1 << (code % 8)) != 0
+                {
+                    handler(code - 8, true);
+                }
+            }
             std::thread::Builder::new()
                 .name("yapfast-talk-key".into())
                 .spawn(move || {
                     while !stopped.load(Ordering::Relaxed) {
                         match waiting.wait_for_event() {
-                            Ok(Event::XinputRawKeyPress(event)) if event.detail == keycode => {
-                                yapfast_core::push_to_talk::hold(true);
+                            Ok(Event::XinputRawKeyPress(event))
+                                if event.flags & xinput::KeyEventFlags::KEY_REPEAT
+                                    == xinput::KeyEventFlags::default() =>
+                            {
+                                handler(event.detail.saturating_sub(8), true);
                             }
-                            Ok(Event::XinputRawKeyRelease(event)) if event.detail == keycode => {
-                                yapfast_core::push_to_talk::hold(false);
+                            Ok(Event::XinputRawKeyRelease(event)) => {
+                                handler(event.detail.saturating_sub(8), false);
+                            }
+                            Ok(Event::XinputRawButtonPress(event)) => {
+                                let key = match event.detail {
+                                    8 => super::MOUSE_4,
+                                    9 => super::MOUSE_5,
+                                    _ => continue,
+                                };
+                                handler(key, true);
+                            }
+                            Ok(Event::XinputRawButtonRelease(event)) => {
+                                let key = match event.detail {
+                                    8 => super::MOUSE_4,
+                                    9 => super::MOUSE_5,
+                                    _ => continue,
+                                };
+                                handler(key, false);
                             }
                             Ok(_) => {}
                             Err(error) => {
                                 tracing::warn!(%error, "lost the X server's keys");
-                                yapfast_core::push_to_talk::hold(false);
+                                handler(super::NONE, false);
                                 report(Reach::Focused("Yapfast lost the X server's keys"));
                                 break;
                             }
@@ -831,13 +1114,7 @@ mod linux {
 
 #[cfg(windows)]
 mod windows {
-    use std::{
-        ptr,
-        sync::{
-            atomic::{AtomicU32, Ordering},
-            mpsc,
-        },
-    };
+    use std::{ptr, sync::mpsc};
 
     use windows_sys::Win32::{
         Foundation::{LPARAM, LRESULT, WPARAM},
@@ -850,10 +1127,31 @@ mod windows {
         },
     };
 
-    use super::{Reach, Report};
+    use super::{Input, Reach, Report};
+    #[cfg(test)]
+    use std::sync::{
+        Arc,
+        atomic::{AtomicU32, Ordering},
+    };
 
     /// The key or tagged mouse button the hook watches.
+    #[cfg(test)]
     static KEY: AtomicU32 = AtomicU32::new(super::NONE);
+    thread_local! {
+        static BINDING: std::cell::RefCell<Option<Input>> = const { std::cell::RefCell::new(None) };
+    }
+    fn input(key: u32, held: bool) {
+        BINDING.with(|binding| {
+            if let Some(handler) = &*binding.borrow() {
+                handler(key, held);
+            } else {
+                #[cfg(test)]
+                if key == KEY.load(Ordering::Relaxed) {
+                    yapfast_core::push_to_talk::hold(held);
+                }
+            }
+        });
+    }
 
     /// A low-level keyboard or mouse hook on a thread of its own, which sees
     /// every input event, releases included, and passes each on. Removed when
@@ -863,18 +1161,37 @@ mod windows {
     }
 
     impl Hook {
+        #[cfg(test)]
         pub fn start(scancode: u32, report: Report) -> Option<Self> {
-            KEY.store(scancode, Ordering::Relaxed);
+            Self::start_with(
+                scancode,
+                report,
+                Arc::new(move |code, held| {
+                    if code == scancode || code == super::NONE {
+                        yapfast_core::push_to_talk::hold(held);
+                    }
+                    false
+                }),
+            )
+        }
+        pub fn start_with(scancode: u32, report: Report, handler: Input) -> Option<Self> {
             let mouse = matches!(scancode, super::MOUSE_4 | super::MOUSE_5);
             let (started, thread) = mpsc::sync_channel(1);
             let spawned = std::thread::Builder::new()
                 .name("yapfast-talk-key".into())
                 .spawn(move || {
+                    BINDING.with(|binding| *binding.borrow_mut() = Some(handler));
                     // SAFETY: the hook procedure below only reads the event
                     // Windows hands it; the message loop runs on this thread,
                     // which the hook needs, until WM_QUIT.
                     unsafe {
-                        let hook = if mouse {
+                        let hook = SetWindowsHookExW(
+                            WH_KEYBOARD_LL,
+                            Some(proc),
+                            GetModuleHandleW(ptr::null()),
+                            0,
+                        );
+                        let mouse_hook = if mouse {
                             SetWindowsHookExW(
                                 WH_MOUSE_LL,
                                 Some(mouse_proc),
@@ -882,21 +1199,42 @@ mod windows {
                                 0,
                             )
                         } else {
-                            SetWindowsHookExW(
-                                WH_KEYBOARD_LL,
-                                Some(proc),
-                                GetModuleHandleW(ptr::null()),
-                                0,
-                            )
+                            ptr::null_mut()
                         };
-                        if hook.is_null() {
+                        if hook.is_null() || (mouse && mouse_hook.is_null()) {
+                            if !hook.is_null() {
+                                UnhookWindowsHookEx(hook);
+                            }
+                            if !mouse_hook.is_null() {
+                                UnhookWindowsHookEx(mouse_hook);
+                            }
                             let _ = started.send(None);
                             return;
+                        }
+                        for (virtual_key, code) in [
+                            (0xA2, 0x1D),
+                            (0xA3, 0xE01D),
+                            (0xA0, 0x2A),
+                            (0xA1, 0x36),
+                            (0xA4, 0x38),
+                            (0xA5, 0xE038),
+                            (0x5B, 0xE05B),
+                            (0x5C, 0xE05C),
+                        ] {
+                            if windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(
+                                virtual_key,
+                            ) < 0
+                            {
+                                input(code, true);
+                            }
                         }
                         let _ = started.send(Some(GetCurrentThreadId()));
                         let mut message: MSG = std::mem::zeroed();
                         while GetMessageW(&mut message, ptr::null_mut(), 0, 0) > 0 {}
                         UnhookWindowsHookEx(hook);
+                        if !mouse_hook.is_null() {
+                            UnhookWindowsHookEx(mouse_hook);
+                        }
                     }
                 });
             let thread = spawned.ok().and_then(|_| thread.recv().ok().flatten());
@@ -917,7 +1255,6 @@ mod windows {
 
     impl Drop for Hook {
         fn drop(&mut self) {
-            KEY.store(super::NONE, Ordering::Relaxed);
             // SAFETY: posting to a thread id is harmless if it has ended.
             unsafe {
                 PostThreadMessageW(self.thread, WM_QUIT, 0, 0);
@@ -935,12 +1272,10 @@ mod windows {
             } else {
                 0
             };
-            if key.scanCode | extended == KEY.load(Ordering::Relaxed) {
-                match wparam as u32 {
-                    WM_KEYDOWN | WM_SYSKEYDOWN => yapfast_core::push_to_talk::hold(true),
-                    WM_KEYUP | WM_SYSKEYUP => yapfast_core::push_to_talk::hold(false),
-                    _ => {}
-                }
+            match wparam as u32 {
+                WM_KEYDOWN | WM_SYSKEYDOWN => input(key.scanCode | extended, true),
+                WM_KEYUP | WM_SYSKEYUP => input(key.scanCode | extended, false),
+                _ => {}
             }
         }
         // SAFETY: the next hook gets the event as it came.
@@ -958,12 +1293,10 @@ mod windows {
                 XBUTTON2 => super::MOUSE_5,
                 _ => super::NONE,
             };
-            if button == KEY.load(Ordering::Relaxed) {
-                match wparam as u32 {
-                    WM_XBUTTONDOWN => yapfast_core::push_to_talk::hold(true),
-                    WM_XBUTTONUP => yapfast_core::push_to_talk::hold(false),
-                    _ => {}
-                }
+            match wparam as u32 {
+                WM_XBUTTONDOWN => input(button, true),
+                WM_XBUTTONUP => input(button, false),
+                _ => {}
             }
         }
         // SAFETY: the next hook gets the event as it came.

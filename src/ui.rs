@@ -539,18 +539,38 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                         }
                     });
                 }
-                crate::push_to_talk::window_event(event);
-                // Windows' two side buttons are recordable shortcuts too.
-                #[cfg(windows)]
                 if let Some(window) = weak.upgrade()
-                    && window.get_talk_recording()
-                    && let Some(recorded) = crate::push_to_talk::Keybind::recorded_mouse(event)
+                    && (!window.get_settings_open()
+                        || (window.get_settings_section() != 10
+                            && window.get_settings_section() != 1))
                 {
                     window.set_talk_recording(false);
+                    window.set_voice_key_recording(-1);
+                    crate::push_to_talk::recording(false);
+                }
+                let hotkey = crate::push_to_talk::window_event(event);
+                if hotkey
+                    && weak
+                        .upgrade()
+                        .is_some_and(|window| window.get_voice_active())
+                {
+                    return EventResult::PreventDefault;
+                }
+                // Side mouse buttons are recordable shortcuts too.
+                if let Some(window) = weak.upgrade()
+                    && (window.get_talk_recording() || window.get_voice_key_recording() >= 0)
+                    && let Some(recorded) = crate::push_to_talk::Keybind::recorded_mouse(event)
+                {
+                    let recording = window.get_voice_key_recording();
+                    window.set_talk_recording(false);
+                    window.set_voice_key_recording(-1);
+                    crate::push_to_talk::recording(false);
                     let (adapter, weak) = (adapter.clone(), weak.clone());
                     slint::Timer::single_shot(Duration::ZERO, move || {
                         if let (Some(adapter), Some(window)) = (adapter.upgrade(), weak.upgrade()) {
-                            adapter.borrow_mut().set_talk_key(&window, recorded);
+                            adapter
+                                .borrow_mut()
+                                .set_voice_key(&window, recording, Some(recorded));
                         }
                     });
                     return EventResult::PreventDefault;
@@ -558,12 +578,20 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                 // While recording the push-to-talk key, the next key becomes
                 // it, and Escape stops; either way only the recorder sees it.
                 if let WindowEvent::KeyboardInput { event: key, .. } = event
-                    && key.state == ElementState::Pressed
                     && let Some(window) = weak.upgrade()
-                    && window.get_talk_recording()
+                    && (window.get_talk_recording() || window.get_voice_key_recording() >= 0)
                 {
+                    if (key.state == ElementState::Pressed && crate::push_to_talk::is_modifier(key))
+                        || (key.state == ElementState::Released
+                            && !crate::push_to_talk::is_modifier(key))
+                    {
+                        return EventResult::PreventDefault;
+                    }
                     if !key.repeat {
+                        let recording = window.get_voice_key_recording();
                         window.set_talk_recording(false);
+                        window.set_voice_key_recording(-1);
+                        crate::push_to_talk::recording(false);
                         let recorded = (key.logical_key != Key::Named(NamedKey::Escape))
                             .then(|| crate::push_to_talk::Keybind::recorded(key))
                             .flatten();
@@ -573,7 +601,11 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                                 if let (Some(adapter), Some(window)) =
                                     (adapter.upgrade(), weak.upgrade())
                                 {
-                                    adapter.borrow_mut().set_talk_key(&window, recorded);
+                                    adapter.borrow_mut().set_voice_key(
+                                        &window,
+                                        recording,
+                                        Some(recorded),
+                                    );
                                 }
                             });
                         }
@@ -820,13 +852,6 @@ fn type_anywhere(window: &YapfastWindow) {
         }
         // Stepping through the messages, only letters and digits leave them.
         if window.get_browsing() && !text.chars().all(|c| c.is_ascii_alphanumeric()) {
-            return false;
-        }
-        // Holding the key to talk shouldn't also write it.
-        if window.get_voice_active()
-            && !window.get_muted()
-            && crate::push_to_talk::pressed_talk_key()
-        {
             return false;
         }
         window.invoke_type_into_composer()
@@ -1316,6 +1341,8 @@ struct Layout {
     input_mode: InputMode,
     push_to_talk_key: Option<crate::push_to_talk::Keybind>,
     push_to_talk_release_delay: Option<u32>,
+    toggle_mute_key: Option<crate::push_to_talk::Keybind>,
+    push_to_mute_key: Option<crate::push_to_talk::Keybind>,
     /// How loud every call sends the microphone and plays, as sliders'
     /// percentages from 0% to 200%; 100% unless changed.
     microphone_volume: Option<u8>,
@@ -1664,6 +1691,20 @@ impl Layout {
             self.push_to_talk_key
                 .as_ref()
                 .map(|key| key.name.as_str())
+                .unwrap_or_default()
+                .into(),
+        );
+        window.set_mute_key(
+            self.toggle_mute_key
+                .as_ref()
+                .map(|k| k.name.as_str())
+                .unwrap_or_default()
+                .into(),
+        );
+        window.set_push_mute_key(
+            self.push_to_mute_key
+                .as_ref()
+                .map(|k| k.name.as_str())
                 .unwrap_or_default()
                 .into(),
         );
@@ -2222,6 +2263,7 @@ struct Adapter {
     /// Watches the push-to-talk key while push to talk is on and it's set,
     /// with or without the window.
     talk_key: Option<crate::push_to_talk::Watcher>,
+    voice_keys: [Option<crate::push_to_talk::Watcher>; 2],
     /// Previews of the pictures waiting in the composer, by file; `None` while
     /// one is read, or when it can't be.
     thumbnails: HashMap<PathBuf, Option<pictures::Thumbnail>>,
@@ -2530,6 +2572,7 @@ impl Adapter {
                 #[cfg(feature = "discord")]
                 gate_meter: None,
                 talk_key: None,
+                voice_keys: [None, None],
                 thumbnails: HashMap::new(),
                 pasted: None,
                 drag_over: false,
@@ -2576,13 +2619,118 @@ impl Adapter {
         }
         let note = self.talk_key.as_ref().map(|watcher| watcher.reach().note());
         window.set_talk_note(note.unwrap_or_default().into());
+        self.watch_voice_keys(window);
     }
 
-    /// Makes a recorded key the push-to-talk key.
-    fn set_talk_key(&mut self, window: &YapfastWindow, key: crate::push_to_talk::Keybind) {
-        tracing::info!(key = key.name, "push-to-talk key recorded");
-        window.set_talk_key(key.name.as_str().into());
-        self.layout.push_to_talk_key = Some(key);
+    fn watch_voice_keys(&mut self, window: &YapfastWindow) {
+        window.set_push_muted(yapfast_core::push_to_talk::push_muted());
+        let wanted = [
+            self.layout.toggle_mute_key.clone(),
+            self.layout.push_to_mute_key.clone(),
+        ];
+        for (index, key) in wanted.into_iter().enumerate() {
+            if self.voice_keys[index]
+                .as_ref()
+                .map(crate::push_to_talk::Watcher::key)
+                != key.as_ref()
+            {
+                self.voice_keys[index] = None;
+                if let Some(key) = key {
+                    let pressed = std::sync::atomic::AtomicBool::new(false);
+                    let handler = std::sync::Arc::new(move |held| {
+                        use std::sync::atomic::Ordering;
+                        let was = pressed.swap(held, Ordering::Relaxed);
+                        if index == 1 {
+                            yapfast_core::push_to_talk::push_mute(held);
+                            if held != was {
+                                let _ = slint::invoke_from_event_loop(move || {
+                                    shell::show_push_mute(held)
+                                });
+                            }
+                        } else if held && !was {
+                            let _ = slint::invoke_from_event_loop(shell::toggle_mute);
+                        }
+                    });
+                    let weak = window.as_weak();
+                    self.voice_keys[index] = Some(crate::push_to_talk::Watcher::start_with(
+                        key,
+                        if index == 0 {
+                            "toggle-mute"
+                        } else {
+                            "push-to-mute"
+                        },
+                        &self.runtime,
+                        handler,
+                        move |reach| {
+                            let note = reach.shortcut_note();
+                            let _ = weak.upgrade_in_event_loop(move |window| {
+                                if index == 0 {
+                                    window.set_mute_key_note(note.into());
+                                } else {
+                                    window.set_push_mute_key_note(note.into());
+                                }
+                            });
+                        },
+                    ));
+                }
+            }
+            let note = self.voice_keys[index]
+                .as_ref()
+                .map(|w| w.reach().shortcut_note())
+                .unwrap_or_default();
+            if index == 0 {
+                window.set_mute_key_note(note.into());
+            } else {
+                window.set_push_mute_key_note(note.into());
+            }
+        }
+    }
+
+    fn set_voice_key(
+        &mut self,
+        window: &YapfastWindow,
+        recording: i32,
+        key: Option<crate::push_to_talk::Keybind>,
+    ) {
+        let bindings = [
+            &self.layout.push_to_talk_key,
+            &self.layout.toggle_mute_key,
+            &self.layout.push_to_mute_key,
+        ];
+        let slot = match recording {
+            0 => 1,
+            1 => 2,
+            _ => 0,
+        };
+        if let Some(key) = &key
+            && bindings.iter().enumerate().any(|(i, other)| {
+                i != slot
+                    && other.as_ref().is_some_and(|other| {
+                        other.scancode == key.scancode && other.modifiers == key.modifiers
+                    })
+            })
+        {
+            window.set_voice_key_error(
+                "That key is already assigned to another voice action.".into(),
+            );
+            return;
+        }
+        window.set_voice_key_error("".into());
+        let name = key.as_ref().map(|k| k.name.as_str()).unwrap_or_default();
+        match recording {
+            0 => {
+                window.set_mute_key(name.into());
+                self.layout.toggle_mute_key = key;
+            }
+            1 => {
+                window.set_push_mute_key(name.into());
+                self.layout.push_to_mute_key = key;
+            }
+            _ => {
+                window.set_talk_key(name.into());
+                self.layout.push_to_talk_key = key;
+            }
+        }
         self.layout.write(&self.root);
         self.watch_talk_key(window);
     }

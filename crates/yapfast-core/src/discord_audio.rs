@@ -708,6 +708,11 @@ impl Processing {
                 crate::push_to_talk::release_delay_ms(),
             )
         });
+        let talking = if crate::push_to_talk::push_muted() {
+            Some(false)
+        } else {
+            talking
+        };
         let sent = match talking {
             None => Sent::Gated,
             Some(true) => Sent::Always,

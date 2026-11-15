@@ -385,6 +385,7 @@ export component SettingsScreen inherits Rectangle {
         { text: "My account", icon: @image-url("icons/user.svg"), id: 0 },
         { text: "Appearance", icon: @image-url("icons/palette.svg"), id: 7 },
         { text: "Voice & video", icon: @image-url("icons/headphones.svg"), id: 1 },
+        { text: "Hotkeys", icon: @image-url("icons/keyboard.svg"), id: 10 },
         { text: "Messages", icon: @image-url("icons/message-circle.svg"), id: 2 },
         { text: "Notifications", icon: @image-url("icons/bell.svg"), id: 3 },
         { text: "Sounds", icon: @image-url("icons/volume-2.svg"), id: 5 },
@@ -398,6 +399,7 @@ export component SettingsScreen inherits Rectangle {
         { text: "My account", icon: @image-url("icons/user.svg"), id: 0 },
         { text: "Appearance", icon: @image-url("icons/palette.svg"), id: 7 },
         { text: "Voice & video", icon: @image-url("icons/headphones.svg"), id: 1 },
+        { text: "Hotkeys", icon: @image-url("icons/keyboard.svg"), id: 10 },
         { text: "Messages", icon: @image-url("icons/message-circle.svg"), id: 2 },
         { text: "Notifications", icon: @image-url("icons/bell.svg"), id: 3 },
         { text: "Sounds", icon: @image-url("icons/volume-2.svg"), id: 5 },
@@ -414,7 +416,7 @@ export component SettingsScreen inherits Rectangle {
                 : root.settings-section == 2 ? "Messages" : root.settings-section == 3 ? "Notifications"
                 : root.settings-section == 4 ? "Discord" : root.settings-section == 5 ? "Sounds"
                 : root.settings-section == 6 ? "Advanced" : root.settings-section == 7 ? "Appearance"
-                : root.settings-section == 9 ? "About" : "Game Activity";
+                : root.settings-section == 9 ? "About" : root.settings-section == 10 ? "Hotkeys" : "Game Activity";
             account-name: root.account-name; account-initial: root.account-initial;
             account-tint: root.account-tint; account-picture: root.account-picture;
             with-discord: root.discord-build && !root.preview;
@@ -526,14 +528,11 @@ export component VoiceSettings inherits VerticalLayout {
     in property <string> gate-meter-note;
     /// How calls send the microphone: 0 voice activity, 1 push to talk.
     in-out property <int> input-mode;
-    /// The push-to-talk key's name, empty while there's none, and whether
-    /// the next key pressed becomes it.
     in property <string> talk-key;
     in-out property <bool> talk-recording;
-    /// How long the microphone keeps sending after the key comes up, in ms.
-    in-out property <int> talk-delay: 20;
-    /// Where the key works: in every app, or only in Yapfast and why.
     in property <string> talk-note;
+    callback record-talk-key(bool);
+    callback clear-voice-key(int);
     /// Discord is linked, so its calls' noise suppression shows.
     in property <bool> discord;
     /// How loud every call sends the microphone and plays, as sliders'
@@ -565,8 +564,6 @@ export component VoiceSettings inherits VerticalLayout {
     callback select-camera(int);
     callback refresh-devices;
     callback preferences-changed;
-    /// Starts or stops recording the push-to-talk key.
-    callback record-talk-key(bool);
     spacing: 16px;
     SettingsTitle { text: "Voice & video"; }
     // Each row's two columns take half the width each, whatever is in them:
@@ -749,7 +746,7 @@ export component VoiceSettings inherits VerticalLayout {
     }
     if root.input-mode == 1: VerticalLayout {
         spacing: 8px;
-        SettingsHeading { text: "PUSH TO TALK KEYBIND"; }
+        SettingsHeading { text: "PUSH TO YAP"; }
         HorizontalLayout {
             spacing: 8px; alignment: start;
             Rectangle {
@@ -760,7 +757,7 @@ export component VoiceSettings inherits VerticalLayout {
                 accessible-value: root.talk-key != "" ? root.talk-key : "No keybind set";
                 Text {
                     x: 12px; width: parent.width - 24px; overflow: elide; font-size: 14px;
-                    text: root.talk-recording ? "Press a key..." : root.talk-key != "" ? root.talk-key : "No keybind set";
+                    text: root.talk-recording ? "Press a shortcut..." : root.talk-key != "" ? root.talk-key : "No keybind set";
                     color: root.talk-key != "" && !root.talk-recording ? Theme.text : Theme.muted;
                     font-weight: root.talk-key != "" && !root.talk-recording ? 600 : 400;
                 }
@@ -770,23 +767,15 @@ export component VoiceSettings inherits VerticalLayout {
                 danger: root.talk-recording;
                 clicked => { root.record-talk-key(!root.talk-recording); }
             }
+            if root.talk-key != "": ActionButton { text: "Clear"; clicked => { root.clear-voice-key(-1); } }
         }
         Label {
-            text: root.talk-recording ? "Press the key to hold while you talk. Escape stops without changing it."
-                : root.talk-key == "" ? "Push to talk is on, but no keybind is set, so your microphone sends nothing."
+            text: root.talk-recording ? "Hold modifiers, then press a key or Mouse 4/5. Escape cancels."
+                : root.talk-key == "" ? "No shortcut set. Choose Push to talk in Voice & video to use this binding."
                 : root.talk-note;
         }
     }
-    if root.input-mode == 1: VerticalLayout {
-        spacing: 8px;
-        SettingsHeading { text: "PUSH TO TALK RELEASE DELAY"; }
-        VolumeSlider {
-            label: "Push to talk release delay"; value <=> root.talk-delay; maximum: 2000; step: 10; full-mark: false;
-            shown: self.value >= 1000 ? (self.value / 1000).to-fixed(2) + " s" : self.value + " ms";
-            committed => { root.preferences-changed(); }
-        }
-        Label { text: "How long your microphone keeps sending after you let go of the key, so the end of a word isn't cut off."; }
-    }
+
     if root.discord && root.input-mode == 0: VerticalLayout {
         spacing: 8px;
         SettingsHeading { text: "INPUT SENSITIVITY IN DISCORD CALLS"; }
@@ -1108,6 +1097,103 @@ export component AppearanceSettings inherits VerticalLayout {
 }
 
 // Settings: how messages look, and what they share.
+export component HotkeySettings inherits VerticalLayout {
+    /// The push-to-talk key's name, empty while there's none, and whether
+    /// the next key pressed becomes it.
+    in property <string> talk-key;
+    in-out property <bool> talk-recording;
+    /// How long the microphone keeps sending after the key comes up, in ms.
+    in-out property <int> talk-delay: 20;
+    /// Where the key works: in every app, or only in Yapfast and why.
+    in property <string> talk-note;
+    /// Starts or stops recording the push-to-talk key.
+    callback record-talk-key(bool);
+    in property <string> mute-key;
+    in property <string> push-mute-key;
+    in property <string> mute-key-note;
+    in property <string> push-mute-key-note;
+    in-out property <int> voice-key-recording: -1;
+    in property <string> voice-key-error;
+    callback record-voice-key(int);
+    callback clear-voice-key(int);
+    callback preferences-changed;
+    spacing: 16px;
+    SettingsTitle { text: "Hotkeys"; }
+    Label { text: "Shortcuts work during calls, including while typing in Yapfast. Use Ctrl, Alt, Shift or Win/Super with a key or Mouse 4/5."; }
+    VerticalLayout {
+        spacing: 8px;
+        SettingsHeading { text: "PUSH TO YAP"; }
+        HorizontalLayout {
+            spacing: 8px; alignment: start;
+            Rectangle {
+                width: 200px; height: 36px; border-radius: 8px; background: Theme.sunken;
+                border-width: root.talk-recording ? 2px : 0px; border-color: Theme.accent;
+                accessible-role: text;
+                accessible-label: "Push to talk keybind";
+                accessible-value: root.talk-key != "" ? root.talk-key : "No keybind set";
+                Text {
+                    x: 12px; width: parent.width - 24px; overflow: elide; font-size: 14px;
+                    text: root.talk-recording ? "Press a shortcut..." : root.talk-key != "" ? root.talk-key : "No keybind set";
+                    color: root.talk-key != "" && !root.talk-recording ? Theme.text : Theme.muted;
+                    font-weight: root.talk-key != "" && !root.talk-recording ? 600 : 400;
+                }
+            }
+            ActionButton {
+                text: root.talk-recording ? "Stop recording" : root.talk-key == "" ? "Record keybind" : "Edit keybind";
+                danger: root.talk-recording;
+                clicked => { root.record-talk-key(!root.talk-recording); }
+            }
+            if root.talk-key != "": ActionButton { text: "Clear"; clicked => { root.clear-voice-key(-1); } }
+        }
+        Label {
+            text: root.talk-recording ? "Hold modifiers, then press a key or Mouse 4/5. Escape cancels."
+                : root.talk-key == "" ? "No shortcut set. Choose Push to talk in Voice & video to use this binding."
+                : root.talk-note;
+        }
+    }
+    for key[index] in [root.mute-key, root.push-mute-key]: VerticalLayout {
+        spacing: 8px;
+        SettingsHeading { text: index == 0 ? "TOGGLE MUTE" : "PUSH TO MUTE"; }
+        HorizontalLayout {
+            spacing: 8px; alignment: start;
+            Rectangle {
+                width: 200px; height: 36px; border-radius: 8px; background: Theme.sunken;
+                border-width: root.voice-key-recording == index ? 2px : 0px; border-color: Theme.accent;
+                accessible-role: text;
+                accessible-label: index == 0 ? "Toggle mute keybind" : "Push to mute keybind";
+                accessible-value: key != "" ? key : "No keybind set";
+                Text {
+                    x: 12px; width: parent.width - 24px; overflow: elide; font-size: 14px;
+                    text: root.voice-key-recording == index ? "Press a shortcut..." : key != "" ? key : "No keybind set";
+                    color: Theme.text;
+                }
+            }
+            ActionButton {
+                text: root.voice-key-recording == index ? "Stop recording" : key == "" ? "Record keybind" : "Edit keybind";
+                danger: root.voice-key-recording == index;
+                clicked => { root.record-voice-key(index); }
+            }
+            if key != "": ActionButton { text: "Clear"; clicked => { root.clear-voice-key(index); } }
+        }
+        Label { text: index == 0 ? "Press to mute or unmute your microphone during a call." : "Hold to silence your microphone temporarily. Releasing keeps your usual mute state."; }
+        Label {
+            text: root.voice-key-recording == index ? "Hold modifiers, then press a key or Mouse 4/5. Escape cancels."
+                : index == 0 ? root.mute-key-note : root.push-mute-key-note;
+        }
+    }
+    if root.voice-key-error != "": Label { text: root.voice-key-error; }
+    VerticalLayout {
+        spacing: 8px;
+        SettingsHeading { text: "PUSH TO TALK RELEASE DELAY"; }
+        VolumeSlider {
+            label: "Push to talk release delay"; value <=> root.talk-delay; maximum: 2000; step: 10; full-mark: false;
+            shown: self.value >= 1000 ? (self.value / 1000).to-fixed(2) + " s" : self.value + " ms";
+            committed => { root.preferences-changed(); }
+        }
+        Label { text: "How long your microphone keeps sending after you let go of the key, so the end of a word isn't cut off."; }
+    }
+}
+
 export component MessageSettings inherits VerticalLayout {
     in property <length> message-font-size;
     in-out property <bool> twelve-hour-clock;

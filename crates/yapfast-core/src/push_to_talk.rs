@@ -21,6 +21,17 @@ pub const MOST_RELEASE_DELAY: u32 = 2000;
 
 static ON: AtomicBool = AtomicBool::new(false);
 static HELD: AtomicBool = AtomicBool::new(false);
+static MUTING: AtomicBool = AtomicBool::new(false);
+
+pub fn push_mute(held: bool) {
+    if MUTING.swap(held, Ordering::Relaxed) != held {
+        CHANGES.send_replace(());
+    }
+}
+
+pub fn push_muted() -> bool {
+    MUTING.load(Ordering::Relaxed)
+}
 static DELAY: AtomicU32 = AtomicU32::new(DEFAULT_RELEASE_DELAY);
 /// When the key last came up, in milliseconds since [`START`].
 static RELEASED: AtomicU64 = AtomicU64::new(0);
@@ -71,6 +82,9 @@ pub fn held() -> bool {
 /// the release delay ago. Always true outside push-to-talk, where the voice
 /// gate decides.
 pub fn sending() -> bool {
+    if push_muted() {
+        return false;
+    }
     if !on() {
         return true;
     }

@@ -48,7 +48,7 @@ import { PersonRow, VoiceCard, CallLink, CallLinkCard, LinkTouch, SignalIcon, Vo
 import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList, VoiceCardView } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
 import { InlineEdit, EmojiCell, EmojiRow, EmojiTile, EmojiSection, RailSection, EmojiCard, EmojiCardView, MessageStickerCard, MessageStickerCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, VoicePlayer, Polls } from "messages.slint";
-import { Choices, SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable, AboutSettings } from "settings.slint";
+import { Choices, SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, HotkeySettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable, AboutSettings } from "settings.slint";
 import { ActivityMenu, MemberRow, MemberActivityRow, ProfileData, BadgeTipCard, ProfileServerRow, MemberPanel, ProfileCard, ProfileModal, ServerCard, RoleCard, TagCard, TagCardView } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
 import { ContactRow, PlaceRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, QuickSwitcher, ReactionsDialog, StatusMenu, PersonPrompt, PersonDialog, LeavingDialog, PollAnswerDraft, PollDialog } from "dialogs.slint";
@@ -1340,6 +1340,15 @@ export component YapfastWindow inherits Window {
     in-out property <int> talk-delay: 20;
     in-out property <string> talk-note;
     callback record-talk-key(bool);
+    in-out property <bool> push-muted;
+    in-out property <string> mute-key;
+    in-out property <string> push-mute-key;
+    in-out property <string> mute-key-note;
+    in-out property <string> push-mute-key-note;
+    in-out property <int> voice-key-recording: -1;
+    in-out property <string> voice-key-error;
+    callback record-voice-key(int);
+    callback clear-voice-key(int);
     /// Calls' microphone and speakers volume: see VoiceSettings.
     in-out property <int> microphone-volume: 100;
     in-out property <int> speaker-volume: 100;
@@ -1895,7 +1904,7 @@ export component YapfastWindow inherits Window {
     // Out of a call, the account panel's toggles show and change how the next
     // call starts. Deafening mutes too, as it does in a call.
     property <bool> shown-deafened: root.voice-active ? root.deafened : root.deafen-on-join;
-    property <bool> shown-muted: root.voice-active ? root.muted : !root.unmute-on-join || root.deafen-on-join;
+    property <bool> shown-muted: root.voice-active ? (root.muted || root.push-muted) : !root.unmute-on-join || root.deafen-on-join;
 
     // The device menus open above the toggle whose caret was clicked.
     property <length> menu-x;
@@ -4412,8 +4421,10 @@ export component YapfastWindow inherits Window {
             noise-suppression <=> root.noise-suppression; noise-strength <=> root.noise-strength; dereverb <=> root.dereverb; discord: root.discord-linked;
             windows-effects <=> root.windows-effects; windows-effects-choice: root.windows-effects-choice;
             sensitivity <=> root.sensitivity; gate-level: root.gate-level; gate-sending: root.gate-sending; gate-meter-note: root.gate-meter-note;
-            input-mode <=> root.input-mode; talk-key: root.talk-key; talk-recording <=> root.talk-recording;
-            talk-delay <=> root.talk-delay; talk-note: root.talk-note;
+            input-mode <=> root.input-mode;
+            talk-key: root.talk-key; talk-recording <=> root.talk-recording; talk-note: root.talk-note;
+            record-talk-key(on) => { root.record-talk-key(on); }
+            clear-voice-key(index) => { root.clear-voice-key(index); }
             microphone-volume <=> root.microphone-volume; speaker-volume <=> root.speaker-volume;
             soundboard-volume <=> root.soundboard-volume; entrance-servers: root.entrance-servers;
             entrance-server <=> root.entrance-server; entrance-sound: root.entrance-sound;
@@ -4423,11 +4434,21 @@ export component YapfastWindow inherits Window {
             entrance-server-chosen(index) => { root.entrance-server-chosen(index); }
             choose-entrance-sound(id) => { root.choose-entrance-sound(id); }
             call-volumes-changed => { root.call-volumes-changed(); }
-            record-talk-key(on) => { root.record-talk-key(on); }
             select-microphone(index) => { root.select-microphone(index); }
             select-speaker(index) => { root.select-speaker(index); }
             select-camera(index) => { root.select-camera(index); }
             refresh-devices => { root.refresh-devices(); }
+            preferences-changed => { root.preferences-changed(); }
+        }
+        if root.settings-section == 10: HotkeySettings {
+            talk-key: root.talk-key; talk-recording <=> root.talk-recording;
+            talk-delay <=> root.talk-delay; talk-note: root.talk-note;
+            mute-key: root.mute-key; push-mute-key: root.push-mute-key;
+            mute-key-note: root.mute-key-note; push-mute-key-note: root.push-mute-key-note;
+            voice-key-recording <=> root.voice-key-recording; voice-key-error: root.voice-key-error;
+            record-voice-key(index) => { root.record-voice-key(index); }
+            clear-voice-key(index) => { root.clear-voice-key(index); }
+            record-talk-key(on) => { root.record-talk-key(on); }
             preferences-changed => { root.preferences-changed(); }
         }
         if root.settings-section == 2: MessageSettings {
