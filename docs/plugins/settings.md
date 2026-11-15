@@ -16,7 +16,8 @@ It has four tabs at the top:
 
 - **Marketplace**: a search field, a category filter and a list of the
   registry's plugins (its themes, `kind: "theme"`, aren't listed here), each with its icon, *Reviewed* when a maintainer read
-  its source, what it reaches (`messages, 1 host`) and Install. The list is
+  its source, what it reaches (`messages, 1 host`) and Install, or Open for one
+  already installed, which goes to its page under Installed. The list is
   a `ListView` in a `SettingsFrame` with `fill`, so only the rows in sight
   exist, and a row's icon goes through `PictureStore` only while the row
   does.
