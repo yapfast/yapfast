@@ -173,8 +173,17 @@ impl Application {
     /// against what the world already holds and publishes nothing when nothing
     /// moved. The timeline and the member list are `Arc`s the application
     /// already shares, so publishing one is a count rather than a copy, and
-    /// with no plugin enabled this is one check of an `Option`.
+    /// with no plugin enabled this is one check of the registry.
     pub(in crate::application) fn plugins_sync_world(&mut self) {
+        // The plugin system is allowed whenever the feature is in and
+        // `--no-plugins` wasn't passed, with or without a plugin, so the
+        // `Option` alone let this compare four locked parts of the world after
+        // every keystroke with nothing installed. Nothing reads the world
+        // while no plugin is on; the lists' generation is what makes the
+        // first sync after one is enabled publish everything.
+        if !self.plugins_on() {
+            return;
+        }
         let Some(plugins) = self.state.plugins.as_ref() else {
             return;
         };
@@ -523,6 +532,17 @@ impl Application {
         }
     }
 
+    /// Whether an enabled plugin subscribed to `kind`: checked before an
+    /// event's payload is built, so a kind nobody listens to costs no JSON.
+    fn plugins_want(&self, kind: EventKind) -> bool {
+        self.plugins_on()
+            && self
+                .state
+                .plugins
+                .as_ref()
+                .is_some_and(|plugins| plugins.subscribes(kind))
+    }
+
     /// Hands one event to the plugins that subscribed to it. The bridge
     /// applies each subscription's filter and writes the payload once, so a
     /// tap only has to say what happened.
@@ -541,7 +561,7 @@ impl Application {
     /// What the sidebar shows of it goes along, so a plugin can tell a DM from
     /// a channel without asking.
     pub(in crate::application) fn plugins_room_selected(&mut self, room: &str) {
-        if self.state.selected.as_deref() == Some(room) || !self.plugins_on() {
+        if self.state.selected.as_deref() == Some(room) || !self.plugins_want(EventKind::RoomSelected) {
             return;
         }
         let Some(listed) = self.state.rooms.iter().find(|listed| listed.id == room) else {
@@ -571,7 +591,7 @@ impl Application {
     /// The window gained or lost focus, which is the only sign a plugin gets
     /// that the person is there.
     pub(in crate::application) fn plugins_focus(&mut self, focused: bool) {
-        if !self.plugins_on() {
+        if !self.plugins_want(EventKind::AppFocus) {
             return;
         }
         self.plugins_observe(envelope(
@@ -602,6 +622,9 @@ impl Application {
         // and is compared before the early return below: a call where only the
         // speaking changed is exactly the case this tap exists for.
         self.plugins_speaking(before, after);
+        if !self.plugins_want(EventKind::VoiceState) {
+            return;
+        }
         let same_call = before.room == after.room
             && before.muted == after.muted
             && before.deafened == after.deafened
@@ -703,7 +726,7 @@ impl Application {
     /// The account signed in and its lists are here, so the calls that read
     /// them can answer.
     pub(in crate::application) fn plugins_account_ready(&mut self, account: &str, trusted: bool) {
-        if !self.plugins_on() {
+        if !self.plugins_want(EventKind::AccountReady) {
             return;
         }
         self.plugins_observe(envelope(
