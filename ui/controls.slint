@@ -1,12 +1,16 @@
 import { ScrollView } from "scrollview.slint";
-import { Theme, Tip, Middle, Label } from "theme.slint";
+import { Theme, Tip, Middle, Label, Popup, PopupEntry } from "theme.slint";
 import { ClientStyle } from "yapfast/style.slint";
 
 // A labelled action. Primary is marigold, danger red, ghost transparent until hovered.
+// Regular buttons are 36px tall, as a TextField is, so a field and its button
+// share a row's edges; small ones are 28px.
 export component ActionButton inherits Rectangle {
     in property <string> text;
     in property <string> label: root.text;
     in property <image> icon;
+    /// A picture after the text, such as the arrow of a button that opens a link.
+    in property <image> trailing-icon;
     in property <bool> enabled: true;
     in property <bool> primary;
     in property <bool> ghost;
@@ -20,13 +24,19 @@ export component ActionButton inherits Rectangle {
     max-height: self.min-height;
     vertical-stretch: 0;
     border-radius: 6px;
-    background: !root.enabled ? (root.primary ? Theme.accent.with-alpha(0.3) : root.success ? Theme.live.with-alpha(0.3) : root.ghost ? transparent : Theme.raised)
-        : root.primary ? (pointer.has-hover ? Theme.accent-hover : Theme.accent)
-        : root.success ? (pointer.has-hover ? Theme.live.brighter(0.1) : Theme.live)
-        : root.danger ? (pointer.has-hover ? Theme.danger-hover : Theme.danger)
-        : root.ghost ? (pointer.has-hover ? Theme.overlay.with-alpha(0.08) : transparent)
-        : (pointer.has-hover ? Theme.button-default-hover : Theme.button-default);
+    property <bool> lit: root.enabled && pointer.has-hover;
+    // A disabled button keeps its face, faded, so it keeps its shape on any ground.
+    background: root.primary ? (root.lit ? Theme.accent-hover : Theme.accent)
+        : root.success ? (root.lit ? Theme.live.brighter(0.1) : Theme.live)
+        : root.danger ? (root.lit ? Theme.danger-hover : Theme.danger)
+        : root.ghost ? (root.lit ? Theme.overlay.with-alpha(0.08) : transparent)
+        : (root.lit ? Theme.button-default-hover : Theme.button-default);
     animate background { duration: Theme.quick; }
+    opacity: root.enabled ? 1 : 0.5;
+    animate opacity { duration: Theme.quick; }
+    // It gives a little under the pointer, as the answer to a press.
+    transform-scale: pointer.pressed ? 0.97 : 1;
+    animate transform-scale { duration: Theme.quick; easing: Theme.arrive; }
     border-width: focus.has-focus ? 2px : 0px;
     border-color: Theme.accent;
     accessible-role: button;
@@ -34,9 +44,9 @@ export component ActionButton inherits Rectangle {
     accessible-enabled: root.enabled;
     accessible-action-default => { if root.enabled { root.clicked(); } }
     forward-focus: focus;
-    property <color> ink: !root.enabled ? (root.primary || root.success ? Theme.on-accent.with-alpha(0.6) : Theme.faint)
-        : root.primary || root.success ? Theme.on-accent : root.danger ? Theme.on-danger
-        : root.ghost && !pointer.has-hover ? Theme.secondary : Theme.text;
+    property <color> ink: root.primary || root.success ? Theme.on-accent : root.danger ? Theme.on-danger
+        : root.ghost && !root.lit ? Theme.secondary : Theme.text;
+    animate ink { duration: Theme.quick; }
     content := HorizontalLayout {
         padding-left: root.small ? 10px : 16px; padding-right: self.padding-left;
         spacing: 8px; alignment: center;
@@ -47,6 +57,10 @@ export component ActionButton inherits Rectangle {
         if root.text != "": Text {
             text: root.text; color: root.ink; font-size: root.small ? 14px : 15px; font-weight: 700;
             vertical-alignment: center; overflow: elide;
+        }
+        if root.trailing-icon.width > 0: Image {
+            source: root.trailing-icon; width: root.small ? 14px : 16px; image-fit: contain;
+            colorize: root.ink;
         }
     }
     focus := FocusScope {
@@ -73,13 +87,15 @@ export component PingToggle inherits Rectangle {
     width: label.preferred-width + 16px; height: 28px;
     border-radius: 6px;
     background: touch.has-hover ? Theme.hover : transparent;
+    animate background { duration: Theme.quick; }
     accessible-role: checkbox;
     accessible-checked: root.on;
-    accessible-label: "Mention the person you reply to";
+    accessible-label: @tr("Mention the person you reply to");
     accessible-action-default => { root.toggled(); }
     label := Text {
-        text: root.on ? "@ On" : "@ Off";
+        text: root.on ? @tr("@ On") : @tr("@ Off");
         color: root.on ? Theme.accent : Theme.muted;
+        animate color { duration: Theme.quick; }
         font-size: 13px; font-weight: 700; vertical-alignment: center;
     }
     touch := TouchArea { mouse-cursor: pointer; clicked => { root.toggled(); } }
@@ -104,6 +120,8 @@ export component IconButton inherits Rectangle {
     out property <bool> focused: focus.has-focus;
     callback clicked;
     // The root fills its row; the visible face stays square and centred.
+    // Placed by x and y outside a layout, it needs `height: self.size` too,
+    // or it takes its parent's whole height and centres its face in that.
     width: root.size; min-height: root.size;
     accessible-role: button;
     accessible-label: root.label;
@@ -118,6 +136,8 @@ export component IconButton inherits Rectangle {
             : root.danger && pointer.has-hover ? Theme.danger.with-alpha(0.16)
             : pointer.has-hover ? root.fill.mix(Theme.overlay, 0.9) : root.fill;
         animate background { duration: Theme.quick; }
+        transform-scale: pointer.pressed ? 0.97 : 1;
+        animate transform-scale { duration: Theme.quick; easing: Theme.arrive; }
         border-width: focus.has-focus ? 2px : 0px;
         border-color: Theme.accent;
         Image {
@@ -125,6 +145,7 @@ export component IconButton inherits Rectangle {
             colorize: !root.enabled ? Theme.faint : root.emphasis ? Theme.on-accent
                 : root.alert || (root.danger && pointer.has-hover) ? Theme.danger
                 : pointer.has-hover ? Theme.text : root.tint;
+            animate colorize { duration: Theme.quick; }
         }
     }
     focus := FocusScope {
@@ -196,8 +217,9 @@ export component DeviceToggle inherits Rectangle {
                 Image {
                     source: @image-url("icons/chevron-down.svg"); width: 16px; height: 16px;
                     colorize: caret.has-hover || root.open ? Theme.text : Theme.secondary;
+                    animate colorize { duration: Theme.quick; }
                     transform-rotation: root.open ? 180deg : 0deg;
-                    animate transform-rotation { duration: Theme.quick; }
+                    animate transform-rotation { duration: Theme.quick; easing: Theme.arrive; }
                 }
             }
             caret-focus := FocusScope {
@@ -476,7 +498,7 @@ export component ServerTagChip inherits Rectangle {
     height: root.chip-height; border-radius: root.radius;
     background: root.fill;
     border-width: focus.has-focus ? 2px : root.outline-width; border-color: focus.has-focus ? Theme.accent : root.outline;
-    accessible-role: AccessibleRole.text; accessible-label: "Server tag " + root.text;
+    accessible-role: AccessibleRole.text; accessible-label: @tr("Server tag {}", root.text);
     HorizontalLayout {
         padding-left: root.pad; padding-right: root.pad; spacing: root.gap; alignment: center;
         if root.badge != "": Middle {
@@ -503,7 +525,7 @@ export component ServerTagChip inherits Rectangle {
     }
     // A screen reader's button for the card.
     if root.server != "": Rectangle {
-        accessible-role: button; accessible-label: "Server tag " + root.text;
+        accessible-role: button; accessible-label: @tr("Server tag {}", root.text);
         accessible-action-default => { root.open(); }
     }
 }
@@ -632,8 +654,14 @@ export component Nameplate inherits Rectangle {
     property <length> fade-to: min(root.width, root.fade-from + 50px);
     /// The corners of the row it fills.
     in property <length> radius;
+    /// Its top corners, when they differ: square under a card it joins,
+    /// as the account's under the voice dock.
+    in property <length> top-radius: root.radius;
     clip: true;
-    border-radius: root.radius;
+    border-top-left-radius: root.top-radius;
+    border-top-right-radius: root.top-radius;
+    border-bottom-left-radius: root.radius;
+    border-bottom-right-radius: root.radius;
     if root.picture.width > 0: Picture {
         still: root.picture;
         height: root.height; width: self.height * root.picture.width / root.picture.height;
@@ -854,6 +882,9 @@ export component StatusText inherits HorizontalLayout {
     in property <length> font-size: 13px;
     in property <int> font-weight: 400;
     in property <TextWrap> wrap: no-wrap;
+    /// How many lines a wrapped status takes at most, the last elided; 0
+    /// for no limit.
+    in property <int> max-lines;
     /// What they're doing, as a small icon before the words: 1 a controller,
     /// 2 a music note, 3 a screen, 4 a camera, 5 a trophy; 0 for none.
     in property <int> icon;
@@ -893,7 +924,7 @@ export component StatusText inherits HorizontalLayout {
     }
     if root.text != "": Text {
         text: root.text; color: root.color; font-size: root.font-size; font-weight: root.font-weight;
-        wrap: root.wrap; overflow: elide; horizontal-stretch: 1;
+        wrap: root.wrap; overflow: elide; horizontal-stretch: 1; max-lines: root.max-lines;
     }
 }
 
@@ -909,7 +940,7 @@ export component VoiceSpot inherits Rectangle {
     property <string> place: root.channel + " — " + root.server;
     horizontal-stretch: 0;
     accessible-role: button;
-    accessible-label: "Go to " + root.channel + " in " + root.server;
+    accessible-label: @tr("Go to {} in {}", root.channel, root.server);
     accessible-action-default => { root.clicked(); }
     HorizontalLayout {
         spacing: 4px;
@@ -919,6 +950,7 @@ export component VoiceSpot inherits Rectangle {
         }
         if !root.compact: Text {
             text: root.place; color: pointer.has-hover ? Theme.text : Theme.muted;
+            animate color { duration: Theme.quick; }
             font-size: root.font-size; overflow: elide;
         }
     }
@@ -949,6 +981,10 @@ export component TextField inherits Rectangle {
     in property <length> pad: 12px;
     in property <color> fill: Theme.sunken;
     in property <bool> ring: true;
+    /// A line round it at rest, as the settings' wells and Choices have, so
+    /// it keeps its shape on a ground of its own colour; the keys' ring takes
+    /// its place. A field with no ground of its own has none.
+    in property <bool> rim: root.ring;
     /// What the placeholder is drawn in.
     in property <color> placeholder-color: Theme.muted;
     /// The text's colour, for a field on another ground than Yapfast's own.
@@ -963,11 +999,17 @@ export component TextField inherits Rectangle {
     callback edited(string);
     callback accepted;
     public function focus-input() { input.focus(); }
-    min-height: 40px; vertical-stretch: 0; horizontal-stretch: 1;
+    // As tall as a regular ActionButton, so a field and its button line up.
+    min-height: 36px; vertical-stretch: 0; horizontal-stretch: 1;
     border-radius: 6px;
     background: root.fill;
-    border-width: root.ring && input.has-focus ? 1px : 0px;
-    border-color: Theme.accent.with-alpha(0.8);
+    animate background { duration: Theme.quick; }
+    // The ring fades in with the keys over the rim; without a rim its width
+    // goes at once, so it is gone as they leave.
+    border-width: (root.ring && input.has-focus) || (root.rim && root.fill.alpha > 0) ? 1px : 0px;
+    border-color: root.ring && input.has-focus ? Theme.accent.with-alpha(0.8)
+        : root.rim ? Theme.line : Theme.accent.with-alpha(0);
+    animate border-color { duration: Theme.quick; }
     Text {
         x: root.pad; width: root.width - 2 * root.pad - root.trailing; height: root.height;
         visible: root.text == "";
@@ -1018,11 +1060,15 @@ export component CallButton inherits VerticalLayout {
     callback clicked;
     spacing: 6px;
     opacity: root.enabled ? 1 : 0.5;
+    animate opacity { duration: Theme.quick; }
     HorizontalLayout {
         alignment: center;
         Rectangle {
             width: 64px; height: 48px; border-radius: 24px;
             background: touch.has-hover ? root.fill.darker(0.15) : root.fill;
+            animate background { duration: Theme.quick; }
+            transform-scale: touch.pressed ? 0.97 : 1;
+            animate transform-scale { duration: Theme.quick; easing: Theme.arrive; }
             accessible-role: button; accessible-label: root.label; accessible-enabled: root.enabled;
             accessible-action-default => { if root.enabled { root.clicked(); } }
             Image { source: root.icon; width: 22px; height: 22px; colorize: Theme.on-danger; }
@@ -1030,8 +1076,9 @@ export component CallButton inherits VerticalLayout {
         }
     }
     Text {
-        text: root.label; font-size: 13px; horizontal-alignment: center;
+        text: root.label; font-size: 13px; horizontal-alignment: center; overflow: elide;
         color: touch.has-hover ? Theme.text : Theme.secondary;
+        animate color { duration: Theme.quick; }
         accessible-role: none;
     }
 }
@@ -1039,10 +1086,12 @@ export component CallButton inherits VerticalLayout {
 // Stands in for something on its way, such as a picture or the messages,
 // with a light sweeping across it as in Discord.
 export component Skeleton inherits Rectangle {
-    background: Theme.raised;
+    // A step off its ground: lighter on a dark theme, darker on a light one,
+    // whose raised surfaces are near white and would hide the white sweep.
+    background: Theme.dark ? Theme.raised : Theme.hover;
     clip: true;
     accessible-role: image;
-    accessible-label: "Loading";
+    accessible-label: @tr("Loading");
     Rectangle {
         width: max(120px, parent.width * 0.5); height: parent.height;
         x: Math.mod(animation-tick() / 1ms, 1500) / 1500 * (parent.width + self.width) - self.width;
@@ -1078,7 +1127,7 @@ export component SpoilerCover inherits Rectangle {
     background: #00000059;
     Rectangle {
         width: label.preferred-width + 24px; height: 28px; border-radius: 14px; background: #000000b3;
-        label := Text { text: "SPOILER"; color: #ffffff; font-size: 13px; font-weight: 800; letter-spacing: 0.5px; vertical-alignment: center; }
+        label := Text { text: @tr("SPOILER"); color: #ffffff; font-size: 13px; font-weight: 800; letter-spacing: 0.5px; vertical-alignment: center; }
     }
 }
 
@@ -1096,18 +1145,23 @@ export component MenuItem inherits Rectangle {
     in property <bool> checkbox;
     /// It opens a submenu, which an arrow at its end shows.
     in property <bool> submenu;
+    /// What its arrow opens is open below it: the arrow points down.
+    in property <bool> expanded;
     /// A destructive choice, such as deleting: drawn in red.
     in property <bool> danger;
     /// Shown, greyed, but not to be chosen; a ContextMenu doesn't report it.
     in property <bool> disabled;
     /// No room for an icon when it has none, so the text starts at the edge.
     in property <bool> plain;
+    /// The second line wraps rather than being cut, and the row grows to
+    /// hold it, for a subtitle that says what a choice costs.
+    in property <bool> wraps;
     /// Drawn as the pointer's choice; a ContextMenu moves it with the keys too.
     in property <bool> highlighted: pointer.has-hover;
     callback clicked;
     callback hovered;
     property <bool> current: root.checked && !root.checkbox;
-    height: root.subtitle != "" ? 44px : 32px;
+    height: root.subtitle == "" ? 32px : root.wraps ? max(44px, lines.preferred-height + 12px) : 44px;
     border-radius: 4px;
     // Discord's focused row is filled with its accent, or with the danger
     // colour for a destructive choice, whose text and icon turn white.
@@ -1130,7 +1184,7 @@ export component MenuItem inherits Rectangle {
             width: 16px; image-fit: contain;
             colorize: root.current ? Theme.accent : root.danger ? (root.highlighted ? Theme.on-danger : Theme.danger-text) : root.highlighted ? Theme.text : Theme.secondary;
         }
-        VerticalLayout {
+        lines := VerticalLayout {
             alignment: center; horizontal-stretch: 1;
             Text {
                 text: root.text; color: root.danger ? (root.highlighted ? Theme.on-danger : Theme.danger-text) : Theme.text;
@@ -1139,14 +1193,18 @@ export component MenuItem inherits Rectangle {
             }
             if root.subtitle != "": Text {
                 text: root.subtitle; color: Theme.muted; font-size: 12px; overflow: elide;
+                wrap: root.wraps ? TextWrap.word-wrap : TextWrap.no-wrap;
             }
         }
         if root.checkbox: VerticalLayout {
             alignment: center;
             Rectangle {
                 width: 18px; height: 18px; border-radius: 4px;
-                background: root.checked ? Theme.accent : transparent;
-                border-width: root.checked ? 0px : 1.5px; border-color: root.highlighted ? Theme.text : Theme.muted;
+                // Only the fill fades as it's ticked: the keys move the
+                // highlight, and with it the border's colour.
+                background: root.checked ? Theme.accent : Theme.accent.with-alpha(0);
+                animate background { duration: Theme.quick; }
+                border-width: 1.5px; border-color: root.checked ? Theme.accent : root.highlighted ? Theme.text : Theme.muted;
                 if root.checked: Image {
                     width: 12px; height: 12px; image-fit: contain;
                     source: @image-url("icons/check.svg"); colorize: Theme.on-accent;
@@ -1156,6 +1214,8 @@ export component MenuItem inherits Rectangle {
         if root.submenu: Image {
             width: 24px; image-fit: contain;
             source: @image-url("icons/chevron-right.svg"); colorize: root.danger && root.highlighted ? Theme.on-danger : Theme.text;
+            transform-rotation: root.expanded ? 90deg : 0deg;
+            animate transform-rotation { duration: Theme.quick; easing: Theme.arrive; }
         }
     }
     focus := FocusScope {
@@ -1262,6 +1322,11 @@ export component ContextMenu inherits Rectangle {
     in property <length> room-below: 100000px;
     // A menu and a submenu are as wide as their rows, within these.
     in property <length> narrowest: 255px;
+    /// Something sits right on top of the menu, as one card: its top corners are square.
+    in property <bool> headed;
+    /// The menu opened above the pointer or its button, so it grows upwards
+    /// from its bottom corner.
+    in property <bool> opens-above;
     property <length> widest: 320px;
     out property <length> menu-width: max(root.narrowest, min(root.widest, main.preferred-width));
     property <length> submenu-width: max(root.narrowest, min(root.widest, sub.preferred-width));
@@ -1325,6 +1390,7 @@ export component ContextMenu inherits Rectangle {
     }
     // Clicks between the menu and the submenu close it, as clicks outside do.
     TouchArea { clicked => { root.close(); } }
+    enter := PopupEntry { }
     keys := FocusScope {
         init => { self.focus(); }
         key-pressed(event) => {
@@ -1361,8 +1427,14 @@ export component ContextMenu inherits Rectangle {
             x: root.flip ? root.content-width - root.menu-width : 0px; y: root.lift;
             width: root.menu-width; height: root.main-height;
             background: Theme.menu; border-color: Theme.menu-line; border-width: 1px; border-radius: 8px;
+            border-top-left-radius: root.headed ? 0px : self.border-radius;
+            border-top-right-radius: root.headed ? 0px : self.border-radius;
             drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
             clip: true;
+            // It grows from the corner at the pointer; the submenus' room
+            // beside it stays still.
+            opacity: Popup.opacity(enter.amount); transform-scale: Popup.scale(enter.amount);
+            transform-origin: { x: root.flip ? self.width : 0px, y: root.opens-above ? self.height : 0px };
             TouchArea { }
             main-flick := Flickable {
             content-height: main.preferred-height;
@@ -1399,6 +1471,10 @@ export component ContextMenu inherits Rectangle {
         }
         Rectangle {
             visible: root.sub-open;
+            // Faded out while hidden, so each arrival fades in; moving from
+            // one row's submenu to the next keeps it lit.
+            opacity: root.sub-open ? 1 : 0;
+            animate opacity { duration: Theme.quick; easing: Theme.arrive; }
             x: root.flip ? root.widest - root.submenu-width : root.menu-width + 4px;
             y: root.lift + root.sub-top;
             width: root.submenu-width; height: root.sub-height;
@@ -1466,12 +1542,13 @@ export component VolumeSlider inherits Rectangle {
     column := VerticalLayout {
         spacing: 6px;
         HorizontalLayout {
-            Text { text: root.label; color: Theme.secondary; font-size: 13px; font-weight: 600; horizontal-stretch: 1; }
+            Text { text: root.label; color: Theme.secondary; font-size: 13px; font-weight: 600; horizontal-stretch: 1; min-width: 0px; overflow: elide; }
             Text { text: root.shown; color: Theme.text; font-size: 13px; font-weight: 600; }
         }
         track := Rectangle {
             height: 18px;
-            Rectangle { y: (parent.height - self.height) / 2; height: 4px; border-radius: 2px; background: Theme.field; }
+            // The track is a control's face, a step off any ground it's on.
+            Rectangle { y: (parent.height - self.height) / 2; height: 4px; border-radius: 2px; background: Theme.button-default; }
             Rectangle {
                 x: 0; y: (parent.height - self.height) / 2; width: parent.width * root.value / root.maximum; height: 4px;
                 border-radius: 2px; background: Theme.accent;
@@ -1524,15 +1601,22 @@ export component QuickDeviceMenu inherits Rectangle {
     property <bool> listing;
     // Five devices before the list scrolls.
     property <length> list-height: root.listing ? min(5, max(1, root.devices.length)) * 32px + 4px : 0px;
-    animate list-height { duration: 180ms; easing: ease-out; }
+    animate list-height { duration: Theme.slide; easing: Theme.glide; }
     background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 10px;
     drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+    // It opens above its caret, so it grows from its bottom left corner.
+    enter := PopupEntry { }
+    opacity: Popup.opacity(enter.amount); transform-scale: Popup.scale(enter.amount);
+    transform-origin: { x: 0px, y: self.height };
     VerticalLayout {
         padding: 6px; spacing: 4px;
+        // Its icon keeps its text in the column of Voice Settings' below,
+        // with the headings and the slider on the icons' line.
         MenuItem {
-            text: root.kind + " Device"; submenu: true;
-            subtitle: root.devices.length == 0 ? "None found"
-                : root.current >= 0 && root.current < root.devices.length ? root.devices[root.current] : "System default";
+            text: root.kind == "Input" ? @tr("Input Device") : @tr("Output Device"); submenu: true; expanded: root.listing;
+            icon: root.kind == "Input" ? @image-url("icons/mic.svg") : @image-url("icons/headphones.svg");
+            subtitle: root.devices.length == 0 ? @tr("None found")
+                : root.current >= 0 && root.current < root.devices.length ? root.devices[root.current] : @tr("System default");
             clicked => { root.listing = !root.listing; }
         }
         Rectangle {
@@ -1555,14 +1639,14 @@ export component QuickDeviceMenu inherits Rectangle {
         HorizontalLayout {
             padding-left: 8px; padding-right: 8px; padding-top: 4px; padding-bottom: 4px;
             VolumeSlider {
-                label: root.kind + " Volume"; value <=> root.volume;
+                label: root.kind == "Input" ? @tr("Input Volume") : @tr("Output Volume"); value <=> root.volume;
                 changed(value) => { root.volume-changed(value); }
                 committed(value) => { root.volume-committed(value); }
             }
         }
         @children
         Rectangle { height: 1px; background: Theme.line; }
-        MenuItem { text: "Voice Settings"; icon: @image-url("icons/settings.svg"); clicked => { root.settings(); } }
+        MenuItem { text: @tr("Voice Settings"); icon: @image-url("icons/settings.svg"); clicked => { root.settings(); } }
     }
 }
 
@@ -1584,6 +1668,7 @@ export component HeaderToggle inherits Rectangle {
     accessible-action-default => { root.clicked(); }
     forward-focus: focus;
     property <color> ink: root.open || pointer.has-hover ? Theme.text : Theme.muted;
+    animate ink { duration: Theme.quick; }
     content := HorizontalLayout {
         padding-left: 8px; padding-right: 8px; spacing: 6px;
         Image { source: root.icon; width: 18px; image-fit: contain; colorize: root.ink; }
@@ -1622,7 +1707,7 @@ export component Banner inherits Rectangle {
         padding-left: 16px; padding-right: 8px; padding-top: 6px; padding-bottom: 6px; spacing: 12px;
         Image { source: @image-url("icons/triangle-alert.svg"); width: 18px; image-fit: contain; colorize: Theme.accent; }
         Text { text: root.text; color: Theme.text; font-size: 15px; wrap: word-wrap; vertical-alignment: center; horizontal-stretch: 1; }
-        Middle { ActionButton { text: "Dismiss"; ghost: true; small: true; clicked => { root.dismissed(); } } }
+        Middle { ActionButton { text: @tr("Dismiss"); ghost: true; small: true; clicked => { root.dismissed(); } } }
     }
 }
 
@@ -1656,7 +1741,7 @@ export component UprightVolumeSlider inherits Rectangle {
     }
     track := Rectangle {
         x: (parent.width - self.width) / 2; y: 8px; width: 4px; height: parent.height - 16px;
-        border-radius: 2px; background: Theme.field;
+        border-radius: 2px; background: Theme.button-default;
         Rectangle {
             y: parent.height * (1 - root.value / 100); height: parent.height * root.value / 100;
             border-radius: 2px; background: Theme.accent;
@@ -1706,7 +1791,7 @@ export component SensitivitySlider inherits Rectangle {
     height: column.preferred-height;
     accessible-role: slider;
     accessible-label: root.label;
-    accessible-value: root.value + " dB";
+    accessible-value: @tr("{} dB", root.value);
     accessible-value-minimum: -80;
     accessible-value-maximum: 0;
     accessible-value-step: 1;
@@ -1731,9 +1816,9 @@ export component SensitivitySlider inherits Rectangle {
         spacing: 6px;
         HorizontalLayout {
             spacing: 10px;
-            Text { text: root.label; color: Theme.secondary; font-size: 13px; font-weight: 600; horizontal-stretch: 1; }
-            Text { text: root.sending ? "Sending" : "Not sending"; color: root.sending ? Theme.live : Theme.muted; font-size: 13px; font-weight: 600; }
-            Text { text: root.value + " dB"; color: Theme.text; font-size: 13px; font-weight: 600; }
+            Text { text: root.label; color: Theme.secondary; font-size: 13px; font-weight: 600; horizontal-stretch: 1; min-width: 0px; overflow: elide; }
+            Text { text: root.sending ? @tr("Sending") : @tr("Not sending"); color: root.sending ? Theme.live : Theme.muted; font-size: 13px; font-weight: 600; }
+            Text { text: @tr("{} dB", root.value); color: Theme.text; font-size: 13px; font-weight: 600; }
         }
         track := Rectangle {
             height: 18px;
@@ -1741,7 +1826,7 @@ export component SensitivitySlider inherits Rectangle {
             property <float> orange: root.at(-18);
             property <float> red: root.at(-6);
             Rectangle {
-                y: (parent.height - self.height) / 2; height: 8px; border-radius: 4px; background: Theme.field; clip: true;
+                y: (parent.height - self.height) / 2; height: 8px; border-radius: 4px; background: Theme.button-default; clip: true;
                 Rectangle { x: 0; width: parent.width * min(track.level, track.orange); background: Theme.live; }
                 Rectangle {
                     x: parent.width * track.orange; width: parent.width * max(0, min(track.level, track.red) - track.orange);

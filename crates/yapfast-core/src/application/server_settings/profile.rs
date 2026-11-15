@@ -77,13 +77,19 @@ impl ProfilePage {
     pub fn problem(&self) -> Option<String> {
         let name = self.name.trim().chars().count();
         if !(NAME_LEAST..=NAME_LIMIT).contains(&name) {
-            return Some(format!(
-                "The server name must be between {NAME_LEAST} and {NAME_LIMIT} characters."
+            return Some(yapfast_lang::tr!(
+                "The server name must be between {} and {} characters.",
+                NAME_LEAST,
+                NAME_LIMIT
             ));
         }
         let description = self.description.trim().chars().count();
-        (description > DESCRIPTION_LIMIT)
-            .then(|| format!("The description can be up to {DESCRIPTION_LIMIT} characters."))
+        (description > DESCRIPTION_LIMIT).then(|| {
+            yapfast_lang::tr!(
+                "The description can be up to {} characters.",
+                DESCRIPTION_LIMIT
+            )
+        })
     }
 
     /// What saving would change; none when nothing does.

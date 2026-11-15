@@ -3079,6 +3079,31 @@ async fn calls_and_goes_live() {
     )
     .await;
 
+    // Bob's stream before it's watched: Discord says where its preview is,
+    // and the picture comes from there each time it's asked for. A stream
+    // that isn't live has none.
+    let preview = discord.stream_preview_url(&bob_stream).await.unwrap();
+    assert!(preview.starts_with(server), "{preview}");
+    for _ in 0..2 {
+        let picture = discord
+            .stream_preview_picture(&bob_stream, 1 << 20)
+            .await
+            .unwrap();
+        assert!(picture.starts_with(b"\x89PNG"), "the preview is a picture");
+    }
+    let carol_stream = stream::key(&guild, &lounge, "1400000000000000003");
+    assert!(discord.stream_preview_url(&carol_stream).await.is_err());
+    let body = discord
+        .download(&format!("{server}/_control/video"), 1 << 16)
+        .await
+        .unwrap();
+    let asked: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(
+        asked["previewReads"],
+        serde_json::json!([bob_stream, bob_stream, bob_stream, carol_stream])
+    );
+    assert_eq!(asked["previewDownloads"], 2, "neither came from disk");
+
     let watched = discord.watch(&bob_stream).await.unwrap();
     assert_eq!(watched.stream_key, bob_stream);
     assert_eq!(watched.rtc_server_id, "fake-rtc");

@@ -10,6 +10,8 @@ use yapfast_core::{
     },
 };
 
+use yapfast_lang::{tr, trn};
+
 use super::*;
 
 /// How a menu target names a Discord server's header, whose dropdown lists
@@ -71,7 +73,7 @@ fn events(adapter: &Adapter, server: &str) -> Menu {
         .flat_map(|server| &server.events)
         .map(|event| {
             let when = match u64::try_from(event.start) {
-                Ok(_) if event.active => "Happening now".to_owned(),
+                Ok(_) if event.active => tr!("Happening now").to_owned(),
                 Ok(start) => until(start, adapter.layout.twelve_hour_clock),
                 Err(_) => String::new(),
             };
@@ -93,7 +95,7 @@ fn events(adapter: &Adapter, server: &str) -> Menu {
     if rows.is_empty() {
         let none = MenuRow {
             id: "event:none".into(),
-            text: "No upcoming events".into(),
+            text: tr!("No upcoming events").into(),
             plain: true,
             disabled: true,
             ..Default::default()
@@ -150,7 +152,7 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
             .get_or_init(|| {
                 state
                     .person(id)
-                    .map_or_else(|| "them".into(), |person| person.name)
+                    .map_or_else(|| tr!("them").into(), |person| person.name)
             })
             .as_str()
     };
@@ -174,16 +176,20 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
         .filter(|choice| developer_mode || *choice != MenuChoice::CopyId)
         .map(|choice| {
             let (text, mut icon) = match choice {
-                MenuChoice::Timeout => (format!("Time out {}", name()), &icons.timeout),
-                MenuChoice::Kick => (format!("Kick {}", name()), &icons.kick),
-                MenuChoice::Ban => (format!("Ban {}", name()), &icons.ban),
-                MenuChoice::Invite if server => ("Invite to server".into(), &icons.befriend),
-                MenuChoice::CreateChannel if server => ("Create channel".into(), &icons.create),
-                MenuChoice::CreateChannel if voice => {
-                    ("Create voice channel".into(), &icons.create)
+                MenuChoice::Timeout => (tr!("Time out {}", name()), &icons.timeout),
+                MenuChoice::Kick => (tr!("Kick {}", name()), &icons.kick),
+                MenuChoice::Ban => (tr!("Ban {}", name()), &icons.ban),
+                MenuChoice::Invite if server => (tr!("Invite to server").into(), &icons.befriend),
+                MenuChoice::CreateChannel if server => {
+                    (tr!("Create channel").into(), &icons.create)
                 }
-                MenuChoice::EditChannel if category => ("Edit category".into(), &icons.edit),
-                MenuChoice::DeleteChannel if category => ("Delete category".into(), &icons.delete),
+                MenuChoice::CreateChannel if voice => {
+                    (tr!("Create voice channel").into(), &icons.create)
+                }
+                MenuChoice::EditChannel if category => (tr!("Edit category").into(), &icons.edit),
+                MenuChoice::DeleteChannel if category => {
+                    (tr!("Delete category").into(), &icons.delete)
+                }
                 choice => {
                     let (text, icon) = label(icons, choice, in_call);
                     (text.to_owned(), icon)
@@ -252,7 +258,7 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
             let separated = group.replace(starts).is_some_and(|last| last != starts);
             let notifications = || app.server_notifications(id);
             let subtitle = match choice {
-                MenuChoice::AddNote => "Only visible to you".into(),
+                MenuChoice::AddNote => tr!("Only visible to you").into(),
                 MenuChoice::UnmuteServer => notifications()
                     .and_then(|notifications| notifications.own.muted_until)
                     .map(|until| muted_until(until / 1000, adapter.layout.twelve_hour_clock))
@@ -342,7 +348,7 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
             0,
             MenuRow {
                 id: choice_id(MenuChoice::MarkRead).into(),
-                text: "Mark as read".into(),
+                text: tr!("Mark as read").into(),
                 disabled: true,
                 plain,
                 ..Default::default()
@@ -395,76 +401,77 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
 /// What a menu row says for a choice, and its icon.
 fn label(icons: &Icons, choice: MenuChoice, in_call: bool) -> (&'static str, &slint::Image) {
     match choice {
-        MenuChoice::MarkRead => ("Mark as read", &icons.read),
-        MenuChoice::JoinVoice => ("Join voice", &icons.call),
-        MenuChoice::OpenChat => ("Open chat", &icons.chat),
-        MenuChoice::Profile => ("Profile", &icons.profile),
-        MenuChoice::Message => ("Message", &icons.dm),
-        MenuChoice::AddFriend => ("Add friend", &icons.befriend),
-        MenuChoice::AcceptFriend => ("Accept friend request", &icons.befriend),
-        MenuChoice::CancelFriendRequest => ("Cancel friend request", &icons.cancel),
-        MenuChoice::Pin => ("Pin", &icons.pin),
-        MenuChoice::Unpin => ("Unpin", &icons.unpin),
-        MenuChoice::Call if in_call => ("Join call", &icons.call),
-        MenuChoice::Call => ("Start call", &icons.call),
-        MenuChoice::AddNote => ("Add note", &icons.note),
-        MenuChoice::AddNickname => ("Add friend nickname", &icons.nickname),
-        MenuChoice::EditNickname => ("Change friend nickname", &icons.nickname),
-        MenuChoice::CloseDm => ("Close DM", &icons.cancel),
-        MenuChoice::LeaveGroup => ("Leave group", &icons.leave),
-        MenuChoice::InviteToServer => ("Invite to server", &icons.befriend),
-        MenuChoice::Apps => ("Apps", &icons.settings),
-        MenuChoice::Unfriend => ("Remove friend", &icons.unfriend),
-        MenuChoice::Ignore => ("Ignore", &icons.ignore),
-        MenuChoice::Unignore => ("Stop ignoring", &icons.ignore),
-        MenuChoice::Block => ("Block", &icons.block),
-        MenuChoice::Unblock => ("Unblock", &icons.block),
-        MenuChoice::Mute => ("Mute", &icons.mute),
-        MenuChoice::Unmute => ("Unmute", &icons.unmute),
-        MenuChoice::CopyLink => ("Copy link", &icons.copy),
-        MenuChoice::CopyId => ("Copy ID", &icons.id),
-        MenuChoice::Mention => ("Mention", &icons.mention),
-        MenuChoice::ServerNickname => ("Change nickname", &icons.rename),
-        MenuChoice::Roles => ("Roles", &icons.roles),
-        MenuChoice::RemoveTimeout => ("Remove timeout", &icons.timeout),
-        MenuChoice::Timeout => ("Time out", &icons.timeout),
-        MenuChoice::Kick => ("Kick", &icons.kick),
-        MenuChoice::Ban => ("Ban", &icons.ban),
-        MenuChoice::TransferOwnership => ("Transfer Ownership", &icons.crown),
-        MenuChoice::LocalMute | MenuChoice::SelfMute => ("Mute", &icons.mic_off),
-        MenuChoice::SoundboardMute => ("Mute Soundboard", &icons.soundboard),
-        MenuChoice::SelfDeafen => ("Deafen", &icons.deafen),
-        MenuChoice::MoveTo => ("Move to", &icons.move_to),
-        MenuChoice::ServerMute => ("Server mute", &icons.mic_off),
-        MenuChoice::ServerDeafen => ("Server deafen", &icons.deafen),
-        MenuChoice::Disconnect => ("Disconnect", &icons.disconnect),
+        MenuChoice::MarkRead => (tr!("Mark as read"), &icons.read),
+        MenuChoice::JoinVoice => (tr!("Join voice"), &icons.call),
+        MenuChoice::OpenChat => (tr!("Open chat"), &icons.chat),
+        MenuChoice::Profile => (tr!("Profile"), &icons.profile),
+        MenuChoice::Message => (yapfast_lang::text_in("Menu", "Message"), &icons.dm),
+        MenuChoice::AddFriend => (tr!("Add friend"), &icons.befriend),
+        MenuChoice::AcceptFriend => (tr!("Accept friend request"), &icons.befriend),
+        MenuChoice::CancelFriendRequest => (tr!("Cancel friend request"), &icons.cancel),
+        MenuChoice::Pin => (tr!("Pin"), &icons.pin),
+        MenuChoice::Unpin => (tr!("Unpin"), &icons.unpin),
+        MenuChoice::Call if in_call => (tr!("Join call"), &icons.call),
+        MenuChoice::Call => (tr!("Start call"), &icons.call),
+        MenuChoice::AddNote => (tr!("Add note"), &icons.note),
+        MenuChoice::AddNickname => (tr!("Add friend nickname"), &icons.nickname),
+        MenuChoice::EditNickname => (tr!("Change friend nickname"), &icons.nickname),
+        MenuChoice::CloseDm => (tr!("Close DM"), &icons.cancel),
+        MenuChoice::LeaveGroup => (tr!("Leave group"), &icons.leave),
+        MenuChoice::InviteToServer => (tr!("Invite to server"), &icons.befriend),
+        MenuChoice::Apps => (tr!("Apps"), &icons.settings),
+        MenuChoice::Unfriend => (tr!("Remove friend"), &icons.unfriend),
+        MenuChoice::Ignore => (tr!("Ignore"), &icons.ignore),
+        MenuChoice::Unignore => (tr!("Stop ignoring"), &icons.ignore),
+        MenuChoice::Block => (tr!("Block"), &icons.block),
+        MenuChoice::Unblock => (tr!("Unblock"), &icons.block),
+        MenuChoice::Mute => (tr!("Mute"), &icons.mute),
+        MenuChoice::Unmute => (tr!("Unmute"), &icons.unmute),
+        MenuChoice::CopyLink => (tr!("Copy link"), &icons.copy),
+        MenuChoice::CopyId => (tr!("Copy ID"), &icons.id),
+        MenuChoice::Mention => (tr!("Mention"), &icons.mention),
+        MenuChoice::ServerNickname => (tr!("Change nickname"), &icons.rename),
+        MenuChoice::Roles => (tr!("Roles"), &icons.roles),
+        MenuChoice::RemoveTimeout => (tr!("Remove timeout"), &icons.timeout),
+        MenuChoice::Timeout => (tr!("Time out"), &icons.timeout),
+        MenuChoice::Kick => (tr!("Kick"), &icons.kick),
+        MenuChoice::Ban => (tr!("Ban"), &icons.ban),
+        MenuChoice::TransferOwnership => (tr!("Transfer Ownership"), &icons.crown),
+        MenuChoice::LocalMute => (tr!("Mute"), &icons.mic_off),
+        MenuChoice::SelfMute => (yapfast_lang::text_in("Microphone", "Mute"), &icons.mic_off),
+        MenuChoice::SoundboardMute => (tr!("Mute Soundboard"), &icons.soundboard),
+        MenuChoice::SelfDeafen => (tr!("Deafen"), &icons.deafen),
+        MenuChoice::MoveTo => (tr!("Move to"), &icons.move_to),
+        MenuChoice::ServerMute => (tr!("Server mute"), &icons.mic_off),
+        MenuChoice::ServerDeafen => (tr!("Server deafen"), &icons.deafen),
+        MenuChoice::Disconnect => (tr!("Disconnect"), &icons.disconnect),
         // Notify::dress names these.
-        MenuChoice::ChannelMute => ("Mute", &icons.mute),
-        MenuChoice::ChannelNotifications => ("Notification settings", &icons.unmute),
-        MenuChoice::MuteServer => ("Mute server", &icons.mute),
-        MenuChoice::UnmuteServer => ("Unmute server", &icons.unmute),
-        MenuChoice::ServerNotifications => ("Notification settings", &icons.unmute),
-        MenuChoice::ShowAllChannels => ("Show all channels", &icons.show),
-        MenuChoice::HideMuted => ("Hide muted channels", &icons.ignore),
+        MenuChoice::ChannelMute => (tr!("Mute"), &icons.mute),
+        MenuChoice::ChannelNotifications => (tr!("Notification settings"), &icons.unmute),
+        MenuChoice::MuteServer => (tr!("Mute server"), &icons.mute),
+        MenuChoice::UnmuteServer => (tr!("Unmute server"), &icons.unmute),
+        MenuChoice::ServerNotifications => (tr!("Notification settings"), &icons.unmute),
+        MenuChoice::ShowAllChannels => (tr!("Show all channels"), &icons.show),
+        MenuChoice::HideMuted => (tr!("Hide muted channels"), &icons.ignore),
         // A server's says so above.
-        MenuChoice::Invite => ("Invite to channel", &icons.befriend),
-        MenuChoice::PinChannel => ("Pin channel to top", &icons.pin),
-        MenuChoice::UnpinChannel => ("Unpin channel", &icons.unpin),
-        MenuChoice::AddToChannelList => ("Add to channel list", &icons.show),
-        MenuChoice::RemoveFromChannelList => ("Remove from channel list", &icons.ignore),
-        MenuChoice::UnfollowCategory => ("Unfollow channel category", &icons.ignore),
+        MenuChoice::Invite => (tr!("Invite to channel"), &icons.befriend),
+        MenuChoice::PinChannel => (tr!("Pin channel to top"), &icons.pin),
+        MenuChoice::UnpinChannel => (tr!("Unpin channel"), &icons.unpin),
+        MenuChoice::AddToChannelList => (tr!("Add to channel list"), &icons.show),
+        MenuChoice::RemoveFromChannelList => (tr!("Remove from channel list"), &icons.ignore),
+        MenuChoice::UnfollowCategory => (tr!("Unfollow channel category"), &icons.ignore),
         // A server's and a voice channel's say so above.
-        MenuChoice::CreateChannel => ("Create text channel", &icons.create),
-        MenuChoice::CreateCategory => ("Create category", &icons.create_category),
+        MenuChoice::CreateChannel => (tr!("Create text channel"), &icons.create),
+        MenuChoice::CreateCategory => (tr!("Create category"), &icons.create_category),
         // A category's say so above.
-        MenuChoice::EditChannel => ("Edit channel", &icons.edit),
-        MenuChoice::DuplicateChannel => ("Duplicate channel", &icons.duplicate),
-        MenuChoice::DeleteChannel => ("Delete channel", &icons.delete),
-        MenuChoice::LeaveServer => ("Leave server", &icons.leave),
-        MenuChoice::JoinThread => ("Join thread", &icons.thread),
-        MenuChoice::LeaveThread => ("Leave thread", &icons.leave),
-        MenuChoice::EditServerProfile => ("Edit server profile", &icons.rename),
-        MenuChoice::ServerSettings => ("Server settings", &icons.settings),
+        MenuChoice::EditChannel => (tr!("Edit channel"), &icons.edit),
+        MenuChoice::DuplicateChannel => (tr!("Duplicate channel"), &icons.duplicate),
+        MenuChoice::DeleteChannel => (tr!("Delete channel"), &icons.delete),
+        MenuChoice::LeaveServer => (tr!("Leave server"), &icons.leave),
+        MenuChoice::JoinThread => (tr!("Join thread"), &icons.thread),
+        MenuChoice::LeaveThread => (tr!("Leave thread"), &icons.leave),
+        MenuChoice::EditServerProfile => (tr!("Edit server profile"), &icons.rename),
+        MenuChoice::ServerSettings => (tr!("Server settings"), &icons.settings),
     }
 }
 
@@ -631,10 +638,6 @@ impl Notify {
         })
     }
 
-    fn kind(&self) -> &'static str {
-        if self.category { "category" } else { "channel" }
-    }
-
     /// The bell's menu: muting, then the levels.
     fn bell(&self, adapter: &Adapter) -> Menu {
         let mut rows = vec![self.mute_row(adapter)];
@@ -661,7 +664,13 @@ impl Notify {
                 mute_id(Muting::Always)
             }
             .into(),
-            text: format!("{} {}", if muted { "Unmute" } else { "Mute" }, self.kind()).into(),
+            text: match (muted, self.category) {
+                (true, true) => tr!("Unmute category"),
+                (true, false) => tr!("Unmute channel"),
+                (false, true) => tr!("Mute category"),
+                (false, false) => tr!("Mute channel"),
+            }
+            .into(),
             subtitle: self
                 .settings
                 .muted_until
@@ -685,8 +694,8 @@ impl Notify {
             .map(|(id, level)| MenuRow {
                 id: id.into(),
                 text: match level {
-                    None if self.in_category => "Use category default",
-                    None => "Use server default",
+                    None if self.in_category => tr!("Use category default"),
+                    None => tr!("Use server default"),
                     Some(level) => level_name(level),
                 }
                 .into(),
@@ -703,10 +712,19 @@ impl Notify {
     /// Names a channel's or category's own rows in its menu.
     fn dress(&self, adapter: &Adapter, row: &mut MenuRow) {
         if row.id == choice_id(MenuChoice::ChannelMute) {
-            let separated = row.separated;
+            let mute = self.mute_row(adapter);
+            // In a plain menu it has no icon, as the rows around it, so their
+            // text keeps one column; the bell's menu keeps the icon.
+            let icon = if row.plain {
+                slint::Image::default()
+            } else {
+                mute.icon.clone()
+            };
             *row = MenuRow {
-                separated,
-                ..self.mute_row(adapter)
+                separated: row.separated,
+                plain: row.plain,
+                icon,
+                ..mute
             };
         } else if row.id == choice_id(MenuChoice::ChannelNotifications) {
             row.subtitle =
@@ -742,9 +760,9 @@ impl Notify {
 
 fn level_name(level: NotifyLevel) -> &'static str {
     match level {
-        NotifyLevel::All => "All messages",
-        NotifyLevel::Mentions => "Only @mentions",
-        NotifyLevel::Nothing => "Nothing",
+        NotifyLevel::All => tr!("All messages"),
+        NotifyLevel::Mentions => tr!("Only @mentions"),
+        NotifyLevel::Nothing => tr!("Nothing"),
     }
 }
 
@@ -778,13 +796,13 @@ fn notification_rows(app: &Application, server: &str) -> Vec<MenuRow> {
         .chain([
             switch(
                 SUPPRESS_EVERYONE,
-                "Suppress @everyone and @here",
+                tr!("Suppress @everyone and @here"),
                 notifications.suppress_everyone,
                 true,
             ),
             switch(
                 SUPPRESS_ROLES,
-                "Suppress all role @mentions",
+                tr!("Suppress all role @mentions"),
                 notifications.suppress_roles,
                 false,
             ),
@@ -797,7 +815,7 @@ const SUPPRESS_ROLES: &str = "suppress-roles";
 
 /// When a mute ends, as its Unmute row says it.
 fn muted_until(seconds: u64, twelve_hour: bool) -> String {
-    format!("Muted until {}", until(seconds, twelve_hour))
+    tr!("Muted until {}", until(seconds, twelve_hour))
 }
 
 /// When something ends, a Unix time: the time today, or the day too.
@@ -819,13 +837,13 @@ fn mute_times() -> Vec<MenuRow> {
         .map(|muting| MenuRow {
             id: mute_id(muting).into(),
             text: match muting {
-                Muting::Minutes(15) => "For 15 minutes".into(),
-                Muting::Minutes(60) => "For 1 hour".into(),
                 Muting::Minutes(minutes) if minutes % 60 == 0 => {
-                    format!("For {} hours", minutes / 60).into()
+                    trn!("For {n} hour", "For {n} hours", minutes / 60).into()
                 }
-                Muting::Minutes(minutes) => format!("For {minutes} minutes").into(),
-                Muting::Always | Muting::Off => "Until I turn it back on".into(),
+                Muting::Minutes(minutes) => {
+                    trn!("For {n} minute", "For {n} minutes", minutes).into()
+                }
+                Muting::Always | Muting::Off => tr!("Until I turn it back on").into(),
             },
             ..Default::default()
         })

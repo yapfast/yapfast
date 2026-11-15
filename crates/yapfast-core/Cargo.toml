@@ -22,6 +22,8 @@ discord = ["dep:yapfast-discord", "dep:rand", "dep:base64", "dep:nnnoiseless", "
 test-fixtures = []
 
 [dependencies]
+# The interface's language: `tr!` gives text in it.
+yapfast-lang = { path = "../yapfast-lang" }
 anyhow.workspace = true
 chrono.workspace = true
 # A Go Live stream's preview goes to Discord as a data URI.

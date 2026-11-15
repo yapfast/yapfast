@@ -3676,6 +3676,7 @@ dependencies = [
  "swash",
  "sys-locale",
  "taffy",
+ "tr",
  "unicode-linebreak",
  "unicode-script",
  "unicode-segmentation",
@@ -9839,6 +9840,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8df9b6e13f2d32c91b9bd719c00d1958837bc7dec474d94952798cc8e69eeec3"
 
 [[package]]
+name = "tr"
+version = "0.1.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "79d30c7e79732253d80e9d619007002c8f3a362b0816e37340af648d4e2c6092"
+
+[[package]]
 name = "tracing"
 version = "0.1.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11559,7 +11566,9 @@ dependencies = [
  "sha2 0.10.9",
  "skia-safe",
  "slint",
+ "sys-locale",
  "tempfile",
+ "tr",
  "tracing",
  "wayland-backend",
  "wayland-client",
@@ -11573,6 +11582,7 @@ dependencies = [
  "xkeysym",
  "yapfast-core",
  "yapfast-discord",
+ "yapfast-lang",
  "yapfast-ui",
  "zbus",
 ]
@@ -11628,6 +11638,7 @@ dependencies = [
  "windows-core",
  "x264-src",
  "yapfast-discord",
+ "yapfast-lang",
 ]
 
 [[package]]
@@ -11666,7 +11677,12 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "webrtc-sys",
+ "yapfast-lang",
 ]
+
+[[package]]
+name = "yapfast-lang"
+version = "0.1.0"
 
 [[package]]
 name = "yapfast-ui"

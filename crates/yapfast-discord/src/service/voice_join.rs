@@ -9,6 +9,7 @@ use tokio::{
     sync::oneshot,
     time::{Duration, Instant, Sleep},
 };
+use yapfast_lang::tr;
 
 use super::{VoiceServer, server, tracker::Tracker};
 use crate::{event::Event, gateway::Dispatch};
@@ -66,7 +67,7 @@ impl VoiceJoin {
         if let Some(previous) = self.pending.replace(pending) {
             let _ = previous
                 .reply
-                .send(Err(anyhow!("Another voice join replaced this one.")));
+                .send(Err(anyhow!(tr!("Another voice join replaced this one."))));
         }
     }
 
@@ -141,7 +142,7 @@ impl VoiceJoin {
     /// Gives up on the join once Discord took too long to assign a server.
     pub(super) async fn timed_out(&mut self) {
         self.deadline.as_mut().await;
-        self.fail("Discord didn't assign a voice server. Try again.");
+        self.fail(tr!("Discord didn't assign a voice server. Try again."));
     }
 
     pub(super) fn fail(&mut self, message: &str) {

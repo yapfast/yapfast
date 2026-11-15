@@ -175,7 +175,7 @@ impl Application {
         }
         let body = self.outgoing_body(&edit.room, &edit.text);
         if body.len() > chat::MAX_MESSAGE_BYTES {
-            self.state.notice = Some("Keep messages under 16 KB.".into());
+            self.state.notice = Some(yapfast_lang::tr!("Keep messages under 16 KB.").into());
             return vec![];
         }
         if self.state.preview {
@@ -319,7 +319,7 @@ impl Application {
         let text = silent_text.map_or(draft.as_str(), str::trim_start);
         let body = self.outgoing_body(&id, text);
         if body.len() > chat::MAX_MESSAGE_BYTES {
-            self.state.notice = Some("Keep messages under 16 KB.".into());
+            self.state.notice = Some(yapfast_lang::tr!("Keep messages under 16 KB.").into());
             return vec![];
         }
         if self.state.preview {
@@ -447,8 +447,9 @@ impl Application {
         let mut problem = None;
         for path in paths {
             if staged.len() >= chat::MAX_FILES {
-                problem = Some(format!(
-                    "A message carries up to {} files.",
+                problem = Some(yapfast_lang::trn!(
+                    "A message carries up to {n} file.",
+                    "A message carries up to {n} files.",
                     chat::MAX_FILES
                 ));
                 break;

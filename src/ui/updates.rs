@@ -72,7 +72,13 @@ pub(super) fn show(window: &YapfastWindow, layout: &Layout, state: &State) {
     let shown = window.global::<Updates>();
     shown.set_check(layout.check_for_updates);
     shown.set_nightlies(layout.update_nightlies);
-    shown.set_manager(update::source().manager().unwrap_or_default().into());
+    shown.set_manager(
+        update::source()
+            .manager()
+            .map(yapfast_lang::text)
+            .unwrap_or_default()
+            .into(),
+    );
     let mut latest = String::new();
     let mut error = String::new();
     let mut notes = String::new();
@@ -120,7 +126,7 @@ fn install_offer(release: &Release) -> (bool, String) {
             let megabytes = target.asset().size.div_ceil(1_000_000);
             (
                 true,
-                format!("{megabytes} MB. Yapfast restarts when it's done."),
+                tr!("{} MB. Yapfast restarts when it's done.", megabytes),
             )
         }
         Err(_) if update::source().manager().is_some() => (false, String::new()),
@@ -132,11 +138,13 @@ fn install_offer(release: &Release) -> (bool, String) {
 fn show_progress(window: &YapfastWindow, progress: &Progress) {
     let (stage, fraction) = progress.read();
     let (text, value) = match (stage, fraction) {
-        (Stage::Starting, _) => ("Preparing…".to_owned(), -1.0),
-        (Stage::Downloading, Some(done)) => (format!("Downloading {:.0}%", done * 100.0), done),
-        (Stage::Downloading, None) => ("Downloading".to_owned(), -1.0),
-        (Stage::Testing, _) => ("Checking the update…".to_owned(), -1.0),
-        (Stage::Installing, _) => ("Restarting…".to_owned(), 1.0),
+        (Stage::Starting, _) => (tr!("Preparing…").to_owned(), -1.0),
+        (Stage::Downloading, Some(done)) => {
+            (tr!("Downloading {}%", format!("{:.0}", done * 100.0)), done)
+        }
+        (Stage::Downloading, None) => (tr!("Downloading").to_owned(), -1.0),
+        (Stage::Testing, _) => (tr!("Checking the update…").to_owned(), -1.0),
+        (Stage::Installing, _) => (tr!("Restarting…").to_owned(), 1.0),
     };
     let shown = window.global::<Updates>();
     shown.set_install_text(text.into());
@@ -184,7 +192,7 @@ fn start_install(adapter: &Rc<RefCell<Adapter>>) {
     let task = slint::spawn_local(async move {
         let result = work
             .await
-            .unwrap_or_else(|_| Err("The update stopped partway.".into()));
+            .unwrap_or_else(|_| Err(tr!("The update stopped partway.").into()));
         let Some(adapter) = weak.upgrade() else {
             return;
         };
@@ -201,7 +209,7 @@ fn start_install(adapter: &Rc<RefCell<Adapter>>) {
                     tracing::error!(%error, "could not end the window to finish the update");
                     adapter.updates.prepared = None;
                     adapter.updates.install_error =
-                        "Couldn't restart. Please reopen Yapfast.".into();
+                        tr!("Couldn't restart. Please reopen Yapfast.").into();
                 }
             }
             Err(error) => {
@@ -217,7 +225,7 @@ fn start_install(adapter: &Rc<RefCell<Adapter>>) {
         Ok(task) => task,
         Err(error) => {
             tracing::error!(%error, "could not wait for the update");
-            guard.updates.install_error = "The update couldn't start.".into();
+            guard.updates.install_error = tr!("The update couldn't start.").into();
             return;
         }
     };
@@ -287,7 +295,7 @@ fn look(adapter: &Rc<RefCell<Adapter>>, announce: bool) {
     let spawned = slint::spawn_local(async move {
         let found = task
             .await
-            .unwrap_or_else(|_| Err("The check stopped partway.".into()));
+            .unwrap_or_else(|_| Err(tr!("The check stopped partway.").into()));
         let Some(adapter) = weak.upgrade() else {
             return;
         };
@@ -355,8 +363,8 @@ impl Adapter {
         self.notifier.show(
             yapfast_core::chat::Alert {
                 room: ABOUT.into(),
-                title: format!("Yapfast {} is available", release.tag),
-                body: "Click to see what's new.".into(),
+                title: tr!("Yapfast {} is available", release.tag),
+                body: tr!("Click to see what's new.").into(),
                 picture: None,
                 call: false,
                 mention: false,

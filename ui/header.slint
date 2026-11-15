@@ -70,13 +70,18 @@ export component HeaderSearch inherits Rectangle {
     callback search(string);
     callback clear;
     init => { if root.autofocus { input.focus(); } }
-    // Discord's box: 243px with a faint outline, wider while it's used.
-    width: input.has-focus || root.text != "" ? 300px : ClientStyle.enabled ? 240px : 180px;
-    animate width { duration: Theme.quick; }
+    // Discord's box: 243px with a faint outline, wider while it's used. In a
+    // row short of room it gives way, down to 120px, before what follows it
+    // is pushed out.
+    property <length> natural: input.has-focus || root.text != "" ? 300px : ClientStyle.enabled ? 240px : 180px;
+    animate natural { duration: Theme.slide; easing: Theme.glide; }
+    preferred-width: root.natural; max-width: root.natural; min-width: 120px;
+    horizontal-stretch: 0;
     height: ClientStyle.enabled ? 30px : 28px; border-radius: ClientStyle.enabled ? 8px : 6px;
     background: Theme.sunken;
     border-width: input.has-focus || ClientStyle.enabled ? 1px : 0px;
     border-color: input.has-focus ? Theme.accent.with-alpha(0.8) : Theme.line;
+    animate border-color { duration: Theme.quick; }
     Text {
         x: 8px; width: root.width - 36px; height: root.height;
         visible: root.text == "";
@@ -117,7 +122,7 @@ export component HeaderSearch inherits Rectangle {
     }
     if root.text != "": IconButton {
         x: root.width - 26px; size: 24px; glyph: 14px; tip-side: 2;
-        icon: @image-url("icons/x.svg"); label: "Clear search";
+        icon: @image-url("icons/x.svg"); label: @tr("Clear search");
         clicked => { root.clear(); }
     }
 }
@@ -131,9 +136,10 @@ export component FoundCard inherits Rectangle {
     min-height: content.preferred-height;
     border-radius: 8px;
     background: pointer.has-hover ? Theme.hover : Theme.chat;
+    animate background { duration: Theme.quick; }
     border-width: 1px; border-color: Theme.line;
     accessible-role: button;
-    accessible-label: root.found.author + ", " + root.found.when + ", jump to the message";
+    accessible-label: @tr("{}, {}, jump to the message", root.found.author, root.found.when);
     accessible-action-default => { root.jump(); }
     pointer := TouchArea {
         mouse-cursor: MouseCursor.pointer;
@@ -177,7 +183,7 @@ export component FoundCard inherits Rectangle {
                             if !cell.loading: Picture {
                                 still: cell.image; frames: cell.frames; delays: cell.delays;
                                 width: parent.width; height: parent.height; image-fit: cover;
-                                accessible-role: image; accessible-label: cell.spoiler ? "Spoiler" : cell.name;
+                                accessible-role: image; accessible-label: cell.spoiler ? @tr("Spoiler") : cell.name;
                             }
                             if cell.spoiler: SpoilerCover { }
                             if cell.video && !cell.spoiler && !cell.loading: Rectangle {
@@ -200,7 +206,7 @@ export component FoundCard inherits Rectangle {
         if pointer.has-hover: ActionButton {
             x: parent.width - self.width - 8px; y: 8px;
             width: self.min-width; height: self.min-height;
-            text: "Jump"; label: "Jump to the message"; small: true;
+            text: @tr("Jump"); label: @tr("Jump to the message"); small: true;
             clicked => { root.jump(); }
         }
     }
@@ -231,7 +237,7 @@ component Popover inherits Rectangle {
                     Text { text: root.heading; color: Theme.text; font-size: 16px; font-weight: 700; overflow: elide; }
                     if root.detail != "": Text { text: root.detail; color: Theme.muted; font-size: 13px; overflow: elide; }
                 }
-                Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; tip-side: 2; clicked => { root.close(); } } }
+                Middle { IconButton { icon: @image-url("icons/x.svg"); label: @tr("Close"); size: 28px; glyph: 18px; tip-side: 2; clicked => { root.close(); } } }
             }
             Rectangle { y: parent.height - 1px; height: 1px; background: Theme.edge; }
         }
@@ -253,7 +259,7 @@ export component PinsPopover inherits Rectangle {
     width: 420px;
     Popover {
         icon: @image-url("icons/pin.svg");
-        heading: "Pinned Messages";
+        heading: @tr("Pinned Messages");
         close => { root.close(); }
         if root.note != "": VerticalLayout {
             padding: 24px; spacing: 12px; alignment: center;
@@ -280,18 +286,19 @@ export component PinsPopover inherits Rectangle {
 // A thread in a channel's list of threads, as a card: its name, then its
 // newest message, or who started an archived one, and when it was last
 // active, and on the right a few of those in it. Clicking opens it; with
-// Shift, beside the channel. Sized as Discord's client sizes them: a 72px
-// card in 80px, under a heading 32px tall for the first section and 64px
-// for later ones, or 16px above the first of a search's results.
+// Shift, beside the channel. A 72px card in 80px, under a heading 32px tall
+// for the first section and 40px for later ones, so a heading sits 24px
+// under the section before it and close over its own; or 16px above the
+// first of a search's results.
 component ThreadEntry inherits Rectangle {
     in property <ThreadRow> entry;
     in property <bool> first;
     callback open(bool);
     property <bool> shift;
-    height: (root.entry.heading != "" ? (root.first ? 32px : 64px) : (root.first ? 16px : 0px))
+    height: (root.entry.heading != "" ? (root.first ? 32px : 40px) : (root.first ? 16px : 0px))
         + (root.entry.room != "" ? 80px : 0px);
     if root.entry.heading != "": Text {
-        x: 16px; y: root.first ? 8px : 40px; height: 24px; width: root.width - 32px;
+        x: 16px; y: root.first ? 8px : 16px; height: 24px; width: root.width - 32px;
         text: root.entry.heading; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.4px;
         vertical-alignment: center; overflow: elide;
     }
@@ -300,6 +307,7 @@ component ThreadEntry inherits Rectangle {
         border-radius: 8px; border-width: 1px;
         background: pointer.has-hover ? Theme.raised : Theme.hover;
         border-color: pointer.has-hover ? Theme.active : Theme.line;
+        animate background, border-color { duration: Theme.quick; }
         accessible-role: button;
         accessible-label: root.entry.name + ", " + root.entry.time;
         accessible-action-default => { root.open(false); }
@@ -351,6 +359,7 @@ component ThreadEntry inherits Rectangle {
                         for picture[index] in root.entry.member-pictures: Rectangle {
                             x: index * 12px; width: 20px; height: 20px; border-radius: 10px;
                             background: pointer.has-hover ? Theme.raised : Theme.hover;
+                            animate background { duration: Theme.quick; }
                             Avatar { x: 1px; y: 1px; size: 18px; picture-url: picture; }
                         }
                     }
@@ -385,7 +394,7 @@ export component ThreadsPopover inherits Rectangle {
     /// How many of the rows are under a heading.
     in property <int> headings;
     /// How tall it would be to show every row.
-    out property <length> fit: 49px + (root.headings > 0 ? 32px + (root.headings - 1) * 64px : 16px)
+    out property <length> fit: 49px + (root.headings > 0 ? 32px + (root.headings - 1) * 40px : 16px)
         + root.rows.length * 80px + (root.loading ? 34px : 0px);
     callback search(string);
     callback open(string, bool);
@@ -399,7 +408,7 @@ export component ThreadsPopover inherits Rectangle {
     drop-shadow-blur: 24px; drop-shadow-color: #00000066; drop-shadow-offset-y: 8px;
     clip: true;
     accessible-role: groupbox;
-    accessible-label: "Threads";
+    accessible-label: @tr("Threads");
     /// The list was scrolled by hand since it opened.
     property <bool> scrolled-by-hand;
     TouchArea { }
@@ -409,21 +418,21 @@ export component ThreadsPopover inherits Rectangle {
             HorizontalLayout {
                 padding-left: 16px; padding-right: 10px; spacing: 10px;
                 Middle { Image { source: @image-url("icons/thread.svg"); width: 20px; height: 20px; colorize: Theme.secondary; } }
-                Middle { Text { text: "Threads"; color: Theme.text; font-size: 16px; font-weight: 700; } }
+                Middle { Text { text: @tr("Threads"); color: Theme.text; font-size: 16px; font-weight: 700; } }
                 if root.searchable: Middle { Rectangle { width: 1px; height: 24px; background: Theme.line; } }
                 if root.searchable: Middle {
                     HeaderSearch {
                         text <=> root.query;
-                        placeholder: "Search for Thread Name"; autofocus: true;
+                        placeholder: @tr("Search for Thread Name"); autofocus: true;
                         search(text) => { root.search(text); }
                         clear => { root.query = ""; root.search(""); }
                     }
                 }
                 Rectangle { horizontal-stretch: 1; }
                 if root.can-create: Middle {
-                    ActionButton { text: "Create"; small: true; primary: true; clicked => { root.create("list"); } }
+                    ActionButton { text: @tr("Create"); small: true; primary: true; clicked => { root.create("list"); } }
                 }
-                Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; tip-side: 2; clicked => { root.close(); } } }
+                Middle { IconButton { icon: @image-url("icons/x.svg"); label: @tr("Close"); size: 28px; glyph: 18px; tip-side: 2; clicked => { root.close(); } } }
             }
             Rectangle { y: parent.height - 1px; height: 1px; background: Theme.edge; }
         }
@@ -434,14 +443,14 @@ export component ThreadsPopover inherits Rectangle {
         if root.note == "" && root.empty: VerticalLayout {
             padding: 32px; spacing: 8px; vertical-stretch: 1; alignment: center;
             Image { source: @image-url("icons/thread.svg"); height: 48px; image-fit: contain; colorize: Theme.faint; }
-            Text { text: "There are no threads."; color: Theme.text; font-size: 17px; font-weight: 700; horizontal-alignment: center; }
+            Text { text: @tr("There are no threads."); color: Theme.text; font-size: 17px; font-weight: 700; horizontal-alignment: center; wrap: word-wrap; }
             Text {
-                text: "Stay focused on a conversation with a thread - a temporary text channel.";
+                text: @tr("Stay focused on a conversation with a thread - a temporary text channel.");
                 color: Theme.muted; font-size: 14px; wrap: word-wrap; horizontal-alignment: center;
             }
             if root.can-create: HorizontalLayout {
                 alignment: center; padding-top: 8px;
-                ActionButton { text: "Create Thread"; primary: true; clicked => { root.create("list-empty"); } }
+                ActionButton { text: @tr("Create Thread"); primary: true; clicked => { root.create("list-empty"); } }
             }
         }
         if root.note == "" && !root.empty: Rectangle {
@@ -467,7 +476,7 @@ export component ThreadsPopover inherits Rectangle {
         }
         if root.note == "" && !root.empty && root.loading: HorizontalLayout {
             padding: 8px; alignment: center;
-            Text { text: "Loading..."; color: Theme.muted; font-size: 13px; }
+            Text { text: @tr("Loading..."); color: Theme.muted; font-size: 13px; }
         }
     }
 }
@@ -519,10 +528,10 @@ export component AddPeoplePopover inherits Rectangle {
     width: 440px;
     Popover {
         icon: @image-url("icons/user-plus.svg");
-        heading: "Select Friends";
+        heading: @tr("Select Friends");
         detail: root.room - root.chosen > 0
-            ? "You can add " + (root.room - root.chosen) + " more " + (root.room - root.chosen == 1 ? "friend." : "friends.")
-            : "This group has no room for more.";
+            ? @tr("You can add {n} more friend." | "You can add {n} more friends." % (root.room - root.chosen))
+            : @tr("This group has no room for more.");
         close => { root.close(); }
         FocusScope {
             key-pressed(event) => {
@@ -533,10 +542,11 @@ export component AddPeoplePopover inherits Rectangle {
                 padding: 12px; spacing: 8px;
                 Rectangle {
                     height: 36px; border-radius: 6px; background: Theme.sunken;
-                    border-width: field.has-focus ? 1px : 0px; border-color: Theme.accent.with-alpha(0.8);
+                    border-width: 1px; border-color: field.has-focus ? Theme.accent.with-alpha(0.8) : transparent;
+                    animate border-color { duration: Theme.quick; }
                     Text {
                         x: 10px; width: parent.width - 20px; visible: root.query == "";
-                        text: "Type the name of a friend"; color: Theme.muted; font-size: 15px; vertical-alignment: center; overflow: elide;
+                        text: @tr("Type the name of a friend"); color: Theme.muted; font-size: 15px; vertical-alignment: center; overflow: elide;
                     }
                     field := TextInput {
                         x: 10px; width: parent.width - 20px;
@@ -545,7 +555,7 @@ export component AddPeoplePopover inherits Rectangle {
                         font-size: 15px; color: Theme.text;
                         selection-background-color: Theme.accent.with-alpha(0.35);
                         selection-foreground-color: Theme.text;
-                        accessible-label: "Find a friend";
+                        accessible-label: @tr("Find a friend");
                         edited => { root.query-edited(); }
                         accepted => { if root.chosen > 0 && !root.adding { root.add(); } }
                     }
@@ -558,6 +568,7 @@ export component AddPeoplePopover inherits Rectangle {
                             property <bool> can-choose: !root.adding && (person.chosen || root.chosen < root.room);
                             height: 44px; border-radius: 6px;
                             background: pick-touch.has-hover && self.can-choose ? Theme.hover : transparent;
+                            animate background { duration: Theme.quick; }
                             opacity: self.can-choose || person.chosen ? 1 : 0.5;
                             accessible-role: checkbox;
                             accessible-checked: person.chosen;
@@ -581,7 +592,8 @@ export component AddPeoplePopover inherits Rectangle {
                                     Rectangle {
                                         width: 22px; height: 22px; border-radius: 6px;
                                         background: person.chosen ? Theme.accent : transparent;
-                                        border-width: person.chosen ? 0px : 2px; border-color: Theme.faint;
+                                        border-width: 2px; border-color: person.chosen ? Theme.accent : Theme.faint;
+                                        animate background, border-color { duration: Theme.quick; }
                                         if person.chosen: Image { source: @image-url("icons/check.svg"); width: 16px; height: 16px; colorize: Theme.on-accent; }
                                     }
                                 }
@@ -589,13 +601,13 @@ export component AddPeoplePopover inherits Rectangle {
                         }
                         if root.people.length == 0: HorizontalLayout {
                             padding: 8px;
-                            Label { text: root.query != "" ? "No friends match." : "All your friends are here already."; }
+                            Label { text: root.query != "" ? @tr("No friends match.") : @tr("All your friends are here already."); }
                         }
                     }
                 }
                 if root.note != "": Label { text: root.note; color: Theme.danger; }
                 ActionButton {
-                    text: root.adding ? "Adding..." : root.one-to-one ? "Create Group DM" : "Add to Group";
+                    text: root.adding ? @tr("Adding...") : root.one-to-one ? @tr("Create Group DM") : @tr("Add to Group");
                     primary: true; enabled: root.chosen > 0 && !root.adding;
                     clicked => { root.add(); }
                 }
@@ -620,7 +632,7 @@ export component SearchPanel inherits Rectangle {
     callback close;
     background: Theme.sidebar;
     accessible-role: list;
-    accessible-label: "Search results";
+    accessible-label: @tr("Search results");
     Rectangle { x: 0; width: 1px; background: Theme.edge; }
     VerticalLayout {
         Rectangle {
@@ -628,7 +640,7 @@ export component SearchPanel inherits Rectangle {
             HorizontalLayout {
                 padding-left: 16px; padding-right: 10px; spacing: 10px;
                 Text { text: root.heading; color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
-                Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Close search"; size: 28px; glyph: 18px; tip-side: 2; clicked => { root.close(); } } }
+                Middle { IconButton { icon: @image-url("icons/x.svg"); label: @tr("Close search"); size: 28px; glyph: 18px; tip-side: 2; clicked => { root.close(); } } }
             }
             Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
         }
@@ -654,7 +666,7 @@ export component SearchPanel inherits Rectangle {
                 if root.more: HorizontalLayout {
                     alignment: center; padding-top: 4px;
                     ActionButton {
-                        text: root.loading ? "Loading..." : "Show more"; small: true; enabled: !root.loading;
+                        text: root.loading ? @tr("Loading...") : @tr("Show more"); small: true; enabled: !root.loading;
                         clicked => { root.more-results(); }
                     }
                 }

@@ -18,6 +18,7 @@ use std::{
 };
 
 use anyhow::{Result, bail};
+use yapfast_lang::tr;
 
 use crate::{picture::I420, voice::Device};
 
@@ -82,6 +83,7 @@ mod native {
         picture::{I420, RawPicture},
         voice::Device,
     };
+    use yapfast_lang::tr;
 
     #[repr(C)]
     struct RawCamera {
@@ -165,7 +167,9 @@ mod native {
                 )
             };
             if raw.is_null() {
-                bail!("Could not start your camera. It may be in use by another app.");
+                bail!(tr!(
+                    "Could not start your camera. It may be in use by another app."
+                ));
             }
             Ok(Self { raw, _sink: sink })
         }
@@ -207,7 +211,7 @@ impl Camera {
             None => devices.first(),
         };
         let Some(device) = device.or_else(|| devices.first()) else {
-            bail!("No camera found. Connect one and try again.");
+            bail!(tr!("No camera found. Connect one and try again."));
         };
         if device.id == TEST_PATTERN {
             let delay = std::env::var("YAPFAST_CAMERA_TEST_DELAY_MS").ok();
@@ -275,13 +279,13 @@ impl Camera {
         match result.recv() {
             Ok(Ok(())) => Ok(camera),
             Ok(Err(error)) => Err(error),
-            Err(_) => bail!("Could not start your camera."),
+            Err(_) => bail!(tr!("Could not start your camera.")),
         }
     }
 
     #[cfg(not(any(target_os = "linux", windows)))]
     fn native(_: &str, _: Size, _: Sink) -> Result<Self> {
-        bail!("Cameras work on Linux and Windows for now.")
+        bail!(tr!("Cameras work on Linux and Windows for now."))
     }
 
     /// Runs `film` on the camera's thread until it returns; it's told to

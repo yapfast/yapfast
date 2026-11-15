@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use serde_json::{Value, json};
 use yapfast_discord::server_settings::{Managed, Role as DiscordRole, Roles as DiscordRoles};
 
-use super::{channels::SEARCH_PAUSE, commands::NOT_DISCORD, own_profile::picture, *};
+use super::{channels::SEARCH_PAUSE, commands::not_discord, own_profile::picture, *};
 use crate::chat::{
     RoleAction, RoleChange, RoleDetail, RoleManager, RoleMember, ServerRoles, ServerSettingsPage,
 };
@@ -25,7 +25,7 @@ pub(super) fn command(
     };
     let events = events.clone();
     let (Ok(discord), Some(guild)) = (discord, discord::parse_server(&server)) else {
-        let why = discord.err().unwrap_or(NOT_DISCORD).to_owned();
+        let why = discord.err().unwrap_or(not_discord()).to_owned();
         let _ = match action {
             RoleAction::Members(role) => events.send(Event::RoleHolders {
                 server,
@@ -101,7 +101,7 @@ pub(super) fn command(
             tokio::spawn(async move {
                 let result = act(&discord, &guild, action).await.map_err(|error| {
                     tracing::warn!(error = format!("{error:#}"), "could not change roles");
-                    format!("That didn't work: {error}")
+                    tr!("That didn't work: {}", error)
                 });
                 let _ = events.send(Event::ServerSettingsSaved { server, result });
             });
@@ -303,7 +303,7 @@ async fn holders(discord: &Discord, guild: &str, role: &str) -> Result<Vec<RoleM
             error = format!("{error:#}"),
             "could not list a role's members"
         );
-        format!("Discord didn't send the role's members: {error}")
+        tr!("Discord didn't send the role's members: {}", error)
     })?;
     let mut members: Vec<RoleMember> = ids
         .into_iter()
@@ -337,7 +337,7 @@ async fn changed_holders(
                 error = format!("{error:#}"),
                 "could not change a role's members"
             );
-            (Err(format!("That didn't work: {error}")), None)
+            (Err(tr!("That didn't work: {}", error)), None)
         }
     };
     let _ = events.send(Event::RoleHolders {

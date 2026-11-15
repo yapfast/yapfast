@@ -615,7 +615,10 @@ fn thread_person(
     user: &str,
 ) -> chat::ThreadPerson {
     chat::ThreadPerson {
-        name: names.name(&server.id, user).unwrap_or("Unknown").to_owned(),
+        name: names
+            .name(&server.id, user)
+            .unwrap_or(yapfast_lang::tr!("Unknown"))
+            .to_owned(),
         avatar: names.avatar(Some(&server.id), user),
         color: server.color(names.roles(&server.id, user)),
     }
@@ -753,8 +756,8 @@ fn dm_room(snapshot: &Snapshot, dm: &Conversation, premium: u8, me: &str) -> Cha
             Box::new(chat::RequestPreview {
                 text: match (preview.text.trim(), preview.files) {
                     ("", 0) => String::new(),
-                    ("", 1) => "Sent a file".into(),
-                    ("", files) => format!("Sent {files} files"),
+                    ("", 1) => yapfast_lang::tr!("Sent a file").into(),
+                    ("", files) => yapfast_lang::trn!("Sent {n} file", "Sent {n} files", files),
                     (text, _) => one_line(&chat::notification_text(text)),
                 },
                 at: yapfast_discord::message::snowflake_ms(&preview.id),

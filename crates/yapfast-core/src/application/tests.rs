@@ -1891,6 +1891,116 @@ fn clicking_someone_sharing_from_another_call_switches_and_forgets_a_failed_join
     assert!(watches(&app.apply(call(Phase::Connected, "lounge", vec![me(), bob]))).is_empty());
 }
 
+/// The streams whose previews `effects` ask Discord for, by room and user.
+fn previews_asked(effects: &[Effect]) -> Vec<(&str, &str)> {
+    effects
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Backend(Command::Discord(DiscordCommand::StreamPreview { room, user })) => {
+                Some((room.as_str(), user.as_str()))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_stream_not_watched_shows_its_preview_until_it_is_watched_or_ends() {
+    let mut app = connected();
+    let lounge = crate::discord::room_id("10", "11");
+    let me = || in_call("1", true, false);
+    let bob = |streaming| in_call("2", false, streaming);
+    let state = |people: Vec<voice::Participant>, watching: Option<&str>| {
+        Event::Voice(voice::State {
+            phase: Phase::Connected,
+            room: Some(lounge.clone()),
+            participants: people,
+            watching: watching.map(|user| {
+                Box::new(voice::Watching {
+                    user: user.into(),
+                    name: user.into(),
+                    opening: true,
+                    frames: None,
+                    viewers: vec![],
+                })
+            }),
+            ..Default::default()
+        })
+    };
+    let preview = |user: &str, picture: Option<Arc<Picture>>| Event::StreamPreview {
+        room: lounge.clone(),
+        user: user.into(),
+        picture,
+    };
+    let picture = || Some(Arc::new(Picture::default()));
+    // Joining asks for nothing, nor does a call where nobody shares.
+    let joining = Event::Voice(voice::State {
+        phase: Phase::Joining,
+        room: Some(lounge.clone()),
+        participants: vec![me(), bob(true)],
+        ..Default::default()
+    });
+    assert!(previews_asked(&app.apply(joining)).is_empty());
+    // Bob shares already as this account's call connects: asked for once,
+    // however the call changes after, as when someone speaks.
+    let asked = app.apply(state(vec![me(), bob(true)], None));
+    assert_eq!(previews_asked(&asked), [(lounge.as_str(), "2")]);
+    assert!(previews_asked(&app.apply(state(vec![me(), bob(true)], None))).is_empty());
+    // Discord has none yet: his tile keeps his avatar, and nobody is told.
+    app.apply(preview("2", None));
+    assert!(app.state.stream_previews.is_empty() && app.state.notice.is_none());
+    app.apply(preview("2", picture()));
+    assert!(app.state.stream_previews.contains_key("2"));
+    // This account's own stream has its own tile, and no preview.
+    let sharing = in_call("1", true, true);
+    let asked = app.apply(state(vec![sharing, bob(true)], None));
+    assert!(previews_asked(&asked).is_empty());
+
+    // Watched, his tile shows the stream: the preview goes, and one that
+    // comes late isn't kept.
+    let asked = app.apply(state(vec![me(), bob(true)], Some("2")));
+    assert!(previews_asked(&asked).is_empty() && app.state.stream_previews.is_empty());
+    app.apply(preview("2", picture()));
+    assert!(app.state.stream_previews.is_empty());
+    // No longer watched, it's asked for again: a newer one may be there.
+    let asked = app.apply(state(vec![me(), bob(true)], None));
+    assert_eq!(previews_asked(&asked), [(lounge.as_str(), "2")]);
+    app.apply(preview("2", picture()));
+    // A reconnecting call keeps it, and asks for nothing once it's back.
+    let reconnecting = Event::Voice(voice::State {
+        phase: Phase::Reconnecting,
+        room: Some(lounge.clone()),
+        participants: vec![me(), bob(true)],
+        ..Default::default()
+    });
+    assert!(previews_asked(&app.apply(reconnecting)).is_empty());
+    assert!(previews_asked(&app.apply(state(vec![me(), bob(true)], None))).is_empty());
+    assert!(app.state.stream_previews.contains_key("2"));
+
+    // His stream ends: the preview goes, and going live again asks anew.
+    assert!(previews_asked(&app.apply(state(vec![me(), bob(false)], None))).is_empty());
+    assert!(app.state.stream_previews.is_empty());
+    let asked = app.apply(state(vec![me(), bob(true)], None));
+    assert_eq!(previews_asked(&asked), [(lounge.as_str(), "2")]);
+    app.apply(preview("2", picture()));
+    // The call ends: nothing is kept, and a late answer isn't either.
+    app.apply(Event::Voice(voice::State::default()));
+    assert!(app.state.stream_previews.is_empty());
+    app.apply(preview("2", picture()));
+    assert!(app.state.stream_previews.is_empty());
+
+    // A call that isn't Discord's has no previews to ask for.
+    let matrix = call(
+        Phase::Connected,
+        "lounge",
+        vec![
+            in_call("@alice:test", true, false),
+            in_call("@bob:test", false, true),
+        ],
+    );
+    assert!(previews_asked(&app.apply(matrix)).is_empty());
+}
+
 #[test]
 fn clicking_someone_in_the_call_shows_it_and_watches_at_once() {
     let mut app = bob_live_in_lounge();

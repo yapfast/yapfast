@@ -10,6 +10,7 @@ use std::{
     io::Cursor,
     sync::{Arc, Mutex},
 };
+use yapfast_lang::tr;
 
 use anyhow::{Context, Result, bail};
 use yapfast_discord::{
@@ -306,7 +307,7 @@ pub fn grouped(
     );
     if !favorite.is_empty() {
         groups.push(SoundGroup {
-            name: "Favorites".into(),
+            name: tr!("Favorites").into(),
             sounds: favorite,
         });
     }
@@ -322,7 +323,7 @@ pub fn grouped(
     let defaults = choices(&mut defaults.iter());
     if !defaults.is_empty() {
         groups.push(SoundGroup {
-            name: "Default".into(),
+            name: tr!("Default").into(),
             sounds: defaults,
         });
     }

@@ -39,22 +39,22 @@ pub(super) fn notification(
             .iter()
             .any(|attachment| attachment.shown == Shown::Sticker)
         {
-            "Sent a sticker".into()
+            tr!("Sent a sticker").into()
         } else if message
             .attachments
             .iter()
             .any(|attachment| attachment.image)
         {
-            "Sent a picture".into()
+            tr!("Sent a picture").into()
         } else if !message.attachments.is_empty() {
-            "Sent a file".into()
+            tr!("Sent a file").into()
         } else if let Some(poll) = &message.poll {
             // As Discord's client says it.
             format!("[poll] {}", poll.question)
         } else if let Some(title) = message.embeds.iter().find_map(|embed| embed.title.clone()) {
             title
         } else {
-            "Sent a message".into()
+            tr!("Sent a message").into()
         };
     }
     Notification {

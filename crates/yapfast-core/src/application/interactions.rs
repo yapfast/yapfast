@@ -310,7 +310,7 @@ impl InteractionModal {
             parsed.push(ModalField {
                 label: outer_label
                     .or_else(|| inner["label"].as_str())
-                    .unwrap_or("Answer")
+                    .unwrap_or(yapfast_lang::tr!("Answer"))
                     .to_owned(),
                 description: row["description"].as_str().unwrap_or_default().to_owned(),
                 custom_id: custom_id.to_owned(),
@@ -588,7 +588,7 @@ impl Application {
                     .map(|role| SelectChoice {
                         label: format!("@{}", role.name),
                         value: role.id,
-                        description: "Role".into(),
+                        description: yapfast_lang::tr!("Role").into(),
                         selected: false,
                         ..Default::default()
                     }),
@@ -619,7 +619,7 @@ impl Application {
                             Some(SelectChoice {
                                 value: category.id.strip_prefix(&prefix)?.to_owned(),
                                 label: category.name,
-                                description: "Category".into(),
+                                description: yapfast_lang::tr!("Category").into(),
                                 selected: false,
                                 ..Default::default()
                             })
@@ -771,7 +771,8 @@ impl Application {
             .map(|choice| choice.value.clone())
             .collect();
         if values.len() < menu.min || values.len() > menu.max {
-            self.state.notice = Some("Choose the required number of options.".into());
+            self.state.notice =
+                Some(yapfast_lang::tr!("Choose the required number of options.").into());
             return vec![];
         }
         let menu = self.state.select_menu.take().unwrap();
@@ -933,7 +934,8 @@ impl Application {
             self.command_answered(nonce, None, false);
         }
         let Some(mut modal) = InteractionModal::parse(raw) else {
-            self.state.notice = Some("Yapfast couldn't show this app's form.".into());
+            self.state.notice =
+                Some(yapfast_lang::tr!("Yapfast couldn't show this app's form.").into());
             return;
         };
         if modal.guild_id.is_none() {
@@ -991,7 +993,7 @@ impl Application {
         let Some(pending) = self.state.interactions.finish(nonce) else {
             return;
         };
-        let failure = failure.or_else(|| settled.then(|| NO_ANSWER.to_owned()));
+        let failure = failure.or_else(|| settled.then(|| yapfast_lang::text(NO_ANSWER).to_owned()));
         let modal = self
             .state
             .interaction_modal
@@ -1066,10 +1068,11 @@ impl Application {
             .saturating_sub(field.files.len())
             .min(MOST_FILES.saturating_sub(carried));
         if files.len() > room {
-            let notice = format!(
-                "{} takes up to {} files.",
-                field.label,
-                field.max_values.min(MOST_FILES)
+            let notice = yapfast_lang::trn!(
+                "{} takes up to {n} file.",
+                "{} takes up to {n} files.",
+                field.max_values.min(MOST_FILES),
+                field.label
             );
             field.files.extend(files.into_iter().take(room));
             self.state.notice = Some(notice);
@@ -1097,7 +1100,8 @@ impl Application {
             return vec![];
         }
         if !modal.valid() {
-            modal.error = Some("Complete the required fields before submitting.".into());
+            modal.error =
+                Some(yapfast_lang::tr!("Complete the required fields before submitting.").into());
             return vec![];
         }
         let nonce = self.state.interactions.nonce();

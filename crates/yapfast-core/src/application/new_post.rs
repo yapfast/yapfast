@@ -145,11 +145,13 @@ impl Application {
         };
         let title = post.title.trim().to_owned();
         let problem = if title.is_empty() {
-            Some("A title is required")
+            Some(yapfast_lang::tr!("A title is required"))
         } else if post.body.trim().is_empty() && files.is_empty() {
-            Some("A message is required")
+            Some(yapfast_lang::tr!("A message is required"))
         } else if require_tag && post.tags.is_empty() {
-            Some("A tag is required to create a post in this channel")
+            Some(yapfast_lang::tr!(
+                "A tag is required to create a post in this channel"
+            ))
         } else {
             None
         };

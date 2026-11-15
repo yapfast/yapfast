@@ -4,7 +4,7 @@
 
 use yapfast_discord::ready::Overwrite;
 
-use super::{commands::NOT_DISCORD, *};
+use super::{commands::not_discord, *};
 use crate::chat::{ChannelOverwrite, OverwriteChange, RoleMember};
 
 /// Carries out [`DiscordCommand::ChangeOverwrites`] and
@@ -25,7 +25,7 @@ pub(super) fn command(
         DiscordCommand::ChangeOverwrites { room, change } => {
             let target = discord::parse_room(&room).map(|(_, channel)| channel.to_owned());
             let (Ok(discord), Some(channel)) = (discord, target) else {
-                let why = discord.err().unwrap_or(NOT_DISCORD).to_owned();
+                let why = discord.err().unwrap_or(not_discord()).to_owned();
                 let _ = events.send(Event::OverwritesChanged {
                     room,
                     result: Err(why),
@@ -38,7 +38,7 @@ pub(super) fn command(
                     .await
                     .map_err(|error| {
                         tracing::warn!(error = format!("{error:#}"), "could not change overwrites");
-                        format!("That didn't work: {error}")
+                        tr!("That didn't work: {}", error)
                     });
                 let _ = events.send(Event::OverwritesChanged { room, result });
             });

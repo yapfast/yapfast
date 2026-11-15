@@ -7,7 +7,7 @@ publish = false
 license = "GPL-3.0-or-later"
 
 [workspace]
-members = ["crates/feature-union", "crates/yapfast-core", "crates/yapfast-discord"]
+members = ["crates/feature-union", "crates/yapfast-core", "crates/yapfast-discord", "crates/yapfast-lang"]
 default-members = ["."]
 # crates/yapfast-ui is a path dependency outside the workspace: Clippy lints
 # every workspace member it compiles, even one --exclude leaves out, and
@@ -23,7 +23,7 @@ resolver = "3"
 default = ["desktop", "discord"]
 matrix = ["yapfast-core/matrix"]
 discord = ["yapfast-core/discord", "dep:qrcode"]
-desktop = ["dep:slint", "dep:yapfast-ui", "dep:skia-safe", "dep:rfd", "dep:memmap2", "dep:emojis", "dep:webbrowser", "dep:i-slint-core", "dep:zbus", "dep:arboard", "dep:image", "dep:tempfile", "dep:wl-clipboard-rs", "dep:wayland-client", "dep:wayland-backend", "dep:wayland-protocols", "dep:ksni", "dep:windows-sys", "dep:windows", "dep:i-slint-renderer-skia", "dep:futures-util", "dep:x11rb", "dep:xkeysym", "dep:reqwest", "dep:rustls", "dep:sha2", "dep:minisign-verify"]
+desktop = ["dep:slint", "dep:yapfast-ui", "dep:skia-safe", "dep:rfd", "dep:memmap2", "dep:emojis", "dep:webbrowser", "dep:i-slint-core", "dep:zbus", "dep:arboard", "dep:image", "dep:tempfile", "dep:wl-clipboard-rs", "dep:wayland-client", "dep:wayland-backend", "dep:wayland-protocols", "dep:ksni", "dep:windows-sys", "dep:windows", "dep:i-slint-renderer-skia", "dep:futures-util", "dep:x11rb", "dep:xkeysym", "dep:reqwest", "dep:rustls", "dep:sha2", "dep:minisign-verify", "dep:tr", "dep:sys-locale"]
 # The desktop app with a window that reloads ui/ on each save, for UI work;
 # see docs/building.md.
 live-preview = ["desktop", "yapfast-ui/live-preview"]
@@ -43,8 +43,14 @@ emojis = { version = "0.9", optional = true }
 memmap2 = { version = "0.9", optional = true }
 # Slint's internals, for the selection of text across messages Yapfast patches in; see
 # docs/building.md. Tests also read the testing backend's clipboard through it.
-i-slint-core = { version = "=1.19.0", optional = true }
+i-slint-core = { version = "=1.19.0", optional = true, features = ["tr"] }
+# What the window's `@tr` asks for its text, which i-slint-core's `tr` feature
+# takes; see docs/translations.md.
+tr = { version = "0.1", default-features = false, optional = true }
+# The system's language, which the interface follows until one is chosen.
+sys-locale = { version = "0.3", optional = true }
 yapfast-core = { path = "crates/yapfast-core", default-features = false }
+yapfast-lang = { path = "crates/yapfast-lang" }
 yapfast-ui = { path = "crates/yapfast-ui", optional = true }
 # Opens links clicked in messages in the default browser.
 webbrowser = { version = "1", optional = true }

@@ -1,6 +1,6 @@
 # Application core and client UI
 
-Yapfast's Cargo workspace has five packages, all in one process. The root `yapfast`
+Yapfast's Cargo workspace has six packages, all in one process. The root `yapfast`
 package is the executable: the Slint adapter and the command-line entry point.
 [`crates/yapfast-core`](../crates/yapfast-core) holds application behavior and the
 native Matrix, Discord and voice backend.
@@ -9,6 +9,8 @@ login, the gateway, the HTTP API and voice. [`crates/yapfast-ui`](../crates/yapf
 compiles `ui/yapfast.slint` and the files it imports in its `build.rs`, so editing
 any `.slint` file rebuilds only that crate, and in a
 [live-preview build](building.md#seeing-the-app) nothing at all.
+[`crates/yapfast-lang`](../crates/yapfast-lang) holds the interface's languages
+and gives the others its text in the chosen one; see [translations](translations.md).
 [`crates/feature-union`](../crates/feature-union) holds no code; `scripts/check`
 uses it (see [building](building.md#checks)).
 

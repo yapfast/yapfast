@@ -4,19 +4,39 @@
 // a microphone's level goes from green through orange to red as it nears clipping.
 // These are the Yap theme's colours; the application sets others from Rust
 // (src/ui/theme.rs), so the defaults here only paint the first frame.
+//
+// Each surface below is drawn on the grounds its comment names, and a theme
+// keeps it a visible step off each of them: by lightness on a dark theme, by
+// tone on a light one. A control that holds its shape only by its fill, such
+// as a slider's track, takes button-default, which is off every ground.
 export global Theme {
+    /// The server rail: the deepest ground.
     in-out property <color> rail: #111215;
+    /// The channel and DM list, the member list and the settings' navigation.
     in-out property <color> sidebar: #17181c;
+    /// The account card and the voice dock over the rail and the sidebar, the
+    /// settings' pages in the Discord layout, and popovers' header bars.
     in-out property <color> panel: #121316;
+    /// The conversation, and the settings' pages in Yapfast's own layout.
     in-out property <color> chat: #1e1f24;
     in-out property <color> stage: #1e1f24;
+    /// Dialogs, popovers, cards, reaction chips and the voice dock's buttons,
+    /// on the chat, the sidebar and the panel, and chips on a hovered row.
     in-out property <color> raised: #26272e;
+    /// The message box on the chat and a search field on the sidebar.
     in-out property <color> field: #2a2b32;
-    in-out property <color> sunken: #0e0f12;
-    in-out property <color> hover: #222329;
+    /// A text field's well and a segmented control's trough, on the panel,
+    /// the chat and inside what's raised.
+    in-out property <color> sunken: #0a0b0d;
+    /// A row under the pointer, on the sidebar, the chat or a trough.
+    in-out property <color> hover: #23242a;
+    /// The chosen row or segment: a step past hover, and off the trough.
     in-out property <color> active: #2c2d35;
-    in-out property <color> row-hover: #1a1b20;
-    in-out property <color> line: #2c2d34;
+    /// A message under the pointer, on the chat; what's raised stays a step off it.
+    in-out property <color> row-hover: #18191e;
+    /// Dividers on every ground and inside what's raised.
+    in-out property <color> line: #30313a;
+    /// The border of what's raised, against what it floats over.
     in-out property <color> edge: #0c0d0f;
     /// The faint outline of the sidebar and the top of the window, and under the server name.
     in-out property <color> outline: #2c2d34;
@@ -27,8 +47,10 @@ export global Theme {
     /// The ground of a context menu: on a dark theme Discord's panel, a step
     /// above the raised surfaces (40, 40, 45 on its own dark theme).
     out property <color> menu: self.dark ? self.raised.mix(#ffffff, 0.98) : self.raised;
-    /// A context menu's outline (53, 53, 59 on Discord's dark theme).
-    out property <color> menu-line: self.dark ? self.line.mix(#000000, 0.95) : self.line;
+    /// A context menu's outline and separators: on a dark theme a white wash
+    /// over the menu, so it stays a step off it in every theme (53, 53, 59
+    /// on Discord's dark theme).
+    out property <color> menu-line: self.dark ? self.menu.mix(#ffffff, 0.94) : self.line;
     in-out property <color> text: #eef0f4;
     in-out property <color> secondary: #b5b8c1;
     in-out property <color> muted: #8d919c;
@@ -42,17 +64,20 @@ export global Theme {
     in-out property <color> mentioned-hover: #f8a50029;
     in-out property <color> danger: #f0545e;
     in-out property <color> danger-hover: #f46f77;
-    /// A destructive menu row's text and icon, Discord's lighter red on a dark theme.
     /// Discord's composer: a hair lighter than a plain field, with a dimmer placeholder.
     out property <color> composer: self.dark ? self.field.mix(#ffffff, 0.99) : self.field;
     out property <color> placeholder: self.dark ? self.muted.mix(self.field, 0.66) : self.muted;
+    /// A destructive menu row's text and icon, Discord's lighter red on a dark theme.
     out property <color> danger-text: self.dark ? #fa777c : self.danger;
     /// Text and icons on a danger fill: badges, the LIVE pill, leaving a call.
     in-out property <color> on-danger: #ffffff;
+    /// Live voice: a speaking ring, the dock's status and other green text, so
+    /// a light theme keeps it dark enough to read as text (4.5:1) on its grounds.
     in-out property <color> live: #3ecf7e;
     in-out property <color> loud: #ff8c42;
     in-out property <color> link: #64adf6;
-    /// The neutral ActionButton face.
+    /// The neutral face of a control: an ActionButton, a slider's track and a
+    /// switch while off. A step off every ground and off what's raised.
     in-out property <color> button-default: #33343c;
     in-out property <color> button-default-hover: #3c3d46;
     /// Laid over any surface at a low alpha to lift it on hover, and behind an
@@ -68,7 +93,25 @@ export global Theme {
     in-out property <color> avatar: #6b7280;
     /// Whether the theme is dark, for the std-widgets that follow the system's scheme.
     in-out property <bool> dark: true;
-    out property <duration> quick: 120ms;
+    /// The person chose never to play animations (Motion.never), so the
+    /// interface holds still as well: every duration below and in Popup is
+    /// then 0ms. Rust sets it beside Motion.never, as Motion lives in
+    /// controls.slint, which imports this file.
+    in property <bool> still;
+    /// A hover fill, a pressed button, a small toggle, a colour that tells a
+    /// state: `animate background { duration: Theme.quick; }`.
+    out property <duration> quick: self.still ? 0ms : 120ms;
+    /// What stays on screen and moves or turns: a tab's underline, a
+    /// selection pill, a chevron, a small bar changing size. With
+    /// `easing: Theme.glide`.
+    out property <duration> slide: self.still ? 0ms : 180ms;
+    /// A highlight that fades once it has been seen, such as the message a
+    /// jump lands on. The one duration over 300ms: nobody waits for it.
+    out property <duration> linger: self.still ? 0ms : 400ms;
+    /// Arriving, and answering a click: quick at first, then settling.
+    out property <easing> arrive: cubic-bezier(0.22, 1, 0.36, 1);
+    /// Moving while staying on screen: starts and stops gently.
+    out property <easing> glide: ease-in-out;
 }
 
 // One tooltip for the whole window, drawn above everything else.
@@ -78,8 +121,6 @@ export global Tip {
     in-out property <length> y;
     /// 0 above the anchor, 1 to its right, 2 below it.
     in-out property <int> side;
-    /// Whether it pops up with a fade, as a badge's does, not at once.
-    in-out property <bool> pop;
 }
 
 // The tooltip of a badge that levels up, as Discord's client shows it: a
@@ -144,28 +185,54 @@ export global Badges {
     in property <bool> discord: true;
 }
 
-// How popups open, as Discord's modals do but quicker: the card grows
-// from 80% as it fades in, and shrinks away as it fades out when it
-// closes. A popup's dimmed backdrop only fades.
+// How what opens over the window arrives and leaves: it grows from 96% as
+// it fades in, from where it was opened when the window knows that, and
+// leaves quicker than it came. A popup's dimmed backdrop only fades.
+// Nothing here moves while Theme.still is set.
 export global Popup {
     /// The card fades as it grows, on the GPU. Skia Software draws a
     /// fading card into a layer as large as what changed, which is the
     /// whole window under a dimmed backdrop, so there the card only grows.
     in property <bool> fade: true;
-    out property <duration> duration: 100ms;
+    /// A menu, a popover, a picker or a tooltip arriving.
+    out property <duration> duration: Theme.still ? 0ms : 150ms;
+    /// A dialog, a sheet, a viewer or the settings arriving.
+    out property <duration> dialog: Theme.still ? 0ms : 220ms;
+    /// Any of them leaving.
+    out property <duration> leave: Theme.still ? 0ms : 120ms;
     /// The card's size and opacity for how far it's open, from 0 to 1.
-    public pure function scale(amount: float) -> float { 0.8 + 0.2 * amount }
+    public pure function scale(amount: float) -> float { 0.96 + 0.04 * amount }
     public pure function opacity(amount: float) -> float { root.fade ? amount : (amount > 0 ? 1 : 0) }
+    /// How far from its place it starts, for what slides in rather than
+    /// grows: add it to `y` to rise into place, subtract it to drop.
+    public pure function shift(amount: float) -> length { (1 - amount) * 6px }
 }
 
 // The way in and out of a popup shown with `if`: `amount` goes from 0 to
 // 1 as it opens and back as it closes, and `shown` stays true until the
-// way out ends, which the popup's `if` waits for.
+// way out ends, which the popup's `if` waits for. A dialog's pace unless
+// `popover` is set.
 export component PopupMotion {
     in property <bool> open;
+    /// It opens from a button or a row, not over the whole window.
+    in property <bool> popover;
     out property <float> amount;
     out property <bool> shown: self.open || self.amount > 0;
     init => { if self.open { self.amount = 1; } }
     changed open => { self.amount = self.open ? 1 : 0; }
-    animate amount { duration: Popup.duration; easing: ease-out-quad; }
+    animate amount {
+        duration: !root.open ? Popup.leave : root.popover ? Popup.duration : Popup.dialog;
+        easing: Theme.arrive;
+    }
+}
+
+// The way in for what can't play a way out: a PopupWindow's content, which
+// closes at once, a tooltip, or anything an `if` shows and takes away.
+// `amount` goes from 0 to 1 once, as the element is made. It draws nothing,
+// but takes a cell in a layout: put it in an element that isn't one.
+export component PopupEntry {
+    in property <duration> duration: Popup.duration;
+    out property <float> amount;
+    init => { self.amount = 1; }
+    animate amount { duration: root.duration; easing: Theme.arrive; }
 }

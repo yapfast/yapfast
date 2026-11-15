@@ -726,7 +726,7 @@ impl Application {
         let gif = picked.mime == "image/gif";
         settings.error = match (&mut settings.page, kind) {
             (Some(Page::Profile(_)), ServerPicture::Icon) if gif && !animated_icon => {
-                Some("An animated icon unlocks at boost level 1.".to_owned())
+                Some(yapfast_lang::tr!("An animated icon unlocks at boost level 1.").to_owned())
             }
             (Some(Page::Profile(page)), ServerPicture::Icon) => {
                 page.icon = PictureEdit::New(picked);
@@ -737,8 +737,10 @@ impl Application {
             {
                 Some(
                     match kind {
-                        ServerPicture::Banner => "An animated banner unlocks at boost level 3.",
-                        _ => "An invite background can't be animated.",
+                        ServerPicture::Banner => {
+                            yapfast_lang::tr!("An animated banner unlocks at boost level 3.")
+                        }
+                        _ => yapfast_lang::tr!("An invite background can't be animated."),
                     }
                     .to_owned(),
                 )
@@ -750,12 +752,12 @@ impl Application {
                 None
             }
             (Some(Page::Roles(_)), ServerPicture::RoleIcon) if gif => {
-                Some("A role icon can't be animated.".to_owned())
+                Some(yapfast_lang::tr!("A role icon can't be animated.").to_owned())
             }
             (Some(Page::Roles(_)), ServerPicture::RoleIcon)
                 if picked.data.len() > ROLE_ICON_LIMIT =>
             {
-                Some("Role icons must be under 256 KB.".to_owned())
+                Some(yapfast_lang::tr!("Role icons must be under 256 KB.").to_owned())
             }
             (Some(Page::Roles(page)), ServerPicture::RoleIcon) => {
                 if let Some(draft) = &mut page.open {

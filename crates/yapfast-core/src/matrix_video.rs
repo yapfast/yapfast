@@ -4,6 +4,7 @@
 //! server, so nothing arrives to decode.
 
 use std::{collections::HashMap, sync::Arc, time::Instant};
+use yapfast_lang::tr;
 
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
@@ -68,7 +69,10 @@ impl Filming {
         });
         // Made just now on this thread, so this is the same source.
         let source = webrtc_sys::video_track::ffi::last_video_track_source();
-        anyhow::ensure!(!source.is_null(), "Could not start your camera's video.");
+        anyhow::ensure!(
+            !source.is_null(),
+            tr!("Could not start your camera's video.")
+        );
         let track =
             LocalVideoTrack::create_video_track("Yapfast camera", RtcVideoSource::Native(video));
         Ok(Self {
@@ -109,7 +113,9 @@ impl Filming {
                 },
             )
             .await
-            .context("Could not send your camera. Check your connection and try again.")?;
+            .context(tr!(
+                "Could not send your camera. Check your connection and try again."
+            ))?;
         self.published = true;
         // Each published track starts at key index 0; move it onto the
         // current one, as the microphone does.

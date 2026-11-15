@@ -45,6 +45,7 @@ use crate::{
     stream_audio,
     voice::{Resolution, StreamQuality, StreamStats},
 };
+use yapfast_lang::tr;
 
 /// The argument that starts Yapfast as a stream worker.
 pub const ARGUMENT: &str = "--stream-worker";
@@ -222,9 +223,9 @@ fn screens_and_windows() -> Vec<Shareable> {
         .map(|(index, screen)| Shareable {
             source: Source::Display(screen.id()),
             title: if count == 1 {
-                "Entire screen".to_owned()
+                tr!("Entire screen").to_owned()
             } else {
-                format!("Screen {}", index + 1)
+                tr!("Screen {}", index + 1)
             },
         });
     // The console belongs to its host, so libwebrtc lists it as another
@@ -751,7 +752,7 @@ impl Sink {
             Some(Link::Ended(reason)) => {
                 let lost = *self.lost.get_or_insert_with(Instant::now);
                 if lost.elapsed() >= MOVE_GRACE {
-                    bail!("Lost the stream connection: {reason}");
+                    bail!(tr!("Lost the stream connection: {}", reason));
                 }
             }
             _ => self.lost = None,
@@ -852,7 +853,7 @@ fn watch(
             }
         }
         if let Link::Ended(reason) = receiver.link() {
-            bail!("Lost the stream: {reason}");
+            bail!(tr!("Lost the stream: {}", reason));
         }
         let Some(frame) = receiver.next(Duration::from_millis(100)) else {
             continue;
@@ -1060,7 +1061,7 @@ fn capture_screen(
         let seen = capture.seen();
         if let Some(failure) = &seen.failed {
             bail!(if reported.is_none() && portal_picks() {
-                "Screen sharing was cancelled, or this desktop has no screen sharing dialog."
+                tr!("Screen sharing was cancelled, or this desktop has no screen sharing dialog.")
                     .to_owned()
             } else {
                 failure.clone()
@@ -1146,7 +1147,7 @@ impl Capture {
         let mut options = DesktopCapturerOptions::new(kind);
         options.set_include_cursor(true);
         let mut capturer = DesktopCapturer::new(options)
-            .context("Screen sharing isn't available on this system.")?;
+            .context(tr!("Screen sharing isn't available on this system."))?;
         let captured = Arc::new(Mutex::new(Captured::default()));
         let (into, seen) = (sink.clone(), captured.clone());
         let source = if portal {
@@ -1157,7 +1158,7 @@ impl Capture {
                 Source::Display(id) | Source::Window(id) => listed.find(|listed| listed.id() == id),
                 _ => listed.next(),
             };
-            Some(found.context("That screen or window is gone.")?)
+            Some(found.context(tr!("That screen or window is gone."))?)
         };
         capturer.start_capture(source, move |result| {
             let mut seen = seen.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -1182,7 +1183,7 @@ impl Capture {
                 Err(CaptureError::Temporary) => {}
                 Err(CaptureError::Permanent) => {
                     seen.failed
-                        .get_or_insert_with(|| "Screen sharing stopped.".into());
+                        .get_or_insert_with(|| tr!("Screen sharing stopped.").into());
                 }
             }
         });
@@ -1351,12 +1352,12 @@ fn glance_at(id: u64, stop: &AtomicBool) -> Result<Option<I420Buffer>> {
     let mut capturer = DesktopCapturer::new(DesktopCapturerOptions::new(
         DesktopCaptureSourceType::Screen,
     ))
-    .context("Screen sharing isn't available on this system.")?;
+    .context(tr!("Screen sharing isn't available on this system."))?;
     let source = capturer
         .get_source_list()
         .into_iter()
         .find(|listed| listed.id() == id)
-        .context("That screen is gone.")?;
+        .context(tr!("That screen is gone."))?;
     // The last picture taken, and whether capture stopped for good.
     let taken = Arc::new(Mutex::new((None::<I420Buffer>, false)));
     let into = taken.clone();
@@ -1562,8 +1563,8 @@ impl Worker {
         }
         let (reports, receiver) = mpsc::unbounded_channel();
         let unexpected = match job {
-            Job::Play { .. } => "The video stopped unexpectedly.",
-            _ => "Screen sharing stopped unexpectedly.",
+            Job::Play { .. } => tr!("The video stopped unexpectedly."),
+            _ => tr!("Screen sharing stopped unexpectedly."),
         };
         let child = Arc::new(Mutex::new(child));
         let mut last = Last::new(job);

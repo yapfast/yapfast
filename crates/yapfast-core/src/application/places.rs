@@ -1042,17 +1042,21 @@ impl Application {
         let problem = if deleting {
             None
         } else if settings.name.is_empty() {
-            Some("Give it a name.".to_owned())
+            Some(yapfast_lang::tr!("Give it a name.").to_owned())
         } else if settings.name.chars().count() > CHANNEL_NAME_LIMIT {
-            Some(format!(
-                "Names can be up to {CHANNEL_NAME_LIMIT} characters."
+            Some(yapfast_lang::trn!(
+                "Names can be up to {n} character.",
+                "Names can be up to {n} characters.",
+                CHANNEL_NAME_LIMIT
             ))
         } else if settings.topic.chars().count() > CHANNEL_TOPIC_LIMIT {
-            Some(format!(
-                "Topics can be up to {CHANNEL_TOPIC_LIMIT} characters."
+            Some(yapfast_lang::trn!(
+                "Topics can be up to {n} character.",
+                "Topics can be up to {n} characters.",
+                CHANNEL_TOPIC_LIMIT
             ))
         } else if !SLOWMODES.contains(&settings.slowmode) {
-            Some("Pick one of the slowmodes.".to_owned())
+            Some(yapfast_lang::tr!("Pick one of the slowmodes.").to_owned())
         } else {
             None
         };

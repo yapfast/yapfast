@@ -20,6 +20,7 @@ use yapfast_core::{
 
 use super::{messages::escape_markdown, *};
 use yapfast_core::clock;
+use yapfast_lang::{tr, trn};
 
 /// A page's id in the sidebar and the screen.
 fn section_id(section: SettingsSection) -> i32 {
@@ -137,12 +138,12 @@ impl Adapter {
         for section in self.app.settings_sections(&settings.server) {
             // Under Discord's Expression, People and Moderation.
             let heading = match section {
-                SettingsSection::Emoji | SettingsSection::Stickers => "EXPRESSION",
+                SettingsSection::Emoji | SettingsSection::Stickers => tr!("EXPRESSION"),
                 SettingsSection::Members | SettingsSection::Roles | SettingsSection::Invites => {
-                    "PEOPLE"
+                    tr!("PEOPLE")
                 }
                 SettingsSection::Safety | SettingsSection::AuditLog | SettingsSection::Bans => {
-                    "MODERATION"
+                    tr!("MODERATION")
                 }
                 _ => "",
             };
@@ -155,17 +156,17 @@ impl Adapter {
                 });
             }
             let (text, icon) = match section {
-                SettingsSection::Profile => ("Server Profile", &self.icons.edit),
-                SettingsSection::Engagement => ("Engagement", &self.icons.unmute),
-                SettingsSection::BoostPerks => ("Boost Perks", &self.icons.pin),
-                SettingsSection::Members => ("Members", &self.icons.members),
-                SettingsSection::Roles => ("Roles", &self.icons.roles),
-                SettingsSection::Invites => ("Invites", &self.icons.invites),
-                SettingsSection::Safety => ("Safety Setup", &self.icons.lock),
-                SettingsSection::AuditLog => ("Audit Log", &self.icons.history),
-                SettingsSection::Bans => ("Bans", &self.icons.ban),
-                SettingsSection::Emoji => ("Emoji", &self.icons.emoji),
-                SettingsSection::Stickers => ("Stickers", &self.icons.note),
+                SettingsSection::Profile => (tr!("Server Profile"), &self.icons.edit),
+                SettingsSection::Engagement => (tr!("Engagement"), &self.icons.unmute),
+                SettingsSection::BoostPerks => (tr!("Boost Perks"), &self.icons.pin),
+                SettingsSection::Members => (tr!("Members"), &self.icons.members),
+                SettingsSection::Roles => (tr!("Roles"), &self.icons.roles),
+                SettingsSection::Invites => (tr!("Invites"), &self.icons.invites),
+                SettingsSection::Safety => (tr!("Safety Setup"), &self.icons.lock),
+                SettingsSection::AuditLog => (tr!("Audit Log"), &self.icons.history),
+                SettingsSection::Bans => (tr!("Bans"), &self.icons.ban),
+                SettingsSection::Emoji => (tr!("Emoji"), &self.icons.emoji),
+                SettingsSection::Stickers => (tr!("Stickers"), &self.icons.note),
             };
             rows.push(SettingsRow {
                 heading: false,
@@ -182,7 +183,7 @@ impl Adapter {
                 ..Default::default()
             });
             rows.push(SettingsRow {
-                text: "Delete Server".into(),
+                text: tr!("Delete Server").into(),
                 icon: self.icons.delete.clone(),
                 id: DELETE_SERVER,
                 danger: true,
@@ -241,10 +242,16 @@ impl Adapter {
             Some(SettingsPage::Engagement(page)) => {
                 let text = self.app.settings_channels(&settings.server, false);
                 let voice = self.app.settings_channels(&settings.server, true);
-                let (system_channels, system_channel) =
-                    channel_list("No System Messages", &text, page.system_channel.as_deref());
-                let (afk_channels, afk_channel) =
-                    channel_list("No Inactive Channel", &voice, page.afk_channel.as_deref());
+                let (system_channels, system_channel) = channel_list(
+                    tr!("No System Messages"),
+                    &text,
+                    page.system_channel.as_deref(),
+                );
+                let (afk_channels, afk_channel) = channel_list(
+                    tr!("No Inactive Channel"),
+                    &voice,
+                    page.afk_channel.as_deref(),
+                );
                 prompt.engagement = EngagementPrompt {
                     system_channels,
                     system_channel,
@@ -273,14 +280,14 @@ impl Adapter {
                         locked: if page.unlocked(kind) {
                             SharedString::default()
                         } else {
-                            format!("Unlocks at Level {level}").into()
+                            tr!("Unlocks at Level {}", level).into()
                         },
                     }
                 };
                 prompt.boost = BoostPrompt {
                     level: match page.original.premium_tier {
-                        0 => "No Level".to_owned(),
-                        tier => format!("Level {tier}"),
+                        0 => tr!("No Level").to_owned(),
+                        tier => tr!("Level {}", tier),
                     }
                     .into(),
                     banner: shown(ServerPicture::Banner, 2),
@@ -351,8 +358,8 @@ impl Adapter {
         match ownership {
             Ownership::Delete(ask) => OwnershipPrompt {
                 kind: 1,
-                title: format!("Delete '{}'", ask.name).into(),
-                text: styled(&format!(
+                title: tr!("Delete '{}'", ask.name).into(),
+                text: styled(&tr!(
                     "Are you sure you want to delete {}? This action cannot be undone.",
                     bold(&ask.name)
                 )),
@@ -371,8 +378,8 @@ impl Adapter {
                 let me = state.account_name.as_deref().unwrap_or_default();
                 OwnershipPrompt {
                     kind: 2,
-                    title: "Transfer Ownership".into(),
-                    text: styled(&format!(
+                    title: tr!("Transfer Ownership").into(),
+                    text: styled(&tr!(
                         "This will transfer ownership of {} to {}. This cannot be undone!",
                         bold(name),
                         bold(tag)
@@ -381,7 +388,7 @@ impl Adapter {
                     owner_initial: initials(me),
                     new_avatar: to.avatar.as_str().into(),
                     new_initial: initials(&to.name),
-                    acknowledge: styled(&format!(
+                    acknowledge: styled(&tr!(
                         "I acknowledge that by transferring ownership of this server to {}, it \
                          officially belongs to them.",
                         bold(tag)
@@ -417,11 +424,11 @@ impl Adapter {
             .map(|method| MfaChoice {
                 id: method_id(method),
                 text: match method {
-                    MfaMethod::App => "Use your authenticator app",
-                    MfaMethod::Sms => "Use a code sent to your phone",
-                    MfaMethod::Password => "Use your password",
-                    MfaMethod::Backup => "Use a backup code",
-                    MfaMethod::Passkey => "Use a passkey or security key",
+                    MfaMethod::App => tr!("Use your authenticator app"),
+                    MfaMethod::Sms => tr!("Use a code sent to your phone"),
+                    MfaMethod::Password => tr!("Use your password"),
+                    MfaMethod::Backup => tr!("Use a backup code"),
+                    MfaMethod::Passkey => tr!("Use a passkey or security key"),
                 }
                 .into(),
             })
@@ -429,23 +436,23 @@ impl Adapter {
         let listing = prompt.method.is_none() && !choices.is_empty();
         let (text, field) = match prompt.method {
             Some(MfaMethod::App) => (
-                "Enter the 6-digit code from your authenticator app.".to_owned(),
-                "6-digit code",
+                tr!("Enter the 6-digit code from your authenticator app.").to_owned(),
+                tr!("6-digit code"),
             ),
             Some(MfaMethod::Sms) => (
                 match &prompt.phone {
-                    Some(phone) => format!("Enter the 6-digit code Discord sent to {phone}."),
-                    None => "Discord is sending a code to your phone.".to_owned(),
+                    Some(phone) => tr!("Enter the 6-digit code Discord sent to {}.", phone),
+                    None => tr!("Discord is sending a code to your phone.").to_owned(),
                 },
-                "6-digit code",
+                tr!("6-digit code"),
             ),
-            Some(MfaMethod::Password) => ("Enter your password.".to_owned(), "Password"),
+            Some(MfaMethod::Password) => (tr!("Enter your password.").to_owned(), tr!("Password")),
             Some(MfaMethod::Backup) => (
-                "Enter one of your 8-digit backup codes. Each works only once.".to_owned(),
-                "Backup code",
+                tr!("Enter one of your 8-digit backup codes. Each works only once.").to_owned(),
+                tr!("Backup code"),
             ),
             Some(MfaMethod::Passkey) | None => (
-                "Discord asks for a passkey or security key, which Yapfast can't use. Confirm in Discord's app, then try again."
+                tr!("Discord asks for a passkey or security key, which Yapfast can't use. Confirm in Discord's app, then try again.")
                     .to_owned(),
                 "",
             ),
@@ -484,10 +491,12 @@ pub(super) fn role_color(color: u32) -> slint::Color {
 fn lock_text(lock: Option<RoleLock>) -> &'static str {
     match lock {
         Some(RoleLock::Highest) => {
-            "Role is locked because it is your highest ranked role. Please ask a higher rank or Server Owner for help."
+            tr!(
+                "Role is locked because it is your highest ranked role. Please ask a higher rank or Server Owner for help."
+            )
         }
         Some(RoleLock::Higher) => {
-            "Role is locked because it is a higher rank than your highest role."
+            tr!("Role is locked because it is a higher rank than your highest role.")
         }
         None => "",
     }
@@ -524,9 +533,9 @@ fn roles_prompt(page: &RolesPage, rules: &RoleRules) -> RolesPrompt {
                 locked: lock.is_some(),
                 lock_text: lock_text(lock).into(),
                 badge: match role.managed {
-                    Some(RoleManager::Bot) => "BOT",
-                    Some(RoleManager::Booster) => "BOOSTER",
-                    Some(RoleManager::Integration) => "INTEGRATION",
+                    Some(RoleManager::Bot) => tr!("BOT"),
+                    Some(RoleManager::Booster) => tr!("BOOSTER"),
+                    Some(RoleManager::Integration) => tr!("INTEGRATION"),
                     None => "",
                 }
                 .into(),
@@ -545,7 +554,7 @@ fn roles_prompt(page: &RolesPage, rules: &RoleRules) -> RolesPrompt {
             .map(|role| role.name.as_str())
             .unwrap_or("@everyone")
             .into(),
-        heading: format!("ROLES – {}", rows.len()).into(),
+        heading: tr!("ROLES – {}", rows.len()).into(),
         rows: ModelRc::new(VecModel::from(rows)),
         search: page.search.as_str().into(),
         may_drag: page.search.is_empty(),
@@ -593,9 +602,9 @@ fn roles_prompt(page: &RolesPage, rules: &RoleRules) -> RolesPrompt {
     prompt.open_id = role.id.as_str().into();
     prompt.everyone = is_everyone;
     prompt.title = if is_everyone {
-        "Default Permissions".to_owned()
+        tr!("Default Permissions").to_owned()
     } else {
-        format!("Edit Role — {}", role.name)
+        tr!("Edit Role — {}", role.name)
     }
     .into();
     prompt.tab = match draft.tab {
@@ -607,9 +616,9 @@ fn roles_prompt(page: &RolesPage, rules: &RoleRules) -> RolesPrompt {
     prompt.notice = match (lock, role.managed) {
         (Some(_), _) => lock_text(lock),
         (None, Some(RoleManager::Booster)) => {
-            "This role is automatically managed by Discord for Server Boosting. It cannot be manually assigned to members or deleted."
+            tr!("This role is automatically managed by Discord for Server Boosting. It cannot be manually assigned to members or deleted.")
         }
-        (None, Some(_)) => "This role is automatically managed by an integration.",
+        (None, Some(_)) => tr!("This role is automatically managed by an integration."),
         (None, None) => "",
     }
     .into();
@@ -652,7 +661,7 @@ fn roles_prompt(page: &RolesPage, rules: &RoleRules) -> RolesPrompt {
     prompt.icon_locked = if page.original.role_icons {
         SharedString::default()
     } else {
-        "Unlocks at Level 2".into()
+        tr!("Unlocks at Level {}", 2).into()
     };
     prompt.permission_search = page.permission_search.as_str().into();
     // The permissions the search finds, under their groups' headings.
@@ -665,8 +674,12 @@ fn roles_prompt(page: &RolesPage, rules: &RoleRules) -> RolesPrompt {
             .filter(|info| page.original.community || !info.community)
             .filter(|info| {
                 search.is_empty()
-                    || info.title.to_lowercase().contains(&search)
-                    || info.description.to_lowercase().contains(&search)
+                    || yapfast_lang::text(info.title)
+                        .to_lowercase()
+                        .contains(&search)
+                    || yapfast_lang::text(info.description)
+                        .to_lowercase()
+                        .contains(&search)
             })
             .collect();
         if shown.is_empty() {
@@ -674,7 +687,7 @@ fn roles_prompt(page: &RolesPage, rules: &RoleRules) -> RolesPrompt {
         }
         permissions.push(PermissionRow {
             heading: true,
-            title: group.heading.to_uppercase().into(),
+            title: yapfast_lang::text(group.heading).to_uppercase().into(),
             ..Default::default()
         });
         for info in shown {
@@ -682,17 +695,17 @@ fn roles_prompt(page: &RolesPage, rules: &RoleRules) -> RolesPrompt {
             let on = draft.permissions & bit != 0;
             permissions.push(PermissionRow {
                 heading: false,
-                title: info.title.into(),
-                description: info.description.into(),
-                warning: info.warning.unwrap_or_default().into(),
+                title: yapfast_lang::text(info.title).into(),
+                description: yapfast_lang::text(info.description).into(),
+                warning: info.warning.map_or("", yapfast_lang::text).into(),
                 bit: i32::try_from(info.bit).unwrap_or_default(),
                 on,
                 lock_text: match rules.permission_lock(&role.id, bit, on) {
                     Some(PermissionLock::NotHeld) => {
-                        "You cannot modify this permission because none of your roles have it."
+                        tr!("You cannot modify this permission because none of your roles have it.")
                     }
                     Some(PermissionLock::WouldLose) => {
-                        "You cannot modify this permission because removing it would remove it from you."
+                        tr!("You cannot modify this permission because removing it would remove it from you.")
                     }
                     None => "",
                 }
@@ -709,10 +722,12 @@ fn roles_prompt(page: &RolesPage, rules: &RoleRules) -> RolesPrompt {
     prompt.clear_lock = if clearable {
         SharedString::default()
     } else {
-        "You cannot clear permissions because it would remove one or more permissions from you."
-            .into()
+        tr!(
+            "You cannot clear permissions because it would remove one or more permissions from you."
+        )
+        .into()
     };
-    prompt.members_title = format!("Manage Members ({})", role.members).into();
+    prompt.members_title = tr!("Manage Members ({})", role.members).into();
     let shown = page.shown_members();
     prompt.members_loading = draft.members.is_none() && draft.tab == RoleTab::Members;
     prompt.members_error = match &draft.members {
@@ -820,9 +835,6 @@ const YELLOW: u32 = 0xf0b232;
 const ORANGE: u32 = 0xf57731;
 const RED: u32 = 0xf23f43;
 
-/// Discord's words for a choice a Community server can't make.
-const NOT_FOR_COMMUNITY: &str = "This option is not available for Community Servers.";
-
 /// Safety Setup, as Discord words it for the kind of server.
 fn safety_prompt(page: &SafetyPage, rule: MfaRule) -> SafetyPrompt {
     let community = page.community();
@@ -833,7 +845,7 @@ fn safety_prompt(page: &SafetyPage, rule: MfaRule) -> SafetyPrompt {
             description: if offered {
                 description
             } else {
-                NOT_FOR_COMMUNITY
+                tr!("This option is not available for Community Servers.")
             }
             .into(),
             color: color.map_or(slint::Color::from_argb_u8(0, 0, 0, 0), |rgb| {
@@ -843,49 +855,51 @@ fn safety_prompt(page: &SafetyPage, rule: MfaRule) -> SafetyPrompt {
         }
     };
     let levels = [
-        (0, "None", "Unrestricted", None),
+        (0, tr!("None"), tr!("Unrestricted"), None),
         (
             1,
-            "Low",
-            "Must have a verified email on their Discord account.",
+            tr!("Low"),
+            tr!("Must have a verified email on their Discord account."),
             Some(GREEN),
         ),
         (
             2,
-            "Medium",
-            "Must also be registered on Discord for longer than 5 minutes.",
+            tr!("Medium"),
+            tr!("Must also be registered on Discord for longer than 5 minutes."),
             Some(YELLOW),
         ),
         (
             3,
-            "High",
-            "Must also be a member of this server for longer than 10 minutes.",
+            tr!("High"),
+            tr!("Must also be a member of this server for longer than 10 minutes."),
             Some(ORANGE),
         ),
         (
             4,
-            "Highest",
-            "Must have a verified phone on their Discord account.",
+            tr!("Highest"),
+            tr!("Must have a verified phone on their Discord account."),
             Some(RED),
         ),
     ];
     let filters = [
         (
             2,
-            "Filter messages from all members",
-            "All messages will be filtered for sensitive image-based media.",
+            tr!("Filter messages from all members"),
+            tr!("All messages will be filtered for sensitive image-based media."),
             Some(RED),
         ),
         (
             1,
-            "Filter messages from server members without roles",
-            "Messages from server members without a role will be filtered for sensitive image-based media.",
+            tr!("Filter messages from server members without roles"),
+            tr!(
+                "Messages from server members without a role will be filtered for sensitive image-based media."
+            ),
             Some(YELLOW),
         ),
         (
             0,
-            "Do not filter",
-            "Messages will not be filtered for sensitive image-based media.",
+            tr!("Do not filter"),
+            tr!("Messages will not be filtered for sensitive image-based media."),
             None,
         ),
     ];
@@ -907,31 +921,25 @@ fn safety_prompt(page: &SafetyPage, rule: MfaRule) -> SafetyPrompt {
             option(value, title, description, color, page.offers_filter(value))
         })
         .collect();
-    let moderators = "Moderators must have two-factor authentication enabled to ban, kick, or timeout members and delete messages.";
+    let moderators = tr!(
+        "Moderators must have two-factor authentication enabled to ban, kick, or timeout members and delete messages."
+    );
+    let owner_only = tr!("Only the server owner can change this setting if they have 2FA enabled.");
     let (mfa_text, mfa_note) = match (community, rule) {
         (false, MfaRule::OwnerWithoutMfa) => (
-            format!(
-                "{moderators} Only the server owner can change this setting if they have 2FA enabled."
-            ),
-            "In order to change this setting, you must have 2FA enabled on your account.",
+            format!("{moderators} {owner_only}"),
+            tr!("In order to change this setting, you must have 2FA enabled on your account."),
         ),
-        (false, _) => (
-            format!(
-                "{moderators} Only the server owner can change this setting if they have 2FA enabled."
-            ),
-            "",
-        ),
+        (false, _) => (format!("{moderators} {owner_only}"), ""),
         (true, MfaRule::May) => (moderators.to_owned(), ""),
         (true, MfaRule::OwnerWithoutMfa) => (
-            format!("{moderators} To change this setting, first enable 2FA on your account."),
-            "",
-        ),
-        (true, MfaRule::NotOwner) => (
             format!(
-                "{moderators} Only the server owner can change this setting if they have 2FA enabled."
+                "{moderators} {}",
+                tr!("To change this setting, first enable 2FA on your account.")
             ),
             "",
         ),
+        (true, MfaRule::NotOwner) => (format!("{moderators} {owner_only}"), ""),
     };
     SafetyPrompt {
         verification_options: ModelRc::new(VecModel::from(verification_options)),
@@ -939,9 +947,9 @@ fn safety_prompt(page: &SafetyPage, rule: MfaRule) -> SafetyPrompt {
         filter_options: ModelRc::new(VecModel::from(filter_options)),
         filter: i32::from(page.content_filter()),
         verification_text: if community {
-            "Members of the server must meet the following criteria before they can send messages. If a member has an assigned role and server onboarding is not enabled, this does not apply."
+            tr!("Members of the server must meet the following criteria before they can send messages. If a member has an assigned role and server onboarding is not enabled, this does not apply.")
         } else {
-            "Members of the server must meet the following criteria before they can send messages in text channels or initiate a direct message conversation. If a member has an assigned role and server onboarding is not enabled, this does not apply. We recommend setting a verification level for a Community Server."
+            tr!("Members of the server must meet the following criteria before they can send messages in text channels or initiate a direct message conversation. If a member has an assigned role and server onboarding is not enabled, this does not apply. We recommend setting a verification level for a Community Server.")
         }
         .into(),
         mfa_on: page.requires_mfa(),
@@ -971,7 +979,11 @@ fn bans_prompt(page: &BansPage, may_unban: bool) -> BansPrompt {
         prompt.open = true;
         // Discord's title is the username alone.
         prompt.open_name = user.username.as_deref().unwrap_or(&user.name).into();
-        prompt.open_reason = ban.reason.as_deref().unwrap_or("No reason provided").into();
+        prompt.open_reason = ban
+            .reason
+            .as_deref()
+            .unwrap_or(tr!("No reason provided"))
+            .into();
         prompt.open_error = page.open_error.as_deref().unwrap_or_default().into();
         prompt.unbanning = page.unbanning;
     }
@@ -1000,29 +1012,28 @@ fn role_chip(held: &[String], roles: &[ServerRole]) -> (SharedString, slint::Col
 /// How long ago, as Discord's Members words it: `account` for Joined
 /// Discord, which counts in days at least.
 fn ago(seconds: u64, account: bool) -> String {
-    let plural = |count: u64, one: &str, other: &str| {
-        format!("{count} {} ago", if count == 1 { one } else { other })
-    };
     const DAY: u64 = 86_400;
     match seconds {
-        0..DAY if account => "<1 day ago".to_owned(),
-        0..60 => "just now".to_owned(),
-        60..3_600 => plural(seconds / 60, "min", "mins"),
-        3_600..DAY => plural(seconds / 3_600, "hr", "hrs"),
+        0..DAY if account => tr!("<1 day ago").to_owned(),
+        0..60 => tr!("just now").to_owned(),
+        60..3_600 => trn!("{n} min ago", "{n} mins ago", seconds / 60),
+        3_600..DAY => trn!("{n} hr ago", "{n} hrs ago", seconds / 3_600),
         // Discord's months are 30 days, and its years 360.
-        DAY..2_592_000 => plural(seconds / DAY, "day", "days"),
-        2_592_000..31_104_000 => plural(seconds / 2_592_000, "month", "months"),
-        _ => plural(seconds / 31_104_000, "year", "years"),
+        DAY..2_592_000 => trn!("{n} day ago", "{n} days ago", seconds / DAY),
+        2_592_000..31_104_000 => {
+            trn!("{n} month ago", "{n} months ago", seconds / 2_592_000)
+        }
+        _ => trn!("{n} year ago", "{n} years ago", seconds / 31_104_000),
     }
 }
 
 /// The time left, as Discord's timeout tooltip counts it: "2h 3m 10s".
 fn time_left(seconds: u64) -> String {
     let parts = [
-        (seconds / 86_400, "d"),
-        (seconds / 3_600 % 24, "h"),
-        (seconds / 60 % 60, "m"),
-        (seconds % 60, "s"),
+        (seconds / 86_400, tr!("d")),
+        (seconds / 3_600 % 24, tr!("h")),
+        (seconds / 60 % 60, tr!("m")),
+        (seconds % 60, tr!("s")),
     ];
     let first = parts.iter().position(|(count, _)| *count > 0).unwrap_or(3);
     parts[first..]
@@ -1036,19 +1047,19 @@ fn time_left(seconds: u64) -> String {
 /// Discord doesn't say.
 fn join_method(joined: &JoinMethod) -> (String, bool) {
     let label = match joined {
-        JoinMethod::Unknown => return ("Unknown".to_owned(), true),
-        JoinMethod::Bot => "Bot Invite".to_owned(),
+        JoinMethod::Unknown => return (tr!("Unknown").to_owned(), true),
+        JoinMethod::Bot => tr!("Bot Invite").to_owned(),
         JoinMethod::Integration(kind) => match kind.as_deref() {
-            Some("twitch") => "Twitch (Integration)".to_owned(),
-            Some("youtube") => "YouTube (Integration)".to_owned(),
-            _ => "Integration".to_owned(),
+            Some("twitch") => tr!("Twitch (Integration)").to_owned(),
+            Some("youtube") => tr!("YouTube (Integration)").to_owned(),
+            _ => tr!("Integration").to_owned(),
         },
-        JoinMethod::Discovery => "Server Discovery".to_owned(),
-        JoinMethod::Hub => "Student Hub".to_owned(),
+        JoinMethod::Discovery => tr!("Server Discovery").to_owned(),
+        JoinMethod::Hub => tr!("Student Hub").to_owned(),
         JoinMethod::Invite(code) | JoinMethod::Vanity(code) => code.clone(),
-        JoinMethod::Manual(Some(code)) => format!("Manual Verification ({code})"),
-        JoinMethod::Manual(None) => "Manual Verification".to_owned(),
-        JoinMethod::LinkedChannel => "Linked Channel".to_owned(),
+        JoinMethod::Manual(Some(code)) => tr!("Manual Verification ({})", code),
+        JoinMethod::Manual(None) => tr!("Manual Verification").to_owned(),
+        JoinMethod::LinkedChannel => tr!("Linked Channel").to_owned(),
     };
     (label, false)
 }
@@ -1089,7 +1100,7 @@ fn members_prompt(page: &MembersPage, roles: &[ServerRole], join_method: bool) -
                 more_roles,
                 timed_out: if member.timed_out_until > now {
                     let left = (member.timed_out_until - now).div_ceil(1000);
-                    format!("Timed out for {}", time_left(left)).into()
+                    tr!("Timed out for {}", time_left(left)).into()
                 } else {
                     SharedString::default()
                 },
@@ -1220,14 +1231,13 @@ fn invite_input(what: i32, text: SharedString, number: i32) -> Option<InviteInpu
 /// upload dialog while it's open.
 fn emoji_prompt(page: &EmojiPage, rules: &ExpressionRules) -> EmojiPrompt {
     let mut rows = vec![];
-    for (animated, heading) in [(false, "Emoji"), (true, "Animated Emoji")] {
+    for (animated, heading) in [(false, tr!("Emoji")), (true, tr!("Animated Emoji"))] {
         let free = page.free(animated);
         rows.push(ServerEmojiRow {
             heading: heading.into(),
             slots: match free {
-                0 => "no slots available".to_owned(),
-                1 => "1 slot available".to_owned(),
-                free => format!("{free} slots available"),
+                0 => tr!("no slots available").to_owned(),
+                free => trn!("{n} slot available", "{n} slots available", free),
             }
             .into(),
             ..Default::default()
@@ -1313,15 +1323,19 @@ fn stickers_prompt(page: &StickersPage, rules: &ExpressionRules) -> StickersProm
                 .collect();
             StickerCard {
                 title: match card.level {
-                    0 => "Free Slots".to_owned(),
-                    level => format!("Level {level}"),
+                    0 => tr!("Free Slots").to_owned(),
+                    level => tr!("Level {}", level),
                 }
                 .into(),
                 status: if card.unlocked {
-                    let slots = if card.slots == 1 { "slot" } else { "slots" };
-                    format!("{free} of {} {slots} available", card.slots)
+                    trn!(
+                        "{} of {n} slot available",
+                        "{} of {n} slots available",
+                        card.slots,
+                        free
+                    )
                 } else {
-                    format!("{} Boosts", LEVEL_BOOSTS[card.level])
+                    trn!("{n} Boost", "{n} Boosts", LEVEL_BOOSTS[card.level])
                 }
                 .into(),
                 unlocked: card.unlocked,
@@ -1496,7 +1510,7 @@ fn audit_log_prompt(page: &AuditLogPage, twelve_hour: bool) -> AuditLogPrompt {
             text: slint::StyledText::from_plain_text(item),
         }));
     }
-    let users: Vec<SharedString> = std::iter::once("All Users".into())
+    let users: Vec<SharedString> = std::iter::once(tr!("All Users").into())
         .chain(
             page.actors
                 .iter()
@@ -1508,8 +1522,12 @@ fn audit_log_prompt(page: &AuditLogPage, twelve_hour: bool) -> AuditLogPrompt {
         .as_ref()
         .and_then(|chosen| page.actors.iter().position(|(id, _)| id == chosen))
         .map_or(0, |index| i32::try_from(index + 1).unwrap_or_default());
-    let actions: Vec<SharedString> = std::iter::once("All Actions".into())
-        .chain(AUDIT_ACTIONS.iter().map(|(_, name)| (*name).into()))
+    let actions: Vec<SharedString> = std::iter::once(tr!("All Actions").into())
+        .chain(
+            AUDIT_ACTIONS
+                .iter()
+                .map(|(_, name)| yapfast_lang::text(name).into()),
+        )
         .collect();
     let action = page
         .action
@@ -1716,15 +1734,15 @@ pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
         state.borrow_mut().dialog(async move {
             let file = rfd::AsyncFileDialog::new()
                 .set_title(match kind {
-                    ServerPicture::Icon => "Change Server Icon",
-                    ServerPicture::Banner => "Upload Server Banner",
-                    ServerPicture::Splash => "Upload Invite Background",
-                    ServerPicture::RoleIcon => "Choose Role Icon",
-                    ServerPicture::Emoji => "Upload Emoji",
-                    ServerPicture::Sticker => "Upload Sticker",
+                    ServerPicture::Icon => tr!("Change Server Icon"),
+                    ServerPicture::Banner => tr!("Upload Server Banner"),
+                    ServerPicture::Splash => tr!("Upload Invite Background"),
+                    ServerPicture::RoleIcon => tr!("Choose Role Icon"),
+                    ServerPicture::Emoji => tr!("Upload Emoji"),
+                    ServerPicture::Sticker => tr!("Upload Sticker"),
                 })
                 .add_filter(
-                    "Pictures",
+                    tr!("Pictures"),
                     // Discord's stickers are PNG, APNG, JPEG or GIF.
                     if kind == ServerPicture::Sticker {
                         &["png", "apng", "jpg", "jpeg", "gif"][..]

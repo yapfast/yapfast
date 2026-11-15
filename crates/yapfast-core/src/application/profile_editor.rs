@@ -622,7 +622,7 @@ impl Application {
                     && picked.mime == "image/gif"
                     && !editor.animated() =>
             {
-                editor.error = Some("An animated avatar takes Nitro.".into());
+                editor.error = Some(yapfast_lang::tr!("An animated avatar takes Nitro.").into());
             }
             Ok(picked) => {
                 editor.picture_edits += 1;

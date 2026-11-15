@@ -116,8 +116,9 @@ pub(super) fn command(
                         tracing::debug!(%error, "could not refresh the GIF picker's home");
                     }
                     Err(error) => {
-                        let _ = events.send(Event::GifCategories(Err(format!(
-                            "Couldn't load GIFs: {error}"
+                        let _ = events.send(Event::GifCategories(Err(tr!(
+                            "Couldn't load GIFs: {}",
+                            error
                         ))));
                     }
                 }
@@ -131,7 +132,7 @@ pub(super) fn command(
                 };
                 let result = found
                     .map(|gifs| gifs.into_iter().map(gif).collect())
-                    .map_err(|error| format!("Couldn't load GIFs: {error}"));
+                    .map_err(|error| tr!("Couldn't load GIFs: {}", error));
                 let _ = events.send(Event::Gifs { query, result });
             });
         }
@@ -164,7 +165,7 @@ pub(super) fn command(
                         let _ = events.send(Event::DiscordEmojis(super::account::emojis(emojis)));
                         Ok(favorites.into_iter().map(favorite).collect())
                     }
-                    Err(error) => Err(format!("Couldn't load your favourite GIFs: {error}")),
+                    Err(error) => Err(tr!("Couldn't load your favourite GIFs: {}", error)),
                 };
                 let _ = events.send(Event::FavoriteGifs(result));
             });
@@ -183,8 +184,9 @@ pub(super) fn command(
                     })
                     .collect();
                 if let Err(error) = discord.set_favorite_gifs(&kept).await {
-                    let _ = events.send(Event::Error(format!(
-                        "Couldn't save your favourite GIFs: {error}"
+                    let _ = events.send(Event::Error(tr!(
+                        "Couldn't save your favourite GIFs: {}",
+                        error
                     )));
                 }
             });
@@ -192,8 +194,9 @@ pub(super) fn command(
         DiscordCommand::SetFavoriteEmojis(favorites) => {
             tokio::spawn(async move {
                 if let Err(error) = discord.set_favorite_emojis(&favorites).await {
-                    let _ = events.send(Event::Error(format!(
-                        "Couldn't save your favourite emoji: {error}"
+                    let _ = events.send(Event::Error(tr!(
+                        "Couldn't save your favourite emoji: {}",
+                        error
                     )));
                 }
             });

@@ -9,6 +9,7 @@ use yapfast_discord::{
     remote_auth::{self, Step, Stopped},
     token,
 };
+use yapfast_lang::tr;
 
 use crate::runtime::{BackgroundRuntime, BackgroundTask};
 
@@ -62,14 +63,14 @@ async fn with_token(token: String, progress: impl Fn(Progress)) {
         Ok(()) => Progress::Linked,
         Err(error) => match error.downcast_ref::<Refused>() {
             Some(Refused(status)) if status.as_u16() == 401 => {
-                Progress::Failed("Discord didn't accept that token.".into())
+                Progress::Failed(tr!("Discord didn't accept that token.").into())
             }
             _ => {
                 tracing::warn!(
                     error = format!("{error:#}"),
                     "could not link Discord by token"
                 );
-                Progress::Failed(format!("Yapfast couldn't link Discord: {error}"))
+                Progress::Failed(tr!("Yapfast couldn't link Discord: {}", error))
             }
         },
     });
@@ -92,7 +93,7 @@ async fn run(progress: impl Fn(Progress)) {
             Some(stopped) => Progress::Failed(stopped.to_string()),
             None => {
                 tracing::warn!(error = format!("{error:#}"), "could not link Discord");
-                Progress::Failed(format!("Yapfast couldn't link Discord: {error}"))
+                Progress::Failed(tr!("Yapfast couldn't link Discord: {}", error))
             }
         },
     });

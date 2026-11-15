@@ -11,7 +11,7 @@ use yapfast_discord::{
     server_settings::{FoundMember, Invite, parse_members_search},
 };
 
-use super::{commands::NOT_DISCORD, *};
+use super::{commands::not_discord, *};
 use crate::chat::{
     InvitesAction, JoinMethod, ListedMember, MembersQuery, RoleMember, ServerInvite,
 };
@@ -39,7 +39,7 @@ pub(super) fn command(
         other => return Some(other),
     };
     let (Ok(discord), Some(guild)) = (discord, discord::parse_server(&server)) else {
-        let why = discord.err().unwrap_or(NOT_DISCORD).to_owned();
+        let why = discord.err().unwrap_or(not_discord()).to_owned();
         let _ = events.send(match work {
             Ok(query) => Event::MembersFound {
                 server,
@@ -101,7 +101,7 @@ async fn invites(discord: &Discord, guild: &str, server: String, action: Invites
                 .await
                 .map_err(|error| {
                     tracing::info!(error = format!("{error:#}"), "Discord kept an invite");
-                    format!("Couldn't revoke the invite: {error}")
+                    tr!("Couldn't revoke the invite: {}", error)
                 });
             Event::InviteRevoked {
                 server,
@@ -119,7 +119,7 @@ async fn invites(discord: &Discord, guild: &str, server: String, action: Invites
                 .await
                 .map_err(|error| {
                     tracing::info!(error = format!("{error:#}"), "Discord didn't pause");
-                    format!("Couldn't save the security actions: {error}")
+                    tr!("Couldn't save the security actions: {}", error)
                 });
             Event::ServerPaused { server, result }
         }
@@ -134,7 +134,7 @@ pub(super) async fn list(discord: &Discord, guild: &str) -> Result<Vec<ServerInv
         .map(|invites| invites.into_iter().map(invite).collect())
         .map_err(|error| {
             tracing::warn!(error = format!("{error:#}"), "could not fetch invites");
-            format!("Discord didn't send the invites: {error}")
+            tr!("Discord didn't send the invites: {}", error)
         })
 }
 
@@ -176,7 +176,7 @@ pub(super) async fn members(
             .await
             .map_err(|error| {
                 tracing::warn!(error = format!("{error:#}"), "could not search members");
-                format!("Discord didn't send the members: {error}")
+                tr!("Discord didn't send the members: {}", error)
             })?;
         match found {
             MembersSearch::Found(found) => {
@@ -200,7 +200,7 @@ pub(super) async fn members(
             MembersSearch::Indexing(_) => break,
         }
     }
-    Err("Discord is still indexing the server's members. Try again in a while.".to_owned())
+    Err(tr!("Discord is still indexing the server's members. Try again in a while.").to_owned())
 }
 
 /// Discord's `members-search` body for `query`: names and ids typed,

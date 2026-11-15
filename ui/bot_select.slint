@@ -22,6 +22,7 @@ export component BotSelectBox inherits Rectangle {
     callback clicked;
     height: 40px; border-radius: 8px; opacity: root.enabled && !root.busy ? 1 : 0.5;
     background: Theme.field; border-width: 1px; border-color: touch.has-hover && root.enabled ? Theme.secondary : Theme.edge;
+    animate opacity, border-color { duration: Theme.quick; }
     accessible-role: combobox; accessible-label: root.text; accessible-enabled: root.enabled && !root.busy;
     accessible-action-default => { root.open(); }
     function open() {

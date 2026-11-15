@@ -334,15 +334,18 @@ impl AppState {
                 .find(|choice| text(choice, "name").eq_ignore_ascii_case(typed))
                 .and_then(|choice| choice.get("value").cloned())
                 .map(Some)
-                .ok_or_else(|| "Pick one of the choices".into());
+                .ok_or_else(|| yapfast_lang::tr!("Pick one of the choices").into());
         }
         let bound = |field: &str| option.spec.get(field).and_then(Value::as_f64);
         let in_range = |value: f64| -> Result<(), String> {
             if let Some(min) = bound("min_value").filter(|min| value < *min) {
-                return Err(format!("Must be at least {}", number(&json!(min))));
+                return Err(yapfast_lang::tr!(
+                    "Must be at least {}",
+                    number(&json!(min))
+                ));
             }
             if let Some(max) = bound("max_value").filter(|max| value > *max) {
-                return Err(format!("Must be at most {}", number(&json!(max))));
+                return Err(yapfast_lang::tr!("Must be at most {}", number(&json!(max))));
             }
             Ok(())
         };
@@ -350,17 +353,25 @@ impl AppState {
             STRING => {
                 let length = typed.chars().count() as f64;
                 if let Some(min) = bound("min_length").filter(|min| length < *min) {
-                    return Err(format!("Must be at least {min} characters"));
+                    return Err(yapfast_lang::trn!(
+                        "Must be at least {n} character",
+                        "Must be at least {n} characters",
+                        min
+                    ));
                 }
                 if let Some(max) = bound("max_length").filter(|max| length > *max) {
-                    return Err(format!("Must be at most {max} characters"));
+                    return Err(yapfast_lang::trn!(
+                        "Must be at most {n} character",
+                        "Must be at most {n} characters",
+                        max
+                    ));
                 }
                 Ok(Some(Value::String(typed.to_owned())))
             }
             INTEGER => {
                 let value: i64 = typed
                     .parse()
-                    .map_err(|_| "Must be a whole number".to_owned())?;
+                    .map_err(|_| yapfast_lang::tr!("Must be a whole number").to_owned())?;
                 in_range(value as f64)?;
                 Ok(Some(json!(value)))
             }
@@ -369,7 +380,7 @@ impl AppState {
                     .parse()
                     .ok()
                     .filter(|value: &f64| value.is_finite())
-                    .ok_or_else(|| "Must be a number".to_owned())?;
+                    .ok_or_else(|| yapfast_lang::tr!("Must be a number").to_owned())?;
                 in_range(parsed)?;
                 Ok(Some(json!(parsed)))
             }
@@ -402,15 +413,15 @@ impl AppState {
                     .map(|id| Some(Value::String(id)))
                     .ok_or_else(|| {
                         match option.kind {
-                            USER => "Pick a member",
-                            ROLE => "Pick a role",
-                            CHANNEL => "Pick a channel",
-                            _ => "Pick a member or a role",
+                            USER => yapfast_lang::tr!("Pick a member"),
+                            ROLE => yapfast_lang::tr!("Pick a role"),
+                            CHANNEL => yapfast_lang::tr!("Pick a channel"),
+                            _ => yapfast_lang::tr!("Pick a member or a role"),
                         }
                         .into()
                     })
             }
-            _ => Err("Yapfast can't fill this option yet".into()),
+            _ => Err(yapfast_lang::tr!("Yapfast can't fill this option yet").into()),
         }
     }
 
@@ -424,7 +435,9 @@ impl AppState {
             .iter()
             .map(|option| match self.option_value_among(option, &known) {
                 Err(error) => Some(error),
-                Ok(None) if option.required && command.tried => Some("Required".into()),
+                Ok(None) if option.required && command.tried => {
+                    Some(yapfast_lang::tr!("Required").into())
+                }
                 Ok(_) => None,
             })
             .collect()
@@ -468,15 +481,15 @@ impl Application {
             return String::new();
         };
         if state.app_commands.loading(room) {
-            return "Loading commands…".into();
+            return yapfast_lang::tr!("Loading commands…").into();
         }
         if let Some(error) = &state.app_commands.error {
             return error.clone();
         }
         if rows.is_empty() {
-            "No commands match".into()
+            yapfast_lang::tr!("No commands match").into()
         } else {
-            "COMMANDS".into()
+            yapfast_lang::tr!("COMMANDS").into()
         }
     }
 
@@ -1054,7 +1067,7 @@ impl Application {
             Some(reason) => sent.failed = Some(reason),
             None if settled => {
                 sent.failed = Some(
-                    "Discord didn't confirm this command was sent. Check for the app's answer before sending it again."
+                    yapfast_lang::tr!("Discord didn't confirm this command was sent. Check for the app's answer before sending it again.")
                         .into(),
                 );
             }
@@ -1104,7 +1117,7 @@ impl Application {
                     body: sent
                         .failed
                         .clone()
-                        .unwrap_or_else(|| "Sending command…".into()),
+                        .unwrap_or_else(|| yapfast_lang::tr!("Sending command…").into()),
                     delivery: if sent.failed.is_some() {
                         chat::Delivery::Failed
                     } else {

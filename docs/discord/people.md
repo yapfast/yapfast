@@ -397,7 +397,9 @@ the account is in it, while it asks Discord for the server's profile with
 `GET /guilds/{id}/profile`. Its `name`, `icon_hash`, `member_count`,
 `online_count` and `description` fill in the icon, name, online and member
 counts and description, and the server's id gives "Est." and the month it
-was made. The banner, games and traits Discord's card also shows aren't
+was made, the month's name in the interface's language. The card is headed
+as a mutual server's card on a full profile, the icon over a banner; the
+server's own banner, games and traits Discord's card also shows aren't
 drawn.
 
 Discord shows the profile to the server's members, and to anyone for a
@@ -812,17 +814,22 @@ With Nitro, it also edits the profile's theme and the display name's style,
 and anyone may choose the server tag to wear.
 
 The main profile's editor is laid out as Discord's: a column of what the
-profile wears on the left, the profile as it will show in the middle, and
-its Board, Activity and Wishlist tabs on the right, where the window is 880
-wide or more. Its avatar is 120 across and its banner 193 tall; a server
+profile wears on the left, the profile as it will show in the middle, drawn
+as the full profile's card with its banner as its head, and its Board,
+Activity and Wishlist tabs on the right, where there's room for them beside
+the profile; without them the close button sits on the banner's corner. The
+column's title, the tabs and the close button share one line, their rules
+at one height. Its avatar is 120 across and its banner 193 tall; a server
 profile's banner stays 210. The column lists, in Discord's order, the
 nameplate, the avatar and its decoration, the display name style, the theme
-and banner, and the profile effect, each showing what's set: the decoration
-and effect say they're on even when the [profile
-switches](#profile-switches) keep their pictures from showing. Yapfast has no
-windows to choose those collectibles, so their tiles open Discord's shop.
-Hide Styles folds the column away, sliding, and the Show Styles tab on the
-card's edge brings it back.
+and banner, and the profile effect and frame, each tile labelled with what
+it holds and showing what's set: the decoration and effect say they're on
+even when the [profile switches](#profile-switches) keep their pictures from
+showing. Yapfast has no windows to choose those collectibles, so their tiles
+open Discord's shop. The card is as tall as what it holds, within the
+window. Hide Styles folds the column away, sliding, and the Show Styles tab
+on the card's edge brings it back; in a window under 1100 wide the column
+starts folded.
 
 The name, the pronouns, the bio and the note are outlined while pointed at,
 the name with a pencil at its end, and clicking one turns it into a field in
@@ -830,8 +837,9 @@ place; Enter, Escape or a click elsewhere on the card ends it. The note
 opens the note's dialog, as on anyone's profile. Hovering the avatar or banner
 darkens it under a pencil, and clicking it opens the file chooser, or a menu
 of Change and Remove when there's one to remove; without Nitro the banner
-opens the colour under it. The status bubble beside the avatar opens the
-custom status. Once something changed, Discord's bar shows at the card's
+opens the colour under it. The status bubble beside the avatar, under the
+banner's edge, opens the custom status; it runs to two lines at most, as the
+full profile's. Once something changed, Discord's bar shows at the card's
 foot: "Careful — you have unsaved changes!", with Reset, which puts back what
 Discord has, and Save Changes.
 

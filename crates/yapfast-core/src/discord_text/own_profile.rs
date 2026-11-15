@@ -10,7 +10,7 @@ use image::{DynamicImage, GenericImageView, ImageFormat, imageops::FilterType};
 use serde_json::{Map, Value};
 use yapfast_discord::profile::PICTURE_LIMIT;
 
-use super::{commands::NOT_DISCORD, *};
+use super::{commands::not_discord, *};
 use crate::chat::{
     OwnProfile, PickedPicture, Pixels, ProfileChange, ProfilePicture, Wishlist, WishlistItem,
     file_size,
@@ -40,7 +40,7 @@ pub(super) fn command(
         DiscordCommand::OwnProfile { server } => {
             let guild = guild(server.as_deref());
             let (Ok(discord), Some(guild)) = (discord, guild) else {
-                let why = discord.err().unwrap_or(NOT_DISCORD);
+                let why = discord.err().unwrap_or(not_discord());
                 let _ = events.send(Event::OwnProfile {
                     server,
                     result: Err(why.into()),
@@ -72,7 +72,7 @@ pub(super) fn command(
                             error = format!("{error:#}"),
                             "could not fetch this account's profile"
                         );
-                        Err(format!("Discord didn't send your profile: {error}"))
+                        Err(tr!("Discord didn't send your profile: {}", error))
                     }
                 };
                 let _ = events.send(Event::OwnProfile { server, result });
@@ -159,7 +159,7 @@ pub(super) fn command(
         DiscordCommand::SaveProfile { server, change } => {
             let guild = guild(server.as_deref());
             let (Ok(discord), Some(guild)) = (discord, guild) else {
-                let why = discord.err().unwrap_or(NOT_DISCORD);
+                let why = discord.err().unwrap_or(not_discord());
                 let _ = events.send(Event::ProfileSaved {
                     server,
                     result: Err(why.into()),
@@ -194,9 +194,12 @@ pub(super) fn command(
                     );
                     match guild {
                         Some(_) => {
-                            format!("There was a problem updating your server profile: {error}")
+                            tr!(
+                                "There was a problem updating your server profile: {}",
+                                error
+                            )
                         }
-                        None => format!("There was a problem updating your profile: {error}"),
+                        None => tr!("There was a problem updating your profile: {}", error),
                     }
                 });
                 let _ = events.send(Event::ProfileSaved { server, result });
@@ -382,7 +385,7 @@ pub(super) fn read_picture(path: &Path, kind: ProfilePicture) -> Result<PickedPi
         ProfilePicture::Avatar => (AVATAR, AVATAR_PREVIEW),
         ProfilePicture::Banner => (BANNER, BANNER_PREVIEW),
     };
-    read_shaped(path, largest, preview, "a profile picture")
+    read_shaped(path, largest, preview, tr!("a profile picture"))
 }
 
 /// The picture at `path` as Discord's client sends it: cropped from its
@@ -402,17 +405,19 @@ pub(super) fn read_shaped(
     let size = std::fs::metadata(path)
         .ok()
         .filter(std::fs::Metadata::is_file)
-        .ok_or_else(|| format!("Yapfast could not read {name}."))?
+        .ok_or_else(|| tr!("Yapfast could not read {}.", name))?
         .len();
     if size > PICTURE_LIMIT {
-        return Err(format!(
-            "{name} is {}; {what} can be up to {}.",
+        return Err(tr!(
+            "{0} is {1}; {2} can be up to {3}.",
+            name,
             file_size(size),
+            what,
             file_size(PICTURE_LIMIT)
         ));
     }
-    let data = std::fs::read(path).map_err(|_| format!("Yapfast could not read {name}."))?;
-    let not_a_picture = || format!("{name} isn't a PNG, JPG, GIF or WebP picture.");
+    let data = std::fs::read(path).map_err(|_| tr!("Yapfast could not read {}.", name))?;
+    let not_a_picture = || tr!("{} isn't a PNG, JPG, GIF or WebP picture.", name);
     let format = image::guess_format(&data)
         .ok()
         .filter(|format| {

@@ -1,5 +1,5 @@
 import { ScrollView, ListView } from "scrollview.slint";
-import { Theme, Middle, Label, Tip, Popup } from "theme.slint";
+import { Theme, Middle, Label, Tip, Popup, PopupEntry } from "theme.slint";
 import { ActionButton, IconButton, Avatar, CallButton, VolumeSlider, MenuItem } from "controls.slint";
 import { EmojiCell, EmojiFace } from "messages.slint";
 
@@ -19,6 +19,9 @@ export struct PersonRow {
     /// Who they are across calls, by Discord or Matrix user id, which their
     /// volumes are remembered by.
     person: string,
+    /// In a call, the preview Discord has of their stream while this account
+    /// isn't watching it; empty without one.
+    preview: image,
 }
 
 /// The busy voice channel under the pointer in the channel list, whose card
@@ -37,13 +40,14 @@ export global VoiceCard {
 // Clickable when it opens the stream.
 export component LivePill inherits Rectangle {
     in property <bool> clickable;
-    in property <string> label: "Watch stream";
+    in property <string> label: @tr("Watch stream");
     callback clicked;
     width: live-text.preferred-width + 10px; height: 16px; border-radius: 8px;
     background: root.clickable && live-touch.has-hover ? Theme.danger-hover : Theme.danger;
-    accessible-role: button; accessible-enabled: root.clickable; accessible-label: root.clickable ? root.label : "Live";
+    animate background { duration: Theme.quick; }
+    accessible-role: button; accessible-enabled: root.clickable; accessible-label: root.clickable ? root.label : @tr("Live");
     accessible-action-default => { if root.clickable { root.clicked(); } }
-    live-text := Text { text: "LIVE"; color: Theme.on-danger; font-size: 10px; font-weight: 800; letter-spacing: 0.4px; }
+    live-text := Text { text: @tr("LIVE"); color: Theme.on-danger; font-size: 10px; font-weight: 800; letter-spacing: 0.4px; }
     live-touch := TouchArea {
         enabled: root.clickable; mouse-cursor: root.clickable ? MouseCursor.pointer : MouseCursor.default;
         clicked => { root.clicked(); }
@@ -135,6 +139,7 @@ export component SignalIcon inherits Image {
         : root.quality == 2 ? @image-url("icons/signal-medium.svg") : @image-url("icons/signal-high.svg");
     colorize: root.quality == 1 ? Theme.live : root.quality == 2 ? Theme.accent
         : root.quality == 3 ? Theme.danger : Theme.muted;
+    animate colorize { duration: Theme.quick; }
     image-fit: contain;
 }
 
@@ -167,14 +172,20 @@ component LinkTab inherits Rectangle {
     in property <string> text;
     in property <bool> on;
     callback clicked;
-    height: 28px; width: tab-text.preferred-width;
+    // Its text's width, shrinking with an ellipsis when the card is too narrow
+    // for the tabs of a longer translation.
+    height: 28px; preferred-width: tab-text.preferred-width; min-width: 0px;
     accessible-role: tab; accessible-label: root.text; accessible-item-selected: root.on;
     accessible-action-default => { root.clicked(); }
     tab-text := Text {
-        y: 0; text: root.text; font-size: 14px; font-weight: 700;
+        y: 0; width: parent.width; overflow: elide; text: root.text; font-size: 14px; font-weight: 700;
         color: root.on || tab-touch.has-hover ? Theme.text : Theme.muted;
+        animate color { duration: Theme.quick; }
     }
-    Rectangle { y: parent.height - 2px; height: 2px; background: root.on ? Theme.accent : transparent; }
+    Rectangle {
+        y: parent.height - 2px; height: 2px; background: root.on ? Theme.accent : transparent;
+        animate background { duration: Theme.quick; }
+    }
     tab-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.clicked(); } }
 }
 
@@ -183,7 +194,7 @@ component LinkRow inherits HorizontalLayout {
     in property <string> label;
     in property <string> value;
     spacing: 4px; alignment: start;
-    Text { text: root.label; color: Theme.secondary; font-size: 14px; }
+    Text { text: root.label; color: Theme.secondary; font-size: 14px; wrap: word-wrap; }
     Text { text: root.value; color: Theme.text; font-size: 14px; font-weight: 700; }
 }
 
@@ -203,7 +214,9 @@ export component CallLinkCard inherits Rectangle {
     property <bool> copied;
     background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
     drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
-    accessible-role: groupbox; accessible-label: "Voice details";
+    accessible-role: groupbox; accessible-label: @tr("Voice details");
+    enter := PopupEntry { }
+    opacity: Popup.opacity(enter.amount); transform-scale: Popup.scale(enter.amount);
     init => { CallLink.read(); }
     Timer { interval: 1s; running: true; triggered => { CallLink.read(); } }
     Timer { interval: 2s; running: root.copied; triggered => { root.copied = false; } }
@@ -211,16 +224,16 @@ export component CallLinkCard inherits Rectangle {
         padding: 16px; spacing: 10px;
         if CallLink.code.length > 0 || CallLink.streaming: HorizontalLayout {
             spacing: 16px; alignment: start;
-            LinkTab { text: "Connection"; on: root.shown == 0; clicked => { root.tab = 0; } }
-            if CallLink.code.length > 0: LinkTab { text: "Privacy"; on: root.shown == 1; clicked => { root.tab = 1; } }
-            if CallLink.streaming: LinkTab { text: "Stream"; on: root.shown == 2; clicked => { root.tab = 2; } }
+            LinkTab { text: @tr("Connection"); on: root.shown == 0; clicked => { root.tab = 0; } }
+            if CallLink.code.length > 0: LinkTab { text: @tr("Privacy"); on: root.shown == 1; clicked => { root.tab = 1; } }
+            if CallLink.streaming: LinkTab { text: @tr("Stream"); on: root.shown == 2; clicked => { root.tab = 2; } }
         }
         if root.shown == 0: VerticalLayout {
             spacing: 8px;
             Rectangle {
                 height: 80px; border-radius: 6px; background: Theme.sunken; clip: true;
                 accessible-role: image;
-                accessible-label: "Ping over the last five minutes, up to " + CallLink.graph-top + " ms";
+                accessible-label: @tr("Ping over the last five minutes, up to {} ms", CallLink.graph-top);
                 Rectangle { y: 0px; height: 1px; background: Theme.line; }
                 Rectangle { y: parent.height / 2; height: 1px; background: Theme.line; }
                 Path {
@@ -229,37 +242,37 @@ export component CallLinkCard inherits Rectangle {
                     commands: CallLink.graph;
                     stroke: Theme.link; stroke-width: 2px;
                 }
-                Text { x: 6px; y: 4px; text: CallLink.graph-top + " ms"; color: Theme.muted; font-size: 11px; }
-                Text { x: 6px; y: parent.height / 2 + 4px; text: CallLink.graph-top / 2 + " ms"; color: Theme.muted; font-size: 11px; }
+                Text { x: 6px; y: 4px; text: @tr("{} ms", CallLink.graph-top); color: Theme.muted; font-size: 11px; }
+                Text { x: 6px; y: parent.height / 2 + 4px; text: @tr("{} ms", CallLink.graph-top / 2); color: Theme.muted; font-size: 11px; }
             }
-            LinkRow { label: "Average ping:"; value: CallLink.average != "" ? CallLink.average : "Unknown"; }
-            if CallLink.ping != "": LinkRow { label: "Last ping:"; value: CallLink.ping; }
-            if CallLink.loss != "": LinkRow { label: "Outbound packet loss rate:"; value: CallLink.loss; }
+            LinkRow { label: @tr("Average ping:"); value: CallLink.average != "" ? CallLink.average : @tr("Unknown"); }
+            if CallLink.ping != "": LinkRow { label: @tr("Last ping:"); value: CallLink.ping; }
+            if CallLink.loss != "": LinkRow { label: @tr("Outbound packet loss rate:"); value: CallLink.loss; }
             Text {
-                text: "You may notice delayed audio at 250 ms or higher. If the problem persists, disconnect and try again."
-                    + (CallLink.loss != "" ? " You may sound robotic if your packet loss rate is over 10%." : "");
+                text: @tr("You may notice delayed audio at 250 ms or higher. If the problem persists, disconnect and try again.")
+                    + (CallLink.loss != "" ? @tr(" You may sound robotic if your packet loss rate is over 10%.") : "");
                 color: Theme.muted; font-size: 13px; wrap: word-wrap;
             }
         }
         if root.shown == 2: VerticalLayout {
             spacing: 8px;
-            LinkRow { label: "Encoder:"; value: CallLink.encoder; }
-            LinkRow { label: "Codec:"; value: CallLink.codec; }
-            LinkRow { label: "Resolution:"; value: CallLink.picture; }
-            LinkRow { label: "Sending:"; value: CallLink.sent; }
-            LinkRow { label: "Aiming for:"; value: CallLink.target; }
-            LinkRow { label: "Keyframes viewers asked for:"; value: CallLink.keyframes; }
-            LinkRow { label: "Packets resent:"; value: CallLink.resent; }
+            LinkRow { label: @tr("Encoder:"); value: CallLink.encoder; }
+            LinkRow { label: @tr("Codec:"); value: CallLink.codec; }
+            LinkRow { label: @tr("Resolution:"); value: CallLink.picture; }
+            LinkRow { label: @tr("Sending:"); value: CallLink.sent; }
+            LinkRow { label: @tr("Aiming for:"); value: CallLink.target; }
+            LinkRow { label: @tr("Keyframes viewers asked for:"); value: CallLink.keyframes; }
+            LinkRow { label: @tr("Packets resent:"); value: CallLink.resent; }
             Text {
-                text: "The bitrate follows what Discord estimates your connection carries. Fast motion at a low bitrate looks blocky to viewers.";
+                text: @tr("The bitrate follows what Discord estimates your connection carries. Fast motion at a low bitrate looks blocky to viewers.");
                 color: Theme.muted; font-size: 13px; wrap: word-wrap;
             }
         }
         if root.shown == 1: VerticalLayout {
             spacing: 10px;
-            Text { text: "Voice Privacy Code"; color: Theme.text; font-size: 15px; font-weight: 700; }
+            Text { text: @tr("Voice Privacy Code"); color: Theme.text; font-size: 15px; font-weight: 700; }
             Text {
-                text: "A new code is generated when people join or leave this call. Compare it with the others in the call: everyone sees the same numbers.";
+                text: @tr("A new code is generated when people join or leave this call. Compare it with the others in the call: everyone sees the same numbers.");
                 color: Theme.secondary; font-size: 13px; wrap: word-wrap;
             }
             Rectangle {
@@ -278,7 +291,7 @@ export component CallLinkCard inherits Rectangle {
             HorizontalLayout {
                 alignment: center;
                 ActionButton {
-                    text: root.copied ? "Copied" : "Copy"; small: true;
+                    text: root.copied ? @tr("Copied") : @tr("Copy"); small: true;
                     icon: @image-url("icons/copy.svg");
                     clicked => {
                         root.copy(CallLink.code[0] + " " + CallLink.code[1] + " " + CallLink.code[2] + " "
@@ -289,7 +302,7 @@ export component CallLinkCard inherits Rectangle {
             }
             Rectangle { height: 1px; background: Theme.line; }
             Text {
-                text: "Only you and the others in this call can hear you. Nobody else, not even Discord, can listen in.";
+                text: @tr("Only you and the others in this call can hear you. Nobody else, not even Discord, can listen in.");
                 color: Theme.secondary; font-size: 13px; wrap: word-wrap;
             }
         }
@@ -299,7 +312,7 @@ export component CallLinkCard inherits Rectangle {
                 padding: 8px; spacing: 8px;
                 Image { source: @image-url("icons/lock.svg"); width: 16px; colorize: Theme.live; image-fit: contain; }
                 Text {
-                    text: CallLink.end-to-end ? "End-to-end encrypted" : "Secure connection";
+                    text: CallLink.end-to-end ? @tr("End-to-end encrypted") : @tr("Secure connection");
                     color: Theme.live; font-size: 13px; font-weight: 700; vertical-alignment: center;
                 }
             }
@@ -316,14 +329,17 @@ component DockButton inherits Rectangle {
     in property <bool> on;
     callback clicked;
     height: 32px; border-radius: 8px;
+    // A wash over the dock's panel, as Discord's are: a step off it in every
+    // theme, lighter on a dark one and darker on a light one.
     background: root.on ? (touch.has-hover ? Theme.live.with-alpha(0.32) : Theme.live.with-alpha(0.22))
-        : touch.has-hover && root.enabled ? Theme.hover : Theme.raised;
+        : Theme.overlay.with-alpha(touch.has-hover && root.enabled ? 0.1 : 0.05);
     animate background { duration: Theme.quick; }
     accessible-role: button; accessible-label: root.label; accessible-enabled: root.enabled;
     accessible-action-default => { if root.enabled { root.clicked(); } }
     Image {
         source: root.icon; width: 20px; height: 20px;
         colorize: !root.enabled ? Theme.faint : root.on || touch.has-hover ? Theme.text : Theme.secondary;
+        animate colorize { duration: Theme.quick; }
     }
     touch := TouchArea {
         enabled: root.enabled; mouse-cursor: MouseCursor.pointer;
@@ -334,6 +350,36 @@ component DockButton inherits Rectangle {
                 Tip.x = root.absolute-position.x + root.width / 2; Tip.y = root.absolute-position.y;
             } else if Tip.text == root.label {
                 Tip.text = "";
+            }
+        }
+    }
+}
+
+// What went wrong in the call, or what to watch, in the dock: a tinted
+// card with a sign, wrapped in the dock's width (a scroll view would neither
+// wrap nor stay short), and a cross where it can be put away.
+component DockNotice inherits Rectangle {
+    in property <string> text;
+    in property <color> tone;
+    in property <bool> closable;
+    callback close;
+    border-radius: 8px; background: root.tone.with-alpha(0.12);
+    HorizontalLayout {
+        padding: 8px; spacing: 8px;
+        VerticalLayout {
+            alignment: start; padding-top: 1px;
+            Image { width: 16px; height: 16px; source: @image-url("icons/triangle-alert.svg"); colorize: root.tone; }
+        }
+        Text {
+            horizontal-stretch: 1; min-width: 0px;
+            text: root.text; color: Theme.text; font-size: 13px; wrap: word-wrap;
+        }
+        if root.closable: VerticalLayout {
+            alignment: start;
+            IconButton {
+                size: 20px; glyph: 14px; radius: 4px;
+                icon: @image-url("icons/x.svg"); label: @tr("Dismiss");
+                clicked => { root.close(); }
             }
         }
     }
@@ -384,19 +430,24 @@ export component VoiceDock inherits Rectangle {
     callback open-call-link(length, length, length, length);
     /// Shows the call's channel or DM.
     callback open-call;
+    /// The card's top corners, where the dock tops the account's card.
+    in property <length> radius;
+    /// The column of the icons at the left, as wide as the account's avatar column.
+    in property <length> gutter: 64px;
     background: Theme.panel;
+    border-top-left-radius: root.radius; border-top-right-radius: root.radius;
     VerticalLayout {
         padding-top: 10px; padding-bottom: 8px; padding-right: 8px; spacing: 6px;
         HorizontalLayout {
             spacing: 0px;
             Rectangle {
-                width: 64px;
+                width: root.gutter;
                 if !CallLink.measured || !root.voice-ready: Image {
-                    x: 24px; width: 24px; height: 24px; source: @image-url("icons/volume-2.svg");
+                    x: (parent.width - 24px) / 2; width: 24px; height: 24px; source: @image-url("icons/volume-2.svg");
                     image-fit: contain; colorize: root.voice-color;
                 }
                 if CallLink.measured && root.voice-ready: SignalIcon {
-                    x: 24px; width: 24px; height: 24px; quality: CallLink.quality;
+                    x: (parent.width - 24px) / 2; width: 24px; height: 24px; quality: CallLink.quality;
                 }
                 LinkTouch { open(x, y, width, height) => { root.open-call-link(x, y, width, height); } }
             }
@@ -410,7 +461,7 @@ export component VoiceDock inherits Rectangle {
                         Text { text: root.voice-status; color: root.voice-color; font-size: 15px; font-weight: 700; overflow: elide; }
                         if root.voice-time != "": Text {
                             text: root.voice-time; color: Theme.muted; font-size: 13px; vertical-alignment: center;
-                            accessible-label: "Call time " + root.voice-time;
+                            accessible-label: @tr("Call time {}", root.voice-time);
                         }
                         Rectangle { horizontal-stretch: 1; }
                     }
@@ -424,6 +475,7 @@ export component VoiceDock inherits Rectangle {
                             width: parent.width; height: parent.height;
                             text: root.voice-detail; font-size: 13px; overflow: elide; vertical-alignment: center;
                             color: detail-line.lit ? Theme.text : Theme.muted;
+                            animate color { duration: Theme.quick; }
                         }
                         if detail-line.lit: Rectangle {
                             x: 0px; y: (parent.height + 13px) / 2 + 1px; height: 1px;
@@ -431,7 +483,7 @@ export component VoiceDock inherits Rectangle {
                             background: Theme.text;
                         }
                         detail-focus := FocusScope {
-                            accessible-role: button; accessible-label: root.voice-detail + ". Open the call";
+                            accessible-role: button; accessible-label: @tr("{}. Open the call", root.voice-detail);
                             accessible-action-default => { root.open-call(); }
                             key-pressed(event) => {
                                 if event.text == "\n" || event.text == " " {
@@ -454,12 +506,12 @@ export component VoiceDock inherits Rectangle {
             // Beside leaving, as in Vesktop. Off shows red, so it isn't forgotten.
             if root.voice-active && root.can-noise: IconButton {
                 icon: root.noise-on ? @image-url("icons/noise-bars.svg") : @image-url("icons/noise-bars-off.svg");
-                label: root.noise-on ? "Turn off noise suppression" : "Turn on noise suppression";
+                label: root.noise-on ? @tr("Turn off noise suppression") : @tr("Turn on noise suppression");
                 alert: !root.noise-on;
                 clicked => { root.toggle-noise(); }
             }
             if root.voice-active: IconButton {
-                icon: @image-url("icons/phone-off.svg"); label: "Leave voice"; danger: true;
+                icon: @image-url("icons/phone-off.svg"); label: @tr("Leave voice"); danger: true;
                 enabled: !root.voice-leaving;
                 clicked => { root.leave-voice(); }
             }
@@ -467,25 +519,25 @@ export component VoiceDock inherits Rectangle {
         if root.voice-active && root.sharing: HorizontalLayout {
             spacing: 0px;
             Rectangle {
-                width: 64px;
-                if root.share-live: LivePill { x: 36px - self.width / 2; }
+                width: root.gutter;
+                if root.share-live: LivePill { x: max(4px, (parent.width - self.width) / 2); }
                 if !root.share-live: Image {
-                    x: 26px; width: 20px; height: 20px; source: @image-url("icons/screen-share.svg");
+                    x: (parent.width - 20px) / 2; width: 20px; height: 20px; source: @image-url("icons/screen-share.svg");
                     image-fit: contain; colorize: Theme.accent;
                 }
             }
             VerticalLayout {
                 alignment: center; horizontal-stretch: 1;
-                Text { text: "Your screen"; color: Theme.text; font-size: 14px; font-weight: 700; overflow: elide; }
+                Text { text: @tr("Your screen"); color: Theme.text; font-size: 14px; font-weight: 700; overflow: elide; }
                 Text {
                     text: !root.share-live ? root.share-status
-                        : root.share-watchers > 0 ? "Streaming to " + root.voice-name + " · " + root.share-watchers + " watching"
-                        : "Streaming to " + root.voice-name;
+                        : root.share-watchers > 0 ? @tr("Streaming to {} · {} watching", root.voice-name, root.share-watchers)
+                        : @tr("Streaming to {}", root.voice-name);
                     color: Theme.muted; font-size: 13px; overflow: elide;
                 }
             }
             IconButton {
-                icon: @image-url("icons/screen-share-off.svg"); label: "Stop sharing"; danger: true;
+                icon: @image-url("icons/screen-share-off.svg"); label: @tr("Stop sharing"); danger: true;
                 clicked => { root.toggle-share(); }
             }
         }
@@ -493,13 +545,13 @@ export component VoiceDock inherits Rectangle {
             padding-left: 8px; spacing: 8px;
             if root.can-soundboard: DockButton {
                 horizontal-stretch: 1; enabled: root.voice-ready;
-                icon: @image-url("icons/soundboard.svg"); label: "Open Soundboard";
+                icon: @image-url("icons/soundboard.svg"); label: @tr("Open Soundboard");
                 clicked => { root.open-soundboard(self.absolute-position.x, self.absolute-position.y); }
             }
             if root.can-film: DockButton {
                 horizontal-stretch: 1; enabled: root.voice-ready; on: root.camera-on;
                 icon: root.camera-on ? @image-url("icons/video.svg") : @image-url("icons/video-off.svg");
-                label: root.camera-starting ? "Starting camera..." : root.camera-on ? "Turn off camera" : "Turn on camera";
+                label: root.camera-starting ? @tr("Starting camera...") : root.camera-on ? @tr("Turn off camera") : @tr("Turn on camera");
                 opacity: root.camera-starting ? (0.6 + 0.4 * sin(animation-tick() / 1ms * 0.36deg)) : 1;
                 clicked => { root.toggle-camera(); }
             }
@@ -508,22 +560,25 @@ export component VoiceDock inherits Rectangle {
             if root.can-share || root.sharing: DockButton {
                 horizontal-stretch: 1; enabled: root.voice-ready && (!root.sharing || root.share-live); on: root.sharing;
                 icon: @image-url("icons/screen-share.svg");
-                label: root.sharing ? "Switch screen or window" : "Share your screen";
+                label: root.sharing ? @tr("Switch screen or window") : @tr("Share your screen");
                 clicked => { root.open-share-menu(self.absolute-position.x, self.absolute-position.y); }
             }
         }
-        // Wrapped in the dock's width; a scroll view would neither wrap nor stay short.
         if root.voice-warning != "" && root.voice-error == "": HorizontalLayout {
-            padding-left: 64px;
-            Label { text: root.voice-warning; color: Theme.accent; }
+            padding-left: 8px;
+            DockNotice { text: root.voice-warning; tone: Theme.loud; }
         }
+        // During a call the error has its own way out; without one, Dismiss below closes the dock.
         if root.voice-error != "": HorizontalLayout {
-            padding-left: 64px;
-            Text { text: root.voice-error; color: Theme.text; font-size: 14px; wrap: word-wrap; }
+            padding-left: 8px;
+            DockNotice {
+                text: root.voice-error; tone: Theme.danger; closable: root.voice-active;
+                close => { root.dismiss-voice-error(); }
+            }
         }
         if !root.voice-active: HorizontalLayout {
-            padding-left: 54px;
-            ActionButton { text: "Dismiss"; ghost: true; small: true; clicked => { root.dismiss-voice-error(); } }
+            padding-left: root.gutter - 10px;
+            ActionButton { text: @tr("Dismiss"); ghost: true; small: true; clicked => { root.dismiss-voice-error(); } }
             Rectangle { horizontal-stretch: 1; }
         }
     }
@@ -550,11 +605,11 @@ export component CallInvite inherits VerticalLayout {
     HorizontalLayout {
         alignment: center; spacing: 16px;
         if root.call-incoming: CallButton {
-            icon: @image-url("icons/phone-off.svg"); label: "Decline"; fill: Theme.danger;
+            icon: @image-url("icons/phone-off.svg"); label: @tr("Decline"); fill: Theme.danger;
             clicked => { root.answer-call(root.call-room, false); }
         }
         CallButton {
-            icon: @image-url("icons/phone.svg"); label: root.call-incoming ? "Accept" : "Join the call";
+            icon: @image-url("icons/phone.svg"); label: root.call-incoming ? @tr("Accept") : @tr("Join the call");
             fill: Theme.live; enabled: root.can-join;
             clicked => { root.answer-call(root.call-room, true); }
         }
@@ -580,13 +635,30 @@ export component JoinVoice inherits VerticalLayout {
     }
     Text { text: root.room-name; color: Theme.text; font-size: 26px; font-weight: 900; horizontal-alignment: center; overflow: elide; }
     Text { text: root.voice-description; color: Theme.secondary; horizontal-alignment: center; wrap: word-wrap; }
-    if !root.preview && !root.call-encrypted: Text { text: "This channel is unencrypted. Yapfast only joins encrypted voice channels."; color: Theme.accent; font-size: 15px; horizontal-alignment: center; wrap: word-wrap; }
+    if !root.preview && !root.call-encrypted: Text { text: @tr("This channel is unencrypted. Yapfast only joins encrypted voice channels."); color: Theme.accent; font-size: 15px; horizontal-alignment: center; wrap: word-wrap; }
     HorizontalLayout {
         alignment: center; padding-top: 6px;
-        ActionButton { min-height: 42px; text: root.voice-active ? "Switch voice channel" : "Join voice"; primary: true; enabled: root.can-join; clicked => { root.join-voice(); } }
+        ActionButton { min-height: 42px; text: root.voice-active ? @tr("Switch voice channel") : @tr("Join voice"); primary: true; enabled: root.can-join; clicked => { root.join-voice(); } }
     }
 }
 
+// A stream on its way: a ring turning once a second over a note that says
+// what it waits for. The stage is black in every theme, so both are a fixed grey.
+component StreamWaiting inherits VerticalLayout {
+    in property <string> note;
+    alignment: center; spacing: 14px; padding-left: 16px; padding-right: 16px;
+    HorizontalLayout {
+        alignment: center;
+        Image {
+            width: 28px; height: 28px; source: @image-url("icons/loader.svg"); colorize: #b5b8c1;
+            transform-rotation: animation-tick() / 1ms * 0.36deg;
+        }
+    }
+    Text {
+        text: root.note; color: #b5b8c1; font-size: 14px;
+        horizontal-alignment: center; wrap: word-wrap;
+    }
+}
 // A stream or a camera kept in a corner of the window while its call isn't
 // on screen, as Discord's picture in picture is. A click returns to the call;
 // a drag moves it, and `dropped` asks the window for the nearest corner.
@@ -610,15 +682,12 @@ export component StreamPip inherits Rectangle {
     width: 320px; height: 180px; border-radius: 8px; clip: true;
     background: #000000;
     border-width: 1px; border-color: Theme.edge;
-    accessible-role: button; accessible-label: root.title + ". Return to the call";
+    accessible-role: button; accessible-label: @tr("{}. Return to the call", root.title);
     accessible-action-default => { root.open-call(); }
+    enter := PopupEntry { }
+    opacity: Popup.opacity(enter.amount); transform-scale: Popup.scale(enter.amount);
     Image { width: parent.width; height: parent.height; source: root.frame; image-fit: contain; }
-    // The stage is black in every theme, so its note is a fixed grey.
-    if root.frame.width == 0: Text {
-        x: 16px; width: parent.width - 32px; height: parent.height;
-        text: root.status; color: #b5b8c1; font-size: 14px;
-        horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap;
-    }
+    if root.frame.width == 0: StreamWaiting { width: parent.width; height: parent.height; note: root.status; }
     if root.live: LivePill { x: 8px; y: 8px; }
     touch := TouchArea {
         mouse-cursor: root.dragging ? MouseCursor.grabbing : MouseCursor.pointer;
@@ -643,6 +712,8 @@ export component StreamPip inherits Rectangle {
         }
         // Inside the touch area, so the pointer on the stop button still hovers it.
         if self.has-hover && !root.dragging: Rectangle {
+            hover-enter := PopupEntry { duration: Theme.quick; }
+            opacity: Popup.opacity(hover-enter.amount);
             background: @linear-gradient(180deg, #00000000 55%, #000000b0 100%);
             Text {
                 x: 12px; y: parent.height - 34px; width: parent.width - 60px; height: 24px;
@@ -682,7 +753,7 @@ component StageTile inherits Rectangle {
     border-radius: root.full ? 0px : 12px; clip: true;
     accessible-role: button; accessible-label: root.label;
     accessible-action-default => { root.clicked(); }
-    animate x, y, width, height { duration: root.full ? 0ms : 160ms; easing: ease-out; }
+    animate x, y, width, height { duration: root.full ? 0ms : Theme.slide; easing: Theme.glide; }
     property <bool> stop-shown: root.stop-label != "" && (touch.has-hover || root.focused);
     @children
     touch := TouchArea {
@@ -700,15 +771,19 @@ component StageTile inherits Rectangle {
             viewers: root.viewers; names: root.viewer-names;
         }
         if root.stop-shown: IconButton {
+            stop-enter := PopupEntry { duration: Theme.quick; }
+            opacity: Popup.opacity(stop-enter.amount);
             x: parent.width - self.width - 10px; y: 10px; height: self.size;
             icon: @image-url("icons/x.svg"); label: root.stop-label; tint: #ffffff;
             fill: #000000a6; radius: 16px;
             clicked => { root.stop(); }
         }
         if root.focused && self.has-hover: IconButton {
+            full-enter := PopupEntry { duration: Theme.quick; }
+            opacity: Popup.opacity(full-enter.amount);
             x: parent.width - self.width - 10px; y: parent.height - self.size - 10px; height: self.size;
             icon: root.full ? @image-url("icons/minimize.svg") : @image-url("icons/maximize.svg");
-            label: root.full ? "Exit full screen" : "Full screen"; tint: #ffffff;
+            label: root.full ? @tr("Exit full screen") : @tr("Full screen"); tint: #ffffff;
             fill: #000000a6; radius: 16px;
             clicked => { root.full-screen(!root.full); }
         }
@@ -741,12 +816,15 @@ component StreamPicture inherits Rectangle {
     in property <image> frame;
     in property <string> status;
     Image { width: parent.width; height: parent.height; source: root.frame; image-fit: contain; }
-    // The stage is black in every theme, so its note is a fixed grey.
-    if root.frame.width == 0: Text {
-        x: 16px; width: parent.width - 32px; height: parent.height;
-        text: root.status; color: #b5b8c1; font-size: 14px;
-        horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap;
-    }
+    if root.frame.width == 0: StreamWaiting { width: parent.width; height: parent.height; note: root.status; }
+}
+
+// The preview Discord has of a stream that isn't watched, filling its tile
+// as Discord's client shows it, dimmed so what's over it stays readable.
+component StreamPreview inherits Rectangle {
+    in property <image> picture;
+    Image { width: parent.width; height: parent.height; source: root.picture; image-fit: cover; }
+    Rectangle { background: #00000059; }
 }
 
 // The call's participants as tiles in a grid. A click on one shows it large,
@@ -814,8 +892,9 @@ export component ParticipantGrid inherits Flickable {
     // A few people take the columns, and the size, that make their tiles
     // largest within both the width and the height, so a short call above a
     // DM's messages shows everyone without scrolling. Side by side wins
-    // unless stacking makes tiles a tenth larger. More people take tiles at
-    // least 240px wide, and scroll.
+    // unless stacking makes tiles a tenth larger. Four sit two by two, or in
+    // one row, never three over one. More people take tiles at least 240px
+    // wide, and scroll.
     pure function fitted(columns: int) -> length {
         let rows = ceil(root.count / columns);
         min(420px, (root.span - (columns - 1) * root.gap) / columns,
@@ -823,8 +902,8 @@ export component ParticipantGrid inherits Flickable {
     }
     property <int> fewest: max(1, min(self.count, floor((self.span + self.gap) / (240px + self.gap))));
     property <int> best-fit: self.count >= 2 && self.fitted(2) * 1.1 > self.fitted(1)
-        ? (self.count >= 3 && self.fitted(3) * 1.1 > self.fitted(2)
-            ? (self.count >= 4 && self.fitted(4) * 1.1 > self.fitted(3) ? 4 : 3) : 2)
+        ? (self.count == 3 && self.fitted(3) * 1.1 > self.fitted(2) ? 3
+            : self.count == 4 && self.fitted(4) * 1.1 > self.fitted(2) ? 4 : 2)
         : 1;
     // With a tile large, the others are small, 120 to 192px wide, in rows
     // beneath it; full screen shows it alone.
@@ -857,9 +936,16 @@ export component ParticipantGrid inherits Flickable {
     pure function large(slot: int) -> bool { root.focusing && slot == root.focused }
     // The place in the rows of the tile at `slot`, which skip the large one.
     pure function place(slot: int) -> int { root.focusing && slot > root.focused ? slot - 1 : slot }
+    // Where the row of the tile at `place` starts: a short last row is
+    // centred under the full ones, as Discord's is.
+    pure function row-start(place: int) -> length {
+        let columns = max(1, root.columns);
+        let in-row = floor(place / columns) == root.rows - 1 ? root.placed - (root.rows - 1) * columns : columns;
+        (root.width - in-row * (root.tile-width + root.gap) + root.gap) / 2
+    }
     pure function tile-x(slot: int) -> length {
         root.large(slot) ? (root.width - root.focus-width) / 2
-            : (root.width - root.grid-width) / 2 + mod(root.place(slot), max(1, root.columns)) * (root.tile-width + root.gap)
+            : root.row-start(root.place(slot)) + mod(root.place(slot), max(1, root.columns)) * (root.tile-width + root.gap)
     }
     pure function tile-y(slot: int) -> length {
         root.large(slot) ? root.focus-top
@@ -877,7 +963,7 @@ export component ParticipantGrid inherits Flickable {
         visible: !root.full || root.large(0);
         focused: root.large(0); full: root.full;
         background: #000000;
-        label: "Your screen, " + root.share-status;
+        label: @tr("Your screen, {}", root.share-status);
         viewers: root.share-viewers; viewer-names: root.share-viewer-names;
         clicked => { if !self.focused { root.focus-tile(0); } }
         full-screen(on) => { root.full-screen(on); }
@@ -888,7 +974,7 @@ export component ParticipantGrid inherits Flickable {
             Image { height: 34px; source: @image-url("icons/screen-share.svg"); image-fit: contain; colorize: #b5b8c1; }
             Text { text: root.share-status; color: #b5b8c1; font-size: 14px; horizontal-alignment: center; wrap: word-wrap; }
         }
-        TileChip { tile-width: parent.width; tile-height: parent.height; name: "Your screen"; live: root.share-live; note: !root.share-live && root.share-frame.width > 0 ? root.share-status : ""; }
+        TileChip { tile-width: parent.width; tile-height: parent.height; name: @tr("Your screen"); live: root.share-live; note: !root.share-live && root.share-frame.width > 0 ? root.share-status : ""; }
     }
     for index[position] in root.stream-tiles: stream := StageTile {
         property <int> slot: position + (root.sharing ? 1 : 0);
@@ -900,10 +986,10 @@ export component ParticipantGrid inherits Flickable {
         visible: !root.full || root.large(self.slot);
         focused: root.large(self.slot); full: root.full;
         background: #000000;
-        label: self.watched ? self.person.name + "'s screen" : "Watch " + self.person.name + "'s stream";
+        label: self.watched ? @tr("{}'s screen", self.person.name) : @tr("Watch {}'s stream", self.person.name);
         viewers: self.watched ? root.watch-viewers : [];
         viewer-names: self.watched ? root.watch-viewer-names : "";
-        stop-label: self.watched ? "Stop watching" : "";
+        stop-label: self.watched ? @tr("Stop watching") : "";
         clicked => {
             if !self.watched {
                 root.watch-stream(self.person.id);
@@ -915,15 +1001,16 @@ export component ParticipantGrid inherits Flickable {
         stop => { root.stop-watching(); }
         full-screen(on) => { root.full-screen(on); }
         if stream.watched: StreamPicture { frame: root.watch-frame; status: root.watch-status; }
+        if !stream.watched && stream.person.preview.width > 0: StreamPreview { picture: stream.person.preview; }
         if !stream.watched: VerticalLayout {
             alignment: center; spacing: 10px;
-            Image { height: 30px; source: @image-url("icons/screen-share.svg"); image-fit: contain; colorize: #b5b8c1; }
+            Image { height: 30px; source: @image-url("icons/screen-share.svg"); image-fit: contain; colorize: stream.person.preview.width > 0 ? #ffffff : #b5b8c1; }
             HorizontalLayout {
                 alignment: center;
                 Rectangle {
                     height: 26px; width: stream-label.preferred-width + 20px; border-radius: 13px;
                     background: Theme.danger;
-                    stream-label := Text { text: "Watch stream"; color: Theme.on-danger; font-size: 13px; font-weight: 700; }
+                    stream-label := Text { text: @tr("Watch stream"); color: Theme.on-danger; font-size: 13px; font-weight: 700; }
                 }
             }
         }
@@ -945,11 +1032,13 @@ export component ParticipantGrid inherits Flickable {
         // once it's watched; until then a click watches it.
         property <bool> streams-here: person.live && !person.local && !person.video;
         property <bool> watched: self.streams-here && person.id == root.watch-user;
-        background: self.filmed || self.watched ? #000000 : Theme.raised;
-        label: person.name + ", " + person.status + (person.video ? ", camera on" : "");
+        // Until it's watched, the stream's preview fills the tile, if Discord has one.
+        property <bool> previewed: self.streams-here && !self.watched && person.preview.width > 0;
+        background: self.filmed || self.watched || self.previewed ? #000000 : Theme.raised;
+        label: person.video ? @tr("{}, {}, camera on", person.name, person.status) : @tr("{}, {}", person.name, person.status);
         viewers: self.watched ? root.watch-viewers : [];
         viewer-names: self.watched ? root.watch-viewer-names : "";
-        stop-label: self.watched ? "Stop watching" : "";
+        stop-label: self.watched ? @tr("Stop watching") : "";
         clicked => {
             if self.streams-here && !self.watched {
                 root.watch-stream(person.id);
@@ -962,34 +1051,36 @@ export component ParticipantGrid inherits Flickable {
         full-screen(on) => { root.full-screen(on); }
         if tile.filmed: Image { width: tile.width; height: tile.height; source: tile.frame; image-fit: contain; }
         if tile.watched: StreamPicture { frame: root.watch-frame; status: root.watch-status; }
-        if !tile.filmed && !tile.watched: Avatar {
+        if tile.previewed: StreamPreview { picture: person.preview; }
+        if !tile.filmed && !tile.watched && !tile.previewed: Avatar {
             size: min(80px, parent.height * 0.45); initial: person.initial; tint: person.tint; picture: person.picture;
             x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2 - 8px;
             opacity: person.connected ? 1 : 0.5;
         }
         // Drawn over the camera's picture.
         Rectangle {
-            border-radius: tile.border-radius; border-width: person.speaking ? 3px : 0px; border-color: Theme.live;
+            border-radius: tile.border-radius; border-width: person.speaking ? 3px : 1px; border-color: person.speaking ? Theme.live : Theme.line;
+            animate border-color { duration: Theme.quick; }
         }
         if person.local && root.camera-starting: Rectangle {
             x: 10px; y: 10px; height: 26px;
             width: starting-label.preferred-width + 20px; border-radius: 13px;
             background: #000000a6; opacity: (0.6 + 0.4 * sin(animation-tick() / 1ms * 0.36deg));
-            starting-label := Text { text: "Starting camera..."; color: #ffffff; font-size: 13px; font-weight: 700; }
+            starting-label := Text { text: @tr("Starting camera..."); color: #ffffff; font-size: 13px; font-weight: 700; }
         }
         if tile.streams-here && !tile.watched: Rectangle {
             x: parent.width - self.width - 10px; y: 10px; height: 26px;
             width: watch-label.preferred-width + 20px; border-radius: 13px;
             background: Theme.danger;
-            accessible-role: button; accessible-label: "Watch " + person.name + "'s stream";
+            accessible-role: button; accessible-label: @tr("Watch {}'s stream", person.name);
             accessible-action-default => { root.watch-stream(person.id); }
-            watch-label := Text { text: "Watch stream"; color: Theme.on-danger; font-size: 13px; font-weight: 700; }
+            watch-label := Text { text: @tr("Watch stream"); color: Theme.on-danger; font-size: 13px; font-weight: 700; }
         }
         TileChip {
             tile-width: parent.width; tile-height: parent.height;
             // A stream with a tile of its own is LIVE there.
             name: person.name; live: person.live && (person.local || !person.video);
-            note: person.status != "Muted" && person.status != "Deafened" && person.status != "Speaking" && person.status != "Listening" ? person.status : "";
+            note: person.status != @tr("Muted") && person.status != @tr("Deafened") && person.status != @tr("Speaking") && person.status != @tr("Listening") ? person.status : "";
             if person.muted && !person.deafened: Image { source: @image-url("icons/mic-off.svg"); width: 14px; image-fit: contain; colorize: Theme.danger; }
             if person.deafened: Image { source: @image-url("icons/headphone-off.svg"); width: 14px; image-fit: contain; colorize: Theme.danger; }
         }
@@ -1021,59 +1112,71 @@ export component CallControls inherits HorizontalLayout {
     /// The soundboard, opened above this point in the window.
     callback open-soundboard(length, length);
     callback leave-voice;
-    alignment: center; spacing: 12px; padding: 16px; padding-top: 8px;
-    IconButton {
-        size: 52px; glyph: 22px; radius: 26px;
-        icon: root.muted ? @image-url("icons/mic-off.svg") : @image-url("icons/mic.svg");
-        label: root.muted ? "Unmute" : "Mute"; alert: root.muted; tint: Theme.text;
-        enabled: root.voice-ready;
-        fill: self.alert ? Theme.danger.with-alpha(0.18) : Theme.raised;
-        clicked => { root.toggle-mute(); }
-    }
-    IconButton {
-        size: 52px; glyph: 22px; radius: 26px;
-        icon: root.deafened ? @image-url("icons/headphone-off.svg") : @image-url("icons/headphones.svg");
-        label: root.deafened ? "Undeafen" : "Deafen"; alert: root.deafened; tint: Theme.text;
-        enabled: root.voice-ready;
-        fill: self.alert ? Theme.danger.with-alpha(0.18) : Theme.raised;
-        clicked => { root.toggle-deafen(); }
-    }
-    if root.can-soundboard: IconButton {
-        size: 52px; glyph: 22px; radius: 26px;
-        icon: @image-url("icons/soundboard.svg"); label: "Open Soundboard"; tint: Theme.text;
-        enabled: root.voice-ready; fill: Theme.raised;
-        clicked => { root.open-soundboard(self.absolute-position.x, self.absolute-position.y); }
-    }
-    if root.can-film: IconButton {
-        size: 52px; glyph: 22px; radius: 26px;
-        icon: root.camera-on ? @image-url("icons/video.svg") : @image-url("icons/video-off.svg");
-        label: root.camera-starting ? "Starting camera..." : root.camera-on ? "Turn off camera" : "Turn on camera"; tint: Theme.text;
-        enabled: root.voice-ready; opacity: root.camera-starting ? (0.6 + 0.4 * sin(animation-tick() / 1ms * 0.36deg)) : 1;
-        fill: root.camera-on ? Theme.live.with-alpha(0.22) : Theme.raised;
-        clicked => { root.toggle-camera(); }
-    }
-    if root.can-share || root.sharing: IconButton {
-        size: 52px; glyph: 22px; radius: 26px;
-        icon: root.sharing ? @image-url("icons/screen-share-off.svg") : @image-url("icons/screen-share.svg");
-        label: root.sharing ? "Stop sharing" : "Share your screen"; tint: Theme.text;
-        enabled: root.voice-ready;
-        fill: root.sharing ? Theme.live.with-alpha(0.22) : Theme.raised;
-        clicked => {
-            if root.sharing {
-                root.toggle-share();
-            } else {
-                root.open-share-menu(self.absolute-position.x, self.absolute-position.y);
+    alignment: center; padding: 16px; padding-top: 8px;
+    // One dock: this account's sound, then what it shows, then leaving. Its
+    // buttons' corners follow the dock's, less its padding.
+    Rectangle {
+        border-radius: 18px; background: Theme.raised;
+        border-width: 1px; border-color: Theme.line;
+        HorizontalLayout {
+            padding: 6px; spacing: 6px;
+            IconButton {
+                size: 44px; glyph: 20px; radius: 12px;
+                icon: root.muted ? @image-url("icons/mic-off.svg") : @image-url("icons/mic.svg");
+                label: root.muted ? @tr("Unmute") : @tr("Mute"); alert: root.muted; tint: Theme.text;
+                enabled: root.voice-ready;
+                fill: self.alert ? Theme.danger.with-alpha(0.18) : transparent;
+                clicked => { root.toggle-mute(); }
+            }
+            IconButton {
+                size: 44px; glyph: 20px; radius: 12px;
+                icon: root.deafened ? @image-url("icons/headphone-off.svg") : @image-url("icons/headphones.svg");
+                label: root.deafened ? @tr("Undeafen") : @tr("Deafen"); alert: root.deafened; tint: Theme.text;
+                enabled: root.voice-ready;
+                fill: self.alert ? Theme.danger.with-alpha(0.18) : transparent;
+                clicked => { root.toggle-deafen(); }
+            }
+            Rectangle { width: 1px; Rectangle { height: 22px; background: Theme.line; } }
+            if root.can-soundboard: IconButton {
+                size: 44px; glyph: 20px; radius: 12px;
+                icon: @image-url("icons/soundboard.svg"); label: @tr("Open Soundboard"); tint: Theme.text;
+                enabled: root.voice-ready;
+                clicked => { root.open-soundboard(self.absolute-position.x, self.absolute-position.y); }
+            }
+            if root.can-film: IconButton {
+                size: 44px; glyph: 20px; radius: 12px;
+                icon: root.camera-on ? @image-url("icons/video.svg") : @image-url("icons/video-off.svg");
+                label: root.camera-starting ? @tr("Starting camera...") : root.camera-on ? @tr("Turn off camera") : @tr("Turn on camera"); tint: root.camera-on ? Theme.live : Theme.text;
+                enabled: root.voice-ready; opacity: root.camera-starting ? (0.6 + 0.4 * sin(animation-tick() / 1ms * 0.36deg)) : 1;
+                fill: root.camera-on ? Theme.live.with-alpha(0.2) : transparent;
+                clicked => { root.toggle-camera(); }
+            }
+            if root.can-share || root.sharing: IconButton {
+                size: 44px; glyph: 20px; radius: 12px;
+                icon: root.sharing ? @image-url("icons/screen-share-off.svg") : @image-url("icons/screen-share.svg");
+                label: root.sharing ? @tr("Stop sharing") : @tr("Share your screen"); tint: root.sharing ? Theme.live : Theme.text;
+                enabled: root.voice-ready;
+                fill: root.sharing ? Theme.live.with-alpha(0.2) : transparent;
+                clicked => {
+                    if root.sharing {
+                        root.toggle-share();
+                    } else {
+                        root.open-share-menu(self.absolute-position.x, self.absolute-position.y);
+                    }
+                }
+            }
+            Rectangle { width: 1px; Rectangle { height: 22px; background: Theme.line; } }
+            Rectangle {
+                width: 60px; height: 44px; border-radius: 12px;
+                background: leave-touch.has-hover ? Theme.danger-hover : Theme.danger;
+                opacity: root.voice-leaving ? 0.5 : 1;
+                animate background, opacity { duration: Theme.quick; }
+                accessible-role: button; accessible-label: @tr("Leave voice"); accessible-enabled: !root.voice-leaving;
+                accessible-action-default => { if !root.voice-leaving { root.leave-voice(); } }
+                Image { source: @image-url("icons/phone-off.svg"); width: 20px; height: 20px; colorize: Theme.on-danger; }
+                leave-touch := TouchArea { enabled: !root.voice-leaving; mouse-cursor: MouseCursor.pointer; clicked => { root.leave-voice(); } }
             }
         }
-    }
-    Rectangle {
-        width: 76px; height: 52px; border-radius: 26px;
-        background: leave-touch.has-hover ? Theme.danger-hover : Theme.danger;
-        opacity: root.voice-leaving ? 0.5 : 1;
-        accessible-role: button; accessible-label: "Leave voice"; accessible-enabled: !root.voice-leaving;
-        accessible-action-default => { if !root.voice-leaving { root.leave-voice(); } }
-        Image { source: @image-url("icons/phone-off.svg"); width: 22px; height: 22px; colorize: Theme.on-danger; }
-        leave-touch := TouchArea { enabled: !root.voice-leaving; mouse-cursor: MouseCursor.pointer; clicked => { root.leave-voice(); } }
     }
 }
 
@@ -1090,7 +1193,11 @@ export component IncomingCall inherits Rectangle {
     background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
     drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
     accessible-role: groupbox;
-    accessible-label: "Incoming call from " + root.incoming-name;
+    accessible-label: @tr("Incoming call from {}", root.incoming-name);
+    // It comes down from the top of the window, where it hangs.
+    enter := PopupEntry { duration: Popup.dialog; }
+    opacity: Popup.opacity(enter.amount); transform-scale: Popup.scale(enter.amount);
+    transform-origin: { x: self.width / 2, y: 0 };
     // Clicks on the card never reach what's under it.
     TouchArea { }
     incoming-content := VerticalLayout {
@@ -1115,11 +1222,11 @@ export component IncomingCall inherits Rectangle {
         HorizontalLayout {
             alignment: center; spacing: 20px; padding-top: 6px;
             CallButton {
-                icon: @image-url("icons/phone-off.svg"); label: "Decline"; fill: Theme.danger;
+                icon: @image-url("icons/phone-off.svg"); label: @tr("Decline"); fill: Theme.danger;
                 clicked => { root.answer-call(root.incoming-room, false); }
             }
             CallButton {
-                icon: @image-url("icons/phone.svg"); label: "Accept"; fill: Theme.live;
+                icon: @image-url("icons/phone.svg"); label: @tr("Accept"); fill: Theme.live;
                 clicked => { root.answer-call(root.incoming-room, true); }
             }
         }
@@ -1143,7 +1250,7 @@ export component SwitchDialog inherits Rectangle {
     public function release-keys() { switch-keys.clear-focus(); }
     // How far it's open, from 0 to 1; see Popup.
     property <float> motion: root.switching ? 1 : 0;
-    animate motion { duration: Popup.duration; easing: ease-out-quad; }
+    animate motion { duration: root.switching ? Popup.dialog : Popup.leave; easing: Theme.arrive; }
     visible: root.motion > 0;
     background: rgba(0, 0, 0, 0.6 * root.motion);
     TouchArea { enabled: root.switching; clicked => { root.cancel-switch(); } }
@@ -1153,7 +1260,7 @@ export component SwitchDialog inherits Rectangle {
         background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
         drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
         accessible-role: groupbox;
-        accessible-label: root.joins ? "Watch stream?" : "Switch voice channel?";
+        accessible-label: root.joins ? @tr("Watch stream?") : @tr("Switch voice channel?");
         // Clicks on the dialog itself never reach the backdrop.
         TouchArea { enabled: root.switching; }
         switch-keys := FocusScope {
@@ -1176,15 +1283,15 @@ export component SwitchDialog inherits Rectangle {
                     }
                     VerticalLayout {
                         spacing: 6px; horizontal-stretch: 1;
-                        Text { text: root.joins ? "Watch stream?" : "Switch voice channel?"; color: Theme.text; font-size: 18px; font-weight: 700; }
+                        Text { text: root.joins ? @tr("Watch stream?") : @tr("Switch voice channel?"); color: Theme.text; font-size: 18px; font-weight: 700; wrap: word-wrap; }
                         Text { text: root.switch-text; color: Theme.secondary; font-size: 15px; wrap: word-wrap; }
                     }
                 }
                 HorizontalLayout {
                     alignment: end; spacing: 8px;
                     // A fading dialog no longer acts.
-                    ActionButton { text: "Cancel"; ghost: true; clicked => { if root.switching { root.cancel-switch(); } } }
-                    ActionButton { text: root.joins ? "Join" : "Switch channel"; primary: true; clicked => { if root.switching { root.confirm-switch(); } } }
+                    ActionButton { text: @tr("Cancel"); ghost: true; clicked => { if root.switching { root.cancel-switch(); } } }
+                    ActionButton { text: root.joins ? @tr("Join") : @tr("Switch channel"); primary: true; clicked => { if root.switching { root.confirm-switch(); } } }
                 }
             }
         }
@@ -1199,12 +1306,12 @@ export component InputLevel inherits VerticalLayout {
     /// Why the level can't be shown, if it can't.
     in property <string> meter-note;
     padding-left: 8px; padding-right: 8px; padding-top: 4px; padding-bottom: 4px; spacing: 8px;
-    Text { text: "INPUT LEVEL"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+    Text { text: @tr("INPUT LEVEL"); color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; overflow: elide; }
     HorizontalLayout {
         height: 10px; spacing: 3px;
         accessible-role: progress-indicator;
-        accessible-label: "Input level";
-        accessible-value: round(root.input-level * 100) + "%" + (root.muted ? ", muted" : "");
+        accessible-label: @tr("Input level");
+        accessible-value: round(root.input-level * 100) + "%" + (root.muted ? @tr(", muted") : "");
         // Muted, the level still shows, in a faded green: heard here, sent nowhere.
         for segment in 24: Rectangle {
             border-radius: 2px;
@@ -1213,7 +1320,7 @@ export component InputLevel inherits VerticalLayout {
         }
     }
     if root.meter-note != "": Label { text: root.meter-note; }
-    if root.meter-note == "" && root.muted: Label { text: "Muted. Nothing you say is sent."; }
+    if root.meter-note == "" && root.muted: Label { text: @tr("Muted. Nothing you say is sent."); }
 }
 
 /// A screen in the share menu, and once it's taken, a picture of it.
@@ -1227,6 +1334,7 @@ component ScreenCard inherits Rectangle {
     callback clicked;
     border-radius: 6px;
     background: pointer.has-hover ? Theme.active : transparent;
+    animate background { duration: Theme.quick; }
     accessible-role: button;
     accessible-label: root.text;
     accessible-checkable: true;
@@ -1247,10 +1355,12 @@ component ScreenCard inherits Rectangle {
                 border-radius: 4px;
                 border-width: root.checked || focus.has-focus ? 2px : 1px;
                 border-color: root.checked || focus.has-focus ? Theme.accent : Theme.line;
+                animate border-color { duration: Theme.quick; }
             }
         }
         Text {
             text: root.text; color: root.checked || pointer.has-hover ? Theme.text : Theme.secondary;
+            animate color { duration: Theme.quick; }
             font-size: 13px; font-weight: root.checked ? 700 : 400;
             horizontal-alignment: center; overflow: elide;
         }
@@ -1298,6 +1408,10 @@ export component ShareMenu inherits Rectangle {
     out property <length> full-height: choices.preferred-height + start.preferred-height + 12px;
     background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
     drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+    // It grows from the button under it.
+    enter := PopupEntry { }
+    opacity: Popup.opacity(enter.amount); transform-scale: Popup.scale(enter.amount);
+    transform-origin: { x: 0, y: self.height };
     VerticalLayout {
         padding: 6px; spacing: 0px;
         ScrollView {
@@ -1306,7 +1420,7 @@ export component ShareMenu inherits Rectangle {
                 spacing: 2px;
                 if root.screens.length > 0: HorizontalLayout {
                     padding-left: 8px; padding-top: 4px; padding-bottom: 4px;
-                    Text { text: "SCREENS"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                    Text { text: @tr("SCREENS"); color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; overflow: elide; }
                 }
                 // Two to a row; one alone sits in the middle.
                 if root.screens.length > 0: Rectangle {
@@ -1324,7 +1438,7 @@ export component ShareMenu inherits Rectangle {
                 }
                 if root.windows.length > 0: HorizontalLayout {
                     padding-left: 8px; padding-top: root.screens.length > 0 ? 8px : 4px; padding-bottom: 4px;
-                    Text { text: "WINDOWS"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                    Text { text: @tr("WINDOWS"); color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; overflow: elide; }
                 }
                 // Every window, and every camera below: the menu scrolls as
                 // one, since a list scrolling inside it kept the wheel at its
@@ -1337,16 +1451,16 @@ export component ShareMenu inherits Rectangle {
                 }
                 if root.asks-dialog: HorizontalLayout {
                     padding-left: 8px; padding-top: 4px; padding-bottom: 4px;
-                    Text { text: "SCREEN"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                    Text { text: @tr("SCREEN"); color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; overflow: elide; }
                 }
                 if root.asks-dialog: MenuItem {
-                    text: "Screen or window"; subtitle: "Picked in the system's dialog";
+                    text: @tr("Screen or window"); subtitle: @tr("Picked in the system's dialog"); wraps: true;
                     checked: root.dialog-index == root.pick-source;
                     clicked => { root.pick-source = root.dialog-index; }
                 }
                 if root.cameras.length > 0: HorizontalLayout {
                     padding-left: 8px; padding-top: root.dialog-index > 0 || root.asks-dialog ? 8px : 4px; padding-bottom: 4px;
-                    Text { text: "CAMERAS"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                    Text { text: @tr("CAMERAS"); color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; overflow: elide; }
                 }
                 if root.cameras.length > 0: VerticalLayout {
                     for camera[index] in root.cameras: MenuItem {
@@ -1356,32 +1470,33 @@ export component ShareMenu inherits Rectangle {
                 }
                 if !root.switching: HorizontalLayout {
                     padding-left: 8px; padding-top: root.lists ? 8px : 4px; padding-bottom: 4px;
-                    Text { text: "RESOLUTION"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                    Text { text: @tr("RESOLUTION"); color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; overflow: elide; }
                 }
                 if !root.switching: VerticalLayout {
                     spacing: 2px;
-                    for choice[index] in ["720p", "1080p", "Source"]: MenuItem {
+                    for choice[index] in ["720p", "1080p", @tr("Source")]: MenuItem {
                         text: choice; checked: index == root.pick-resolution;
                         clicked => { root.pick-resolution = index; }
                     }
                 }
                 if !root.switching: HorizontalLayout {
                     padding-left: 8px; padding-top: 8px; padding-bottom: 4px;
-                    Text { text: "FRAME RATE"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                    Text { text: @tr("FRAME RATE"); color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; overflow: elide; }
                 }
                 if !root.switching: VerticalLayout {
                     spacing: 2px;
                     for fps in [15, 30, 60]: MenuItem {
-                        text: fps + " fps"; checked: fps == root.pick-fps;
+                        text: @tr("{} fps", fps); checked: fps == root.pick-fps;
                         clicked => { root.pick-fps = fps; }
                     }
                 }
                 if !root.switching: HorizontalLayout {
                     padding-left: 8px; padding-top: 8px; padding-bottom: 4px;
-                    Text { text: "ENCODING"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                    Text { text: @tr("ENCODING"); color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; overflow: elide; }
                 }
                 if !root.switching: MenuItem {
-                    text: "Higher quality"; subtitle: "Sharper, at twice the CPU";
+                    // What it costs stays whole, however long its translation.
+                    text: @tr("Higher quality"); subtitle: @tr("Sharper, at twice the CPU"); wraps: true;
                     checkbox: true; checked: root.pick-high-quality;
                     clicked => { root.pick-high-quality = !root.pick-high-quality; }
                 }
@@ -1390,7 +1505,7 @@ export component ShareMenu inherits Rectangle {
         start := HorizontalLayout {
             padding: 4px; padding-top: 10px;
             ActionButton {
-                text: root.switching ? "Switch" : "Go Live"; icon: @image-url("icons/screen-share.svg"); primary: true; horizontal-stretch: 1;
+                text: root.switching ? @tr("Switch") : @tr("Go Live"); icon: @image-url("icons/screen-share.svg"); primary: true; horizontal-stretch: 1;
                 clicked => { root.go-live(root.pick-source, root.pick-resolution, root.pick-fps, root.pick-high-quality); }
             }
         }
@@ -1409,20 +1524,27 @@ export component VolumeMenu inherits Rectangle {
     /// A person, whether it's their stream, the volume, and whether it's
     /// the last of a drag.
     callback volume-changed(string, bool, int, bool);
-    background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
+    /// The menu's rows follow right under, as one card: its bottom corners are square.
+    in property <bool> joined;
+    background: Theme.menu; border-color: Theme.menu-line; border-width: 1px; border-radius: 8px;
+    border-bottom-left-radius: root.joined ? 0px : self.border-radius;
+    border-bottom-right-radius: root.joined ? 0px : self.border-radius;
     drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
-    accessible-role: groupbox; accessible-label: root.volume-name + "'s volume";
+    accessible-role: groupbox; accessible-label: @tr("{}'s volume", root.volume-name);
+    // Joined to the menu's rows, it only fades: they grow from their own corner.
+    enter := PopupEntry { }
+    opacity: Popup.opacity(enter.amount); transform-scale: root.joined ? 1 : Popup.scale(enter.amount);
     volume-content := VerticalLayout {
         padding: 12px; spacing: 12px;
         Text { text: root.volume-name; color: Theme.text; font-size: 15px; font-weight: 700; overflow: elide; }
         VolumeSlider {
-            label: "User volume";
+            label: @tr("User volume");
             value <=> root.voice-volume;
             changed(volume) => { root.volume-changed(root.volume-person, false, volume, false); }
             committed(volume) => { root.volume-changed(root.volume-person, false, volume, true); }
         }
         if root.volume-live: VolumeSlider {
-            label: "Stream volume";
+            label: @tr("Stream volume");
             value <=> root.stream-volume;
             changed(volume) => { root.volume-changed(root.volume-person, true, volume, false); }
             committed(volume) => { root.volume-changed(root.volume-person, true, volume, true); }
@@ -1442,7 +1564,7 @@ component SoundButton inherits Rectangle {
     in property <string> emoji-font;
     in property <bool> enabled;
     in property <bool> extras;
-    in property <string> verb: "Play";
+    in property <string> verb: @tr("Play");
     callback clicked;
     callback preview;
     callback favorite(bool);
@@ -1452,10 +1574,15 @@ component SoundButton inherits Rectangle {
     animate background { duration: Theme.quick; }
     accessible-role: button; accessible-label: root.verb + " " + root.sound.name; accessible-enabled: root.enabled;
     accessible-action-default => { if root.enabled { root.clicked(); } }
+    // While hovered, hearing it takes the emoji's place, so the name keeps
+    // the room it has at rest; it ends, elided, before the star at the
+    // chip's end, shown while hovered and on a favourite.
+    property <bool> hearing: root.extras && root.hovered;
     HorizontalLayout {
-        padding-left: 10px; padding-right: 10px; spacing: 8px;
+        padding-left: root.hearing ? 4px + 26px + 6px : 10px; spacing: 8px;
+        padding-right: root.extras && (root.hovered || root.sound.favorite) ? 26px + 4px + 6px : 10px;
         opacity: root.enabled ? 1 : 0.5;
-        if root.sound.emoji.glyph != "": EmojiFace {
+        if root.sound.emoji.glyph != "" && !root.hearing: EmojiFace {
             emoji: root.sound.emoji; font: root.emoji-font; side: 18px; width: 18px;
             animation-key: root.sound.emoji.key;
         }
@@ -1470,10 +1597,10 @@ component SoundButton inherits Rectangle {
         clicked => { if root.enabled { root.clicked(); } }
     }
     hear := IconButton {
-        x: parent.width - 2 * (self.width + 4px); y: (parent.height - self.height) / 2;
+        x: 4px; y: (parent.height - self.height) / 2;
         size: 26px; glyph: 15px; radius: 6px; fill: Theme.button-default-hover;
-        visible: root.extras && root.hovered;
-        icon: @image-url("icons/volume-2.svg"); label: "Preview " + root.sound.name;
+        visible: root.hearing;
+        icon: @image-url("icons/volume-2.svg"); label: @tr("Preview {}", root.sound.name);
         clicked => { root.preview(); }
     }
     star := IconButton {
@@ -1482,7 +1609,7 @@ component SoundButton inherits Rectangle {
         visible: root.extras && (root.hovered || root.sound.favorite);
         icon: root.sound.favorite ? @image-url("icons/star-filled.svg") : @image-url("icons/star.svg");
         tint: root.sound.favorite ? #f0b232 : Theme.secondary;
-        label: root.sound.favorite ? "Remove from Favorites" : "Add to Favorites";
+        label: root.sound.favorite ? @tr("Remove from Favorites") : @tr("Add to Favorites");
         clicked => { root.favorite(!root.sound.favorite); }
     }
 }
@@ -1495,10 +1622,10 @@ component SoundButton inherits Rectangle {
 export component Soundboard inherits Rectangle {
     in property <[SoundRow]> rows;
     in property <string> emoji-font;
-    in property <string> title: "Soundboard";
+    in property <string> title: @tr("Soundboard");
     in property <bool> extras: true;
     /// What a click does to a sound, as its accessible label says.
-    in property <string> verb: "Play";
+    in property <string> verb: @tr("Play");
     /// Why no sound can be played now, such as being deafened; empty when
     /// they can.
     in property <string> note;
@@ -1506,8 +1633,14 @@ export component Soundboard inherits Rectangle {
     callback preview(string);
     callback favorite(string, bool);
     callback close;
+    /// It opens under what opened it, from its right end, rather than above
+    /// the call's button.
+    in property <bool> drops;
     property <length> row-height: 42px;
     property <length> gap: 6px;
+    enter := PopupEntry { }
+    opacity: Popup.opacity(enter.amount); transform-scale: Popup.scale(enter.amount);
+    transform-origin: root.drops ? { x: self.width, y: 0 } : { x: 0, y: self.height };
     width: 372px;
     height: min(440px, top.preferred-height + max(1, root.rows.length) * root.row-height + 10px);
     background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 10px;
@@ -1522,16 +1655,17 @@ export component Soundboard inherits Rectangle {
         }
     }
     VerticalLayout {
+        // The title, the headings and the sounds share one 12px inset.
         top := VerticalLayout {
-            padding: 14px; padding-bottom: 4px; spacing: 4px;
-            Text { text: root.title; color: Theme.text; font-size: 16px; font-weight: 700; }
+            padding: 12px; padding-top: 14px; padding-bottom: 4px; spacing: 4px;
+            Text { text: root.title; color: Theme.text; font-size: 16px; font-weight: 700; overflow: elide; }
             if root.note != "": Text { text: root.note; color: Theme.muted; font-size: 13px; wrap: word-wrap; }
-            if root.rows.length == 0: Text { text: "Loading sounds..."; color: Theme.muted; font-size: 13px; }
+            if root.rows.length == 0: Text { text: @tr("Loading sounds..."); color: Theme.muted; font-size: 13px; }
         }
         ListView {
             vertical-stretch: 1;
             for row in root.rows: VerticalLayout {
-                height: root.row-height; padding-left: 10px; padding-right: 10px;
+                height: root.row-height; padding-left: 12px; padding-right: 12px;
                 if row.heading != "": Text {
                     text: row.heading; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px;
                     vertical-alignment: bottom; overflow: elide; height: root.row-height - 8px;
@@ -1539,7 +1673,7 @@ export component Soundboard inherits Rectangle {
                 if row.heading == "": HorizontalLayout {
                     spacing: root.gap; padding-top: 3px; padding-bottom: 3px; alignment: start;
                     for sound in row.sounds: SoundButton {
-                        width: (root.width - 20px - 2 * root.gap) / 3;
+                        width: (root.width - 24px - 2 * root.gap) / 3;
                         sound: sound; emoji-font: root.emoji-font; enabled: root.note == "";
                         extras: root.extras; verb: root.verb;
                         clicked => { root.play(sound.id); }

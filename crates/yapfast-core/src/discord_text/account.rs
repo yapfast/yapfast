@@ -6,7 +6,7 @@
 use super::{
     channels::SEARCH_PAUSE,
     channels::SharedPreviews,
-    commands::NOT_DISCORD,
+    commands::not_discord,
     render::{chat_badges, chat_profile, found_in, hits_in, with_previews},
     *,
 };
@@ -14,6 +14,33 @@ use crate::chat::{
     EventPreview, GiftPreview, InvitePreview, JoinedServer, MemberChange, Muting,
     NotificationChange, NotifyLevel, OAuthGuild, OAuthPreview, RelationshipChange,
 };
+
+/// The most a stream's preview is decoded at: the size Discord's client
+/// uploads one at, which a larger one is shrunk to.
+const STREAM_PREVIEW_SIZE: (u32, u32) = (512, 288);
+/// A preview's file is a small JPEG; anything much larger isn't one.
+const STREAM_PREVIEW_BYTES: usize = 1024 * 1024;
+
+/// The preview of the live stream `key`, decoded; none when Discord has
+/// none, which is no one's mistake, or it didn't come or isn't a picture.
+async fn stream_preview(discord: &Discord, key: &str) -> Option<Arc<crate::chat::Picture>> {
+    let data = match discord
+        .stream_preview_picture(key, STREAM_PREVIEW_BYTES)
+        .await
+    {
+        Ok(data) => data,
+        Err(error) => {
+            tracing::debug!(error = format!("{error:#}"), "no preview of a stream");
+            return None;
+        }
+    };
+    let (width, height) = STREAM_PREVIEW_SIZE;
+    tokio::task::spawn_blocking(move || crate::chat::decode_picture(&data, width, height))
+        .await
+        .ok()
+        .flatten()
+        .map(Arc::new)
+}
 
 /// Carries out a command about the account, or gives back any other.
 pub(super) fn command(
@@ -31,9 +58,9 @@ pub(super) fn command(
                 .into_iter()
                 .map(|person| Contact {
                     detail: if person.friend {
-                        "Discord friend".into()
+                        tr!("Discord friend").into()
                     } else {
-                        "On Discord".into()
+                        tr!("On Discord").into()
                     },
                     id: person.id,
                     name: person.name,
@@ -63,7 +90,7 @@ pub(super) fn command(
                 .open_dm(&id)
                 .await
                 .map(|channel| discord::room_id(yapfast_discord::ready::PRIVATE, &channel))
-                .map_err(|error| format!("Could not start the DM: {error}"));
+                .map_err(|error| tr!("Could not start the DM: {}", error));
             let _ = events.send(Event::DmStarted(result));
         });
         return None;
@@ -306,7 +333,7 @@ pub(super) fn command(
             (discord, _) => {
                 let _ = events.send(Event::Profile {
                     user,
-                    result: Err(discord.err().unwrap_or(NOT_DISCORD).into()),
+                    result: Err(discord.err().unwrap_or(not_discord()).into()),
                 });
             }
         }
@@ -328,10 +355,11 @@ pub(super) fn command(
                             error = format!("{error:#}"),
                             "could not change a friend request"
                         );
-                        let _ = events.send(Event::Error(format!(
-                            "Could not {} the friend request: {error}",
-                            if add { "send or accept" } else { "remove" }
-                        )));
+                        let _ = events.send(Event::Error(if add {
+                            tr!("Could not send or accept the friend request: {}", error)
+                        } else {
+                            tr!("Could not remove the friend request: {}", error)
+                        }));
                     }
                 });
             }
@@ -544,9 +572,24 @@ pub(super) fn command(
                 if let Err(error) = discord.decline(&channel).await {
                     let _ = events.send(Event::RoomError {
                         room,
-                        message: format!("Could not decline the call: {error}"),
+                        message: tr!("Could not decline the call: {}", error),
                     });
                 }
+            });
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::StreamPreview { room, user }) = command {
+        if let (Ok(discord), Some((guild, channel))) = (discord, discord::parse_room(&room)) {
+            let key = yapfast_discord::stream::key(guild, channel, &user);
+            let (discord, events) = (discord.clone(), events.clone());
+            tokio::spawn(async move {
+                let picture = stream_preview(&discord, &key).await;
+                let _ = events.send(Event::StreamPreview {
+                    room,
+                    user,
+                    picture,
+                });
             });
         }
         return None;
@@ -561,10 +604,11 @@ pub(super) fn command(
                     if let Err(error) = discord.answer_request(&channel, accept).await {
                         let _ = events.send(Event::RoomError {
                             room,
-                            message: format!(
-                                "Could not {} the message request: {error}",
-                                if accept { "accept" } else { "ignore" }
-                            ),
+                            message: if accept {
+                                tr!("Could not accept the message request: {}", error)
+                            } else {
+                                tr!("Could not ignore the message request: {}", error)
+                            },
                         });
                     }
                 });
@@ -572,7 +616,7 @@ pub(super) fn command(
             (discord, _) => {
                 let _ = events.send(Event::RoomError {
                     room,
-                    message: discord.err().unwrap_or(NOT_DISCORD).into(),
+                    message: discord.err().unwrap_or(not_discord()).into(),
                 });
             }
         }
@@ -611,7 +655,7 @@ pub(super) fn command(
             (discord, _) => {
                 let _ = events.send(Event::Pins {
                     room,
-                    result: Err(discord.err().unwrap_or(NOT_DISCORD).into()),
+                    result: Err(discord.err().unwrap_or(not_discord()).into()),
                 });
             }
         }
@@ -661,7 +705,7 @@ pub(super) fn command(
                         }
                         Err(error) => {
                             tracing::warn!(error = format!("{error:#}"), "could not list threads");
-                            Err(format!("Couldn't load the threads: {error}"))
+                            Err(tr!("Couldn't load the threads: {}", error))
                         }
                     };
                     let _ = events.send(Event::Threads {
@@ -678,7 +722,7 @@ pub(super) fn command(
                     room,
                     query,
                     offset,
-                    result: Err(discord.err().unwrap_or(NOT_DISCORD).into()),
+                    result: Err(discord.err().unwrap_or(not_discord()).into()),
                     starters: vec![],
                 });
             }
@@ -719,7 +763,7 @@ pub(super) fn command(
                                 error = format!("{error:#}"),
                                 "could not start a thread"
                             );
-                            format!("Couldn't start the thread: {error}")
+                            tr!("Couldn't start the thread: {}", error)
                         });
                     let _ = events.send(Event::ThreadStarted { room, result });
                 });
@@ -727,7 +771,7 @@ pub(super) fn command(
             (discord, _) => {
                 let _ = events.send(Event::ThreadStarted {
                     room,
-                    result: Err(discord.err().unwrap_or(NOT_DISCORD).into()),
+                    result: Err(discord.err().unwrap_or(not_discord()).into()),
                 });
             }
         }
@@ -757,7 +801,7 @@ pub(super) fn command(
                                 .unwrap_or_default();
                             let data = tokio::fs::read(&file.path)
                                 .await
-                                .map_err(|_| format!("Yapfast could not read {name}."))?;
+                                .map_err(|_| tr!("Yapfast could not read {}.", name))?;
                             read.push((
                                 super::open_channel::upload_name(&name, file.spoiler),
                                 data,
@@ -772,7 +816,7 @@ pub(super) fn command(
                                     error = format!("{error:#}"),
                                     "could not post in a forum"
                                 );
-                                format!("Couldn't create the post: {error}")
+                                tr!("Couldn't create the post: {}", error)
                             })
                     }
                     .await;
@@ -782,7 +826,7 @@ pub(super) fn command(
             (discord, _) => {
                 let _ = events.send(Event::ForumPosted {
                     room,
-                    result: Err(discord.err().unwrap_or(NOT_DISCORD).into()),
+                    result: Err(discord.err().unwrap_or(not_discord()).into()),
                 });
             }
         }
@@ -825,7 +869,7 @@ pub(super) fn command(
                         }
                         Err(error) => {
                             tracing::warn!(error = format!("{error:#}"), "could not load posts");
-                            Err(format!("Couldn't load the posts: {error}"))
+                            Err(tr!("Couldn't load the posts: {}", error))
                         }
                     };
                     let _ = events.send(Event::Posts { room, result });
@@ -834,7 +878,7 @@ pub(super) fn command(
             (discord, _) => {
                 let _ = events.send(Event::Posts {
                     room,
-                    result: Err(discord.err().unwrap_or(NOT_DISCORD).into()),
+                    result: Err(discord.err().unwrap_or(not_discord()).into()),
                 });
             }
         }
@@ -895,7 +939,7 @@ pub(super) fn command(
                     place,
                     query,
                     offset,
-                    result: Err(discord.err().unwrap_or(NOT_DISCORD).into()),
+                    result: Err(discord.err().unwrap_or(not_discord()).into()),
                 });
             }
         }
@@ -920,7 +964,7 @@ pub(super) fn command(
                     .add_to_group(&channel, &users)
                     .await
                     .map(|()| room.clone()),
-                (Some(_), None) => Err(anyhow::anyhow!(NOT_DISCORD)),
+                (Some(_), None) => Err(anyhow::anyhow!(not_discord())),
                 (None, _) => discord
                     .create_group(&users)
                     .await
@@ -929,9 +973,9 @@ pub(super) fn command(
             let result = result.map_err(|error| {
                 tracing::warn!(error = format!("{error:#}"), "could not add to a group DM");
                 if room.is_some() {
-                    format!("Could not add them: {error}")
+                    tr!("Could not add them: {}", error)
                 } else {
-                    format!("Could not make the group: {error}")
+                    tr!("Could not make the group: {}", error)
                 }
             });
             let _ = events.send(Event::GroupChanged(result));
@@ -957,7 +1001,7 @@ pub(super) fn command(
                                 error = format!("{error:#}"),
                                 "could not make an invite"
                             );
-                            format!("Could not make an invite: {error}")
+                            tr!("Could not make an invite: {}", error)
                         });
                     let _ = events.send(Event::InviteMade { room, result });
                 });
@@ -965,7 +1009,7 @@ pub(super) fn command(
             (discord, _) => {
                 let _ = events.send(Event::InviteMade {
                     room,
-                    result: Err(discord.err().unwrap_or(NOT_DISCORD).into()),
+                    result: Err(discord.err().unwrap_or(not_discord()).into()),
                 });
             }
         }
@@ -979,7 +1023,7 @@ pub(super) fn command(
                 tokio::spawn(async move {
                     let result = discord.send_invite(&user, &channel).await.map_err(|error| {
                         tracing::warn!(error = format!("{error:#}"), "could not send an invite");
-                        format!("Couldn't send the invite: {error}")
+                        tr!("Couldn't send the invite: {}", error)
                     });
                     let _ = events.send(Event::InviteSent { user, room, result });
                 });
@@ -988,7 +1032,7 @@ pub(super) fn command(
                 let _ = events.send(Event::InviteSent {
                     user,
                     room,
-                    result: Err(discord.err().unwrap_or(NOT_DISCORD).into()),
+                    result: Err(discord.err().unwrap_or(not_discord()).into()),
                 });
             }
         }
@@ -1063,7 +1107,7 @@ pub(super) fn command(
                         })
                         .map_err(|error| {
                             tracing::warn!(error = format!("{error:#}"), "could not join a server");
-                            format!("Couldn't join the server: {error}")
+                            tr!("Couldn't join the server: {}", error)
                         });
                     let _ = events.send(Event::ServerJoined { code, result });
                 });
@@ -1071,7 +1115,7 @@ pub(super) fn command(
             (discord, _) => {
                 let _ = events.send(Event::ServerJoined {
                     code,
-                    result: Err(discord.err().unwrap_or(NOT_DISCORD).into()),
+                    result: Err(discord.err().unwrap_or(not_discord()).into()),
                 });
             }
         }
@@ -1124,7 +1168,7 @@ pub(super) fn command(
                                 error = format!("{error:#}"),
                                 "could not change event interest"
                             );
-                            format!("Couldn't change your interest: {error}")
+                            tr!("Couldn't change your interest: {}", error)
                         });
                     let _ = events.send(Event::EventInterestSet {
                         event,
@@ -1185,7 +1229,7 @@ pub(super) fn command(
                         .await
                         .map_err(|error| {
                             tracing::warn!(error = format!("{error:#}"), "could not redeem a gift");
-                            format!("Couldn't redeem the gift: {error}")
+                            tr!("Couldn't redeem the gift: {}", error)
                         });
                     let _ = events.send(Event::GiftRedeemed { code, result });
                 });
@@ -1224,7 +1268,7 @@ pub(super) fn command(
                     query,
                     result: Err(discord
                         .err()
-                        .unwrap_or("That isn't an authorization link.")
+                        .unwrap_or(tr!("That isn't an authorization link."))
                         .into()),
                 });
             }
@@ -1245,7 +1289,7 @@ pub(super) fn command(
                                 error = format!("{error:#}"),
                                 "could not authorize an application"
                             );
-                            format!("Couldn't authorize it: {error}")
+                            tr!("Couldn't authorize it: {}", error)
                         });
                     let _ = events.send(Event::OAuthAuthorized { query, result });
                 });
@@ -1255,7 +1299,7 @@ pub(super) fn command(
                     query,
                     result: Err(discord
                         .err()
-                        .unwrap_or("That isn't an authorization link.")
+                        .unwrap_or(tr!("That isn't an authorization link."))
                         .into()),
                 });
             }
@@ -1276,7 +1320,7 @@ pub(super) fn command(
                         .await
                         .map_err(|error| {
                             tracing::warn!(error = format!("{error:#}"), "could not open a thread");
-                            format!("Couldn't open the thread: {error}")
+                            tr!("Couldn't open the thread: {}", error)
                         });
                     let _ = events.send(Event::ThreadOpened { room, result });
                 });
@@ -1284,7 +1328,7 @@ pub(super) fn command(
             (discord, _) => {
                 let _ = events.send(Event::ThreadOpened {
                     room,
-                    result: Err(discord.err().unwrap_or(NOT_DISCORD).into()),
+                    result: Err(discord.err().unwrap_or(not_discord()).into()),
                 });
             }
         }
@@ -1369,7 +1413,7 @@ fn leave(
         (discord, _) => {
             let _ = events.send(Event::Left {
                 place,
-                result: Err(discord.err().unwrap_or(NOT_DISCORD).into()),
+                result: Err(discord.err().unwrap_or(not_discord()).into()),
             });
             return;
         }
@@ -1377,12 +1421,15 @@ fn leave(
     let events = events.clone();
     tokio::spawn(async move {
         let (result, what) = match silent {
-            None => (discord.leave_server(&id).await, "server"),
-            Some(silent) => (discord.leave_group(&id, silent).await, "group"),
+            None => (discord.leave_server(&id).await, tr!("leave the server")),
+            Some(silent) => (
+                discord.leave_group(&id, silent).await,
+                tr!("leave the group"),
+            ),
         };
         let result = result.map_err(|error| {
             tracing::warn!(error = format!("{error:#}"), what, "could not leave");
-            format!("Couldn't leave the {what}: {error}")
+            tr!("Couldn't {}: {}", what, error)
         });
         let _ = events.send(Event::Left { place, result });
     });
@@ -1428,8 +1475,8 @@ fn manage_channel(
                             slowmode: known.slowmode,
                             nsfw: known.nsfw,
                         })
-                        .map_err(|error| format!("Couldn't load the channel: {error}")),
-                    None => Err(NOT_DISCORD.into()),
+                        .map_err(|error| tr!("Couldn't load the channel: {}", error)),
+                    None => Err(not_discord().into()),
                 };
                 let _ = events.send(Event::ChannelLoaded { room, result });
                 return;
@@ -1464,7 +1511,7 @@ fn manage_channel(
                     })
                     .await
                     .map(|id| Some(discord::room_id(&guild, &id)));
-                (made, "make the channel")
+                (made, tr!("make the channel"))
             }
             DiscordCommand::EditChannel {
                 room,
@@ -1479,9 +1526,9 @@ fn manage_channel(
                         })
                         .await
                         .map(|()| None),
-                    None => Err(anyhow::anyhow!(NOT_DISCORD)),
+                    None => Err(anyhow::anyhow!(not_discord())),
                 };
-                (result, "save the channel")
+                (result, tr!("save the channel"))
             }
             DiscordCommand::DeleteChannel { room } => {
                 let result = match channel(&room) {
@@ -1489,15 +1536,15 @@ fn manage_channel(
                         .stepping_up(|| discord.delete_channel(&id))
                         .await
                         .map(|()| None),
-                    None => Err(anyhow::anyhow!(NOT_DISCORD)),
+                    None => Err(anyhow::anyhow!(not_discord())),
                 };
-                (result, "delete the channel")
+                (result, tr!("delete the channel"))
             }
             _ => return,
         };
         let result = result.map_err(|error| {
             tracing::warn!(error = format!("{error:#}"), "could not {what}");
-            format!("Couldn't {what}: {error}")
+            tr!("Couldn't {}: {}", what, error)
         });
         let _ = events.send(Event::ChannelSaved(result));
     });
@@ -1596,16 +1643,16 @@ fn change_person(
                         discord
                             .stepping_up(|| discord.set_member_nick(guild, &user, &nick))
                             .await,
-                        "change the nickname",
+                        tr!("change the nickname"),
                     ),
                     MemberChange::Role { role, add } => (
                         discord
                             .stepping_up(|| discord.member_role(guild, &user, &role, add))
                             .await,
                         if add {
-                            "give the role"
+                            tr!("give the role")
                         } else {
-                            "take the role away"
+                            tr!("take the role away")
                         },
                     ),
                     MemberChange::Timeout { until_ms, reason } => (
@@ -1613,16 +1660,16 @@ fn change_person(
                             .stepping_up(|| discord.time_out(guild, &user, until_ms, &reason))
                             .await,
                         if until_ms.is_some() {
-                            "time them out"
+                            tr!("time them out")
                         } else {
-                            "remove the timeout"
+                            tr!("remove the timeout")
                         },
                     ),
                     MemberChange::Kick { reason } => (
                         discord
                             .stepping_up(|| discord.kick(guild, &user, &reason))
                             .await,
-                        "kick them",
+                        tr!("kick them"),
                     ),
                     MemberChange::Ban {
                         delete_seconds,
@@ -1631,16 +1678,16 @@ fn change_person(
                         discord
                             .stepping_up(|| discord.ban(guild, &user, delete_seconds, &reason))
                             .await,
-                        "ban them",
+                        tr!("ban them"),
                     ),
                     MemberChange::ServerMute(mute) => (
                         discord
                             .stepping_up(|| discord.server_mute(guild, &user, mute))
                             .await,
                         if mute {
-                            "server mute them"
+                            tr!("server mute them")
                         } else {
-                            "unmute them"
+                            tr!("unmute them")
                         },
                     ),
                     MemberChange::ServerDeafen(deaf) => (
@@ -1648,9 +1695,9 @@ fn change_person(
                             .stepping_up(|| discord.server_deafen(guild, &user, deaf))
                             .await,
                         if deaf {
-                            "server deafen them"
+                            tr!("server deafen them")
                         } else {
-                            "undeafen them"
+                            tr!("undeafen them")
                         },
                     ),
                     MemberChange::Move(to) => {
@@ -1663,9 +1710,9 @@ fn change_person(
                                 .stepping_up(|| discord.move_member(guild, &user, channel))
                                 .await,
                             if to.is_some() {
-                                "move them"
+                                tr!("move them")
                             } else {
-                                "disconnect them"
+                                tr!("disconnect them")
                             },
                         )
                     }
@@ -1676,7 +1723,7 @@ fn change_person(
                     if let Err(error) = &result {
                         tracing::warn!(error = format!("{error:#}"), "could not {what}");
                     }
-                    let result = result.map_err(|error| format!("Could not {what}: {error}"));
+                    let result = result.map_err(|error| tr!("Could not {}: {}", what, error));
                     let _ = events.send(Event::PersonSaved(result));
                     return;
                 }
@@ -1686,22 +1733,28 @@ fn change_person(
                 change,
                 location,
             } => match change {
-                RelationshipChange::Unfriend => {
-                    (discord.unfriend(&user, location).await, "remove the friend")
+                RelationshipChange::Unfriend => (
+                    discord.unfriend(&user, location).await,
+                    tr!("remove the friend"),
+                ),
+                RelationshipChange::Block => (
+                    discord.block(&user, true, location).await,
+                    tr!("block them"),
+                ),
+                RelationshipChange::Unblock => (
+                    discord.block(&user, false, location).await,
+                    tr!("unblock them"),
+                ),
+                RelationshipChange::Ignore => {
+                    (discord.ignore(&user, true).await, tr!("ignore them"))
                 }
-                RelationshipChange::Block => {
-                    (discord.block(&user, true, location).await, "block them")
-                }
-                RelationshipChange::Unblock => {
-                    (discord.block(&user, false, location).await, "unblock them")
-                }
-                RelationshipChange::Ignore => (discord.ignore(&user, true).await, "ignore them"),
-                RelationshipChange::Unignore => {
-                    (discord.ignore(&user, false).await, "stop ignoring them")
-                }
+                RelationshipChange::Unignore => (
+                    discord.ignore(&user, false).await,
+                    tr!("stop ignoring them"),
+                ),
             },
             DiscordCommand::CloseDm { room } => {
-                (discord.close_dm(&channel(&room)).await, "close the DM")
+                (discord.close_dm(&channel(&room)).await, tr!("close the DM"))
             }
             DiscordCommand::Notifications { place, change } => {
                 let (guild, channel) = match discord::parse_room(&place) {
@@ -1711,20 +1764,20 @@ fn change_person(
                 let result = discord
                     .change_notifications(guild, channel, notification_change(change))
                     .await;
-                (result, "change the notification settings")
+                (result, tr!("change the notification settings"))
             }
             DiscordCommand::PinChannel { room, flags } => {
                 let result = match discord::parse_room(&room) {
                     Some((guild, channel)) => discord.channel_flags(guild, channel, flags).await,
-                    None => Err(anyhow::anyhow!(NOT_DISCORD)),
+                    None => Err(anyhow::anyhow!(not_discord())),
                 };
                 let pinned = flags & yapfast_discord::notifications::PINNED != 0;
                 (
                     result,
                     if pinned {
-                        "pin the channel"
+                        tr!("pin the channel")
                     } else {
-                        "unpin the channel"
+                        tr!("unpin the channel")
                     },
                 )
             }
@@ -1756,14 +1809,14 @@ fn change_person(
                             })
                             .await
                     }
-                    None => Err(anyhow::anyhow!(NOT_DISCORD)),
+                    None => Err(anyhow::anyhow!(not_discord())),
                 };
-                (result, "move the channel")
+                (result, tr!("move the channel"))
             }
             DiscordCommand::FollowChannel { room, flags } => {
                 let result = match discord::parse_room(&room) {
                     Some((guild, channel)) => discord.channel_flags(guild, channel, flags).await,
-                    None => Err(anyhow::anyhow!(NOT_DISCORD)),
+                    None => Err(anyhow::anyhow!(not_discord())),
                 };
                 let followed = yapfast_discord::notifications::Override {
                     flags,
@@ -1773,9 +1826,9 @@ fn change_person(
                 (
                     result,
                     if followed {
-                        "add it to the channel list"
+                        tr!("add it to the channel list")
                     } else {
-                        "remove it from the channel list"
+                        tr!("remove it from the channel list")
                     },
                 )
             }
@@ -1786,9 +1839,9 @@ fn change_person(
             } => {
                 let result = match discord::parse_server(&server) {
                     Some(guild) => discord.show_all_channels(guild, flags, &follow).await,
-                    None => Err(anyhow::anyhow!(NOT_DISCORD)),
+                    None => Err(anyhow::anyhow!(not_discord())),
                 };
-                (result, "change which channels show")
+                (result, tr!("change which channels show"))
             }
             DiscordCommand::JoinThread {
                 room,
@@ -1797,9 +1850,9 @@ fn change_person(
             } => (
                 discord.join_thread(&channel(&room), join, location).await,
                 if join {
-                    "join the thread"
+                    tr!("join the thread")
                 } else {
-                    "leave the thread"
+                    tr!("leave the thread")
                 },
             ),
             DiscordCommand::Mute { room, muting } => {
@@ -1808,9 +1861,9 @@ fn change_person(
                 (
                     result,
                     if muted {
-                        "mute the DM"
+                        tr!("mute the DM")
                     } else {
-                        "unmute the DM"
+                        tr!("unmute the DM")
                     },
                 )
             }
@@ -1818,7 +1871,7 @@ fn change_person(
         };
         if let Err(error) = result {
             tracing::warn!(error = format!("{error:#}"), "could not {what}");
-            let _ = events.send(Event::Error(format!("Could not {what}: {error}")));
+            let _ = events.send(Event::Error(tr!("Could not {}: {}", what, error)));
         }
     });
 }

@@ -3,6 +3,7 @@
 use std::sync::RwLock;
 
 use serde_json::Value;
+use yapfast_lang::tr;
 
 use super::Live;
 use crate::{
@@ -264,7 +265,7 @@ pub(super) fn live_events(
             let name = guild
                 .and_then(|guild| names.name(guild, user))
                 .or_else(|| names.user_name(user))
-                .unwrap_or("Someone")
+                .unwrap_or_else(|| tr!("Someone"))
                 .to_owned();
             vec![Live::Typing {
                 guild: guild.map(str::to_owned),

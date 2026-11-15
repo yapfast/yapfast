@@ -5,7 +5,7 @@
 
 use yapfast_discord::api;
 
-use super::{commands::NOT_DISCORD, *};
+use super::{commands::not_discord, *};
 
 /// Discord's code for a new owner who can't take over the server's
 /// subscriptions.
@@ -27,7 +27,7 @@ pub(super) fn command(
         other => return Some(other),
     };
     let (Ok(discord), Some(guild)) = (discord, discord::parse_server(&server)) else {
-        let why = discord.err().unwrap_or(NOT_DISCORD).to_owned();
+        let why = discord.err().unwrap_or(not_discord()).to_owned();
         let _ = events.send(work.answer(server, Err(why)));
         return None;
     };
@@ -37,7 +37,7 @@ pub(super) fn command(
             Work::Delete => discord
                 .stepping_up(|| discord.delete_guild(&guild))
                 .await
-                .map_err(|error| format!("Couldn't delete the server: {error}")),
+                .map_err(|error| tr!("Couldn't delete the server: {}", error)),
             Work::Transfer { user, code } => discord
                 .stepping_up(|| discord.transfer_guild(&guild, user, code.as_deref()))
                 .await

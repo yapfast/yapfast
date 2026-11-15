@@ -41,7 +41,7 @@ pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
 /// Shows `stats`, with the privacy code only while `others` are in the call
 /// to compare it with, as Discord's client does.
 fn show(link: &CallLink<'_>, stats: &LinkStats, others: bool) {
-    let milliseconds = |ping: u32| format!("{ping} ms");
+    let milliseconds = |ping: u32| tr!("{} ms", ping);
     let last = stats.pings.last().map(|&ping| milliseconds(ping.into()));
     link.set_ping(last.unwrap_or_default().into());
     let average = average(&stats.pings).map(milliseconds);
@@ -61,9 +61,7 @@ fn show(link: &CallLink<'_>, stats: &LinkStats, others: bool) {
     if let Some(stream) = &stats.stream {
         link.set_encoder(encoder(&stream.engine).into());
         link.set_codec(stream.codec.as_str().into());
-        link.set_picture(
-            format!("{}×{} at {} fps", stream.width, stream.height, stream.fps).into(),
-        );
+        link.set_picture(tr!("{}×{} at {} fps", stream.width, stream.height, stream.fps).into());
         link.set_sent(rate(stream.sent_kbps).into());
         link.set_target(rate(stream.target_kbps).into());
         link.set_keyframes(stream.keyframe_requests.to_string().into());
@@ -82,22 +80,22 @@ fn encoder(engine: &str) -> String {
         .next()
         .filter(|driver| !driver.is_empty());
     match name.rsplit_once('_') {
-        Some((_, "nvenc")) => "NVENC on the GPU".to_owned(),
-        Some((_, "amf")) => "AMF on the GPU".to_owned(),
+        Some((_, "nvenc")) => tr!("NVENC on the GPU").to_owned(),
+        Some((_, "amf")) => tr!("AMF on the GPU").to_owned(),
         Some((_, "vaapi")) => match driver {
-            Some(driver) => format!("VA-API on the GPU ({driver})"),
-            None => "VA-API on the GPU".to_owned(),
+            Some(driver) => tr!("VA-API on the GPU ({})", driver),
+            None => tr!("VA-API on the GPU").to_owned(),
         },
-        _ => format!("{name} on the CPU"),
+        _ => tr!("{} on the CPU", name),
     }
 }
 
 /// A bitrate as people read it: "3.8 Mbit/s", or "800 kbit/s" below one.
 fn rate(kbps: u32) -> String {
     if kbps >= 1000 {
-        format!("{:.1} Mbit/s", f64::from(kbps) / 1000.0)
+        tr!("{} Mbit/s", format!("{:.1}", f64::from(kbps) / 1000.0))
     } else {
-        format!("{kbps} kbit/s")
+        tr!("{} kbit/s", kbps)
     }
 }
 

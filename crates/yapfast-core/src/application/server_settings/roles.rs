@@ -296,10 +296,11 @@ impl RolesPage {
         let draft = self.open.as_ref()?;
         let name = draft.name.trim().chars().count();
         if name == 0 {
-            Some("Give the role a name.".to_owned())
+            Some(yapfast_lang::tr!("Give the role a name.").to_owned())
         } else if name > ROLE_NAME_LIMIT {
-            Some(format!(
-                "Role names can be up to {ROLE_NAME_LIMIT} characters."
+            Some(yapfast_lang::tr!(
+                "Role names can be up to {} characters.",
+                ROLE_NAME_LIMIT
             ))
         } else {
             None

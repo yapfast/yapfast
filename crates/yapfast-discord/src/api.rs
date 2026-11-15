@@ -6,6 +6,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use reqwest::{Client, Method, RequestBuilder, Response, StatusCode, header};
 use serde::Deserialize;
 use serde_json::{Value, json};
+use yapfast_lang::tr;
 
 use crate::{
     captcha::Captcha,
@@ -433,7 +434,7 @@ impl Api {
         answer["encrypted_token"]
             .as_str()
             .map(str::to_owned)
-            .context("Discord didn't hand over the login.")
+            .context(tr!("Discord didn't hand over the login."))
     }
 
     /// Ends this login's session on Discord, as signing out of the web client
@@ -466,7 +467,7 @@ impl Api {
         if let Some(etag) = etag {
             request = request.header(header::IF_NONE_MATCH, etag);
         }
-        let mut response = request.send().await.context("Can't reach Discord.")?;
+        let mut response = request.send().await.context(tr!("Can't reach Discord."))?;
         if response.status() == StatusCode::NOT_MODIFIED {
             return Ok(GameList::Unchanged);
         }
@@ -815,9 +816,12 @@ impl Api {
             .body(data)
             .send()
             .await
-            .context("Can't reach Discord's file storage.")?;
+            .context(tr!("Can't reach Discord's file storage."))?;
         if !response.status().is_success() {
-            bail!("Discord's file storage answered {}.", response.status());
+            bail!(tr!(
+                "Discord's file storage answered {}.",
+                response.status()
+            ));
         }
         Ok(Upload {
             filename: filename.to_owned(),
@@ -1001,7 +1005,7 @@ impl Api {
         channel["id"]
             .as_str()
             .map(str::to_owned)
-            .context("Discord didn't open the DM.")
+            .context(tr!("Discord didn't open the DM."))
     }
 
     /// Makes a group DM with `recipients`, as adding friends to a one-to-one
@@ -1017,7 +1021,7 @@ impl Api {
         channel["id"]
             .as_str()
             .map(str::to_owned)
-            .context("Discord didn't make the group.")
+            .context(tr!("Discord didn't make the group."))
     }
 
     /// Adds `user` to a group DM.
@@ -1895,7 +1899,7 @@ impl Api {
         let response = self.execute(request).await?;
         // Discord answers 204, with nothing, when the server paused invites.
         if response.status() == StatusCode::NO_CONTENT {
-            bail!("This server has paused invites.");
+            bail!(tr!("This server has paused invites."));
         }
         let invite: Value = serde_json::from_slice(
             &response
@@ -1907,7 +1911,7 @@ impl Api {
         invite["code"]
             .as_str()
             .map(str::to_owned)
-            .ok_or_else(|| anyhow!("Discord made no invite."))
+            .ok_or_else(|| anyhow!(tr!("Discord made no invite.")))
     }
 
     /// An invite, as Discord's client asks before joining by it: with the
@@ -2127,6 +2131,26 @@ impl Api {
         let body = json!({"thumbnail": thumbnail});
         self.empty(with_json(self.request(Method::POST, &path), &body))
             .await
+    }
+
+    /// Where the preview of someone's live stream is: the picture its
+    /// streamer's client last uploaded, as [`Self::stream_preview`] uploads
+    /// this account's. Discord answers with an error while there's none.
+    pub async fn stream_preview_url(&self, stream_key: &str) -> Result<String> {
+        let path = format!("/streams/{stream_key}/preview");
+        let answer = self.json(self.request(Method::GET, &path)).await?;
+        answer["url"]
+            .as_str()
+            .map(str::to_owned)
+            .context("the answer names no preview")
+    }
+
+    /// The file of the preview of someone's live stream, asked of Discord
+    /// each time: a stream's preview changes every few minutes, so it's
+    /// neither read from disk nor kept there.
+    pub async fn stream_preview_picture(&self, stream_key: &str, limit: usize) -> Result<Vec<u8>> {
+        let url = self.stream_preview_url(stream_key).await?;
+        self.download_now(&url, limit).await
     }
 
     /// Discord's own soundboard sounds, which every account may play.
@@ -2349,23 +2373,23 @@ impl Api {
         loop {
             match self.refusals.check() {
                 Ok(()) => {}
-                Err(Stopped::Unauthorized) => bail!(UNAUTHORIZED),
-                Err(Stopped::Refused(wait)) => bail!(
+                Err(Stopped::Unauthorized) => bail!(yapfast_lang::text(UNAUTHORIZED)),
+                Err(Stopped::Refused(wait)) => bail!(tr!(
                     "Discord refused too many of Yapfast's requests lately, so Yapfast stopped asking. Try again in {} min.",
                     wait.as_secs().div_ceil(60)
-                ),
+                )),
             }
             if let Err(wait) = self.limits.acquire(&route).await {
-                bail!(
+                bail!(tr!(
                     "Discord asks Yapfast to slow down. Try again in {} s.",
                     wait.as_secs()
-                );
+                ));
             }
             let again = if retried { None } else { request.try_clone() };
             let response = client
                 .execute(request)
                 .await
-                .context("Can't reach Discord.")?;
+                .context(tr!("Can't reach Discord."))?;
             let status = response.status();
             let linked = !self.token().is_empty();
             if linked {
@@ -2446,66 +2470,66 @@ fn refusal(status: StatusCode, body: &Value) -> anyhow::Error {
         return detail.context(required);
     }
     detail.context(match (status, body["code"].as_u64()) {
-        (_, Some(UNKNOWN_USERNAME)) => anyhow!("Discord has nobody by that username."),
+        (_, Some(UNKNOWN_USERNAME)) => anyhow!(tr!("Discord has nobody by that username.")),
         (_, Some(REQUESTS_CLOSED)) => {
-            anyhow!("They don't take friend requests from people they don't know.")
+            anyhow!(tr!("They don't take friend requests from people they don't know."))
         }
-        (_, Some(ALREADY_FRIENDS)) => anyhow!("You're already friends."),
-        (_, Some(UNKNOWN_APPLICATION)) => anyhow!("Discord doesn't know that application."),
+        (_, Some(ALREADY_FRIENDS)) => anyhow!(tr!("You're already friends.")),
+        (_, Some(UNKNOWN_APPLICATION)) => anyhow!(tr!("Discord doesn't know that application.")),
         (_, Some(UNKNOWN_INVITE | INVALID_INVITE)) => {
-            anyhow!("This invite is invalid or has expired.")
+            anyhow!(tr!("This invite is invalid or has expired."))
         }
-        (_, Some(BANNED)) => anyhow!("You're banned from this server."),
+        (_, Some(BANNED)) => anyhow!(tr!("You're banned from this server.")),
         (_, Some(TOO_MANY_SERVERS)) => {
-            anyhow!("You're in as many servers as Discord allows. Leave one to join another.")
+            anyhow!(tr!("You're in as many servers as Discord allows. Leave one to join another."))
         }
-        (_, Some(SERVER_FULL)) => anyhow!("This server is full."),
-        (_, Some(INVITES_PAUSED)) => anyhow!("This server has paused invites."),
-        (_, Some(UNKNOWN_GIFT)) => anyhow!("This gift code is invalid or has expired."),
-        (_, Some(GIFT_EXHAUSTED)) => anyhow!("This gift has already been redeemed."),
-        (_, Some(GIFT_OWNED)) => anyhow!("You already have what this gift grants."),
-        (_, Some(GIFT_SELF)) => anyhow!("You can't redeem a gift you made."),
+        (_, Some(SERVER_FULL)) => anyhow!(tr!("This server is full.")),
+        (_, Some(INVITES_PAUSED)) => anyhow!(tr!("This server has paused invites.")),
+        (_, Some(UNKNOWN_GIFT)) => anyhow!(tr!("This gift code is invalid or has expired.")),
+        (_, Some(GIFT_EXHAUSTED)) => anyhow!(tr!("This gift has already been redeemed.")),
+        (_, Some(GIFT_OWNED)) => anyhow!(tr!("You already have what this gift grants.")),
+        (_, Some(GIFT_SELF)) => anyhow!(tr!("You can't redeem a gift you made.")),
         (_, Some(GIFT_SUBSCRIPTION_MANAGED)) => anyhow!(
-            "You subscribe to Nitro through another provider, such as an app store, so you can't redeem Nitro gifts."
+            tr!("You subscribe to Nitro through another provider, such as an app store, so you can't redeem Nitro gifts.")
         ),
         (_, Some(GIFT_SUBSCRIPTION_INCOMPATIBLE)) => {
-            anyhow!("You can't redeem this gift while you're subscribed to Nitro.")
+            anyhow!(tr!("You can't redeem this gift while you're subscribed to Nitro."))
         }
         (_, Some(GIFT_INVOICE_OPEN)) => {
-            anyhow!("You can't redeem this gift while your subscription has an open invoice.")
+            anyhow!(tr!("You can't redeem this gift while your subscription has an open invoice."))
         }
-        (_, Some(GIFT_FRAUD_REJECTED)) => anyhow!("Discord won't let this account use this gift."),
-        (_, Some(UNKNOWN_EVENT)) => anyhow!("This event doesn't exist."),
-        (_, Some(mfa::INVALID_MFA)) => anyhow!("That didn't work. Check it and try again."),
+        (_, Some(GIFT_FRAUD_REJECTED)) => anyhow!(tr!("Discord won't let this account use this gift.")),
+        (_, Some(UNKNOWN_EVENT)) => anyhow!(tr!("This event doesn't exist.")),
+        (_, Some(mfa::INVALID_MFA)) => anyhow!(tr!("That didn't work. Check it and try again.")),
         (_, Some(mfa::MFA_REQUIRED)) => {
-            anyhow!("Discord asks for two-factor authentication, which Yapfast can't do here.")
+            anyhow!(tr!("Discord asks for two-factor authentication, which Yapfast can't do here."))
         }
         (_, Some(MISSING_PERMISSIONS)) => {
-            anyhow!("You don't have permission to do that in this server.")
+            anyhow!(tr!("You don't have permission to do that in this server."))
         }
         (StatusCode::BAD_REQUEST, Some(INVALID_FORM_BODY)) if form_errors(body).is_some() => {
             anyhow!(form_errors(body).unwrap_or_default())
         }
         // Only a 401 without a code of its own is about the login.
         (StatusCode::UNAUTHORIZED, Some(code)) if code != 0 => match body["message"].as_str() {
-            Some(message) => anyhow!("Discord refused: {message}"),
-            None => anyhow!("Discord answered {status}."),
+            Some(message) => anyhow!(tr!("Discord refused: {}", message)),
+            None => anyhow!(tr!("Discord answered {}.", status)),
         },
         _ => match status {
-            StatusCode::UNAUTHORIZED => anyhow!(UNAUTHORIZED),
+            StatusCode::UNAUTHORIZED => anyhow!(yapfast_lang::text(UNAUTHORIZED)),
             StatusCode::FORBIDDEN => {
-                anyhow!("Discord says you don't have permission to do that here.")
+                anyhow!(tr!("Discord says you don't have permission to do that here."))
             }
-            StatusCode::NOT_FOUND => anyhow!("Discord no longer has that message or channel."),
+            StatusCode::NOT_FOUND => anyhow!(tr!("Discord no longer has that message or channel.")),
             StatusCode::PAYLOAD_TOO_LARGE => {
-                anyhow!("Discord says the file is too large for your account.")
+                anyhow!(tr!("Discord says the file is too large for your account."))
             }
             StatusCode::TOO_MANY_REQUESTS => {
                 let wait = body["retry_after"].as_f64().unwrap_or(1.0).ceil();
-                anyhow!("Discord asks Yapfast to slow down. Try again in {wait} s.")
+                anyhow!(tr!("Discord asks Yapfast to slow down. Try again in {} s.", wait))
             }
             StatusCode::BAD_REQUEST if body["captcha_key"].is_array() => {
-                let message = "Discord asked for a captcha. Do this in the Discord app for now.";
+                let message = tr!("Discord asked for a captcha. Do this in the Discord app for now.");
                 // The captcha, for a caller that can show it.
                 return match Captcha::from_body(body) {
                     Some(captcha) => anyhow::Error::new(captcha).context(message),
@@ -2513,8 +2537,8 @@ fn refusal(status: StatusCode, body: &Value) -> anyhow::Error {
                 };
             }
             _ => match body["message"].as_str() {
-                Some(message) => anyhow!("Discord refused: {message}"),
-                None => anyhow!("Discord answered {status}."),
+                Some(message) => anyhow!(tr!("Discord refused: {}", message)),
+                None => anyhow!(tr!("Discord answered {}.", status)),
             },
         },
     })

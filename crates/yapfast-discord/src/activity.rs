@@ -6,6 +6,7 @@
 use std::{borrow::Cow, sync::Arc};
 
 use serde_json::Value;
+use yapfast_lang::tr;
 
 use crate::{client, ready};
 
@@ -65,14 +66,14 @@ impl Activity {
     /// custom status, such as "Playing Factorio"; none for a Hang status.
     pub fn line(&self) -> Option<String> {
         Some(match self.kind {
-            Kind::Playing => format!("Playing {}", self.name),
-            Kind::Streaming => format!(
+            Kind::Playing => tr!("Playing {}", self.name),
+            Kind::Streaming => tr!(
                 "Streaming {}",
                 self.details.as_deref().unwrap_or(&self.name)
             ),
-            Kind::Listening => format!("Listening to {}", self.name),
-            Kind::Watching => format!("Watching {}", self.name),
-            Kind::Competing => format!("Competing in {}", self.name),
+            Kind::Listening => tr!("Listening to {}", self.name),
+            Kind::Watching => tr!("Watching {}", self.name),
+            Kind::Competing => tr!("Competing in {}", self.name),
             Kind::Hang => return None,
         })
     }
@@ -86,12 +87,12 @@ impl Activity {
     /// What Discord heads its card with, such as "Listening to Spotify".
     pub fn heading(&self) -> String {
         match self.kind {
-            Kind::Playing => "Playing".into(),
-            Kind::Streaming => "Streaming".into(),
-            Kind::Listening => format!("Listening to {}", self.name),
-            Kind::Watching => "Watching".into(),
-            Kind::Competing => "Competing in".into(),
-            Kind::Hang => "Hanging out".into(),
+            Kind::Playing => tr!("Playing").into(),
+            Kind::Streaming => tr!("Streaming").into(),
+            Kind::Listening => tr!("Listening to {}", self.name),
+            Kind::Watching => tr!("Watching").into(),
+            Kind::Competing => tr!("Competing in").into(),
+            Kind::Hang => tr!("Hanging out").into(),
         }
     }
 }
@@ -326,13 +327,13 @@ fn time(value: &Value) -> Option<u64> {
 /// A Hang status's words for one of Discord's preset states.
 fn hang_words(state: &str) -> &'static str {
     match state.split(':').next().unwrap_or_default() {
-        "chilling" => "Chilling",
-        "gaming" => "Gaming",
-        "focusing" => "Focusing",
-        "brb" => "Be right back",
-        "eating" => "Eating",
-        "watching" => "Watching stuff",
-        _ => "Hanging out",
+        "chilling" => tr!("Chilling"),
+        "gaming" => tr!("Gaming"),
+        "focusing" => tr!("Focusing"),
+        "brb" => tr!("Be right back"),
+        "eating" => tr!("Eating"),
+        "watching" => tr!("Watching stuff"),
+        _ => tr!("Hanging out"),
     }
 }
 

@@ -156,14 +156,18 @@ impl StickerPicker {
             None => false,
         };
         let mut listed = vec![];
-        for (id, name, stickers) in [("favorites", "Favorites", self.favorites.iter())] {
+        for (id, name, stickers) in [(
+            "favorites",
+            yapfast_lang::tr!("Favorites"),
+            self.favorites.iter(),
+        )] {
             if let Some(collection) = ListedCollection::of(id, name, stickers, &search, usable) {
                 listed.push(collection);
             }
         }
         if let Some(collection) = ListedCollection::of(
             "frequent",
-            "Frequently Used",
+            yapfast_lang::tr!("Frequently Used"),
             self.frequent_stickers(),
             &search,
             usable,

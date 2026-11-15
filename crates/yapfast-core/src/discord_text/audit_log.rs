@@ -5,7 +5,7 @@
 use serde_json::Value;
 use yapfast_discord::ready;
 
-use super::{commands::NOT_DISCORD, *};
+use super::{commands::not_discord, *};
 use crate::chat::{AuditChange, AuditEntry, AuditLog, AuditQuery, AuditUser};
 
 /// Fetches a page of the audit log, or gives back any other command.
@@ -18,7 +18,7 @@ pub(super) fn command(
         return Some(command);
     };
     let (Ok(discord), Some(guild)) = (discord, discord::parse_server(&server)) else {
-        let why = discord.err().unwrap_or(NOT_DISCORD);
+        let why = discord.err().unwrap_or(not_discord());
         let _ = events.send(Event::AuditLogLoaded {
             server,
             query,
@@ -58,7 +58,7 @@ pub(super) async fn page(
                 error = format!("{error:#}"),
                 "could not fetch the audit log"
             );
-            format!("Discord didn't send the audit log: {error}")
+            tr!("Discord didn't send the audit log: {}", error)
         })
 }
 

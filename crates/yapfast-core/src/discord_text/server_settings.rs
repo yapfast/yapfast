@@ -12,7 +12,7 @@ use yapfast_discord::{
 };
 
 use super::{
-    commands::NOT_DISCORD,
+    commands::not_discord,
     own_profile::{picture, read_shaped},
     *,
 };
@@ -86,7 +86,7 @@ pub(super) fn command(
                 let result = discord
                     .send_mfa_sms(id)
                     .await
-                    .map_err(|error| format!("Discord didn't send a code: {error}"));
+                    .map_err(|error| tr!("Discord didn't send a code: {}", error));
                 let _ = events.send(Event::MfaTexted { id, result });
             });
         }
@@ -97,7 +97,7 @@ pub(super) fn command(
         }
         DiscordCommand::ServerSettings { server, section } => {
             let (Ok(discord), Some(guild)) = (discord, discord::parse_server(&server)) else {
-                let why = discord.err().unwrap_or(NOT_DISCORD);
+                let why = discord.err().unwrap_or(not_discord());
                 let _ = events.send(Event::ServerSettingsLoaded {
                     server,
                     section,
@@ -181,7 +181,7 @@ pub(super) fn command(
                         error = format!("{error:#}"),
                         "could not fetch server settings"
                     );
-                    format!("Discord didn't send the server's settings: {error}")
+                    tr!("Discord didn't send the server's settings: {}", error)
                 });
                 let _ = events.send(Event::ServerSettingsLoaded {
                     server,
@@ -193,18 +193,23 @@ pub(super) fn command(
         DiscordCommand::ServerPicture { kind, path } => {
             tokio::task::spawn_blocking(move || {
                 let result = match kind {
-                    ServerPicture::Icon => read_shaped(&path, ICON, ICON_PREVIEW, "a server icon"),
-                    ServerPicture::Banner => {
-                        read_shaped(&path, BACKGROUND, BACKGROUND_PREVIEW, "a server banner")
+                    ServerPicture::Icon => {
+                        read_shaped(&path, ICON, ICON_PREVIEW, tr!("a server icon"))
                     }
+                    ServerPicture::Banner => read_shaped(
+                        &path,
+                        BACKGROUND,
+                        BACKGROUND_PREVIEW,
+                        tr!("a server banner"),
+                    ),
                     ServerPicture::Splash => read_shaped(
                         &path,
                         BACKGROUND,
                         BACKGROUND_PREVIEW,
-                        "an invite background",
+                        tr!("an invite background"),
                     ),
                     ServerPicture::RoleIcon => {
-                        read_shaped(&path, ROLE_ICON, ROLE_ICON_PREVIEW, "a role icon")
+                        read_shaped(&path, ROLE_ICON, ROLE_ICON_PREVIEW, tr!("a role icon"))
                     }
                     ServerPicture::Emoji => super::expressions::read_emoji(&path),
                     ServerPicture::Sticker => super::expressions::read_sticker(&path),
@@ -214,7 +219,7 @@ pub(super) fn command(
         }
         DiscordCommand::SaveServerSettings { server, change } => {
             let (Ok(discord), Some(guild)) = (discord, discord::parse_server(&server)) else {
-                let why = discord.err().unwrap_or(NOT_DISCORD);
+                let why = discord.err().unwrap_or(not_discord());
                 let _ = events.send(Event::ServerSettingsSaved {
                     server,
                     result: Err(why.into()),
@@ -253,14 +258,14 @@ pub(super) fn command(
                         error = format!("{error:#}"),
                         "could not save server settings"
                     );
-                    format!("Couldn't save the changes: {error}")
+                    tr!("Couldn't save the changes: {}", error)
                 });
                 let _ = events.send(Event::ServerSettingsSaved { server, result });
             });
         }
         DiscordCommand::Bans { server, action } => {
             let (Ok(discord), Some(guild)) = (discord, discord::parse_server(&server)) else {
-                let why = discord.err().unwrap_or(NOT_DISCORD).to_owned();
+                let why = discord.err().unwrap_or(not_discord()).to_owned();
                 let _ = events.send(match action {
                     BansAction::Unban(user) => Event::Unbanned {
                         server,
@@ -298,7 +303,7 @@ async fn bans(
                 .await
                 .map_err(|error| {
                     tracing::info!(error = format!("{error:#}"), "Discord kept a ban");
-                    format!("Couldn't revoke the ban: {error}")
+                    tr!("Couldn't revoke the ban: {}", error)
                 });
             let _ = events.send(Event::Unbanned {
                 server,
@@ -314,7 +319,7 @@ async fn bans(
         .map(|bans| bans.into_iter().map(ban).collect())
         .map_err(|error| {
             tracing::warn!(error = format!("{error:#}"), "could not fetch bans");
-            format!("Discord didn't send the bans: {error}")
+            tr!("Discord didn't send the bans: {}", error)
         });
     let _ = events.send(Event::BansLoaded {
         server,

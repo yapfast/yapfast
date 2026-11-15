@@ -9,6 +9,7 @@ use tokio::{
     sync::oneshot,
     time::{Duration, Instant, Sleep},
 };
+use yapfast_lang::tr;
 
 use super::{server, tracker::Tracker};
 use crate::{
@@ -58,7 +59,7 @@ impl StreamOpenings {
             .voice_channel(&guild)
             .is_none_or(|current| current != channel)
         {
-            let _ = reply.send(Err(anyhow!("Join the call before going live.")));
+            let _ = reply.send(Err(anyhow!(tr!("Join the call before going live."))));
             return Ok(());
         }
         let key = stream::key(&guild, &channel, &tracker.me);
@@ -66,7 +67,7 @@ impl StreamOpenings {
             key.clone(),
             guild.clone(),
             reply,
-            "Going live again replaced this attempt.",
+            tr!("Going live again replaced this attempt."),
         );
         // Unpaused straight away, as Discord-video-stream
         // does: viewers of a paused stream get no video.
@@ -91,18 +92,18 @@ impl StreamOpenings {
                     stream_key.clone(),
                     guild,
                     reply,
-                    "Watching again replaced this attempt.",
+                    tr!("Watching again replaced this attempt."),
                 );
                 gateway.watch_stream(&stream_key).await
             }
             Some(_) => {
-                let _ = reply.send(Err(anyhow!("Join the call to watch its streams.")));
+                let _ = reply.send(Err(anyhow!(tr!("Join the call to watch its streams."))));
                 Ok(())
             }
             None => {
-                let _ = reply.send(Err(anyhow!(
+                let _ = reply.send(Err(anyhow!(tr!(
                     "That isn't a stream Yapfast knows how to watch."
-                )));
+                ))));
                 Ok(())
             }
         }
@@ -129,9 +130,9 @@ impl StreamOpenings {
     /// Ends this account's stream, or stops watching someone else's.
     pub(super) async fn end(&mut self, gateway: &mut Gateway, stream_key: &str) -> Result<()> {
         if let Some(waiting) = self.waiting.remove(stream_key) {
-            let _ = waiting
-                .reply
-                .send(Err(anyhow!("The stream was stopped before it started.")));
+            let _ = waiting.reply.send(Err(anyhow!(tr!(
+                "The stream was stopped before it started."
+            ))));
         }
         gateway.delete_stream(stream_key).await
     }
@@ -156,9 +157,9 @@ impl StreamOpenings {
         };
         if event.event == Event::StreamDelete {
             let reason = match data["reason"].as_str() {
-                Some("stream_full") => "The stream is full.",
-                Some("unauthorized") => "You aren't allowed to stream or watch here.",
-                _ => "The stream ended before it started.",
+                Some("stream_full") => tr!("The stream is full."),
+                Some("unauthorized") => tr!("You aren't allowed to stream or watch here."),
+                _ => tr!("The stream ended before it started."),
             };
             let _ = waiting.reply.send(Err(anyhow!(reason)));
             return;
@@ -195,7 +196,7 @@ impl StreamOpenings {
     /// Gives up on every stream once Discord took too long to assign one.
     pub(super) async fn timed_out(&mut self) {
         self.deadline.as_mut().await;
-        self.fail("Discord didn't assign a stream server. Try again.");
+        self.fail(tr!("Discord didn't assign a stream server. Try again."));
     }
 
     pub(super) fn fail(&mut self, message: &str) {

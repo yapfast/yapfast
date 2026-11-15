@@ -9,6 +9,7 @@
 //! placed by a slot their row names, as embeds' do.
 
 use serde_json::Value;
+use yapfast_lang::tr;
 
 use crate::message::{
     Attachment, IS_SPOILER, PREVIEW_HEIGHT, PREVIEW_WIDTH, Shown, VIEW_HEIGHT, VIEW_WIDTH,
@@ -375,7 +376,7 @@ fn select(component: &Value) -> Row {
     let text = if picked.is_empty() {
         component["placeholder"]
             .as_str()
-            .unwrap_or("Make a selection")
+            .unwrap_or(tr!("Make a selection"))
             .to_owned()
     } else {
         picked.join(", ")

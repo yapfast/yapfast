@@ -239,7 +239,7 @@ mod linux {
             ksni::ToolTip {
                 title: "Yapfast".into(),
                 description: if self.shown.unread {
-                    "Unread messages".into()
+                    yapfast_lang::tr!("Unread messages").into()
                 } else {
                     String::new()
                 },
@@ -260,12 +260,15 @@ mod linux {
                 }
                 .into()
             };
-            let mut menu = vec![item("Open Yapfast", Choice::Open)];
+            let mut menu = vec![item(yapfast_lang::tr!("Open Yapfast"), Choice::Open)];
             if self.shown.call {
-                menu.push(item("Disconnect", Choice::Disconnect));
+                menu.push(item(
+                    yapfast_lang::text_in("Tray", "Disconnect"),
+                    Choice::Disconnect,
+                ));
             }
             menu.push(MenuItem::Separator);
-            menu.push(item("Quit", Choice::Quit));
+            menu.push(item(yapfast_lang::tr!("Quit"), Choice::Quit));
             menu
         }
 
@@ -510,6 +513,11 @@ mod windows {
         }
     }
 
+    /// A menu item's text, ended by the null that Windows wants.
+    fn wide(text: &str) -> Vec<u16> {
+        text.encode_utf16().chain(std::iter::once(0)).collect()
+    }
+
     /// The icon's menu, at the pointer.
     fn menu(window: HWND) {
         let call = ICON.with_borrow(|icon| icon.as_ref().is_some_and(|icon| icon.shown.call));
@@ -517,12 +525,27 @@ mod windows {
         // this thread.
         let picked = unsafe {
             let menu = CreatePopupMenu();
-            AppendMenuW(menu, MF_STRING, OPEN, w!("Open Yapfast"));
+            AppendMenuW(
+                menu,
+                MF_STRING,
+                OPEN,
+                wide(yapfast_lang::tr!("Open Yapfast")).as_ptr(),
+            );
             if call {
-                AppendMenuW(menu, MF_STRING, DISCONNECT, w!("Disconnect"));
+                AppendMenuW(
+                    menu,
+                    MF_STRING,
+                    DISCONNECT,
+                    wide(yapfast_lang::text_in("Tray", "Disconnect")).as_ptr(),
+                );
             }
             AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
-            AppendMenuW(menu, MF_STRING, QUIT, w!("Quit"));
+            AppendMenuW(
+                menu,
+                MF_STRING,
+                QUIT,
+                wide(yapfast_lang::tr!("Quit")).as_ptr(),
+            );
             SetMenuDefaultItem(menu, OPEN as u32, 0);
             let mut at = POINT { x: 0, y: 0 };
             GetCursorPos(&mut at);

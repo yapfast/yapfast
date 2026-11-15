@@ -406,7 +406,9 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   360×270, decoded with dimension and memory limits, with a save button over the
   picture on hover. Other files show a card with a save button. Saving writes the
   decrypted file where you choose. A Discord message with several images shows
-  them as square tiles, two to a row. Where the timeline is narrower than a
+  them as square tiles, two to a row; with three, the first is a tall tile
+  beside the other two, and with five or more of an odd number the first
+  takes a row of its own. Where the timeline is narrower than a
   message's pictures, or a link preview's, they shrink to its width, keeping
   their shape, as in Discord's client; they never grow past their size.
 - Click an image to see it large over the window. It opens at the image's full

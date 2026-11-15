@@ -66,13 +66,15 @@ impl PollDraft {
     /// What's too long to post, if anything.
     pub fn problem(&self) -> Option<&'static str> {
         if self.question.chars().count() > QUESTION_LIMIT {
-            Some("The question can be at most 300 characters.")
+            Some(yapfast_lang::tr!(
+                "The question can be at most 300 characters."
+            ))
         } else if self
             .answers
             .iter()
             .any(|answer| answer.text.chars().count() > ANSWER_LIMIT)
         {
-            Some("Answers can be at most 55 characters.")
+            Some(yapfast_lang::tr!("Answers can be at most 55 characters."))
         } else {
             None
         }

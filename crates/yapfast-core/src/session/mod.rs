@@ -13,6 +13,7 @@ use matrix_sdk_ui::sync_service::SyncService;
 use uuid::Uuid;
 
 use store::{SavedSession, SecretStorage, SessionStore};
+use yapfast_lang::tr;
 
 pub struct Session {
     pub client: Client,
@@ -65,19 +66,17 @@ impl Session {
         })
         .await??;
         let client = build_client(homeserver, path, &passphrase).await?;
-        let flows = client
-            .matrix_auth()
-            .get_login_types()
-            .await
-            .map_err(|_| anyhow::anyhow!("could not check the homeserver's sign-in methods"))?;
+        let flows = client.matrix_auth().get_login_types().await.map_err(|_| {
+            anyhow::anyhow!(tr!("could not check the homeserver's sign-in methods"))
+        })?;
         if !flows
             .flows
             .iter()
             .any(|flow| flow.login_type() == "m.login.password")
         {
-            bail!(
+            bail!(tr!(
                 "this homeserver requires SSO or OAuth sign-in; this build supports password sign-in only"
-            )
+            ))
         }
         client
             .matrix_auth()
@@ -86,7 +85,9 @@ impl Session {
             .send()
             .await
             .map_err(|_| {
-                anyhow::anyhow!("sign-in failed; check the homeserver, username and password")
+                anyhow::anyhow!(tr!(
+                    "sign-in failed; check the homeserver, username and password"
+                ))
             })?;
         let session = Self {
             client,
@@ -117,7 +118,7 @@ impl Session {
         let check = store.clone();
         let (id, storage, saved) = tokio::task::spawn_blocking(move || check.load())
             .await??
-            .context("no saved session in this directory; sign in first")?;
+            .context(tr!("no saved session in this directory; sign in first"))?;
         println!("{}", storage.notice());
         if let Some(expected) = expected_homeserver
             && saved.homeserver.trim_end_matches('/') != expected
@@ -125,7 +126,7 @@ impl Session {
             bail!("the experiment accepts only local test-stack accounts")
         }
         let client = build_client(&saved.homeserver, store.sdk_path(id), &saved.passphrase).await?;
-        client.matrix_auth().restore_session(saved.session, Default::default()).await.map_err(|_| anyhow::anyhow!("could not restore the saved device; preserve the crypto store before repairing the session"))?;
+        client.matrix_auth().restore_session(saved.session, Default::default()).await.map_err(|_| anyhow::anyhow!(tr!("could not restore the saved device; preserve the crypto store before repairing the session")))?;
         client
             .encryption()
             .wait_for_e2ee_initialization_tasks()
@@ -177,9 +178,9 @@ impl Session {
             .build()
             .await
             .map_err(|_| {
-                anyhow::anyhow!(
+                anyhow::anyhow!(tr!(
                     "could not start Matrix sync; this homeserver needs Simplified Sliding Sync"
-                )
+                ))
             })?;
         service.start().await;
         Ok(SessionSync {
@@ -195,7 +196,9 @@ impl Session {
             .recover(key)
             .await
             .map_err(|_| {
-                anyhow::anyhow!("recovery failed; check the recovery key and homeserver connection")
+                anyhow::anyhow!(tr!(
+                    "recovery failed; check the recovery key and homeserver connection"
+                ))
             })?;
         self.synchronize().await?;
         self.persist().await
@@ -211,7 +214,7 @@ impl Session {
     pub async fn logout(&self) -> Result<()> {
         // Do not discard local credentials when server-side revocation failed.
         self.client.matrix_auth().logout().await.map_err(|_| {
-            anyhow::anyhow!("logout failed; credentials were kept so you can retry")
+            anyhow::anyhow!(tr!("logout failed; credentials were kept so you can retry"))
         })?;
         let store = self.store.clone();
         let id = self.id;
@@ -247,17 +250,21 @@ impl SessionSync {
                 match state.get() {
                     State::SettingUp | State::Running => return Ok(()),
                     State::Error { .. } | State::Terminated { .. } => {
-                        bail!("Matrix sync stopped; check homeserver support and connection")
+                        bail!(tr!(
+                            "Matrix sync stopped; check homeserver support and connection"
+                        ))
                     }
                     _ => {}
                 }
                 if state.next().await.is_none() {
-                    bail!("Matrix sync stopped before it loaded the account")
+                    bail!(tr!("Matrix sync stopped before it loaded the account"))
                 }
             }
         })
         .await
-        .context("Matrix sync did not load the account before its deadline")?
+        .context(tr!(
+            "Matrix sync did not load the account before its deadline"
+        ))?
     }
 }
 impl Drop for SessionSync {
@@ -279,13 +286,15 @@ async fn open_store(root: PathBuf) -> Result<Arc<SessionStore>> {
 }
 
 async fn build_client(homeserver: &str, path: PathBuf, passphrase: &str) -> Result<Client> {
-    let url = url::Url::parse(homeserver).context("invalid homeserver URL")?;
+    let url = url::Url::parse(homeserver).context(tr!("invalid homeserver URL"))?;
     let local = matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
     if url.scheme() != "https" && !(url.scheme() == "http" && local) {
-        bail!("homeservers require HTTPS; HTTP is allowed only for the local development stack")
+        bail!(tr!(
+            "homeservers require HTTPS; HTTP is allowed only for the local development stack"
+        ))
     }
     if !url.username().is_empty() || url.password().is_some() {
-        bail!("homeserver URLs must not contain credentials")
+        bail!(tr!("homeserver URLs must not contain credentials"))
     }
     // Keep the URL checked above: a login response must not move Yapfast to
     // another, possibly plain-HTTP, homeserver address. The session lock keeps
@@ -300,5 +309,5 @@ async fn build_client(homeserver: &str, path: PathBuf, passphrase: &str) -> Resu
             auto_enable_backups: false,
             backup_download_strategy: BackupDownloadStrategy::AfterDecryptionFailure,
         })
-        .build().await.map_err(|_| anyhow::anyhow!("could not open the Matrix client and encrypted stores; check the homeserver URL and preserve existing stores"))
+        .build().await.map_err(|_| anyhow::anyhow!(tr!("could not open the Matrix client and encrypted stores; check the homeserver URL and preserve existing stores")))
 }

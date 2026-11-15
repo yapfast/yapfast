@@ -84,7 +84,7 @@ pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
         let weak = Rc::downgrade(&state);
         state.borrow_mut().dialog(async move {
             let file = rfd::AsyncFileDialog::new()
-                .set_title("Choose a file")
+                .set_title(tr!("Choose a file"))
                 .pick_file()
                 .await;
             if let (Some(file), Some(adapter)) = (file, weak.upgrade()) {

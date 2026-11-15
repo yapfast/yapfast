@@ -1,0 +1,13 @@
+[package]
+name = "yapfast-lang"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+license = "GPL-3.0-or-later"
+description = "The language of Yapfast's interface: the translations in lang/, and the text of the chosen one"
+
+[lib]
+# No documentation examples run as tests: rustdoc would read the whole
+# crate on every `cargo test` for none.
+doctest = false

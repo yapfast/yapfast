@@ -27,8 +27,6 @@ pub const STICKER_DESCRIPTION_LIMIT: usize = 100;
 /// Discord's API takes up to 200 characters of related emoji.
 const STICKER_TAGS_LIMIT: usize = 200;
 
-const NO_SLOTS: &str = "This server does not have any open emoji slots!";
-
 /// Something done on Emoji. Upload Emoji chooses a file, which
 /// [`Action::PickServerPicture`] reads.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -392,7 +390,10 @@ impl Application {
                     return vec![];
                 };
                 if free == Some(0) {
-                    upload.error = Some(NO_SLOTS.to_owned());
+                    upload.error = Some(
+                        yapfast_lang::tr!("This server does not have any open emoji slots!")
+                            .to_owned(),
+                    );
                     return vec![];
                 }
                 upload.name = emoji_name(&upload.name);

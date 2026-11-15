@@ -15,7 +15,8 @@ impl Application {
         let homeserver = homeserver.trim().to_owned();
         let username = username.trim().to_owned();
         if homeserver.is_empty() || username.is_empty() || password.is_empty() {
-            self.state.notice = Some("Enter your homeserver, Matrix ID, and password.".into());
+            self.state.notice =
+                Some(yapfast_lang::tr!("Enter your homeserver, Matrix ID, and password.").into());
             return vec![];
         }
         self.start(chat::Start::Login {
@@ -30,16 +31,17 @@ impl Application {
             return vec![];
         }
         if self.state.voice.active() {
-            self.state.notice = Some("Leave voice before recovering this device.".into());
+            self.state.notice =
+                Some(yapfast_lang::tr!("Leave voice before recovering this device.").into());
             return vec![];
         }
         let key = key.trim().to_owned();
         if key.is_empty() {
-            self.state.notice = Some("Enter your Matrix recovery key.".into());
+            self.state.notice = Some(yapfast_lang::tr!("Enter your Matrix recovery key.").into());
             return vec![];
         }
         self.state.busy = true;
-        self.state.notice = Some("Recovering encryption keys...".into());
+        self.state.notice = Some(yapfast_lang::tr!("Recovering encryption keys...").into());
         vec![Effect::Backend(Command::Recover(key))]
     }
 
@@ -52,7 +54,7 @@ impl Application {
             vec![]
         } else if self.state.account.is_some() {
             self.state.busy = true;
-            self.state.notice = Some("Signing out...".into());
+            self.state.notice = Some(yapfast_lang::tr!("Signing out...").into());
             vec![Effect::Backend(Command::Logout)]
         } else {
             vec![]
@@ -63,11 +65,16 @@ impl Application {
     pub fn backend_failed(&mut self, command: &Command) {
         match command {
             // A missing picture leaves an initial; it says nothing new.
-            Command::Discord(DiscordCommand::Pictures(_) | DiscordCommand::CancelPictures(_)) => {
+            Command::Discord(
+                DiscordCommand::Pictures(_)
+                | DiscordCommand::CancelPictures(_)
+                | DiscordCommand::StreamPreview { .. },
+            ) => {
                 return;
             }
             Command::Voice(_) => {
-                self.state.voice.error = Some("Voice is unavailable. Reconnect and retry.".into());
+                self.state.voice.error =
+                    Some(yapfast_lang::tr!("Voice is unavailable. Reconnect and retry.").into());
                 return;
             }
             Command::Send { room, .. } | Command::Edit { room, .. } => {
@@ -94,7 +101,7 @@ impl Application {
         }
         self.stop_waiting();
         self.state.online = false;
-        self.state.notice = Some(STOPPED.into());
+        self.state.notice = Some(yapfast_lang::text(STOPPED).into());
     }
 
     /// Ends what dialogs wait for once no answer can come: sending a friend
@@ -107,7 +114,7 @@ impl Application {
             .filter(|dialog| dialog.sending)
         {
             dialog.sending = false;
-            dialog.outcome = Some(Err(STOPPED.into()));
+            dialog.outcome = Some(Err(yapfast_lang::text(STOPPED).into()));
         }
         if let Some(editor) = self
             .state
@@ -116,12 +123,13 @@ impl Application {
             .filter(|editor| editor.saving)
         {
             editor.saving = false;
-            editor.error = Some(STOPPED.into());
+            editor.error = Some(yapfast_lang::text(STOPPED).into());
         }
         let views = [&mut self.state.profile, &mut self.state.panel_profile];
         for view in views.into_iter().flatten().filter(|view| view.loading) {
             view.loading = false;
-            view.note = Some("Discord didn't share the rest of this profile.".into());
+            view.note =
+                Some(yapfast_lang::tr!("Discord didn't share the rest of this profile.").into());
         }
     }
 
@@ -134,7 +142,7 @@ impl Application {
         self.state.loading_history = false;
         self.stop_waiting();
         if self.state.account.is_some() && (self.state.notice.is_none() || was_busy) {
-            self.state.notice = Some(STOPPED.into());
+            self.state.notice = Some(yapfast_lang::text(STOPPED).into());
         }
     }
 

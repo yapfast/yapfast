@@ -692,7 +692,8 @@ pub(super) fn coming_size(attachment: &yapfast_core::chat::Attachment) -> (i32, 
 }
 
 /// A message's previews laid out: one at its own size, several as square
-/// tiles two to a row, together as wide as one preview.
+/// tiles two to a row, together as wide as one preview, with an odd count's
+/// first picture filling what a lone last tile would leave.
 pub(super) fn gallery(
     previews: &[Preview<'_>],
     covered: &dyn Fn(usize) -> bool,
@@ -782,24 +783,45 @@ fn gallery_cells(previews: &[Preview<'_>], covered: &dyn Fn(usize) -> bool) -> (
             (vec![(image, preview.cloned())], width, height)
         }
         _ => {
+            const WIDE: i32 = 2 * TILE + GAP;
+            let count = previews.len();
+            // An odd count's first picture takes the room a lone last tile
+            // would leave empty, as Discord's mosaic does, so the block stays
+            // a rectangle: the left column beside the other two of three, or a
+            // row of its own above the pairs.
+            let lone = count % 2;
+            let rows = (lone + (count - lone) / 2) as i32;
             let cells = previews
                 .iter()
                 .enumerate()
                 .map(|(place, (index, attachment, preview))| {
+                    let (x, y, width, height) = match (count, place) {
+                        (3, 0) => (0, 0, TILE, WIDE),
+                        (3, _) => (TILE + GAP, (place as i32 - 1) * (TILE + GAP), TILE, TILE),
+                        (_, 0) if lone == 1 => (0, 0, WIDE, TILE),
+                        _ => {
+                            let paired = place - lone;
+                            (
+                                (paired % 2) as i32 * (TILE + GAP),
+                                (lone + paired / 2) as i32 * (TILE + GAP),
+                                TILE,
+                                TILE,
+                            )
+                        }
+                    };
                     (
                         ImageCell {
-                            x: (place % 2) as i32 * (TILE + GAP),
-                            y: (place / 2) as i32 * (TILE + GAP),
-                            width: TILE,
-                            height: TILE,
+                            x,
+                            y,
+                            width,
+                            height,
                             ..cell(*index, attachment, *preview)
                         },
                         preview.cloned(),
                     )
                 })
                 .collect();
-            let rows = previews.len().div_ceil(2) as i32;
-            (cells, 2 * TILE + GAP, rows * TILE + (rows - 1) * GAP)
+            (cells, WIDE, rows * TILE + (rows - 1) * GAP)
         }
     }
 }

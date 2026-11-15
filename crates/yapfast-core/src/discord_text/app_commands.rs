@@ -41,7 +41,7 @@ pub(super) fn command(
                     error = format!("{error:#}"),
                     "could not fetch apps' commands"
                 );
-                format!("Couldn't load apps' commands: {error}")
+                tr!("Couldn't load apps' commands: {}", error)
             });
         let _ = events.send(Event::CommandIndex { room, index });
     });

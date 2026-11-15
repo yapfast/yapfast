@@ -179,9 +179,9 @@ impl Application {
                         title: room.name.clone(),
                         body: match caller {
                             Some(caller) if room.person.is_none() => {
-                                format!("{} is calling", caller.name)
+                                yapfast_lang::tr!("{} is calling", caller.name)
                             }
-                            _ => "Incoming call".into(),
+                            _ => yapfast_lang::tr!("Incoming call").into(),
                         },
                         picture: room
                             .avatar
@@ -218,7 +218,8 @@ impl Application {
             // one, the service turned Yapfast away.
             Progress::Expired if *link == DiscordLink::Starting => {
                 *link = DiscordLink::Failed(
-                    "Discord's login service closed the connection. Try again.".into(),
+                    yapfast_lang::tr!("Discord's login service closed the connection. Try again.")
+                        .into(),
                 );
             }
             Progress::Expired => {
@@ -268,7 +269,9 @@ impl Application {
                 .as_ref()
                 .is_some_and(|account| account.premium_type > 0)
             {
-                return Err("A custom emoji in a status needs Discord Nitro.");
+                return Err(yapfast_lang::tr!(
+                    "A custom emoji in a status needs Discord Nitro."
+                ));
             }
             return snapshot
                 .servers
@@ -290,10 +293,10 @@ impl Application {
                         chat::EMOJI_PICTURE_SIZE,
                     ),
                 })
-                .ok_or("None of your servers has that emoji.");
+                .ok_or(yapfast_lang::tr!("None of your servers has that emoji."));
         }
         let _ = name;
-        Err("Discord isn't linked on this device.")
+        Err(yapfast_lang::tr!("Discord isn't linked on this device."))
     }
 
     pub(super) fn change_relationship(
@@ -458,8 +461,8 @@ impl Application {
                 self.state.account_nameplate = account.nameplate.clone().map(Into::into);
             }
             self.state.account_status = Some(match &snapshot.status {
-                Status::Online => "Online".into(),
-                Status::Connecting => "Connecting to Discord...".into(),
+                Status::Online => yapfast_lang::tr!("Online").into(),
+                Status::Connecting => yapfast_lang::tr!("Connecting to Discord...").into(),
                 Status::Offline(reason) => reason.clone(),
             });
         }

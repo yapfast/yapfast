@@ -50,6 +50,7 @@ mod emoji_grid;
 mod games;
 mod gifs;
 mod keybinds;
+mod language;
 mod menus;
 mod messages;
 #[cfg(windows)]
@@ -77,6 +78,7 @@ use pictures::*;
 use profile::*;
 use refresh::{AccountCardShown, Reach, RosterShown, SidebarShown, SwitcherShown};
 use tiles::{Focus, Pip, Stage, Tiles};
+use yapfast_lang::{tr, trn};
 use yapfast_ui::*;
 
 /// How the desktop window ended.
@@ -873,7 +875,7 @@ fn message_text(row: &MessageRow) -> String {
     if !row.body.is_empty() {
         lines.push(text(&row.styled, &row.blocks));
     }
-    let pictures = |count: usize| std::iter::repeat_n("[Picture]".to_string(), count);
+    let pictures = |count: usize| std::iter::repeat_n(tr!("[Picture]").to_string(), count);
     lines.extend(pictures(row.images.row_count()));
     for embed in row.embeds.iter() {
         let mut card = Vec::new();
@@ -906,7 +908,7 @@ fn message_text(row: &MessageRow) -> String {
         }
         // The thumbnail sits level with the card's first text, to its right.
         if embed.has_thumbnail {
-            card.insert(card.len().min(1), "[Picture]".into());
+            card.insert(card.len().min(1), tr!("[Picture]").into());
         }
         lines.extend(card);
     }
@@ -914,7 +916,7 @@ fn message_text(row: &MessageRow) -> String {
         for each in card.rows.iter() {
             lines.extend(each.blocks.iter().map(|block| plain(&block.text)));
             if each.has_thumbnail {
-                lines.push("[Picture]".into());
+                lines.push(tr!("[Picture]").into());
             }
             lines.extend(pictures(each.images.row_count()));
             lines.extend(each.files.iter().map(|file| file.name.to_string()));
@@ -1247,6 +1249,9 @@ struct Layout {
     flash_taskbar: Option<bool>,
     /// DMs pinned to the top of the DM list, by room ID, the first pinned first.
     pinned: Vec<String>,
+    /// The interface's language, by its code in `yapfast_lang::LANGUAGES`;
+    /// the system's unless chosen.
+    language: Option<String>,
     /// Message times as 9:41 PM rather than 21:41.
     twelve_hour_clock: bool,
     /// Message times with their seconds, as 21:41:05.
@@ -1436,9 +1441,10 @@ fn show_motion(window: &YapfastWindow) {
         Animate::Never => false,
     };
     window.global::<Motion>().set_playing(playing);
-    window
-        .global::<Motion>()
-        .set_never(ANIMATE.get() == Animate::Never);
+    let never = ANIMATE.get() == Animate::Never;
+    window.global::<Motion>().set_never(never);
+    // The interface's own motion stops with them: see Theme.still.
+    window.global::<Theme>().set_still(never);
     // Animated emoji hold still with everything else, at once rather than at
     // the next refresh.
     i_slint_core::yapfast_emoji::set_playing(playing);
@@ -1633,6 +1639,8 @@ impl Layout {
         window.set_skip_call_prompt(self.skip_call_prompt);
         window.set_activity_cards_hidden(self.activity_cards_hidden);
         window.set_flash_taskbar(self.flash_taskbar.unwrap_or(true));
+        // Before the first frame, as the theme below.
+        language::show(window, self.language.as_deref());
         self.apply_appearance(window);
         if let Some(width) = self.aside_width {
             window.set_aside_width(width);
@@ -1763,9 +1771,9 @@ impl Layout {
                 && let Some(embed) = message.embeds.first()
             {
                 row.hidden_card = if embed.title.is_empty() {
-                    "A card, hidden while link previews are off.".into()
+                    tr!("A card, hidden while link previews are off.").into()
                 } else {
-                    format!(
+                    tr!(
                         "A card, \"{}\", hidden while link previews are off.",
                         embed.title
                     )
@@ -2802,7 +2810,7 @@ impl Adapter {
             Ok(handle) => self.dialog = Some(handle),
             Err(error) => {
                 tracing::error!(%error, "could not open the file dialog");
-                self.app.state.notice = Some("Yapfast could not open a file dialog.".into());
+                self.app.state.notice = Some(tr!("Yapfast could not open a file dialog.").into());
             }
         }
     }
@@ -2892,7 +2900,7 @@ impl Adapter {
                     let task = slint::spawn_local(async move {
                         let devices = listing
                             .await
-                            .unwrap_or_else(|_| Err("Could not list audio devices.".into()));
+                            .unwrap_or_else(|_| Err(tr!("Could not list audio devices.").into()));
                         if let Some(adapter) = weak.upgrade() {
                             let window = adapter.borrow().window.upgrade();
                             let mut adapter = adapter.borrow_mut();
@@ -3213,9 +3221,9 @@ fn show_incoming(
         window.set_incoming_name(room.name.as_str().into());
         window.set_incoming_detail(
             if room.person.is_some() || room.people.is_empty() {
-                "Incoming call".into()
+                tr!("Incoming call").into()
             } else {
-                format!("{} calling", who_is_here(&room.people))
+                tr!("{} calling", who_is_here(&room.people))
             }
             .into(),
         );
@@ -3228,10 +3236,10 @@ fn show_incoming(
 fn who_is_here(people: &[yapfast_core::chat::VoicePerson]) -> String {
     let names: Vec<&str> = people.iter().map(|person| person.name.as_str()).collect();
     match names.as_slice() {
-        [one] => format!("{one} is"),
-        [first, second] => format!("{first} and {second} are"),
-        [first, second, third] => format!("{first}, {second} and {third} are"),
-        [first, second, rest @ ..] => format!("{first}, {second} and {} others are", rest.len()),
+        [one] => tr!("{} is", one),
+        [first, second] => tr!("{} and {} are", first, second),
+        [first, second, third] => tr!("{}, {} and {} are", first, second, third),
+        [first, second, rest @ ..] => tr!("{}, {} and {} others are", first, second, rest.len()),
         [] => String::new(),
     }
 }
@@ -3316,16 +3324,11 @@ fn dm_detail(room: &yapfast_core::chat::ChatRoom) -> (SharedString, SharedString
     }
     if room.person.is_none() {
         return (
-            format!("{} members", room.members).into(),
+            trn!("{n} member", "{n} members", room.members).into(),
             SharedString::default(),
         );
     }
     activity_line(room.activity.as_deref())
-}
-
-/// A count with its noun, such as "1 member" or "12 members".
-fn count_of(count: u64, one: &str, many: &str) -> String {
-    format!("{count} {}", if count == 1 { one } else { many })
 }
 
 /// `count` with its thousands marked, as Discord writes "3,999".
@@ -3383,7 +3386,7 @@ const DEFAULT_DEVICE: &str = "name:default: ";
 
 fn device_label(name: &str) -> SharedString {
     match name.strip_prefix("default: ") {
-        Some(device) => format!("Default ({device})").into(),
+        Some(device) => tr!("Default ({})", device).into(),
         None => name.into(),
     }
 }
@@ -3426,8 +3429,8 @@ fn device_rows(
                         .get(chosen)
                         .cloned()
                         .or_else(|| chosen.strip_prefix(voice::NAMED).map(device_label))
-                        .unwrap_or_else(|| "Chosen device".into());
-                    rows.push(format!("{name} (not connected)").into());
+                        .unwrap_or_else(|| tr!("Chosen device").into());
+                    rows.push(tr!("{} (not connected)", name).into());
                     rows.len() - 1
                 }),
         ),

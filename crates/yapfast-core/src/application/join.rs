@@ -43,7 +43,10 @@ impl Application {
             return vec![];
         };
         let Some(code) = typed_code(&typed) else {
-            join.error = Some("Paste an invite link, such as https://discord.gg/yapfast.".into());
+            join.error = Some(
+                yapfast_lang::tr!("Paste an invite link, such as https://discord.gg/yapfast.")
+                    .into(),
+            );
             return vec![];
         };
         *join = JoinDialog {

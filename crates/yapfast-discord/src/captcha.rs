@@ -18,6 +18,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
 };
+use yapfast_lang::tr;
 
 /// How long the page waits for someone to solve it.
 const WAIT: Duration = Duration::from_secs(10 * 60);
@@ -94,7 +95,7 @@ pub async fn solving<T, Sent: Future<Output = Result<T>>>(
             return Err(error);
         };
         if tries == TRIES {
-            bail!("Discord didn't take the captcha. Try again.");
+            bail!(tr!("Discord didn't take the captcha. Try again."));
         }
         let page = Page::serve(&captcha).await?;
         shown(&page.url);
@@ -143,7 +144,7 @@ impl Page {
             }
         })
         .await
-        .context("Nobody solved the captcha in time. Try again.")?
+        .context(tr!("Nobody solved the captcha in time. Try again."))?
     }
 
     /// Answers one request, giving the solution if it brought one.
@@ -234,10 +235,10 @@ fn page(captcha: &Captcha) -> String {
     let rqdata = captcha.rqdata.as_deref().map_or("null".to_owned(), script);
     format!(
         r#"<!doctype html>
-<html lang="en">
+<html lang="{lang}">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width">
-<title>Link Discord to Yapfast</title>
+<title>{title}</title>
 <style>
   body {{ margin: 0; min-height: 100vh; display: flex; flex-direction: column;
     align-items: center; justify-content: center; gap: 16px;
@@ -245,8 +246,8 @@ fn page(captcha: &Captcha) -> String {
   h1 {{ font-size: 20px; margin: 0; }}
   p {{ margin: 0; color: #b5bac1; }}
 </style>
-<h1>Link Discord to Yapfast</h1>
-<p id="note">Discord wants to check you're a person before it links your account.</p>
+<h1>{title}</h1>
+<p id="note">{intro}</p>
 <div id="captcha"></div>
 <script>
   const sitekey = {sitekey};
@@ -257,14 +258,14 @@ fn page(captcha: &Captcha) -> String {
     if (rqdata) hcaptcha.setData(id, {{ rqdata }});
   }}
   async function solved(solution) {{
-    note.textContent = "Sending it to Yapfast...";
+    note.textContent = {sending};
     try {{
       const answer = await fetch(location.pathname, {{ method: "POST", body: solution }});
       note.textContent = answer.ok
-        ? "Done. You can close this page and go back to Yapfast."
-        : "Yapfast didn't take it. Start linking again in Yapfast.";
+        ? {done}
+        : {refused};
     }} catch {{
-      note.textContent = "Yapfast stopped waiting. Start linking again in Yapfast.";
+      note.textContent = {gave_up};
     }}
   }}
 </script>
@@ -272,6 +273,17 @@ fn page(captcha: &Captcha) -> String {
 </html>
 "#,
         sitekey = script(&captcha.sitekey),
+        lang = yapfast_lang::chosen().code,
+        title = tr!("Link Discord to Yapfast"),
+        intro = tr!("Discord wants to check you're a person before it links your account."),
+        sending = script(tr!("Sending it to Yapfast...")),
+        done = script(tr!("Done. You can close this page and go back to Yapfast.")),
+        refused = script(tr!(
+            "Yapfast didn't take it. Start linking again in Yapfast."
+        )),
+        gave_up = script(tr!(
+            "Yapfast stopped waiting. Start linking again in Yapfast."
+        )),
     )
 }
 

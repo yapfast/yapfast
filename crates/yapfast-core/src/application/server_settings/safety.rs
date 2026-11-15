@@ -93,16 +93,18 @@ impl SafetyPage {
     /// if it can't: a Discoverable server keeps it on.
     pub fn mfa_lock(&self, rule: MfaRule) -> Option<&'static str> {
         if self.settings.mfa_level == 1 && self.settings.has("DISCOVERABLE") {
-            return Some("2FA is required while this server is in Server Discovery");
+            return Some(yapfast_lang::tr!(
+                "2FA is required while this server is in Server Discovery"
+            ));
         }
         match rule {
             MfaRule::May => None,
-            MfaRule::OwnerWithoutMfa => {
-                Some("To change this setting, first enable 2FA on your account.")
-            }
-            MfaRule::NotOwner => Some(
-                "This setting can only be changed by a server owner with 2FA enabled on their account.",
-            ),
+            MfaRule::OwnerWithoutMfa => Some(yapfast_lang::tr!(
+                "To change this setting, first enable 2FA on your account."
+            )),
+            MfaRule::NotOwner => Some(yapfast_lang::tr!(
+                "This setting can only be changed by a server owner with 2FA enabled on their account."
+            )),
         }
     }
 

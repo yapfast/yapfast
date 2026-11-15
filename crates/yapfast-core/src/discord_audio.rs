@@ -14,6 +14,7 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+use yapfast_lang::tr;
 
 use anyhow::{Context, Result, anyhow};
 use livekit::webrtc::native::apm::AudioProcessingModule;
@@ -628,8 +629,8 @@ pub fn speakers(
         .context("could not start Discord speakers")?;
     result
         .recv_timeout(Duration::from_secs(5))
-        .map_err(|_| anyhow!("The speakers didn't open in time."))?
-        .context("Could not open your speakers. Choose another device.")?;
+        .map_err(|_| anyhow!(tr!("The speakers didn't open in time.")))?
+        .context(tr!("Could not open your speakers. Choose another device."))?;
     Ok((Speakers { stop }, frames))
 }
 
@@ -795,8 +796,10 @@ pub fn capture(
     })?;
     result
         .recv_timeout(Duration::from_secs(5))
-        .map_err(|_| anyhow!("The microphone didn't open in time."))?
-        .context("Could not open your microphone. Check permissions or choose another device.")?;
+        .map_err(|_| anyhow!(tr!("The microphone didn't open in time.")))?
+        .context(tr!(
+            "Could not open your microphone. Check permissions or choose another device."
+        ))?;
     Ok(Capture {
         stop,
         talking,

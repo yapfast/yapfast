@@ -6,6 +6,7 @@ use std::sync::{Mutex, OnceLock};
 
 use anyhow::{Result, anyhow, bail};
 use keyring::Entry;
+use yapfast_lang::tr;
 
 const SERVICE: &str = "io.github.yapfast.Yapfast";
 /// The linked Discord account, set by linking by QR code or by the developer
@@ -132,7 +133,7 @@ pub fn forget() -> Result<()> {
 pub fn clean(token: &str) -> Result<String> {
     let token = token.trim().trim_matches(['"', '\'']).trim();
     if token.is_empty() || token.contains(char::is_whitespace) {
-        bail!("That doesn't look like a Discord token.");
+        bail!(tr!("That doesn't look like a Discord token."));
     }
     Ok(token.to_owned())
 }

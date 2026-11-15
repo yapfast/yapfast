@@ -12,6 +12,7 @@ use std::{
 use anyhow::{Context, Result, anyhow, bail};
 use serde_json::{Value, json};
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
+use yapfast_lang::tr;
 
 use crate::{
     activity, activity_feed,
@@ -1223,7 +1224,7 @@ impl Discord {
         files: Vec<Vec<u8>>,
     ) -> Result<bool> {
         if files.len() != run.files.len() {
-            bail!("Yapfast lost a file of this command. Choose it again.");
+            bail!(tr!("Yapfast lost a file of this command. Choose it again."));
         }
         let files = run.files.iter().cloned().zip(files).collect();
         self.interact_with_files(&interactions::Interaction::Command(run), files)
@@ -1240,10 +1241,10 @@ impl Discord {
         files: Vec<Vec<u8>>,
     ) -> Result<bool> {
         let interactions::Interaction::Modal { files: names, .. } = form else {
-            bail!("Only a form carries files.");
+            bail!(tr!("Only a form carries files."));
         };
         if files.len() != names.len() {
-            bail!("Yapfast lost a file of this form. Choose it again.");
+            bail!(tr!("Yapfast lost a file of this form. Choose it again."));
         }
         let files = names.iter().cloned().zip(files).collect();
         self.interact_with_files(form, files).await
@@ -1305,14 +1306,16 @@ impl Discord {
     /// This gateway session's id, which an interaction names.
     async fn session(&self) -> Result<String> {
         let (reply, answer) = oneshot::channel();
-        self.requests
-            .send(Request::Session(reply))
-            .map_err(|_| anyhow!("Discord isn't connected. Restart Yapfast and try again."))?;
+        self.requests.send(Request::Session(reply)).map_err(|_| {
+            anyhow!(tr!(
+                "Discord isn't connected. Restart Yapfast and try again."
+            ))
+        })?;
         answer
             .await
             .ok()
             .flatten()
-            .context("Discord isn't connected yet. Try again in a moment.")
+            .context(tr!("Discord isn't connected yet. Try again in a moment."))
     }
 
     async fn interact_with_files(
@@ -1431,22 +1434,22 @@ impl Discord {
     ) -> Result<Found> {
         let query = search::Query::parse(text).map_err(|why| anyhow!(why))?;
         if query.is_empty() {
-            bail!("Type something to search for.");
+            bail!(tr!("Type something to search for."));
         }
         let in_server = server(guild);
         let channel = match (in_server, channel) {
             (Some(_), _) => "",
             (None, Some(channel)) => channel,
-            (None, None) => bail!("Yapfast can't tell which DM to search."),
+            (None, None) => bail!(tr!("Yapfast can't tell which DM to search.")),
         };
         let mut params = query.params();
         for name in &query.channels {
             let Some(guild) = in_server else {
-                bail!("in: picks a server's channels, and a DM has none.");
+                bail!(tr!("in: picks a server's channels, and a DM has none."));
             };
             let id = self
                 .channel_named(guild, name)
-                .ok_or_else(|| anyhow!("This server has no channel called #{name}."))?;
+                .ok_or_else(|| anyhow!(tr!("This server has no channel called #{}.", name)))?;
             params.push(("channel_id", id));
         }
         for name in &query.from {
@@ -1478,9 +1481,9 @@ impl Discord {
             };
             tokio::time::sleep(wait).await;
         }
-        Err(anyhow!(
+        Err(anyhow!(tr!(
             "Discord is still getting these messages ready to search. Try again in a moment."
-        ))
+        )))
     }
 
     /// The id of a server's text channel by its name, the same letters
@@ -1519,7 +1522,7 @@ impl Discord {
             .find(|id| called(id))
             .or(found.first())
             .cloned()
-            .ok_or_else(|| anyhow!("Yapfast can't find anyone called {name} here."))
+            .ok_or_else(|| anyhow!(tr!("Yapfast can't find anyone called {} here.", name)))
     }
 
     /// Makes a group DM with `users`; returns its channel id. The DM list
@@ -1616,7 +1619,7 @@ impl Discord {
                 .iter()
                 .find(|server| server.id == guild)
                 .and_then(|server| server.channel(forum))
-                .ok_or_else(|| anyhow!("Yapfast doesn't know that forum."))?;
+                .ok_or_else(|| anyhow!(tr!("Yapfast doesn't know that forum.")))?;
             match forum.archive_after {
                 0 => DEFAULT_ARCHIVE,
                 minutes => minutes,
@@ -1862,7 +1865,7 @@ impl Discord {
             match answered.await {
                 Ok(mfa::Answer::Token(confirmed)) => token = Some(confirmed),
                 Ok(mfa::Answer::Cancelled) | Err(_) => {
-                    bail!("Two-factor authentication was cancelled.")
+                    bail!(tr!("Two-factor authentication was cancelled."))
                 }
             }
         }
@@ -1875,7 +1878,7 @@ impl Discord {
         let ticket = self
             .mfa
             .ticket(id)
-            .context("That confirmation is no longer waiting.")?;
+            .context(tr!("That confirmation is no longer waiting."))?;
         let token = self.api.finish_mfa(&ticket, method, data).await?;
         self.mfa.answer(id, mfa::Answer::Token(token));
         Ok(())
@@ -1887,7 +1890,7 @@ impl Discord {
         let ticket = self
             .mfa
             .ticket(id)
-            .context("That confirmation is no longer waiting.")?;
+            .context(tr!("That confirmation is no longer waiting."))?;
         self.api.send_mfa_sms(&ticket).await
     }
 
@@ -2295,7 +2298,9 @@ impl Discord {
         self.ask_members(guild, std::iter::once(user)).await;
         let held = self.roles(guild, user);
         if !held.iter().any(|known| known == role) {
-            bail!("Yapfast doesn't know that member's roles yet. Try again.");
+            bail!(tr!(
+                "Yapfast doesn't know that member's roles yet. Try again."
+            ));
         }
         let kept: Vec<String> = held.iter().filter(|held| *held != role).cloned().collect();
         self.api.set_member_roles(guild, user, &kept).await
@@ -2923,7 +2928,7 @@ impl Discord {
     ) -> Result<()> {
         let body = change
             .body(channel)
-            .ok_or_else(|| anyhow!("Only a server has that setting."))?;
+            .ok_or_else(|| anyhow!(tr!("Only a server has that setting.")))?;
         self.api.guild_settings(guild, &body).await
     }
 
@@ -2984,7 +2989,7 @@ impl Discord {
     /// Yapfast doesn't join, is refused.
     pub async fn invite(&self, code: &str, typed: Option<&str>) -> Result<invite::Preview> {
         let invite = self.api.resolve_invite(code, typed).await?;
-        invite::Preview::of(&invite).context("This invite isn't to a server.")
+        invite::Preview::of(&invite).context(tr!("This invite isn't to a server."))
     }
 
     /// Joins a server by the invite `preview` shows, as Discord's client
@@ -2998,14 +3003,16 @@ impl Discord {
         captcha: impl FnMut(&str),
     ) -> Result<invite::Joined> {
         let (reply, answer) = oneshot::channel();
-        self.requests
-            .send(Request::Session(reply))
-            .map_err(|_| anyhow!("Discord isn't connected. Restart Yapfast and try again."))?;
+        self.requests.send(Request::Session(reply)).map_err(|_| {
+            anyhow!(tr!(
+                "Discord isn't connected. Restart Yapfast and try again."
+            ))
+        })?;
         let session = answer
             .await
             .ok()
             .flatten()
-            .context("Discord isn't connected yet. Try again in a moment.")?;
+            .context(tr!("Discord isn't connected yet. Try again in a moment."))?;
         let (api, session, context) = (&self.api, &session, &preview.context(from));
         let answer = crate::captcha::solving(
             |solved| async move {
@@ -3024,7 +3031,7 @@ impl Discord {
     /// A server's preview, by its id; see [`Api::guild_preview`].
     pub async fn guild_preview(&self, guild: &str) -> Result<guild::Preview> {
         let preview = self.api.guild_preview(guild).await?;
-        guild::Preview::of(&preview).context("Discord didn't answer with a server.")
+        guild::Preview::of(&preview).context(tr!("Discord didn't answer with a server."))
     }
 
     /// What a server's scheduled event shows from its link, and
@@ -3039,7 +3046,7 @@ impl Discord {
         let own = self.api.own_scheduled_events(guild).await?;
         let interested = scheduled_event::interested_in(&own, event);
         scheduled_event::Preview::of(&found, interested)
-            .context("This event is not in that server.")
+            .context(tr!("This event is not in that server."))
     }
 
     /// Marks this account interested in a server's scheduled event, or
@@ -3059,7 +3066,7 @@ impl Discord {
     /// [`Api::gift_code`]. An answer without a gift code is refused.
     pub async fn gift(&self, code: &str) -> Result<gift::Preview> {
         let gift = self.api.gift_code(code).await?;
-        gift::Preview::of(&gift).context("Discord didn't answer with a gift.")
+        gift::Preview::of(&gift).context(tr!("Discord didn't answer with a gift."))
     }
 
     /// Redeems the gift with this code for this account; `channel` is
@@ -3073,7 +3080,7 @@ impl Discord {
     /// [`Api::oauth_preview`].
     pub async fn oauth_preview(&self, request: &oauth::Request) -> Result<oauth::Preview> {
         let answer = self.api.oauth_preview(&request.preview_query()).await?;
-        oauth::Preview::of(&answer, request).context("Discord doesn't know that application.")
+        oauth::Preview::of(&answer, request).context(tr!("Discord doesn't know that application."))
     }
 
     /// Authorizes the application `request` names, in the server
@@ -3099,7 +3106,9 @@ impl Discord {
             .as_str()
             .or_else(|| answer["url"].as_str())
             .map(str::to_owned)
-            .context("Discord authorized it without saying where to go next.")
+            .context(tr!(
+                "Discord authorized it without saying where to go next."
+            ))
     }
 
     /// A channel's name, topic, slowmode in seconds and whether it's
@@ -3152,7 +3161,7 @@ impl Discord {
         made["id"]
             .as_str()
             .map(str::to_owned)
-            .ok_or_else(|| anyhow!("Discord made no channel."))
+            .ok_or_else(|| anyhow!(tr!("Discord made no channel.")))
     }
 
     /// Renames a channel or category, and for a text channel sets its
@@ -3281,7 +3290,7 @@ impl Discord {
         if let Some(value) = &value
             && (!ready::is_thread(value) || value["guild_id"] != guild)
         {
-            bail!("That isn't a thread of this server.");
+            bail!(tr!("That isn't a thread of this server."));
         }
         let _ = self.requests.send(Request::OpenThread {
             guild: guild.into(),
@@ -3319,9 +3328,9 @@ impl Discord {
             };
             tokio::time::sleep(wait).await;
         }
-        Err(anyhow!(
+        Err(anyhow!(tr!(
             "Discord is still getting these threads ready to search. Try again in a moment."
-        ))
+        )))
     }
 
     async fn thread_page(&self, guild: &str, answer: &Value, found: &[Value]) -> ThreadPage {
@@ -3581,12 +3590,12 @@ impl Discord {
                 .iter()
                 .find(|server| server.id == guild)
                 .and_then(|server| server.channel(channel))
-                .ok_or_else(|| anyhow!("Yapfast doesn't know that channel."))?;
+                .ok_or_else(|| anyhow!(tr!("Yapfast doesn't know that channel.")))?;
             (parent.announcement, parent.archive_after)
         };
         let kind = match (private, announcement) {
             (true, false) => ready::PRIVATE_THREAD,
-            (true, true) => bail!("An announcement channel has no private threads."),
+            (true, true) => bail!(tr!("An announcement channel has no private threads.")),
             (false, true) => ready::ANNOUNCEMENT_THREAD,
             (false, false) => ready::PUBLIC_THREAD,
         };
@@ -3665,6 +3674,19 @@ impl Discord {
     /// JPEG as a data URI.
     pub async fn stream_preview(&self, stream_key: &str, thumbnail: &str) -> Result<()> {
         self.api.stream_preview(stream_key, thumbnail).await
+    }
+
+    /// Where the preview of someone's live stream is, by the stream's key
+    /// ([`crate::stream::key`]); an error while it has none.
+    pub async fn stream_preview_url(&self, stream_key: &str) -> Result<String> {
+        self.api.stream_preview_url(stream_key).await
+    }
+
+    /// The file of the preview of someone's live stream, within `limit`
+    /// bytes: downloaded each time, since a preview changes, and not kept on
+    /// disk.
+    pub async fn stream_preview_picture(&self, stream_key: &str, limit: usize) -> Result<Vec<u8>> {
+        self.api.stream_preview_picture(stream_key, limit).await
     }
 
     /// Downloads a file from Discord's CDN, or a picture kept on disk.
@@ -3829,11 +3851,11 @@ impl Discord {
                 query: query.into(),
                 reply,
             })
-            .map_err(|_| anyhow!("Discord is offline."))?;
+            .map_err(|_| anyhow!(tr!("Discord is offline.")))?;
         tokio::time::timeout(SEARCH_TIMEOUT, found)
             .await
-            .map_err(|_| anyhow!("Discord didn't answer the search."))?
-            .map_err(|_| anyhow!("Discord disconnected during the search."))
+            .map_err(|_| anyhow!(tr!("Discord didn't answer the search.")))?
+            .map_err(|_| anyhow!(tr!("Discord disconnected during the search.")))
     }
 
     /// Opens the DM with `user`, or finds the one already open; returns its channel
@@ -3860,10 +3882,11 @@ impl Discord {
         }
         let person = !self.read_names().is_bot(user);
         if person && let Some(wait) = self.lock_new_dms().full(Instant::now()) {
-            bail!(
-                "You started {NEW_DMS} new DMs in the last few minutes, and Discord treats more as spam. Try again in {} min.",
+            bail!(tr!(
+                "You started {} new DMs in the last few minutes, and Discord treats more as spam. Try again in {} min.",
+                NEW_DMS,
                 wait.as_secs().div_ceil(60)
-            );
+            ));
         }
         let dm = self.api.open_dm(user).await?;
         if person {
@@ -3886,7 +3909,10 @@ impl Discord {
         let names = self.read_names();
         let person = |id: &String, friend: bool| Person {
             id: id.clone(),
-            name: names.user_name(id).unwrap_or("Discord user").to_owned(),
+            name: names
+                .user_name(id)
+                .unwrap_or_else(|| tr!("Discord user"))
+                .to_owned(),
             avatar: names.avatar(None, id),
             friend,
         };
@@ -3959,10 +3985,14 @@ impl Discord {
                 channel: channel.into(),
                 reply,
             })
-            .map_err(|_| anyhow!("Discord isn't connected. Restart Yapfast and try again."))?;
+            .map_err(|_| {
+                anyhow!(tr!(
+                    "Discord isn't connected. Restart Yapfast and try again."
+                ))
+            })?;
         answer
             .await
-            .map_err(|_| anyhow!("Discord disconnected while joining voice."))?
+            .map_err(|_| anyhow!(tr!("Discord disconnected while joining voice.")))?
     }
 
     pub fn leave(&self, guild: &str) {
@@ -3993,10 +4023,14 @@ impl Discord {
                 channel: channel.into(),
                 reply,
             })
-            .map_err(|_| anyhow!("Discord isn't connected. Restart Yapfast and try again."))?;
+            .map_err(|_| {
+                anyhow!(tr!(
+                    "Discord isn't connected. Restart Yapfast and try again."
+                ))
+            })?;
         answer
             .await
-            .map_err(|_| anyhow!("Discord disconnected while starting the stream."))?
+            .map_err(|_| anyhow!(tr!("Discord disconnected while starting the stream.")))?
     }
 
     /// Starts watching a stream in the voice channel this account is in.
@@ -4007,10 +4041,14 @@ impl Discord {
                 stream_key: stream_key.into(),
                 reply,
             })
-            .map_err(|_| anyhow!("Discord isn't connected. Restart Yapfast and try again."))?;
+            .map_err(|_| {
+                anyhow!(tr!(
+                    "Discord isn't connected. Restart Yapfast and try again."
+                ))
+            })?;
         answer
             .await
-            .map_err(|_| anyhow!("Discord disconnected while opening the stream."))?
+            .map_err(|_| anyhow!(tr!("Discord disconnected while opening the stream.")))?
     }
 
     /// Ends this account's stream, or stops watching someone else's.

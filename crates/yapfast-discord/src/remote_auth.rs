@@ -26,6 +26,7 @@ use tokio_tungstenite::tungstenite::{
     client::IntoClientRequest,
     http::{HeaderValue, header},
 };
+use yapfast_lang::tr;
 
 use crate::{
     api::Api,
@@ -65,8 +66,8 @@ pub enum Stopped {
 impl fmt::Display for Stopped {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            Stopped::Expired => "The code expired.",
-            Stopped::Cancelled => "Linking was cancelled on the phone.",
+            Stopped::Expired => yapfast_lang::tr!("The code expired."),
+            Stopped::Cancelled => yapfast_lang::tr!("Linking was cancelled on the phone."),
         })
     }
 }
@@ -106,7 +107,7 @@ pub async fn link(mut step: impl FnMut(Step)) -> Result<String> {
     );
     let (mut socket, _) = websocket::connect(request)
         .await
-        .context("Can't reach Discord's login service.")?;
+        .context(tr!("Can't reach Discord's login service."))?;
     let mut heartbeat = tokio::time::interval(Duration::from_secs(40));
     heartbeat.tick().await;
     loop {
@@ -198,7 +199,7 @@ async fn trade(
             return Err(error);
         };
         if shown == captcha::TRIES {
-            bail!("Discord didn't take the captcha. Try again.");
+            bail!(tr!("Discord didn't take the captcha. Try again."));
         }
         let page = captcha::Page::serve(&captcha).await?;
         step(Step::Captcha(page.url.clone()));

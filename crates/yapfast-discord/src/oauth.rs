@@ -191,7 +191,7 @@ impl Request {
 /// authorization page; none for a scope Yapfast leaves to that page, such
 /// as `webhook.incoming`, which needs a channel picked.
 pub fn scope_wants(scope: &str) -> Option<&'static str> {
-    Some(match scope {
+    Some(yapfast_lang::text(match scope {
         "bot" => "Add a bot to a server",
         "applications.commands" => "Create commands",
         "applications.commands.update" => "Update commands",
@@ -235,7 +235,7 @@ pub fn scope_wants(scope: &str) -> Option<&'static str> {
         "rpc.screenshare.write" => "Alter your screenshare settings and start screenshare",
         "rpc.activities.write" => "Set your current activity",
         _ => return None,
-    })
+    }))
 }
 
 /// A server an application could be added to, from the preview's list.

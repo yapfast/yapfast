@@ -250,7 +250,8 @@ pub(super) fn fill_picker_icons(adapter: &Adapter) {
         }
         let row = section.heading.max(0) as usize;
         if let Some(heading) = rows.row_data(row)
-            && heading.heading == section.icon.name
+            // The heading is in capitals; the section's name is as typed.
+            && heading.heading.as_str() == section.icon.name.to_uppercase()
             && heading.icon.size().width == 0
         {
             rows.set_row_data(
@@ -862,7 +863,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             let weak = Rc::downgrade(&state);
             state.borrow_mut().dialog(async move {
                 let files = rfd::AsyncFileDialog::new()
-                    .set_title("Choose files")
+                    .set_title(tr!("Choose files"))
                     .pick_files()
                     .await;
                 if let (Some(files), Some(adapter)) = (files, weak.upgrade()) {
@@ -1560,10 +1561,10 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             state.borrow_mut().dialog(async move {
                 let file = rfd::AsyncFileDialog::new()
                     .set_title(match kind {
-                        ProfilePicture::Avatar => "Change Avatar",
-                        ProfilePicture::Banner => "Change Banner",
+                        ProfilePicture::Avatar => tr!("Change Avatar"),
+                        ProfilePicture::Banner => tr!("Change Banner"),
                     })
-                    .add_filter("Pictures", &["png", "jpg", "jpeg", "gif", "webp"])
+                    .add_filter(tr!("Pictures"), &["png", "jpg", "jpeg", "gif", "webp"])
                     .pick_file()
                     .await;
                 if let (Some(file), Some(adapter)) = (file, weak.upgrade()) {
@@ -2187,6 +2188,13 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     });
     let state = adapter.clone();
     let weak = window.as_weak();
+    window.on_language_chosen(move |index| {
+        if let Some(window) = weak.upgrade() {
+            state.borrow_mut().choose_language(&window, index);
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
     window.on_choose_theme(move |id| {
         if let Some(window) = weak.upgrade() {
             state.borrow_mut().choose_theme(&window, &id);
@@ -2473,7 +2481,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             let weak = Rc::downgrade(&state);
             state.borrow_mut().dialog(async move {
                 let files = rfd::AsyncFileDialog::new()
-                    .set_title("Attach files")
+                    .set_title(tr!("Attach files"))
                     .pick_files()
                     .await;
                 if let (Some(files), Some(adapter)) = (files, weak.upgrade()) {
@@ -2613,7 +2621,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 .filter(|name| !name.is_empty())
                 .unwrap_or_else(|| "attachment".into());
             let file = rfd::AsyncFileDialog::new()
-                .set_title("Save attachment")
+                .set_title(tr!("Save attachment"))
                 .set_file_name(name)
                 .save_file()
                 .await;
@@ -3746,9 +3754,9 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         if let (Some(window), Some(meter)) = (weak.upgrade(), &state.borrow().meter) {
             window.set_input_level(meter.level());
             window.set_meter_note(SharedString::from(if !meter::AVAILABLE {
-                "The level meter isn't available on this system yet."
+                tr!("The level meter isn't available on this system yet.")
             } else if meter.failed() {
-                "Yapfast can't read this microphone. Check that it's connected, or choose another."
+                tr!("Yapfast can't read this microphone. Check that it's connected, or choose another.")
             } else {
                 ""
             }));
@@ -3771,9 +3779,9 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 window.set_gate_sending(meter.sending());
                 window.set_gate_meter_note(SharedString::from(
                     if !yapfast_core::discord_audio::AVAILABLE {
-                        "Discord voice and its level aren't available on this system yet."
+                        tr!("Discord voice and its level aren't available on this system yet.")
                     } else if meter.failed() {
-                        "Yapfast can't read this microphone. Check that it's connected, or choose another."
+                        tr!("Yapfast can't read this microphone. Check that it's connected, or choose another.")
                     } else {
                         ""
                     },

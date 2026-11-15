@@ -8,6 +8,7 @@ use std::{
 };
 
 use serde_json::Value;
+use yapfast_lang::tr;
 
 use super::{
     Account, BlockedUser, Conversation, DO_NOT_DISTURB, Friend, FriendRequest, Live, Preview,
@@ -1272,7 +1273,7 @@ impl Tracker {
             .read()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let people = std::iter::once(&self.me).chain(&group.recipients);
-        let heading = format!("Members — {}", group.recipients.len() + 1);
+        let heading = tr!("Members — {}", group.recipients.len() + 1);
         let mut members: Vec<_> = people
             .map(|user| {
                 // MemberLists gives this account its own presence.
@@ -1280,7 +1281,10 @@ impl Tracker {
                 ListedMember {
                     user_id: user.clone(),
                     bot: names.is_bot(user),
-                    name: names.user_name(user).unwrap_or("Discord user").to_owned(),
+                    name: names
+                        .user_name(user)
+                        .unwrap_or_else(|| tr!("Discord user"))
+                        .to_owned(),
                     username: names.username(user).map(str::to_owned),
                     avatar: names.avatar(None, user),
                     decoration: names.decoration(None, user),
@@ -1596,7 +1600,10 @@ impl Tracker {
             .into_iter()
             .map(|(user, (incoming, spam, _))| FriendRequest {
                 user_id: user.clone(),
-                name: names.user_name(user).unwrap_or("Discord user").to_owned(),
+                name: names
+                    .user_name(user)
+                    .unwrap_or_else(|| tr!("Discord user"))
+                    .to_owned(),
                 avatar: names.avatar(None, user),
                 incoming: *incoming,
                 spam: *spam,
@@ -1615,7 +1622,10 @@ impl Tracker {
                 Friend {
                     user_id: user.clone(),
                     name: nickname.clone().unwrap_or_else(|| {
-                        names.user_name(user).unwrap_or("Discord user").to_owned()
+                        names
+                            .user_name(user)
+                            .unwrap_or_else(|| tr!("Discord user"))
+                            .to_owned()
                     }),
                     nickname,
                     since: self.friends_since.get(user).copied(),
@@ -1638,7 +1648,7 @@ impl Tracker {
             .blocked
             .iter()
             .map(|user| {
-                let name = names.user_name(user).unwrap_or("Discord user");
+                let name = names.user_name(user).unwrap_or_else(|| tr!("Discord user"));
                 BlockedUser {
                     user_id: user.clone(),
                     name: name.to_owned(),
@@ -1735,17 +1745,17 @@ impl Tracker {
     /// A DM or group DM as the DM list shows it.
     fn conversation(&self, private: &Private, marks: Marks, names: &Names) -> Conversation {
         let (muted, unread, mentions, last_read) = marks;
-        let name = |user: &String| names.user_name(user).unwrap_or("Discord user");
+        let name = |user: &String| names.user_name(user).unwrap_or_else(|| tr!("Discord user"));
         // A friend's DM goes by the nickname this account gave them.
         let nickname = |user: &String| self.nicknames.get(user).map(String::as_str);
         let title = match (&private.name, private.recipients.as_slice()) {
             (Some(name), _) => name.clone(),
-            (None, []) if private.group => "Unnamed group".into(),
+            (None, []) if private.group => tr!("Unnamed group").into(),
             (None, recipients) if private.group => {
                 recipients.iter().map(name).collect::<Vec<_>>().join(", ")
             }
             (None, [user, ..]) => nickname(user).unwrap_or_else(|| name(user)).to_owned(),
-            (None, []) => "Discord user".into(),
+            (None, []) => tr!("Discord user").into(),
         };
         let avatar = if private.group {
             private.icon.clone()
@@ -1915,7 +1925,10 @@ impl Tracker {
                 .or_default()
                 .push(VoiceMember {
                     user_id: user.clone(),
-                    name: names.name(guild, user).unwrap_or("Discord user").to_owned(),
+                    name: names
+                        .name(guild, user)
+                        .unwrap_or_else(|| tr!("Discord user"))
+                        .to_owned(),
                     avatar: names.avatar(server(guild), user),
                     muted: entry.muted || entry.server_muted,
                     deafened: entry.deafened || entry.server_deafened,

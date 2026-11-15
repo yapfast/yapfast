@@ -2,6 +2,7 @@
 //! server. See <https://docs.discord.food/resources/user#get-user-profile>.
 
 use serde_json::Value;
+use yapfast_lang::tr;
 
 use crate::{
     message::{Tag, iso_ms, snowflake_ms},
@@ -418,7 +419,7 @@ pub fn parse(value: &Value, guild: Option<&str>) -> Option<Profile> {
     };
     let name = text(&member["nick"])
         .or_else(|| ready::display_name(user))
-        .unwrap_or("Discord user")
+        .unwrap_or_else(|| tr!("Discord user"))
         .to_owned();
     let avatar = match (guild, text(&member["avatar"])) {
         (Some(guild), Some(hash)) => ready::member_avatar(guild, &id, hash),

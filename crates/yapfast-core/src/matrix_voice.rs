@@ -4,6 +4,7 @@ use std::{
     path::Path,
     time::Duration,
 };
+use yapfast_lang::tr;
 
 use anyhow::{Context, Result, bail, ensure};
 use livekit::{
@@ -93,7 +94,7 @@ async fn joining(
     let room = session
         .client
         .get_room(&id)
-        .context("Join this channel in a Matrix client first.")?;
+        .context(tr!("Join this channel in a Matrix client first."))?;
     state.name = room
         .cached_display_name()
         .map(|name| name.to_string())
@@ -119,7 +120,9 @@ async fn joining(
         };
         if !call.session().room().e2ee_manager().enabled() {
             let _ = tokio::time::timeout(Duration::from_secs(10), call.leave()).await;
-            bail!("Voice encryption is unavailable. This connection was refused.");
+            bail!(tr!(
+                "Voice encryption is unavailable. This connection was refused."
+            ));
         }
         Ok::<_, anyhow::Error>(Some((call, audio)))
     };
@@ -149,7 +152,7 @@ async fn joining(
             _ = &mut deadline, if !cancelled => {
                 cancelled = true;
                 state.phase = Phase::Leaving;
-                state.error = Some("Voice joining timed out. Check the calling service and retry.".into());
+                state.error = Some(tr!("Voice joining timed out. Check the calling service and retry.").into());
                 cancel.send_replace(true);
                 snapshots.send_replace(state.clone());
             }
@@ -160,8 +163,8 @@ async fn joining(
                     return match result {
                         Ok(Some((call, _audio))) => {
                             tokio::time::timeout(Duration::from_secs(10), call.leave()).await
-                                .context("Voice departure timed out. Check the connection before retrying.")?
-                                .map_err(|_| anyhow::anyhow!("Could not finish leaving voice. Check the connection before retrying."))?;
+                                .context(tr!("Voice departure timed out. Check the connection before retrying."))?
+                                .map_err(|_| anyhow::anyhow!(tr!("Could not finish leaving voice. Check the connection before retrying.")))?;
                             Ok(None)
                         }
                         other => other,
@@ -177,11 +180,17 @@ async fn joining(
 fn join_error(error: matrix_rtc_livekit::CallError) -> anyhow::Error {
     let text = error.to_string();
     let message = if text.contains("no livekit transport") {
-        "This homeserver doesn't advertise a MatrixRTC calling service (MSC4143). Ask its administrator to add one, or set YAPFAST_RTC_AUTHORIZATION_URL."
+        tr!(
+            "This homeserver doesn't advertise a MatrixRTC calling service (MSC4143). Ask its administrator to add one, or set YAPFAST_RTC_AUTHORIZATION_URL."
+        )
     } else if matches!(error, matrix_rtc_livekit::CallError::Media(_)) {
-        "The calling service refused the voice connection. Check that it allows this homeserver, then retry."
+        tr!(
+            "The calling service refused the voice connection. Check that it allows this homeserver, then retry."
+        )
     } else {
-        "Could not join or finish leaving voice. Check the calling service and connection, then retry."
+        tr!(
+            "Could not join or finish leaving voice. Check the calling service and connection, then retry."
+        )
     };
     tracing::warn!(kind = call_error_kind(&error), "voice join failed");
     anyhow::anyhow!(message)
@@ -198,9 +207,9 @@ fn call_error_kind(error: &matrix_rtc_livekit::CallError) -> &'static str {
 pub(crate) async fn require_voice_channel(room: &Room) -> Result<()> {
     ensure!(
         room.state() == matrix_sdk::RoomState::Joined,
-        "Join this channel in a Matrix client first."
+        tr!("Join this channel in a Matrix client first.")
     );
-    ensure!(room.is_call(), "Select a voice channel to join voice.");
+    ensure!(room.is_call(), tr!("Select a voice channel to join voice."));
     require_trusted_encrypted_room(room).await?;
     // Read authoritative slot content before joining. An encrypted Matrix room
     // alone does not require the RTC slot to encrypt its media.
@@ -213,7 +222,9 @@ pub(crate) async fn require_voice_channel(room: &Room) -> Result<()> {
         ))
         .await
         .map_err(|_| {
-            anyhow::anyhow!("This voice channel has no available call. Ask its owner to set it up.")
+            anyhow::anyhow!(tr!(
+                "This voice channel has no available call. Ask its owner to set it up."
+            ))
         })?;
     let content: serde_json::Value = serde_json::from_str(slot.event_or_content.get())?;
     ensure!(
@@ -222,7 +233,7 @@ pub(crate) async fn require_voice_channel(room: &Room) -> Result<()> {
             .and_then(|value| value.get("type"))
             .and_then(|value| value.as_str())
             == Some("m.per_member"),
-        "This voice channel does not require encrypted audio. Ask its owner to enable it."
+        tr!("This voice channel does not require encrypted audio. Ask its owner to enable it.")
     );
     Ok(())
 }
@@ -234,16 +245,17 @@ fn call_options(room: &Room) -> Result<CallOptions> {
             .then(|| "http://localhost:16080".into())
     });
     if let Some(url) = &fallback {
-        let url = url::Url::parse(url)
-            .context("Invalid calling-service URL. Check Yapfast's configuration.")?;
+        let url = url::Url::parse(url).context(tr!(
+            "Invalid calling-service URL. Check Yapfast's configuration."
+        ))?;
         let local = matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
         ensure!(
             url.scheme() == "https" || (url.scheme() == "http" && local),
-            "The calling-service URL needs HTTPS."
+            tr!("The calling-service URL needs HTTPS.")
         );
         ensure!(
             url.username().is_empty() && url.password().is_none(),
-            "The calling-service URL must not contain credentials."
+            tr!("The calling-service URL must not contain credentials.")
         );
     }
     Ok(CallOptions {
@@ -259,7 +271,9 @@ fn use_microphone(audio: &PlatformAudio, id: &str) -> Result<()> {
         .recording_devices()
         .find(|device| device_id(device.id.as_str(), &device.name) == id)
         .and_then(|device| u16::try_from(device.index).ok())
-        .context("Selected microphone is unavailable. Choose another device.")?;
+        .context(tr!(
+            "Selected microphone is unavailable. Choose another device."
+        ))?;
     let runtime = LkRuntime::instance();
     let factory = runtime.pc_factory();
     let running = factory.recording_is_initialized();
@@ -267,7 +281,7 @@ fn use_microphone(audio: &PlatformAudio, id: &str) -> Result<()> {
         (!running || factory.stop_recording())
             && factory.set_recording_device(index)
             && (!running || (factory.init_recording() && factory.start_recording())),
-        "Could not switch microphone. Refresh devices and choose another."
+        tr!("Could not switch microphone. Refresh devices and choose another.")
     );
     Ok(())
 }
@@ -278,7 +292,9 @@ fn use_speakers(audio: &PlatformAudio, id: &str) -> Result<()> {
         .playout_devices()
         .find(|device| device_id(device.id.as_str(), &device.name) == id)
         .and_then(|device| u16::try_from(device.index).ok())
-        .context("Selected speakers are unavailable. Choose another device.")?;
+        .context(tr!(
+            "Selected speakers are unavailable. Choose another device."
+        ))?;
     let runtime = LkRuntime::instance();
     let factory = runtime.pc_factory();
     let running = factory.playout_is_initialized();
@@ -286,7 +302,7 @@ fn use_speakers(audio: &PlatformAudio, id: &str) -> Result<()> {
         (!running || factory.stop_playout())
             && factory.set_playout_device(index)
             && (!running || (factory.init_playout() && factory.start_playout())),
-        "Could not switch speakers. Refresh devices and choose another."
+        tr!("Could not switch speakers. Refresh devices and choose another.")
     );
     Ok(())
 }
@@ -303,7 +319,7 @@ async fn connected(
     let result = async {
         collect_devices(&audio, state);
         state.cameras = crate::camera::list();
-        ensure!(!state.speakers.is_empty(), "No speakers found. Connect an audio output and retry.");
+        ensure!(!state.speakers.is_empty(), tr!("No speakers found. Connect an audio output and retry."));
         // A remembered device may be unplugged; the system default stands in
         // for it, and the choice is kept for when it returns.
         if let Some(id) = &state.microphone && let Err(error) = use_microphone(&audio, id) {
@@ -402,10 +418,10 @@ async fn connected(
                 } else if let Some(Some(problem)) = device_problems.get(&person.member_id).filter(|_| settled) {
                     Some(*problem)
                 } else if undecryptable.contains(&person.member_id) {
-                    Some("Their audio can't be decrypted. They may need to rejoin.")
+                    Some(tr!("Their audio can't be decrypted. They may need to rejoin."))
                 } else if missing_since.get(&person.member_id).is_some_and(|since| now.duration_since(*since) >= KEY_GRACE)
                     || (settled && connected && sfu_identity.is_some_and(|id| !call.imported_key_for(&id))) {
-                    Some("Their audio key hasn't arrived, so you can't hear them yet.")
+                    Some(tr!("Their audio key hasn't arrived, so you can't hear them yet."))
                 } else {
                     None
                 };
@@ -433,7 +449,7 @@ async fn connected(
             tokio::select! {
                 command = commands.recv() => match command {
                     None | Some(Command::Leave) => break,
-                    Some(Command::Join(_)) => state.error = Some("Leave your current voice channel before joining another.".into()),
+                    Some(Command::Join(_)) => state.error = Some(tr!("Leave your current voice channel before joining another.").into()),
                     Some(Command::Mute(muted)) => {
                         // Unmuting while deafened means wanting to talk, which needs hearing too.
                         if !muted && state.deafened {
@@ -461,14 +477,14 @@ async fn connected(
                             Err(_) => {
                                 set_muted(&call, &audio, &mut microphone, true).await?;
                                 state.muted = true;
-                                state.error = Some("Could not switch microphone. Refresh devices and choose another.".into());
+                                state.error = Some(tr!("Could not switch microphone. Refresh devices and choose another.").into());
                             }
                         }
                     }
                     Some(Command::Speaker(id)) => {
                         match use_speakers(&audio, &id) {
                             Ok(()) => { state.speaker = Some(id); state.error = None; Chosen::write(remembered, state); },
-                            Err(_) => state.error = Some("Could not switch speakers. Refresh devices and choose another.".into()),
+                            Err(_) => state.error = Some(tr!("Could not switch speakers. Refresh devices and choose another.").into()),
                         }
                     }
                     Some(Command::Camera(id)) => {
@@ -500,7 +516,7 @@ async fn connected(
                         }
                         state.camera_phase = CameraPhase::Off;
                     }
-                    Some(Command::GoLive(_)) => state.error = Some("Screen sharing works in Discord calls for now.".into()),
+                    Some(Command::GoLive(_)) => state.error = Some(tr!("Screen sharing works in Discord calls for now.").into()),
                     Some(Command::StopLive | Command::SwitchLive | Command::Watch(_) | Command::StopWatching | Command::Soundboard(_) | Command::PreviewSound(_) | Command::FavoriteSound(..) | Command::LeaveStale) => {}
                 },
                 result = camera::opened(&mut opening) => {
@@ -520,7 +536,7 @@ async fn connected(
                         }
                     }
                 }
-                changed = roster.changed() => if changed.is_err() { bail!("Voice ended. Join again to reconnect."); },
+                changed = roster.changed() => if changed.is_err() { bail!(tr!("Voice ended. Join again to reconnect.")); },
                 () = crate::push_to_talk::changed(&mut talk) => {}
                 // Device trust can change while connected, for example after
                 // verifying someone in another client.
@@ -531,7 +547,7 @@ async fn connected(
                         state.phase = if degraded { Phase::Reconnecting } else { Phase::Connected };
                         if degraded { reconnect_deadline.get_or_insert(Instant::now() + Duration::from_secs(60)); } else { reconnect_deadline = None; }
                     }
-                    Ok(CallEvent::Ended { .. }) => bail!("Voice disconnected. Check your connection and join again."),
+                    Ok(CallEvent::Ended { .. }) => bail!(tr!("Voice disconnected. Check your connection and join again.")),
                     // Only our own sender failing means our audio is unprotected.
                     Ok(CallEvent::FrameEncryptionState { member_id, state: encryption, .. }) if member_id == own_member => {
                         if encryption.is_failure() {
@@ -539,7 +555,7 @@ async fn connected(
                             state.muted = true;
                             encryption_fault = true;
                             state.end_to_end = false;
-                            state.error = Some("Audio encryption failed. Your microphone is muted. Check device verification or rejoin.".into());
+                            state.error = Some(tr!("Audio encryption failed. Your microphone is muted. Check device verification or rejoin.").into());
                         } else if encryption_fault {
                             encryption_fault = false;
                             state.end_to_end = true;
@@ -564,8 +580,8 @@ async fn connected(
                             }
                         }
                     }
-                    Ok(CallEvent::KeyDiscarded { .. }) => state.error = Some("A participant's audio key was refused. They may need to verify their device.".into()),
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => bail!("Voice ended. Join again to reconnect."),
+                    Ok(CallEvent::KeyDiscarded { .. }) => state.error = Some(tr!("A participant's audio key was refused. They may need to verify their device.").into()),
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => bail!(tr!("Voice ended. Join again to reconnect.")),
                     _ => {}
                 },
                 // A camera's tile came into sight, went, or changed size.
@@ -589,12 +605,12 @@ async fn connected(
                         tracing::info!("microphone republished after reconnecting; restoring its key index");
                         call.reassert_local_key_index();
                     }
-                    Some(RoomEvent::Disconnected { .. }) | None => bail!("Voice disconnected. Check your connection and join again."),
+                    Some(RoomEvent::Disconnected { .. }) | None => bail!(tr!("Voice disconnected. Check your connection and join again.")),
                     _ => {}
                 },
                 // The next turn plays everyone at their new volumes.
                 Ok(()) = volumes.changed() => {}
-                _ = reconnect_timeout(reconnect_deadline) => bail!("Voice could not reconnect within 60 seconds. Join again when your connection returns."),
+                _ = reconnect_timeout(reconnect_deadline) => bail!(tr!("Voice could not reconnect within 60 seconds. Join again when your connection returns.")),
             }
         }
         // Leaving takes the track out of the call; the camera closes here.
@@ -611,9 +627,9 @@ async fn connected(
     snapshots.send_replace(state.clone());
     let departure = tokio::time::timeout(Duration::from_secs(10), call.leave()).await;
     if result.is_ok() && !matches!(departure, Ok(Ok(()))) {
-        bail!(
+        bail!(tr!(
             "Audio stopped, but departure could not be confirmed. Channel membership will expire."
-        );
+        ));
     }
     result
 }
@@ -631,25 +647,25 @@ async fn device_problem(
     person: &matrix_rtc_media::Participant,
 ) -> Option<&'static str> {
     let Ok(user) = matrix_sdk::ruma::OwnedUserId::try_from(person.user_id.as_str()) else {
-        return Some("Unrecognized account; audio keys can't be exchanged.");
+        return Some(tr!("Unrecognized account; audio keys can't be exchanged."));
     };
     // One verified user with a changed identity blocks every key we send.
     if let Ok(Some(identity)) = client.encryption().get_user_identity(&user).await
         && identity.has_verification_violation()
     {
-        return Some(
-            "Changed identity since you verified them. Nobody can receive your audio key until you verify them again in a Matrix client.",
-        );
+        return Some(tr!(
+            "Changed identity since you verified them. Nobody can receive your audio key until you verify them again in a Matrix client."
+        ));
     }
     let Some(device) = person.device_id.as_deref() else {
-        return Some("Unknown device; audio keys can't be exchanged.");
+        return Some(tr!("Unknown device; audio keys can't be exchanged."));
     };
     match client.encryption().get_device(&user, device.into()).await {
         Ok(Some(device)) if device.is_cross_signed_by_owner() => None,
-        Ok(Some(_)) => {
-            Some("Unverified device. It can't receive your audio key, and Yapfast refuses its key.")
-        }
-        _ => Some("Unknown device; your audio key may not reach it."),
+        Ok(Some(_)) => Some(tr!(
+            "Unverified device. It can't receive your audio key, and Yapfast refuses its key."
+        )),
+        _ => Some(tr!("Unknown device; your audio key may not reach it.")),
     }
 }
 
@@ -772,20 +788,20 @@ async fn set_muted(
         if let Some(track) = microphone.as_ref() {
             track.mute();
             if audio.is_recording_initialized() {
-                audio.stop_recording().context(
-                    "Could not stop microphone capture. Leave voice to release the device.",
-                )?;
+                audio.stop_recording().context(tr!(
+                    "Could not stop microphone capture. Leave voice to release the device."
+                ))?;
             }
         }
     } else {
         ensure!(
             audio.recording_devices().next().is_some(),
-            "No microphone found. Connect a microphone and refresh devices."
+            tr!("No microphone found. Connect a microphone and refresh devices.")
         );
         if let Some(track) = microphone.as_ref() {
-            audio.start_recording().context(
-                "Could not start your microphone. Check permissions or choose another device.",
-            )?;
+            audio.start_recording().context(tr!(
+                "Could not start your microphone. Check permissions or choose another device."
+            ))?;
             track.unmute();
         } else {
             let track =
@@ -809,17 +825,17 @@ async fn set_muted(
                             track.mute();
                         }
                         let _ = audio.stop_recording();
-                        bail!(
+                        bail!(tr!(
                             "Could not start your microphone. Check permissions or choose another device."
-                        );
+                        ));
                     }
                 }
                 _ => {
                     track.mute();
                     let _ = audio.stop_recording();
-                    bail!(
+                    bail!(tr!(
                         "Could not publish your microphone. Check permissions and connection, then retry."
-                    );
+                    ));
                 }
             }
         }

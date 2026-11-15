@@ -22,6 +22,7 @@ use std::{
     },
     time::{Duration, Instant},
 };
+use yapfast_lang::tr;
 
 use anyhow::{Context, Result};
 
@@ -571,7 +572,7 @@ fn decode(download: Download, sound: bool, shared: &Shared) {
     let Some(mut video) = Video::open(download, sound) else {
         let mut state = shared.lock();
         if !state.stop {
-            state.failed = Some("Yapfast can't play this video.".into());
+            state.failed = Some(tr!("Yapfast can't play this video.").into());
         }
         return;
     };

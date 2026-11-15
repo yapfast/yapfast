@@ -23,6 +23,7 @@ use crate::{
         Sharing, State, StreamQuality, StreamStats, Watching, devices,
     },
 };
+use yapfast_lang::tr;
 
 /// How long the call's details show a shared screen's last report: the
 /// worker sends one each second while the stream is live.
@@ -165,7 +166,7 @@ fn join_failed(guild: &str, step: Step, error: anyhow::Error) -> anyhow::Error {
     match step {
         Step::Asking => error,
         Step::Connecting => {
-            let shown = format!("Couldn't connect to Discord voice: {error}.");
+            let shown = tr!("Couldn't connect to Discord voice: {}.", error);
             error.context(shown)
         }
     }
@@ -248,7 +249,7 @@ impl Watch {
             .participants
             .iter()
             .find(|person| person.id == user)
-            .map_or_else(|| "Someone".into(), |person| person.user.clone());
+            .map_or_else(|| tr!("Someone").into(), |person| person.user.clone());
         state.watching = Some(Box::new(Watching {
             user: user.to_owned(),
             name,
@@ -319,15 +320,15 @@ pub(crate) async fn call(
 ) -> Result<()> {
     ensure!(
         discord_audio::AVAILABLE,
-        "Discord voice has no sound on this system yet."
+        tr!("Discord voice has no sound on this system yet.")
     );
     let mut discord_states = discord.snapshots();
     let me = discord_states.borrow().user_id.clone().unwrap_or_default();
     state.name = call_name(&discord_states.borrow(), guild, channel)
         .unwrap_or(if guild == PRIVATE {
-            "Discord call"
+            tr!("Discord call")
         } else {
-            "Discord voice"
+            tr!("Discord voice")
         })
         .to_owned();
     snapshots.send_replace(state.clone());
@@ -365,7 +366,7 @@ pub(crate) async fn call(
             () = &mut deadline => {
                 tracing::warn!(kind = kind(guild), "Discord voice took too long to connect");
                 discord.leave(guild);
-                bail!("Discord voice took too long to connect. Try again.");
+                bail!(tr!("Discord voice took too long to connect. Try again."));
             }
             result = &mut joining => break result,
             Ok(event) = live.recv() => match event {
@@ -568,7 +569,7 @@ pub(crate) async fn call(
                 command = commands.recv() => {
                     match command {
                         None | Some(Command::Leave) => break,
-                        Some(Command::Join(_)) => state.error = Some("Leave your current voice channel before joining another.".into()),
+                        Some(Command::Join(_)) => state.error = Some(tr!("Leave your current voice channel before joining another.").into()),
                         Some(Command::Mute(true)) => {
                             capture = None;
                             state.muted = true;
@@ -610,7 +611,7 @@ pub(crate) async fn call(
                                     Ok(opened) => capture = Some(opened),
                                     Err(_) => {
                                         state.muted = true;
-                                        state.error = Some("Could not switch microphone. Refresh devices and choose another.".into());
+                                        state.error = Some(tr!("Could not switch microphone. Refresh devices and choose another.").into());
                                     }
                                 }
                             }
@@ -621,7 +622,7 @@ pub(crate) async fn call(
                             speakers = None;
                             match open_discord_speakers(state, &played, &hearing) {
                                 Ok(opened) => speakers = Some(opened),
-                                Err(_) => state.error = Some("Could not switch speakers. Refresh devices and choose another.".into()),
+                                Err(_) => state.error = Some(tr!("Could not switch speakers. Refresh devices and choose another.").into()),
                             }
                         }
                         Some(Command::Camera(id)) => {
@@ -703,7 +704,7 @@ pub(crate) async fn call(
                                 tokio::spawn(async move {
                                     if let Err(error) = discord.send_sound(&channel, &sound).await {
                                         tracing::warn!(error = format!("{error:#}"), "Discord didn't play a soundboard sound");
-                                        let _ = events.send(SoundEvent::Refused(format!("Discord didn't play {}: {error}", sound.name)));
+                                        let _ = events.send(SoundEvent::Refused(tr!("Discord didn't play {}: {}", sound.name, error)));
                                     }
                                 });
                             }
@@ -723,7 +724,7 @@ pub(crate) async fn call(
                                 tokio::spawn(async move {
                                     if let Err(error) = discord.set_favorite_sounds(&favorites).await {
                                         tracing::warn!(error = format!("{error:#}"), "could not change the favourite sounds");
-                                        let _ = events.send(SoundEvent::Refused(format!("Couldn't change your favorite sounds: {error}")));
+                                        let _ = events.send(SoundEvent::Refused(tr!("Couldn't change your favorite sounds: {}", error)));
                                     }
                                 });
                             }
@@ -840,13 +841,13 @@ pub(crate) async fn call(
                     ringing = None;
                     let warning = match result {
                         Ok(true) => None,
-                        Ok(false) => Some(format!(
+                        Ok(false) => Some(tr!(
                             "Discord doesn't let you ring {}. They'll see the call when they open the DM.",
                             state.name
                         )),
                         Err(error) => {
                             tracing::warn!(error = format!("{error:#}"), "could not ring the DM call");
-                            Some(format!("Discord didn't ring them: {error}"))
+                            Some(tr!("Discord didn't ring them: {}", error))
                         }
                     };
                     if warning.is_some() && alone(&discord_states.borrow(), &channel, &me) {
@@ -970,7 +971,7 @@ pub(crate) async fn call(
                         {
                             stopped.stop(discord, state);
                             if reason.as_deref() != Some("user_requested") {
-                                state.error = Some("Discord ended your stream.".into());
+                                state.error = Some(tr!("Discord ended your stream.").into());
                             }
                             snapshots.send_replace(state.clone());
                         }
@@ -994,9 +995,9 @@ pub(crate) async fn call(
                                 }
                                 Ok(Err(error)) => {
                                     tracing::warn!(error = format!("{error:#}"), "could not follow the call to its new voice server");
-                                    bail!("Discord moved the call to another voice server, and Yapfast couldn't connect to it. Join again.");
+                                    bail!(tr!("Discord moved the call to another voice server, and Yapfast couldn't connect to it. Join again."));
                                 }
-                                Err(_) => bail!("Discord moved the call to another voice server, which took too long to answer. Join again."),
+                                Err(_) => bail!(tr!("Discord moved the call to another voice server, which took too long to answer. Join again.")),
                             }
                         }
                     }
@@ -1033,11 +1034,11 @@ pub(crate) async fn call(
                     lost.as_mut().reset(tokio::time::Instant::now() + MOVE_GRACE);
                 }
                 () = &mut lost, if dropped => {
-                    bail!("Discord voice disconnected. Join again to reconnect.");
+                    bail!(tr!("Discord voice disconnected. Join again to reconnect."));
                 }
                 changed = discord_states.changed() => {
                     if changed.is_err() || discord_states.borrow().status != Status::Online {
-                        bail!("Lost the connection to Discord. Join again when it's back.");
+                        bail!(tr!("Lost the connection to Discord. Join again when it's back."));
                     }
                     // A channel made for the call may be named only now.
                     if let Some(name) = call_name(&discord_states.borrow(), guild, &channel)
@@ -1214,7 +1215,7 @@ fn discord_participants(
                 server_deafened: false,
                 speaking: false,
                 connected: false,
-                problem: Some("Calling...".into()),
+                problem: Some(tr!("Calling...").into()),
                 avatar: Some(member.avatar.clone()),
                 streaming: false,
                 video: None,

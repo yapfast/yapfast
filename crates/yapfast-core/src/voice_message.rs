@@ -15,6 +15,7 @@ use std::{
     },
     time::Duration,
 };
+use yapfast_lang::tr;
 
 use anyhow::{Context, Result};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
@@ -147,9 +148,9 @@ impl Player {
                         error = format!("{error:#}"),
                         "could not download a voice message"
                     );
-                    let _ = reported.send(Report::Failed(
-                        "Yapfast couldn't download this voice message.",
-                    ));
+                    let _ = reported.send(Report::Failed(tr!(
+                        "Yapfast couldn't download this voice message."
+                    )));
                     return;
                 }
             };
@@ -288,7 +289,9 @@ fn play_on(
                     error = format!("{error:#}"),
                     "could not play a voice message"
                 );
-                let _ = reports.send(Report::Failed("Yapfast couldn't play this voice message."));
+                let _ = reports.send(Report::Failed(tr!(
+                    "Yapfast couldn't play this voice message."
+                )));
                 return;
             }
         }

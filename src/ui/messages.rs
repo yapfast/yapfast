@@ -348,10 +348,10 @@ pub(super) fn notice_text(
     let text = match &notice.kind {
         NoticeKind::Pinned(item) => {
             let jump = item.as_ref().map(|item| format!("{JUMP_LINK}{item}"));
-            format!(
+            tr!(
                 " pinned {} to this channel. See all {}.",
-                strong("a message", theme::text_color(), jump.as_deref()),
-                strong("pinned messages", theme::text_color(), Some(PINS_LINK)),
+                strong(tr!("a message"), theme::text_color(), jump.as_deref()),
+                strong(tr!("pinned messages"), theme::text_color(), Some(PINS_LINK)),
             )
         }
         // A possessive follows the name without a space.
@@ -638,8 +638,8 @@ pub(super) fn message_row_within(
             .map(|(index, attachment)| {
                 let size = attachment.size.map(file_size);
                 let detail = match (attachment.image, attachment.preview_failed, size) {
-                    (true, true, Some(size)) => format!("{size} · Preview unavailable"),
-                    (true, true, None) => "Preview unavailable".into(),
+                    (true, true, Some(size)) => format!("{size} · {}", tr!("Preview unavailable")),
+                    (true, true, None) => tr!("Preview unavailable").into(),
                     (_, _, Some(size)) => size,
                     _ => String::new(),
                 };
@@ -677,15 +677,19 @@ pub(super) fn message_row_within(
         .collect();
     let (delivery, can_retry, can_cancel) = match message.delivery {
         Delivery::Sent => ("", false, false),
-        Delivery::Sending => ("Sending...", false, true),
+        Delivery::Sending => (tr!("Sending..."), false, true),
         Delivery::Waiting => (
-            "Not sent yet. Yapfast sends it when the connection returns.",
+            tr!("Not sent yet. Yapfast sends it when the connection returns."),
             false,
             true,
         ),
         // An app's command, whose row says why.
-        Delivery::Failed if message.item.starts_with("c:") => ("Not sent.", true, true),
-        Delivery::Failed => ("Not sent. The server refused this message.", true, true),
+        Delivery::Failed if message.item.starts_with("c:") => (tr!("Not sent."), true, true),
+        Delivery::Failed => (
+            tr!("Not sent. The server refused this message."),
+            true,
+            true,
+        ),
     };
     let reply_author = message
         .reply
@@ -881,22 +885,29 @@ pub(super) fn message_row_within(
     if collapsed(message, revealed) {
         // Discord shows nothing of a blocked message until asked.
         let note = format!(
-            "*Blocked message.* [Show it](<{BLOCKED_LINK}{}>)",
+            "*{}* [{}](<{BLOCKED_LINK}{}>)",
+            tr!("Blocked message."),
+            tr!("Show it"),
             message.item
         );
         return MessageRow {
-            author: "Blocked user".into(),
+            author: tr!("Blocked user").into(),
             sender: SharedString::default(),
-            author_styled: bold("Blocked user"),
+            author_styled: bold(tr!("Blocked user")),
+            // A disc in the palette's neutral grey, as the avatars around it
+            // are discs, though it names no one.
             initial: "?".into(),
-            tint: Default::default(),
+            tint: {
+                let (red, green, blue) = TINTS[TINTS.len() - 1];
+                slint::Color::from_rgb_u8(red, green, blue)
+            },
             color: Default::default(),
             has_color: false,
             bot: false,
             forwarded: false,
-            body: "Blocked message.".into(),
+            body: tr!("Blocked message.").into(),
             styled: slint::StyledText::from_markdown(&note)
-                .unwrap_or_else(|_| slint::StyledText::from_plain_text("Blocked message.")),
+                .unwrap_or_else(|_| slint::StyledText::from_plain_text(tr!("Blocked message."))),
             has_reply: false,
             has_command: false,
             reactions: ModelRc::default(),
@@ -1213,33 +1224,29 @@ fn blocks_of(
 /// how many more.
 pub(super) fn reaction_tip(emoji: &str, names: &[String], count: usize) -> String {
     let others = count.saturating_sub(names.len());
-    let more = match others {
-        1 => "1 other".to_owned(),
-        others => format!("{others} others"),
-    };
+    let more = trn!("{n} other", "{n} others", others);
     let people = match (names, others) {
         ([one], 0) => one.clone(),
-        ([one], _) => format!("{one} and {more}"),
-        ([one, two], 0) => format!("{one} and {two}"),
-        ([one, two], _) => format!("{one}, {two}, and {more}"),
-        ([one, two, three], 0) => format!("{one}, {two}, and {three}"),
-        ([one, two, three, ..], _) => format!("{one}, {two}, {three}, and {more}"),
-        _ => format!("{count} people"),
+        ([one], _) => tr!("{} and {}", one, more),
+        ([one, two], 0) => tr!("{} and {}", one, two),
+        ([one, two], _) => tr!("{}, {}, and {}", one, two, more),
+        ([one, two, three], 0) => tr!("{}, {}, and {}", one, two, three),
+        ([one, two, three, ..], _) => tr!("{}, {}, {}, and {}", one, two, three, more),
+        _ => trn!("{n} person", "{n} people", count),
     };
-    format!("{emoji} reacted by {people}")
+    tr!("{} reacted by {}", emoji, people)
 }
 
 fn thread_detail(thread: &yapfast_core::chat::ThreadLink) -> String {
     let count = match thread.messages {
         None => None,
-        Some(0) => Some("No messages yet".to_owned()),
-        Some(1) => Some("1 message".to_owned()),
-        Some(count) => Some(format!("{count} messages")),
+        Some(0) => Some(tr!("No messages yet").to_owned()),
+        Some(count) => Some(trn!("{n} message", "{n} messages", count)),
     };
     match (count, thread.archived) {
-        (Some(count), true) => format!("{count}, archived"),
+        (Some(count), true) => tr!("{}, archived", count),
         (Some(count), false) => count,
-        (None, true) => "Archived".into(),
+        (None, true) => tr!("Archived").into(),
         (None, false) => String::new(),
     }
 }
@@ -1392,7 +1399,7 @@ pub(super) fn emoji_card(
                 // The font's own 136px rendition, so a larger card and a
                 // doubled display both draw it from more pixels than they show.
                 picture: emoji_text::picture(emoji).unwrap_or_default(),
-                description: DEFAULT_EMOJI.into(),
+                description: yapfast_lang::text(DEFAULT_EMOJI).into(),
                 ..Default::default()
             };
         }
@@ -1442,9 +1449,9 @@ pub(super) fn emoji_card(
             .map(|emoji| cached_picture(pictures, state, Some(&emoji.picture)))
             .unwrap_or_default(),
         description: if server.is_some() {
-            SERVER_EMOJI
+            yapfast_lang::text(SERVER_EMOJI)
         } else {
-            OTHER_EMOJI
+            yapfast_lang::text(OTHER_EMOJI)
         }
         .into(),
         server: server_id,
@@ -1453,10 +1460,10 @@ pub(super) fn emoji_card(
         server_initial: server_letter,
         server_online: preview
             .and_then(|preview| preview.online)
-            .map_or_else(String::new, |online| format!("{} Online", grouped(online)))
+            .map_or_else(String::new, |online| tr!("{} Online", grouped(online)))
             .into(),
         server_note: if discoverable {
-            "Discoverable Server"
+            tr!("Discoverable Server")
         } else {
             ""
         }
@@ -1528,18 +1535,18 @@ pub(super) fn sticker_card(app: &Application, item: &str, index: usize) -> Messa
         delays,
         server_online: preview
             .and_then(|preview| preview.online)
-            .map_or_else(String::new, |online| format!("{} Online", grouped(online)))
+            .map_or_else(String::new, |online| tr!("{} Online", grouped(online)))
             .into(),
         server_note: if discoverable {
-            "Discoverable Server"
+            tr!("Discoverable Server")
         } else {
             ""
         }
         .into(),
         description: if server.is_some() {
-            SERVER_STICKER
+            yapfast_lang::text(SERVER_STICKER)
         } else {
-            DEFAULT_STICKER
+            yapfast_lang::text(DEFAULT_STICKER)
         }
         .into(),
         server: server

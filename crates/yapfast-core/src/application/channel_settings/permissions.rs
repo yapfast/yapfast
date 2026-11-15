@@ -52,6 +52,11 @@ pub fn channel_permission(
     kind: ChannelKind,
     everyone: bool,
 ) -> (&'static str, &'static str) {
+    let (title, description) = english_permission(bit, kind, everyone);
+    (yapfast_lang::text(title), yapfast_lang::text(description))
+}
+
+fn english_permission(bit: u32, kind: ChannelKind, everyone: bool) -> (&'static str, &'static str) {
     use ChannelKind::{Category, Voice};
     let category = kind == Category;
     // Most read "these channels" for a category, "this channel" otherwise.

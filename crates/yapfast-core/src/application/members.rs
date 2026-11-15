@@ -503,7 +503,7 @@ impl Application {
             };
             let name = name
                 .or_else(|| self.state.person(&user).map(|person| person.name))
-                .unwrap_or_else(|| "this member".into());
+                .unwrap_or_else(|| yapfast_lang::tr!("this member").into());
             let text = match ask {
                 PersonAsk::ServerNickname => nickname.unwrap_or_default(),
                 _ => String::new(),

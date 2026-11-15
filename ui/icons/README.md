@@ -45,10 +45,12 @@ glyphs such as check, x and chevrons.
   badges are drawn for Yapfast; the icons under them are the ones above.
 
 The rest are Lucide icons (https://lucide.dev/), under the accompanying
-LICENSE (ISC): calendar, check, chevron-down, chevron-left, chevron-right,
-hand, maximize, minimize, minus, restore, slash, square and x. restore is
-Lucide's copy icon, which the title bar shows for its restore button. forward
-and reply are Lucide's corner-up-right and corner-up-left.
+LICENSE (ISC): arrow-up-right, calendar, check, chevron-down, chevron-left,
+chevron-right, hand, maximize, minimize, minus, restore, slash, square and
+x. arrow-up-right follows the label of a message's button that opens a link,
+as Discord's does. restore is Lucide's copy icon, which the title bar shows
+for its restore button. forward and reply are Lucide's corner-up-right and
+corner-up-left.
 
 discord.svg is Discord's logo from Simple Icons 16.34.0
 (https://simpleicons.org/, CC0 1.0), filled white. It marks Discord servers
@@ -61,13 +63,10 @@ it rather than the ISC licence.
 logo.svg is the app's own mark, the Shout balloon from the Yapfast logo
 sketches: a comic shout balloon with typing dots cut out of it.
 
-scroll-up, scroll-down, scroll-left and scroll-right are the scrollbar arrows of
-Slint 1.18.1's Fluent style (https://slint.dev/), unmodified, under Slint's
-licence (GPL-3.0-only, the Royalty-free License 2.0 or the Software License 3.0).
-
 - Drawn for Yapfast: eyedropper, for the name style window's own colour.
 - Drawn for Yapfast: moon and sun, for the name style preview light and dark switch.
 - Drawn for Yapfast: shop, for the profile editor.
 - Drawn for Yapfast: pen, for the profile editor name field.
 - Drawn for Yapfast: brush and chevrons-right, for the profile editor's Show
   Styles and Hide Styles.
+- Drawn for Yapfast: loader, the ring that turns while a watched stream's picture is on its way.

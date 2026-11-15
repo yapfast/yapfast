@@ -74,7 +74,12 @@
 // each call connection sent and asked for.
 // A Go Live stream's video is decrypted and its frames and keyframes
 // counted, and AV1's RTP aggregation and OBU framing are checked too. GET
-// /_control/video lists what each stream received.
+// /_control/video lists what each stream received, the previews streamers
+// uploaded (`previews`), and the streams whose preview was asked for with GET
+// /streams/{key}/preview, oldest first (`previewReads`), with how many times
+// the picture it names was downloaded (`previewDownloads`). A live stream of
+// someone else's answers with the address of a drawn desktop, 512 by 288;
+// one that isn't live, or Alice's own, with 404 Unknown Stream.
 // /_control/voice-move moves Alice's call in the server to another voice
 // server, or with ?channel=ID moves her to that channel on another voice
 // server, as a member who drags her there does; POST /_control/voice-kick
@@ -3841,6 +3846,26 @@ const receivedAudio = new Map<number, Received>();
 const receivedRtx = new Map<number, Received>();
 /** Previews streamers uploaded: their size, and whether they were JPEGs. */
 const previews: { stream: string; bytes: number; jpeg: boolean }[] = [];
+/** The streams whose preview was asked for, oldest first, and how many times
+ *  the picture was downloaded. */
+const previewReads: string[] = [];
+let previewDownloads = 0;
+/** The preview of someone's stream: a desktop with a window open, drawn once. */
+let streamPreview: Uint8Array | undefined;
+function streamPreviewPicture(): Uint8Array {
+  return (streamPreview ??= png(512, 288, (x, y) => {
+    // The window: a title bar, then lines of text.
+    if (x >= 96 && x < 416 && y >= 48 && y < 232) {
+      if (y < 68) return [54, 57, 70, 255];
+      const line = Math.floor((y - 84) / 18);
+      const written = y >= 84 && (y - 84) % 18 < 8 && line < 7 && x >= 116 && x < 196 + ((line * 67) % 190);
+      return written ? [120, 126, 140, 255] : [242, 243, 245, 255];
+    }
+    // The panel along the bottom, over the wallpaper.
+    if (y >= 264) return [32, 34, 42, 255];
+    return [40 + Math.floor(x / 8), 110 + Math.floor(y / 4), 170, 255];
+  }));
+}
 
 // --- Watching: Bob's recorded stream --------------------------------------------
 
@@ -6242,6 +6267,15 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     const jpeg = thumbnail.startsWith(prefix) ? Buffer.from(thumbnail.slice(prefix.length), "base64") : Buffer.alloc(0);
     previews.push({ stream, bytes: jpeg.length, jpeg: jpeg[0] === 0xff && jpeg[1] === 0xd8 });
     return new Response(null, { status: 204 });
+  }
+
+  // A live stream's preview, for those who may watch it: where its picture
+  // is. Alice's own has none here, as before her client uploads one.
+  if (method === "GET" && (m = path.match(/^\/streams\/([^/]+)\/preview$/))) {
+    const stream = decodeURIComponent(m[1]!);
+    previewReads.push(stream);
+    if (!streams.has(stream) || stream.endsWith(`:${ALICE}`)) return notFound("Unknown Stream", 10049);
+    return json({ url: `${origin}/stream-previews/${encodeURIComponent(stream)}.png` });
   }
 
   if (method === "GET" && path === "/soundboard-default-sounds") return json(DEFAULT_SOUNDS);
@@ -8913,6 +8947,11 @@ const server = Bun.serve<SocketData>({
         : png(460, 200, (x) => x < 14 || x >= 446 ? brass : [0, 0, 0, 0]);
       return new Response(picture, { headers: { "content-type": "image/png" } });
     }
+    // A stream's preview, where GET /streams/{key}/preview said it is.
+    if (req.method === "GET" && /^\/stream-previews\/[^/]+\.png$/.test(path)) {
+      previewDownloads++;
+      return new Response(streamPreviewPicture(), { headers: { "content-type": "image/png" } });
+    }
     const movingBanner = req.method === "GET" ? path.match(/^\/banners\/\d+\/a_[a-z]+\.gif$/) : null;
     if (movingBanner) {
       return new Response(Bun.file(new URL("gifs/hello.gif", fixtures)), { headers: { "content-type": "image/gif" } });
@@ -9312,6 +9351,8 @@ const server = Bun.serve<SocketData>({
         watchers: [...watchers.values()].map(({ timer: _, resend: _resend, repairs: _repairs, ...watcher }) => watcher),
         repairs,
         previews,
+        previewReads,
+        previewDownloads,
       });
     }
     if (req.method === "POST" && path === "/_control/stream-codec") {

@@ -255,7 +255,7 @@ pub(super) fn show(
                     .map(Shortcut::name)
                     .unwrap_or_default()
                     .into(),
-                description: binding.action.description().into(),
+                description: yapfast_lang::text(binding.action.description()).into(),
                 desktop: desktop.into(),
             }
         })

@@ -737,17 +737,19 @@ impl Status {
     pub fn talk_note(&self) -> String {
         match &self.reach {
             Reach::Asking => {
-                "Asking your desktop to let Yapfast use the key in every app...".into()
+                yapfast_lang::tr!("Asking your desktop to let Yapfast use the key in every app...").into()
             }
-            Reach::Everywhere => "Hold the key in any app to talk.".into(),
+            Reach::Everywhere => yapfast_lang::tr!("Hold the key in any app to talk.").into(),
             Reach::Desktop => match self.given.get(TALK_SHORTCUT) {
-                Some(shortcut) if !shortcut.is_empty() => format!(
-                    "Your desktop gave push to talk the shortcut {shortcut}. Hold it in any app to talk; change it in your system's global shortcuts settings."
+                Some(shortcut) if !shortcut.is_empty() => yapfast_lang::tr!(
+                    "Your desktop gave push to talk the shortcut {}. Hold it in any app to talk; change it in your system's global shortcuts settings.",
+                    shortcut
                 ),
-                _ => "Your desktop hasn't allowed this shortcut yet. Approve it in your system's global shortcuts settings.".into(),
+                _ => yapfast_lang::tr!("Your desktop hasn't allowed this shortcut yet. Approve it in your system's global shortcuts settings.").into(),
             },
-            Reach::Focused(why) => format!(
-                "{why}, so push to talk works only while Yapfast's window is in front."
+            Reach::Focused(why) => yapfast_lang::tr!(
+                "{}, so push to talk works only while Yapfast's window is in front.",
+                yapfast_lang::text(why)
             ),
         }
     }
@@ -756,12 +758,15 @@ impl Status {
     pub fn page_note(&self) -> String {
         match &self.reach {
             Reach::Asking => {
-                "Asking your desktop to let Yapfast use these keybinds in every app...".into()
+                yapfast_lang::tr!("Asking your desktop to let Yapfast use these keybinds in every app...").into()
             }
-            Reach::Everywhere => "Keybinds work in any app.".into(),
-            Reach::Desktop => "Your desktop runs these keybinds in every app: it may ask you to allow each, or give one other keys. Change them in your system's global shortcuts settings.".into(),
+            Reach::Everywhere => yapfast_lang::tr!("Keybinds work in any app.").into(),
+            Reach::Desktop => yapfast_lang::tr!("Your desktop runs these keybinds in every app: it may ask you to allow each, or give one other keys. Change them in your system's global shortcuts settings.").into(),
             Reach::Focused(why) => {
-                format!("{why}, so keybinds work only while Yapfast's window is in front.")
+                yapfast_lang::tr!(
+                    "{}, so keybinds work only while Yapfast's window is in front.",
+                    yapfast_lang::text(why)
+                )
             }
         }
     }
@@ -773,9 +778,9 @@ impl Status {
         }
         Some(match self.given.get(id) {
             Some(shortcut) if !shortcut.is_empty() => {
-                format!("Your desktop gave it the shortcut {shortcut}.")
+                yapfast_lang::tr!("Your desktop gave it the shortcut {}.", shortcut)
             }
-            _ => "Your desktop hasn't allowed it yet.".into(),
+            _ => yapfast_lang::tr!("Your desktop hasn't allowed it yet.").into(),
         })
     }
 }

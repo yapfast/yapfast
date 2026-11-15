@@ -4,7 +4,7 @@
 // lists its "Apps" from CommandChoice rows too (see MessageMenu in
 // messages.slint). See docs/discord/messages.md, "Apps' commands".
 
-import { Theme } from "theme.slint";
+import { Theme, Popup, PopupEntry } from "theme.slint";
 
 /// A row of the list over the composer: a command the picker offers, with
 /// its app's name and icon and the command's name ("config set" for a
@@ -22,6 +22,10 @@ export struct CommandOptionPill { name: string, description: string, value: stri
 component CommandFrame inherits Rectangle {
     background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
     drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+    // It grows from the composer under it as it shows.
+    enter := PopupEntry { }
+    opacity: Popup.opacity(enter.amount); transform-scale: Popup.scale(enter.amount);
+    transform-origin: { x: 0, y: self.height };
 }
 
 component CommandHeading inherits Text {
@@ -129,9 +133,10 @@ export component CommandPills inherits FlexboxLayout {
         border-radius: 4px; border-width: 1px;
         border-color: pill.error != "" ? Theme.danger : index == root.focused-index ? Theme.accent : Theme.line;
         background: index == root.focused-index ? Theme.active : Theme.raised;
+        animate background, border-color { duration: Theme.quick; }
         opacity: !pill.required && pill.value == "" && index != root.focused-index ? 0.6 : 1;
         accessible-role: button;
-        accessible-label: pill.name + (pill.required ? ", required" : ", optional") + (pill.value != "" ? ", " + pill.value : "") + (pill.error != "" ? ", " + pill.error : "");
+        accessible-label: pill.name + (pill.required ? @tr(", required") : @tr(", optional")) + (pill.value != "" ? ", " + pill.value : "") + (pill.error != "" ? ", " + pill.error : "");
         TouchArea {
             mouse-cursor: pointer;
             clicked => { root.clicked(index); }

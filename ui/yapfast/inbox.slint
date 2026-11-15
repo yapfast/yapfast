@@ -13,18 +13,21 @@ component InboxTab inherits Rectangle {
     in property <string> text;
     in property <bool> selected;
     callback clicked;
-    height: 32px;
+    // As wide as its text takes, which a translation makes longer.
+    height: 32px; width: label.preferred-width + 24px;
     border-radius: 4px;
     background: root.selected ? Theme.overlay.with-alpha(0.12) : pointer.has-hover ? Theme.overlay.with-alpha(0.06) : transparent;
+    animate background { duration: Theme.quick; }
     accessible-role: tab;
     accessible-label: root.text;
     accessible-checkable: true;
     accessible-checked: root.selected;
     accessible-action-default => { root.clicked(); }
-    Text {
-        x: 12px; width: parent.width - 24px; text: root.text; font-size: 14px; font-weight: 600;
+    label := Text {
+        x: 12px; text: root.text; font-size: 14px; font-weight: 600;
         color: root.selected ? Theme.text : Theme.secondary; vertical-alignment: center; horizontal-alignment: center;
         overflow: elide;
+        animate color { duration: Theme.quick; }
     }
     pointer := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.clicked(); } }
 }
@@ -35,6 +38,7 @@ component InboxLine inherits Rectangle {
     height: 56px;
     border-radius: 4px;
     background: pointer.has-hover ? Theme.overlay.with-alpha(0.06) : transparent;
+    animate background { duration: Theme.quick; }
     accessible-role: button;
     accessible-label: root.entry.name + ", " + root.entry.place;
     accessible-action-default => { root.clicked(); }
@@ -92,17 +96,17 @@ export component InboxPopout inherits Rectangle {
                 height: 48px;
                 HorizontalLayout {
                     padding-left: 16px; padding-right: 16px; spacing: 8px;
-                    Middle { Text { text: "Inbox"; font-size: 16px; font-weight: 700; color: Theme.text; } }
+                    Middle { Text { text: @tr("Inbox"); font-size: 16px; font-weight: 700; color: Theme.text; } }
                     Rectangle { horizontal-stretch: 1; }
-                    Middle { InboxTab { width: 80px; text: "Unreads"; selected: root.tab == 0; clicked => { root.tab = 0; root.changed-tab(); } } }
-                    Middle { InboxTab { width: 92px; text: "Mentions"; selected: root.tab == 1; clicked => { root.tab = 1; root.changed-tab(); } } }
+                    Middle { InboxTab { text: @tr("Unreads"); selected: root.tab == 0; clicked => { root.tab = 0; root.changed-tab(); } } }
+                    Middle { InboxTab { text: @tr("Mentions"); selected: root.tab == 1; clicked => { root.tab = 1; root.changed-tab(); } } }
                 }
             }
             Rectangle { height: 1px; background: Theme.line; }
             Rectangle {
                 vertical-stretch: 1;
                 if root.rows.length == 0: Text {
-                    text: root.tab == 0 ? "Unread messages from your unmuted channels show up here." : "Nothing mentions you right now.";
+                    text: root.tab == 0 ? @tr("Unread messages from your unmuted channels show up here.") : @tr("Nothing mentions you right now.");
                     color: Theme.muted; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap;
                     x: 16px; width: parent.width - 32px; height: 120px; y: 16px;
                 }

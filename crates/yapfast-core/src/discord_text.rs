@@ -36,6 +36,7 @@ use crate::{
     mention::{Mentioned, Target},
     network::Network,
 };
+use yapfast_lang::tr;
 
 mod account;
 mod app_commands;
@@ -383,7 +384,7 @@ impl Chat {
         };
         let Some(url) = url else {
             let _ = events.send(Event::VoiceMessage(Some(VoicePlayback {
-                error: Some("This voice message is no longer available.".into()),
+                error: Some(tr!("This voice message is no longer available.").into()),
                 ..playback
             })));
             return;
@@ -431,7 +432,7 @@ impl Chat {
             .and_then(|attachment| Some((attachment.video_url.clone()?, attachment.size)));
         let Some((url, size)) = found else {
             video.loading = false;
-            video.error = Some("This video is no longer available.".into());
+            video.error = Some(tr!("This video is no longer available.").into());
             let _ = events.send(Event::Video(Some(video)));
             return;
         };
@@ -457,7 +458,7 @@ impl Chat {
             Err(error) => {
                 tracing::warn!(error = format!("{error:#}"), "could not play a video");
                 video.loading = false;
-                video.error = Some("Yapfast couldn't play this video.".into());
+                video.error = Some(tr!("Yapfast couldn't play this video.").into());
                 let _ = events.send(Event::Video(Some(video)));
             }
         }

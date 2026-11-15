@@ -146,7 +146,7 @@ it. The status and the signal icon open the connection details instead.
 
 As in Discord's voice panel, the dock's status has a signal icon graded by
 the call's connection, and hovering it or the status shows the last ping
-("42 ms"). The same icon sits in the call's conversation header. A click on
+("42 ms"). A click on
 either opens the details, as Discord's popout from its panel has them: a
 Connection tab with a graph of the ping over the last five minutes, the
 average and last ping, and the outbound packet loss rate; and while the call
@@ -417,8 +417,9 @@ The soundboard button, before the camera in the dock and among the call's
 controls, opens Discord's sounds: the account's favourites first, then the
 call's server's, then with Nitro the account's other servers', then
 Discord's own, each with its emoji. A click plays one for everyone in the
-call. Hovering over one offers hearing it first, here only, and a star that
-adds it to the favourites or takes it out; a favourite's star stays lit. In
+call. Hovering over one offers hearing it first, here only, in its emoji's
+place, and a star at its end that adds it to the favourites or takes it out;
+a favourite's star stays lit. In
 a server's voice channel that takes Speak and Use Soundboard, as Discord's
 client checks, and other servers' sounds take Use External Sounds too; a DM
 call always has the soundboard. While deafened or muted by the server, it

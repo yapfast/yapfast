@@ -12,6 +12,7 @@ use std::{
 };
 
 use serde_json::Value;
+use yapfast_lang::{tr, trn};
 
 use crate::{
     collectibles::{self, Nameplate, Plate, Style},
@@ -250,7 +251,7 @@ impl Interaction {
             id: metadata["id"].as_str()?.to_owned(),
             user_id: id(&user["id"]).unwrap_or_default(),
             user: ready::display_name(user)
-                .unwrap_or("Discord user")
+                .unwrap_or_else(|| tr!("Discord user"))
                 .to_owned(),
             name: (used["type"].as_u64() != Some(COMPONENT_INTERACTION))
                 .then(|| id(&used["name"]))
@@ -259,7 +260,8 @@ impl Interaction {
             // The deprecated object has no type; it's for slash commands.
             command_type: used["command_type"].as_u64(),
             target_user: id(&used["target_user"]["id"]).map(|target| {
-                let name = ready::display_name(&used["target_user"]).unwrap_or("Discord user");
+                let name = ready::display_name(&used["target_user"])
+                    .unwrap_or_else(|| tr!("Discord user"));
                 (target, name.to_owned())
             }),
             target_message_id: id(&used["target_message_id"]),
@@ -676,11 +678,14 @@ pub fn nonce() -> String {
 fn lasted(ms: u64) -> String {
     let minutes = (ms + 30_000) / 60_000;
     match minutes {
-        0 => "a few seconds".into(),
-        1 => "a minute".into(),
-        2..45 => format!("{minutes} minutes"),
-        45..90 => "an hour".into(),
-        _ => format!("{} hours", (minutes + 30) / 60),
+        0 => tr!("a few seconds").into(),
+        1 => tr!("a minute").into(),
+        2..45 => trn!("{n} minute", "{n} minutes", minutes),
+        45..90 => tr!("an hour").into(),
+        _ => {
+            let hours = (minutes + 30) / 60;
+            trn!("{n} hour", "{n} hours", hours)
+        }
     }
 }
 
@@ -729,25 +734,25 @@ pub fn parse(value: &Value) -> Option<Message> {
     }
     let system = match kind {
         kind if written(kind) => None,
-        THREAD_CREATED => Some(format!(
+        THREAD_CREATED => Some(tr!(
             "started a thread: {}.",
             value["content"].as_str().unwrap_or_default()
         )),
-        MEMBER_JOIN => Some("joined the server.".to_owned()),
+        MEMBER_JOIN => Some(tr!("joined the server.").to_owned()),
         // Its author is the poll's.
         POLL_RESULT => Some(poll_result(&value["embeds"][0])),
-        PINNED => Some("pinned a message.".to_owned()),
+        PINNED => Some(tr!("pinned a message.").to_owned()),
         // Discord updates it with when the call ended.
         CALL => Some(
             match value["call"]["ended_timestamp"].as_str().and_then(iso_ms) {
                 Some(ended) => {
                     let started = value["id"].as_str().map_or(ended, snowflake_ms);
-                    format!(
+                    tr!(
                         "started a call that lasted {}.",
                         lasted(ended.saturating_sub(started))
                     )
                 }
-                None => "started a call.".to_owned(),
+                None => tr!("started a call.").to_owned(),
             },
         ),
         _ => return None,
@@ -1019,23 +1024,22 @@ fn poll_result(embed: &Value) -> String {
                 .filter(|total| *total > 0)
                 .map(|total| format!(" ({}%)", (votes * 100 + total / 2) / total))
                 .unwrap_or_default();
-            format!(
-                "Winning answer: {emoji}{text}, {}{share}.",
-                votes_text(votes)
+            tr!(
+                "Winning answer: {}{}, {}{}.",
+                emoji,
+                text,
+                votes_text(votes),
+                share
             )
         }
-        _ => "There was no winner.".to_owned(),
+        _ => tr!("There was no winner.").to_owned(),
     };
-    format!("'s poll \u{201c}{question}\u{201d} has closed. {winner}")
+    tr!("'s poll “{}” has closed. {}", question, winner)
 }
 
 /// "1 vote", "3 votes".
 pub fn votes_text(votes: u64) -> String {
-    if votes == 1 {
-        "1 vote".to_owned()
-    } else {
-        format!("{votes} votes")
-    }
+    trn!("{n} vote", "{n} votes", votes)
 }
 
 /// The ids `id` finds in a list.
@@ -1178,7 +1182,7 @@ fn author_name(message: &Value) -> &str {
     message["member"]["nick"]
         .as_str()
         .or_else(|| ready::display_name(&message["author"]))
-        .unwrap_or("Discord user")
+        .unwrap_or_else(|| tr!("Discord user"))
 }
 
 /// Whether a user object is one of Discord's own accounts: the `system` user,
@@ -2131,17 +2135,25 @@ impl Names {
         if let Some(id) = tag.strip_prefix("@&") {
             digits(id).then(|| {
                 let name = server.and_then(|server| server.role_names.get(id));
-                format!("@{}", name.map_or("role", String::as_str))
+                format!("@{}", name.map_or_else(|| tr!("role"), String::as_str))
             })
         } else if let Some(id) = tag.strip_prefix("@!").or_else(|| tag.strip_prefix('@')) {
-            digits(id).then(|| format!("@{}", self.name(guild, id).unwrap_or("Discord user")))
+            digits(id).then(|| {
+                format!(
+                    "@{}",
+                    self.name(guild, id).unwrap_or_else(|| tr!("Discord user"))
+                )
+            })
         } else if let Some(id) = tag.strip_prefix('#') {
             digits(id).then(|| {
                 // Anyone who may start a thread names it, and the name
                 // shows inside others' Markdown: it's escaped to show as
                 // typed.
                 let name = server.and_then(|server| server.channel_name(id));
-                format!("#{}", escape_markdown(name.unwrap_or("channel")))
+                format!(
+                    "#{}",
+                    escape_markdown(name.unwrap_or_else(|| tr!("channel")))
+                )
             })
         } else if let Some(emoji) = tag.strip_prefix("a:").or_else(|| tag.strip_prefix(':')) {
             let (name, id) = emoji.split_once(':')?;
@@ -2346,33 +2358,77 @@ fn relative(seconds: i64) -> String {
     let (minutes, hours, whole_days) =
         (rounded(span / 60.0), rounded(span / 3600.0), rounded(days));
     let (months, years) = (rounded(days / 30.436_875), rounded(days / 365.242_5));
-    let words = if rounded(span) < 60 {
-        "a few seconds".to_owned()
+    let ahead = seconds >= 0;
+    if rounded(span) < 60 {
+        (if ahead {
+            tr!("in a few seconds")
+        } else {
+            tr!("a few seconds ago")
+        })
+        .to_owned()
     } else if minutes <= 1 {
-        "a minute".to_owned()
+        (if ahead {
+            tr!("in a minute")
+        } else {
+            tr!("a minute ago")
+        })
+        .to_owned()
     } else if minutes < 60 {
-        format!("{minutes} minutes")
+        if ahead {
+            trn!("in {n} minute", "in {n} minutes", minutes)
+        } else {
+            trn!("{n} minute ago", "{n} minutes ago", minutes)
+        }
     } else if hours <= 1 {
-        "an hour".to_owned()
+        (if ahead {
+            tr!("in an hour")
+        } else {
+            tr!("an hour ago")
+        })
+        .to_owned()
     } else if hours < 22 {
-        format!("{hours} hours")
+        if ahead {
+            trn!("in {n} hour", "in {n} hours", hours)
+        } else {
+            trn!("{n} hour ago", "{n} hours ago", hours)
+        }
     } else if whole_days <= 1 {
-        "a day".to_owned()
+        (if ahead {
+            tr!("in a day")
+        } else {
+            tr!("a day ago")
+        })
+        .to_owned()
     } else if whole_days < 26 {
-        format!("{whole_days} days")
+        if ahead {
+            trn!("in {n} day", "in {n} days", whole_days)
+        } else {
+            trn!("{n} day ago", "{n} days ago", whole_days)
+        }
     } else if months <= 1 {
-        "a month".to_owned()
+        (if ahead {
+            tr!("in a month")
+        } else {
+            tr!("a month ago")
+        })
+        .to_owned()
     } else if months < 11 {
-        format!("{months} months")
+        if ahead {
+            trn!("in {n} month", "in {n} months", months)
+        } else {
+            trn!("{n} month ago", "{n} months ago", months)
+        }
     } else if years <= 1 {
-        "a year".to_owned()
+        (if ahead {
+            tr!("in a year")
+        } else {
+            tr!("a year ago")
+        })
+        .to_owned()
+    } else if ahead {
+        trn!("in {n} year", "in {n} years", years)
     } else {
-        format!("{years} years")
-    };
-    if seconds >= 0 {
-        format!("in {words}")
-    } else {
-        format!("{words} ago")
+        trn!("{n} year ago", "{n} years ago", years)
     }
 }
 

@@ -3,11 +3,10 @@
 //! `games: [{game_id, comment, tags}]`.
 
 use serde_json::Value;
+use yapfast_lang::tr;
 
 use crate::ready;
 
-/// What Discord's client calls a game it has no name for.
-const UNKNOWN_GAME: &str = "Unknown game";
 /// How many games Discord's client asks after at once.
 pub const GAMES_AT_ONCE: usize = 20;
 
@@ -59,13 +58,13 @@ pub fn parse(value: &Value) -> Vec<Widget> {
 fn widget(value: &Value) -> Option<Widget> {
     let data = &value["data"];
     let (title, lists_games) = match data["type"].as_str()? {
-        "favorite_games" => ("Favorite Game", true),
-        "current_games" => ("Games in Rotation", true),
-        "want_to_play_games" => ("Want to Play", true),
-        "played_games" => ("Games I Like", true),
-        "application" => ("Application", false),
-        "personal" => ("Personal", false),
-        "clips_gallery" => ("Clips Gallery", false),
+        "favorite_games" => (tr!("Favorite Game"), true),
+        "current_games" => (tr!("Games in Rotation"), true),
+        "want_to_play_games" => (tr!("Want to Play"), true),
+        "played_games" => (tr!("Games I Like"), true),
+        "application" => (tr!("Application"), false),
+        "personal" => (tr!("Personal"), false),
+        "clips_gallery" => (tr!("Clips Gallery"), false),
         _ => return None,
     };
     let mut seen = std::collections::HashSet::new();
@@ -81,7 +80,7 @@ fn widget(value: &Value) -> Option<Widget> {
                     .as_str()
                     .filter(|comment| !comment.trim().is_empty())
                     .map(str::to_owned),
-                name: UNKNOWN_GAME.to_owned(),
+                name: tr!("Unknown game").to_owned(),
                 icon: None,
             })
         })
@@ -105,7 +104,10 @@ pub fn parse_games(value: &Value) -> Vec<Game> {
             let media = &game["media"];
             Some(Game {
                 id: id.to_owned(),
-                name: game["name"].as_str().unwrap_or(UNKNOWN_GAME).to_owned(),
+                name: game["name"]
+                    .as_str()
+                    .unwrap_or_else(|| tr!("Unknown game"))
+                    .to_owned(),
                 icon: game_picture(id, &media["icon"])
                     .or_else(|| game_picture(id, &media["cover"])),
             })

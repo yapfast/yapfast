@@ -74,8 +74,12 @@ impl Application {
                     // A link that names its one server gets that server or
                     // none: another would add the bot where it didn't ask.
                     if dialog.guild.is_none() {
-                        dialog.error =
-                            Some("The link adds it only to a server you can't add apps to.".into());
+                        dialog.error = Some(
+                            yapfast_lang::tr!(
+                                "The link adds it only to a server you can't add apps to."
+                            )
+                            .into(),
+                        );
                     }
                 } else if dialog.guild.is_none() {
                     dialog.guild = preview
@@ -125,8 +129,12 @@ impl Application {
         }
         if preview.guild_install && dialog.guild.is_none() {
             if !preview.guild_locked {
-                dialog.error =
-                    Some("Pick a server you manage first, or ask its admin to add it.".into());
+                dialog.error = Some(
+                    yapfast_lang::tr!(
+                        "Pick a server you manage first, or ask its admin to add it."
+                    )
+                    .into(),
+                );
             }
             return vec![];
         }

@@ -10,6 +10,7 @@ use crate::{
     network::{Capabilities, Network},
     voice,
 };
+use yapfast_lang::tr;
 
 /// The text limit Yapfast enforces before queueing a message or an edit.
 pub const MAX_MESSAGE_BYTES: usize = 16_000;
@@ -317,10 +318,11 @@ impl Staged {
         let metadata = std::fs::metadata(&path)
             .ok()
             .filter(std::fs::Metadata::is_file)
-            .ok_or_else(|| format!("Yapfast could not read {name}."))?;
+            .ok_or_else(|| tr!("Yapfast could not read {}.", name))?;
         if metadata.len() > limit {
-            return Err(format!(
-                "{name} is {}; files here can be up to {}.",
+            return Err(tr!(
+                "{} is {}; files here can be up to {}.",
+                name,
                 file_size(metadata.len()),
                 file_size(limit)
             ));
@@ -371,20 +373,20 @@ impl Refusal {
 
     pub fn title(&self) -> &'static str {
         match self {
-            Self::Invalid => "Invalid file type",
-            Self::TooMany => "Too many uploads!",
-            Self::TooLarge(_) => "Your files are too powerful",
+            Self::Invalid => tr!("Invalid file type"),
+            Self::TooMany => tr!("Too many uploads!"),
+            Self::TooLarge(_) => tr!("Your files are too powerful"),
         }
     }
 
     pub fn help(&self) -> String {
         match self {
-            Self::Invalid => "That file type is not supported.".into(),
-            Self::TooMany => format!("You can only upload {MAX_FILES} files at a time!"),
+            Self::Invalid => tr!("That file type is not supported.").into(),
+            Self::TooMany => tr!("You can only upload {} files at a time!", MAX_FILES),
             // As Discord's client writes sizes here, to two places.
-            Self::TooLarge(limit) => format!(
-                "Max file size is {:.2} MB please.",
-                *limit as f64 / 1_048_576.
+            Self::TooLarge(limit) => tr!(
+                "Max file size is {} MB please.",
+                format!("{:.2}", *limit as f64 / 1_048_576.)
             ),
         }
     }
@@ -410,14 +412,14 @@ impl From<PathBuf> for OutgoingFile {
 /// A file size as people read it: bytes, KB, then MB.
 pub fn file_size(bytes: u64) -> String {
     match bytes {
-        0..1_024 => format!("{bytes} B"),
-        1_024..1_048_576 => format!("{:.0} KB", bytes as f64 / 1_024.),
+        0..1_024 => tr!("{} B", bytes),
+        1_024..1_048_576 => tr!("{} KB", format!("{:.0}", bytes as f64 / 1_024.)),
         _ => {
             let megabytes = bytes as f64 / 1_048_576.;
             if megabytes.fract() == 0.0 {
-                format!("{megabytes:.0} MB")
+                tr!("{} MB", format!("{megabytes:.0}"))
             } else {
-                format!("{megabytes:.1} MB")
+                tr!("{} MB", format!("{megabytes:.1}"))
             }
         }
     }
@@ -2857,6 +2859,13 @@ pub enum DiscordCommand {
     DeclineCall {
         room: String,
     },
+    /// The preview Discord has of `user`'s live stream in the call `room`,
+    /// which shows in their tile until the stream is watched;
+    /// [`Event::StreamPreview`] follows.
+    StreamPreview {
+        room: String,
+        user: String,
+    },
     /// Send a Discord user a friend request or accept theirs, or with
     /// `add` false, ignore theirs or cancel this account's.
     Friend {
@@ -4631,6 +4640,13 @@ pub enum Event {
         url: String,
         picture: Arc<Picture>,
     },
+    /// The preview [`DiscordCommand::StreamPreview`] asked for, decoded;
+    /// none when Discord has none of the stream, or it didn't come.
+    StreamPreview {
+        room: String,
+        user: String,
+        picture: Option<Arc<Picture>>,
+    },
     Connected {
         user: String,
         trusted: bool,
@@ -5258,15 +5274,15 @@ pub async fn run(
     #[cfg(not(feature = "matrix"))]
     {
         let refused = match start {
-            Start::Login { .. } => Some("This build of Yapfast has no Matrix sign-in."),
+            Start::Login { .. } => Some(tr!("This build of Yapfast has no Matrix sign-in.")),
             #[cfg(feature = "discord")]
             Start::Restore if discord.is_none() => Some(
                 discord_error
                     .as_deref()
-                    .unwrap_or("Link your Discord account to sign in."),
+                    .unwrap_or(tr!("Link your Discord account to sign in.")),
             ),
             #[cfg(not(feature = "discord"))]
-            Start::Restore => Some("This build of Yapfast has no networks."),
+            Start::Restore => Some(tr!("This build of Yapfast has no networks.")),
             #[allow(unreachable_patterns)]
             _ => None,
         };
@@ -5283,7 +5299,7 @@ pub async fn run(
     };
     let Ok(mut voice) = voice::Controller::start_remembering(calls, Some(remembered)) else {
         let _ = events.send(Event::Error(
-            "Could not start the voice worker. Restart Yapfast and retry.".into(),
+            tr!("Could not start the voice worker. Restart Yapfast and retry.").into(),
         ));
         return;
     };
@@ -5297,7 +5313,7 @@ pub async fn run(
     let _ = events.send(Event::Connected {
         user: "Discord".into(),
         trusted: true,
-        storage: "The Discord token is stored in the OS credential store.",
+        storage: yapfast_lang::tr!("The Discord token is stored in the OS credential store."),
     });
 
     // The actor waits on network events rather than polling the account or the UI.
@@ -5427,7 +5443,7 @@ pub async fn run(
 #[cfg(feature = "discord")]
 fn discord_failed(error: &anyhow::Error) -> String {
     tracing::warn!(error = format!("{error:#}"), "could not start Discord");
-    format!("Discord couldn't start: {error}")
+    tr!("Discord couldn't start: {}", error)
 }
 
 /// Forgets the linked Discord account on this device: leaves its call, ends

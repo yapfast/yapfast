@@ -8,20 +8,15 @@ use super::*;
 use crate::chat::{CommandRun, Interaction};
 use yapfast_discord::interactions::{self, CommandUse, Interaction as DiscordInteraction};
 
-/// What a message says under the control that failed, as Discord's client.
-const FAILED: &str = "This interaction failed";
-
-/// Discord's client says this when a control is clicked faster than
-/// Discord takes.
-const TOO_FAST: &str = "Slow down! You're clicking too fast.";
-
 /// Why an interaction Discord didn't take failed, as Discord's client says
 /// it: a refusal in its words, anything else in Yapfast's.
 fn refused(error: &anyhow::Error) -> String {
     tracing::debug!("Discord refused an interaction: {error:#}");
     match error.downcast_ref::<yapfast_discord::api::Refused>() {
-        Some(refused) if refused.rate_limited() => TOO_FAST.to_owned(),
-        Some(_) => FAILED.to_owned(),
+        Some(refused) if refused.rate_limited() => {
+            tr!("Slow down! You're clicking too fast.").to_owned()
+        }
+        Some(_) => tr!("This interaction failed").to_owned(),
         // Not connected, a file not read, or asked too often: Yapfast's.
         None => error.to_string(),
     }
@@ -90,7 +85,7 @@ fn interact(
                         let name = path.file_name().unwrap_or_default().to_string_lossy();
                         let _ = events.send(Event::InteractionFailed {
                             nonce,
-                            reason: format!("Yapfast could not read {name}."),
+                            reason: tr!("Yapfast could not read {}.", name),
                         });
                         return;
                     }
@@ -146,7 +141,7 @@ fn run_command(run: CommandRun, discord: Result<&Discord, &str>, events: &Unboun
                     let name = path.file_name().unwrap_or_default().to_string_lossy();
                     let _ = events.send(Event::InteractionFailed {
                         nonce,
-                        reason: format!("Yapfast could not read {name}."),
+                        reason: tr!("Yapfast could not read {}.", name),
                     });
                     return;
                 }
@@ -202,16 +197,17 @@ fn command_use(
         files,
     }: CommandRun,
 ) -> Result<(CommandUse, Vec<PathBuf>), &'static str> {
-    let (guild, channel) = discord::parse_room(&room).ok_or("Open a Discord channel first.")?;
+    let (guild, channel) =
+        discord::parse_room(&room).ok_or(tr!("Open a Discord channel first."))?;
     if files.len() > MAX_COMMAND_FILES {
-        return Err("A command carries up to 25 files.");
+        return Err(tr!("A command carries up to 25 files."));
     }
     let names = files
         .iter()
         .map(|path| {
             path.file_name()
                 .map(|name| name.to_string_lossy().into_owned())
-                .ok_or("Choose a file to send.")
+                .ok_or(tr!("Choose a file to send."))
         })
         .collect::<Result<_, _>>()?;
     Ok((
@@ -297,7 +293,7 @@ pub(super) fn live(live: Live, events: &UnboundedSender<Event>) -> Option<Live> 
         Live::InteractionModal(form) => Event::InteractionModal(form),
         Live::InteractionPage(page) => Event::InteractionFailed {
             nonce: page["nonce"].as_str().unwrap_or_default().to_owned(),
-            reason: "This app opens a page Yapfast can't show. Use it in Discord.".into(),
+            reason: tr!("This app opens a page Yapfast can't show. Use it in Discord.").into(),
         },
         // Only the newest autocomplete's, which [`autocomplete`] passes on.
         Live::AutocompleteChoices { .. } => return None,

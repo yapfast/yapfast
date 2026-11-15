@@ -715,21 +715,23 @@ impl OpenChannel {
         files: Vec<OutgoingFile>,
     ) -> Result<(), &'static str> {
         if (body.trim().is_empty() && files.is_empty()) || body.chars().count() > MAX_CHARS {
-            return Err("Discord messages must contain text and be at most 2,000 characters.");
+            return Err(tr!(
+                "Discord messages must contain text and be at most 2,000 characters."
+            ));
         }
         if files.len() > yapfast_discord::api::MAX_FILES {
-            return Err("A Discord message carries up to 10 files.");
+            return Err(tr!("A Discord message carries up to 10 files."));
         }
         let files = files
             .into_iter()
             .map(|OutgoingFile { path, spoiler }| {
                 let metadata =
-                    std::fs::metadata(&path).map_err(|_| "Yapfast could not read a file.")?;
+                    std::fs::metadata(&path).map_err(|_| tr!("Yapfast could not read a file."))?;
                 let name = path
                     .file_name()
                     .map(|name| name.to_string_lossy().into_owned())
                     .filter(|_| metadata.is_file())
-                    .ok_or("Choose a file to send.")?;
+                    .ok_or(tr!("Choose a file to send."))?;
                 Ok(PendingFile {
                     path,
                     name,
@@ -741,7 +743,7 @@ impl OpenChannel {
         let reply = match reply {
             Some(item) => Some(
                 sent_id(&item)
-                    .ok_or("You can reply once that message has been sent.")?
+                    .ok_or(tr!("You can reply once that message has been sent."))?
                     .to_owned(),
             ),
             None => None,
@@ -800,7 +802,7 @@ impl OpenChannel {
                 for (path, name, spoiler) in files {
                     let data = tokio::fs::read(&path)
                         .await
-                        .map_err(|_| format!("Yapfast could not read {name}."))?;
+                        .map_err(|_| tr!("Yapfast could not read {}.", name))?;
                     read.push((upload_name(&name, spoiler), data));
                 }
                 let sending = yapfast_discord::api::Sending {
@@ -869,10 +871,12 @@ impl OpenChannel {
         body: String,
     ) -> Result<(), &'static str> {
         if body.trim().is_empty() || body.chars().count() > MAX_CHARS {
-            return Err("Discord messages must contain text and be at most 2,000 characters.");
+            return Err(tr!(
+                "Discord messages must contain text and be at most 2,000 characters."
+            ));
         }
         let id = sent_id(&item)
-            .ok_or("Only sent messages can be edited.")?
+            .ok_or(tr!("Only sent messages can be edited."))?
             .to_owned();
         let (discord, done) = (discord.clone(), done.clone());
         let (room, channel) = (self.room.clone(), self.channel.clone());
@@ -900,7 +904,7 @@ impl OpenChannel {
             let result = discord
                 .delete(&channel, &id)
                 .await
-                .map_err(|error| format!("Could not delete the message: {error}"));
+                .map_err(|error| tr!("Could not delete the message: {}", error));
             let _ = done.send(Done::Deleted { room, id, result });
         });
     }
@@ -920,10 +924,11 @@ impl OpenChannel {
         let (room, channel) = (self.room.clone(), self.channel.clone());
         tokio::spawn(async move {
             let result = discord.pin(&channel, &id, pinned).await.map_err(|error| {
-                format!(
-                    "Could not {} the message: {error}",
-                    if pinned { "pin" } else { "unpin" }
-                )
+                if pinned {
+                    tr!("Could not pin the message: {}", error)
+                } else {
+                    tr!("Could not unpin the message: {}", error)
+                }
             });
             let _ = done.send(Done::Pinned {
                 room,
@@ -1029,7 +1034,7 @@ impl OpenChannel {
             if let Err(error) = discord.remove_reaction(&channel, &id, &emoji, &user).await {
                 let _ = done.send(Done::Failed {
                     room,
-                    message: format!("Couldn't remove the reaction: {error}"),
+                    message: tr!("Couldn't remove the reaction: {}", error),
                 });
             }
         });
@@ -1063,7 +1068,7 @@ impl OpenChannel {
                 key,
                 after,
                 limit,
-                result: Err("That reaction is gone.".into()),
+                result: Err(tr!("That reaction is gone.").into()),
             });
             return;
         };
@@ -1087,7 +1092,7 @@ impl OpenChannel {
                 })
                 .map_err(|error| {
                     tracing::warn!(error = format!("{error:#}"), "could not list reactions");
-                    format!("Couldn't load who reacted: {error}")
+                    tr!("Couldn't load who reacted: {}", error)
                 });
             let _ = events.send(Event::Reactors {
                 room,
@@ -1119,7 +1124,7 @@ impl OpenChannel {
             if let Err(error) = discord.vote(&channel, &id, &answers).await {
                 let _ = done.send(Done::Failed {
                     room,
-                    message: format!("Couldn't vote: {error}"),
+                    message: tr!("Couldn't vote: {}", error),
                 });
             }
         });
@@ -1136,7 +1141,7 @@ impl OpenChannel {
             if let Err(error) = discord.end_poll(&channel, &id).await {
                 let _ = done.send(Done::Failed {
                     room,
-                    message: format!("Couldn't end the poll: {error}"),
+                    message: tr!("Couldn't end the poll: {}", error),
                 });
             }
         });
@@ -1162,7 +1167,7 @@ impl OpenChannel {
                 key,
                 after,
                 limit,
-                result: Err("That poll is gone.".into()),
+                result: Err(tr!("That poll is gone.").into()),
             });
             return;
         };
@@ -1186,7 +1191,7 @@ impl OpenChannel {
                 })
                 .map_err(|error| {
                     tracing::warn!(error = format!("{error:#}"), "could not list voters");
-                    format!("Couldn't load who voted: {error}")
+                    tr!("Couldn't load who voted: {}", error)
                 });
             let _ = events.send(Event::Reactors {
                 room,
@@ -1387,7 +1392,7 @@ impl OpenChannel {
             let _ = done.send(Done::Saved {
                 room,
                 name,
-                result: Err("That message has no file to save."),
+                result: Err(tr!("That message has no file to save.")),
             });
             return;
         };
@@ -1396,8 +1401,8 @@ impl OpenChannel {
             let result = match discord.download_now(&url, MAX_SAVE_BYTES).await {
                 Ok(data) => tokio::fs::write(&path, data)
                     .await
-                    .map_err(|_| "Could not write the file. Choose another folder."),
-                Err(_) => Err("Could not download the file from Discord. Try again."),
+                    .map_err(|_| tr!("Could not write the file. Choose another folder.")),
+                Err(_) => Err(tr!("Could not download the file from Discord. Try again.")),
             };
             let _ = done.send(Done::Saved { room, name, result });
         });
@@ -1422,7 +1427,7 @@ impl OpenChannel {
         }) else {
             let _ = done.send(Done::Copied {
                 room,
-                picture: Err("This picture is no longer available."),
+                picture: Err(tr!("This picture is no longer available.")),
             });
             return;
         };
@@ -1431,7 +1436,7 @@ impl OpenChannel {
             let picture = discord
                 .download_now(&url, MAX_PREVIEW_DOWNLOAD_BYTES)
                 .await
-                .map_err(|_| "Yapfast couldn't copy this picture. Save it instead.");
+                .map_err(|_| tr!("Yapfast couldn't copy this picture. Save it instead."));
             let _ = done.send(Done::Copied { room, picture });
         });
     }
@@ -1454,7 +1459,7 @@ impl OpenChannel {
                 room,
                 item,
                 index,
-                picture: Err("This image is no longer available."),
+                picture: Err(tr!("This image is no longer available.")),
             });
             return;
         };
@@ -1475,7 +1480,9 @@ impl OpenChannel {
                 .ok()
                 .flatten()
                 .map(Arc::new)
-                .ok_or("Yapfast can't show this image. Save it to open it elsewhere."),
+                .ok_or(tr!(
+                    "Yapfast can't show this image. Save it to open it elsewhere."
+                )),
                 Err(error) => {
                     // The address stays out of the log: it names the attachment.
                     let status = error
@@ -1484,9 +1491,9 @@ impl OpenChannel {
                     let stalled = error.is::<Stalled>();
                     tracing::warn!(?status, stalled, "could not download an image to view");
                     Err(if stalled {
-                        "Discord stopped sending this image. Try again."
+                        tr!("Discord stopped sending this image. Try again.")
                     } else {
-                        "Yapfast couldn't download this image from Discord. Try again."
+                        tr!("Yapfast couldn't download this image from Discord. Try again.")
                     })
                 }
             };
@@ -1584,7 +1591,7 @@ impl OpenChannel {
             self.rendered.insert(*order, Arc::clone(&row));
             rows.push(row);
         }
-        let me_name = name(&me, "You");
+        let me_name = name(&me, tr!("You"));
         let me_avatar = discord.avatar(Some(&self.guild), &me);
         let me_color = server.and_then(|server| discord.color(server, &me));
         for pending in pending {
@@ -1754,7 +1761,7 @@ impl OpenChannel {
             DiscordReply::Deleted => Reply {
                 author: String::new(),
                 avatar: None,
-                body: "The original message was deleted.".into(),
+                body: tr!("The original message was deleted.").into(),
                 item: None,
                 color: None,
             },
@@ -1762,9 +1769,9 @@ impl OpenChannel {
                 author: String::new(),
                 avatar: None,
                 body: if id.is_empty() || self.originals.get(id) == Some(&true) {
-                    "The original message couldn't be loaded."
+                    tr!("The original message couldn't be loaded.")
                 } else {
-                    "Loading the original message..."
+                    tr!("Loading the original message...")
                 }
                 .into(),
                 item: (!id.is_empty()).then(|| format!("d:{id}")),

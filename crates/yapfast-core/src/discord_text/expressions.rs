@@ -12,7 +12,7 @@ use yapfast_discord::{
 };
 
 use super::{
-    commands::NOT_DISCORD,
+    commands::not_discord,
     own_profile::{picture, read_shaped},
     *,
 };
@@ -51,7 +51,7 @@ pub(super) fn command(
         // A server's preview, for the card that an emoji of it opens.
         Command::Discord(DiscordCommand::ServerPreview { server }) => {
             let (Ok(discord), Some(guild)) = (discord, discord::parse_server(&server)) else {
-                let result = Err(discord.err().unwrap_or(NOT_DISCORD).to_owned());
+                let result = Err(discord.err().unwrap_or(not_discord()).to_owned());
                 let _ = events.send(Event::ServerPreview { server, result });
                 return None;
             };
@@ -65,7 +65,7 @@ pub(super) fn command(
         // The server a tag is from, for the tag's card.
         Command::Discord(DiscordCommand::TagServer { server }) => {
             let (Ok(discord), Some(guild)) = (discord, discord::parse_server(&server)) else {
-                let result = Err(discord.err().unwrap_or(NOT_DISCORD).to_owned());
+                let result = Err(discord.err().unwrap_or(not_discord()).to_owned());
                 let _ = events.send(Event::TagServer { server, result });
                 return None;
             };
@@ -79,7 +79,7 @@ pub(super) fn command(
         other => return Some(other),
     };
     let (Ok(discord), Some(guild)) = (discord, discord::parse_server(&server)) else {
-        let why = Err(discord.err().unwrap_or(NOT_DISCORD).to_owned());
+        let why = Err(discord.err().unwrap_or(not_discord()).to_owned());
         let _ = events.send(match work {
             Ok(action) => Event::EmojisChanged {
                 server,
@@ -180,10 +180,10 @@ async fn emoji(discord: &Discord, guild: &str, action: EmojiAction) -> Result<()
         tracing::info!(error = format!("{error:#}"), "Discord refused an emoji");
         match api::code(&error) {
             Some(code) if TOO_MANY_EMOJI.contains(&code) => {
-                "This server does not have any open emoji slots!".to_owned()
+                tr!("This server does not have any open emoji slots!").to_owned()
             }
             Some(TOO_BIG) => too_big_emoji(),
-            _ => format!("Oh no! Something went wrong. {error}"),
+            _ => tr!("Oh no! Something went wrong. {}", error),
         }
     })
 }
@@ -285,7 +285,7 @@ fn uploader(user: BannedUser) -> RoleMember {
 }
 
 fn too_big_emoji() -> String {
-    format!(
+    tr!(
         "That emoji was too big! Emoji must be under {} KB.",
         EMOJI_LIMIT / 1024
     )
@@ -294,7 +294,7 @@ fn too_big_emoji() -> String {
 /// The picture at `path` as a new emoji: its middle, square, at most 128
 /// pixels; a GIF goes as it is, so it stays animated.
 pub(super) fn read_emoji(path: &Path) -> Result<PickedPicture, String> {
-    let picked = read_shaped(path, EMOJI, EMOJI_PREVIEW, "an emoji")?;
+    let picked = read_shaped(path, EMOJI, EMOJI_PREVIEW, tr!("an emoji"))?;
     if picked.data.len() > EMOJI_LIMIT {
         return Err(too_big_emoji());
     }
@@ -310,14 +310,14 @@ pub(super) fn read_sticker(path: &Path) -> Result<PickedPicture, String> {
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let unreadable = || format!("Yapfast could not read {name}.");
+    let unreadable = || tr!("Yapfast could not read {}.", name);
     let size = std::fs::metadata(path)
         .ok()
         .filter(std::fs::Metadata::is_file)
         .ok_or_else(unreadable)?
         .len();
     let too_big = || {
-        format!(
+        tr!(
             "That sticker was too big! Stickers must be under {}.",
             file_size(STICKER_LIMIT as u64)
         )
@@ -326,7 +326,7 @@ pub(super) fn read_sticker(path: &Path) -> Result<PickedPicture, String> {
         return Err(too_big());
     }
     let data = std::fs::read(path).map_err(|_| unreadable())?;
-    let unsupported = || "Unsupported file format".to_owned();
+    let unsupported = || tr!("Unsupported file format").to_owned();
     let format = image::guess_format(&data)
         .ok()
         .filter(|format| {
@@ -344,7 +344,7 @@ pub(super) fn read_sticker(path: &Path) -> Result<PickedPicture, String> {
     reader.limits(limits);
     let decoded = reader.decode().map_err(|error| {
         tracing::info!(%error, "could not decode a sticker");
-        "Invalid sticker file".to_owned()
+        tr!("Invalid sticker file").to_owned()
     })?;
     let small = decoded
         .thumbnail(STICKER_PREVIEW, STICKER_PREVIEW)
@@ -377,7 +377,7 @@ pub(super) fn read_sticker(path: &Path) -> Result<PickedPicture, String> {
     let mut file = std::io::Cursor::new(Vec::new());
     fitted
         .write_to(&mut file, ImageFormat::Png)
-        .map_err(|_| "Invalid sticker file".to_owned())?;
+        .map_err(|_| tr!("Invalid sticker file").to_owned())?;
     let data = file.into_inner();
     if data.len() > STICKER_LIMIT {
         return Err(too_big());

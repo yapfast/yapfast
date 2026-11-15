@@ -189,6 +189,25 @@ quality 92. The worker reports it as a data URI, and Yapfast uploads it with
 later, up to three times; a newer still replaces an upload not done yet, and
 stopping the share cancels it.
 
+In a call, the tile of someone sharing whose stream this account isn't
+watching shows that still, as Discord's client does: filling the tile,
+dimmed, behind "Watch stream" (`StreamPreview` in `ui/voice.slint`); someone
+who films too shows it in their stream's own tile. Without one, as before
+the streamer's client uploaded any, the tile stays as it was, with their
+avatar. `GET /streams/{stream key}/preview` answers with the picture's
+address, and any failure means no preview, which nobody is told of.
+`Discord::stream_preview_picture` asks for the address and downloads the
+picture each time, past the picture cache on disk: a preview changes while
+its stream goes on, and the address may not. `DiscordCommand::StreamPreview`
+decodes it at 512 by 288 at most and answers with `Event::StreamPreview`.
+The application (`preview_streams` in `application/calls.rs`) asks once for
+each stream when it starts to show a preview: someone in this account's call
+goes live, this account joins a call where they already were, or it stops
+watching them. It keeps the decoded picture in `AppState::stream_previews`,
+which the window shows without a copy, and lets it go when the stream ends
+or is watched, or the call is left. It doesn't ask again on a timer, so a
+preview is as old as the last of those.
+
 A shared screen carries the sound every other application plays, as Discord's
 client and Vesktop share it; Yapfast's own sound stays out, so viewers never hear
 the call echoed back (`stream_audio`, with `audio_io::others` hearing the

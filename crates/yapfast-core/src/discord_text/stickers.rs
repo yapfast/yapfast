@@ -58,7 +58,7 @@ pub(super) fn command(
                     .sticker_packs()
                     .await
                     .map(|packs| packs.into_iter().map(collection).collect())
-                    .map_err(|error| format!("Couldn't load the stickers: {error}"));
+                    .map_err(|error| tr!("Couldn't load the stickers: {}", error));
                 let _ = events.send(Event::StickerPacks(result));
             });
         }
@@ -77,8 +77,8 @@ pub(super) fn command(
                     Some((guild, channel)) => discord
                         .send_sticker(guild, channel, &id)
                         .await
-                        .map_err(|error| format!("Couldn't send the sticker: {error}")),
-                    None => Err("Stickers aren't on Matrix.".into()),
+                        .map_err(|error| tr!("Couldn't send the sticker: {}", error)),
+                    None => Err(tr!("Stickers aren't on Matrix.").into()),
                 };
                 let _ = events.send(Event::StickerSent { room, result });
             });

@@ -55,7 +55,7 @@ pub fn comment(tag: &str) -> String {
 /// About shows.
 pub fn verify(keys: &Keys, sums: &[u8], signature: &str, release: &Release) -> Result<(), String> {
     const BAD: &str = "The release's signature doesn't check out, so nothing was installed.";
-    let signature = Signature::decode(signature).map_err(|_| BAD)?;
+    let signature = Signature::decode(signature).map_err(|_| yapfast_lang::text(BAD))?;
     let keys = if release.version.is_nightly() {
         keys.nightly
     } else {
@@ -66,14 +66,15 @@ pub fn verify(keys: &Keys, sums: &[u8], signature: &str, release: &Release) -> R
         PublicKey::decode(key).is_ok_and(|key| key.verify(sums, &signature, false).is_ok())
     });
     if !signed {
-        return Err(BAD.into());
+        return Err(yapfast_lang::text(BAD).into());
     }
     // The trusted comment is signed too, so it's checked only once the
     // signature is.
     if signature.trusted_comment() != comment(&release.tag) {
-        return Err(
-            "The release's signature is for another release, so nothing was installed.".into(),
-        );
+        return Err(yapfast_lang::tr!(
+            "The release's signature is for another release, so nothing was installed."
+        )
+        .into());
     }
     Ok(())
 }

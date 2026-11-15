@@ -18,9 +18,9 @@ export global NewTags {
 // The small marigold NEW that follows a new setting's name.
 export component NewTag inherits Rectangle {
     width: tag-text.preferred-width + 10px; height: 16px; border-radius: 4px; background: Theme.accent;
-    accessible-role: text; accessible-label: "New";
+    accessible-role: text; accessible-label: @tr("New");
     tag-text := Text {
-        text: "NEW"; color: Theme.on-accent; font-size: 10px; font-weight: 800; letter-spacing: 0.4px;
+        text: @tr("NEW"); color: Theme.on-accent; font-size: 10px; font-weight: 800; letter-spacing: 0.4px;
         horizontal-alignment: center; vertical-alignment: center;
     }
 }

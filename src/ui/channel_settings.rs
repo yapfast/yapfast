@@ -13,6 +13,7 @@ use super::{
     server_settings::{member_row, role_color},
     *,
 };
+use yapfast_lang::tr;
 
 /// Discord's words for a permission this account can't change.
 const NOT_HELD: &str = "You cannot modify this permission because none of your roles have it.";
@@ -62,8 +63,8 @@ impl Adapter {
         }];
         for section in app.channel_sections(room) {
             let (text, icon) = match section {
-                ChannelSection::Overview => ("Overview", &self.icons.edit),
-                ChannelSection::Permissions => ("Permissions", &self.icons.roles),
+                ChannelSection::Overview => (tr!("Overview"), &self.icons.edit),
+                ChannelSection::Permissions => (tr!("Permissions"), &self.icons.roles),
             };
             rows.push(SettingsRow {
                 heading: false,
@@ -81,9 +82,9 @@ impl Adapter {
             });
             rows.push(SettingsRow {
                 text: if screen.kind == ChannelKind::Category {
-                    "Delete Category"
+                    tr!("Delete Category")
                 } else {
-                    "Delete Channel"
+                    tr!("Delete Channel")
                 }
                 .into(),
                 icon: self.icons.delete.clone(),
@@ -156,15 +157,15 @@ impl Adapter {
         let category = screen.kind == ChannelKind::Category;
         let voice = screen.kind == ChannelKind::Voice;
         prompt.title = if category {
-            "Category Settings"
+            tr!("Category Settings")
         } else {
-            "Channel Permissions"
+            tr!("Channel Permissions")
         }
         .into();
         prompt.subtitle = if category {
-            "Use permissions to customize who can do what in this category."
+            tr!("Use permissions to customize who can do what in this category.")
         } else {
-            "Use permissions to customize who can do what in this channel."
+            tr!("Use permissions to customize who can do what in this channel.")
         }
         .into();
         if !category && let Some((_, name)) = app.sync_category(room) {
@@ -178,22 +179,22 @@ impl Adapter {
         };
         prompt.private = page.private(access);
         prompt.private_title = if category {
-            "Private Category"
+            tr!("Private Category")
         } else {
-            "Private Channel"
+            tr!("Private Channel")
         }
         .into();
         prompt.private_text = if category {
-            "By making a category private, only select members and roles will be able to view this category. Linked channels in this category will automatically match to this setting."
+            tr!("By making a category private, only select members and roles will be able to view this category. Linked channels in this category will automatically match to this setting.")
         } else if voice {
-            "By making a channel private, only select members and roles will have access to view or connect to this channel."
+            tr!("By making a channel private, only select members and roles will have access to view or connect to this channel.")
         } else {
-            "By making a channel private, only select members and roles will be able to view this channel."
+            tr!("By making a channel private, only select members and roles will be able to view this channel.")
         }
         .into();
         // Locked as the core decides: any of the access bits.
         if (0..64).any(|bit| access & (1 << bit) != 0 && rules.locked(bit)) {
-            prompt.private_lock = NOT_HELD.into();
+            prompt.private_lock = yapfast_lang::text(NOT_HELD).into();
         }
         prompt.may_edit = app
             .channel_sections(room)
@@ -231,7 +232,7 @@ impl Adapter {
         for (heading, bits) in channel_groups(screen.kind) {
             permissions.push(ThreeStateRow {
                 heading: true,
-                title: heading.to_uppercase().into(),
+                title: yapfast_lang::text(heading).to_uppercase().into(),
                 ..Default::default()
             });
             for &bit in *bits {
@@ -243,7 +244,7 @@ impl Adapter {
                     bit: i32::try_from(bit).unwrap_or_default(),
                     state: state_id(Overwrites::state(&shown, bit)),
                     lock_text: if rules.locked(bit) {
-                        NOT_HELD.into()
+                        yapfast_lang::text(NOT_HELD).into()
                     } else {
                         SharedString::default()
                     },

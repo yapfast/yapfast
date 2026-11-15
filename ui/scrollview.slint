@@ -1,5 +1,5 @@
 // Yapfast's ScrollView and ListView: the Fluent style's, with a scrollbar thumb that
-// stays under the pointer while it's dragged.
+// stays under the pointer while it's dragged, and nothing but the thumb drawn.
 //
 // The Fluent bar starts its drag over whenever `maximum` changes. In a ListView
 // that happens all through a drag, as each newly measured row changes the
@@ -15,37 +15,6 @@
 // one is.
 import { Theme } from "theme.slint";
 
-component ScrollBarButton inherits TouchArea {
-    in property <image> icon;
-    in property <bool> horizontal;
-
-    width: root.horizontal ? 6px : 8px;
-    height: root.horizontal ? 8px : 6px;
-
-    icon := Image {
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
-        width: parent.width;
-        source: root.icon;
-        colorize: Theme.dark ? #FFFFFF14 : #00000073;
-        accessible-role: none;
-
-        animate colorize, opacity { duration: 150ms; }
-        animate width, height { duration: 150ms; easing: ease-out; }
-    }
-
-    states [
-        pressed when root.pressed : {
-            opacity: 1;
-            icon.width: root.width - 2px;
-        }
-        hover when root.has-hover : {
-            opacity: 1;
-            icon.colorize: Theme.dark ? #FFFFFFC9 : #00000099;
-        }
-    ]
-}
-
 component ScrollBar inherits Rectangle {
     in-out property <bool> horizontal;
     in-out property <length> maximum;
@@ -56,7 +25,7 @@ component ScrollBar inherits Rectangle {
 
     callback scrolled();
 
-    property <length> offset: 16px;
+    property <length> offset: 4px;
     property <length> size: 2px;
     property <length> track-size: root.horizontal ? root.width - 2 * root.offset : root.height - 2 * offset;
     property <length> step-size: 10px;
@@ -73,15 +42,15 @@ component ScrollBar inherits Rectangle {
     clip: true;
 
     states [
-        hover when touch-area.has-hover || down-scroll-button.has-hover || up-scroll-button.has-hover : {
-            root.background: Theme.dark ? #2C2C2C : #f0f0f0;
+        // Only the thumb answers the pointer, wider and brighter, as
+        // Discord's does: no track, no arrows.
+        hover when touch-area.has-hover : {
             root.size: 6px;
-            up-scroll-button.opacity: 1;
-            down-scroll-button.opacity: 1;
+            thumb.background: Theme.dark ? #FFFFFF40 : #00000099;
         }
     ]
 
-    animate size { duration: 150ms; easing: ease-out; }
+    animate size { duration: Theme.quick; easing: ease-out; }
 
     // A ListView's rows, measured as they come into view, change its estimate of
     // their height all through a drag; the thumb stays with the pointer.
@@ -95,7 +64,8 @@ component ScrollBar inherits Rectangle {
         border-radius: (root.horizontal ? self.height : self.width) / 2;
         background: Theme.dark ? #FFFFFF14 : #00000073;
 
-        animate width, height { duration: 150ms; easing: ease-out; }
+        animate width, height { duration: Theme.quick; easing: ease-out; }
+        animate background { duration: Theme.quick; }
     }
 
     touch-area := TouchArea {
@@ -133,30 +103,6 @@ component ScrollBar inherits Rectangle {
                 return accept;
             }
             reject
-        }
-    }
-
-    up-scroll-button := ScrollBarButton {
-        opacity: 0;
-        x: !root.horizontal ? (parent.width - self.width) / 2 : 4px;
-        y: root.horizontal ? (parent.height - self.height) / 2 : 4px;
-        icon: root.horizontal ? @image-url("icons/scroll-left.svg") : @image-url("icons/scroll-up.svg");
-        horizontal: root.horizontal;
-
-        clicked => {
-            root.value = min(0px, root.value + root.step-size);
-        }
-    }
-
-    down-scroll-button := ScrollBarButton {
-        opacity: 0;
-        x: !root.horizontal ? (parent.width - self.width) / 2 : root.width - self.width - 4px;
-        y: root.horizontal ? (parent.height - self.height) / 2 : root.height - self.height - 4px;
-        icon: root.horizontal ? @image-url("icons/scroll-right.svg") : @image-url("icons/scroll-down.svg");
-        horizontal: root.horizontal;
-
-        clicked => {
-            root.value = max(-root.maximum, root.value - root.step-size);
         }
     }
 }

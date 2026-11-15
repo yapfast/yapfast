@@ -563,7 +563,7 @@ impl Application {
         forwarding.note = note;
         forwarding.error = None;
         if self.state.preview {
-            self.state.notice = Some("Message forwarded.".into());
+            self.state.notice = Some(yapfast_lang::tr!("Message forwarded.").into());
         } else {
             self.forwards.push(ForwardSent {
                 waiting: forwarding.chosen.clone(),
@@ -661,17 +661,21 @@ impl Application {
         };
         let (unsent, unforwarded) = (places(&notes_unsent), places(&failed));
         if let Some((_, why)) = notes_unsent.first() {
-            self.state.notice = Some(format!(
-                "Forwarded, but the message you added didn't go to {unsent}: {why}"
+            self.state.notice = Some(yapfast_lang::tr!(
+                "Forwarded, but the message you added didn't go to {}: {}",
+                unsent,
+                why
             ));
         } else if failed.is_empty() {
-            self.state.notice = Some("Message forwarded.".into());
+            self.state.notice = Some(yapfast_lang::tr!("Message forwarded.").into());
         }
         let Some((_, why)) = failed.first() else {
             return;
         };
-        forwarding.error = Some(format!(
-            "The message couldn't be forwarded to {unforwarded}: {why}"
+        forwarding.error = Some(yapfast_lang::tr!(
+            "The message couldn't be forwarded to {}: {}",
+            unforwarded,
+            why
         ));
         forwarding.chosen = failed.into_iter().map(|(id, _)| id).collect();
         // They list first, as Discord's dialog opens again with them chosen.
@@ -931,8 +935,10 @@ impl Application {
                 self.state.jump = Some((seeking.item, count));
             }
         } else if !seeking.unread {
-            self.state.notice =
-                Some("Yapfast couldn't find that message. It may have been deleted.".into());
+            self.state.notice = Some(
+                yapfast_lang::tr!("Yapfast couldn't find that message. It may have been deleted.")
+                    .into(),
+            );
         }
         vec![]
     }

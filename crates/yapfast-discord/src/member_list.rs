@@ -7,6 +7,7 @@
 use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use serde_json::Value;
+use yapfast_lang::tr;
 
 use crate::{
     activity::{Activities, activities},
@@ -323,7 +324,7 @@ impl MemberList {
                         bot: names.is_bot(user),
                         name: names
                             .name(&self.guild, user)
-                            .unwrap_or("Discord user")
+                            .unwrap_or_else(|| tr!("Discord user"))
                             .to_owned(),
                         username: names.username(user).map(str::to_owned),
                         avatar: names.avatar(Some(&self.guild), user),
@@ -356,11 +357,11 @@ impl MemberList {
 
     fn heading(&self, id: &str, server: Option<&Server>) -> String {
         let name = match id {
-            "online" => "Online",
-            "offline" => "Offline",
+            "online" => tr!("Online"),
+            "offline" => tr!("Offline"),
             role => server
                 .and_then(|server| server.role_names.get(role))
-                .map_or("Members", String::as_str),
+                .map_or_else(|| tr!("Members"), String::as_str),
         };
         match self.counts.get(id) {
             Some(count) => format!("{name} — {count}"),

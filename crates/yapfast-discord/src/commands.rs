@@ -19,6 +19,7 @@ use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use serde_json::{Number, Value};
 use tokio::sync::{Mutex, broadcast};
+use yapfast_lang::tr;
 
 use crate::{ready::permission, service::Live};
 
@@ -638,7 +639,9 @@ impl Kept {
         }
         if failed.is_some_and(|at| at.elapsed() < RETRY_AFTER) {
             return index.clone().ok_or_else(|| {
-                anyhow!("Discord didn't list the commands. Try again in a moment.")
+                anyhow!(tr!(
+                    "Discord didn't list the commands. Try again in a moment."
+                ))
             });
         }
         let mut fetched = Ok(None);
@@ -652,7 +655,11 @@ impl Kept {
             }
         }
         let fetched = fetched.and_then(|value| {
-            value.ok_or_else(|| anyhow!("Discord is still listing the commands. Try again soon."))
+            value.ok_or_else(|| {
+                anyhow!(tr!(
+                    "Discord is still listing the commands. Try again soon."
+                ))
+            })
         });
         let mut slots = self.slots();
         let slot = slots.iter_mut().find(|slot| slot.owner == owner);

@@ -22,8 +22,8 @@ impl Application {
         let member = &member;
         let discord = room.network == Network::Discord;
         let role = match member.role {
-            Role::Admin => Some("Admin"),
-            Role::Moderator => Some("Moderator"),
+            Role::Admin => Some(yapfast_lang::tr!("Admin")),
+            Role::Moderator => Some(yapfast_lang::tr!("Moderator")),
             Role::Member => None,
         };
         let profile = Profile {
@@ -231,7 +231,9 @@ impl Application {
                 Ok(profile) => fill_profile(view, profile),
                 Err(_) if view.kept => {}
                 Err(_) => {
-                    view.note = Some("Discord didn't share the rest of this profile.".into());
+                    view.note = Some(
+                        yapfast_lang::tr!("Discord didn't share the rest of this profile.").into(),
+                    );
                 }
             }
             view.kept = false;

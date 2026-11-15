@@ -621,7 +621,8 @@ click or a submit sends one, and none is sent again on its own.
   members who match. Channel menus keep to the bot's channel types, visible
   categories included, and a default pick shows its name, or its id when the
   name isn't known. An optional single pick can be cleared.
-- Link buttons open their address. A premium button says "Open in Discord"
+- Link buttons open their address, an arrow after their label, as Discord
+  draws them. A premium button says "Open in Discord"
   and opens the SKU's store page in the browser,
   `discord.com/application-directory/{app}/store/{sku}` (Discord's own docs,
   "Managing SKUs"); nothing is bought through Yapfast, and the SKU's name and

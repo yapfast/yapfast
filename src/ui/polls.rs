@@ -63,10 +63,10 @@ pub(super) fn poll_card(
             total: if closed {
                 votes_text(total)
             } else {
-                "View original message to interact".to_owned()
+                tr!("View original message to interact").to_owned()
             }
             .into(),
-            left: if closed { "Poll closed" } else { "" }.into(),
+            left: if closed { tr!("Poll closed") } else { "" }.into(),
             ..Default::default()
         };
     }
@@ -74,8 +74,8 @@ pub(super) fn poll_card(
         question: poll.question.as_str().into(),
         prompt: match (closed, poll.multiselect) {
             (true, _) => "",
-            (false, true) => "Select one or more answers",
-            (false, false) => "Select one answer",
+            (false, true) => tr!("Select one or more answers"),
+            (false, false) => tr!("Select one answer"),
         }
         .into(),
         multiselect: poll.multiselect,
@@ -84,7 +84,7 @@ pub(super) fn poll_card(
         can_pick: !results,
         total: votes_text(total).into(),
         left: if closed {
-            "Poll closed".into()
+            tr!("Poll closed").into()
         } else {
             poll.expiry
                 .map(|expiry| time_left(expiry.saturating_sub(now)))
@@ -120,20 +120,16 @@ pub(super) fn open_poll(messages: &[Arc<ChatMessage>], now: u64) -> bool {
 
 /// "1 vote", "3 votes".
 fn votes_text(votes: usize) -> String {
-    if votes == 1 {
-        "1 vote".to_owned()
-    } else {
-        format!("{votes} votes")
-    }
+    trn!("{n} vote", "{n} votes", votes)
 }
 
 /// How long a poll has left, as Discord's client says it.
 fn time_left(seconds: u64) -> String {
     match seconds {
-        86_400.. => format!("{}d left", seconds / 86_400),
-        3_600.. => format!("{}h left", seconds / 3_600),
-        60.. => format!("{}m left", seconds / 60),
-        _ => "< 1m left".to_owned(),
+        86_400.. => tr!("{}d left", seconds / 86_400),
+        3_600.. => tr!("{}h left", seconds / 3_600),
+        60.. => tr!("{}m left", seconds / 60),
+        _ => tr!("< 1m left").to_owned(),
     }
 }
 

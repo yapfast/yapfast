@@ -15,6 +15,7 @@ component WindowButton inherits Rectangle {
     Image {
         source: root.icon; width: 16px; height: 16px;
         colorize: pointer.has-hover ? Theme.text : root.dim ? Theme.faint : Theme.secondary;
+        animate colorize { duration: Theme.quick; }
     }
     pointer := TouchArea {
         clicked => { root.clicked(); }
@@ -59,21 +60,22 @@ export component TitleBar inherits Rectangle {
         x: 3 * 44px; width: parent.width - 6 * 44px;
         text: root.place; font-size: 13px; font-weight: 500;
         color: root.focused ? Theme.secondary : Theme.faint;
+        animate color { duration: Theme.quick; }
         horizontal-alignment: center; vertical-alignment: center; overflow: elide;
     }
     HorizontalLayout {
         alignment: end;
         WindowButton {
-            icon: @image-url("icons/minus.svg"); label: "Minimize"; dim: !root.focused;
+            icon: @image-url("icons/minus.svg"); label: @tr("Minimize"); dim: !root.focused;
             clicked => { root.minimize-window(); }
         }
         WindowButton {
             icon: root.maximized ? @image-url("icons/restore.svg") : @image-url("icons/square.svg");
-            label: root.maximized ? "Restore" : "Maximize"; dim: !root.focused;
+            label: root.maximized ? @tr("Restore") : @tr("Maximize"); dim: !root.focused;
             clicked => { root.maximize-window(); }
         }
         WindowButton {
-            icon: @image-url("icons/x.svg"); label: "Close"; dim: !root.focused;
+            icon: @image-url("icons/x.svg"); label: @tr("Close"); dim: !root.focused;
             clicked => { root.close-window(); }
         }
     }

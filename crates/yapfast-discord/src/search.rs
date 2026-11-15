@@ -4,6 +4,7 @@
 //! `GET /channels/{id}/messages/search`.
 
 use chrono::{Local, NaiveDate, TimeZone};
+use yapfast_lang::tr;
 
 /// What a search's text asks for. Names are as typed; the service finds
 /// the people and channels they name.
@@ -73,7 +74,7 @@ impl Query {
                         .find(|(name, _)| name.eq_ignore_ascii_case(value))
                         .map(|(_, has)| *has)
                         .ok_or_else(|| {
-                            format!("has: takes {}.", HAS.map(|(name, _)| name).join(", "))
+                            tr!("has: takes {}.", HAS.map(|(name, _)| name).join(", "))
                         })?;
                     query.has.push(has);
                 }
@@ -81,7 +82,7 @@ impl Query {
                     query.pinned = Some(match value.to_lowercase().as_str() {
                         "true" | "yes" => true,
                         "false" | "no" => false,
-                        _ => return Err("pinned: takes true or false.".into()),
+                        _ => return Err(tr!("pinned: takes true or false.").into()),
                     })
                 }
                 day => {
@@ -152,7 +153,7 @@ fn tokens(text: &str) -> Vec<String> {
 /// the next.
 fn day_span(day: &str) -> Result<(u64, u64), String> {
     let date = NaiveDate::parse_from_str(day, "%Y-%m-%d")
-        .map_err(|_| format!("Yapfast reads dates as 2026-10-13, not {day}."))?;
+        .map_err(|_| tr!("Yapfast reads dates as 2026-10-13, not {}.", day))?;
     let start = |date: NaiveDate| {
         let midnight = date.and_hms_opt(0, 0, 0)?;
         let at = Local.from_local_datetime(&midnight).earliest()?;
@@ -161,7 +162,7 @@ fn day_span(day: &str) -> Result<(u64, u64), String> {
     let next = date.succ_opt();
     match (start(date), next.and_then(start)) {
         (Some(start), Some(end)) => Ok((snowflake(start), snowflake(end))),
-        _ => Err(format!("Discord can't search around {day}.")),
+        _ => Err(tr!("Discord can't search around {}.", day)),
     }
 }
 

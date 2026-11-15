@@ -21,10 +21,10 @@ fn bio_with_emoji(bio: &str, emoji: &[yapfast_core::chat::CustomEmoji]) -> Strin
 fn running_for(started_ms: u64, now_ms: u64) -> String {
     let minutes = now_ms.saturating_sub(started_ms) / 60_000;
     match minutes {
-        0 => "just started".to_owned(),
-        1..=59 => format!("for {minutes} min"),
-        60..=1439 => format!("for {} hr", minutes / 60),
-        _ => format!("for {} d", minutes / 1440),
+        0 => tr!("just started").to_owned(),
+        1..=59 => tr!("for {} min", minutes),
+        60..=1439 => tr!("for {} hr", minutes / 60),
+        _ => tr!("for {} d", minutes / 1440),
     }
 }
 
@@ -37,12 +37,12 @@ pub(super) fn finished_ago(at_ms: u64, now_ms: u64) -> String {
     const DAY: u64 = 24 * HOUR;
     let seconds = now_ms.saturating_sub(at_ms) / 1000;
     match seconds {
-        0..MINUTE => format!("{seconds}s ago"),
-        MINUTE..HOUR => format!("{}m ago", seconds / MINUTE),
-        _ if seconds < 12 * HOUR => format!("{}h ago", seconds / HOUR),
-        _ if seconds < 9 * DAY => format!("{}d ago", (seconds / DAY).max(1)),
-        _ if seconds < 28 * DAY => format!("{}w ago", seconds / (7 * DAY)),
-        _ => format!("{}mo ago", (seconds / (30 * DAY)).max(1)),
+        0..MINUTE => tr!("{}s ago", seconds),
+        MINUTE..HOUR => tr!("{}m ago", seconds / MINUTE),
+        _ if seconds < 12 * HOUR => tr!("{}h ago", seconds / HOUR),
+        _ if seconds < 9 * DAY => tr!("{}d ago", (seconds / DAY).max(1)),
+        _ if seconds < 28 * DAY => tr!("{}w ago", seconds / (7 * DAY)),
+        _ => tr!("{}mo ago", (seconds / (30 * DAY)).max(1)),
     }
 }
 
@@ -99,10 +99,10 @@ pub(super) fn activity_panel(
             let activity = member.and_then(|member| doing(member, entry));
             let since = match (entry.hours, entry.tracks) {
                 (Some(hours), _) if entry.kind == Kind::TopGame => {
-                    format!("Most played: {hours}h")
+                    tr!("Most played: {}h", hours)
                 }
                 (_, Some(tracks)) if entry.kind == Kind::TopArtist => {
-                    format!("{tracks} tracks this week")
+                    trn!("{n} track this week", "{n} tracks this week", tracks)
                 }
                 _ if live => running_for(
                     activity
@@ -172,18 +172,23 @@ pub(super) fn activity_panel(
 
 /// "1 Mutual Friend" or "5 Mutual Servers", as the card's line says it.
 fn mutual_count(count: usize, what: &str) -> String {
-    let plural = if count == 1 { "" } else { "s" };
-    format!("{count} Mutual {what}{plural}")
+    if what == "Friend" {
+        trn!("{n} Mutual Friend", "{n} Mutual Friends", count)
+    } else {
+        trn!("{n} Mutual Server", "{n} Mutual Servers", count)
+    }
 }
 
 /// A mutual tab's name, as the client's: none till Discord has said, then
 /// how many.
 fn mutual_label(known: bool, count: usize, what: &str) -> String {
+    let friends = what == "Friend";
     match (known, count) {
-        (false, _) => format!("Mutual {what}s"),
-        (true, 0) => format!("No Mutual {what}s"),
-        (true, 1) => format!("1 Mutual {what}"),
-        (true, count) => format!("{count} Mutual {what}s"),
+        (false, _) if friends => tr!("Mutual Friends").to_owned(),
+        (false, _) => tr!("Mutual Servers").to_owned(),
+        (true, 0) if friends => tr!("No Mutual Friends").to_owned(),
+        (true, 0) => tr!("No Mutual Servers").to_owned(),
+        (true, count) => mutual_count(count, what),
     }
 }
 
@@ -311,20 +316,19 @@ fn activity_row(activity: &yapfast_core::chat::Activity) -> ActivityRow {
     };
     let (name_emoji, name) = yapfast_core::discord::status_parts(&name);
     let state = match (&activity.state, activity.party) {
-        (Some(state), Some((size, most))) => format!("{state} ({size} of {most})"),
-        (None, Some((size, most))) => format!("{size} of {most}"),
+        (Some(state), Some((size, most))) => tr!("{} ({} of {})", state, size, most),
+        (None, Some((size, most))) => tr!("{} of {}", size, most),
         (state, None) => state.as_deref().unwrap_or_default().to_owned(),
     };
     // Spotify's card is titled by the song, then by whom and on which album.
     let (name, details, state) = if activity.spotify() {
-        let after = |word: &str, text: &Option<Box<str>>| {
-            text.as_deref()
-                .map_or(String::new(), |text| format!("{word} {text}"))
+        let after = |text: &Option<Box<str>>, say: fn(&str) -> String| {
+            text.as_deref().map_or(String::new(), say)
         };
         (
             activity.details.as_deref().unwrap_or(name).to_owned(),
-            after("by", &activity.state),
-            after("on", &activity.large_text),
+            after(&activity.state, |text| tr!("by {}", text)),
+            after(&activity.large_text, |text| tr!("on {}", text)),
         )
     } else {
         (
@@ -496,9 +500,11 @@ fn wishlist_rows(
         .as_ref()
         .is_some_and(|place| place.private);
     match &profile.wishlist {
-        Wishlist::Unasked | Wishlist::Loading => (ModelRc::default(), "Loading the wishlist..."),
-        Wishlist::Hidden => (ModelRc::default(), "This wishlist is private."),
-        Wishlist::Failed => (ModelRc::default(), "Couldn't load the wishlist."),
+        Wishlist::Unasked | Wishlist::Loading => {
+            (ModelRc::default(), tr!("Loading the wishlist..."))
+        }
+        Wishlist::Hidden => (ModelRc::default(), tr!("This wishlist is private.")),
+        Wishlist::Failed => (ModelRc::default(), tr!("Couldn't load the wishlist.")),
         Wishlist::Loaded(items) => {
             let rows: Vec<ProfileWishlistRow> = items
                 .iter()
@@ -509,7 +515,7 @@ fn wishlist_rows(
                 })
                 .collect();
             let note = if private && !rows.is_empty() {
-                "Your wishlist is private: only you can see it."
+                tr!("Your wishlist is private: only you can see it.")
             } else {
                 ""
             };
@@ -541,10 +547,10 @@ pub(super) fn same_widget_rows(
 fn time_ago(at: u64) -> String {
     let minutes = yapfast_core::clock::now_ms().saturating_sub(at) / 60_000;
     match minutes {
-        0 => "Just now".to_owned(),
-        1..60 => format!("{minutes}m ago"),
-        60..1440 => format!("{}h ago", minutes / 60),
-        _ => format!("{}d ago", minutes / 1440),
+        0 => tr!("Just now").to_owned(),
+        1..60 => tr!("{}m ago", minutes),
+        60..1440 => tr!("{}h ago", minutes / 60),
+        _ => tr!("{}d ago", minutes / 1440),
     }
 }
 
@@ -734,10 +740,10 @@ pub(super) fn profile_data(
                     banner: cached_picture(pictures, state, server.banner.as_deref()),
                     members: server
                         .members
-                        .map(|count| count_of(count, "member", "members"))
+                        .map(|count| trn!("{n} member", "{n} members", count))
                         .unwrap_or_default()
                         .into(),
-                    channels: count_of(server.channels as u64, "channel", "channels").into(),
+                    channels: trn!("{n} channel", "{n} channels", server.channels).into(),
                     nick: server.nick.as_deref().unwrap_or_default().into(),
                 })
                 .collect::<Vec<_>>(),
@@ -765,7 +771,7 @@ pub(super) fn profile_data(
                 .collect::<Vec<_>>(),
         )),
         note: if view.loading && !view.kept {
-            "Loading the profile...".into()
+            tr!("Loading the profile...").into()
         } else {
             view.note.clone().unwrap_or_default().into()
         },
@@ -793,7 +799,7 @@ pub(super) fn profile_data(
         )),
         widgets: widget_rows(&profile.widgets),
         board_note: if profile.board_asked && !profile.board_named {
-            "Loading the board...".into()
+            tr!("Loading the board...").into()
         } else {
             Default::default()
         },
@@ -873,7 +879,7 @@ pub(super) fn profile_data(
             .person_choices(&profile.id)
             .contains(&MenuChoice::Message)
         {
-            format!("Message @{}", profile.name).into()
+            tr!("Message @{}", profile.name).into()
         } else {
             Default::default()
         },
@@ -1036,19 +1042,14 @@ pub(super) fn tag_card(tag: &ShownTag, state: &AppState) -> TagCard {
     let known = joined.map(|server| server.name.as_str());
     let name = match (profile, private, failed) {
         (Some(profile), ..) => profile.name.as_str(),
-        (None, true, _) => known.unwrap_or("Private Server"),
-        (None, _, true) => known.unwrap_or("Unknown Server"),
+        (None, true, _) => known.unwrap_or(yapfast_lang::tr!("Private Server")),
+        (None, _, true) => known.unwrap_or(yapfast_lang::tr!("Unknown Server")),
         _ => known.unwrap_or_default(),
     };
     let icon = profile
         .and_then(|profile| profile.icon.as_deref())
         .or(joined.and_then(|server| server.icon.as_deref()))
         .unwrap_or_default();
-    let count = |count: Option<u64>, one: &str, many: &str| {
-        count.map_or_else(Default::default, |count| {
-            format!("{} {}", grouped(count), if count == 1 { one } else { many }).into()
-        })
-    };
     TagCard {
         server: tag.server.as_str().into(),
         name: name.into(),
@@ -1065,26 +1066,28 @@ pub(super) fn tag_card(tag: &ShownTag, state: &AppState) -> TagCard {
         picture_url: icon.into(),
         tag: tag.text.clone(),
         badge: tag.badge.clone(),
-        online: count(
-            profile.and_then(|profile| profile.online),
-            "Online",
-            "Online",
-        ),
-        members: count(
-            profile.and_then(|profile| profile.members),
-            "Member",
-            "Members",
-        ),
+        online: profile
+            .and_then(|profile| profile.online)
+            .map_or_else(Default::default, |count| {
+                yapfast_lang::tr!("{} Online", grouped(count)).into()
+            }),
+        members: profile
+            .and_then(|profile| profile.members)
+            .map_or_else(Default::default, |count| {
+                yapfast_lang::trn!("{} Member", "{} Members", count, grouped(count)).into()
+            }),
         established: profile
             .map(|profile| yapfast_core::clock::month(profile.created_ms / 1000))
             .filter(|month| !month.is_empty())
-            .map_or_else(Default::default, |month| format!("Est. {month}").into()),
+            .map_or_else(Default::default, |month| {
+                yapfast_lang::tr!("Est. {}", month).into()
+            }),
         description: profile
             .map_or("", |profile| profile.description.as_str())
             .into(),
         note: match (private, failed) {
-            (true, _) => "The server has limited who can see this profile.",
-            (_, true) => "Unable to load server profile",
+            (true, _) => yapfast_lang::tr!("The server has limited who can see this profile."),
+            (_, true) => yapfast_lang::tr!("Unable to load server profile"),
             _ => "",
         }
         .into(),

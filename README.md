@@ -102,7 +102,8 @@ Voice channels and DM calls, with mute, deafen, a volume for each person,
 noise suppression, echo removal, and a voice gate you can tune, or
 push-to-talk on any key or combination, held in any app. Keybinds mute,
 deafen or push to mute from any app too ([keybinds](docs/keybinds.md)). Go
-Live, watch other people's streams, turn on your camera and play the
+Live, watch other people's streams, with a preview of each before you watch
+it, turn on your camera and play the
 soundboard. The call stays up while you read other channels, busy voice
 channels say how long their call has gone on, and pointing at a Discord
 voice channel shows who is in it, who is live and whose camera is on.
@@ -126,7 +127,7 @@ in polls, watch the votes come in, make your own and end them early.
 
 ### Themes
 
-Ten of them, Catppuccin and Tokyo Night among them, and Bonfire, which is
+Twelve of them, Catppuccin and Tokyo Night among them, and Bonfire, which is
 Discord's own colors. Or make your own in the editor, and watch the window
 change as you type each color.
 

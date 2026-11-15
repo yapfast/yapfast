@@ -6,10 +6,11 @@ work in Discord and Matrix calls alike.
 
 ## In settings
 
-Settings → Keybinds lists them as Discord's page does. "Add a Keybind" adds
-one doing nothing (Unassigned) with no keys, as Discord's does; each has an
-action, its keys with "Record keybind", a remove button, and Discord's words
-for what the action does. The actions offered are Discord's Push to Talk
+Settings → Keybinds lists them as Discord's page does. "Add a Keybind", beside
+what keybinds do at the top of the page, adds one doing nothing (Unassigned)
+with no keys, as Discord's does; each, in a card of its own, has an action,
+its keys with "Record keybind", a remove button, and Discord's words for what
+the action does. The actions offered are Discord's Push to Talk
 (Normal), Push to Mute, Toggle Mute, Toggle Deafen and Toggle VAD (push to
 talk or voice activity). Push to Talk does something only in push to talk,
 as in Discord, and is watched only then.

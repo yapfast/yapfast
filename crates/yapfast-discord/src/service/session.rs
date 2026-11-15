@@ -12,6 +12,7 @@ use tokio::{
     sync::{broadcast, mpsc, watch},
     time::{Duration, Instant, Sleep},
 };
+use yapfast_lang::tr;
 
 use super::{
     Live, Request, Snapshot, Status, live::live_events, member_lists::MemberLists,
@@ -115,11 +116,13 @@ pub(super) async fn run(
         };
         tracing::warn!(%error, "Discord connection ended");
         let stopped = if error.downcast_ref::<Closed>().is_some_and(Closed::is_final) {
-            Some("Discord refused the saved login. Link your Discord account again.")
+            Some(tr!(
+                "Discord refused the saved login. Link your Discord account again."
+            ))
         } else if error.downcast_ref::<TooManyIdentifies>().is_some() {
-            Some(
-                "Discord keeps ending the connection, so Yapfast stopped reconnecting. Restart Yapfast to try again.",
-            )
+            Some(tr!(
+                "Discord keeps ending the connection, so Yapfast stopped reconnecting. Restart Yapfast to try again."
+            ))
         } else {
             None
         };
@@ -137,7 +140,7 @@ pub(super) async fn run(
         }
         snapshots.send_modify(|snapshot| {
             let snapshot = Arc::make_mut(snapshot);
-            snapshot.status = Status::Offline("Can't reach Discord. Reconnecting...".into());
+            snapshot.status = Status::Offline(tr!("Can't reach Discord. Reconnecting...").into());
             snapshot.voice.clear();
         });
         let wait = tokio::time::sleep(reconnects.wait(&error, up));
@@ -176,9 +179,9 @@ async fn relogin(api: &Api, token: &str) {
 fn refuse(request: Request, shared: &mut Shared) {
     match request {
         Request::Join { reply, .. } => {
-            let _ = reply.send(Err(anyhow!(
+            let _ = reply.send(Err(anyhow!(tr!(
                 "Discord isn't connected right now. Try again in a moment."
-            )));
+            ))));
         }
         Request::View { guild, channel } => {
             shared.viewing = channel.clone().map(|channel| (guild.clone(), channel));
@@ -382,8 +385,8 @@ impl Session<'_> {
                 event = self.gateway.next() => match event {
                     Ok(event) => self.event(event).await,
                     Err(error) => {
-                        self.join.fail("Discord disconnected while joining voice.");
-                        self.streams.fail("Discord disconnected while opening the stream.");
+                        self.join.fail(tr!("Discord disconnected while joining voice."));
+                        self.streams.fail(tr!("Discord disconnected while opening the stream."));
                         Err(error)
                     }
                 },

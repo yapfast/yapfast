@@ -527,11 +527,11 @@ impl Application {
             name => name.to_owned(),
         };
         if name.is_empty() {
-            form.error = Some("Thread Name is required".into());
+            form.error = Some(yapfast_lang::tr!("Thread Name is required").into());
             return vec![];
         }
         if form.body.trim().is_empty() {
-            form.error = Some("Starter Message is required".into());
+            form.error = Some(yapfast_lang::tr!("Starter Message is required").into());
             return vec![];
         }
         form.starting = true;

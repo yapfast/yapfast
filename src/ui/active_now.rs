@@ -31,10 +31,15 @@ fn names(names: &[&str]) -> String {
     match names {
         [] => String::new(),
         [one] => (*one).to_owned(),
-        [one, two] => format!("{one} and {two}"),
+        [one, two] => tr!("{} and {}", one, two),
         [one, two, rest @ ..] => {
-            let others = if rest.len() == 1 { "other" } else { "others" };
-            format!("{one}, {two}, and {} {others}", rest.len())
+            trn!(
+                "{}, {}, and {n} other",
+                "{}, {}, and {n} others",
+                rest.len(),
+                one,
+                two
+            )
         }
     }
 }
@@ -260,7 +265,7 @@ mod cards {
         card(
             place.room.to_owned(),
             friends,
-            activity.map_or("In a Voice Channel".to_owned(), self::doing),
+            activity.map_or(tr!("In a Voice Channel").to_owned(), self::doing),
             activity.map_or(0, |activity| activity_at(activity.start)),
             activity.and_then(|activity| activity.large_image.as_deref()),
             rows,
@@ -290,7 +295,7 @@ mod cards {
             rows.push(ActiveNowRow {
                 kind: ActiveRowKind::Game,
                 title: what.as_str().into(),
-                detail: format!("{} People", first.friends.len()).into(),
+                detail: trn!("{n} Person", "{n} People", first.friends.len()).into(),
                 icon_url: activity.large_image.as_deref().unwrap_or_default().into(),
                 initial: initial(&what),
                 tint: tint(&what),
@@ -355,7 +360,7 @@ mod cards {
             detail: activity
                 .state
                 .as_deref()
-                .map_or_else(|| format!("with {}", activity.name), str::to_owned)
+                .map_or_else(|| tr!("with {}", activity.name), str::to_owned)
                 .into(),
             icon_url: activity
                 .small_image

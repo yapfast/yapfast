@@ -14,6 +14,7 @@ use std::{
 };
 
 use serde_json::{Value, json};
+use yapfast_lang::tr;
 
 use crate::api::Upload;
 
@@ -357,9 +358,9 @@ impl Autocompletes {
 pub fn failure_reason(code: u64) -> &'static str {
     match code {
         // TIMEOUT: the app didn't answer within 3 seconds.
-        2 => "The application did not respond",
+        2 => tr!("The application did not respond"),
         // UNKNOWN, and 3-20, which are about launching an activity.
-        _ => "This interaction failed",
+        _ => tr!("This interaction failed"),
     }
 }
 

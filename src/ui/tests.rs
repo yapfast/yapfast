@@ -2281,7 +2281,9 @@ fn a_voice_messages_speed_and_volume_slide_out_while_pointed_at() {
 
     // With animations off they always show: the speed button is somewhere
     // along the message, found from the left, before the volume button.
+    // The interface's own motion stops with them, as `show_motion` sets it.
     window.global::<Motion>().set_never(true);
+    window.global::<Theme>().set_still(true);
     settle(&window);
     let (left, y) = (300..1000)
         .step_by(6)
@@ -2308,6 +2310,7 @@ fn a_voice_messages_speed_and_volume_slide_out_while_pointed_at() {
     // With them on, they're folded away until the pointer comes, then slide
     // out.
     window.global::<Motion>().set_never(false);
+    window.global::<Theme>().set_still(false);
     window.invoke_focus_composer();
     point(1100., 40.);
     wait(300);
@@ -8760,7 +8763,6 @@ fn edit_profile_opens_the_main_profile_editor() {
         prompt.colour_shown && !prompt.banner_shown,
         "without Nitro, a colour instead of a banner"
     );
-    assert_eq!(prompt.reset_word, "Remove");
     assert_eq!(window.get_profile_editor_name(), "Alice");
     assert_eq!(window.get_profile_editor_colour(), "#112233");
     assert!(prompt.has_colour && prompt.preview.has_accent);
@@ -9002,7 +9004,7 @@ fn a_custom_theme_is_made_edited_and_deleted_in_appearance() {
     window.invoke_new_theme();
     assert!(window.get_theme_editor());
     assert_eq!(window.get_theme_name(), "Nord copy");
-    assert_eq!(window.get_theme_start(), 4);
+    assert_eq!(window.get_theme_start(), 6);
     assert_eq!(window.get_theme_starts().row_count(), theme::BUILT_IN.len());
     let colours = window.get_theme_colours();
     assert_eq!(colours.row_count(), theme::Theme::NAMES.len());
@@ -9086,7 +9088,7 @@ fn a_custom_theme_is_made_edited_and_deleted_in_appearance() {
     // A new theme from another start takes its colours and name.
     window.invoke_new_theme();
     assert_eq!(window.get_theme_name(), "Midnight copy");
-    window.invoke_theme_start_chosen(9);
+    window.invoke_theme_start_chosen(11);
     assert_eq!(window.get_theme_name(), "Sakura copy");
     assert_eq!(
         theme::Theme::shown(&window),
@@ -10388,6 +10390,9 @@ fn dragging_the_pickers_left_edge_widens_it_no_further_than_the_server_list() {
             position: at(x, y),
             button,
         });
+        // The picker grows into place from 96% as it opens; its panel is
+        // measured once it's there.
+        i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(200));
         settle(&window);
     };
     // The GIF button in the composer opens the picker, 498px wide, its right
@@ -10990,8 +10995,9 @@ fn yapfast_server_rail_keeps_home_pinned_without_a_duplicate_separator() {
             });
         i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(250));
     };
-    // Home 40px, gap 8px, one 2px separator, gap 8px: server starts at 58px.
-    click(62.);
+    // An 8px inset, Home 40px, gap 8px, one 2px separator, gap 8px: server
+    // starts at 66px.
+    click(70.);
     assert_eq!(*navigated.borrow(), ["0"]);
     scroll(-240.);
     click(20.);
@@ -11008,10 +11014,10 @@ fn yapfast_server_rail_keeps_home_pinned_without_a_duplicate_separator() {
     );
     scroll(10000.);
     navigated.borrow_mut().clear();
-    // Unread DM at 58px, then its 8px gap and a 10px divider row.
-    click(110.);
+    // Unread DM at 66px, then its 8px gap and a 10px divider row.
+    click(118.);
     assert!(navigated.borrow().is_empty(), "keep the unread-DM boundary");
-    click(120.);
+    click(128.);
     assert_eq!(*navigated.borrow(), ["0"]);
     window.hide().unwrap();
 }

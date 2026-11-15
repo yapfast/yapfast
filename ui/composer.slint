@@ -1,4 +1,5 @@
-import { Theme, Middle } from "theme.slint";
+import { ClientStyle } from "yapfast/style.slint";
+import { Theme, Middle, Popup, PopupEntry } from "theme.slint";
 import { ActionButton, IconButton, Avatar, SpoilerCover } from "controls.slint";
 import { EmojiCell, EmojiFace } from "messages.slint";
 
@@ -7,19 +8,24 @@ export struct StagedFile { name: string, size: string, has-picture: bool, pictur
 
 // A file waiting to go with the next message: its picture or a file icon, its
 // name and size, and buttons that mark it as a spoiler, where the room has
-// them, and take it out.
+// them, and take it out, over the picture's top right corner.
 export component StagedTile inherits Rectangle {
     in property <StagedFile> file;
     in property <bool> can-spoil;
     callback remove;
     callback toggle-spoiler;
-    width: 120px; height: 140px; border-radius: 8px; background: Theme.raised;
+    // The picture's radius is the tile's less the room around it.
+    property <length> pad: 6px;
+    width: 120px; height: 140px; border-radius: 10px; background: Theme.raised;
+    // It fades in as it's staged.
+    enter := PopupEntry { }
+    opacity: Popup.opacity(enter.amount);
     accessible-role: groupbox;
-    accessible-label: root.file.name + ", " + root.file.size + (root.file.spoiler ? ", spoiler" : "");
+    accessible-label: root.file.spoiler ? @tr("{}, {}, spoiler", root.file.name, root.file.size) : @tr("{}, {}", root.file.name, root.file.size);
     VerticalLayout {
-        padding: 6px; spacing: 2px;
-        Rectangle {
-            height: 86px; border-radius: 6px; clip: true; background: Theme.sidebar;
+        padding: root.pad; spacing: 2px;
+        picture := Rectangle {
+            height: 86px; border-radius: root.border-radius - root.pad; clip: true; background: Theme.sidebar;
             if root.file.has-picture: Image { width: parent.width; height: parent.height; source: root.file.picture; image-fit: cover; }
             if !root.file.has-picture: Image {
                 x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
@@ -30,25 +36,47 @@ export component StagedTile inherits Rectangle {
         Text { text: root.file.name; color: Theme.text; font-size: 13px; font-weight: 500; overflow: elide; }
         Text { text: root.file.size; color: Theme.muted; font-size: 12px; overflow: elide; }
     }
+    // Inside the picture, 4px from its edges, on dark discs that read on
+    // any picture.
     if root.can-spoil: Rectangle {
-        x: parent.width - 2 * self.width - 8px; y: 4px; width: 28px; height: 28px; border-radius: 14px;
+        x: root.width - root.pad - 2 * (self.width + 4px); y: root.pad + 4px;
+        width: 24px; height: 24px; border-radius: 12px;
         background: #000000b3;
         IconButton {
             icon: root.file.spoiler ? @image-url("icons/eye-off.svg") : @image-url("icons/eye.svg");
-            label: root.file.spoiler ? "Stop covering " + root.file.name : "Mark " + root.file.name + " as a spoiler";
-            size: 28px; glyph: 16px; radius: 14px; tint: #ffffff;
+            label: root.file.spoiler ? @tr("Stop covering {}", root.file.name) : @tr("Mark {} as a spoiler", root.file.name);
+            size: 24px; height: 24px; glyph: 14px; radius: 12px; tint: #ffffff;
             clicked => { root.toggle-spoiler(); }
         }
     }
     Rectangle {
-        x: parent.width - self.width - 4px; y: 4px; width: 28px; height: 28px; border-radius: 14px;
+        x: root.width - root.pad - self.width - 4px; y: root.pad + 4px;
+        width: 24px; height: 24px; border-radius: 12px;
         background: #000000b3;
         IconButton {
-            icon: @image-url("icons/x.svg"); label: "Remove " + root.file.name;
-            size: 28px; glyph: 16px; radius: 14px; tint: #ffffff;
+            icon: @image-url("icons/x.svg"); label: @tr("Remove {}", root.file.name);
+            size: 24px; height: 24px; glyph: 14px; radius: 12px; tint: #ffffff;
             clicked => { root.remove(); }
         }
     }
+}
+
+// The box around a composer, as the channel's draws it: Discord's faint
+// outline, a notch lighter while the field has the keys, its top corners
+// square under a reply's bar. The thread's composer and a new post's
+// message use it too, so every composer looks alike.
+export component ComposerFrame inherits Rectangle {
+    /// The field inside has the keys.
+    in property <bool> focused;
+    /// A bar sits on its top, such as "Replying to".
+    in property <bool> under-bar;
+    background: ClientStyle.enabled ? Theme.composer : Theme.field;
+    border-width: 1px;
+    border-color: root.focused ? Theme.muted.with-alpha(0.55) : ClientStyle.enabled ? Theme.outline-field : Theme.line;
+    animate border-color { duration: Theme.quick; }
+    border-radius: 10px;
+    border-top-left-radius: root.under-bar ? 0px : 10px;
+    border-top-right-radius: root.under-bar ? 0px : 10px;
 }
 
 // The message composer is in composer-field.slint, which messages.slint uses too.
@@ -76,6 +104,10 @@ export struct MentionRow {
 export component SuggestionFrame inherits Rectangle {
     background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
     drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+    // They grow from the composer under them as they show.
+    enter := PopupEntry { }
+    opacity: Popup.opacity(enter.amount); transform-scale: Popup.scale(enter.amount);
+    transform-origin: { x: 0, y: self.height };
 }
 
 component SuggestionHeading inherits Text {
@@ -139,7 +171,7 @@ export component EmojiSuggestions inherits SuggestionFrame {
     height: suggestions.preferred-height;
     suggestions := VerticalLayout {
         padding: 6px; spacing: 0px;
-        HorizontalLayout { padding-left: 6px; SuggestionHeading { text: "EMOJI MATCHING :" + root.query; } }
+        HorizontalLayout { padding-left: 6px; SuggestionHeading { text: @tr("EMOJI MATCHING :{}", root.query); } }
         for cell[index] in root.emoji: Rectangle {
             height: 36px; border-radius: 6px;
             background: index == root.emoji-index ? Theme.active : pick.has-hover ? Theme.hover : transparent;
@@ -173,9 +205,9 @@ export component RequestBar inherits Rectangle {
             alignment: center; spacing: 2px; horizontal-stretch: 1;
             // One line each: a wrapped line would spill over the hint below.
             Text { text: root.request-title; color: Theme.text; font-size: 15px; font-weight: 700; overflow: elide; }
-            Text { text: "Accept to reply. Ignoring removes it without telling them."; color: Theme.secondary; font-size: 14px; overflow: elide; }
+            Text { text: @tr("Accept to reply. Ignoring removes it without telling them."); color: Theme.secondary; font-size: 14px; overflow: elide; }
         }
-        Middle { ActionButton { text: "Ignore"; label: "Ignore the message request"; clicked => { root.ignore-request(); } } }
-        Middle { ActionButton { text: "Accept"; label: "Accept the message request"; primary: true; clicked => { root.accept-request(); } } }
+        Middle { ActionButton { text: @tr("Ignore"); label: @tr("Ignore the message request"); clicked => { root.ignore-request(); } } }
+        Middle { ActionButton { text: @tr("Accept"); label: @tr("Accept the message request"); primary: true; clicked => { root.accept-request(); } } }
     }
 }

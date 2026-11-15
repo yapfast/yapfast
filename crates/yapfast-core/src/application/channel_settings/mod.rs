@@ -107,16 +107,16 @@ impl ChannelSettingsScreen {
         let (_, draft) = self.overview.as_ref()?;
         let name = channel_name(&draft.name, self.kind);
         if name.is_empty() {
-            return Some("Give it a name.".into());
+            return Some(yapfast_lang::tr!("Give it a name.").into());
         }
         if name.chars().count() > places::CHANNEL_NAME_LIMIT {
-            return Some(format!(
+            return Some(yapfast_lang::tr!(
                 "Names can be up to {} characters.",
                 places::CHANNEL_NAME_LIMIT
             ));
         }
         if draft.topic.chars().count() > places::CHANNEL_TOPIC_LIMIT {
-            return Some(format!(
+            return Some(yapfast_lang::tr!(
                 "Topics can be up to {} characters.",
                 places::CHANNEL_TOPIC_LIMIT
             ));

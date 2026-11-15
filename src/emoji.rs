@@ -17,6 +17,7 @@ use slint::{
     fontique_012::{fontique, shared_collection},
 };
 use yapfast_core::chat::EmojiSet;
+use yapfast_lang::tr;
 use yapfast_ui::{EmojiCell, EmojiRow, EmojiSection, SectionGlyph};
 
 use crate::custom_emoji;
@@ -31,12 +32,16 @@ pub const FAVORITES: &str = "Favorites";
 
 /// What a section draws in place of a picture, from the icon set rather than the
 /// platform's emoji font: the sections without a server's icon are the two this
-/// device keeps.
+/// device keeps. A section is named in the chosen language, so either name is
+/// known.
 pub fn section_glyph(heading: &str) -> SectionGlyph {
-    match heading {
-        FREQUENTLY_USED => SectionGlyph::Clock,
-        FAVORITES => SectionGlyph::Star,
-        _ => SectionGlyph::None,
+    let named = |name: &'static str| heading == name || heading == yapfast_lang::text(name);
+    if named(FREQUENTLY_USED) {
+        SectionGlyph::Clock
+    } else if named(FAVORITES) {
+        SectionGlyph::Star
+    } else {
+        SectionGlyph::None
     }
 }
 
@@ -542,12 +547,17 @@ pub fn rows(
         );
         return (rows, sections);
     }
+    // The picker's own sections are named in the chosen language, which their
+    // headings show in capitals; `section_glyph` knows them by either name.
     section(
-        Some((titled("⭐", FAVORITES), String::new())),
+        Some((titled("⭐", yapfast_lang::text(FAVORITES)), String::new())),
         favorites.to_vec(),
     );
     section(
-        Some((titled("🕒", FREQUENTLY_USED), String::new())),
+        Some((
+            titled("🕒", yapfast_lang::text(FREQUENTLY_USED)),
+            String::new(),
+        )),
         frequent.to_vec(),
     );
     for (set, keys) in custom.iter().zip(custom_keys) {
@@ -572,15 +582,15 @@ pub fn rows(
     }
     for group in emojis::Group::iter() {
         let (glyph, name) = match group {
-            emojis::Group::SmileysAndEmotion => ("😀", "Smileys & emotion"),
-            emojis::Group::PeopleAndBody => ("👋", "People & body"),
-            emojis::Group::AnimalsAndNature => ("🐻", "Animals & nature"),
-            emojis::Group::FoodAndDrink => ("🍔", "Food & drink"),
-            emojis::Group::TravelAndPlaces => ("✈️", "Travel & places"),
-            emojis::Group::Activities => ("⚽", "Activities"),
-            emojis::Group::Objects => ("💡", "Objects"),
-            emojis::Group::Symbols => ("🔣", "Symbols"),
-            emojis::Group::Flags => ("🏁", "Flags"),
+            emojis::Group::SmileysAndEmotion => ("😀", tr!("Smileys & emotion")),
+            emojis::Group::PeopleAndBody => ("👋", tr!("People & body")),
+            emojis::Group::AnimalsAndNature => ("🐻", tr!("Animals & nature")),
+            emojis::Group::FoodAndDrink => ("🍔", tr!("Food & drink")),
+            emojis::Group::TravelAndPlaces => ("✈️", tr!("Travel & places")),
+            emojis::Group::Activities => ("⚽", tr!("Activities")),
+            emojis::Group::Objects => ("💡", tr!("Objects")),
+            emojis::Group::Symbols => ("🔣", tr!("Symbols")),
+            emojis::Group::Flags => ("🏁", tr!("Flags")),
         };
         section(
             Some((titled(glyph, name), String::new())),

@@ -588,6 +588,11 @@ pub struct AppState {
     pub pending_watch: Option<(String, String)>,
     /// A video call's room: the camera goes on once its call connects.
     pub pending_camera: Option<String>,
+    /// The previews Discord has of the streams in this account's call that
+    /// it isn't watching, by their streamers' ids as in
+    /// [`voice::Participant::id`], which their tiles show. One is at most
+    /// 512 by 288 pixels, and goes when its stream is watched or ends.
+    pub stream_previews: HashMap<String, Arc<Picture>>,
     /// The places visited before this one, newest last, and those stepped
     /// back from, for the title bar's back and forward arrows.
     pub nav_back: Vec<HistoryPlace>,
@@ -1090,10 +1095,10 @@ impl AppState {
             .unwrap_or_default();
         match names {
             [] => String::new(),
-            [one] => format!("{one} is typing..."),
-            [one, two] => format!("{one} and {two} are typing..."),
-            [one, two, three] => format!("{one}, {two} and {three} are typing..."),
-            _ => "Several people are typing...".into(),
+            [one] => yapfast_lang::tr!("{} is typing...", one),
+            [one, two] => yapfast_lang::tr!("{} and {} are typing...", one, two),
+            [one, two, three] => yapfast_lang::tr!("{}, {} and {} are typing...", one, two, three),
+            _ => yapfast_lang::tr!("Several people are typing...").into(),
         }
     }
 
@@ -4135,9 +4140,9 @@ impl Application {
         let title = match (place, server) {
             (Some(place), _) if place.direct && place.person.is_some() => author,
             (Some(place), Some(server)) if server.discord => {
-                format!("{author} in #{} ({})", place.name, server.name)
+                yapfast_lang::tr!("{} in #{} ({})", author, place.name, server.name)
             }
-            (Some(place), _) => format!("{author} in {}", place.name),
+            (Some(place), _) => yapfast_lang::tr!("{} in {}", author, place.name),
             (None, _) => author,
         };
         let picture = avatar.and_then(|avatar| self.state.pictures.get(&avatar).cloned());
@@ -4189,8 +4194,9 @@ impl Application {
                 {
                     self.state.pending_camera = None;
                 }
-                self.state.voice = state;
+                let before = std::mem::replace(&mut self.state.voice, state);
                 let mut effects = sounds;
+                effects.extend(self.preview_streams(&before));
                 effects.extend(self.watch_when_connected());
                 effects.extend(self.film_when_connected());
                 return effects;
@@ -4228,6 +4234,11 @@ impl Application {
                 }
             }
             Event::Picture { url, picture } => self.keep_picture(url, picture),
+            Event::StreamPreview {
+                room,
+                user,
+                picture,
+            } => self.keep_stream_preview(&room, user, picture),
             Event::Video(video) => {
                 self.state.video = video.filter(|video| self.state.shows_room(&video.room));
             }
@@ -4541,7 +4552,8 @@ impl Application {
                         Ok(note) => dialog.text = Some(note),
                         Err(error) => {
                             dialog.text = Some(String::new());
-                            dialog.error = Some(format!("Couldn't load your note: {error}"));
+                            dialog.error =
+                                Some(yapfast_lang::tr!("Couldn't load your note: {}", error));
                         }
                     }
                 }
@@ -4566,14 +4578,21 @@ impl Application {
             }
             Event::StatusSet(result) => {
                 if let Err(error) = result {
-                    self.state.notice = Some(format!("Couldn't change your status: {error}"));
+                    self.state.notice =
+                        Some(yapfast_lang::tr!("Couldn't change your status: {}", error));
                 }
             }
             Event::SoundboardVolumeSet(Err(error)) => {
-                self.state.notice = Some(format!("Couldn't change the soundboard volume: {error}"));
+                self.state.notice = Some(yapfast_lang::tr!(
+                    "Couldn't change the soundboard volume: {}",
+                    error
+                ));
             }
             Event::JoinSoundSet(Err(error)) => {
-                self.state.notice = Some(format!("Couldn't change your entrance sound: {error}"));
+                self.state.notice = Some(yapfast_lang::tr!(
+                    "Couldn't change your entrance sound: {}",
+                    error
+                ));
             }
             Event::SoundboardVolumeSet(Ok(())) | Event::JoinSoundSet(Ok(())) => {}
             Event::SoundCatalog(result) => match result {
@@ -4588,15 +4607,18 @@ impl Application {
                     return self.load_pictures(pictures);
                 }
                 Err(error) => {
-                    self.state.notice =
-                        Some(format!("Couldn't list the soundboard's sounds: {error}"));
+                    self.state.notice = Some(yapfast_lang::tr!(
+                        "Couldn't list the soundboard's sounds: {}",
+                        error
+                    ));
                 }
             },
             Event::ShowGameSet(result) => {
                 if let Err(error) = result {
                     self.state.discord_show_game = !self.state.discord_show_game;
-                    self.state.notice = Some(format!(
-                        "Couldn't change sharing the game you play: {error}"
+                    self.state.notice = Some(yapfast_lang::tr!(
+                        "Couldn't change sharing the game you play: {}",
+                        error
                     ));
                 }
             }
@@ -4725,7 +4747,7 @@ impl Application {
             Event::Saved { room, name, result } => {
                 if self.state.selected.as_ref() == Some(&room) {
                     self.state.notice = Some(match result {
-                        Ok(()) => format!("Saved {name}."),
+                        Ok(()) => yapfast_lang::tr!("Saved {}.", name),
                         Err(error) => error.into(),
                     });
                 }
@@ -4739,7 +4761,7 @@ impl Application {
                 self.state.busy = false;
                 self.state.trusted = trusted;
                 self.state.notice = error.map(str::to_owned).or_else(|| {
-                    (!trusted).then(|| "This device is still unverified. Verify it in another client or enter your recovery key.".into())
+                    (!trusted).then(|| yapfast_lang::tr!("This device is still unverified. Verify it in another client or enter your recovery key.").into())
                 });
             }
             Event::Sync(online) => self.state.online = online,
@@ -4755,9 +4777,9 @@ impl Application {
     fn start(&mut self, start: chat::Start) -> Vec<Effect> {
         self.state.busy = true;
         self.state.notice = Some(if cfg!(feature = "matrix") {
-            "Connecting to Matrix...".into()
+            yapfast_lang::tr!("Connecting to Matrix...").into()
         } else {
-            "Connecting to Discord...".into()
+            yapfast_lang::tr!("Connecting to Discord...").into()
         });
         vec![Effect::Start(start)]
     }
@@ -4985,8 +5007,9 @@ impl Application {
                 favorites.remove(index);
             }
             None if favorites.len() >= yapfast_discord::frecency::MOST_FAVORITE_EMOJIS => {
-                self.state.notice = Some(format!(
-                    "You can have up to {} favourite emoji.",
+                self.state.notice = Some(yapfast_lang::trn!(
+                    "You can have up to {n} favourite emoji.",
+                    "You can have up to {n} favourite emoji.",
                     yapfast_discord::frecency::MOST_FAVORITE_EMOJIS
                 ));
                 return vec![];

@@ -9,6 +9,7 @@ use keyring::Entry;
 use matrix_sdk::authentication::matrix::MatrixSession;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use yapfast_lang::tr;
 
 const SERVICE: &str = "io.github.yapfast.Yapfast";
 
@@ -22,9 +23,11 @@ pub enum SecretStorage {
 impl SecretStorage {
     pub fn notice(self) -> &'static str {
         match self {
-            Self::Keyring => "Credentials are stored in the OS credential store.",
+            Self::Keyring => tr!("Credentials are stored in the OS credential store."),
             Self::PrivateFile => {
-                "Secret Service is unavailable. Credentials are in a private file readable by your Linux user."
+                tr!(
+                    "Secret Service is unavailable. Credentials are in a private file readable by your Linux user."
+                )
             }
         }
     }
@@ -79,13 +82,16 @@ impl SessionStore {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(_) => bail!("could not read session metadata"),
         };
-        let active: ActiveSession = serde_json::from_slice(&bytes)
-            .context("session metadata is damaged; preserve the stores before repairing it")?;
+        let active: ActiveSession = serde_json::from_slice(&bytes).context(tr!(
+            "session metadata is damaged; preserve the stores before repairing it"
+        ))?;
         if active.version != 1 {
-            bail!("this session was written by an unsupported Yapfast version")
+            bail!(tr!(
+                "this session was written by an unsupported Yapfast version"
+            ))
         }
         let bytes = match active.storage {
-            SecretStorage::Keyring => entry(active.id)?.get_secret().map_err(|_| anyhow::anyhow!("session credentials are unavailable in the OS credential store; unlock it and retry"))?,
+            SecretStorage::Keyring => entry(active.id)?.get_secret().map_err(|_| anyhow::anyhow!(tr!("session credentials are unavailable in the OS credential store; unlock it and retry")))?,
             SecretStorage::PrivateFile => {
                 #[cfg(not(target_os = "linux"))]
                 bail!("private-file credentials are supported only on Linux");
@@ -103,7 +109,9 @@ impl SessionStore {
             )
         })?;
         if !self.sdk_path(active.id).is_dir() {
-            bail!("the session's crypto store is missing; restore it before signing in again")
+            bail!(tr!(
+                "the session's crypto store is missing; restore it before signing in again"
+            ))
         }
         Ok(Some((active.id, active.storage, saved)))
     }
@@ -118,7 +126,9 @@ impl SessionStore {
         }
         #[cfg(not(target_os = "linux"))]
         {
-            bail!("the OS credential store is unavailable; unlock it before signing in")
+            bail!(tr!(
+                "the OS credential store is unavailable; unlock it before signing in"
+            ))
         }
     }
 
@@ -140,9 +150,9 @@ impl SessionStore {
             SecretStorage::Keyring => Entry::new(SERVICE, &format!("{id}-store-key"))
                 .and_then(|entry| entry.set_password(passphrase))
                 .map_err(|_| {
-                    anyhow::anyhow!(
+                    anyhow::anyhow!(tr!(
                         "could not preserve the crypto store password in the OS credential store"
-                    )
+                    ))
                 })?,
             SecretStorage::PrivateFile => {
                 #[cfg(not(target_os = "linux"))]
@@ -169,7 +179,7 @@ impl SessionStore {
         let bytes = serde_json::to_vec(saved).context("could not encode session credentials")?;
         match storage {
             SecretStorage::Keyring => entry(id)?.set_secret(&bytes).map_err(|_| {
-                anyhow::anyhow!("could not save credentials in the OS credential store")
+                anyhow::anyhow!(tr!("could not save credentials in the OS credential store"))
             })?,
             SecretStorage::PrivateFile => {
                 #[cfg(not(target_os = "linux"))]
@@ -217,7 +227,9 @@ fn entry(id: Uuid) -> Result<Entry> {
 fn reject_symlink(path: &Path) -> Result<()> {
     match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_symlink() => {
-            bail!("a session path is a symbolic link; choose a private directory")
+            bail!(tr!(
+                "a session path is a symbolic link; choose a private directory"
+            ))
         }
         Ok(_) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),

@@ -48,6 +48,8 @@ colours and a card.
 | --- | --- | --- | --- | --- |
 | Yap | `yap` | yes | marigold | Yapfast's own, the default |
 | Bonfire | `bonfire` | yes | blurple | Discord's Dark theme |
+| Midnight | `midnight` | yes | blurple | Yapfast's own: near black, each surface a step lighter |
+| Black | `black` | yes | blurple | Midnight on true black, for OLED screens |
 | Catppuccin Mocha | `catppuccin-mocha` | yes | mauve | [Catppuccin](https://github.com/catppuccin/catppuccin) |
 | Dracula | `dracula` | yes | purple | [Dracula](https://draculatheme.com/contribute) |
 | Nord | `nord` | yes | frost nord8 | [Nord](https://www.nordtheme.com/docs/colors-and-palettes) |
@@ -76,7 +78,12 @@ colours, not their names for UI parts, so each mapping is Yapfast's:
   Catppuccin and Tokyo Night, that's dark.
 - Light themes wash hovers with a dark overlay (black, or the palette's text
   colour) instead of white, sweep skeletons with a white band, and draw the
-  tooltip light, since its text is the theme's text colour.
+  tooltip light, since its text is the theme's text colour. Their raised
+  surfaces (popovers, dialogs, cards) are a step lighter than the chat, near
+  white, as a light theme lifts things toward the light; Sakura's are a step
+  pinker instead, its blossom on the paper. Their wells (fields, segmented
+  controls) are a step darker than the chat and the settings pages, and
+  their green is dark enough to read as 12px text on a light card.
 
 Bonfire maps Discord's Dark theme from the CSS variables of its web client
 (`.theme-dark` with `.theme-darker`, which is what its settings call Dark;

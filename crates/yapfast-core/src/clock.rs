@@ -2,7 +2,8 @@
 
 use std::sync::atomic::{AtomicU8, Ordering};
 
-use chrono::{DateTime, Local, TimeZone};
+use chrono::{DateTime, Datelike, Local, TimeZone, Weekday};
+use yapfast_lang::tr;
 
 /// How a date's day, month and year are ordered.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -24,8 +25,9 @@ impl DateFormat {
 
     fn numeric(self) -> &'static str {
         match self {
-            Self::DayMonthYear => "%d/%m/%Y",
-            Self::MonthDayYear => "%m/%d/%Y",
+            // A language writes its dates its own way: Russian's with dots.
+            Self::DayMonthYear => tr!("%d/%m/%Y"),
+            Self::MonthDayYear => tr!("%m/%d/%Y"),
             Self::YearMonthDay => "%Y-%m-%d",
         }
     }
@@ -145,14 +147,72 @@ fn month_in<Tz: TimeZone>(zone: &Tz, seconds: u64) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
-    at(zone, seconds).format("%b %Y").to_string()
+    let then = at(zone, seconds);
+    // A context of its own: Russian adds "г." after the year.
+    yapfast_lang::fill(
+        yapfast_lang::text_in("Month", "{0} {1}"),
+        None,
+        &[&month_short(then.month()), &then.format("%Y")],
+    )
 }
 
 fn profile_day_in<Tz: TimeZone>(zone: &Tz, seconds: u64) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
-    at(zone, seconds).format("%b %-d, %Y").to_string()
+    let then = at(zone, seconds);
+    tr!(
+        "{0} {1}, {2}",
+        month_short(then.month()),
+        then.day(),
+        then.format("%Y")
+    )
+}
+
+fn weekday_name(day: Weekday) -> &'static str {
+    match day {
+        Weekday::Mon => tr!("Monday"),
+        Weekday::Tue => tr!("Tuesday"),
+        Weekday::Wed => tr!("Wednesday"),
+        Weekday::Thu => tr!("Thursday"),
+        Weekday::Fri => tr!("Friday"),
+        Weekday::Sat => tr!("Saturday"),
+        Weekday::Sun => tr!("Sunday"),
+    }
+}
+
+fn month_short(month: u32) -> &'static str {
+    match month {
+        1 => tr!("Jan"),
+        2 => tr!("Feb"),
+        3 => tr!("Mar"),
+        4 => tr!("Apr"),
+        5 => tr!("May"),
+        6 => tr!("Jun"),
+        7 => tr!("Jul"),
+        8 => tr!("Aug"),
+        9 => tr!("Sep"),
+        10 => tr!("Oct"),
+        11 => tr!("Nov"),
+        _ => tr!("Dec"),
+    }
+}
+
+fn month_long(month: u32) -> &'static str {
+    match month {
+        1 => tr!("January"),
+        2 => tr!("February"),
+        3 => tr!("March"),
+        4 => tr!("April"),
+        5 => tr!("May"),
+        6 => tr!("June"),
+        7 => tr!("July"),
+        8 => tr!("August"),
+        9 => tr!("September"),
+        10 => tr!("October"),
+        11 => tr!("November"),
+        _ => tr!("December"),
+    }
 }
 
 fn time_in<Tz: TimeZone>(zone: &Tz, seconds: u64, twelve_hour: bool, with_seconds: bool) -> String
@@ -198,11 +258,11 @@ where
     let days = (then.date_naive() - at(zone, now).date_naive()).num_days();
     let time = time_in(zone, seconds, twelve_hour, false);
     Some(match days {
-        0 => format!("Today at {time}"),
-        -1 => format!("Yesterday at {time}"),
-        1 => format!("Tomorrow at {time}"),
-        -6..=-2 => format!("Last {} at {time}", then.format("%A")),
-        2..=6 => format!("{} at {time}", then.format("%A")),
+        0 => tr!("Today at {}", time),
+        -1 => tr!("Yesterday at {}", time),
+        1 => tr!("Tomorrow at {}", time),
+        -6..=-2 => tr!("Last {} at {}", weekday_name(then.weekday()), time),
+        2..=6 => tr!("{} at {}", weekday_name(then.weekday()), time),
         _ => return None,
     })
 }
@@ -236,7 +296,7 @@ where
     let when = |seconds: u64| {
         near_in(zone, seconds, now, twelve_hour).unwrap_or_else(|| {
             let time = time_in(zone, seconds, twelve_hour, false);
-            format!("{} at {time}", day_in(zone, seconds, dates))
+            tr!("{} at {}", day_in(zone, seconds, dates), time)
         })
     };
     let start = when(starts);
@@ -281,8 +341,8 @@ where
     let time = time_in(zone, seconds, twelve_hour, with_seconds);
     match days {
         0 => time,
-        -1 => format!("Yesterday at {time}"),
-        1 => format!("Tomorrow at {time}"),
+        -1 => tr!("Yesterday at {}", time),
+        1 => tr!("Tomorrow at {}", time),
         _ => format!("{} {time}", then.format(dates.numeric())),
     }
 }
@@ -295,10 +355,10 @@ pub fn lasted(started: u64, now: u64) -> String {
     let minutes = now.saturating_sub(started) / 60;
     let (days, hours, minutes) = (minutes / (24 * 60), minutes / 60 % 24, minutes % 60);
     match (days, hours, minutes) {
-        (0, 0, 0) => "<1m".to_owned(),
-        (0, 0, minutes) => format!("{minutes}m"),
-        (0, hours, minutes) => format!("{hours}h {minutes:02}m"),
-        (days, hours, _) => format!("{days}d {hours}h"),
+        (0, 0, 0) => tr!("<1m").to_owned(),
+        (0, 0, minutes) => tr!("{}m", minutes),
+        (0, hours, minutes) => tr!("{}h {}m", hours, format!("{minutes:02}")),
+        (days, hours, _) => tr!("{}d {}h", days, hours),
     }
 }
 
@@ -311,7 +371,13 @@ fn day_in<Tz: TimeZone>(zone: &Tz, seconds: u64, dates: DateFormat) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
-    at(zone, seconds).format(dates.long()).to_string()
+    let then = at(zone, seconds);
+    let month = month_long(then.month());
+    match dates {
+        DateFormat::DayMonthYear => tr!("{0} {1} {2}", then.day(), month, then.format("%Y")),
+        DateFormat::MonthDayYear => tr!("{0} {1}, {2}", month, then.day(), then.format("%Y")),
+        DateFormat::YearMonthDay => then.format("%Y-%m-%d").to_string(),
+    }
 }
 
 fn at<Tz: TimeZone>(zone: &Tz, seconds: u64) -> DateTime<Tz> {

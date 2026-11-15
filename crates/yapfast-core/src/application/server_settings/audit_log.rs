@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 
 use serde_json::Value;
+use yapfast_lang::{tr, trn};
 
 use super::*;
 use crate::chat::{AuditChange, AuditEntry, AuditLog, AuditQuery, AuditUser};
@@ -690,12 +691,6 @@ fn b(text: impl Into<String>) -> Piece {
     Piece::Bold(text.into())
 }
 
-/// `one` for one, else `other`, with `#` for the number, as Discord's
-/// plurals.
-fn plural(count: u64, one: &str, other: &str) -> String {
-    if count == 1 { one } else { other }.replace('#', &count.to_string())
-}
-
 /// The names of the permissions in `bits`, in Discord's order: a channel's
 /// say "Manage Channel" and "View Channel".
 fn permission_names(bits: u64, channel: bool) -> Vec<String> {
@@ -703,9 +698,9 @@ fn permission_names(bits: u64, channel: bool) -> Vec<String> {
         .iter()
         .filter(|(bit, _)| bits & (1 << bit) != 0)
         .map(|&(bit, name)| match (bit, channel) {
-            (4, true) => "Manage Channel".to_owned(),
-            (10, true) => "View Channel".to_owned(),
-            _ => name.to_owned(),
+            (4, true) => tr!("Manage Channel").to_owned(),
+            (10, true) => tr!("View Channel").to_owned(),
+            _ => yapfast_lang::text(name).to_owned(),
         })
         .collect()
 }
@@ -740,8 +735,8 @@ impl Render<'_> {
             (Some(user), _) => user.name.clone(),
             (None, Some("twitch")) => "Twitch".to_owned(),
             (None, Some("youtube")) => "YouTube".to_owned(),
-            (None, Some(_)) => "Unknown Integration".to_owned(),
-            (None, None) => "Unknown User".to_owned(),
+            (None, Some(_)) => tr!("Unknown Integration").to_owned(),
+            (None, None) => tr!("Unknown User").to_owned(),
         };
         // AutoMod's rows show its avatar in Discord's client, not the
         // user's; Yapfast has none to show.
@@ -795,7 +790,7 @@ impl Render<'_> {
             | Target::Home
             | Target::Verification
             | Target::Profile => Some(self.known.guild()),
-            Target::HomeSettings => Some("Server Guide".to_owned()),
+            Target::HomeSettings => Some(tr!("Server Guide").to_owned()),
             Target::Channel | Target::Overwrite => id
                 .and_then(|id| self.known.channel(id))
                 .or_else(|| named("name")),
@@ -822,7 +817,7 @@ impl Render<'_> {
             | Target::Command => listed("name"),
             Target::Sticker | Target::Soundboard => named("name"),
             Target::Stage => named("topic"),
-            Target::Prompt => changed("title").or_else(|| id.map(|_| "[empty]".to_owned())),
+            Target::Prompt => changed("title").or_else(|| id.map(|_| tr!("[empty]").to_owned())),
         }
     }
 
@@ -858,192 +853,202 @@ impl Render<'_> {
                 .and_then(|change| change.new.as_u64())
         };
         let in_channel = |mut spans: Vec<Piece>| {
-            spans.extend([t(" in "), b(self.channel(entry))]);
+            spans.extend([t(tr!(" in ")), b(self.channel(entry))]);
             spans
         };
         match entry.action {
-            1 | 11 => did("made changes to"),
+            1 | 11 => did(tr!("made changes to")),
             10 => did(match new_type() {
-                Some(13) => "created a stage channel",
-                Some(2) => "created a voice channel",
-                Some(4) => "created a category",
-                Some(15) => "created a forum channel",
-                Some(16) => "created a media channel",
-                Some(5) => "created an announcement channel",
-                _ => "created a text channel",
+                Some(13) => tr!("created a stage channel"),
+                Some(2) => tr!("created a voice channel"),
+                Some(4) => tr!("created a category"),
+                Some(15) => tr!("created a forum channel"),
+                Some(16) => tr!("created a media channel"),
+                Some(5) => tr!("created an announcement channel"),
+                _ => tr!("created a text channel"),
             }),
-            12 => did("removed"),
-            13 => did("created channel overrides for"),
-            14 => did("updated channel overrides for"),
-            15 => did("removed channel overrides for"),
+            12 => did(tr!("removed")),
+            13 => did(tr!("created channel overrides for")),
+            14 => did(tr!("updated channel overrides for")),
+            15 => did(tr!("removed channel overrides for")),
             16 => vec![
                 b(actor),
-                t(" moved "),
-                b(plural(count, "a channel", "# channels")),
+                t(tr!(" moved ")),
+                b(trn!("a channel", "{n} channels", count)),
             ],
-            20 => did("kicked"),
+            20 => did(tr!("kicked")),
             21 => {
                 let removed = number(&options["members_removed"])
                     .filter(|removed| *removed != 0)
                     .unwrap_or(count);
                 vec![
                     b(actor),
-                    t(" pruned "),
-                    b(plural(removed, "a member", "# members")),
+                    t(tr!(" pruned ")),
+                    b(trn!("a member", "{n} members", removed)),
                 ]
             }
-            22 => did("banned"),
-            23 => did("removed the ban for"),
-            24 => did("updated"),
-            25 => did("updated roles for"),
+            22 => did(tr!("banned")),
+            23 => did(tr!("removed the ban for")),
+            24 => did(tr!("updated")),
+            25 => did(tr!("updated roles for")),
             26 | 27 => self.moved(entry, actor, count),
             28 => {
-                let mut spans = did("added");
-                spans.push(t(" to the server"));
+                let mut spans = did(tr!("added"));
+                spans.push(t(tr!(" to the server")));
                 spans
             }
-            30 => did("created the role"),
-            31 => did("updated the role"),
-            32 => did("deleted the role"),
+            30 => did(tr!("created the role")),
+            31 => did(tr!("updated the role")),
+            32 => did(tr!("deleted the role")),
             33 => vec![
                 b(actor),
-                t(" moved "),
-                b(plural(count, "a role", "# roles")),
+                t(tr!(" moved ")),
+                b(trn!("a role", "{n} roles", count)),
             ],
-            40 => did("created an invite"),
-            41 => did("updated an invite"),
-            42 => did("deleted an invite"),
-            50 => did("created the webhook"),
-            51 => did("updated the webhook"),
-            52 => did("deleted the webhook"),
-            60 => did("created the emoji"),
-            61 => did("updated the emoji"),
-            62 => did("deleted the emoji"),
+            40 => did(tr!("created an invite")),
+            41 => did(tr!("updated an invite")),
+            42 => did(tr!("deleted an invite")),
+            50 => did(tr!("created the webhook")),
+            51 => did(tr!("updated the webhook")),
+            52 => did(tr!("deleted the webhook")),
+            60 => did(tr!("created the emoji")),
+            61 => did(tr!("updated the emoji")),
+            62 => did(tr!("deleted the emoji")),
             72 => in_channel(vec![
                 b(actor),
-                t(" deleted "),
-                b(plural(count, "a message", "# messages")),
-                t(" by "),
+                t(tr!(" deleted ")),
+                b(trn!("a message", "{n} messages", count)),
+                t(tr!(" by ")),
                 b(target),
             ]),
             73 => vec![
                 b(actor),
-                t(" deleted "),
-                b(plural(count, "a message", "# messages")),
-                t(" in "),
+                t(tr!(" deleted ")),
+                b(trn!("a message", "{n} messages", count)),
+                t(tr!(" in ")),
                 b(target),
             ],
-            74 => in_channel(did("pinned a message by")),
-            75 => in_channel(did("unpinned a message by")),
-            80 => did("added an integration for"),
-            81 => did("updated the integration for"),
-            82 => did("deleted the integration for"),
+            74 => in_channel(did(tr!("pinned a message by"))),
+            75 => in_channel(did(tr!("unpinned a message by"))),
+            80 => did(tr!("added an integration for")),
+            81 => did(tr!("updated the integration for")),
+            82 => did(tr!("deleted the integration for")),
             83 => vec![
                 b(actor),
-                t(" started the stage for "),
+                t(tr!(" started the stage for ")),
                 b(self.channel(entry)),
             ],
             84 => vec![
                 b(actor),
-                t(" updated the stage for "),
+                t(tr!(" updated the stage for ")),
                 b(self.channel(entry)),
             ],
             85 if entry.user.is_none() => vec![
-                t("Discord ended the stage for "),
+                t(tr!("Discord ended the stage for ")),
                 b(self.channel(entry)),
-                t(" due to inactivity."),
+                t(tr!(" due to inactivity.")),
             ],
-            85 => vec![b(actor), t(" ended the stage for "), b(self.channel(entry))],
-            90 => did("created the sticker"),
-            91 => did("updated the sticker"),
-            92 => did("deleted the sticker"),
-            100 => did("scheduled the event"),
-            101 => did("updated the scheduled event"),
-            102 => did("canceled the scheduled event"),
-            110 => did(match new_type() {
-                Some(12) => "created a private thread",
-                Some(10) => "created an announcement thread",
-                _ => "created a thread",
-            }),
-            111 => did("made changes to the thread"),
-            112 => did("deleted the thread"),
-            121 => did("updated permissions for"),
-            130 => only("uploaded a Soundboard sound"),
-            131 => only("updated a Soundboard sound"),
-            132 => only("deleted a Soundboard sound"),
-            140 => did("created AutoMod rule"),
-            141 => did("updated AutoMod rule"),
-            142 => did("deleted AutoMod rule"),
-            143 => in_channel(vec![t("AutoMod blocked a message sent by "), b(target)]),
-            144 if options["auto_moderation_rule_trigger_type"].as_str() == Some("6") => vec![
-                t("AutoMod flagged "),
+            85 => vec![
                 b(actor),
-                t(" for violating content in their user profile"),
+                t(tr!(" ended the stage for ")),
+                b(self.channel(entry)),
             ],
-            144 => in_channel(vec![t("AutoMod flagged a message sent by "), b(target)]),
-            145 => vec![
-                t("AutoMod timed out "),
+            90 => did(tr!("created the sticker")),
+            91 => did(tr!("updated the sticker")),
+            92 => did(tr!("deleted the sticker")),
+            100 => did(tr!("scheduled the event")),
+            101 => did(tr!("updated the scheduled event")),
+            102 => did(tr!("canceled the scheduled event")),
+            110 => did(match new_type() {
+                Some(12) => tr!("created a private thread"),
+                Some(10) => tr!("created an announcement thread"),
+                _ => tr!("created a thread"),
+            }),
+            111 => did(tr!("made changes to the thread")),
+            112 => did(tr!("deleted the thread")),
+            121 => did(tr!("updated permissions for")),
+            130 => only(tr!("uploaded a Soundboard sound")),
+            131 => only(tr!("updated a Soundboard sound")),
+            132 => only(tr!("deleted a Soundboard sound")),
+            140 => did(tr!("created AutoMod rule")),
+            141 => did(tr!("updated AutoMod rule")),
+            142 => did(tr!("deleted AutoMod rule")),
+            143 => in_channel(vec![
+                t(tr!("AutoMod blocked a message sent by ")),
                 b(target),
-                t(" for a message posted in "),
+            ]),
+            144 if options["auto_moderation_rule_trigger_type"].as_str() == Some("6") => vec![
+                t(tr!("AutoMod flagged ")),
+                b(actor),
+                t(tr!(" for violating content in their user profile")),
+            ],
+            144 => in_channel(vec![
+                t(tr!("AutoMod flagged a message sent by ")),
+                b(target),
+            ]),
+            145 => vec![
+                t(tr!("AutoMod timed out ")),
+                b(target),
+                t(tr!(" for a message posted in ")),
                 b(self.channel(entry)),
             ],
             146 => vec![
-                t("AutoMod quarantined "),
+                t(tr!("AutoMod quarantined ")),
                 b(actor),
-                t(" for violating content in their user profile"),
+                t(tr!(" for violating content in their user profile")),
             ],
-            150 => only("applied for monetization"),
-            151 => only("accepted terms for monetization"),
-            163 => only("created a new customization question"),
-            164 => did("updated the customization question"),
-            165 => did("deleted the customization question"),
-            166 => only("started onboarding for this server"),
-            167 => only("updated onboarding for this server"),
+            150 => only(tr!("applied for monetization")),
+            151 => only(tr!("accepted terms for monetization")),
+            163 => only(tr!("created a new customization question")),
+            164 => did(tr!("updated the customization question")),
+            165 => did(tr!("deleted the customization question")),
+            166 => only(tr!("started onboarding for this server")),
+            167 => only(tr!("updated onboarding for this server")),
             171 => only(
                 match changes
                     .iter()
                     .find(|change| change.key == "entity_type")
                     .and_then(|change| change.new.as_str())
                 {
-                    Some("message") => "featured a message on Home",
-                    Some("forum_post") => "featured a forum post on Home",
-                    _ => "featured something on Home",
+                    Some("message") => tr!("featured a message on Home"),
+                    Some("forum_post") => tr!("featured a forum post on Home"),
+                    _ => tr!("featured something on Home"),
                 },
             ),
-            172 => only("removed an item from Home"),
+            172 => only(tr!("removed an item from Home")),
             // Discord's client has no sentence for a blocked harmful link.
             180 => vec![],
-            190 => only("created the Server Guide for this server"),
-            191 => only("updated the Server Guide for this server"),
+            190 => only(tr!("created the Server Guide for this server")),
+            191 => only(tr!("updated the Server Guide for this server")),
             192 => vec![
                 b(actor),
-                t(" set a Voice Channel Status in "),
+                t(tr!(" set a Voice Channel Status in ")),
                 b(self.channel(entry)),
             ],
             193 => vec![
                 b(actor),
-                t(" removed a Voice Channel Status in "),
+                t(tr!(" removed a Voice Channel Status in ")),
                 b(self.channel(entry)),
             ],
             200..=202 => {
                 let verb = if entry.action == 202 {
-                    "reset an event recurrence for"
+                    tr!("reset an event recurrence for")
                 } else {
-                    "updated an event recurrence for"
+                    tr!("updated an event recurrence for")
                 };
                 let day = options["event_exception_id"]
                     .as_str()
                     .map(|id| crate::clock::day(seconds(id)))
                     .unwrap_or_default();
                 let mut spans = did(verb);
-                spans.extend([t(" at "), b(day)]);
+                spans.extend([t(tr!(" at ")), b(day)]);
                 spans
             }
-            210 => only("updated member application settings"),
-            211 => only("updated server profile settings"),
-            212 => only("updated Pin Messages permission"),
-            213 => only("updated Bypass Slowmode permission"),
-            _ => only("made changes"),
+            210 => only(tr!("updated member application settings")),
+            211 => only(tr!("updated server profile settings")),
+            212 => only(tr!("updated Pin Messages permission")),
+            213 => only(tr!("updated Bypass Slowmode permission")),
+            _ => only(tr!("made changes")),
         }
     }
 
@@ -1055,24 +1060,28 @@ impl Render<'_> {
         let member = options["member_id"].as_str().and_then(|id| self.user(id));
         let who = match (unique, options["unique_overflow"].as_str()) {
             (None, _) => None,
-            (Some(unique), Some("1")) => Some(format!("{unique}+ users")),
+            (Some(unique), Some("1")) => Some(tr!("{}+ users", unique)),
             (Some(1), _) if member.is_some() => member,
-            (Some(unique), _) => Some(plural(unique, "# user", "# users")),
+            (Some(unique), _) => Some(trn!("{n} user", "{n} users", unique)),
         };
         let mut spans = vec![
             b(actor),
-            t(if moving { " moved " } else { " disconnected " }),
+            t(if moving {
+                tr!(" moved ")
+            } else {
+                tr!(" disconnected ")
+            }),
             b(who
                 .clone()
-                .unwrap_or_else(|| plural(count, "a user", "# users"))),
+                .unwrap_or_else(|| trn!("a user", "{n} users", count))),
         ];
         if moving {
-            spans.extend([t(" to "), b(self.channel(entry))]);
+            spans.extend([t(tr!(" to ")), b(self.channel(entry))]);
         } else {
-            spans.push(t(" from voice"));
+            spans.push(t(tr!(" from voice")));
         }
         if who.is_some() {
-            spans.extend([t(" ("), b(plural(count, "# action", "# actions")), t(")")]);
+            spans.extend([t(" ("), b(trn!("{n} action", "{n} actions", count)), t(")")]);
         }
         spans
     }
@@ -1091,7 +1100,7 @@ impl Render<'_> {
             }
             if key == "reason" && target != Target::Profile {
                 if let Some(reason) = shown(&change.new) {
-                    lines.push(line(vec![t("With reason "), b(reason)]));
+                    lines.push(line(vec![t(tr!("With reason ")), b(reason)]));
                 }
                 continue;
             }
@@ -1117,30 +1126,30 @@ impl Render<'_> {
             "bitrate" => (number(value)? / 1000).to_string(),
             "color" => format!("#{:06X}", number(value)?),
             "max_age" => match number(value)? {
-                1800 => "30 minutes".to_owned(),
-                3600 => "1 hour".to_owned(),
-                21600 => "6 hours".to_owned(),
-                43200 => "12 hours".to_owned(),
-                86400 => "1 day".to_owned(),
-                604_800 => "7 days".to_owned(),
-                1_209_600 => "14 days".to_owned(),
-                2_592_000 => "30 days".to_owned(),
-                5_184_000 => "60 days".to_owned(),
-                0 => "Never".to_owned(),
+                1800 => tr!("30 minutes").to_owned(),
+                3600 => tr!("1 hour").to_owned(),
+                21600 => tr!("6 hours").to_owned(),
+                43200 => tr!("12 hours").to_owned(),
+                86400 => tr!("1 day").to_owned(),
+                604_800 => tr!("7 days").to_owned(),
+                1_209_600 => tr!("14 days").to_owned(),
+                2_592_000 => tr!("30 days").to_owned(),
+                5_184_000 => tr!("60 days").to_owned(),
+                0 => tr!("Never").to_owned(),
                 other => other.to_string(),
             },
             "video_quality_mode" => match number(value)? {
                 2 => "720p".to_owned(),
-                _ => "Auto".to_owned(),
+                _ => tr!("Auto").to_owned(),
             },
             "type" => match number(value)? {
-                0 => "Text Channel".to_owned(),
-                2 => "Voice Channel".to_owned(),
-                4 => "Category".to_owned(),
-                5 => "Announcement Channel".to_owned(),
-                13 => "Stage Channel".to_owned(),
-                15 => "Forum Channel".to_owned(),
-                16 => "Media Channel".to_owned(),
+                0 => tr!("Text Channel").to_owned(),
+                2 => tr!("Voice Channel").to_owned(),
+                4 => tr!("Category").to_owned(),
+                5 => tr!("Announcement Channel").to_owned(),
+                13 => tr!("Stage Channel").to_owned(),
+                15 => tr!("Forum Channel").to_owned(),
+                16 => tr!("Media Channel").to_owned(),
                 other => other.to_string(),
             },
             _ => shown(value)?,
@@ -1161,7 +1170,7 @@ impl Render<'_> {
         match (target, key) {
             (Target::Role, "permissions") => {
                 let (was, now) = (number(old).unwrap_or(0), number(new).unwrap_or(0));
-                for (bits, what) in [(now & !was, "Granted"), (was & !now, "Denied")] {
+                for (bits, what) in [(now & !was, tr!("Granted")), (was & !now, tr!("Denied"))] {
                     if bits == 0 {
                         continue;
                     }
@@ -1171,7 +1180,7 @@ impl Render<'_> {
                             b(what),
                             t(format!(
                                 " {}",
-                                plural(items.len() as u64, "permission", "permissions")
+                                trn!("permission", "permissions", items.len() as u64)
                             )),
                         ]),
                         items,
@@ -1182,8 +1191,12 @@ impl Render<'_> {
             (Target::Channel | Target::Overwrite, "allow" | "deny") => {
                 let subtarget = self.subtarget(entry);
                 let (was, now) = (number(old).unwrap_or(0), number(new).unwrap_or(0));
-                let set = if key == "allow" { "Granted" } else { "Denied" };
-                for (bits, what) in [(now & !was, set), (was & !now, "Reset")] {
+                let set = if key == "allow" {
+                    tr!("Granted")
+                } else {
+                    tr!("Denied")
+                };
+                for (bits, what) in [(now & !was, set), (was & !now, tr!("Reset"))] {
                     if bits == 0 {
                         continue;
                     }
@@ -1191,9 +1204,9 @@ impl Render<'_> {
                     lines.push(AuditLine {
                         words: Words::new(vec![
                             b(what),
-                            t(format!(
+                            t(tr!(
                                 " {} for ",
-                                plural(items.len() as u64, "a permission", "permissions")
+                                trn!("a permission", "permissions", items.len() as u64)
                             )),
                             b(subtarget.clone()),
                         ]),
@@ -1205,15 +1218,19 @@ impl Render<'_> {
             (Target::Guild, "system_channel_flags") => {
                 let (was, now) = (number(old).unwrap_or(0), number(new).unwrap_or(0));
                 for (bit, what) in [
-                    (1, "welcome messages"),
-                    (2, "boost notifications"),
-                    (4, "server setup tips"),
-                    (8, "welcome stickers"),
+                    (1, tr!("welcome messages")),
+                    (2, tr!("boost notifications")),
+                    (4, tr!("server setup tips")),
+                    (8, tr!("welcome stickers")),
                 ] {
                     if (was ^ now) & bit != 0 {
                         lines.push(line(vec![
-                            t(format!("Set system channel {what} to ")),
-                            b((now & bit == 0).to_string()),
+                            t(tr!("Set system channel {} to ", what)),
+                            b(if now & bit == 0 {
+                                tr!("true")
+                            } else {
+                                tr!("false")
+                            }),
                         ]));
                     }
                 }
@@ -1222,12 +1239,16 @@ impl Render<'_> {
             (Target::Channel | Target::Thread, "flags") => {
                 let (was, now) = (number(old).unwrap_or(0), number(new).unwrap_or(0));
                 let flags = [
-                    (1, "Removed channel from Home", "Added channel back to Home"),
-                    (2, "Pinned", "Unpinned"),
+                    (
+                        1,
+                        tr!("Removed channel from Home"),
+                        tr!("Added channel back to Home"),
+                    ),
+                    (2, tr!("Pinned"), tr!("Unpinned")),
                     (
                         4,
-                        "Removed channel from Active Now",
-                        "Added channel back to Active Now",
+                        tr!("Removed channel from Active Now"),
+                        tr!("Added channel back to Active Now"),
                     ),
                 ];
                 let removed = flags
@@ -1242,9 +1263,9 @@ impl Render<'_> {
                 if !items.is_empty() {
                     lines.push(AuditLine {
                         words: Words::new(vec![t(if target == Target::Thread {
-                            "Updated thread properties"
+                            tr!("Updated thread properties")
                         } else {
-                            "Changed channel settings"
+                            tr!("Changed channel settings")
                         })]),
                         items,
                     });
@@ -1258,13 +1279,21 @@ impl Render<'_> {
                     .flatten()
                     .filter_map(|role| role["name"].as_str().map(str::to_owned))
                     .collect();
-                let what = if key == "$add" { "Added" } else { "Removed" };
+                let what = if key == "$add" {
+                    tr!("Added")
+                } else {
+                    tr!("Removed")
+                };
                 lines.push(AuditLine {
                     words: Words::new(vec![
                         b(what),
                         t(format!(
                             " {}",
-                            plural(items.len() as u64, "a role", "some roles")
+                            if items.len() == 1 {
+                                tr!("a role")
+                            } else {
+                                tr!("some roles")
+                            }
                         )),
                     ]),
                     items,
@@ -1280,8 +1309,12 @@ impl Render<'_> {
                     .collect();
                 lines.push(AuditLine {
                     words: Words::new(vec![
-                        t("With "),
-                        b(plural(items.len() as u64, "a role", "some roles")),
+                        t(tr!("With ")),
+                        b(if items.len() == 1 {
+                            tr!("a role")
+                        } else {
+                            tr!("some roles")
+                        }),
                     ]),
                     items,
                 });
@@ -1342,7 +1375,7 @@ impl Render<'_> {
                     .ok()
                     .map(|guild| (guild - 1).to_string());
                 if all.as_deref() == Some(id) {
-                    Some("all channels".to_owned())
+                    Some(tr!("all channels").to_owned())
                 } else {
                     self.known.channel(id)
                 }
@@ -1350,9 +1383,9 @@ impl Render<'_> {
         }
         .unwrap_or_else(|| id.to_owned());
         Some(match change.new["permission"].as_bool() {
-            Some(true) => vec![b("Granted"), t(" permission for "), b(name)],
-            Some(false) => vec![b("Denied"), t(" permission for "), b(name)],
-            None => vec![b("Removed override"), t(" for "), b(name)],
+            Some(true) => vec![b(tr!("Granted")), t(tr!(" permission for ")), b(name)],
+            Some(false) => vec![b(tr!("Denied")), t(tr!(" permission for ")), b(name)],
+            None => vec![b(tr!("Removed override")), t(tr!(" for ")), b(name)],
         })
     }
 
@@ -1375,9 +1408,9 @@ impl Render<'_> {
         // "Changed the name from A to B".
         let from_to = |text: &str| {
             Some(vec![
-                t(format!("{text} from ")),
+                t(tr!("{} from ", text)),
                 b(old.clone().unwrap_or_default()),
-                t(" to "),
+                t(tr!(" to ")),
                 b(new_text()),
             ])
         };
@@ -1398,7 +1431,7 @@ impl Render<'_> {
             } else {
                 Some(vec![
                     t(format!("{one_other} ")),
-                    b(plural(count, "# second", "# seconds")),
+                    b(trn!("{n} second", "{n} seconds", count)),
                 ])
             }
         };
@@ -1409,7 +1442,7 @@ impl Render<'_> {
             } else {
                 Some(vec![
                     t(format!("{one_other} ")),
-                    b(plural(count, "# minute", "# minutes")),
+                    b(trn!("{n} minute", "{n} minutes", count)),
                 ])
             }
         };
@@ -1436,7 +1469,7 @@ impl Render<'_> {
                 })
                 .collect();
             if names.is_empty() {
-                "None".to_owned()
+                tr!("None").to_owned()
             } else {
                 names.join(", ")
             }
@@ -1452,293 +1485,363 @@ impl Render<'_> {
         };
         match (target, key) {
             (Target::Guild, _) => match key {
-                "name" => set("Set the server name to"),
-                "description" if new.is_none() => bold_first("Cleared", " the server description"),
-                "description" => set("Set the server description to"),
-                "icon_hash" => Some(vec![t("Set the server icon")]),
-                "splash_hash" => Some(vec![t("Set the server invite background")]),
-                "discovery_splash_hash" => Some(vec![t("Set the Server Discovery background")]),
-                "banner_hash" if new.is_none() => Some(vec![t("Removed the server banner")]),
-                "banner_hash" => Some(vec![t("Set the server banner")]),
-                "owner_id" => set("Passed ownership to"),
-                "region" => set("Set the voice region to"),
-                "preferred_locale" => set("Set the preferred locale to"),
-                "afk_channel_id" if new.is_none() => bold_first("Cleared", " the inactive channel"),
-                "afk_channel_id" => set("Set the inactive channel to"),
+                "name" => set(tr!("Set the server name to")),
+                "description" if new.is_none() => {
+                    bold_first(tr!("Cleared"), tr!(" the server description"))
+                }
+                "description" => set(tr!("Set the server description to")),
+                "icon_hash" => Some(vec![t(tr!("Set the server icon"))]),
+                "splash_hash" => Some(vec![t(tr!("Set the server invite background"))]),
+                "discovery_splash_hash" => {
+                    Some(vec![t(tr!("Set the Server Discovery background"))])
+                }
+                "banner_hash" if new.is_none() => Some(vec![t(tr!("Removed the server banner"))]),
+                "banner_hash" => Some(vec![t(tr!("Set the server banner"))]),
+                "owner_id" => set(tr!("Passed ownership to")),
+                "region" => set(tr!("Set the voice region to")),
+                "preferred_locale" => set(tr!("Set the preferred locale to")),
+                "afk_channel_id" if new.is_none() => {
+                    bold_first(tr!("Cleared"), tr!(" the inactive channel"))
+                }
+                "afk_channel_id" => set(tr!("Set the inactive channel to")),
                 "afk_timeout" => Some(vec![
-                    t("Set the inactive timeout to "),
+                    t(tr!("Set the inactive timeout to ")),
                     b(new_text()),
-                    t(" minutes"),
+                    t(tr!(" minutes")),
                 ]),
                 "system_channel_id" if new.is_none() => {
-                    bold_first("Disabled", " the welcome notification messages")
+                    bold_first(tr!("Disabled"), tr!(" the welcome notification messages"))
                 }
-                "system_channel_id" => set("Set the welcome notification channel to"),
-                "rules_channel_id" if new.is_none() => bold_first("Cleared", " the rules channel"),
-                "rules_channel_id" => set("Set the rules channel to"),
+                "system_channel_id" => set(tr!("Set the welcome notification channel to")),
+                "rules_channel_id" if new.is_none() => {
+                    bold_first(tr!("Cleared"), tr!(" the rules channel"))
+                }
+                "rules_channel_id" => set(tr!("Set the rules channel to")),
                 "public_updates_channel_id" if new.is_none() => {
-                    bold_first("Cleared", " the Community Server updates channel")
+                    bold_first(tr!("Cleared"), tr!(" the Community Server updates channel"))
                 }
-                "public_updates_channel_id" => set("Set the Community Server updates channel to"),
+                "public_updates_channel_id" => {
+                    set(tr!("Set the Community Server updates channel to"))
+                }
                 "mfa_level" => match level? {
-                    0 => bold_first("Disabled", " two-factor authentication requirement"),
-                    1 => bold_first("Enabled", " two-factor authentication requirement"),
+                    0 => bold_first(
+                        tr!("Disabled"),
+                        tr!(" two-factor authentication requirement"),
+                    ),
+                    1 => bold_first(
+                        tr!("Enabled"),
+                        tr!(" two-factor authentication requirement"),
+                    ),
                     _ => None,
                 },
-                "widget_enabled" if on => bold_first("Enabled", " the widget"),
-                "widget_enabled" => bold_first("Disabled", " the widget"),
+                "widget_enabled" if on => bold_first(tr!("Enabled"), tr!(" the widget")),
+                "widget_enabled" => bold_first(tr!("Disabled"), tr!(" the widget")),
                 "widget_channel_id" if new.is_none() => {
-                    bold_first("Removed", " the widget channel")
+                    bold_first(tr!("Removed"), tr!(" the widget channel"))
                 }
-                "widget_channel_id" => set("Set the widget channel to"),
+                "widget_channel_id" => set(tr!("Set the widget channel to")),
                 "verification_level" => Some(vec![
-                    t("Set the server verification level to "),
-                    b(*["None", "Low", "Medium", "High", "Very High"]
-                        .get(usize::try_from(level?).ok()?)?),
+                    t(tr!("Set the server verification level to ")),
+                    b(*[
+                        tr!("None"),
+                        tr!("Low"),
+                        tr!("Medium"),
+                        tr!("High"),
+                        tr!("Very High"),
+                    ]
+                    .get(usize::try_from(level?).ok()?)?),
                 ]),
                 "default_message_notifications" => Some(vec![
-                    t("Set the default message notification setting to "),
-                    b(*["All Messages", "Only Mentions"].get(usize::try_from(level?).ok()?)?),
+                    t(tr!("Set the default message notification setting to ")),
+                    b(*[tr!("All Messages"), tr!("Only Mentions")]
+                        .get(usize::try_from(level?).ok()?)?),
                 ]),
                 "vanity_url_code" if new.is_none() => {
-                    bold_first("Removed", " the Custom Invite Link")
+                    bold_first(tr!("Removed"), tr!(" the Custom Invite Link"))
                 }
-                "vanity_url_code" => set("Set the Custom Invite Link to"),
+                "vanity_url_code" => set(tr!("Set the Custom Invite Link to")),
                 "explicit_content_filter" => match level? {
-                    0 => bold_first("Disabled", " the explicit content filter"),
+                    0 => bold_first(tr!("Disabled"), tr!(" the explicit content filter")),
                     1 => Some(vec![
-                        t("Set the explicit content filter to scan messages from "),
-                        b("members without a role"),
+                        t(tr!(
+                            "Set the explicit content filter to scan messages from "
+                        )),
+                        b(tr!("members without a role")),
                     ]),
                     2 => Some(vec![
-                        t("Set the explicit content filter to scan messages from "),
-                        b("all members"),
+                        t(tr!(
+                            "Set the explicit content filter to scan messages from "
+                        )),
+                        b(tr!("all members")),
                     ]),
                     _ => None,
                 },
                 "premium_progress_bar_enabled" => Some(vec![
-                    t("Turned "),
-                    b(if on { "on" } else { "off" }),
-                    t(" the Boost progress bar"),
+                    t(tr!("Turned ")),
+                    b(if on { tr!("on") } else { tr!("off") }),
+                    t(tr!(" the Boost progress bar")),
                 ]),
-                "triggered_rule_name" => set("Detected by rule"),
+                "triggered_rule_name" => set(tr!("Detected by rule")),
                 _ => None,
             },
             (Target::Channel | Target::Overwrite, _) => match key {
-                "name" => made("Set the name to", "Changed the name"),
-                "position" => made("In position", "Moved"),
-                "topic" if both => set("Changed the topic to"),
-                "topic" if new.is_some() => set("Set the topic to"),
-                "topic" if old.is_some() => bold_first("Cleared", " the topic"),
-                "bitrate" if old_value.is_null() => set("Set the bitrate to"),
-                "bitrate" => set("Changed the bitrate to"),
-                "rtc_region" if both => from_to("Changed the region override"),
-                "rtc_region" if new.is_some() => set("Set the region override to"),
-                "rtc_region" if old.is_some() => Some(vec![t("Removed the region override")]),
-                "user_limit" if old_value.is_null() => set("Set the user limit to"),
-                "user_limit" => set("Changed the user limit to"),
+                "name" => made(tr!("Set the name to"), tr!("Changed the name")),
+                "position" => made(tr!("In position"), tr!("Moved")),
+                "topic" if both => set(tr!("Changed the topic to")),
+                "topic" if new.is_some() => set(tr!("Set the topic to")),
+                "topic" if old.is_some() => bold_first(tr!("Cleared"), tr!(" the topic")),
+                "bitrate" if old_value.is_null() => set(tr!("Set the bitrate to")),
+                "bitrate" => set(tr!("Changed the bitrate to")),
+                "rtc_region" if both => from_to(tr!("Changed the region override")),
+                "rtc_region" if new.is_some() => set(tr!("Set the region override to")),
+                "rtc_region" if old.is_some() => Some(vec![t(tr!("Removed the region override"))]),
+                "user_limit" if old_value.is_null() => set(tr!("Set the user limit to")),
+                "user_limit" => set(tr!("Changed the user limit to")),
                 "rate_limit_per_user" if old_value.is_null() => {
-                    seconds_plural("Set slowmode disabled", "Set slowmode to")
+                    seconds_plural(tr!("Set slowmode disabled"), tr!("Set slowmode to"))
                 }
-                "rate_limit_per_user" => seconds_plural("Disabled slowmode", "Set slowmode to"),
+                "rate_limit_per_user" => {
+                    seconds_plural(tr!("Disabled slowmode"), tr!("Set slowmode to"))
+                }
                 "nsfw" => either(
-                    "Marked the channel as age-restricted",
-                    "Unmarked the channel as age-restricted",
+                    tr!("Marked the channel as age-restricted"),
+                    tr!("Unmarked the channel as age-restricted"),
                 ),
-                "type" => made("Set the type to", "Changed the type"),
-                "video_quality_mode" => set("Set the video quality mode to"),
+                "type" => made(tr!("Set the type to"), tr!("Changed the type")),
+                "video_quality_mode" => set(tr!("Set the video quality mode to")),
                 "default_auto_archive_duration" if old_value.is_null() => minutes_plural(
-                    "Removed default hide duration",
-                    "Set default hide duration to",
+                    tr!("Removed default hide duration"),
+                    tr!("Set default hide duration to"),
                 ),
                 "default_auto_archive_duration" => minutes_plural(
-                    "Removed default hide duration",
-                    "Changed default hide duration to",
+                    tr!("Removed default hide duration"),
+                    tr!("Changed default hide duration to"),
                 ),
                 "default_thread_rate_limit_per_user" if both => Some(vec![
-                    t("Changed default thread slowmode to "),
-                    b(plural(level?, "# second", "# seconds")),
+                    t(tr!("Changed default thread slowmode to ")),
+                    b(trn!("{n} second", "{n} seconds", level?)),
                 ]),
                 "default_thread_rate_limit_per_user" if new.is_some() => Some(vec![
-                    t("Set default thread slowmode to "),
-                    b(plural(level?, "# second", "# seconds")),
+                    t(tr!("Set default thread slowmode to ")),
+                    b(trn!("{n} second", "{n} seconds", level?)),
                 ]),
                 "default_thread_rate_limit_per_user" if old.is_some() => {
-                    Some(vec![t("Disabled default thread slowmode")])
+                    Some(vec![t(tr!("Disabled default thread slowmode"))])
                 }
                 _ => None,
             },
             (Target::User, _) => match key {
-                "nick" if both => from_to("Changed their nickname"),
-                "nick" if new.is_some() => set("Set their nickname to"),
+                "nick" if both => from_to(tr!("Changed their nickname")),
+                "nick" if new.is_some() => set(tr!("Set their nickname to")),
                 "nick" if old.is_some() => Some(vec![
-                    b("Removed"),
-                    t(" their nickname of "),
+                    b(tr!("Removed")),
+                    t(tr!(" their nickname of ")),
                     b(old.clone()?),
                 ]),
                 "deaf" => Some(vec![
-                    b(if on { "Deafened" } else { "Undeafened" }),
-                    t(" them"),
+                    b(if on {
+                        yapfast_lang::text_in("AuditLog", "Deafened")
+                    } else {
+                        tr!("Undeafened")
+                    }),
+                    t(tr!(" them")),
                 ]),
-                "mute" => Some(vec![b(if on { "Muted" } else { "Unmuted" }), t(" them")]),
+                "mute" => Some(vec![
+                    b(if on {
+                        yapfast_lang::text_in("AuditLog", "Muted")
+                    } else {
+                        tr!("Unmuted")
+                    }),
+                    t(tr!(" them")),
+                ]),
                 "prune_delete_days" => Some(vec![
-                    t("For "),
-                    b(plural(level?, "a day", "# days")),
-                    t(" of inactivity"),
+                    t(tr!("For ")),
+                    b(trn!("a day", "{n} days", level?)),
+                    t(tr!(" of inactivity")),
                 ]),
                 "communication_disabled_until" if new.is_some() => {
-                    time("Set timeout for user until")
+                    time(tr!("Set timeout for user until"))
                 }
-                "communication_disabled_until" if old.is_some() => Some(vec![t("Removed timeout")]),
+                "communication_disabled_until" if old.is_some() => {
+                    Some(vec![t(tr!("Removed timeout"))])
+                }
                 "bypasses_verification" => either(
-                    "manually verified them",
-                    "removed their manual verification",
+                    tr!("manually verified them"),
+                    tr!("removed their manual verification"),
                 ),
-                "triggered_rule_name" => set("Detected by rule"),
+                "triggered_rule_name" => set(tr!("Detected by rule")),
                 _ => None,
             },
             (Target::Role, _) => match key {
-                "name" => made("With the name", "Changed the name"),
-                "description" => made("With the description", "Changed the description"),
-                "color" if new.as_deref() == Some("#000000") => Some(vec![t("With no color")]),
-                "color" => set("Set the color to"),
+                "name" => made(tr!("With the name"), tr!("Changed the name")),
+                "description" => made(tr!("With the description"), tr!("Changed the description")),
+                "color" if new.as_deref() == Some("#000000") => Some(vec![t(tr!("With no color"))]),
+                "color" => set(tr!("Set the color to")),
                 "colors" => {
                     let hex = |key: &str| number(&new_value[key]).map(|rgb| format!("#{rgb:06X}"));
                     if new_value["secondary_color"].is_null() {
-                        Some(vec![t("With no gradient")])
+                        Some(vec![t(tr!("With no gradient"))])
                     } else {
                         let colors: Vec<String> =
                             ["primary_color", "secondary_color", "tertiary_color"]
                                 .iter()
                                 .filter_map(|key| hex(key))
                                 .collect();
-                        Some(vec![t(format!(
-                            "Set the gradient to [{}]",
-                            colors.join(", ")
-                        ))])
+                        Some(vec![t(tr!("Set the gradient to [{}]", colors.join(", ")))])
                     }
                 }
-                "hoist" => either("Hoisted", "Not hoisted"),
-                "mentionable" => either("Mentionable", "Not mentionable"),
-                "icon_hash" => Some(vec![t("Set the icon")]),
-                "unicode_emoji" => Some(vec![t("Set the unicode emoji")]),
+                "hoist" => either(tr!("Hoisted"), tr!("Not hoisted")),
+                "mentionable" => either(tr!("Mentionable"), tr!("Not mentionable")),
+                "icon_hash" => Some(vec![t(tr!("Set the icon"))]),
+                "unicode_emoji" => Some(vec![t(tr!("Set the unicode emoji"))]),
                 _ => None,
             },
             (Target::Invite, _) => match key {
-                "code" => set("With code"),
-                "channel_id" => set("For channel"),
-                "max_uses" if level == Some(0) => {
-                    Some(vec![t("Which has "), b("unlimited"), t(" uses")])
+                "code" => set(tr!("With code")),
+                "channel_id" => set(tr!("For channel")),
+                "max_uses" if level == Some(0) => Some(vec![
+                    t(tr!("Which has ")),
+                    b(tr!("unlimited")),
+                    t(tr!(" uses")),
+                ]),
+                "max_uses" => Some(vec![
+                    t(tr!("Which expires after ")),
+                    b(new_text()),
+                    t(tr!(" uses")),
+                ]),
+                "max_age" if level == Some(0) => {
+                    Some(vec![t(tr!("Which ")), b(tr!("never")), t(tr!(" expires"))])
                 }
-                "max_uses" => Some(vec![t("Which expires after "), b(new_text()), t(" uses")]),
-                "max_age" if level == Some(0) => Some(vec![t("Which "), b("never"), t(" expires")]),
-                "max_age" => set("Which expires after"),
-                "temporary" => Some(vec![t("With temporary "), b(if on { "on" } else { "off" })]),
-                "flags" if level == Some(1) => {
-                    Some(vec![t("Which is a "), b("guest"), t(" invite")])
-                }
+                "max_age" => set(tr!("Which expires after")),
+                "temporary" => Some(vec![
+                    t(tr!("With temporary ")),
+                    b(if on { tr!("on") } else { tr!("off") }),
+                ]),
+                "flags" if level == Some(1) => Some(vec![
+                    t(tr!("Which is a ")),
+                    b(tr!("guest")),
+                    t(tr!(" invite")),
+                ]),
                 _ => None,
             },
             (Target::Webhook, _) => match key {
-                "channel_id" if old_value.is_null() => set("With channel"),
-                "channel_id" => set("Changed the channel to"),
-                "name" => made("With name", "Changed the name"),
-                "avatar_hash" => Some(vec![t("Changed the avatar")]),
+                "channel_id" if old_value.is_null() => set(tr!("With channel")),
+                "channel_id" => set(tr!("Changed the channel to")),
+                "name" => made(tr!("With name"), tr!("Changed the name")),
+                "avatar_hash" => Some(vec![t(tr!("Changed the avatar"))]),
                 _ => None,
             },
-            (Target::Emoji, "name") => made("With the name", "Changed the name"),
+            (Target::Emoji, "name") => made(tr!("With the name"), tr!("Changed the name")),
             (Target::Sticker, _) => match key {
-                "name" => made("With the name", "Changed the name"),
-                "tags" => made("With the tags", "Changed the tags"),
-                "description" => made("With the description", "Changed the description"),
+                "name" => made(tr!("With the name"), tr!("Changed the name")),
+                "tags" => made(tr!("With the tags"), tr!("Changed the tags")),
+                "description" => made(tr!("With the description"), tr!("Changed the description")),
                 _ => None,
             },
             (Target::Integration, _) => match key {
-                "enable_emoticons" => either("Enabled emoticons", "Disabled custom emoticons"),
+                "enable_emoticons" => {
+                    either(tr!("Enabled emoticons"), tr!("Disabled custom emoticons"))
+                }
                 "expire_behavior" => Some(vec![
-                    t("Set the expired sub behavior to "),
-                    b(*["Remove Role", "Kick"].get(usize::try_from(level?).ok()?)?),
+                    t(tr!("Set the expired sub behavior to ")),
+                    b(*[tr!("Remove Role"), tr!("Kick")].get(usize::try_from(level?).ok()?)?),
                 ]),
                 "expire_grace_period" => Some(vec![
-                    t("Set the expire grace period to "),
-                    b(plural(level?, "a day", "# days")),
+                    t(tr!("Set the expire grace period to ")),
+                    b(trn!("a day", "{n} days", level?)),
                 ]),
                 _ => None,
             },
             (Target::Stage, _) => match key {
-                "topic" if old_value.is_null() => set("Set the topic to"),
-                "topic" => set("Changed the topic to"),
+                "topic" if old_value.is_null() => set(tr!("Set the topic to")),
+                "topic" => set(tr!("Changed the topic to")),
                 "privacy_level" => privacy(level?),
                 _ => None,
             },
             (Target::Event, _) => match key {
-                "name" => set("With the name"),
-                "description" => set("Set the description to"),
+                "name" => set(tr!("With the name")),
+                "description" => set(tr!("Set the description to")),
                 "privacy_level" => privacy(level?),
                 "status" => Some(vec![
-                    t("Set the status to "),
-                    b(*["", "Scheduled", "Active", "Completed", "Canceled"]
-                        .get(usize::try_from(level?).ok()?)
-                        .filter(|status| !status.is_empty())?),
+                    t(tr!("Set the status to ")),
+                    b(*[
+                        "",
+                        tr!("Scheduled"),
+                        tr!("Active"),
+                        tr!("Completed"),
+                        tr!("Canceled"),
+                    ]
+                    .get(usize::try_from(level?).ok()?)
+                    .filter(|status| !status.is_empty())?),
                 ]),
                 "entity_type" => match level? {
-                    0 => Some(vec![t("Linked to "), b("Nothing")]),
-                    1 => Some(vec![t("Linked with a "), b("Stage")]),
-                    2 => Some(vec![t("Linked with a "), b("Voice Channel")]),
-                    3 => Some(vec![t("Linked "), b("externally")]),
+                    0 => Some(vec![
+                        t(tr!("Linked to ")),
+                        b(yapfast_lang::text_in("AuditLog", "Nothing")),
+                    ]),
+                    1 => Some(vec![t(tr!("Linked with a ")), b(tr!("Stage"))]),
+                    2 => Some(vec![t(tr!("Linked with a ")), b(tr!("Voice Channel"))]),
+                    3 => Some(vec![t(tr!("Linked ")), b(tr!("externally"))]),
                     _ => None,
                 },
-                "channel_id" if new.is_none() => Some(vec![t("Removed the channel")]),
-                "channel_id" => set("Set the channel to"),
-                "location" if new.is_none() => Some(vec![t("Removed the location")]),
-                "location" => set("Set the location to"),
-                "image_hash" if new.is_none() => Some(vec![t("Removed the cover image")]),
-                "image_hash" => Some(vec![t("Set the cover image")]),
+                "channel_id" if new.is_none() => Some(vec![t(tr!("Removed the channel"))]),
+                "channel_id" => set(tr!("Set the channel to")),
+                "location" if new.is_none() => Some(vec![t(tr!("Removed the location"))]),
+                "location" => set(tr!("Set the location to")),
+                "image_hash" if new.is_none() => Some(vec![t(tr!("Removed the cover image"))]),
+                "image_hash" => Some(vec![t(tr!("Set the cover image"))]),
                 _ => None,
             },
             (Target::EventException, _) => match key {
-                "scheduled_start_time" if new.is_none() => Some(vec![t("Reset the start time")]),
+                "scheduled_start_time" if new.is_none() => {
+                    Some(vec![t(tr!("Reset the start time"))])
+                }
                 // Discord's client says "start" for the end, too.
                 "scheduled_start_time" | "scheduled_end_time" if new.is_some() => {
-                    time("Set the start time to")
+                    time(tr!("Set the start time to"))
                 }
-                "scheduled_end_time" => Some(vec![t("Reset the end time")]),
+                "scheduled_end_time" => Some(vec![t(tr!("Reset the end time"))]),
                 "is_canceled"
                     if on && (!old_value.is_null() || new_value == &Value::Bool(true)) =>
                 {
-                    Some(vec![t("Canceled this event")])
+                    Some(vec![t(tr!("Canceled this event"))])
                 }
-                "is_canceled" if truthy(old_value) && !on => Some(vec![t("Restored this event")]),
+                "is_canceled" if truthy(old_value) && !on => {
+                    Some(vec![t(tr!("Restored this event"))])
+                }
                 _ => None,
             },
             (Target::Thread, _) => match key {
-                "name" => made("Set the name to", "Changed the name"),
-                "archived" => either("Closed the thread", "Reopened the thread"),
+                "name" => made(tr!("Set the name to"), tr!("Changed the name")),
+                "archived" => either(tr!("Closed the thread"), tr!("Reopened the thread")),
                 "locked" => either(
-                    "Locked the thread, restricting it to only be opened by moderators",
-                    "Unlocked the thread, allowing it to be opened by non-moderators",
+                    tr!("Locked the thread, restricting it to only be opened by moderators"),
+                    tr!("Unlocked the thread, allowing it to be opened by non-moderators"),
                 ),
                 "invitable" => either(
-                    "Allowed non-moderators to add members to the thread",
-                    "Disallowed non-moderators from adding members to the thread",
+                    tr!("Allowed non-moderators to add members to the thread"),
+                    tr!("Disallowed non-moderators from adding members to the thread"),
                 ),
-                "auto_archive_duration" if old_value.is_null() => {
-                    minutes_plural("Removed auto hide duration", "Set auto hide duration to")
-                }
+                "auto_archive_duration" if old_value.is_null() => minutes_plural(
+                    tr!("Removed auto hide duration"),
+                    tr!("Set auto hide duration to"),
+                ),
                 "auto_archive_duration" => minutes_plural(
-                    "Removed auto hide duration",
-                    "Changed auto hide duration to",
+                    tr!("Removed auto hide duration"),
+                    tr!("Changed auto hide duration to"),
                 ),
                 "rate_limit_per_user" if old_value.is_null() => {
-                    seconds_plural("Set slowmode disabled", "Set slowmode to")
+                    seconds_plural(tr!("Set slowmode disabled"), tr!("Set slowmode to"))
                 }
-                "rate_limit_per_user" => seconds_plural("Disabled slowmode", "Set slowmode to"),
+                "rate_limit_per_user" => {
+                    seconds_plural(tr!("Disabled slowmode"), tr!("Set slowmode to"))
+                }
                 _ => None,
             },
             (Target::AutoMod, _) => match key {
-                "name" => set("Set the name to"),
-                "trigger_type" => set("Set the trigger type to"),
-                "event_type" => set("Set the event type to"),
+                "name" => set(tr!("Set the name to")),
+                "trigger_type" => set(tr!("Set the trigger type to")),
+                "event_type" => set(tr!("Set the event type to")),
                 "enabled" => {
                     let enabled = if new_value.is_null() {
                         old_value
@@ -1746,123 +1849,135 @@ impl Render<'_> {
                         new_value
                     };
                     Some(vec![t(if enabled == &Value::Bool(true) {
-                        "Enabled rule"
+                        tr!("Enabled rule")
                     } else {
-                        "Disabled rule"
+                        tr!("Disabled rule")
                     })])
                 }
-                "exempt_roles" => Some(vec![t("Set exempt roles to "), b(names(new_value, true))]),
+                "exempt_roles" => Some(vec![
+                    t(tr!("Set exempt roles to ")),
+                    b(names(new_value, true)),
+                ]),
                 "exempt_channels" => Some(vec![
-                    t("Set exempt channels to "),
+                    t(tr!("Set exempt channels to ")),
                     b(names(new_value, false)),
                 ]),
                 "trigger_metadata" => match new_value["keyword_filter"].as_array() {
                     Some(_) => Some(vec![
-                        t("Set trigger metadata "),
-                        b(format!(
-                            "keywords to {}",
-                            quoted(&new_value["keyword_filter"])
-                        )),
+                        t(tr!("Set trigger metadata ")),
+                        b(tr!("keywords to {}", quoted(&new_value["keyword_filter"]))),
                     ]),
-                    None => Some(vec![t("Set trigger metadata "), b(new_value.to_string())]),
+                    None => Some(vec![
+                        t(tr!("Set trigger metadata ")),
+                        b(new_value.to_string()),
+                    ]),
                 },
-                "$add_keyword_filter" => Some(vec![t("added keywords "), b(quoted(new_value))]),
+                "$add_keyword_filter" => {
+                    Some(vec![t(tr!("added keywords ")), b(quoted(new_value))])
+                }
                 "$remove_keyword_filter" => {
-                    Some(vec![t("removed keywords "), b(quoted(new_value))])
+                    Some(vec![t(tr!("removed keywords ")), b(quoted(new_value))])
                 }
                 "$add_regex_patterns" => {
-                    Some(vec![t("added regex patterns "), b(quoted(new_value))])
+                    Some(vec![t(tr!("added regex patterns ")), b(quoted(new_value))])
                 }
-                "$remove_regex_patterns" => {
-                    Some(vec![t("removed regex patterns "), b(quoted(new_value))])
-                }
-                "$add_allow_list" => {
-                    Some(vec![t("added allow list keywords "), b(quoted(new_value))])
-                }
+                "$remove_regex_patterns" => Some(vec![
+                    t(tr!("removed regex patterns ")),
+                    b(quoted(new_value)),
+                ]),
+                "$add_allow_list" => Some(vec![
+                    t(tr!("added allow list keywords ")),
+                    b(quoted(new_value)),
+                ]),
                 "$remove_allow_list" => Some(vec![
-                    t("removed allow list keywords "),
+                    t(tr!("removed allow list keywords ")),
                     b(quoted(new_value)),
                 ]),
                 _ => None,
             },
             (Target::Soundboard, _) => match key {
-                "name" => made("With the name", "Changed the name"),
-                "volume" => made("With the volume set to", "Changed the volume"),
-                "emoji_name" if both => from_to("Changed the emoji"),
-                "emoji_name" if new.is_some() => set("With the emoji"),
+                "name" => made(tr!("With the name"), tr!("Changed the name")),
+                "volume" => made(tr!("With the volume set to"), tr!("Changed the volume")),
+                "emoji_name" if both => from_to(tr!("Changed the emoji")),
+                "emoji_name" if new.is_some() => set(tr!("With the emoji")),
                 "emoji_name" if old.is_some() => {
-                    Some(vec![t("Removed the emoji "), b(old.clone()?)])
+                    Some(vec![t(tr!("Removed the emoji ")), b(old.clone()?)])
                 }
                 _ => None,
             },
-            (Target::VoiceStatus, "status") => set("Set to"),
+            (Target::VoiceStatus, "status") => set(tr!("Set to")),
             (Target::Prompt, _) => match key {
-                "title" if old_value.is_null() => Some(vec![t("Set the title to empty")]),
-                "title" => from_to("Changed the title"),
-                "description" => made("Set the description to", "Changed the description"),
-                "options" => Some(vec![t("Changed answers for customization question")]),
+                "title" if old_value.is_null() => Some(vec![t(tr!("Set the title to empty"))]),
+                "title" => from_to(tr!("Changed the title")),
+                "description" => made(
+                    tr!("Set the description to"),
+                    tr!("Changed the description"),
+                ),
+                "options" => Some(vec![t(tr!("Changed answers for customization question"))]),
                 "single_select" => either(
-                    "Set the customization question to single select",
-                    "Set the customization question to multi select",
+                    tr!("Set the customization question to single select"),
+                    tr!("Set the customization question to multi select"),
                 ),
                 "required" => either(
-                    "Set the customization question to required",
-                    "Set the customization question to optional",
+                    tr!("Set the customization question to required"),
+                    tr!("Set the customization question to optional"),
                 ),
                 _ => None,
             },
             (Target::Onboarding, _) => match key {
                 "default_channel_ids" => {
                     let count = new_value.as_array().map_or(0, Vec::len) as u64;
-                    Some(vec![t(format!(
+                    Some(vec![t(tr!(
                         "Set {}",
-                        plural(count, "# default channel", "# default channels")
+                        trn!("{n} default channel", "{n} default channels", count)
                     ))])
                 }
                 "enable_default_channels" => either(
-                    "Set default channels to enabled",
-                    "Set default channels to disabled",
+                    tr!("Set default channels to enabled"),
+                    tr!("Set default channels to disabled"),
                 ),
                 "enable_onboarding_prompts" => either(
-                    "Set customization questions to enabled",
-                    "Set customization questions to disabled",
+                    tr!("Set customization questions to enabled"),
+                    tr!("Set customization questions to disabled"),
                 ),
-                "enabled" => either("Enabled Onboarding", "Disabled Onboarding"),
+                "enabled" => either(tr!("Enabled Onboarding"), tr!("Disabled Onboarding")),
                 "mode" => match level? {
-                    1 => Some(vec![t("Set onboarding to Advanced Mode")]),
-                    0 => Some(vec![t("Set onboarding to Regular Mode")]),
+                    1 => Some(vec![t(tr!("Set onboarding to Advanced Mode"))]),
+                    0 => Some(vec![t(tr!("Set onboarding to Regular Mode"))]),
                     _ => None,
                 },
                 _ => None,
             },
             (Target::HomeSettings, _) => match key {
-                "welcome_message" => Some(vec![t("Changed the welcome message")]),
-                "new_member_actions" => Some(vec![t("Changed the new member To Dos")]),
-                "resource_channels" => Some(vec![t("Changed resource channels")]),
+                "welcome_message" => Some(vec![t(tr!("Changed the welcome message"))]),
+                "new_member_actions" => Some(vec![t(tr!("Changed the new member To Dos"))]),
+                "resource_channels" => Some(vec![t(tr!("Changed resource channels"))]),
                 _ => None,
             },
             (Target::Verification, _) => match key {
                 "verification_enabled" => Some(vec![t(if new_value == &Value::Bool(true) {
-                    "Enabled join settings"
+                    tr!("Enabled join settings")
                 } else {
-                    "Disabled join settings"
+                    tr!("Disabled join settings")
                 })]),
                 "manual_approval_enabled" => Some(vec![t(if new_value == &Value::Bool(true) {
-                    "Manual verification enabled"
+                    tr!("Manual verification enabled")
                 } else {
-                    "Manual verification disabled"
+                    tr!("Manual verification disabled")
                 })]),
                 _ => None,
             },
             (Target::Profile, _) => match key {
-                "description" => Some(vec![t("Updated server description")]),
-                "brand_color_primary" => Some(vec![t("Updated profile banner color")]),
-                "custom_banner_hash" => Some(vec![t("Updated profile banner")]),
-                "traits" => Some(vec![t("Updated profile traits")]),
-                "game_application_ids" => Some(vec![t("Updated profile games played")]),
-                "visibility" => Some(vec![t("Updated profile visibility")]),
-                "server_tag" if new.is_none() => bold_first("Disabled", " the server tag"),
-                "server_tag" => set("Updated server tag to"),
+                "description" => Some(vec![t(tr!("Updated server description"))]),
+                "brand_color_primary" => Some(vec![t(tr!("Updated profile banner color"))]),
+                "custom_banner_hash" => Some(vec![t(tr!("Updated profile banner"))]),
+                "traits" => Some(vec![t(tr!("Updated profile traits"))]),
+                "game_application_ids" => Some(vec![t(tr!("Updated profile games played"))]),
+                "visibility" => Some(vec![t(tr!("Updated profile visibility"))]),
+                "server_tag" if new.is_none() => {
+                    bold_first(tr!("Disabled"), tr!(" the server tag"))
+                }
+                "server_tag" => set(tr!("Updated server tag to")),
                 _ => None,
             },
             _ => None,
@@ -1873,11 +1988,11 @@ impl Render<'_> {
 /// A stage's or event's privacy, as Discord words it.
 fn privacy(level: u64) -> Option<Vec<Piece>> {
     let name = match level {
-        2 => "Closed",
-        1 => "Public",
+        2 => tr!("Closed"),
+        1 => tr!("Public"),
         _ => return None,
     };
-    Some(vec![t("Set the privacy level to "), b(name)])
+    Some(vec![t(tr!("Set the privacy level to ")), b(name)])
 }
 
 /// A forum's change of tags, as Discord's log words the first: one added,
@@ -1902,18 +2017,18 @@ fn tag_change(old: &Value, new: &Value) -> Option<Vec<Piece>> {
             .map(|(_, name)| name.clone())
     };
     if let Some(name) = missing(&now, &was) {
-        return Some(vec![t("Added tag "), b(name)]);
+        return Some(vec![t(tr!("Added tag ")), b(name)]);
     }
     if let Some(name) = missing(&was, &now) {
-        return Some(vec![t("Deleted tag "), b(name)]);
+        return Some(vec![t(tr!("Deleted tag ")), b(name)]);
     }
     now.iter().find_map(|(id, name)| {
         let (_, before) = was.iter().find(|(other, _)| other == id)?;
         (before != name).then(|| {
             vec![
-                t("Updated tag from "),
+                t(tr!("Updated tag from ")),
                 b(before.clone()),
-                t(" to "),
+                t(tr!(" to ")),
                 b(name.clone()),
             ]
         })

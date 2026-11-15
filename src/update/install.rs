@@ -76,13 +76,19 @@ pub fn target_for(
         Source::AppImage if cfg!(target_arch = "x86_64") => "-x86_64.AppImage",
         Source::Installer if cfg!(target_arch = "x86_64") => "-windows-x64-setup.exe",
         Source::AppImage | Source::Installer => {
-            return Err("There's no download for your system yet.".into());
+            return Err(yapfast_lang::tr!("There's no download for your system yet.").into());
         }
-        Source::Manager(name) => return Err(format!("{name} updates this copy.")),
+        Source::Manager(name) => {
+            return Err(yapfast_lang::tr!(
+                "{} updates this copy.",
+                yapfast_lang::text(name)
+            ));
+        }
         Source::Other => {
-            return Err(
-                "This copy can't update itself. Get the new version from the release page.".into(),
-            );
+            return Err(yapfast_lang::tr!(
+                "This copy can't update itself. Get the new version from the release page."
+            )
+            .into());
         }
     };
     let asset = release
@@ -90,35 +96,45 @@ pub fn target_for(
         .iter()
         .find(|asset| asset.name.ends_with(suffix))
         .ok_or_else(|| match source {
-            Source::Installer => "There's no Windows installer for this version yet.".to_owned(),
-            _ => "There's no AppImage for this version yet.".to_owned(),
+            Source::Installer => {
+                yapfast_lang::tr!("There's no Windows installer for this version yet.").to_owned()
+            }
+            _ => yapfast_lang::tr!("There's no AppImage for this version yet.").to_owned(),
         })?
         .clone();
-    sums_of(release).ok_or("This release doesn't publish SHA256SUMS.txt.")?;
-    signature_of(release).ok_or(UNSIGNED)?;
+    sums_of(release).ok_or(yapfast_lang::tr!(
+        "This release doesn't publish SHA256SUMS.txt."
+    ))?;
+    signature_of(release).ok_or(yapfast_lang::text(UNSIGNED))?;
     match source {
         Source::AppImage => {
             let current = appimage
-                .ok_or("The AppImage's own path isn't known.")?
+                .ok_or(yapfast_lang::tr!("The AppImage's own path isn't known."))?
                 .to_path_buf();
-            let folder = current.parent().ok_or("The AppImage has no folder.")?;
+            let folder = current
+                .parent()
+                .ok_or(yapfast_lang::tr!("The AppImage has no folder."))?;
             if !writable(folder) {
-                return Err("Yapfast can't write to the AppImage's folder.".into());
+                return Err(
+                    yapfast_lang::tr!("Yapfast can't write to the AppImage's folder.").into(),
+                );
             }
             Ok(Target::AppImage { asset, current })
         }
         _ => {
-            let folder = program.parent().ok_or("Yapfast has no folder.")?;
+            let folder = program
+                .parent()
+                .ok_or(yapfast_lang::tr!("Yapfast has no folder."))?;
             // The installer left its uninstaller there; a folder without one
             // was unpacked by hand or installed by something else.
             if !folder.join("unins000.exe").is_file() {
-                return Err(
+                return Err(yapfast_lang::tr!(
                     "This copy can't update itself. Get the new version from the release page."
-                        .into(),
-                );
+                )
+                .into());
             }
             if !writable(folder) {
-                return Err("Yapfast can't write to its own folder.".into());
+                return Err(yapfast_lang::tr!("Yapfast can't write to its own folder.").into());
             }
             Ok(Target::Installer {
                 asset,
@@ -239,7 +255,7 @@ async fn fetch_small(client: &reqwest::Client, url: &str, limit: u64) -> Result<
         .content_length()
         .is_some_and(|length| length > limit)
     {
-        return Err(TOO_LARGE.into());
+        return Err(yapfast_lang::text(TOO_LARGE).into());
     }
     let mut bytes = Vec::new();
     while let Some(chunk) = response
@@ -248,11 +264,12 @@ async fn fetch_small(client: &reqwest::Client, url: &str, limit: u64) -> Result<
         .map_err(|error| error.without_url().to_string())?
     {
         if (bytes.len() + chunk.len()) as u64 > limit {
-            return Err(TOO_LARGE.into());
+            return Err(yapfast_lang::text(TOO_LARGE).into());
         }
         bytes.extend_from_slice(&chunk);
     }
-    String::from_utf8(bytes).map_err(|_| "The release's sums aren't text.".to_owned())
+    String::from_utf8(bytes)
+        .map_err(|_| yapfast_lang::tr!("The release's sums aren't text.").to_owned())
 }
 
 /// Downloads `url` to `to` a chunk at a time, hashing as it goes; returns the
@@ -312,16 +329,22 @@ fn smoke_test(program: &Path) -> Result<(), String> {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .map_err(|error| format!("The new version wouldn't start: {error}."))?;
+        .map_err(|error| yapfast_lang::tr!("The new version wouldn't start: {}.", error))?;
     let started = std::time::Instant::now();
     loop {
         match child.try_wait() {
             Ok(Some(status)) if status.success() => return Ok(()),
-            Ok(Some(_)) => return Err("The new version didn't pass its start-up check.".into()),
+            Ok(Some(_)) => {
+                return Err(
+                    yapfast_lang::tr!("The new version didn't pass its start-up check.").into(),
+                );
+            }
             Ok(None) if started.elapsed() > std::time::Duration::from_secs(60) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err("The new version's start-up check took too long.".into());
+                return Err(
+                    yapfast_lang::tr!("The new version's start-up check took too long.").into(),
+                );
             }
             Ok(None) => std::thread::sleep(std::time::Duration::from_millis(100)),
             Err(error) => return Err(error.to_string()),
@@ -370,14 +393,16 @@ async fn prepare_in(
 ) -> Result<Prepared, String> {
     let asset = target.asset();
     progress.stage(Stage::Starting);
-    let sums = sums_of(release).ok_or("This release doesn't publish SHA256SUMS.txt.")?;
-    let signed = signature_of(release).ok_or(UNSIGNED)?;
+    let sums = sums_of(release).ok_or(yapfast_lang::tr!(
+        "This release doesn't publish SHA256SUMS.txt."
+    ))?;
+    let signed = signature_of(release).ok_or(yapfast_lang::text(UNSIGNED))?;
     let sums = fetch_small(client, &sums.url, 1 << 20).await?;
     let signed = fetch_small(client, &signed.url, signature::LIMIT).await?;
     signature::verify(&signature::KEYS, sums.as_bytes(), &signed, release)?;
     let sums = parse_sums(&sums);
     let expected = sums.get(&asset.name).ok_or_else(|| {
-        format!(
+        yapfast_lang::tr!(
             "The download of {} couldn't be verified, so it wasn't installed.",
             asset.name
         )
@@ -385,7 +410,7 @@ async fn prepare_in(
     progress.stage(Stage::Downloading);
     let actual = download(client, &asset.url, part, asset.size, progress).await?;
     if &actual != expected {
-        return Err(format!(
+        return Err(yapfast_lang::tr!(
             "{} doesn't match the sum the release published.",
             asset.name
         ));
@@ -404,14 +429,14 @@ async fn prepare_in(
                         std::fs::rename(&new, &to).map_err(|error| error.to_string())
                     })
                     .await
-                    .map_err(|_| "The update stopped partway.".to_owned())??;
+                    .map_err(|_| yapfast_lang::tr!("The update stopped partway.").to_owned())??;
                 progress.stage(Stage::Installing);
                 Ok(Prepared::Replaced(current.clone()))
             }
             #[cfg(not(unix))]
             {
                 let _ = (runtime, current);
-                Err("AppImages are for Linux.".into())
+                Err(yapfast_lang::tr!("AppImages are for Linux.").into())
             }
         }
         Target::Installer { asset, program } => {
@@ -467,8 +492,9 @@ pub fn run_installer(installer: &Path, program: &Path, arguments: &[String]) -> 
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let log = installer.with_extension("log");
-    let line = windows_command(installer, program, arguments, &log)
-        .ok_or("The update's path has a character the installer can't be started with.")?;
+    let line = windows_command(installer, program, arguments, &log).ok_or(yapfast_lang::tr!(
+        "The update's path has a character the installer can't be started with."
+    ))?;
     // `/S` makes `cmd` strip the outer quotes only, leaving the inner ones.
     std::process::Command::new("cmd.exe")
         .args(["/D", "/S", "/C"])
@@ -485,7 +511,7 @@ pub fn run_installer(installer: &Path, program: &Path, arguments: &[String]) -> 
 /// Only Windows has an installer to run.
 #[cfg(not(windows))]
 pub fn run_installer(_: &Path, _: &Path, _: &[String]) -> Result<(), String> {
-    Err("Installers are for Windows.".into())
+    Err(yapfast_lang::tr!("Installers are for Windows.").into())
 }
 
 #[cfg(test)]

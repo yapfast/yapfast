@@ -158,8 +158,9 @@ Reapply them to the matching release when upgrading Slint. Styled paragraphs now
 have byte ranges as if joined by newlines, where upstream gives them all `0..0`.
 
 `ui/scrollview.slint` is Yapfast's own `ScrollView` and `ListView`, in place of
-the std-widgets ones: the Fluent style's from Slint 1.18.1, with its scroll
-arrows copied to `ui/icons/scroll-*.svg`. The Fluent scrollbar starts a thumb
+the std-widgets ones: the Fluent style's from Slint 1.18.1, without its track
+and scroll arrows: only the thumb shows, wider and brighter under the pointer,
+as Discord's does. The Fluent scrollbar starts a thumb
 drag over each time `maximum` changes, dropping part of the pointer's travel,
 and a `ListView`'s `maximum` changes all through a drag as rows are measured,
 so the thumb fell behind the pointer. Yapfast's bar sets the viewport from where

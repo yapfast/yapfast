@@ -6,6 +6,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
+use yapfast_lang::tr;
 
 use futures_util::{Stream, StreamExt};
 use matrix_sdk::{
@@ -463,7 +464,7 @@ impl Matrix {
                 let Some(room) = room else {
                     let _ = events.send(Event::RoomError {
                         room: id,
-                        message: "This room is no longer joined. Select another conversation."
+                        message: tr!("This room is no longer joined. Select another conversation.")
                             .into(),
                     });
                     return true;
@@ -508,8 +509,10 @@ impl Matrix {
                     Err(_) => {
                         let _ = events.send(Event::RoomError {
                             room: id,
-                            message: "Could not open this conversation. Select it again to retry."
-                                .into(),
+                            message: tr!(
+                                "Could not open this conversation. Select it again to retry."
+                            )
+                            .into(),
                         });
                     }
                 }
@@ -572,9 +575,10 @@ impl Matrix {
                 if result.is_err() {
                     let _ = events.send(Event::RoomError {
                         room,
-                        message:
+                        message: tr!(
                             "Could not change the reaction. Check your connection and try again."
-                                .into(),
+                        )
+                        .into(),
                     });
                 }
             }
@@ -589,7 +593,7 @@ impl Matrix {
                     Some(timeline) => {
                         Ok(reactors(timeline, &item, &key, after.as_deref(), limit).await)
                     }
-                    None => Err("Open this conversation again, then retry.".into()),
+                    None => Err(tr!("Open this conversation again, then retry.").into()),
                 };
                 let _ = events.send(Event::Reactors {
                     room,
@@ -619,9 +623,10 @@ impl Matrix {
                 if result.is_err() {
                     let _ = events.send(Event::RoomError {
                         room,
-                        message:
+                        message: tr!(
                             "Could not delete the message. Check your connection and try again."
-                                .into(),
+                        )
+                        .into(),
                     });
                 }
             }
@@ -645,8 +650,10 @@ impl Matrix {
                 if !matches!(result, Ok(true)) {
                     let _ = events.send(Event::RoomError {
                         room,
-                        message: "That message was already sent, so it could not be cancelled."
-                            .into(),
+                        message: tr!(
+                            "That message was already sent, so it could not be cancelled."
+                        )
+                        .into(),
                     });
                 }
             }
@@ -695,7 +702,7 @@ impl Matrix {
                             active.history()
                         }
                         Err(_) => {
-                            let _ = events.send(Event::RoomError { room: id.clone(), message: "Could not load older messages. Check your connection and try again.".into() });
+                            let _ = events.send(Event::RoomError { room: id.clone(), message: tr!("Could not load older messages. Check your connection and try again.").into() });
                             History::Failed
                         }
                     },
@@ -755,7 +762,7 @@ impl Matrix {
                             Err(_) => {
                                 let _ = events.send(Event::RoomError {
                                     room: id.clone(),
-                                    message: "Could not load newer messages. Check your connection and try again.".into(),
+                                    message: tr!("Could not load newer messages. Check your connection and try again.").into(),
                                 });
                                 History::Failed
                             }
@@ -790,7 +797,7 @@ impl Matrix {
                 if !found {
                     let _ = events.send(Event::RoomError {
                         room: room.clone(),
-                        message: "Yapfast couldn't find that message.".into(),
+                        message: tr!("Yapfast couldn't find that message.").into(),
                     });
                 }
                 // Said before the window is published; see Command::Around.
@@ -826,7 +833,7 @@ impl Matrix {
             Command::Recover(key) => {
                 if voice.states.borrow().active() {
                     let _ = events.send(Event::Error(
-                        "Leave voice before recovering this device.".into(),
+                        tr!("Leave voice before recovering this device.").into(),
                     ));
                     return true;
                 }
@@ -837,9 +844,9 @@ impl Matrix {
                 self.trusted = session.device_is_trusted().await.unwrap_or(false);
                 let _ = events.send(Event::Trust {
                     trusted: self.trusted,
-                    error: result.err().map(
-                        |_| "Recovery failed. Check your recovery key and connection, then retry.",
-                    ),
+                    error: result.err().map(|_| {
+                        tr!("Recovery failed. Check your recovery key and connection, then retry.")
+                    }),
                 });
                 self.restart_sync = true;
             }
@@ -854,9 +861,9 @@ impl Matrix {
                 }
                 let _ = events.send(Event::Trust {
                     trusted: result.as_ref().copied().unwrap_or(false),
-                    error: result.err().map(
-                        |_| "Could not check device verification. Check your connection and retry.",
-                    ),
+                    error: result.err().map(|_| {
+                        tr!("Could not check device verification. Check your connection and retry.")
+                    }),
                 });
             }
             Command::RetrySync => self.restart_sync = true,
@@ -873,7 +880,7 @@ impl Matrix {
                     Err(_) => {
                         voice.restart(session.lease());
                         let _ = events.send(Event::Voice(voice::State::default()));
-                        let _ = events.send(Event::Error("Sign-out failed. Your session is kept. Check the connection and try again.".into()));
+                        let _ = events.send(Event::Error(tr!("Sign-out failed. Your session is kept. Check the connection and try again.").into()));
                         self.restart_sync = true;
                     }
                 }
@@ -1002,10 +1009,11 @@ fn start_dm(client: &Client, id: String, events: &UnboundedSender<Event>) {
                     .map(|room| room.room_id().to_string())
                     .map_err(|error| {
                         tracing::warn!(%error, "could not start a Matrix DM");
-                        "Could not start the DM. Check the Matrix id and your connection.".into()
+                        tr!("Could not start the DM. Check the Matrix id and your connection.")
+                            .into()
                     }),
             },
-            Err(_) => Err("That isn't a Matrix id, such as @name:example.org.".into()),
+            Err(_) => Err(tr!("That isn't a Matrix id, such as @name:example.org.").into()),
         };
         let _ = events.send(Event::DmStarted(result));
     });
@@ -1111,7 +1119,7 @@ fn load_members(open: &mut OpenRoom, events: &UnboundedSender<Event>) {
                 sort_members(&mut members);
                 members
             })
-            .map_err(|_| "Could not load the member list. Open the channel again to retry.");
+            .map_err(|_| tr!("Could not load the member list. Open the channel again to retry."));
         let _ = events.send(Event::Members {
             room: room.room_id().to_string(),
             members,
@@ -1345,22 +1353,22 @@ async fn writable<'a>(
     room: &str,
 ) -> Result<&'a Timeline, &'static str> {
     if !session.device_is_trusted().await.unwrap_or(false) {
-        return Err(
-            "Verify this device before sending. Use your recovery key or another Matrix client.",
-        );
+        return Err(tr!(
+            "Verify this device before sending. Use your recovery key or another Matrix client."
+        ));
     }
     let timeline =
-        active_timeline(open, room).ok_or("Open this conversation again, then retry.")?;
+        active_timeline(open, room).ok_or(tr!("Open this conversation again, then retry."))?;
     let room: &Room = timeline.room();
     if room.state() != matrix_sdk::RoomState::Joined || !room.encryption_state().is_encrypted() {
-        return Err("Sending is available only in joined, encrypted rooms.");
+        return Err(tr!("Sending is available only in joined, encrypted rooms."));
     }
     Ok(timeline)
 }
 
 fn check_text(body: &str) -> Result<(), &'static str> {
     if body.trim().is_empty() || body.len() > MAX_MESSAGE_BYTES {
-        Err("Messages must contain text and be under 16 KB.")
+        Err(tr!("Messages must contain text and be under 16 KB."))
     } else {
         Ok(())
     }
@@ -1380,7 +1388,7 @@ async fn send(
     let queued = match reply {
         Some((item, ping)) => {
             let Some(TimelineEventItemId::EventId(event)) = parse_item(item) else {
-                return Err("You can reply once that message has been sent.");
+                return Err(tr!("You can reply once that message has been sent."));
             };
             if ping {
                 timeline.send_reply(content, event).await
@@ -1399,13 +1407,13 @@ async fn send(
                     .room()
                     .make_reply_event(content, reply)
                     .await
-                    .map_err(|_| "Yapfast could not find the message to reply to.")?;
+                    .map_err(|_| tr!("Yapfast could not find the message to reply to."))?;
                 timeline.send(content.into()).await
             }
         }
         None => timeline.send(content.with_relation(None).into()).await,
     };
-    queued.map_err(|_| "Yapfast could not queue this message. Your draft is kept.")?;
+    queued.map_err(|_| tr!("Yapfast could not queue this message. Your draft is kept."))?;
     // The queue owns the message now, including across restarts.
     let _ = timeline.room().clear_composer_draft(None).await;
     Ok(())
@@ -1420,13 +1428,13 @@ async fn edit(
 ) -> Result<(), &'static str> {
     check_text(body)?;
     let timeline = writable(session, open, room).await?;
-    let id = parse_item(item).ok_or("This message can no longer be edited.")?;
+    let id = parse_item(item).ok_or(tr!("This message can no longer be edited."))?;
     let mut content = RoomMessageEventContentWithoutRelation::text_markdown(body);
     content.mentions = Some(mentioned(body));
     timeline
         .edit(&id, EditedContent::RoomMessage(content))
         .await
-        .map_err(|_| "This message can no longer be edited.")
+        .map_err(|_| tr!("This message can no longer be edited."))
 }
 
 /// The people a message's Markdown links to, as the composer's mentions do, so
@@ -1468,7 +1476,7 @@ async fn forward(
         .map(|_| ())
         .map_err(|_| {
             ForwardFailure::Note(
-                "Yapfast could not queue the message you added. Check your connection.".into(),
+                tr!("Yapfast could not queue the message you added. Check your connection.").into(),
             )
         })
 }
@@ -1483,13 +1491,13 @@ async fn forward_message(
     target: &str,
 ) -> Result<matrix_sdk::Room, &'static str> {
     if !session.device_is_trusted().await.unwrap_or(false) {
-        return Err(
-            "Verify this device before forwarding. Use your recovery key or another Matrix client.",
-        );
+        return Err(tr!(
+            "Verify this device before forwarding. Use your recovery key or another Matrix client."
+        ));
     }
     let timeline =
-        active_timeline(open, room).ok_or("Open this conversation again, then retry.")?;
-    let id = parse_item(item).ok_or("This message can't be forwarded.")?;
+        active_timeline(open, room).ok_or(tr!("Open this conversation again, then retry."))?;
+    let id = parse_item(item).ok_or(tr!("This message can't be forwarded."))?;
     let content = timeline
         .items()
         .await
@@ -1503,22 +1511,24 @@ async fn forward_message(
             },
             _ => None,
         })
-        .ok_or("This message can't be forwarded.")?;
+        .ok_or(tr!("This message can't be forwarded."))?;
     let target = OwnedRoomId::try_from(target)
         .ok()
         .and_then(|id| timeline.room().client().get_room(&id))
-        .ok_or("That conversation is no longer joined.")?;
+        .ok_or(tr!("That conversation is no longer joined."))?;
     if target.state() != matrix_sdk::RoomState::Joined || !target.encryption_state().is_encrypted()
     {
-        return Err("Forwarding is available only into joined, encrypted rooms.");
+        return Err(tr!(
+            "Forwarding is available only into joined, encrypted rooms."
+        ));
     }
     target
         .send_queue()
         .send(RoomMessageEventContent::new(content).into())
         .await
-        .map_err(
-            |_| "Yapfast could not queue the forwarded message. Check your connection and retry.",
-        )?;
+        .map_err(|_| {
+            tr!("Yapfast could not queue the forwarded message. Check your connection and retry.")
+        })?;
     Ok(target)
 }
 
@@ -1565,12 +1575,12 @@ async fn attach(
     let timeline = writable(session, open, room).await?;
     let metadata = tokio::fs::metadata(path)
         .await
-        .map_err(|_| "Yapfast could not read that file.")?;
+        .map_err(|_| tr!("Yapfast could not read that file."))?;
     if !metadata.is_file() {
-        return Err("Choose a file to send.");
+        return Err(tr!("Choose a file to send."));
     }
     if metadata.len() > MAX_ATTACHMENT_BYTES {
-        return Err("Files must be 50 MB or smaller.");
+        return Err(tr!("Files must be 50 MB or smaller."));
     }
     let size = UInt::new(metadata.len());
     let mime = mime_for(path);
@@ -1610,7 +1620,7 @@ async fn attach(
         )
         .use_send_queue()
         .await
-        .map_err(|_| "Yapfast could not queue that file. Check that it is readable and retry.")
+        .map_err(|_| tr!("Yapfast could not queue that file. Check that it is readable and retry."))
 }
 
 /// The media source and display name of an item's attachment.
@@ -1669,7 +1679,7 @@ async fn view_image(
             room,
             item,
             index,
-            picture: Err("This image is no longer available."),
+            picture: Err(tr!("This image is no longer available.")),
         });
         return;
     };
@@ -1682,13 +1692,15 @@ async fn view_image(
                     .ok()
                     .flatten()
                     .map(Arc::new)
-                    .ok_or("Yapfast can't show this image. Save it to open it elsewhere."),
-                Err(matrix_media::Failed::TooLarge) => {
-                    Err("This image is too large to show here. Save it to open it elsewhere.")
-                }
-                Err(_) => Err(
-                    "Yapfast couldn't download this image. Check your connection and try again.",
-                ),
+                    .ok_or(tr!(
+                        "Yapfast can't show this image. Save it to open it elsewhere."
+                    )),
+                Err(matrix_media::Failed::TooLarge) => Err(tr!(
+                    "This image is too large to show here. Save it to open it elsewhere."
+                )),
+                Err(_) => Err(tr!(
+                    "Yapfast couldn't download this image. Check your connection and try again."
+                )),
             };
         let _ = events.send(Event::Image {
             room,
@@ -1707,8 +1719,8 @@ async fn save_attachment(
     path: &Path,
 ) -> Result<(), &'static str> {
     let timeline =
-        active_timeline(open, room).ok_or("Open this conversation again, then retry.")?;
-    let id = parse_item(item).ok_or("This file is no longer available.")?;
+        active_timeline(open, room).ok_or(tr!("Open this conversation again, then retry."))?;
+    let id = parse_item(item).ok_or(tr!("This file is no longer available."))?;
     let source = timeline
         .items()
         .await
@@ -1717,16 +1729,16 @@ async fn save_attachment(
         .find(|event| event.identifier() == id)
         .and_then(attachment_source)
         .map(|(source, _)| source)
-        .ok_or("This file is no longer available.")?;
+        .ok_or(tr!("This file is no longer available."))?;
     matrix_media::save(client, &source, MAX_SAVE_BYTES, path)
         .await
         .map_err(|failed| match failed {
-            matrix_media::Failed::TooLarge => "This file is larger than Yapfast saves.",
+            matrix_media::Failed::TooLarge => tr!("This file is larger than Yapfast saves."),
             matrix_media::Failed::Write => {
-                "Yapfast could not write the file there. Choose another folder."
+                tr!("Yapfast could not write the file there. Choose another folder.")
             }
             matrix_media::Failed::Download | matrix_media::Failed::Decrypt => {
-                "Yapfast could not download or decrypt this file. Check your connection and retry."
+                tr!("Yapfast could not download or decrypt this file. Check your connection and retry.")
             }
         })
 }
@@ -1774,14 +1786,14 @@ async fn notification_of(
     let body = match &event {
         AnySyncMessageLikeEvent::RoomMessage(SyncMessageLikeEvent::Original(message)) => {
             match &message.content.msgtype {
-                MessageType::Image(_) => "Sent a picture".into(),
+                MessageType::Image(_) => tr!("Sent a picture").into(),
                 MessageType::File(_) | MessageType::Video(_) | MessageType::Audio(_) => {
-                    "Sent a file".into()
+                    tr!("Sent a file").into()
                 }
                 other => notification_text(other.body()),
             }
         }
-        AnySyncMessageLikeEvent::RoomEncrypted(_) => "Encrypted message".into(),
+        AnySyncMessageLikeEvent::RoomEncrypted(_) => tr!("Encrypted message").into(),
         _ => return None,
     };
     let author = match room.get_member_no_sync(event.sender()).await {
@@ -1838,15 +1850,15 @@ fn summary(content: &TimelineItemContent) -> String {
     match content {
         TimelineItemContent::MsgLike(content) => match &content.kind {
             MsgLikeKind::Message(message) => match message.msgtype() {
-                MessageType::Image(_) => "Image".into(),
+                MessageType::Image(_) => tr!("Image").into(),
                 MessageType::File(content) => content.filename().into(),
                 _ => plain_snippet(message.body()),
             },
-            MsgLikeKind::Redacted => "Message deleted".into(),
-            MsgLikeKind::UnableToDecrypt(_) => "Encrypted message".into(),
-            _ => "Message".into(),
+            MsgLikeKind::Redacted => tr!("Message deleted").into(),
+            MsgLikeKind::UnableToDecrypt(_) => tr!("Encrypted message").into(),
+            _ => tr!("Message").into(),
         },
-        _ => "Message".into(),
+        _ => tr!("Message").into(),
     }
 }
 
@@ -2029,10 +2041,11 @@ async fn publish_timeline(
                 }
             }
             MsgLikeKind::UnableToDecrypt(_) => {
-                message.body = "Unable to decrypt. Recover your keys to read this message.".into();
+                message.body =
+                    tr!("Unable to decrypt. Recover your keys to read this message.").into();
             }
             MsgLikeKind::Redacted => {
-                message.body = "Message deleted".into();
+                message.body = tr!("Message deleted").into();
                 message.deleted = true;
             }
             _ => continue,
@@ -2061,7 +2074,7 @@ async fn publish_timeline(
                 TimelineDetails::Error(_) => Reply {
                     author: String::new(),
                     avatar: None,
-                    body: "The original message could not be loaded.".into(),
+                    body: tr!("The original message could not be loaded.").into(),
                     item,
                     color: None,
                 },
@@ -2077,7 +2090,7 @@ async fn publish_timeline(
                     Reply {
                         author: String::new(),
                         avatar: None,
-                        body: "Loading the original message...".into(),
+                        body: tr!("Loading the original message...").into(),
                         item,
                         color: None,
                     }

@@ -15,6 +15,7 @@ use yapfast_discord::service::Discord;
 
 #[cfg(feature = "matrix")]
 use crate::session::SessionLease;
+use yapfast_lang::tr;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Phase {
@@ -440,8 +441,9 @@ impl Controller {
                     ),
                     Err(_) => {
                         states.send_modify(|state| {
-                            state.error =
-                                Some("Could not start voice. Restart Yapfast and try again.".into())
+                            state.error = Some(
+                                tr!("Could not start voice. Restart Yapfast and try again.").into(),
+                            )
                         });
                     }
                 }
@@ -590,16 +592,16 @@ async fn join(
                 )
                 .await
             }
-            _ => Err(anyhow::anyhow!("Discord isn't linked on this device.")),
+            _ => Err(anyhow::anyhow!(tr!("Discord isn't linked on this device."))),
         };
     }
     #[cfg(feature = "matrix")]
     return crate::matrix_voice::call(&calls.session, id, state, commands, snapshots, remembered)
         .await;
     #[cfg(not(feature = "matrix"))]
-    Err(anyhow::anyhow!(
+    Err(anyhow::anyhow!(tr!(
         "This build of Yapfast has no Matrix voice."
-    ))
+    )))
 }
 
 /// The file in Yapfast's data folder that remembers the chosen devices.
@@ -671,9 +673,9 @@ pub(crate) fn devices(state: &mut State) -> Result<()> {
 pub(crate) fn audio() -> Result<PlatformAudio> {
     crate::leveling::install();
     PlatformAudio::new().map_err(|_| {
-        anyhow::anyhow!(
+        anyhow::anyhow!(tr!(
             "Audio devices are unavailable. Check your system's audio service and permissions."
-        )
+        ))
     })
 }
 

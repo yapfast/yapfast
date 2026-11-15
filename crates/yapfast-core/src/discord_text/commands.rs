@@ -9,7 +9,9 @@ use crate::chat::ForwardFailure;
 use yapfast_discord::server_settings::GuildSettings as DiscordSettings;
 
 /// Why a Discord command fails for a room that isn't Discord's.
-pub(super) const NOT_DISCORD: &str = "That isn't a Discord room.";
+pub(super) fn not_discord() -> &'static str {
+    tr!("That isn't a Discord room.")
+}
 
 /// Carries out a command [`Command::route`] sends to Discord. Opening any
 /// room closes the open Discord channel. Without Discord, the error says
@@ -237,7 +239,7 @@ pub fn command(
             None => {
                 let _ = events.send(Event::RoomError {
                     room,
-                    message: "Could not open this Discord channel.".into(),
+                    message: tr!("Could not open this Discord channel.").into(),
                 });
             }
         }
@@ -248,7 +250,7 @@ pub fn command(
         channels.typed = None;
     }
     let Some(channel) = channels.shown_mut(&room) else {
-        let again = "Open this conversation again, then retry.";
+        let again = tr!("Open this conversation again, then retry.");
         let _ = match command {
             Command::Send { room, body, .. } => events.send(Event::SendResult {
                 room,
@@ -330,7 +332,7 @@ pub fn command(
             } else {
                 let _ = events.send(Event::RoomError {
                     room,
-                    message: "That message is still sending, so it can't be cancelled.".into(),
+                    message: tr!("That message is still sending, so it can't be cancelled.").into(),
                 });
             }
         }
@@ -374,7 +376,7 @@ pub fn command(
             None => {
                 let _ = events.send(Event::RoomError {
                     room: room.clone(),
-                    message: "Yapfast couldn't find that message.".into(),
+                    message: tr!("Yapfast couldn't find that message.").into(),
                 });
                 let _ = events.send(Event::HistoryLoaded {
                     room,
@@ -429,7 +431,7 @@ fn aside(
     let Some(mut channel) = channel else {
         let _ = events.send(Event::RoomError {
             room,
-            message: "Could not open this Discord thread.".into(),
+            message: tr!("Could not open this Discord thread.").into(),
         });
         return;
     };
@@ -478,7 +480,7 @@ pub fn finished(
             if channels.is_open(room) {
                 let _ = events.send(Event::Members {
                     room: room.clone(),
-                    members: Err("Discord didn't send this channel's member list."),
+                    members: Err(tr!("Discord didn't send this channel's member list.")),
                 });
             }
             return;
@@ -862,7 +864,7 @@ fn send_poll(
     let (discord, Some([guild, channel])) = (discord, place) else {
         let _ = events.send(Event::PollPosted {
             room,
-            result: Err(NOT_DISCORD.into()),
+            result: Err(not_discord().into()),
         });
         return;
     };
@@ -894,7 +896,7 @@ fn send_poll(
         let result = discord
             .send_poll(&guild, &channel, &poll)
             .await
-            .map_err(|error| format!("Couldn't post the poll: {error}"));
+            .map_err(|error| tr!("Couldn't post the poll: {}", error));
         let _ = events.send(Event::PollPosted { room, result });
     });
 }
@@ -921,17 +923,17 @@ fn forward(
     let (Some((guild, channel)), Some((target_guild, target_channel))) =
         (discord::parse_room(room), discord::parse_room(target))
     else {
-        return fail("Forwarding doesn't cross between Discord and Matrix.".into());
+        return fail(tr!("Forwarding doesn't cross between Discord and Matrix.").into());
     };
     let Some(id) = sent_id(item) else {
-        return fail("You can forward that message once it has been sent.".into());
+        return fail(tr!("You can forward that message once it has been sent.").into());
     };
     // Checked first, so a message too long to add isn't forwarded without it.
     if note
         .as_ref()
         .is_some_and(|note| note.chars().count() > MAX_CHARS)
     {
-        return fail("The message you added is over 2,000 characters.".into());
+        return fail(tr!("The message you added is over 2,000 characters.").into());
     }
     let (discord, events) = (discord.clone(), events.clone());
     let (source, place) = (
