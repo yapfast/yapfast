@@ -86,7 +86,9 @@ but only while it's new: after the last message read when the channel or
 thread opened, by snowflake. A ping reply puts the account in `mentions`,
 so it's a mention only when its `content` names it, `<@id>` or `<@!id>`.
 Each server in the rail shows its mentions as a count, and the DM button
-counts DM mentions and the friend requests waiting for an answer.
+counts DM mentions and the friend requests waiting for an answer. A voice
+channel's unread chat marks its server in the rail only by mentions, as
+Discord's client does.
 Reading an unread channel marks it read, as Discord's client does: once its
 newest message is in view, with the window in front and the "New" divider
 placed, so opening a channel at its divider and leaving it doesn't. A
