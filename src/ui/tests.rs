@@ -9159,6 +9159,68 @@ fn a_window_made_again_while_editing_drops_the_edit() {
 }
 
 #[test]
+fn the_theme_creator_takes_changes_back_and_starts_over() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = classic_window();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    theme_creator::bind(&window, &adapter);
+    window.invoke_new_theme();
+    let page = window.global::<yapfast_ui::Creator>();
+    assert!(page.get_can_export(), "a new theme has the creator's steps");
+    assert_eq!(page.get_step(), 0);
+    assert!(!page.get_can_undo());
+    assert!(page.get_readable().starts_with("Readable: text has "));
+    let opened = theme::Theme::shown(&window);
+    let marigold = page.get_accent();
+
+    // An accent tints the grounds, until the person asks for plain greys.
+    let violet = slint::Color::from_argb_encoded(0xffb1_8cff);
+    let coral = slint::Color::from_argb_encoded(0xffff_6b6b);
+    page.invoke_accent_chosen(violet);
+    assert_eq!(page.get_accent(), violet);
+    assert_eq!(page.get_tint(), 0);
+    assert!(page.get_can_undo());
+    let tinted = theme::Theme::shown(&window);
+    page.invoke_tint_chosen(1);
+    assert_eq!(page.get_tint(), 1);
+    assert_ne!(theme::Theme::shown(&window).chat, tinted.chat);
+    page.invoke_accent_chosen(coral);
+    assert_eq!(page.get_tint(), 1, "greys stay greys under another accent");
+
+    // Undo goes back a change at a time, to the theme as the editor opened.
+    page.invoke_undo();
+    page.invoke_undo();
+    assert_eq!(page.get_accent(), violet);
+    assert_eq!(page.get_tint(), 0);
+    assert_eq!(theme::Theme::shown(&window), tinted);
+    page.invoke_undo();
+    assert!(!page.get_can_undo());
+    assert_eq!(page.get_accent(), marigold);
+    assert_eq!(theme::Theme::shown(&window), opened);
+
+    // Start over opens the editor again on what it opened on, at its step.
+    page.invoke_accent_chosen(coral);
+    page.set_step(2);
+    page.invoke_start_over();
+    assert!(window.get_theme_editor());
+    assert_eq!(page.get_step(), 2);
+    assert!(!page.get_can_undo());
+    assert_eq!(page.get_accent(), marigold);
+    assert_eq!(theme::Theme::shown(&window), opened);
+
+    window.invoke_cancel_theme();
+    assert!(!page.get_can_export());
+    assert_eq!(page.get_readable(), "");
+}
+
+#[test]
 fn a_reactions_tooltip_names_up_to_three_as_discords_client_does() {
     let names = |list: &[&str]| {
         list.iter()

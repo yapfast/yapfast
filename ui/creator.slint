@@ -1,11 +1,14 @@
-// Appearance's theme creator: a few plain choices that make a whole theme,
-// each shown at once on the window and in a small preview. Rust
+// The theme creator, in Settings → Themes → Create: a few plain choices that
+// make a whole theme, in steps (Start, Colours, Shape, Fonts), each shown at
+// once on the window and in a preview that stays beside them. Rust
 // (src/ui/theme_creator.rs) keeps every value here and derives the theme's
 // colours, shapes and fonts from them; the controls only report a choice.
+// ThemeEditor (ui/settings.slint) lays the steps and the preview out.
 
 import { IconPack, Cue } from "media.slint";
 import { Theme, Middle, Look } from "theme.slint";
 import { ActionButton, VolumeSlider, TextField } from "controls.slint";
+import { SettingsToggle } from "yapfast/settings-toggle.slint";
 
 /// A font the creator offers: its key, what it's called, and the family and
 /// weight its sample draws in.
@@ -15,12 +18,19 @@ export struct CreatorFont { key: string, label: string, family: string, weight: 
 export struct CreatorStart { name: string, ground: color, side: color, accent: color }
 
 export global Creator {
-    /// Simple, the creator, or Advanced, every colour.
+    /// Simple, the creator's steps, or Advanced, every colour.
     in-out property <bool> simple: true;
+    /// The step showing: 0 Start, 1 Colours, 2 Shape, 3 Fonts.
+    in-out property <int> step;
     in property <[CreatorStart]> starts;
     in property <int> start: -1;
     in property <color> accent: #ffbf47;
     in property <string> accent-hex;
+    /// The accent's hue in OKLCh, in degrees, where the hue bar marks it.
+    in property <float> accent-hue;
+    /// What tints the grounds: 0 the accent, 1 nothing (neutral greys),
+    /// 2 a colour of their own, from the theme or picture started from.
+    in property <int> tint;
     in property <[color]> presets;
     /// The picture's own colours, while there's one.
     in property <[color]> picture-colours;
@@ -48,7 +58,16 @@ export global Creator {
     /// A word on the last import or picture, and whether it's a problem.
     in property <string> note;
     in property <bool> note-bad;
+    /// The theme has a creator's choices behind it, so it has steps and can
+    /// be exported; false for one of the person's themes made of colours
+    /// alone.
     in property <bool> can-export;
+    /// A change can be taken back.
+    in property <bool> can-undo;
+    /// How the theme reads, said gently: the text's contrast, and whether a
+    /// colour was moved to keep it readable.
+    in property <string> readable;
+    in property <bool> readable-moved;
     callback start-chosen(int);
     callback choose-picture();
     callback suggestion-chosen(int);
@@ -64,6 +83,11 @@ export global Creator {
     callback import-font();
     callback density-chosen(int);
     callback glass-toggled(bool);
+    callback tint-chosen(int);
+    /// Takes the last change back.
+    callback undo();
+    /// Starts again from the theme as the editor opened on it.
+    callback start-over();
     callback open-advanced();
     callback export();
     /// A theme the creator asked for is ready to show.
@@ -82,17 +106,14 @@ component Heading inherits Text {
     font-family: Look.label-font("");
 }
 
-// A section: its heading, and the control under it.
+// A section: its heading, a word on it, and the controls under them.
 component Section inherits VerticalLayout {
     in property <string> title;
     in property <string> hint;
     spacing: 8px;
-    HorizontalLayout {
-        spacing: 8px;
-        Heading { text: root.title; vertical-alignment: center; }
-        if root.hint != "": Text { text: root.hint; color: Theme.faint; font-size: 12px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
-    }
+    Heading { text: root.title; }
     @children
+    if root.hint != "": Text { text: root.hint; color: Theme.muted; font-size: 13px; wrap: word-wrap; }
 }
 
 // A choice drawn as a picture of itself, with its name under it; the chosen
@@ -102,9 +123,9 @@ component Tile inherits Rectangle {
     in property <bool> chosen;
     in property <length> art-height: 52px;
     callback clicked;
-    min-width: 88px; horizontal-stretch: 1;
-    height: self.art-height + 34px;
-    border-radius: Creator.radius(10px, 18px);
+    min-width: 72px; horizontal-stretch: 1;
+    height: self.art-height + 38px;
+    border-radius: Look.radius(8px);
     background: touch.has-hover ? Theme.hover : transparent;
     border-width: root.chosen || focus.has-focus ? 2px : 1px;
     border-color: root.chosen || focus.has-focus ? Theme.accent : touch.has-hover ? Theme.faint : Theme.line;
@@ -112,9 +133,10 @@ component Tile inherits Rectangle {
     accessible-role: button;
     accessible-label: root.chosen ? root.label + ", chosen" : root.label;
     accessible-action-default => { root.clicked(); }
+    forward-focus: focus;
     art := Rectangle {
-        x: 6px; y: 6px; width: parent.width - 12px; height: root.art-height;
-        border-radius: Creator.radius(6px, 12px); clip: true;
+        x: 8px; y: 8px; width: parent.width - 16px; height: root.art-height;
+        border-radius: Look.radius(4px); clip: true;
         @children
     }
     HorizontalLayout {
@@ -125,7 +147,7 @@ component Tile inherits Rectangle {
             font-weight: root.chosen ? 700 : 500; vertical-alignment: center; overflow: elide;
         }
         if root.chosen: Image {
-            width: 14px; source: IconPack.check; colorize: Theme.accent-text; image-fit: contain;
+            width: 14px; source: IconPack.check; colorize: IconPack.tint(self.source, Theme.accent-text); image-fit: contain;
         }
     }
     focus := FocusScope {
@@ -143,24 +165,60 @@ component Swatch inherits Rectangle {
     in property <bool> chosen;
     in property <string> label;
     callback clicked;
-    width: 30px; height: 30px; border-radius: 15px;
-    background: root.colour;
-    border-width: root.chosen ? 3px : touch.has-hover ? 2px : 0px;
-    border-color: Theme.text;
+    width: 32px; height: 32px; border-radius: 16px;
+    border-width: 2px; border-color: root.chosen ? Theme.text : touch.has-hover || focus.has-focus ? Theme.faint : transparent;
     accessible-role: button;
     accessible-label: root.chosen ? root.label + ", chosen" : root.label;
     accessible-action-default => { root.clicked(); }
-    if root.chosen: Rectangle {
-        width: parent.width - 8px; height: parent.height - 8px; border-radius: self.width / 2;
-        border-width: 2px; border-color: Theme.chat;
+    forward-focus: focus;
+    Rectangle {
+        width: 22px; height: 22px; border-radius: 11px; background: root.colour;
     }
-    touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { Cue.pressed(); root.clicked(); } }
+    focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == " " || event.text == "\n" { Cue.pressed(); root.clicked(); return accept; }
+            return reject;
+        }
+        touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { Cue.pressed(); root.clicked(); } }
+    }
 }
 
-// A small picture of a theme: a chat beside a sidebar, two messages in the
-// chosen style, in the colours, corners, fonts and glass the window now
-// shows.
-component Preview inherits Rectangle {
+// A switch in the creator's own row: its name, what it does, and the toggle.
+component Switch inherits Rectangle {
+    in property <string> text;
+    in property <string> description;
+    in property <bool> checked;
+    callback toggled(bool);
+    height: row.preferred-height;
+    accessible-role: switch; accessible-label: root.text; accessible-description: root.description;
+    accessible-checkable: true; accessible-checked: root.checked;
+    accessible-action-default => { Cue.toggled(!root.checked); root.toggled(!root.checked); }
+    forward-focus: focus;
+    row := HorizontalLayout {
+        spacing: 12px;
+        VerticalLayout {
+            spacing: 4px; horizontal-stretch: 1;
+            Text { text: root.text; color: Theme.text; font-size: 15px; wrap: word-wrap; }
+            if root.description != "": Text { text: root.description; color: Theme.muted; font-size: 13px; wrap: word-wrap; }
+        }
+        VerticalLayout {
+            alignment: start;
+            SettingsToggle { checked: root.checked; enabled: true; hovered: touch.has-hover; focused: focus.has-focus; }
+        }
+    }
+    focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == " " || event.text == "\n" { Cue.toggled(!root.checked); root.toggled(!root.checked); return accept; }
+            return reject;
+        }
+        touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { Cue.toggled(!root.checked); root.toggled(!root.checked); } }
+    }
+}
+
+// A picture of the theme being made: Yapfast's window, small, with its
+// servers, channels and a conversation in the chosen message style, in the
+// colours, corners, fonts and glass the window now shows.
+export component CreatorPreview inherits Rectangle {
     property <bool> picture: Creator.background == 2 && Creator.has-picture;
     property <bool> glass: Creator.glass;
     property <length> gap: root.glass ? 6px : 0px;
@@ -169,8 +227,8 @@ component Preview inherits Rectangle {
     property <string> heading: root.heading-index >= 0 && root.heading-index < Creator.fonts.length ? Creator.fonts[root.heading-index].family : "";
     property <float> pane: root.glass ? 0.45 : 1.0;
     property <length> row-height: Creator.density == 0 ? 26px : Creator.density == 2 ? 40px : 32px;
-    height: 230px;
-    border-radius: Creator.radius(10px, 18px); clip: true;
+    min-height: 236px;
+    border-radius: Creator.radius(8px, 16px); clip: true;
     background: Theme.rail;
     border-width: 1px; border-color: Theme.line;
     accessible-role: image; accessible-label: "Preview of the theme";
@@ -179,9 +237,19 @@ component Preview inherits Rectangle {
     if root.glass && !root.picture: Rectangle {
         background: @radial-gradient(circle, Theme.accent.with-alpha(Theme.dark ? 0.45 : 0.3) 0%, transparent 70%);
     }
-    // The sidebar.
+    // The servers.
+    rail := Rectangle {
+        x: 0px; y: 0px; width: 40px; height: parent.height;
+        for index in 4: Rectangle {
+            x: 8px; y: 10px + index * 30px; width: 24px; height: 24px;
+            border-radius: index == 0 ? Creator.radius(8px, 12px) : Creator.radius(12px, 12px);
+            background: index == 0 ? Theme.accent : Theme.raised.with-alpha(root.glass ? 0.6 : 1.0);
+            if index == 0: Rectangle { x: -8px; width: 3px; height: 16px; border-radius: 1.5px; background: Theme.text; }
+        }
+    }
+    // The channels.
     side := Rectangle {
-        x: root.gap; y: root.gap; width: 132px; height: parent.height - 2 * root.gap;
+        x: rail.width + root.gap; y: root.gap; width: min(132px, parent.width * 0.3); height: parent.height - 2 * root.gap;
         border-radius: root.glass ? Creator.radius(8px, 14px) : 0px;
         background: Theme.sidebar.with-alpha(root.pane);
         VerticalLayout {
@@ -193,7 +261,7 @@ component Preview inherits Rectangle {
                 border-radius: min(Creator.radius(4px, 12px), (root.row-height - 8px) / 2);
                 background: index == 0 ? Theme.active : transparent;
                 Text {
-                    x: 8px; text: "# " + name; font-size: 12px; font-family: root.body; overflow: elide;
+                    x: 8px; width: parent.width - 12px; text: "# " + name; font-size: 12px; font-family: root.body; overflow: elide;
                     color: index == 0 ? Theme.text : Theme.muted; font-weight: index == 0 ? 600 : 400;
                 }
             }
@@ -268,7 +336,7 @@ component Preview inherits Rectangle {
         Rectangle {
             x: 10px; y: parent.height - 38px; width: parent.width - 20px; height: 28px;
             border-radius: Creator.radius(10px, 26px); background: Theme.composer;
-            Text { x: 10px; text: "Message #general"; color: Theme.placeholder; font-size: 12px; font-family: root.body; }
+            Text { x: 10px; width: parent.width - 40px; text: "Message #general"; color: Theme.placeholder; font-size: 12px; font-family: root.body; overflow: elide; }
             Rectangle {
                 x: parent.width - 24px; width: 18px; height: 18px; border-radius: Creator.radius(6px, 9px); background: Theme.accent;
             }
@@ -276,65 +344,76 @@ component Preview inherits Rectangle {
     }
 }
 
-// Simple: one screen of choices, each shown at once.
-export component CreatorView inherits VerticalLayout {
-    spacing: 22px;
-    Preview { }
+// Start: a theme to begin from, or a picture.
+component StartStep inherits VerticalLayout {
+    spacing: 24px;
     Section {
-        title: "START FROM"; hint: "a theme you like, or a picture";
-        // As many chips across as fit, in rows.
+        title: "START FROM A THEME";
+        hint: "Its colours carry over, and everything after is yours to change.";
+        // As many 150px or wider tiles across as fit, in rows.
         Rectangle {
             property <length> gap: 8px;
-            property <int> count: Creator.starts.length + 1;
-            property <int> columns: max(1, floor((self.width + self.gap) / (124px + self.gap)));
-            property <length> chip-width: (self.width - (self.columns - 1) * self.gap) / self.columns;
-            height: ceil(self.count / self.columns) * (34px + self.gap) - self.gap;
-            accessible-role: list; accessible-label: "Start from";
+            property <int> columns: max(1, floor((self.width + self.gap) / (150px + self.gap)));
+            property <length> tile-width: (self.width - (self.columns - 1) * self.gap) / self.columns;
+            height: ceil(Creator.starts.length / self.columns) * (44px + self.gap) - self.gap;
+            accessible-role: list; accessible-label: "Start from a theme";
             for start[index] in Creator.starts: Rectangle {
-                x: mod(index, parent.columns) * (parent.chip-width + parent.gap);
-                y: floor(index / parent.columns) * (34px + parent.gap);
-                width: parent.chip-width; height: 34px;
-                border-radius: Creator.radius(8px, 17px);
-                background: chip.has-hover ? Theme.hover : Theme.sunken;
-                border-width: index == Creator.start ? 2px : 0px; border-color: Theme.accent;
-                accessible-role: button; accessible-label: start.name;
+                x: mod(index, parent.columns) * (parent.tile-width + parent.gap);
+                y: floor(index / parent.columns) * (44px + parent.gap);
+                width: parent.tile-width; height: 44px;
+                border-radius: Look.radius(8px);
+                background: chip.has-hover ? Theme.hover : transparent;
+                border-width: index == Creator.start || chip-focus.has-focus ? 2px : 1px;
+                border-color: index == Creator.start || chip-focus.has-focus ? Theme.accent : chip.has-hover ? Theme.faint : Theme.line;
+                animate background, border-color { duration: Theme.quick; }
+                accessible-role: button; accessible-label: index == Creator.start ? start.name + ", chosen" : start.name;
                 accessible-action-default => { Creator.start-chosen(index); }
+                forward-focus: chip-focus;
                 HorizontalLayout {
-                    padding-left: 8px; padding-right: 8px; spacing: 8px;
+                    padding-left: 8px; padding-right: 10px; spacing: 10px;
                     Middle {
+                        // The theme as a window the size of a thumbnail.
                         Rectangle {
-                            width: 20px; height: 20px; border-radius: 10px; clip: true; background: start.ground;
+                            width: 36px; height: 26px; border-radius: Look.radius(4px); clip: true; background: start.ground;
                             border-width: 1px; border-color: Theme.line;
-                            Rectangle { x: 0px; width: 10px; background: start.side; }
-                            Rectangle { x: 10px; y: 10px; width: 6px; height: 6px; border-radius: 3px; background: start.accent; }
+                            Rectangle { x: 0px; width: 12px; background: start.side; }
+                            Rectangle { x: 16px; y: 6px; width: 14px; height: 3px; border-radius: 1.5px; background: start.accent; }
+                            Rectangle { x: 16px; y: 12px; width: 10px; height: 3px; border-radius: 1.5px; background: start.side; }
+                            Rectangle { x: 16px; y: 18px; width: 14px; height: 3px; border-radius: 1.5px; background: start.side; }
                         }
                     }
-                    Text { text: start.name; color: Theme.text; font-size: 13px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                    Text {
+                        text: start.name; color: index == Creator.start ? Theme.text : Theme.secondary; font-size: 14px;
+                        font-weight: index == Creator.start ? 700 : 500;
+                        vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
+                    }
                 }
-                chip := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { Cue.pressed(); Creator.start-chosen(index); } }
+                chip-focus := FocusScope {
+                    key-pressed(event) => {
+                        if event.text == " " || event.text == "\n" { Cue.pressed(); Creator.start-chosen(index); return accept; }
+                        return reject;
+                    }
+                    chip := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { Cue.pressed(); Creator.start-chosen(index); } }
+                }
             }
-            // The picture chip.
-            Rectangle {
-                x: mod(Creator.starts.length, parent.columns) * (parent.chip-width + parent.gap);
-                y: floor(Creator.starts.length / parent.columns) * (34px + parent.gap);
-                width: parent.chip-width; height: 34px;
-                border-radius: Creator.radius(8px, 17px);
-                background: pick.has-hover ? Theme.accent-hover : Theme.accent;
-                accessible-role: button; accessible-label: "Choose a picture";
-                accessible-action-default => { Creator.choose-picture(); }
-                HorizontalLayout {
-                    padding-left: 10px; padding-right: 10px; spacing: 6px; alignment: center;
-                    Middle { Image { width: 16px; height: 16px; source: IconPack.image; colorize: Theme.on-accent; } }
-                    Text { text: Creator.reading-picture ? "Reading…" : "Picture…"; color: Theme.on-accent; font-size: 13px; font-weight: 700; vertical-alignment: center; }
-                }
-                pick := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { Cue.pressed(); Creator.choose-picture(); } }
+        }
+    }
+    Section {
+        title: "OR FROM A PICTURE";
+        hint: Creator.note != "" && Creator.note-bad ? "" : "The picture goes behind Yapfast, and its colours become the theme's.";
+        HorizontalLayout {
+            spacing: 8px; alignment: start;
+            ActionButton {
+                text: Creator.reading-picture ? "Reading..." : Creator.has-picture ? "Choose another picture" : "Choose a picture";
+                icon: IconPack.image; enabled: !Creator.reading-picture;
+                clicked => { Creator.choose-picture(); }
             }
         }
         // Pictures from the person's Pictures folder, newest first.
         if Creator.suggestions.length > 0: HorizontalLayout {
             spacing: 8px; alignment: start;
             for picture[index] in Creator.suggestions: Rectangle {
-                width: 84px; height: 52px; border-radius: Creator.radius(6px, 12px); clip: true;
+                width: 84px; height: 52px; border-radius: Look.radius(6px); clip: true;
                 border-width: suggestion.has-hover ? 2px : 0px; border-color: Theme.accent;
                 accessible-role: button; accessible-label: "Use picture " + (index + 1);
                 accessible-action-default => { Creator.suggestion-chosen(index); }
@@ -342,43 +421,72 @@ export component CreatorView inherits VerticalLayout {
                 suggestion := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { Cue.pressed(); Creator.suggestion-chosen(index); } }
             }
         }
+        if Creator.note != "" && Creator.note-bad: Text { text: Creator.note; color: Theme.danger-text; font-size: 13px; wrap: word-wrap; }
     }
+}
+
+// Colours: the accent, and the ground it sits on.
+component ColourStep inherits VerticalLayout {
+    spacing: 24px;
     Section {
         title: "ACCENT";
+        hint: "Buttons, links and what's selected. Pick one, slide to any hue, or type a colour.";
         HorizontalLayout {
-            spacing: 8px; alignment: start;
+            spacing: 4px; alignment: start;
             for colour in Creator.presets: Swatch {
                 colour: colour; chosen: colour == Creator.accent; label: "Accent";
                 clicked => { Creator.accent-chosen(colour); }
             }
-            if Creator.picture-colours.length > 0: Rectangle { width: 1px; background: Theme.line; }
+            if Creator.picture-colours.length > 0: Rectangle {
+                width: 9px;
+                Rectangle { width: 1px; height: 20px; background: Theme.line; }
+            }
             for colour in Creator.picture-colours: Swatch {
                 colour: colour; chosen: colour == Creator.accent; label: "Accent from the picture";
                 clicked => { Creator.accent-chosen(colour); }
             }
         }
         HorizontalLayout {
-            spacing: 10px;
-            // Any hue: drag along the rainbow.
-            hue := Rectangle {
-                height: 24px; horizontal-stretch: 1; border-radius: Creator.radius(6px, 12px);
-                background: @linear-gradient(90deg, #ff4d4d 0%, #ffd24d 17%, #5ce65c 33%, #4de6e6 50%, #4d79ff 67%, #d24dff 83%, #ff4d4d 100%);
-                accessible-role: slider; accessible-label: "Accent hue";
-                hue-touch := TouchArea {
-                    mouse-cursor: MouseCursor.crosshair;
-                    pointer-event(event) => {
-                        if event.button == PointerEventButton.left && event.kind == PointerEventKind.up {
-                            Creator.hue-chosen(max(0, min(1, self.mouse-x / self.width)) * 360);
+            spacing: 12px;
+            // Any hue: click or drag along the bar, which is drawn in the
+            // colours a hue gives (OKLCh, as Rust makes the accent).
+            Middle {
+                horizontal-stretch: 1;
+                hue := Rectangle {
+                    property <float> at: hue-touch.pressed ? max(0, min(1, hue-touch.mouse-x / self.width)) : Creator.accent-hue / 360;
+                    height: 16px; border-radius: 8px;
+                    background: @linear-gradient(90deg, #f275a0 0%, #f87966 8.3%, #eb881f 16.7%, #cb9e00 25%, #98b224 33.3%, #4ac06c 41.7%, #00c4a8 50%, #00bedb 58.3%, #19affe 66.7%, #7e9dff 75%, #b58bf9 83.3%, #db7cd4 91.7%, #f275a0 100%);
+                    accessible-role: slider; accessible-label: "Accent hue";
+                    accessible-value: round(self.at * 360) + "°"; accessible-value-minimum: 0; accessible-value-maximum: 360; accessible-value-step: 10;
+                    accessible-action-increment => { Creator.hue-chosen(mod(Creator.accent-hue + 10, 360)); }
+                    accessible-action-decrement => { Creator.hue-chosen(mod(Creator.accent-hue + 350, 360)); }
+                    forward-focus: hue-focus;
+                    Rectangle {
+                        x: hue.at * (parent.width - 16px) - 2px; y: -2px; width: 20px; height: 20px; border-radius: 10px;
+                        background: Theme.text; border-width: hue-focus.has-focus ? 2px : 0px; border-color: Theme.accent;
+                        drop-shadow-blur: 4px; drop-shadow-color: #00000066; drop-shadow-offset-y: 1px;
+                        Rectangle { width: 12px; height: 12px; border-radius: 6px; background: Creator.accent; }
+                    }
+                    hue-focus := FocusScope {
+                        key-pressed(event) => {
+                            if event.text == Key.LeftArrow { Creator.hue-chosen(mod(Creator.accent-hue + 350, 360)); return accept; }
+                            if event.text == Key.RightArrow { Creator.hue-chosen(mod(Creator.accent-hue + 10, 360)); return accept; }
+                            return reject;
+                        }
+                        hue-touch := TouchArea {
+                            mouse-cursor: MouseCursor.pointer;
+                            pointer-event(event) => {
+                                if event.button == PointerEventButton.left && event.kind == PointerEventKind.down { hue-focus.focus(); }
+                                if event.button == PointerEventButton.left && event.kind == PointerEventKind.up {
+                                    Creator.hue-chosen(max(0, min(1, self.mouse-x / self.width)) * 360);
+                                }
+                            }
                         }
                     }
                 }
-                if hue-touch.pressed: Rectangle {
-                    x: max(0px, min(parent.width, hue-touch.mouse-x)) - 2px; width: 4px; background: #ffffff;
-                    border-width: 1px; border-color: #00000080;
-                }
             }
             TextField {
-                width: 104px; min-height: 30px; text-size: 14px; pad: 8px;
+                width: 104px; min-height: 34px; text-size: 14px; pad: 8px; horizontal-stretch: 0;
                 text: Creator.accent-hex; label: "Accent colour as hex";
                 accepted => { Creator.hex-typed(self.text); }
                 edited(text) => { if text.character-count == 7 { Creator.hex-typed(text); } }
@@ -388,26 +496,26 @@ export component CreatorView inherits VerticalLayout {
     Section {
         title: "BACKGROUND";
         HorizontalLayout {
-            spacing: 10px;
+            spacing: 8px;
             Tile {
                 label: "Dark"; chosen: Creator.background == 0; clicked => { Creator.background-chosen(0); }
-                Rectangle { background: #1e1f24; Rectangle { x: 8px; y: 10px; width: parent.width * 0.5; height: 6px; border-radius: 3px; background: #eef0f4; } Rectangle { x: 8px; y: 22px; width: parent.width * 0.35; height: 5px; border-radius: 2.5px; background: #8d919c; } }
+                Rectangle { background: #1e1f24; Rectangle { x: 8px; y: 12px; width: parent.width * 0.5; height: 6px; border-radius: 3px; background: #eef0f4; } Rectangle { x: 8px; y: 24px; width: parent.width * 0.35; height: 5px; border-radius: 2.5px; background: #8d919c; } }
             }
             Tile {
                 label: "Light"; chosen: Creator.background == 1; clicked => { Creator.background-chosen(1); }
-                Rectangle { background: #f6f5f8; Rectangle { x: 8px; y: 10px; width: parent.width * 0.5; height: 6px; border-radius: 3px; background: #2a2b33; } Rectangle { x: 8px; y: 22px; width: parent.width * 0.35; height: 5px; border-radius: 2.5px; background: #7a7d88; } }
+                Rectangle { background: #f6f5f8; Rectangle { x: 8px; y: 12px; width: parent.width * 0.5; height: 6px; border-radius: 3px; background: #2a2b33; } Rectangle { x: 8px; y: 24px; width: parent.width * 0.35; height: 5px; border-radius: 2.5px; background: #7a7d88; } }
             }
             Tile {
                 label: "Picture"; chosen: Creator.background == 2; clicked => { Creator.background-chosen(2); }
                 if Creator.has-picture: Image { width: parent.width; height: parent.height; source: Creator.picture; image-fit: cover; }
                 if !Creator.has-picture: Rectangle {
                     background: Theme.sunken;
-                    Image { width: 22px; height: 22px; source: IconPack.image; colorize: Theme.muted; }
+                    Image { width: 22px; height: 22px; source: IconPack.image; colorize: IconPack.tint(self.source, Theme.muted); }
                 }
             }
         }
         if Creator.background == 2 && Creator.has-picture: HorizontalLayout {
-            spacing: 24px;
+            spacing: 24px; padding-top: 4px;
             VolumeSlider {
                 horizontal-stretch: 1; label: "Blur"; value: Creator.blur; maximum: 100; full-mark: false;
                 shown: Creator.blur == 0 ? "Sharp" : Creator.blur + "%";
@@ -420,10 +528,53 @@ export component CreatorView inherits VerticalLayout {
             }
         }
     }
+    if Creator.background != 2: Section {
+        title: "TINT";
+        hint: Creator.tint == 0 ? "The backgrounds take a little of the accent's hue."
+            : Creator.tint == 1 ? "The backgrounds are plain greys, and the accent stands alone."
+            : "The backgrounds keep the hue of the theme you started from.";
+        HorizontalLayout {
+            spacing: 8px; alignment: start;
+            for name[index] in ["Accent", "Neutral"]: Rectangle {
+                width: tint-row.preferred-width; height: 32px; border-radius: 16px;
+                background: Creator.tint == index ? Theme.active : tint-touch.has-hover ? Theme.hover : transparent;
+                border-width: Creator.tint == index || tint-focus.has-focus ? 2px : 1px;
+                border-color: Creator.tint == index || tint-focus.has-focus ? Theme.accent : Theme.line;
+                accessible-role: button; accessible-label: Creator.tint == index ? name + " tint, chosen" : name + " tint";
+                accessible-action-default => { Creator.tint-chosen(index); }
+                forward-focus: tint-focus;
+                tint-row := HorizontalLayout {
+                    padding-left: 8px; padding-right: 14px; spacing: 8px;
+                    Middle {
+                        Rectangle {
+                            width: 16px; height: 16px; border-radius: 8px;
+                            background: index == 0 ? Creator.accent : Theme.dark ? #8d919c : #7a7d88;
+                        }
+                    }
+                    Text {
+                        text: name; color: Creator.tint == index ? Theme.text : Theme.secondary; font-size: 14px;
+                        font-weight: Creator.tint == index ? 700 : 500; vertical-alignment: center;
+                    }
+                }
+                tint-focus := FocusScope {
+                    key-pressed(event) => {
+                        if event.text == " " || event.text == "\n" { Cue.pressed(); Creator.tint-chosen(index); return accept; }
+                        return reject;
+                    }
+                    tint-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { Cue.pressed(); Creator.tint-chosen(index); } }
+                }
+            }
+        }
+    }
+}
+
+// Shape: how messages are laid out, corners, spacing and glass.
+component ShapeStep inherits VerticalLayout {
+    spacing: 24px;
     Section {
         title: "MESSAGES";
         HorizontalLayout {
-            spacing: 10px;
+            spacing: 8px;
             Tile {
                 label: "Flat"; chosen: Creator.messages == 0; clicked => { Creator.messages-chosen(0); }
                 Rectangle {
@@ -488,59 +639,9 @@ export component CreatorView inherits VerticalLayout {
         }
     }
     Section {
-        title: "FONT";
-        HorizontalLayout {
-            spacing: 10px;
-            for role[index] in ["Body", "Headings"]: Rectangle {
-                width: 96px; height: 30px; border-radius: Creator.radius(6px, 15px);
-                background: (index == 1) == Creator.picking-headings ? Theme.active : role-touch.has-hover ? Theme.hover : Theme.sunken;
-                accessible-role: button; accessible-label: (index == 1) == Creator.picking-headings ? role + ", chosen" : role;
-                accessible-action-default => { Creator.picking-headings = index == 1; }
-                Text { text: role; color: (index == 1) == Creator.picking-headings ? Theme.text : Theme.secondary; font-size: 13px; font-weight: 600; }
-                role-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { Creator.picking-headings = index == 1; } }
-            }
-            Rectangle { horizontal-stretch: 1; }
-            ActionButton {
-                text: "Import font…"; small: true; ghost: true; icon: IconPack.plus;
-                clicked => { Creator.import-font(); }
-            }
-        }
-        // As many 112px or wider samples across as fit.
-        Rectangle {
-            property <length> gap: 10px;
-            property <int> count: Creator.fonts.length + (Creator.picking-headings ? 1 : 0);
-            property <int> columns: max(1, floor((self.width + self.gap) / (112px + self.gap)));
-            property <length> tile-width: (self.width - (self.columns - 1) * self.gap) / self.columns;
-            property <int> first: Creator.picking-headings ? 1 : 0;
-            height: ceil(self.count / self.columns) * (70px + self.gap) - self.gap;
-            accessible-role: list; accessible-label: Creator.picking-headings ? "Heading font" : "Body font";
-            if Creator.picking-headings: Tile {
-                x: 0px; y: 0px; width: parent.tile-width; art-height: 36px;
-                label: "Same as body"; chosen: Creator.headings < 0;
-                clicked => { Creator.font-chosen(-1, true); }
-                Rectangle { background: Theme.sunken; Text { text: "= Aa"; color: Theme.muted; font-size: 18px; } }
-            }
-            for font[index] in Creator.fonts: Tile {
-                x: mod(index + parent.first, parent.columns) * (parent.tile-width + parent.gap);
-                y: floor((index + parent.first) / parent.columns) * (70px + parent.gap);
-                width: parent.tile-width; art-height: 36px;
-                label: font.label;
-                chosen: Creator.picking-headings ? Creator.headings == index : Creator.body == index;
-                clicked => { Creator.font-chosen(index, Creator.picking-headings); }
-                Rectangle {
-                    background: Theme.sunken;
-                    Text { text: "Aa Hello"; color: Theme.text; font-size: 17px; font-family: font.family; font-weight: font.weight; overflow: elide; }
-                }
-            }
-        }
-        if Creator.note != "": Text {
-            text: Creator.note; color: Creator.note-bad ? Theme.danger-text : Theme.muted; font-size: 13px; wrap: word-wrap;
-        }
-    }
-    Section {
         title: "DENSITY";
         HorizontalLayout {
-            spacing: 10px;
+            spacing: 8px;
             for name[index] in ["Compact", "Cozy", "Roomy"]: Tile {
                 label: name; chosen: Creator.density == index; art-height: 40px;
                 clicked => { Creator.density-chosen(index); }
@@ -556,39 +657,83 @@ export component CreatorView inherits VerticalLayout {
     }
     Section {
         title: "GLASS";
+        Switch {
+            text: "Frosted glass panes";
+            description: "The sidebar and the conversation show the background through them, frosted.";
+            checked: Creator.glass;
+            toggled(on) => { Creator.glass-toggled(on); }
+        }
+    }
+}
+
+// Fonts: one for reading, and another for headings if wanted.
+component FontStep inherits VerticalLayout {
+    spacing: 24px;
+    Section {
+        title: "FONT";
+        hint: Creator.note != "" && !Creator.note-bad ? Creator.note : "";
         HorizontalLayout {
-            spacing: 10px;
-            Tile {
-                label: "Off"; chosen: !Creator.glass; art-height: 40px; clicked => { Creator.glass-toggled(false); }
-                Rectangle {
-                    background: Theme.rail;
-                    Rectangle { x: 0px; width: parent.width * 0.3; background: Theme.sidebar; }
-                    Rectangle { x: parent.width * 0.3; width: parent.width * 0.7; background: Theme.chat; }
+            spacing: 8px;
+            Rectangle {
+                width: 196px; height: 32px; border-radius: Look.radius(8px); background: Theme.sunken;
+                accessible-role: groupbox; accessible-label: "The text a font is chosen for";
+                for role[index] in ["Body", "Headings"]: Rectangle {
+                    property <bool> chosen: (index == 1) == Creator.picking-headings;
+                    x: 3px + index * 96px; y: 3px; width: 94px; height: 26px; border-radius: Look.radius(6px);
+                    background: self.chosen ? Theme.active : role-touch.has-hover ? Theme.hover : transparent;
+                    accessible-role: button; accessible-label: self.chosen ? role + ", chosen" : role;
+                    accessible-action-default => { Creator.picking-headings = index == 1; }
+                    Text { text: role; color: parent.chosen ? Theme.text : Theme.secondary; font-size: 14px; font-weight: parent.chosen ? 700 : 500; }
+                    role-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { Creator.picking-headings = index == 1; } }
                 }
             }
-            Tile {
-                label: "On"; chosen: Creator.glass; art-height: 40px; clicked => { Creator.glass-toggled(true); }
-                Rectangle {
-                    background: @linear-gradient(135deg, Theme.accent 0%, Theme.rail 70%);
-                    if Creator.has-picture && Creator.background == 2: Image { width: parent.width; height: parent.height; source: Creator.picture; image-fit: cover; }
-                    Rectangle { x: 4px; y: 4px; width: parent.width * 0.3 - 6px; height: parent.height - 8px; border-radius: 4px; background: Theme.sidebar.with-alpha(0.45); }
-                    Rectangle { x: parent.width * 0.3; y: 4px; width: parent.width * 0.7 - 4px; height: parent.height - 8px; border-radius: 4px; background: Theme.chat.with-alpha(0.45); }
+            Rectangle { horizontal-stretch: 1; }
+            Middle {
+                ActionButton {
+                    text: "Import a font"; small: true; ghost: true; icon: IconPack.plus;
+                    clicked => { Creator.import-font(); }
                 }
             }
         }
-        Text {
-            text: "Panes show the background through them, frosted."; color: Theme.muted; font-size: 13px; wrap: word-wrap;
+        // As many 112px or wider samples across as fit.
+        Rectangle {
+            property <length> gap: 8px;
+            property <int> count: Creator.fonts.length + (Creator.picking-headings ? 1 : 0);
+            property <int> columns: max(1, floor((self.width + self.gap) / (112px + self.gap)));
+            property <length> tile-width: (self.width - (self.columns - 1) * self.gap) / self.columns;
+            property <int> first: Creator.picking-headings ? 1 : 0;
+            height: ceil(self.count / self.columns) * (82px + self.gap) - self.gap;
+            accessible-role: list; accessible-label: Creator.picking-headings ? "Heading font" : "Body font";
+            if Creator.picking-headings: Tile {
+                x: 0px; y: 0px; width: parent.tile-width; art-height: 44px;
+                label: "Same as body"; chosen: Creator.headings < 0;
+                clicked => { Creator.font-chosen(-1, true); }
+                Rectangle { background: Theme.sunken; Text { text: "= Aa"; color: Theme.muted; font-size: 18px; } }
+            }
+            for font[index] in Creator.fonts: Tile {
+                x: mod(index + parent.first, parent.columns) * (parent.tile-width + parent.gap);
+                y: floor((index + parent.first) / parent.columns) * (82px + parent.gap);
+                width: parent.tile-width; art-height: 44px;
+                label: font.label;
+                chosen: Creator.picking-headings ? Creator.headings == index : Creator.body == index;
+                clicked => { Creator.font-chosen(index, Creator.picking-headings); }
+                Rectangle {
+                    background: Theme.sunken;
+                    Text { text: "Aa Hello"; color: Theme.text; font-size: 17px; font-family: font.family; font-weight: font.weight; overflow: elide; }
+                }
+            }
+        }
+        if Creator.note != "" && Creator.note-bad: Text {
+            text: Creator.note; color: Theme.danger-text; font-size: 13px; wrap: word-wrap;
         }
     }
-    HorizontalLayout {
-        alignment: start; spacing: 8px;
-        ActionButton {
-            text: "Open in Advanced"; small: true; ghost: true; icon: IconPack.palette;
-            clicked => { Creator.open-advanced(); }
-        }
-        if Creator.can-export: ActionButton {
-            text: "Export"; small: true; ghost: true; icon: IconPack.download;
-            clicked => { Creator.export(); }
-        }
-    }
+}
+
+// The creator's steps: the one showing.
+export component CreatorView inherits VerticalLayout {
+    alignment: start;
+    if Creator.step == 0: StartStep { }
+    if Creator.step == 1: ColourStep { }
+    if Creator.step == 2: ShapeStep { }
+    if Creator.step == 3: FontStep { }
 }

@@ -12,7 +12,7 @@ know, or a deleted theme's, shows Yap.
 ## Custom themes
 
 New theme, in Appearance or on Settings → Themes → *Create*, opens the
-[creator](#the-theme-creator) on the Create tab; its *Advanced* tab is an
+[creator](#the-theme-creator) on the Create tab; its *Advanced* step is an
 editor on a copy of the theme shown, whose START FROM swaps it for a copy of
 any other. The editor lists every colour by its name in
 `ui/theme.slint`, with a swatch and its hex, which takes `#rgb`, `#rrggbb` or
@@ -20,7 +20,7 @@ any other. The editor lists every colour by its name in
 window is the preview. Save keeps the theme, chooses it and shows it under
 YOUR THEMES in Installed; Cancel, leaving the Themes page or closing settings
 shows the theme from before. A saved theme's
-card, in Appearance or Installed, has a pencil that opens it again to rename, change or delete it;
+card, in Appearance, Installed or Create, has a pencil that opens it again to rename, change or delete it;
 deleting the chosen one shows Yap. A window rebuilt while the editor is open,
 as closing to the [tray](tray.md) does, drops the unsaved edit.
 
@@ -40,35 +40,59 @@ them after the built-in ones:
 
 ### The theme creator
 
-New theme opens on *Simple*, the creator: one screen of plain choices, each
-shown on the window at once and in a small preview at its top. *Advanced*
-beside it is the editor above, with every colour the creator derived, to
-fine-tune.
+New theme opens the creator: a few plain choices in steps, *Start*,
+*Colours*, *Shape* and *Fonts*, each shown on the window at once and in a
+preview, a small Yapfast window, that stays beside the controls (above them
+where the settings frame is too narrow for both). *Advanced*, the last step,
+is the editor above, with every colour the creator derived, to fine-tune.
+The editor fills the settings frame, which is wider and starts higher for it
+(`SettingsFrame`'s `wide`); the name, *Undo*, *Start over*, *Cancel* and
+*Save* run along its top, and *Export* and *Delete theme* sit under the
+preview. A theme edited that was made of colours alone has no steps: it
+opens on every colour.
 
-- **Start from** a theme, built in or the person's own (one made here comes
-  back whole), or *Picture…*, any picture through the file dialog, or one of
+*Undo* takes changes back one at a time, up to 64: a choice, a slider let
+go, or a colour typed in Advanced (its letters are one change). A picture
+that replaces another, and a start from a theme the creator made, which
+brings its picture and fonts, can't be taken back, and clear what came
+before them. *Start over* opens the editor again on what it opened on, at
+the step showing. `src/ui/theme_creator.rs` keeps the history only while the
+creator is open.
+
+Under the preview the creator says how the theme reads: the text's contrast
+on the conversation's ground, and, when it moved a colour to keep it
+readable (the accent where it's text, or a text colour set in Advanced),
+that it did.
+
+- **Start**: a theme, built in or the person's own (one made here comes
+  back whole), or *Choose a picture*, any picture through the file dialog, or one of
   the five newest in the Pictures folder (as `user-dirs.dirs` names it on
   Linux) and its `Wallpapers`. A picture is scaled to at most 1920 pixels and
   kept as a JPEG under the themes' 2 MiB; its main colours, found by k-means
   in OKLab over a 64 × 64 sample, give the accent, the grounds' tint and a row
   of extra swatches, and it becomes the background, with glass on.
-- **Accent**: eight swatches, the picture's, a hue strip and a hex field.
-- **Background**: Dark, Light or the picture, with *Blur* and *Dim*.
-- **Messages**: Flat, Bubbles, Cards or IRC, as `layout.messages`.
-- **Corners**: square to round, every radius at once; the middle is Yapfast's
-  own, and sets no `shape`.
-- **Font**: eight that ship with Yapfast, under the SIL Open Font License —
+- **Colours**. *Accent*: eight swatches, the picture's, a hue strip and a
+  hex field. The strip is drawn in the colours it gives (OKLCh at the
+  lightness and chroma an accent gets) with a thumb at the accent's hue;
+  Left and Right move it 10°. *Background*: Dark, Light or the picture, with
+  *Blur* and *Dim*. *Tint*, for Dark and Light: *Accent*, the grounds take
+  the accent's hue and follow it, or *Neutral*, plain greys that a new
+  accent leaves alone; a theme started from another keeps that theme's hue
+  until one is chosen.
+- **Shape**. *Messages*: Flat, Bubbles, Cards or IRC, as `layout.messages`.
+  *Corners*: square to round, every radius at once; the middle is Yapfast's
+  own, and sets no `shape`. *Density*: Compact, Cozy or Roomy, as
+  `spacing.density`. *Glass*: panes frosted over the picture, or without
+  one over a soft backdrop of the accent the creator draws.
+- **Fonts**: eight that ship with Yapfast, under the SIL Open Font License —
   Default (DM Sans), Readable (Atkinson Hyperlegible Next), Slab (Zilla Slab),
   Modern (MuseoModerno), Playful (Playpen Sans), Handwritten (Kalam), Pixel
   (Pixelify Sans) and Tech (Orbitron) — for the body, and for headings or the
-  same. *Import font…* takes a `.ttf` or `.otf` of at most 4 MiB (the most a
+  same. *Import a font* takes a `.ttf` or `.otf` of at most 4 MiB (the most a
   theme carries; WOFF2 isn't read), checked as a theme's fonts are, and copies
   it into the theme's `fonts/`; one missing some of basic Latin draws those
   characters in the default font, and says so. Its family and licence, from
   its name table, go in the theme's description and `LICENSE`.
-- **Density**: Compact, Cozy or Roomy, as `spacing.density`.
-- **Glass**: panes frosted over the picture, or without one over a soft
-  backdrop of the accent the creator draws.
 
 Every colour comes from the accent and the ground's hue: grounds are steps of
 OKLCh lightness, as Yap's are, and text, secondary, muted, links, the accent
@@ -208,9 +232,25 @@ new` with the next build.
 
 ### Distribution
 
-Themes have their own page, Settings → Themes: *Marketplace*, *Installed*
-(as a list or cards, then the person's own themes under YOUR THEMES), *Add
-from URL* and *Create*, which holds the [creator](#the-theme-creator).
+Themes have their own page, Settings → Themes: *Installed*, *Marketplace*,
+*Add from URL* and *Create*, which holds the [creator](#the-theme-creator)
+and the person's own themes to edit. The page scrolls in the settings frame
+as the other pages do.
+
+Installed shows the installed themes as cards or a list, the applied one
+ringed in the accent and tagged *Applied*. Each says what it costs to run
+in plain words, *Light on resources*, *Moderate: animated, ~19 MB memory*
+or *Heavier: …*, and *Details* opens its whole cost line sorted under what
+it is, with anything this Yapfast leaves out of the theme; `yapfast_core::themes::check::plain` reads the line an
+installed theme keeps. A theme is moderate from 8 MB of memory, any
+animation, overlay or particle set, or 0.05 of a core while idle, and
+heavier from 40 MB, four heavy animations or 0.2 of a core. Its one button
+is *Apply*, or *Turn off theme* on the applied one; *Try for 30 seconds*,
+*Roll back* and *Remove* are behind its "…". Under the themes come the
+person's own (YOUR THEMES), then everything the applied theme lets the
+person set, under its name: its options, people's content, its sounds and
+its cursors. *Performance* and *Motion*, which hold for every theme, close
+the tab.
 Appearance keeps the built-in and custom colour themes, says which installed
 theme shows, and has *Browse themes*, which opens the page, and *New theme*,
 which opens it on *Create*.
@@ -245,7 +285,7 @@ source*, what it ships (dark, light or both), its cost and anything this
 Yapfast ignores — and only on Install writes the theme to the store. Nothing
 runs while it's fetched; the download is on a background thread, and an
 error (offline, a private or missing repository, a check that fails) says
-why under the field. `crates/yapfast-core/src/themes/remote.rs` reads the
+why under the page's tabs. `crates/yapfast-core/src/themes/remote.rs` reads the
 address and the archive; `src/ui/theme_remote.rs` does the fetching.
 
 **The marketplace.** The Marketplace tab lists the themes of one catalog,
@@ -256,9 +296,11 @@ those already installed; the previews are downloaded and decoded while the
 page is open and dropped when it closes. *Install* fetches the listed theme
 at the commit the catalog pins, as *Add from URL* would, and refuses it
 unless its files have the digest the catalog lists and its `theme.json` has
-the listed id; the review then says *In the marketplace*. Offline, or with a
-catalog Yapfast can't read, the tab says why and offers *Try again*; nothing
-else waits on it.
+the listed id; the review then says *In the marketplace*. While the catalog
+is on its way the tab shows cards' outlines; offline, or with a
+catalog Yapfast can't read, it says why and offers *Try again* and *Add from
+URL*; with every listed theme installed, or a search that matches none, it
+says that. Nothing else waits on it.
 
 The catalog is JSON, at most 1 MiB:
 
@@ -301,7 +343,8 @@ adding the entry; an update is a pull request changing its `commit` and
 `sha256`. Review reads the theme at that commit, and what installs is
 exactly what was reviewed.
 
-*Try 30 s* shows an installed theme, or one under review, until *Keep* or
+*Try for 30 seconds* in an installed theme's "…", or *Try 30 s* on one under
+review, shows it until *Keep* or
 *Revert*, or for 30 seconds, then the theme from before. *Apply* chooses it,
 and *Back to …* on Installed returns to the theme chosen before.
 

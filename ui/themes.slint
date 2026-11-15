@@ -1,10 +1,11 @@
-// Settings → Themes: the marketplace's themes, the installed ones and the
-// person's own, adding one from its GitHub repository, and making one in
-// Create; a theme's review before it's installed, and the banner a theme on
-// trial shows. src/ui/theme_look.rs fills ThemesPage while the page is open.
-import { IconPack } from "media.slint";
+// Settings → Themes: the installed themes and the person's own with the
+// applied one's settings, the marketplace's themes, adding one from its
+// GitHub repository, and making one in Create; a theme's review before it's
+// installed, and the banner a theme on trial shows. src/ui/theme_look.rs
+// fills ThemesPage while the page is open.
+import { IconPack, Cue } from "media.slint";
 import { Theme, Middle, Label, Look } from "theme.slint";
-import { ActionButton, TextField, VolumeSlider } from "controls.slint";
+import { ActionButton, IconButton, MenuItem, Skeleton, TextField, VolumeSlider } from "controls.slint";
 import { ScrollView } from "scrollview.slint";
 import { Art } from "theme_art.slint";
 import { SettingsTitle, SettingsHeading, SettingsSwitch, Choices, ThemeOptionList, ThemeOptions, ThemeEditor, ThemeTile, ThemeCard, ThemeColour } from "settings.slint";
@@ -63,6 +64,10 @@ export struct ThemeReview {
     /// It can style people's profiles and media, and what it would change.
     content: string,
 }
+
+/// A part of a theme's cost under what it is: `Resources`, `~19.1 MB memory
+/// · 2 fonts`.
+export struct CostRow { label: string, text: string }
 
 export global ThemesPage {
     /// 0 Marketplace, 1 Installed, 2 Add from URL, 3 Create.
@@ -147,6 +152,12 @@ export global ThemesPage {
     in-out property <bool> content-on;
     callback content-changed();
     in-out property <bool> review-content-on;
+    /// A cost line in plain words: how heavy the theme is to run, as `Light
+    /// on resources`; that as 0 light, 1 moderate, 2 heavier, or -1 for a
+    /// line not worked out yet; and the line's parts, to show on request.
+    pure callback cost-summary(string) -> string;
+    pure callback cost-weight(string) -> int;
+    pure callback cost-rows(string) -> [CostRow];
 }
 
 // A theme's colours as a small window, when it has no preview picture.
@@ -170,81 +181,138 @@ component ColourPreview inherits Rectangle {
     }
 }
 
-component Pill inherits Rectangle {
-    in property <string> text;
-    in property <color> ink: Theme.secondary;
-    height: 20px; width: label.preferred-width + 14px;
-    border-radius: 10px; background: root.ink.with-alpha(0.14);
-    label := Text { text: root.text; color: root.ink; font-size: 12px; font-weight: 700; }
+// A theme's preview picture, or its colours while it has none.
+component ThemePreview inherits Rectangle {
+    in property <ThemeListing> theme;
+    clip: true; background: root.theme.chat;
+    if root.theme.preview.width > 0: Image {
+        width: parent.width; height: parent.height; source: root.theme.preview; image-fit: cover;
+        accessible-role: image; accessible-label: "Preview of " + root.theme.name;
+    }
+    if root.theme.preview.width == 0: ColourPreview { theme: root.theme; }
 }
 
-// One theme in the gallery: a large preview, its name and who made it, what
-// it ships and costs, and what can be done with it.
-component GalleryCard inherits Rectangle {
-    in property <ThemeListing> theme;
-    border-radius: 12px; background: Theme.raised-fill; clip: true;
-    border-width: root.theme.applied ? 2px : 1px;
-    border-color: root.theme.applied ? Theme.focus-ring : Theme.line;
-    accessible-role: groupbox;
-    accessible-label: root.theme.name + (root.theme.applied ? ", applied" : "");
-    VerticalLayout {
-        Rectangle {
-            height: root.width * 10 / 16; vertical-stretch: 0;
-            if root.theme.preview.width > 0: Image {
-                width: parent.width; height: parent.height; source: root.theme.preview; image-fit: cover;
-                accessible-role: image; accessible-label: "Preview of " + root.theme.name;
-            }
-            if root.theme.preview.width == 0: ColourPreview { theme: root.theme; }
+// A word about a theme: what it works in, where it's from.
+component Tag inherits Rectangle {
+    in property <string> text;
+    in property <color> ink: Theme.secondary;
+    /// Filled with its colour, for the one that matters most.
+    in property <bool> solid;
+    in property <image> icon;
+    height: 20px; width: row.preferred-width;
+    border-radius: Look.radius(4px);
+    background: root.solid ? root.ink : root.ink.with-alpha(0.14);
+    row := HorizontalLayout {
+        padding-left: 6px; padding-right: 6px; spacing: 4px;
+        if root.icon.width > 0: Image {
+            width: 12px; source: root.icon; image-fit: contain;
+            colorize: IconPack.tint(self.source, root.solid ? Theme.on-accent : root.ink);
         }
-        VerticalLayout {
-            padding: 14px; spacing: 6px;
-            HorizontalLayout {
-                spacing: 8px;
-                Text { text: root.theme.name; color: Theme.text; font-size: 16px; font-weight: 700; font-family: Look.heading-font(""); overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
-                if root.theme.version != "": Text { text: root.theme.version; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+        Text {
+            text: root.text; color: root.solid ? Theme.on-accent : root.ink; font-size: 12px; font-weight: 600;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// What a theme costs to run, in plain words, with the whole of it a click
+// away: Rust reads the cost line (yapfast_core::themes::check::plain).
+component CostLine inherits VerticalLayout {
+    in property <string> cost;
+    /// What this Yapfast leaves out of the theme, a line each, shown with
+    /// the rest.
+    in property <string> notes;
+    property <int> weight: ThemesPage.cost-weight(root.cost);
+    property <bool> open;
+    spacing: 6px;
+    HorizontalLayout {
+        spacing: 6px; alignment: start;
+        Middle {
+            Rectangle {
+                width: 8px; height: 8px; border-radius: 4px;
+                background: root.weight == 0 ? Theme.live : root.weight == 2 ? Theme.loud : Theme.muted;
             }
-            if root.theme.author != "": Text { text: "by " + root.theme.author; color: Theme.secondary; font-size: 13px; overflow: elide; }
-            if root.theme.based-on != "": Text { text: "Remixes " + root.theme.based-on; color: Theme.muted; font-size: 12px; overflow: elide; }
-            HorizontalLayout {
-                spacing: 6px; alignment: start;
-                if root.theme.modes != "": Pill { text: root.theme.modes; }
-                if !root.theme.installed: Pill { text: "In the marketplace"; ink: Theme.live; }
-                if root.theme.applied: Pill { text: "Applied"; ink: Theme.accent-text; }
-            }
-            if root.theme.description != "": Text { text: root.theme.description; color: Theme.secondary; font-size: 13px; wrap: word-wrap; max-height: 54px; overflow: elide; }
-            if root.theme.cost != "": Text { text: root.theme.cost; color: Theme.muted; font-size: 12px; wrap: word-wrap; }
-            if root.theme.notes != "": Text { text: root.theme.notes; color: Theme.loud; font-size: 12px; wrap: word-wrap; }
-            HorizontalLayout {
-                spacing: 8px; alignment: start; padding-top: 4px;
-                if root.theme.installed && !root.theme.applied: ActionButton {
-                    text: "Apply"; primary: true; small: true;
-                    clicked => {
-                        Art.apply-x = self.absolute-position.x + self.width / 2; Art.apply-y = self.absolute-position.y + self.height / 2;
-                        ThemesPage.apply(root.theme.id);
+        }
+        Text {
+            text: root.weight < 0 ? "Not everything in it is used" : ThemesPage.cost-summary(root.cost);
+            color: Theme.secondary; font-size: 13px;
+            vertical-alignment: center; overflow: elide;
+        }
+        Rectangle {
+            width: details.preferred-width; height: 20px;
+            accessible-role: button; accessible-label: root.open ? "Hide what it costs" : "Show what it costs";
+            accessible-expandable: true; accessible-expanded: root.open;
+            accessible-action-default => { root.open = !root.open; }
+            forward-focus: focus;
+            details := HorizontalLayout {
+                spacing: 2px;
+                Text {
+                    text: "Details"; font-size: 13px; vertical-alignment: center;
+                    color: touch.has-hover || focus.has-focus ? Theme.text : Theme.muted;
+                }
+                Middle {
+                    Image {
+                        width: 14px; height: 14px; source: IconPack.chevron-down; transform-rotation: root.open ? 180deg : 0deg;
+                        colorize: IconPack.tint(self.source, touch.has-hover || focus.has-focus ? Theme.text : Theme.muted);
                     }
                 }
-                if root.theme.applied: ActionButton {
-                    text: "Turn off theme"; small: true;
-                    clicked => { ThemesPage.turn-off(); }
+            }
+            focus := FocusScope {
+                key-pressed(event) => {
+                    if event.text == " " || event.text == "\n" { root.open = !root.open; return accept; }
+                    return reject;
                 }
-                if root.theme.installed && !root.theme.applied: ActionButton {
-                    text: "Try 30 s"; small: true;
+                touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { Cue.pressed(); root.open = !root.open; } }
+            }
+        }
+    }
+    if root.open: Rectangle {
+        border-radius: Look.radius(6px); background: Theme.sunken;
+        VerticalLayout {
+            padding: 10px; spacing: 8px;
+            for row in ThemesPage.cost-rows(root.cost): VerticalLayout {
+                spacing: 2px;
+                Text { text: row.label; color: Theme.muted; font-size: 12px; font-weight: 600; }
+                Text { text: row.text; color: Theme.secondary; font-size: 12px; wrap: word-wrap; }
+            }
+            if root.notes != "": VerticalLayout {
+                spacing: 2px;
+                Text { text: "Left out by this Yapfast"; color: Theme.muted; font-size: 12px; font-weight: 600; }
+                Text { text: root.notes; color: Theme.secondary; font-size: 12px; wrap: word-wrap; }
+            }
+        }
+    }
+}
+
+// What else can be done with an installed theme, behind an ellipsis.
+component MoreMenu inherits Rectangle {
+    in property <ThemeListing> theme;
+    width: 28px; height: 28px;
+    IconButton {
+        icon: IconPack.ellipsis; label: "More for " + root.theme.name; size: 28px; glyph: 18px;
+        clicked => { menu.show(); }
+    }
+    menu := PopupWindow {
+        x: root.width - 208px; y: root.height + 4px; width: 208px;
+        Rectangle {
+            background: Theme.menu; border-radius: Look.r(Look.menu, 6px);
+            border-width: Look.line(1px); border-color: Theme.menu-line;
+            drop-shadow-blur: Look.shadow-blur(12px); drop-shadow-offset-y: 4px; drop-shadow-color: Look.shadow-color(#00000066);
+            VerticalLayout {
+                padding: 6px; spacing: 2px;
+                if !root.theme.applied: MenuItem {
+                    text: "Try for 30 seconds"; icon: IconPack.clock;
                     clicked => {
-                        Art.apply-x = self.absolute-position.x + self.width / 2; Art.apply-y = self.absolute-position.y + self.height / 2;
+                        Art.apply-x = root.absolute-position.x + root.width / 2; Art.apply-y = root.absolute-position.y + root.height / 2;
                         ThemesPage.try(root.theme.id);
                     }
                 }
-                if !root.theme.installed: ActionButton {
-                    text: ThemesPage.fetching == root.theme.id ? "Fetching..." : "Install"; primary: true; small: true;
-                    enabled: ThemesPage.fetching == "";
-                    clicked => { ThemesPage.install-listed(root.theme.id); }
-                }
-                if root.theme.installed && root.theme.previous != "": ActionButton {
-                    text: "Roll back to " + root.theme.previous; small: true; ghost: true;
+                if root.theme.previous != "": MenuItem {
+                    text: "Roll back to " + root.theme.previous; icon: IconPack.history;
                     clicked => { ThemesPage.roll-back(root.theme.id); }
                 }
-                if root.theme.installed: ActionButton {
-                    text: "Remove"; small: true; ghost: true;
+                MenuItem {
+                    text: "Remove"; icon: IconPack.trash-2; danger: true;
                     clicked => { ThemesPage.remove(root.theme.id); }
                 }
             }
@@ -252,18 +320,96 @@ component GalleryCard inherits Rectangle {
     }
 }
 
-// Cards two to a row, each as tall as what it holds, so a taller face or
-// a longer description never pushes its buttons off the card.
+// What an installed theme does first: Apply, or Turn off theme on the one
+// that's applied.
+component MainAction inherits ActionButton {
+    in property <ThemeListing> theme;
+    text: root.theme.applied ? "Turn off theme" : "Apply";
+    primary: !root.theme.applied; small: true;
+    clicked => {
+        if root.theme.applied {
+            ThemesPage.turn-off();
+        } else {
+            Art.apply-x = self.absolute-position.x + self.width / 2; Art.apply-y = self.absolute-position.y + self.height / 2;
+            ThemesPage.apply(root.theme.id);
+        }
+    }
+}
+
+// One theme in the gallery: its preview, its name and who made it, what it
+// costs to run, and what can be done with it.
+component GalleryCard inherits Rectangle {
+    in property <ThemeListing> theme;
+    border-radius: Look.radius(8px); background: Theme.sidebar-fill;
+    border-width: root.theme.applied ? 2px : 1px;
+    border-color: root.theme.applied ? Theme.accent : Theme.line;
+    accessible-role: groupbox;
+    accessible-label: root.theme.name + (root.theme.applied ? ", applied" : "");
+    VerticalLayout {
+        padding: root.theme.applied ? 2px : 1px;
+        Rectangle {
+            height: (root.width - 2px) * 9 / 16; vertical-stretch: 0;
+            clip: true; border-top-left-radius: Look.radius(7px); border-top-right-radius: Look.radius(7px);
+            ThemePreview { theme: root.theme; }
+            if root.theme.applied: Tag {
+                x: 8px; y: 8px; text: "Applied"; ink: Theme.accent; solid: true; icon: IconPack.check;
+            }
+        }
+        VerticalLayout {
+            padding: 12px; spacing: 8px; vertical-stretch: 1;
+            VerticalLayout {
+                spacing: 2px;
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text {
+                        text: root.theme.name; color: Theme.text; font-size: 16px; font-weight: 600;
+                        overflow: elide; horizontal-stretch: 1; vertical-alignment: center;
+                    }
+                    if root.theme.modes != "": Middle { Tag { text: root.theme.modes; } }
+                }
+                Text {
+                    text: (root.theme.author != "" ? "by " + root.theme.author : "")
+                        + (root.theme.author != "" && root.theme.version != "" ? " · " : "")
+                        + (root.theme.version != "" ? "v" + root.theme.version : "");
+                    color: Theme.muted; font-size: 13px; overflow: elide;
+                }
+            }
+            if root.theme.description != "" && !root.theme.installed: Text {
+                text: root.theme.description; color: Theme.secondary; font-size: 13px; wrap: word-wrap;
+                height: 51px; overflow: elide; vertical-alignment: top;
+            }
+            if root.theme.based-on != "": Text { text: "Remixes " + root.theme.based-on; color: Theme.muted; font-size: 12px; overflow: elide; }
+            if ThemesPage.cost-weight(root.theme.cost) >= 0 || root.theme.notes != "": CostLine { cost: root.theme.cost; notes: root.theme.notes; }
+            Rectangle { vertical-stretch: 1; }
+            HorizontalLayout {
+                spacing: 8px;
+                if root.theme.installed: MainAction { theme: root.theme; }
+                if !root.theme.installed: ActionButton {
+                    text: ThemesPage.fetching == root.theme.id ? "Fetching..." : "Install"; primary: true; small: true;
+                    enabled: ThemesPage.fetching == "";
+                    clicked => { ThemesPage.install-listed(root.theme.id); }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                if root.theme.installed: MoreMenu { theme: root.theme; }
+            }
+        }
+    }
+}
+
+// Cards two to a row, each row as tall as its taller card.
 component Gallery inherits VerticalLayout {
     in property <[[ThemeListing]]> rows;
     spacing: 12px; alignment: start;
     accessible-role: list;
     for pair in root.rows: HorizontalLayout {
-        spacing: 12px; alignment: start;
+        spacing: 12px;
+        // Each takes half the row, whatever it holds; a last one alone
+        // keeps its half.
         for theme in pair: GalleryCard {
-            width: (root.width - 12px) / 2;
+            horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
             theme: theme;
         }
+        if pair.length == 1: Rectangle { horizontal-stretch: 1; min-width: 0px; preferred-width: 0px; }
     }
 }
 
@@ -271,61 +417,178 @@ component Gallery inherits VerticalLayout {
 // what can be done with it.
 component ThemeRow inherits Rectangle {
     in property <ThemeListing> theme;
-    min-height: 76px; border-radius: Look.radius(8px);
-    background: Theme.sidebar-fill;
-    border-width: root.theme.applied ? 2px : 0px; border-color: Theme.focus-ring;
+    border-radius: Look.radius(8px); background: Theme.sidebar-fill;
+    border-width: root.theme.applied ? 2px : 1px;
+    border-color: root.theme.applied ? Theme.accent : Theme.line;
     accessible-role: groupbox;
     accessible-label: root.theme.name + (root.theme.applied ? ", applied" : "");
     HorizontalLayout {
-        padding: 10px; spacing: 12px;
-        Rectangle {
-            width: 96px; border-radius: Look.radius(6px); clip: true;
-            if root.theme.preview.width > 0: Image { width: parent.width; height: parent.height; source: root.theme.preview; image-fit: cover; }
-            if root.theme.preview.width == 0: ColourPreview { theme: root.theme; }
+        padding: 12px; spacing: 12px;
+        VerticalLayout {
+            alignment: start;
+            Rectangle {
+                width: 104px; height: 60px; border-radius: Look.radius(6px); clip: true;
+                ThemePreview { theme: root.theme; }
+            }
         }
         VerticalLayout {
             alignment: center; spacing: 4px; horizontal-stretch: 1;
             HorizontalLayout {
-                spacing: 8px;
-                Text { text: root.theme.name; color: Theme.text; font-size: 15px; font-weight: 600; font-family: Look.heading-font(""); overflow: elide; horizontal-stretch: 0; vertical-alignment: center; }
-                if root.theme.applied: Middle { Pill { text: "Applied"; ink: Theme.accent-text; } }
-                Rectangle { horizontal-stretch: 1; }
+                spacing: 8px; alignment: start;
+                Text { text: root.theme.name; color: Theme.text; font-size: 16px; font-weight: 600; overflow: elide; vertical-alignment: center; }
+                if root.theme.applied: Middle { Tag { text: "Applied"; ink: Theme.accent; solid: true; icon: IconPack.check; } }
             }
-            Text { text: (root.theme.author != "" ? "by " + root.theme.author + " · " : "") + "v" + root.theme.version + " · " + root.theme.modes; color: Theme.muted; font-size: 12px; overflow: elide; }
-            if root.theme.cost != "": Text { text: root.theme.cost; color: Theme.muted; font-size: 12px; overflow: elide; }
+            Text {
+                text: (root.theme.author != "" ? "by " + root.theme.author + " · " : "") + "v" + root.theme.version + " · " + root.theme.modes;
+                color: Theme.muted; font-size: 13px; overflow: elide;
+            }
+            if ThemesPage.cost-weight(root.theme.cost) >= 0 || root.theme.notes != "": CostLine { cost: root.theme.cost; notes: root.theme.notes; }
         }
-        if !root.theme.applied: Middle { ActionButton { text: "Apply"; small: true; primary: true; clicked => { Art.apply-x = self.absolute-position.x + self.width / 2; Art.apply-y = self.absolute-position.y + self.height / 2; ThemesPage.apply(root.theme.id); } } }
-        if root.theme.applied: Middle { ActionButton { text: "Turn off theme"; small: true; clicked => { ThemesPage.turn-off(); } } }
-        if !root.theme.applied: Middle { ActionButton { text: "Try 30 s"; small: true; clicked => { Art.apply-x = self.absolute-position.x + self.width / 2; Art.apply-y = self.absolute-position.y + self.height / 2; ThemesPage.try(root.theme.id); } } }
-        if root.theme.previous != "": Middle { ActionButton { text: "Roll back"; small: true; ghost: true; clicked => { ThemesPage.roll-back(root.theme.id); } } }
-        Middle { ActionButton { text: "Remove"; small: true; ghost: true; clicked => { ThemesPage.remove(root.theme.id); } } }
+        VerticalLayout {
+            alignment: start; padding-top: 16px;
+            HorizontalLayout {
+                spacing: 8px;
+                MainAction { theme: root.theme; }
+                MoreMenu { theme: root.theme; }
+            }
+        }
     }
 }
 
-// A tab with nothing to show.
-component EmptyState inherits VerticalLayout {
+// How Installed shows its themes: cards or a list, each drawn as what it is.
+component ViewToggle inherits Rectangle {
+    width: 60px; height: 28px; border-radius: Look.radius(6px); background: Theme.sunken;
+    accessible-role: groupbox; accessible-label: "Show themes as";
+    for name[index] in ["a list", "cards"]: choice := Rectangle {
+        property <bool> chosen: ThemesPage.view == index;
+        property <color> ink: self.chosen ? Theme.text : touch.has-hover ? Theme.secondary : Theme.muted;
+        x: 2px + index * 28px; y: 2px; width: 28px; height: 24px; border-radius: Look.radius(4px);
+        background: self.chosen ? Theme.active : transparent;
+        accessible-role: button; accessible-label: self.chosen ? "Show themes as " + name + ", chosen" : "Show themes as " + name;
+        accessible-action-default => { ThemesPage.view = index; }
+        if index == 0: Rectangle {
+            width: 14px; height: 12px;
+            for line in 3: Rectangle { x: 0px; y: line * 5px; width: 14px; height: 2px; border-radius: 1px; background: choice.ink; }
+        }
+        if index == 1: Rectangle {
+            width: 12px; height: 12px;
+            for cell in 4: Rectangle {
+                x: mod(cell, 2) * 7px; y: floor(cell / 2) * 7px; width: 5px; height: 5px; border-radius: 1px; background: choice.ink;
+            }
+        }
+        touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { Cue.pressed(); ThemesPage.view = index; } }
+    }
+}
+
+// A tab of the page, as the role editor's: its name over an accent line.
+component PageTab inherits Rectangle {
+    in property <string> text;
+    in property <bool> selected;
+    callback clicked;
+    height: 40px; width: label.preferred-width;
+    accessible-role: tab; accessible-label: root.selected ? root.text + ", chosen" : root.text;
+    accessible-action-default => { root.clicked(); }
+    forward-focus: focus;
+    label := Text {
+        y: 0px; height: parent.height - 2px; vertical-alignment: center;
+        text: root.text; font-size: 15px; font-weight: 600;
+        color: root.selected || touch.has-hover || focus.has-focus ? Theme.text : Theme.secondary;
+    }
+    Rectangle {
+        y: parent.height - 2px; height: 2px; border-radius: 1px;
+        background: root.selected ? Theme.accent-fill : touch.has-hover || focus.has-focus ? Theme.faint : transparent;
+        animate background { duration: Theme.quick; }
+    }
+    focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == " " || event.text == "\n" { root.clicked(); return accept; }
+            return reject;
+        }
+        touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { Cue.pressed(); root.clicked(); } }
+    }
+}
+
+// A tab with nothing to show, or with something to say: what happened and
+// what to do about it, on a card.
+component Notice inherits Rectangle {
+    in property <image> icon;
+    in property <color> tint: Theme.muted;
+    in property <string> title;
+    in property <string> text;
+    border-radius: Look.radius(8px); background: Theme.sidebar-fill;
+    accessible-role: groupbox; accessible-label: root.title; accessible-description: root.text;
+    HorizontalLayout {
+        padding: 16px; spacing: 16px;
+        VerticalLayout {
+            alignment: start;
+            Rectangle {
+                width: 40px; height: 40px; border-radius: 20px; background: root.tint.with-alpha(0.14);
+                Image { source: root.icon; width: 20px; height: 20px; colorize: IconPack.tint(self.source, root.tint); }
+            }
+        }
+        VerticalLayout {
+            spacing: 4px; alignment: center; horizontal-stretch: 1;
+            Text { text: root.title; color: Theme.text; font-size: 16px; font-weight: 600; wrap: word-wrap; }
+            if root.text != "": Text { text: root.text; color: Theme.muted; font-size: 14px; wrap: word-wrap; }
+            HorizontalLayout {
+                alignment: start; spacing: 8px; padding-top: 8px;
+                @children
+            }
+        }
+    }
+}
+
+// A step of adding a theme from its repository: what Yapfast does with it.
+component Step inherits HorizontalLayout {
     in property <image> icon;
     in property <string> title;
     in property <string> text;
-    alignment: start; spacing: 8px; padding-top: 48px; padding-bottom: 24px;
-    HorizontalLayout {
-        alignment: center;
+    spacing: 12px;
+    VerticalLayout {
+        alignment: start;
         Rectangle {
-            width: 64px; height: 64px; border-radius: Look.radius(32px); background: Theme.raised-fill;
-            Image { source: root.icon; width: 28px; height: 28px; colorize: IconPack.tint(self.source, Theme.muted); }
+            width: 32px; height: 32px; border-radius: 16px; background: Theme.sidebar-fill;
+            Image { source: root.icon; width: 16px; height: 16px; colorize: IconPack.tint(self.source, Theme.secondary); }
         }
     }
-    Text { text: root.title; color: Theme.text; font-size: 16px; font-weight: 600; horizontal-alignment: center; wrap: word-wrap; }
-    if root.text != "": Text { text: root.text; color: Theme.muted; font-size: 14px; horizontal-alignment: center; wrap: word-wrap; }
-    HorizontalLayout {
-        alignment: center; spacing: 8px; padding-top: 8px;
-        @children
+    VerticalLayout {
+        spacing: 2px; alignment: center; horizontal-stretch: 1;
+        Text { text: root.title; color: Theme.text; font-size: 15px; wrap: word-wrap; }
+        Label { text: root.text; }
+    }
+}
+
+// The person's own themes, made in Create: chosen and edited here as in
+// Appearance.
+component OwnThemes inherits Rectangle {
+    in property <[ThemeCard]> themes;
+    in property <string> theme-id;
+    callback choose(string);
+    callback edit(string);
+    property <length> gap: 12px;
+    property <int> columns: max(1, floor((self.width + self.gap) / (150px + self.gap)));
+    property <length> card-width: (self.width - (self.columns - 1) * self.gap) / self.columns;
+    property <length> card-height: 124px;
+    height: ceil(ThemesPage.own-count / self.columns) * (self.card-height + self.gap) - self.gap;
+    accessible-role: list; accessible-label: "Your themes";
+    // Built-in themes come first in the cards, the person's own after.
+    for card[index] in root.themes: ThemeTile {
+        property <int> place: index - (root.themes.length - ThemesPage.own-count);
+        visible: card.custom;
+        x: mod(max(0, self.place), root.columns) * (root.card-width + root.gap);
+        y: floor(max(0, self.place) / root.columns) * (root.card-height + root.gap);
+        width: root.card-width; height: root.card-height;
+        card: card; current: card.id == root.theme-id;
+        choose => { root.choose(card.id); }
+        edit => { root.edit(card.id); }
     }
 }
 
 // Settings → Themes. The person's own themes and the editor come from the
-// window, as Appearance has them.
-export component ThemesSettings inherits Rectangle {
+// window, as Appearance has them. The page scrolls in the settings frame as
+// the others do; with the editor open it fills the frame instead, so the
+// preview stays in sight beside the controls.
+export component ThemesSettings inherits VerticalLayout {
     in property <[ThemeCard]> themes;
     in property <string> theme-id;
     /// The editor, while it's open; see ThemeEditor.
@@ -337,6 +600,9 @@ export component ThemesSettings inherits Rectangle {
     in property <[string]> starts;
     in property <int> start-index;
     in property <bool> can-save;
+    /// The window's width, which says whether the editor's preview fits
+    /// beside its controls, and how large.
+    in property <length> room: 1280px;
     callback choose-theme(string);
     callback new-theme();
     callback edit-theme(string);
@@ -347,244 +613,299 @@ export component ThemesSettings inherits Rectangle {
     callback cancel-theme();
     callback delete-theme();
     callback export-theme();
+    property <bool> editing: ThemesPage.tab == 3 && root.editor;
     init => { ThemesPage.opened(); }
-    vertical-stretch: 1;
-    page := VerticalLayout {
-        spacing: 16px;
-        SettingsTitle { title: "Themes"; }
-        Choices {
-            label: "Themes"; options: ["Marketplace", "Installed", "Add from URL", "Create"];
-            current: ThemesPage.tab; controlled: true;
-            chosen(index) => { ThemesPage.tab-chosen(index); }
-        }
-
-        if ThemesPage.tab == 0: VerticalLayout {
-            spacing: 12px; vertical-stretch: 1;
-            HorizontalLayout {
-                height: 40px; padding-right: 12px;
-                TextField {
-                    text <=> ThemesPage.query; label: "Search themes"; placeholder: "Search themes"; text-size: 14px;
-                    trailing-icon: IconPack.search;
-                    edited(text) => { ThemesPage.search(text); }
-                }
-            }
-            if ThemesPage.market-loading: VerticalLayout {
-                vertical-stretch: 1;
-                EmptyState { icon: IconPack.brush; title: "Loading the marketplace..."; }
-            }
-            if !ThemesPage.market-loading && ThemesPage.market-error != "": VerticalLayout {
-                vertical-stretch: 1;
-                EmptyState {
-                    icon: IconPack.triangle-alert; title: "The marketplace isn't available"; text: ThemesPage.market-error;
-                    ActionButton { text: "Try again"; primary: true; clicked => { ThemesPage.market-retry(); } }
-                    ActionButton { text: "Add from URL"; clicked => { ThemesPage.tab-chosen(2); } }
-                }
-            }
-            if !ThemesPage.market-loading && ThemesPage.market-error == "" && ThemesPage.listed.length > 0: market-scroll := ScrollView {
-                vertical-stretch: 1;
-                content-height: listed.preferred-height;
-                listed := VerticalLayout {
-                    width: market-scroll.visible-width; padding-right: 12px; alignment: start;
-                    Gallery { rows: ThemesPage.listed-rows; }
-                }
-            }
-            if !ThemesPage.market-loading && ThemesPage.market-error == "" && ThemesPage.listed.length == 0: VerticalLayout {
-                vertical-stretch: 1;
-                EmptyState { icon: IconPack.search; title: ThemesPage.query == "" ? "Every theme the marketplace lists is installed." : "No themes match."; }
+    spacing: 16px;
+    if !root.editing: SettingsTitle { title: "Themes"; }
+    if !root.editing: Label {
+        text: "Themes restyle Yapfast: its colours, fonts, shapes, art and sounds. A theme is data, never code, and you see what one changes before it's installed.";
+    }
+    Rectangle {
+        height: 40px; vertical-stretch: 0;
+        accessible-role: tab-list; accessible-label: "Themes";
+        Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
+        HorizontalLayout {
+            spacing: 24px; alignment: start;
+            for name[index] in ["Installed", "Marketplace", "Add from URL", "Create"]: PageTab {
+                // The tabs keep the numbers Rust knows them by.
+                property <int> tab: index == 0 ? 1 : index == 1 ? 0 : index;
+                text: name; selected: ThemesPage.tab == self.tab;
+                clicked => { ThemesPage.tab-chosen(self.tab); }
             }
         }
-
-        if ThemesPage.tab == 1: installed-scroll := ScrollView {
-            vertical-stretch: 1;
-            content-height: installed.preferred-height;
-            installed := VerticalLayout {
-                width: installed-scroll.visible-width;
-                spacing: 8px; alignment: start; padding-right: 12px;
-                if ThemesPage.installed.length == 0 && ThemesPage.own-count == 0: EmptyState {
-                    icon: IconPack.brush;
-                    title: "No themes yet";
-                    text: "Find one in the Marketplace, add one from its GitHub repository, or make your own in Create. Themes change how Yapfast looks and never what it does.";
-                    ActionButton { text: "Browse the Marketplace"; primary: true; clicked => { ThemesPage.tab-chosen(0); } }
-                    ActionButton { text: "Add from URL"; clicked => { ThemesPage.tab-chosen(2); } }
-                    ActionButton { text: "Create"; clicked => { ThemesPage.tab-chosen(3); } }
-                }
-                if ThemesPage.installed.length > 0: HorizontalLayout {
-                    vertical-stretch: 0; spacing: 8px;
-                    if ThemesPage.previous-name != "": Middle {
-                        ActionButton {
-                            text: "Back to " + ThemesPage.previous-name; small: true; icon: IconPack.arrow-left;
-                            clicked => { ThemesPage.revert-theme(); }
-                        }
-                    }
-                    Rectangle { horizontal-stretch: 1; }
-                    Middle {
-                        Choices {
-                            width: 160px;
-                            label: "Show themes as"; options: ["List", "Cards"];
-                            current: ThemesPage.view; controlled: true;
-                            chosen(index) => { ThemesPage.view = index; }
-                        }
-                    }
-                }
-                if ThemesPage.view == 0: VerticalLayout {
-                    spacing: 8px;
-                    for theme in ThemesPage.installed: ThemeRow { theme: theme; }
-                }
-                if ThemesPage.view == 1 && ThemesPage.installed.length > 0: Gallery { rows: ThemesPage.installed-rows; }
-                // The person's own, made in Create: chosen and edited here as
-                // in Appearance.
-                if ThemesPage.own-count > 0: VerticalLayout {
-                    spacing: 8px; padding-top: 12px;
-                    SettingsHeading { text: "YOUR THEMES"; }
-                    own := Rectangle {
-                        property <length> gap: 12px;
-                        property <int> columns: max(1, floor((self.width + self.gap) / (150px + self.gap)));
-                        property <length> card-width: (self.width - (self.columns - 1) * self.gap) / self.columns;
-                        property <length> card-height: 124px;
-                        height: ceil(ThemesPage.own-count / self.columns) * (self.card-height + self.gap) - self.gap;
-                        accessible-role: list; accessible-label: "Your themes";
-                        // Built-in themes come first in the cards, the person's own after.
-                        for card[index] in root.themes: ThemeTile {
-                            property <int> place: index - (root.themes.length - ThemesPage.own-count);
-                            visible: card.custom;
-                            x: mod(max(0, self.place), own.columns) * (own.card-width + own.gap);
-                            y: floor(max(0, self.place) / own.columns) * (own.card-height + own.gap);
-                            width: own.card-width; height: own.card-height;
-                            card: card; current: card.id == root.theme-id;
-                            choose => { root.choose-theme(card.id); }
-                            edit => { root.edit-theme(card.id); }
-                        }
-                    }
-                }
-                if ThemeOptions.rows.length > 0: ThemeOptionList { padding-top: 12px; }
-                VerticalLayout {
-                    spacing: 8px; padding-top: 12px;
-                    SettingsHeading { text: "PERFORMANCE"; }
-                    Choices {
-                        label: "Theme performance"; options: ["Full", "Balanced", "Light"];
-                        current: ThemesPage.performance; controlled: true;
-                        chosen(index) => { ThemesPage.performance-chosen(index); }
-                    }
-                    Label {
-                        text: ThemesPage.performance == 0 ? "Everything an installed theme has: every animation, at the rate it asks for."
-                            : ThemesPage.performance == 1 ? "Heavy animations stay still, the rest run at up to 30 frames a second and pause while Yapfast isn't focused."
-                            : "Colours, fonts, shapes and spacing only: no theme animation, effect or motion.";
-                    }
-                    SettingsSwitch {
-                        text: "Reduce motion";
-                        description: "Themes' animations, text effects and hover motion stay still, whatever the setting above.";
-                        checked <=> ThemesPage.reduce-motion;
-                        toggled(on) => { ThemesPage.reduce-motion-toggled(on); }
-                    }
-                    SettingsSwitch {
-                        text: "Transitions between channels";
-                        description: "A theme's fade or dissolve when you change channel or server, at Full. Off, a channel shows at once.";
-                        checked <=> ThemesPage.transitions;
-                        toggled(on) => { ThemesPage.transitions-toggled(on); }
-                    }
-                }
-                if ThemesPage.content != "": VerticalLayout {
-                    spacing: 8px; padding-top: 12px;
-                    SettingsHeading { text: "PEOPLE'S CONTENT"; }
-                    SettingsSwitch {
-                        text: "Let the theme style people's profiles and media";
-                        description: ThemesPage.sounds-theme + " can draw " + ThemesPage.content + ". Off, everyone's pictures, colours and profiles show as they made them.";
-                        checked <=> ThemesPage.content-on;
-                        toggled => { ThemesPage.content-changed(); }
-                    }
-                }
-                if ThemesPage.has-sounds: VerticalLayout {
-                    spacing: 8px; padding-top: 12px;
-                    SettingsHeading { text: "SOUNDS"; }
-                    if ThemesPage.has-notify-sounds: SettingsSwitch {
-                        text: "Notification sounds";
-                        description: ThemesPage.sounds-theme + "'s sounds for messages, mentions, calls and the rest, in place of Yapfast's. Your sound volumes and Do Not Disturb still apply.";
-                        checked <=> ThemesPage.sounds-on;
-                        toggled => { ThemesPage.sounds-changed(); }
-                    }
-                    if ThemesPage.has-ui-sounds: SettingsSwitch {
-                        text: "Interface sounds — clicks, hovers, menus, send";
-                        description: "Only while Yapfast is in front, and never in Do Not Disturb.";
-                        checked <=> ThemesPage.ui-sounds-on;
-                        toggled => { ThemesPage.sounds-changed(); }
-                    }
-                    if ThemesPage.has-ui-sounds: VolumeSlider {
-                        label: "Interface sound volume"; maximum: 100;
-                        value <=> ThemesPage.sounds-volume;
-                        committed => { ThemesPage.sounds-changed(); }
-                    }
-                }
-                if ThemesPage.has-cursors: VerticalLayout {
-                    spacing: 8px; padding-top: 12px;
-                    SettingsHeading { text: "CURSORS"; }
-                    SettingsSwitch {
-                        text: "Use the theme's cursors";
-                        description: ThemesPage.sounds-theme + "'s own mouse pointers over Yapfast's window. Sign-in and safety dialogs always show your system's.";
-                        checked <=> ThemesPage.cursors-on;
-                        toggled(on) => { ThemesPage.cursors-toggled(on); }
-                    }
-                }
-            }
-        }
-
-        if ThemesPage.tab == 2: VerticalLayout {
-            spacing: 12px; vertical-stretch: 1; alignment: start; padding-right: 12px;
-            Label { text: "Paste the address of a theme's public GitHub repository. Yapfast fetches it, checks every file, and shows what it changes and costs before anything is installed. A theme is data, never code."; font-size: 14px; }
+    }
+    if ThemesPage.error != "": Rectangle {
+        vertical-stretch: 0;
+        border-radius: Look.radius(8px); background: Theme.danger.with-alpha(0.12);
+        accessible-role: AccessibleRole.text; accessible-label: ThemesPage.error;
+        HorizontalLayout {
+            padding: 12px; spacing: 10px;
             VerticalLayout {
-                spacing: 6px;
-                Text { text: "GitHub repository"; color: Theme.text; font-size: 15px; }
+                alignment: start;
+                Image { source: IconPack.triangle-alert; width: 18px; height: 18px; colorize: IconPack.tint(self.source, Theme.danger-text); }
+            }
+            Text { text: ThemesPage.error; color: Theme.danger-text; font-size: 14px; wrap: word-wrap; horizontal-stretch: 1; vertical-alignment: center; }
+        }
+    }
+
+    if ThemesPage.tab == 1: VerticalLayout {
+        spacing: 24px;
+        if ThemesPage.installed.length == 0 && ThemesPage.own-count == 0: Notice {
+            icon: IconPack.brush;
+            title: "No themes yet";
+            text: "Find one in the Marketplace, add one from its GitHub repository, or make your own in Create.";
+            ActionButton { text: "Browse the Marketplace"; primary: true; clicked => { ThemesPage.tab-chosen(0); } }
+            ActionButton { text: "Add from URL"; clicked => { ThemesPage.tab-chosen(2); } }
+            ActionButton { text: "Create"; clicked => { ThemesPage.tab-chosen(3); } }
+        }
+        if ThemesPage.installed.length > 0: VerticalLayout {
+            spacing: 8px;
+            HorizontalLayout {
+                spacing: 8px; height: 28px;
+                SettingsHeading { text: "INSTALLED"; vertical-alignment: center; horizontal-stretch: 1; }
+                if ThemesPage.previous-name != "": ActionButton {
+                    text: "Back to " + ThemesPage.previous-name; small: true; ghost: true; icon: IconPack.arrow-left;
+                    clicked => { ThemesPage.revert-theme(); }
+                }
+                ViewToggle { }
+            }
+            if ThemesPage.view == 0: VerticalLayout {
+                spacing: 8px;
+                for theme in ThemesPage.installed: ThemeRow { theme: theme; }
+            }
+            if ThemesPage.view == 1: Gallery { rows: ThemesPage.installed-rows; }
+        }
+        if ThemesPage.own-count > 0: VerticalLayout {
+            spacing: 8px;
+            HorizontalLayout {
+                height: 28px;
+                SettingsHeading { text: "YOUR THEMES"; vertical-alignment: center; horizontal-stretch: 1; }
+                ActionButton {
+                    text: "New theme"; small: true; ghost: true; icon: IconPack.circle-plus;
+                    clicked => { root.new-theme(); }
+                }
+            }
+            OwnThemes {
+                themes: root.themes; theme-id: root.theme-id;
+                choose(id) => { root.choose-theme(id); }
+                edit(id) => { root.edit-theme(id); }
+            }
+        }
+        // What the applied theme lets the person set, under its name.
+        if ThemeOptions.rows.length > 0 || ThemesPage.content != "" || ThemesPage.has-sounds || ThemesPage.has-cursors: VerticalLayout {
+            spacing: 16px;
+            Rectangle { height: 1px; background: Theme.line; }
+            VerticalLayout {
+                spacing: 2px;
+                Text {
+                    text: ThemesPage.sounds-theme != "" ? ThemesPage.sounds-theme : "The applied theme";
+                    color: Theme.text; font-size: 16px; font-weight: 600; overflow: elide;
+                }
+                Label { text: "Settings of the theme that's applied. They're kept if you switch away and come back."; }
+            }
+            if ThemeOptions.rows.length > 0: ThemeOptionList { }
+            if ThemesPage.content != "": VerticalLayout {
+                spacing: 8px;
+                SettingsHeading { text: "PEOPLE'S CONTENT"; }
+                SettingsSwitch {
+                    text: "Let the theme style people's profiles and media";
+                    description: ThemesPage.sounds-theme + " can draw " + ThemesPage.content + ". Off, everyone's pictures, colours and profiles show as they made them.";
+                    checked <=> ThemesPage.content-on;
+                    toggled => { ThemesPage.content-changed(); }
+                }
+            }
+            if ThemesPage.has-sounds: VerticalLayout {
+                spacing: 8px;
+                SettingsHeading { text: "SOUNDS"; }
+                if ThemesPage.has-notify-sounds: SettingsSwitch {
+                    text: "Notification sounds";
+                    description: ThemesPage.sounds-theme + "'s sounds for messages, mentions, calls and the rest, in place of Yapfast's. Your sound volumes and Do Not Disturb still apply.";
+                    checked <=> ThemesPage.sounds-on;
+                    toggled => { ThemesPage.sounds-changed(); }
+                }
+                if ThemesPage.has-ui-sounds: SettingsSwitch {
+                    text: "Interface sounds — clicks, hovers, menus, send";
+                    description: "Only while Yapfast is in front, and never in Do Not Disturb.";
+                    checked <=> ThemesPage.ui-sounds-on;
+                    toggled => { ThemesPage.sounds-changed(); }
+                }
+                if ThemesPage.has-ui-sounds: VolumeSlider {
+                    label: "Interface sound volume"; maximum: 100;
+                    value <=> ThemesPage.sounds-volume;
+                    committed => { ThemesPage.sounds-changed(); }
+                }
+            }
+            if ThemesPage.has-cursors: VerticalLayout {
+                spacing: 8px;
+                SettingsHeading { text: "CURSORS"; }
+                SettingsSwitch {
+                    text: "Use the theme's cursors";
+                    description: ThemesPage.sounds-theme + "'s own mouse pointers over Yapfast's window. Sign-in and safety dialogs always show your system's.";
+                    checked <=> ThemesPage.cursors-on;
+                    toggled(on) => { ThemesPage.cursors-toggled(on); }
+                }
+            }
+        }
+        // How much of any installed theme runs.
+        VerticalLayout {
+            spacing: 16px;
+            Rectangle { height: 1px; background: Theme.line; }
+            VerticalLayout {
+                spacing: 8px;
+                SettingsHeading { text: "PERFORMANCE"; }
+                Choices {
+                    label: "Theme performance"; options: ["Full", "Balanced", "Light"];
+                    current: ThemesPage.performance; controlled: true;
+                    chosen(index) => { ThemesPage.performance-chosen(index); }
+                }
+                Label {
+                    text: ThemesPage.performance == 0 ? "Everything an installed theme has: every animation, at the rate it asks for."
+                        : ThemesPage.performance == 1 ? "Heavy animations stay still, the rest run at up to 30 frames a second and pause while Yapfast isn't focused."
+                        : "Colours, fonts, shapes and spacing only: no theme animation, effect or motion.";
+                }
+            }
+            VerticalLayout {
+                spacing: 12px;
+                SettingsHeading { text: "MOTION"; }
+                SettingsSwitch {
+                    text: "Reduce motion";
+                    description: "Themes' animations, text effects and hover motion stay still, whatever Performance is set to.";
+                    checked <=> ThemesPage.reduce-motion;
+                    toggled(on) => { ThemesPage.reduce-motion-toggled(on); }
+                }
+                SettingsSwitch {
+                    text: "Transitions between channels";
+                    description: "A theme's fade or dissolve when you change channel or server, at Full. Off, a channel shows at once.";
+                    checked <=> ThemesPage.transitions;
+                    toggled(on) => { ThemesPage.transitions-toggled(on); }
+                }
+            }
+        }
+    }
+
+    if ThemesPage.tab == 0: VerticalLayout {
+        spacing: 16px;
+        TextField {
+            text <=> ThemesPage.query; label: "Search the marketplace"; placeholder: "Search the marketplace"; text-size: 15px;
+            trailing-icon: IconPack.search;
+            edited(text) => { ThemesPage.search(text); }
+        }
+        if ThemesPage.market-loading: VerticalLayout {
+            spacing: 12px;
+            accessible-role: AccessibleRole.text; accessible-label: "Loading the marketplace";
+            for row in 2: HorizontalLayout {
+                spacing: 12px;
+                for card in 2: Rectangle {
+                    horizontal-stretch: 1; min-width: 0px; preferred-width: 0px;
+                    height: 248px; border-radius: Look.radius(8px); clip: true;
+                    Skeleton { }
+                }
+            }
+        }
+        if !ThemesPage.market-loading && ThemesPage.market-error != "": Notice {
+            icon: IconPack.triangle-alert; tint: Theme.loud;
+            title: "The marketplace can't be shown right now"; text: ThemesPage.market-error;
+            ActionButton { text: "Try again"; primary: true; icon: IconPack.refresh-cw; clicked => { ThemesPage.market-retry(); } }
+            ActionButton { text: "Add from URL"; clicked => { ThemesPage.tab-chosen(2); } }
+        }
+        if !ThemesPage.market-loading && ThemesPage.market-error == "" && ThemesPage.listed.length > 0: Gallery { rows: ThemesPage.listed-rows; }
+        if !ThemesPage.market-loading && ThemesPage.market-error == "" && ThemesPage.listed.length == 0 && ThemesPage.query == "": Notice {
+            icon: IconPack.check; tint: Theme.live;
+            title: "You have them all";
+            text: "Every theme the marketplace lists is installed.";
+            ActionButton { text: "See your themes"; clicked => { ThemesPage.tab-chosen(1); } }
+        }
+        if !ThemesPage.market-loading && ThemesPage.market-error == "" && ThemesPage.listed.length == 0 && ThemesPage.query != "": Notice {
+            icon: IconPack.search;
+            title: "No themes match \"" + ThemesPage.query + "\"";
+            text: "Try another word, or a theme's author.";
+            ActionButton { text: "Clear the search"; clicked => { ThemesPage.query = ""; ThemesPage.search(""); } }
+        }
+    }
+
+    if ThemesPage.tab == 2: VerticalLayout {
+        spacing: 24px;
+        VerticalLayout {
+            spacing: 8px;
+            SettingsHeading { text: "GITHUB REPOSITORY"; }
+            HorizontalLayout {
+                spacing: 8px;
                 TextField {
-                    text <=> ThemesPage.url; label: "GitHub repository"; text-size: 14px;
+                    text <=> ThemesPage.url; label: "GitHub repository"; text-size: 15px;
                     placeholder: "https://github.com/ada/vaporwave";
                     enabled: !ThemesPage.finding;
                     accepted => { if ThemesPage.url != "" { ThemesPage.find(ThemesPage.url); } }
                 }
-            }
-            HorizontalLayout {
-                spacing: 8px; alignment: end;
-                ActionButton {
-                    text: ThemesPage.finding ? "Finding..." : "Find theme"; primary: true;
-                    enabled: ThemesPage.url != "" && !ThemesPage.finding;
-                    clicked => { ThemesPage.find(ThemesPage.url); }
+                Middle {
+                    ActionButton {
+                        text: ThemesPage.finding ? "Finding..." : "Find theme"; primary: true;
+                        enabled: ThemesPage.url != "" && !ThemesPage.finding;
+                        clicked => { ThemesPage.find(ThemesPage.url); }
+                    }
                 }
             }
+            Label { text: "The address of a theme's public GitHub repository. A branch, tag or folder in the address works too."; }
         }
-        if ThemesPage.tab == 3 && !root.editor: VerticalLayout {
-            spacing: 12px; vertical-stretch: 1; alignment: start; padding-right: 12px;
-            Label { text: "Make a theme of your own: start from a few choices, a picture and a colour, or set every colour yourself in Advanced. It's saved with your themes, and Export makes it a package you can share."; font-size: 14px; }
-            HorizontalLayout {
-                alignment: start;
-                ActionButton { text: "New theme"; primary: true; icon: IconPack.circle-plus; clicked => { root.new-theme(); } }
+        Rectangle { height: 1px; background: Theme.line; }
+        VerticalLayout {
+            spacing: 16px;
+            SettingsHeading { text: "WHAT HAPPENS NEXT"; }
+            Step {
+                icon: IconPack.download; title: "Yapfast fetches the theme";
+                text: "Straight from its repository, at the commit it's at now.";
             }
-        }
-        if ThemesPage.tab == 3 && root.editor: create-scroll := ScrollView {
-            vertical-stretch: 1;
-            content-height: editor.preferred-height;
-            editor := ThemeEditor {
-                width: create-scroll.visible-width - 12px;
-                colours: root.colours;
-                theme-name <=> root.theme-name; theme-dark <=> root.theme-dark;
-                editing-saved: root.editing-saved; starts: root.starts; start-index: root.start-index;
-                can-save: root.can-save;
-                start-chosen(index) => { root.start-chosen(index); }
-                colour-edited(index, text) => { root.colour-edited(index, text); }
-                dark-toggled(dark) => { root.dark-toggled(dark); }
-                save-theme => { root.save-theme(); }
-                cancel-theme => { root.cancel-theme(); }
-                delete-theme => { root.delete-theme(); }
-                export-theme => { root.export-theme(); }
+            Step {
+                icon: IconPack.shield; title: "Every file is checked";
+                text: "A theme is data, never code: colours, fonts, pictures and sounds, each within limits.";
             }
-        }
-        if ThemesPage.error != "": Rectangle {
-            border-radius: Look.radius(8px); background: Theme.danger.with-alpha(0.12);
-            accessible-role: AccessibleRole.text; accessible-label: ThemesPage.error;
-            HorizontalLayout {
-                padding: 10px; spacing: 10px;
-                Image { source: IconPack.triangle-alert; width: 18px; height: 18px; colorize: IconPack.tint(self.source, Theme.danger-text); }
-                Text { text: ThemesPage.error; color: Theme.danger-text; font-size: 14px; wrap: word-wrap; horizontal-stretch: 1; vertical-alignment: center; }
+            Step {
+                icon: IconPack.eye; title: "You review it first";
+                text: "You see what it changes and what it costs to run, and can try it for 30 seconds, before anything is installed.";
             }
         }
     }
+
+    if ThemesPage.tab == 3 && !root.editor: VerticalLayout {
+        spacing: 24px;
+        Notice {
+            icon: IconPack.palette; tint: Theme.accent-text;
+            title: "Make a theme of your own";
+            text: "Pick a colour or a picture and Yapfast works out the rest, keeping text readable. Then shape it: message style, corners, fonts, glass. It's saved with your themes, and Export makes it a package you can share.";
+            ActionButton { text: "New theme"; primary: true; icon: IconPack.circle-plus; clicked => { root.new-theme(); } }
+        }
+        if ThemesPage.own-count > 0: VerticalLayout {
+            spacing: 8px;
+            SettingsHeading { text: "YOUR THEMES"; }
+            Label { text: "Click one to show it, or its pencil to edit it."; }
+            OwnThemes {
+                themes: root.themes; theme-id: root.theme-id;
+                choose(id) => { root.choose-theme(id); }
+                edit(id) => { root.edit-theme(id); }
+            }
+        }
+    }
+    if root.editing: ThemeEditor {
+        vertical-stretch: 1; beside: root.room >= 1180px; aside: root.room >= 1600px ? 420px : 352px;
+        colours: root.colours;
+        theme-name <=> root.theme-name; theme-dark <=> root.theme-dark;
+        editing-saved: root.editing-saved; starts: root.starts; start-index: root.start-index;
+        can-save: root.can-save;
+        start-chosen(index) => { root.start-chosen(index); }
+        colour-edited(index, text) => { root.colour-edited(index, text); }
+        dark-toggled(dark) => { root.dark-toggled(dark); }
+        save-theme => { root.save-theme(); }
+        cancel-theme => { root.cancel-theme(); }
+        delete-theme => { root.delete-theme(); }
+        export-theme => { root.export-theme(); }
+    }
+}
+
+// A fact about a theme under review: what it is, and its value.
+component Fact inherits HorizontalLayout {
+    in property <string> name;
+    spacing: 12px;
+    Text { width: 84px; text: root.name; color: Theme.muted; font-size: 13px; }
+    @children
 }
 
 // What a theme from a URL or the marketplace holds, before anything is kept. It's drawn in the
@@ -603,67 +924,104 @@ export component ThemeReviewDialog inherits Rectangle {
     }
     Rectangle {
         width: min(root.width - 32px, 560px);
-        height: min(root.height - 32px, body.preferred-height);
+        height: min(root.height - 32px, body.preferred-height + footer.height);
         border-radius: 12px; background: Theme.chat-fill; border-width: Look.line(1px); border-color: Theme.edge;
         drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
         clip: true;
         accessible-role: groupbox; accessible-label: "Install " + ThemesPage.review.name;
         TouchArea { }
-        body := VerticalLayout {
-            padding: 20px; spacing: 12px;
-            Text { text: ThemesPage.review.name + " " + ThemesPage.review.version; color: Theme.text; font-size: 20px; font-weight: 700; wrap: word-wrap; }
-            if ThemesPage.review.author != "": Text { text: "by " + ThemesPage.review.author; color: Theme.secondary; font-size: 14px; }
-            if ThemesPage.review.description != "": Text { text: ThemesPage.review.description; color: Theme.secondary; font-size: 14px; wrap: word-wrap; }
-            if ThemesPage.review.previews.length > 0: Flickable {
-                height: 180px;
-                content-width: previews.preferred-width;
-                previews := HorizontalLayout {
+        // What it holds scrolls over the buttons, which stay in reach.
+        scroll := ScrollView {
+            x: 0px; y: 0px; width: parent.width; height: parent.height - footer.height;
+            content-height: body.preferred-height;
+            body := VerticalLayout {
+                width: scroll.visible-width;
+                padding: 24px; padding-bottom: 16px; spacing: 16px;
+                VerticalLayout {
+                    spacing: 4px;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Text { text: ThemesPage.review.name; color: Theme.text; font-size: 20px; font-weight: 700; wrap: word-wrap; horizontal-stretch: 1; }
+                        Middle { Tag { text: "v" + ThemesPage.review.version; } }
+                    }
+                    if ThemesPage.review.author != "": Text { text: "by " + ThemesPage.review.author; color: Theme.muted; font-size: 14px; wrap: word-wrap; }
+                }
+                if ThemesPage.review.description != "": Text { text: ThemesPage.review.description; color: Theme.secondary; font-size: 14px; wrap: word-wrap; }
+                if ThemesPage.review.previews.length > 0: Flickable {
+                    height: 180px;
+                    content-width: previews.preferred-width;
+                    previews := HorizontalLayout {
+                        spacing: 8px;
+                        for picture in ThemesPage.review.previews: Rectangle {
+                            width: 288px; border-radius: 8px; clip: true; background: Theme.sunken;
+                            Image { width: parent.width; height: parent.height; source: picture; image-fit: cover; }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 6px; alignment: start;
+                    Tag {
+                        text: ThemesPage.review.listed ? "In the marketplace" : "Unreviewed source";
+                        ink: ThemesPage.review.listed ? Theme.live : Theme.loud;
+                        icon: ThemesPage.review.listed ? IconPack.check : IconPack.triangle-alert;
+                    }
+                    Tag { text: "No code · no permissions"; ink: Theme.live; icon: IconPack.shield; }
+                }
+                Rectangle {
+                    border-radius: 8px; background: Theme.sidebar-fill;
+                    VerticalLayout {
+                        padding: 12px; spacing: 10px;
+                        Fact {
+                            name: "From";
+                            Text { text: ThemesPage.review.source + " at " + ThemesPage.review.commit; color: Theme.secondary; font-size: 13px; wrap: word-wrap; horizontal-stretch: 1; }
+                        }
+                        Fact {
+                            name: "Works in";
+                            Text { text: ThemesPage.review.modes; color: Theme.secondary; font-size: 13px; wrap: word-wrap; horizontal-stretch: 1; }
+                        }
+                        if ThemesPage.review.based-on != "": Fact {
+                            name: "Remixes";
+                            Text { text: ThemesPage.review.based-on; color: Theme.secondary; font-size: 13px; wrap: word-wrap; horizontal-stretch: 1; }
+                        }
+                        Fact {
+                            name: "To run";
+                            CostLine { cost: ThemesPage.review.cost; notes: ThemesPage.review.notes; horizontal-stretch: 1; }
+                        }
+                    }
+                }
+                if ThemesPage.review.notification-sounds || ThemesPage.review.interface-sounds: VerticalLayout {
                     spacing: 8px;
-                    for picture in ThemesPage.review.previews: Rectangle {
-                        width: 288px; border-radius: 8px; clip: true; background: Theme.sunken;
-                        Image { width: parent.width; height: parent.height; source: picture; image-fit: cover; }
+                    SettingsHeading { text: "SOUNDS"; }
+                    if ThemesPage.review.notification-sounds: SettingsSwitch {
+                        text: "Notification sounds";
+                        description: "Its sounds for messages, mentions, calls and the rest, in place of Yapfast's.";
+                        checked <=> ThemesPage.review-notify-on;
+                    }
+                    if ThemesPage.review.interface-sounds: SettingsSwitch {
+                        text: "Interface sounds — clicks, hovers, menus, send";
+                        description: "Only while Yapfast is in front. You can change both later in Settings → Themes.";
+                        checked <=> ThemesPage.review-ui-on;
+                    }
+                }
+                if ThemesPage.review.content != "": VerticalLayout {
+                    spacing: 8px;
+                    SettingsHeading { text: "PEOPLE'S CONTENT"; }
+                    SettingsSwitch {
+                        text: "Let the theme style people's profiles and media";
+                        description: "It can draw " + ThemesPage.review.content + ". Off, everyone's own looks show. You can change it later in Settings → Themes.";
+                        checked <=> ThemesPage.review-content-on;
                     }
                 }
             }
+        }
+        footer := Rectangle {
+            x: 0px; y: parent.height - self.height; width: parent.width; height: 68px;
+            background: Theme.sidebar-fill;
+            Rectangle { y: 0px; height: 1px; background: Theme.line; }
             HorizontalLayout {
-                spacing: 6px; alignment: start;
-                Pill { text: ThemesPage.review.modes; }
-                Pill {
-                    text: ThemesPage.review.listed ? "In the marketplace" : "Unreviewed source";
-                    ink: ThemesPage.review.listed ? Theme.live : Theme.loud;
-                }
-                Pill { text: "No code · no permissions"; ink: Theme.live; }
-            }
-            Text { text: "From " + ThemesPage.review.source + " at " + ThemesPage.review.commit; color: Theme.muted; font-size: 13px; wrap: word-wrap; }
-            if ThemesPage.review.based-on != "": Text { text: "Remixes " + ThemesPage.review.based-on; color: Theme.muted; font-size: 13px; wrap: word-wrap; }
-            Text { text: "Cost: " + ThemesPage.review.cost; color: Theme.secondary; font-size: 13px; wrap: word-wrap; }
-            if ThemesPage.review.notes != "": Text { text: ThemesPage.review.notes; color: Theme.loud; font-size: 13px; wrap: word-wrap; }
-            if ThemesPage.review.notification-sounds || ThemesPage.review.interface-sounds: VerticalLayout {
-                spacing: 8px;
-                SettingsHeading { text: "SOUNDS"; }
-                if ThemesPage.review.notification-sounds: SettingsSwitch {
-                    text: "Notification sounds";
-                    description: "Its sounds for messages, mentions, calls and the rest, in place of Yapfast's.";
-                    checked <=> ThemesPage.review-notify-on;
-                }
-                if ThemesPage.review.interface-sounds: SettingsSwitch {
-                    text: "Interface sounds — clicks, hovers, menus, send";
-                    description: "Only while Yapfast is in front. You can change both later in Settings → Themes.";
-                    checked <=> ThemesPage.review-ui-on;
-                }
-            }
-            if ThemesPage.review.content != "": VerticalLayout {
-                spacing: 8px;
-                SettingsHeading { text: "PEOPLE'S CONTENT"; }
-                SettingsSwitch {
-                    text: "Let the theme style people's profiles and media";
-                    description: "It can draw " + ThemesPage.review.content + ". Off, everyone's own looks show. You can change it later in Settings → Themes.";
-                    checked <=> ThemesPage.review-content-on;
-                }
-            }
-            HorizontalLayout {
-                spacing: 8px; alignment: end;
+                padding: 16px; padding-left: 24px; padding-right: 24px; spacing: 8px;
                 ActionButton { text: "Cancel"; ghost: true; clicked => { ThemesPage.cancel-review(); } }
+                Rectangle { horizontal-stretch: 1; }
                 ActionButton { text: "Try 30 s"; clicked => { ThemesPage.try-review(); } }
                 ActionButton { text: "Install"; primary: true; clicked => { ThemesPage.install-review(); } }
             }

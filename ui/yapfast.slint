@@ -110,7 +110,7 @@ export { ContactRow, PlaceRow, ReactionPill, ReactorRow, PollAnswerDraft } from 
 export { FoundRow, PickRow } from "header.slint";
 export { GifTile, GifFavorites } from "gifs.slint";
 export { SelectChoice, ModalField } from "interactions.slint";
-export { ThemesPage, ThemeListing, ThemeReview } from "themes.slint";
+export { ThemesPage, ThemeListing, ThemeReview, CostRow } from "themes.slint";
 export { IconPack, Cue } from "media.slint";
 export { CommandChoice, CommandOptionPill } from "app_commands.slint";
 
@@ -4918,6 +4918,7 @@ export component YapfastWindow inherits Window {
         account-name: root.account-name; account-initial: root.account-initial;
         account-tint: root.account-tint; account-picture: root.account-picture;
         may-edit-profile: root.discord-linked;
+        themes-editor: root.theme-editor && ThemesPage.tab == 3;
         edit-profile => { root.settings-open = false; root.edit-profile(); }
         settings-section <=> root.settings-section;
         discord-build: root.discord-build; preview: root.preview;
@@ -5019,7 +5020,7 @@ export component YapfastWindow inherits Window {
             copy-text(text) => { root.copy-text(text); }
         }
         if root.settings-section == SettingsSections.themes: ThemesSettings {
-            themes: root.themes; theme-id: root.theme-id;
+            themes: root.themes; theme-id: root.theme-id; room: root.width;
             editor: root.theme-editor; colours: root.theme-colours;
             theme-name <=> root.theme-name; theme-dark <=> root.theme-dark;
             editing-saved: root.theme-editing-saved; starts: root.theme-starts; start-index: root.theme-start;

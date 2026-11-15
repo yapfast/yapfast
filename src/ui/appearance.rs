@@ -463,9 +463,9 @@ impl Adapter {
             }
             None => self.open_creator(window, theme_creator::spec_from(&start), None, true),
         }
-        window
-            .global::<yapfast_ui::Creator>()
-            .set_start(index as i32);
+        let page = window.global::<yapfast_ui::Creator>();
+        page.set_start(index as i32);
+        page.set_step(0);
     }
 
     /// Opens the editor on one of the person's own themes.
@@ -483,10 +483,36 @@ impl Adapter {
         let made = custom.creator.clone();
         let from = theme_look::creator_folder(&self.root, id);
         self.open_theme_editor(window, editor);
+        let page = window.global::<yapfast_ui::Creator>();
         match made {
-            // Made with the creator: Simple, as it was left.
-            Some(spec) => self.open_creator(window, spec, Some(from), false),
-            None => window.global::<yapfast_ui::Creator>().set_simple(false),
+            // Made with the creator: its steps, as it was left, at Colours.
+            Some(spec) => {
+                self.open_creator(window, spec, Some(from), false);
+                page.set_step(1);
+            }
+            // Made of colours alone: Advanced, and nothing to export.
+            None => {
+                page.set_simple(false);
+                page.set_can_export(false);
+            }
+        }
+    }
+
+    /// Start over: the editor opens again on what it opened on, at the step
+    /// it shows.
+    pub(super) fn restart_theme(&mut self, window: &YapfastWindow) {
+        let Some(editor) = self.theme_editor.as_ref() else {
+            return;
+        };
+        let page = window.global::<yapfast_ui::Creator>();
+        let (step, simple) = (page.get_step(), page.get_simple());
+        match editor.editing.clone() {
+            Some(id) => self.edit_theme(window, &id),
+            None => self.new_theme(window),
+        }
+        page.set_step(step);
+        if !simple {
+            self.creator_advanced(window);
         }
     }
 
@@ -506,19 +532,22 @@ impl Adapter {
     /// The new theme starts again from another, and takes its name too
     /// unless the person named it.
     pub(super) fn theme_start_chosen(&mut self, window: &YapfastWindow, index: i32) {
-        let custom = &self.layout.custom_themes;
-        let start = |index: i32| {
+        let start = |custom: &[theme::Custom], index: i32| {
             let index = usize::try_from(index).ok()?;
             theme::starts(custom)
                 .nth(index)
                 .map(|start| (start.base, start.theme, copy_name(start.name)))
         };
-        let (Some(editor), Some((base, theme, name))) = (self.theme_editor.as_mut(), start(index))
-        else {
+        let custom = &self.layout.custom_themes;
+        let Some((base, theme, name)) = start(custom, index) else {
             return;
         };
-        let named = start(window.get_theme_start())
+        let named = start(custom, window.get_theme_start())
             .is_none_or(|(_, _, before)| before != window.get_theme_name().as_str());
+        self.creator_remember(window, None);
+        let Some(editor) = self.theme_editor.as_mut() else {
+            return;
+        };
         if !named {
             window.set_theme_name(name.into());
         }
@@ -540,6 +569,8 @@ impl Adapter {
     /// A colour's field changed: the window shows it at once if it's a
     /// colour.
     pub(super) fn theme_colour_edited(&mut self, window: &YapfastWindow, index: i32, text: &str) {
+        // A colour typed letter by letter is one change to take back.
+        self.creator_remember(window, u32::try_from(index).ok());
         let Some(editor) = self.theme_editor.as_mut() else {
             return;
         };
@@ -553,6 +584,7 @@ impl Adapter {
     }
 
     pub(super) fn theme_dark_toggled(&mut self, window: &YapfastWindow, dark: bool) {
+        self.creator_remember(window, None);
         let Some(editor) = self.theme_editor.as_mut() else {
             return;
         };
@@ -674,6 +706,7 @@ fn close_theme_editor(window: &YapfastWindow) {
 /// Binds Appearance's installed-theme settings, the Themes tab and
 /// `--theme-dev`'s reload.
 pub(super) fn bind_themes(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
+    use yapfast_core::themes::check::plain;
     use yapfast_ui::{Look, ThemesPage};
     // Each callback borrows the adapter and the window, as the others do.
     macro_rules! on {
@@ -810,6 +843,30 @@ pub(super) fn bind_themes(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>
             }
         });
     }
+    // A theme's cost in plain words: how heavy it is, and its line's parts.
+    page.on_cost_summary(|cost| {
+        plain::plain(&cost)
+            .map(|plain| plain.summary.into())
+            .unwrap_or_default()
+    });
+    page.on_cost_weight(|cost| match plain::plain(&cost).map(|plain| plain.weight) {
+        None => -1,
+        Some(plain::Weight::Light) => 0,
+        Some(plain::Weight::Moderate) => 1,
+        Some(plain::Weight::Heavy) => 2,
+    });
+    page.on_cost_rows(|cost| {
+        let rows: Vec<yapfast_ui::CostRow> = plain::plain(&cost)
+            .map(|plain| plain.rows)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(label, text)| yapfast_ui::CostRow {
+                label: label.into(),
+                text: text.into(),
+            })
+            .collect();
+        ModelRc::new(VecModel::from(rows))
+    });
     on!(page, on_opened() => |adapter, window| {
         adapter.show_previous_theme(&window);
         let page = window.global::<ThemesPage>();

@@ -13,7 +13,7 @@ import { Soundboard, SoundRow } from "voice.slint";
 import { BuildInfo, Updates, UpdateStatus } from "yapfast/build-info.slint";
 import { NewTag, NewTags } from "yapfast/new-tags.slint";
 import { Arrange, DashedOutline } from "theme_layout.slint";
-import { Creator, CreatorView } from "creator.slint";
+import { Creator, CreatorView, CreatorPreview } from "creator.slint";
 
 // Settings: a section's title, a group's heading, a switch with what it does, and
 // a row of exclusive choices with the current one raised.
@@ -333,6 +333,9 @@ export component SettingsFrame inherits Rectangle {
     /// a page with a list view of its own, which makes only the rows in
     /// sight.
     in property <bool> fill;
+    /// The page is a tool with a preview beside its controls, the theme
+    /// editor: its column is wider and starts higher.
+    in property <bool> wide;
     /// Where the section's column starts and how wide it is, for such a bar.
     out property <length> content-x: content.x;
     out property <length> content-width: content.width;
@@ -407,11 +410,11 @@ export component SettingsFrame inherits Rectangle {
                     content-height: root.fill ? self.visible-height : page.preferred-height;
                     page := HorizontalLayout {
                         height: root.fill ? scroll.visible-height : self.preferred-height;
-                        padding-left: root.discord-layout ? max(24px, (scroll.visible-width - 696px) / 2) : 40px;
+                        padding-left: root.discord-layout ? max(24px, (scroll.visible-width - column.max-width) / 2) : 40px;
                         padding-right: root.discord-layout ? self.padding-left : 96px;
-                        padding-top: root.discord-layout ? 64px : 56px; padding-bottom: root.bottom;
-                        VerticalLayout {
-                            max-width: root.discord-layout ? 696px : 660px; horizontal-stretch: 1; spacing: 16px;
+                        padding-top: root.wide ? 24px : root.discord-layout ? 64px : 56px; padding-bottom: root.wide ? 24px : root.bottom;
+                        column := VerticalLayout {
+                            max-width: root.wide ? 960px : root.discord-layout ? 696px : 660px; horizontal-stretch: 1; spacing: 16px;
                             alignment: root.fill ? LayoutAlignment.stretch : LayoutAlignment.start;
                             @children
                         }
@@ -476,6 +479,8 @@ export component SettingsScreen inherits Rectangle {
     callback edit-profile;
     callback refresh-devices;
     callback copy-text(string);
+    /// Settings → Themes has its theme editor open, which fills the frame.
+    in property <bool> themes-editor;
     property <[SettingsRow]> with-discord: [
         { heading: true, text: "SETTINGS" },
         { text: "My account", icon: IconPack.user, id: 0 },
@@ -519,9 +524,9 @@ export component SettingsScreen inherits Rectangle {
             account-name: root.account-name; account-initial: root.account-initial;
             account-tint: root.account-tint; account-picture: root.account-picture;
             with-discord: root.discord-build && !root.preview;
-            // The page scrolls its own parts, and the marketplace makes only
-            // the rows in sight.
-            fill: root.settings-section == SettingsSections.themes;
+            // The theme editor scrolls its controls beside its preview.
+            fill: root.settings-section == SettingsSections.themes && root.themes-editor;
+            wide: root.settings-section == SettingsSections.themes && root.themes-editor;
             may-edit-profile: root.may-edit-profile;
             edit-profile => { root.edit-profile(); }
             copy-text(text) => { root.copy-text(text); }
@@ -1240,10 +1245,29 @@ export component AppearanceSettings inherits VerticalLayout {
     }
 }
 
-// The theme editor: a new theme or one of the person's own, made from a few
-// choices (Simple, ui/creator.slint) or every colour (Advanced). Settings →
-// Themes → Create holds it; each change shows on the window as it's made,
-// Save keeps them, Cancel restores the theme from before.
+// How the theme being made reads, said gently: a tick and the text's
+// contrast, and a word when Yapfast moved a colour to keep it readable.
+component Readable inherits HorizontalLayout {
+    spacing: 8px;
+    VerticalLayout {
+        alignment: start; padding-top: 1px;
+        Image {
+            width: 16px; height: 16px; source: IconPack.check;
+            colorize: IconPack.tint(self.source, Creator.readable-moved ? Theme.accent-text : Theme.live);
+        }
+    }
+    Text {
+        text: Creator.readable; color: Theme.muted; font-size: 13px; wrap: word-wrap; horizontal-stretch: 1;
+        accessible-role: AccessibleRole.text;
+    }
+}
+
+// The theme editor: a new theme or one of the person's own. Its name and
+// what's done with it run along the top; under them the controls, in steps
+// (ui/creator.slint) and Advanced, every colour, scroll beside a preview
+// that stays in sight. Settings → Themes → Create holds it and gives it the
+// frame's height; each change shows on the window as it's made, Undo takes
+// one back, Save keeps them, Cancel restores the theme from before.
 export component ThemeEditor inherits VerticalLayout {
     /// The colours, the name, whether the theme is dark, and whether it edits
     /// a saved theme rather than making one, from the theme at start-index
@@ -1263,76 +1287,135 @@ export component ThemeEditor inherits VerticalLayout {
     callback delete-theme();
     callback export-theme();
     property <bool> confirming;
+    /// The preview stays beside the controls; false, it goes above them,
+    /// where the window is too narrow for both.
+    in property <bool> beside: true;
+    /// How wide the preview's column is.
+    in property <length> aside: 320px;
     spacing: 16px;
-    VerticalLayout {
-        spacing: 8px;
-        SettingsHeading { text: root.editing-saved ? "EDIT THEME" : "NEW THEME"; }
-        HorizontalLayout {
-            spacing: 8px;
-            TextField {
-                text <=> root.theme-name; placeholder: "Name"; label: "Theme name"; min-height: 36px; text-size: 15px;
-                accepted => { root.save-theme(); }
-            }
-            ActionButton { text: "Save"; primary: true; enabled: root.can-save; clicked => { root.save-theme(); } }
-            ActionButton { text: "Cancel"; clicked => { root.cancel-theme(); } }
+    HorizontalLayout {
+        spacing: 8px; vertical-stretch: 0;
+        TextField {
+            text <=> root.theme-name; placeholder: "Name your theme"; label: "Theme name"; min-height: 36px; text-size: 15px;
+            accepted => { root.save-theme(); }
         }
+        if Creator.can-export: ActionButton {
+            text: "Undo"; ghost: true; icon: IconPack.reply; enabled: Creator.can-undo;
+            clicked => { Creator.undo(); }
+        }
+        if Creator.can-export: ActionButton {
+            text: "Start over"; ghost: true; icon: IconPack.refresh-cw; enabled: Creator.can-undo;
+            clicked => { Creator.start-over(); }
+        }
+        ActionButton { text: "Cancel"; clicked => { root.cancel-theme(); } }
+        ActionButton { text: root.editing-saved ? "Save" : "Save theme"; primary: true; enabled: root.can-save; clicked => { root.save-theme(); } }
     }
-    // Simple makes a theme from a few choices; Advanced shows every colour.
-    Choices {
-        options: ["Simple", "Advanced"]; label: "Editor"; controlled: true; max-width: 240px;
-        current: Creator.simple ? 0 : 1;
+    // A theme the creator made has its steps, then Advanced; one made of
+    // colours alone is all Advanced.
+    if Creator.can-export: Choices {
+        options: ["Start", "Colours", "Shape", "Fonts", "Advanced"]; label: "Step"; controlled: true; max-width: 520px;
+        vertical-stretch: 0;
+        current: Creator.simple ? Creator.step : 4;
         chosen(index) => {
-            if index == 1 { Creator.open-advanced(); } else { Creator.simple = true; }
-        }
-    }
-    if Creator.simple: CreatorView { }
-    if !Creator.simple && !root.editing-saved: VerticalLayout {
-        spacing: 8px;
-        SettingsHeading { text: "START FROM"; }
-        ComboBox {
-            model: root.starts; current-index: root.start-index; accessible-label: "Start from";
-            selected => { root.start-chosen(self.current-index); }
-        }
-    }
-    if !Creator.simple: SettingsSwitch {
-        text: "Dark"; description: "Drop-down lists and scroll bars draw dark to match.";
-        checked <=> root.theme-dark; toggled(dark) => { root.dark-toggled(dark); }
-    }
-    if !Creator.simple: VerticalLayout {
-        spacing: 8px;
-        SettingsHeading { text: "COLOURS"; }
-        Label { text: "Each as #rgb, #rrggbb or #rrggbbaa. The window shows a change as you type it."; }
-        // Two columns when they fit, read down.
-        Rectangle {
-            property <int> columns: self.width >= 520px ? 2 : 1;
-            property <length> gap: 24px;
-            property <length> row-height: 46px;
-            property <length> cell-width: (self.width - (self.columns - 1) * self.gap) / self.columns;
-            property <int> rows: ceil(root.colours.length / self.columns);
-            height: self.rows * self.row-height;
-            accessible-role: list; accessible-label: "Colours";
-            for row[index] in root.colours: ThemeColourRow {
-                x: floor(index / parent.rows) * (parent.cell-width + parent.gap);
-                y: mod(index, parent.rows) * parent.row-height;
-                width: parent.cell-width; height: parent.row-height;
-                colour: row;
-                edited(text) => { root.colour-edited(index, text); }
+            if index == 4 {
+                Creator.open-advanced();
+            } else {
+                Creator.step = index;
+                Creator.simple = true;
             }
         }
     }
-    if root.editing-saved: HorizontalLayout {
-        alignment: start; spacing: 8px;
-        // A theme package folder (Simple has its own Export), ready to put in a GitHub repository
-        // and share in Settings → Themes.
-        if !Creator.simple: ActionButton {
-            text: "Export as a package"; small: true; icon: IconPack.download;
-            clicked => { root.export-theme(); }
+    HorizontalLayout {
+        spacing: 24px; vertical-stretch: 1;
+        controls := ScrollView {
+            horizontal-stretch: 1;
+            content-height: panel.preferred-height;
+            panel := VerticalLayout {
+                width: controls.visible-width - 12px; spacing: 24px; alignment: start;
+                if !root.beside && Creator.can-export: CreatorPreview { height: 236px; }
+                if Creator.simple && Creator.can-export: CreatorView { }
+                if !Creator.simple && !root.editing-saved: VerticalLayout {
+                    spacing: 8px;
+                    SettingsHeading { text: "START FROM"; }
+                    ComboBox {
+                        model: root.starts; current-index: root.start-index; accessible-label: "Start from";
+                        selected => { root.start-chosen(self.current-index); }
+                    }
+                }
+                if !Creator.simple: SettingsSwitch {
+                    text: "Dark"; description: "Drop-down lists and scroll bars draw dark to match.";
+                    checked <=> root.theme-dark; toggled(dark) => { root.dark-toggled(dark); }
+                }
+                if !Creator.simple: VerticalLayout {
+                    spacing: 8px;
+                    SettingsHeading { text: "EVERY COLOUR"; }
+                    Label { text: "Each as #rgb, #rrggbb or #rrggbbaa. The window shows a change as you type it."; }
+                    // Two columns when they fit, read down.
+                    Rectangle {
+                        property <int> columns: self.width >= 520px ? 2 : 1;
+                        property <length> gap: 24px;
+                        property <length> row-height: 46px;
+                        property <length> cell-width: (self.width - (self.columns - 1) * self.gap) / self.columns;
+                        property <int> rows: ceil(root.colours.length / self.columns);
+                        height: self.rows * self.row-height;
+                        accessible-role: list; accessible-label: "Colours";
+                        for row[index] in root.colours: ThemeColourRow {
+                            x: floor(index / parent.rows) * (parent.cell-width + parent.gap);
+                            y: mod(index, parent.rows) * parent.row-height;
+                            width: parent.cell-width; height: parent.row-height;
+                            colour: row;
+                            edited(text) => { root.colour-edited(index, text); }
+                        }
+                    }
+                }
+                if !root.beside: VerticalLayout {
+                    spacing: 12px;
+                    if Creator.readable != "": Readable { }
+                    HorizontalLayout {
+                        alignment: start; spacing: 8px;
+                        if Creator.can-export: ActionButton {
+                            text: "Export"; small: true; icon: IconPack.download;
+                            clicked => { Creator.export(); }
+                        }
+                        if !Creator.can-export && root.editing-saved: ActionButton {
+                            text: "Export as a package"; small: true; icon: IconPack.download;
+                            clicked => { root.export-theme(); }
+                        }
+                        if root.editing-saved: ActionButton {
+                            text: root.confirming ? "Delete it for good" : "Delete theme"; danger: true; small: true;
+                            icon: IconPack.trash-2;
+                            clicked => {
+                                if root.confirming { root.delete-theme(); } else { root.confirming = true; }
+                            }
+                        }
+                    }
+                }
+            }
         }
-        ActionButton {
-            text: root.confirming ? "Delete it for good" : "Delete theme"; danger: true; small: true;
-            icon: IconPack.trash-2;
-            clicked => {
-                if root.confirming { root.delete-theme(); } else { root.confirming = true; }
+        if root.beside: VerticalLayout {
+            width: root.aside; spacing: 12px; alignment: start;
+            if Creator.can-export: CreatorPreview { height: root.aside * 0.75; }
+            if Creator.can-export: Label { text: "Yapfast itself wears the theme while you make it, behind these settings."; }
+            if Creator.readable != "": Readable { }
+            // A theme package folder, ready to put in a GitHub repository
+            // and share in Settings → Themes.
+            HorizontalLayout {
+                alignment: start; spacing: 8px;
+                if Creator.can-export: ActionButton {
+                    text: "Export"; small: true; icon: IconPack.download;
+                    clicked => { Creator.export(); }
+                }
+                if !Creator.can-export && root.editing-saved: ActionButton {
+                    text: "Export as a package"; small: true; icon: IconPack.download;
+                    clicked => { root.export-theme(); }
+                }
+                if root.editing-saved: ActionButton {
+                    text: root.confirming ? "Delete it for good" : "Delete theme"; danger: true; small: true;
+                    icon: IconPack.trash-2;
+                    clicked => {
+                        if root.confirming { root.delete-theme(); } else { root.confirming = true; }
+                    }
+                }
             }
         }
     }

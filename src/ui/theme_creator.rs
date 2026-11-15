@@ -36,7 +36,32 @@ struct Arrival {
     prepared: Result<creator::PreparedPicture, String>,
 }
 
+/// The editor before a change, to take the change back: the creator's
+/// choices and the theme's colours.
+struct Before {
+    spec: Spec,
+    theme: theme::Theme,
+    base: &'static str,
+}
+
+/// The most changes Undo takes back.
+const UNDOS: usize = 64;
+
+/// The grounds' tint when they're plain greys.
+const NEUTRAL: u32 = 0x80_8080;
+
+/// Whether a ground's colour tints nothing: a grey.
+fn neutral(ground: u32) -> bool {
+    creator::lch(ground)[1] < 0.004
+}
+
 thread_local! {
+    /// What Undo goes back through, the latest change last; held only while
+    /// the creator is open.
+    static HISTORY: RefCell<Vec<Before>> = const { RefCell::new(Vec::new()) };
+    /// What the last change was to, for a run of changes to one thing, as a
+    /// colour typed letter by letter, to be one to take back.
+    static LAST: std::cell::Cell<Option<u32>> = const { std::cell::Cell::new(None) };
     /// The picture's thumbnail, which the preview shows blurred and dimmed
     /// as chosen; held only while the creator is open.
     static THUMBNAIL: RefCell<Option<image::RgbaImage>> = const { RefCell::new(None) };
@@ -191,6 +216,62 @@ impl Adapter {
         from: Option<PathBuf>,
         recolour: bool,
     ) {
+        forget(window);
+        self.begin_creator(window, spec, from, recolour);
+    }
+
+    /// Keeps the editor as it stands, for Undo, before a change to it.
+    /// `what` names what a change in a run is to, so the run is one step.
+    pub(super) fn creator_remember(&mut self, window: &YapfastWindow, what: Option<u32>) {
+        let Some(editor) = self.theme_editor.as_ref() else {
+            return;
+        };
+        let Some(spec) = editor.creator.clone() else {
+            return;
+        };
+        if what.is_some() && LAST.get() == what {
+            return;
+        }
+        LAST.set(what);
+        HISTORY.with_borrow_mut(|history| {
+            if history.len() == UNDOS {
+                history.remove(0);
+            }
+            history.push(Before {
+                spec,
+                theme: editor.theme,
+                base: editor.base,
+            });
+        });
+        window.global::<Creator>().set_can_undo(true);
+    }
+
+    /// Undo: the editor as it stood before the last change.
+    fn creator_undo(&mut self, window: &YapfastWindow) {
+        let Some(before) = HISTORY.with_borrow_mut(Vec::pop) else {
+            return;
+        };
+        LAST.set(None);
+        let Some(editor) = self.theme_editor.as_mut() else {
+            return;
+        };
+        editor.creator = Some(before.spec);
+        editor.theme = before.theme;
+        editor.base = before.base;
+        let page = window.global::<Creator>();
+        page.set_can_undo(HISTORY.with_borrow(|history| !history.is_empty()));
+        page.set_start(-1);
+        self.creator_fonts(window);
+        self.creator_changed(window, false);
+    }
+
+    fn begin_creator(
+        &mut self,
+        window: &YapfastWindow,
+        spec: Spec,
+        from: Option<PathBuf>,
+        recolour: bool,
+    ) {
         let draft = self.draft_folder();
         let _ = std::fs::remove_dir_all(&draft);
         let copied = from
@@ -298,6 +379,15 @@ impl Adapter {
         } else {
             creator::finish(spec, colours_of(&editor.theme))
         };
+        // Colours the person set that were moved to stay readable.
+        let moved = !recolour
+            && ["text", "secondary", "muted", "link"].iter().any(|token| {
+                let set = theme::token_index(token)
+                    .and_then(|index| editor.theme.colour(index))
+                    .map(rgb);
+                set != derived.colour(token).map(|colour| colour & 0xff_ffff)
+            });
+        show_readable(window, &derived, moved);
         editor.base = take_colours(&mut editor.theme, &derived);
         editor.fill();
         window.set_theme_dark(editor.theme.dark);
@@ -319,14 +409,14 @@ impl Adapter {
         recolour: bool,
         change: impl FnOnce(&mut Spec),
     ) {
-        let Some(spec) = self
+        self.creator_remember(window, None);
+        if let Some(spec) = self
             .theme_editor
             .as_mut()
             .and_then(|editor| editor.creator.as_mut())
-        else {
-            return;
-        };
-        change(spec);
+        {
+            change(spec);
+        }
         self.creator_changed(window, recolour);
     }
 
@@ -358,11 +448,18 @@ impl Adapter {
             .as_ref()
             .filter(|custom| custom.creator.is_some())
             .map(|custom| theme_look::creator_folder(&self.root, &custom.id));
+        // A start can be taken back, but not one that brings another
+        // theme's picture and fonts into the draft.
+        if from.is_none() {
+            self.creator_remember(window, None);
+        } else {
+            forget(window);
+        }
         if let Some(editor) = self.theme_editor.as_mut() {
             editor.theme = theme;
         }
         let recolour = from.is_none();
-        self.open_creator(window, spec, from, recolour);
+        self.begin_creator(window, spec, from, recolour);
         window.global::<Creator>().set_start(index);
     }
 
@@ -394,6 +491,11 @@ impl Adapter {
             .as_ref()
             .and_then(|editor| editor.creator.as_ref())
             .is_some_and(|spec| spec.picture.is_none());
+        // The picture's file replaced the one before it, which no Undo
+        // could show again.
+        if !first {
+            forget(window);
+        }
         self.creator_edit(window, true, |spec| {
             spec.picture = Some(prepared.picture);
             spec.background = Background::Picture;
@@ -403,6 +505,9 @@ impl Adapter {
                 spec.glass = true;
             }
         });
+        if !first {
+            forget(window);
+        }
     }
 
     /// Import font…: a font file copied into the theme, offered beside the
@@ -439,6 +544,7 @@ impl Adapter {
         page.set_note_bad(false);
         let headings = page.get_picking_headings();
         let file = imported.file.clone();
+        self.creator_remember(window, None);
         if let Some(spec) = self
             .theme_editor
             .as_mut()
@@ -457,7 +563,7 @@ impl Adapter {
     }
 
     /// Advanced: every colour of the theme Simple made, to fine-tune.
-    fn creator_advanced(&mut self, window: &YapfastWindow) {
+    pub(super) fn creator_advanced(&mut self, window: &YapfastWindow) {
         if let Some(editor) = self.theme_editor.as_ref() {
             editor.fill();
             window.set_theme_dark(editor.theme.dark);
@@ -513,6 +619,9 @@ impl Adapter {
         page.set_picture(Image::default());
         page.set_picture_colours(ModelRc::default());
         page.set_note("".into());
+        page.set_readable("".into());
+        page.set_can_export(false);
+        forget(window);
     }
 
     /// Shows the chosen theme again, made ready first if it's a package.
@@ -614,6 +723,14 @@ fn show_spec(window: &YapfastWindow, spec: &Spec, derived: &creator::Derived) {
     let page = window.global::<Creator>();
     page.set_accent(colour(spec.accent));
     page.set_accent_hex(format!("#{:06x}", spec.accent & 0xff_ffff).into());
+    page.set_accent_hue(creator::lch(spec.accent & 0xff_ffff)[2] as f32);
+    page.set_tint(if neutral(spec.ground) {
+        1
+    } else if spec.ground & 0xff_ffff == spec.accent & 0xff_ffff {
+        0
+    } else {
+        2
+    });
     page.set_background(match spec.background {
         Background::Dark => 0,
         Background::Light => 1,
@@ -681,6 +798,46 @@ fn show_spec(window: &YapfastWindow, spec: &Spec, derived: &creator::Derived) {
         Some(Image::from_rgba8(buffer))
     });
     page.set_picture(picture.unwrap_or_default());
+}
+
+/// Drops what Undo would go back through.
+fn forget(window: &YapfastWindow) {
+    HISTORY.with_borrow_mut(Vec::clear);
+    LAST.set(None);
+    window.global::<Creator>().set_can_undo(false);
+}
+
+/// Says how the theme reads: its text's contrast on the conversation's
+/// ground, and whether a colour was moved to keep it readable, the accent
+/// where it's text or one the person set in Advanced.
+fn show_readable(window: &YapfastWindow, derived: &creator::Derived, moved: bool) {
+    let page = window.global::<Creator>();
+    let (Some(text), Some(chat), Some(accent)) = (
+        derived.colour("text"),
+        derived.colour("chat"),
+        derived.colour("accent"),
+    ) else {
+        page.set_readable("".into());
+        return;
+    };
+    let opaque = |colour: u32| 0xff00_0000 | colour;
+    let ratio = yapfast_core::themes::check::contrast(opaque(text), opaque(chat));
+    let mut note = format!("Readable: text has {ratio:.1}:1 contrast on the background.");
+    let accent_moved = derived
+        .colour("accent-text")
+        .is_some_and(|ink| ink & 0xff_ffff != accent & 0xff_ffff);
+    if accent_moved {
+        note.push_str(if derived.dark {
+            " Where the accent is text, it's a shade lighter so it reads too."
+        } else {
+            " Where the accent is text, it's a shade darker so it reads too."
+        });
+    }
+    if moved {
+        note.push_str(" A text colour was adjusted to stay readable.");
+    }
+    page.set_readable(note.into());
+    page.set_readable_moved(accent_moved || moved);
 }
 
 /// Offers up to five of the newest pictures in the person's Pictures folder
@@ -856,7 +1013,9 @@ pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
         let accent = rgb(chosen);
         adapter.creator_edit(&window, true, |spec| {
             spec.accent = accent;
-            if spec.background != Background::Picture {
+            // The grounds follow the accent's hue, unless they're a picture's
+            // or the person chose plain greys.
+            if spec.background != Background::Picture && !neutral(spec.ground) {
                 spec.ground = accent;
             }
         })
@@ -865,7 +1024,9 @@ pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
         let accent = accent_from_hue(degrees);
         adapter.creator_edit(&window, true, |spec| {
             spec.accent = accent;
-            if spec.background != Background::Picture {
+            // The grounds follow the accent's hue, unless they're a picture's
+            // or the person chose plain greys.
+            if spec.background != Background::Picture && !neutral(spec.ground) {
                 spec.ground = accent;
             }
         })
@@ -875,7 +1036,7 @@ pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
             let accent = rgb(chosen);
             adapter.creator_edit(&window, true, |spec| {
                 spec.accent = accent;
-                if spec.background != Background::Picture {
+                if spec.background != Background::Picture && !neutral(spec.ground) {
                     spec.ground = accent;
                 }
             });
@@ -940,6 +1101,13 @@ pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
         })
     });
     on!(on_glass_toggled(on) => |adapter, window| adapter.creator_edit(&window, false, |spec| spec.glass = on));
+    on!(on_tint_chosen(index) => |adapter, window| {
+        adapter.creator_edit(&window, true, |spec| {
+            spec.ground = if index == 1 { NEUTRAL } else { spec.accent & 0xff_ffff };
+        })
+    });
+    on!(on_undo() => |adapter, window| adapter.creator_undo(&window));
+    on!(on_start_over() => |adapter, window| adapter.restart_theme(&window));
     on!(on_open_advanced() => |adapter, window| adapter.creator_advanced(&window));
     let (state, weak) = (adapter.clone(), window.as_weak());
     page.on_export(move || {
