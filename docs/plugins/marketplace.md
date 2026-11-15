@@ -155,9 +155,10 @@ permissions, as for any install.
 
 **Updating.** An installed plugin whose pin is behind the entry's has an update,
 with the version it would become and the capabilities it would add. One that adds
-no capability is one click: the new commit is fetched, checked against the entry,
-and installed. One that adds a capability shows the review first, because a
-permission given once isn't given for what comes later. Roll back returns to what
+no capability, no network host and no memory is one click: the new commit is
+fetched, checked against the entry, and installed. One that adds any of them
+shows the review first, because a permission given once isn't given for what
+comes later. Roll back returns to what
 the install replaced, as it does for a URL install.
 
 A plugin nobody lists is a URL install, and its *Update* fetches its own ref and

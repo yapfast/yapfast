@@ -333,12 +333,24 @@ impl Application {
                     .find(|installed| installed.id == id);
                 if let Some(installed) = &installed {
                     review.replaces = Some(installed.version.clone());
-                    let adds = review
+                    let adds_capability = review
                         .capabilities
                         .iter()
                         .any(|capability| !installed.capabilities.contains(capability));
-                    // An update that asks for no capability the person hasn't
-                    // already given is one click (`docs/plugins/host.md`); one that
+                    // A host is reach as much as a capability is: a new one in
+                    // the manifest would be granted by the one click, and with
+                    // `messages.read` it is where messages could go. So is more
+                    // memory than the person agreed to.
+                    let adds_host = review.network.iter().any(|host| {
+                        !installed
+                            .grants
+                            .iter()
+                            .any(|grant| &grant.host == host && (grant.declared || grant.allowed))
+                    });
+                    let adds_memory = review.memory_pages > installed.memory_pages;
+                    let adds = adds_capability || adds_host || adds_memory;
+                    // An update that asks for nothing the person hasn't already
+                    // given is one click (`docs/plugins/host.md`); one that
                     // does shows its review first.
                     if ask.is_update() && !adds {
                         self.plugin_page.fetched = Some(fetched);
