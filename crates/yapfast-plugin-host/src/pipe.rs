@@ -102,8 +102,13 @@ pub struct Pipe {
 
 impl Pipe {
     /// Starts the threads on this process's own standard streams.
+    ///
+    /// Standard output is line-buffered, so a frame went out as its header,
+    /// then its payload, split again wherever either held a newline byte. A
+    /// buffer the size of a common frame makes it one write, flushed by
+    /// [`write_frame`] at the end of each frame.
     pub fn stdio() -> io::Result<Self> {
-        Pipe::new(io::stdin(), io::stdout())
+        Pipe::new(io::stdin(), io::BufWriter::with_capacity(64 << 10, io::stdout()))
     }
 
     /// Starts the threads on the given streams, which is how a test drives the

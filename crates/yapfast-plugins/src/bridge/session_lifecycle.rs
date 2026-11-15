@@ -50,7 +50,9 @@ impl Session {
         std::thread::Builder::new()
             .name("yapfast-plugins-write".to_owned())
             .spawn(move || {
-                let mut stdin = stdin;
+                // One write per frame rather than its header and its payload
+                // apart; `write_frame` flushes at the end of each.
+                let mut stdin = std::io::BufWriter::with_capacity(64 << 10, stdin);
                 for frame in writes {
                     if frame::write_frame(&mut stdin, &frame).is_err() {
                         return;
