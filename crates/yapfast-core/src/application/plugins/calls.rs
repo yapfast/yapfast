@@ -98,9 +98,10 @@ impl Application {
                 done,
             ),
             AppCall::Copy { text } => (vec![AppEffect::CopyText(text)], done),
-            // The link goes through the same confirmation a message's does: a
-            // plugin asks, and the person still sees where it goes.
-            AppCall::Open { url } => (vec![AppEffect::OpenPage(url)], done),
+            // The link goes through the leaving dialog a masked message link
+            // does: a plugin asks, and the person sees where it goes and
+            // chooses. This used to open the page straight away.
+            AppCall::Open { url } => (vec![AppEffect::ConfirmOpen(url)], done),
             // The curated actions of PLAN §17.2. Each goes where the person's
             // own click goes, so the token, the rate limiter and this
             // account's permissions stay where they are.

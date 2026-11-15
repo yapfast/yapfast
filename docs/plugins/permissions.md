@@ -131,7 +131,7 @@ using another plugin's button, is no gesture for this one.
 | `messages.jump_to`, `composer.set_draft`, `composer.insert` | none, and a recent user gesture: without one they answer `denied` |
 | `notify.send` | `notifications` |
 | `clipboard.write` | `clipboard.write`, and a recent user gesture |
-| `open.url` | `open.app` |
+| `open.url` | `open.app`, and a recent user gesture; each link then waits in the leaving-link dialog, with the theme unmodified, until the person chooses to open it |
 | `discord.set_status`, `set_custom_status`, `set_activity`, `clear_activity` | `presence.write` |
 | `discord.mark_read`, `set_mute` | `notifications.manage` |
 | `discord.reactors` | `messages.read`: it answers what people gave to a message |

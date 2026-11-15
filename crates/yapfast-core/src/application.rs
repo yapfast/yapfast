@@ -2455,6 +2455,10 @@ pub enum Effect {
     /// `clipboard.write`.
     #[cfg(feature = "plugins")]
     CopyText(String),
+    /// Ask the person before opening this link for a plugin: `open.url`,
+    /// whose every link is confirmed (PLAN.md 9.1, `open.app`).
+    #[cfg(feature = "plugins")]
+    ConfirmOpen(String),
     /// Film for a preview call with the camera with this id, or the first,
     /// into this feed; or stop filming.
     PreviewCamera(Option<(Option<String>, crate::picture::Feed)>),
