@@ -28,7 +28,7 @@ impl Bridge {
             identifies: AtomicBool::new(false),
             retains: AtomicBool::new(false),
             colours_code: AtomicBool::new(false),
-            gesture: Mutex::new(None),
+            gestures: crate::permissions::Gestures::default(),
             sends: Mutex::new(BTreeMap::new()),
             off: Mutex::new(None),
             gate: Mutex::new(None),

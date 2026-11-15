@@ -42,10 +42,6 @@ pub(super) const SHUTDOWN_WAIT: Duration = Duration::from_secs(2);
 /// graceful stop.
 pub(super) const CLOSE_WAIT: Duration = Duration::from_secs(3);
 
-/// How long a plugin's send stands behind the person's last action: §9.1 makes
-/// sending without one a capability of its own, and this is what "a recent
-/// gesture" means in practice.
-pub(super) const GESTURE_WINDOW: Duration = Duration::from_secs(30);
 
 /// `messages.send`'s guard rail: at most this many sends in this window.
 pub(super) const SEND_LIMIT: usize = 5;

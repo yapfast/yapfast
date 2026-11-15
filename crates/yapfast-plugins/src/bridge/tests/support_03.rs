@@ -207,7 +207,7 @@ pub(super) fn ask_action(
     let shared = shared(directory.path(), wake);
     // A person clicked a moment ago, so only the capability can refuse
     // what the call asks for.
-    shared.gesture();
+    shared.gesture(&plugin);
     let (_session_directory, mut session, written, _inbound) = session_stub();
     let call = HostCall {
         method: method.to_owned(),

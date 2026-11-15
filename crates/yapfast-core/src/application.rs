@@ -3060,18 +3060,9 @@ impl Application {
             action,
             Action::SetDraft(_) | Action::SetEditText(_) | Action::MentionQuery(_)
         );
-        // Somebody is typing, which is the person doing something: a plugin's
-        // `messages.send` may stand behind it, and a peek at the composer's own
-        // buffer costs nothing.
-        #[cfg(feature = "plugins")]
-        let gesture = composing || matches!(action, Action::PluginInput(_) | Action::Send);
         let mut effects = self.dispatch_action(action);
         #[cfg(feature = "plugins")]
         self.plugins_sync_world();
-        #[cfg(feature = "plugins")]
-        if gesture && let Some(plugins) = self.state.plugins.as_ref() {
-            plugins.note_gesture();
-        }
         effects.extend(self.send_pending_message());
         effects.extend(self.show_panel_profile());
         if !composing {

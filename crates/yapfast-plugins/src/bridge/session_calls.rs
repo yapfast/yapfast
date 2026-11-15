@@ -217,7 +217,7 @@ impl Session {
                 | AppCall::Delete { .. }
                 | AppCall::React { .. }
         ) {
-            if !shared.has_gesture() && !permissions.allows(Capability::MessagesSendBackground) {
+            if !shared.has_gesture(plugin) && !permissions.allows(Capability::MessagesSendBackground) {
                 return Some(HostReturn::Denied {
                     reason: format!(
                         "{plugin} wants to send without you doing anything: that needs \
@@ -244,7 +244,7 @@ impl Session {
         // A navigation or compose action needs no capability, and does need a
         // person's own hand behind it: a plugin must not move the window or
         // start a reply while nobody is there.
-        if needs_gesture(&app) && !shared.has_gesture() {
+        if needs_gesture(&app) && !shared.has_gesture(plugin) {
             return Some(HostReturn::Denied {
                 reason: format!(
                     "{plugin} wants to move the window or write the composer \

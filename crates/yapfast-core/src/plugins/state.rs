@@ -313,12 +313,6 @@ impl PluginState {
         self.bridge.answer_call(plugin, call, answer);
     }
 
-    /// Records that the person just did something, which is what a plugin's
-    /// send without `messages.send.background` needs behind it.
-    pub fn note_gesture(&self) {
-        self.bridge.note_gesture();
-    }
-
     /// Whether an enabled plugin draws under messages, which a visible row
     /// checks before it costs anything.
     pub fn decorates(&self) -> bool {

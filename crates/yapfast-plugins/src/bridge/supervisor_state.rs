@@ -107,6 +107,11 @@ impl Bridge {
             // so this is a manifest that changed under a click.
             return;
         };
+        // A row chosen or a widget used is the person asking this plugin for
+        // something; a notice closed is not.
+        if !matches!(input, crate::Input::Dismissed { .. }) {
+            self.shared.gesture(&plugin);
+        }
         self.send(Request::Input {
             plugin,
             input: event,
@@ -219,6 +224,9 @@ impl Bridge {
     /// shows; a command that doesn't answer within two seconds is reported as
     /// failed rather than left hanging.
     pub fn run_command(&mut self, plugin: &PluginId, invocation: CommandInvocation) {
+        // The person typed this plugin's command, which is the gesture what
+        // it sends in answer stands behind.
+        self.shared.gesture(plugin);
         self.send(Request::Command {
             plugin: plugin.clone(),
             invocation,

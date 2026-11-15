@@ -144,6 +144,34 @@ fn a_send_without_a_gesture_names_the_capability_it_needs() {
 }
 
 #[test]
+fn another_plugins_gesture_is_no_gesture_for_this_one() {
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    let plugin = installed(directory.path(), SENDER_MANIFEST, b"not a real module");
+    let (wake, _notices) = notice_channel();
+    let shared = shared(directory.path(), wake);
+    let (_session_directory, mut session, written, _inbound) = session_stub();
+
+    // The person clicked another plugin's button a moment ago; this one was
+    // asked for nothing.
+    shared.gesture(&PluginId::parse("com.example.other").expect("an id"));
+    let call = HostCall::new(
+        call::method::MESSAGES_SEND,
+        SendMessage {
+            room: "room-1".to_owned(),
+            body: "hi".to_owned(),
+        },
+    )
+    .expect("a call payload");
+    runtime().block_on(async { session.on_call(&shared, 10, plugin, call) });
+
+    let (_, answer) = returned(&next_frame(&written));
+    let HostReturn::Denied { reason } = answer else {
+        panic!("a send behind someone else's gesture is refused: {answer:?}");
+    };
+    assert!(reason.contains("messages.send.background"), "{reason}");
+}
+
+#[test]
 fn a_delete_without_a_gesture_is_held_to_the_send_rails() {
     let directory = tempfile::tempdir().expect("a temporary directory");
     let plugin = installed(directory.path(), SENDER_MANIFEST, b"not a real module");
@@ -185,7 +213,7 @@ fn a_send_the_person_just_acted_for_goes_to_the_application() {
 
     // The person typed a moment ago, which is the gesture a send stands
     // behind.
-    shared.gesture();
+    shared.gesture(&plugin);
     let call = HostCall::new(
         call::method::MESSAGES_SEND,
         SendMessage {
@@ -229,7 +257,7 @@ fn six_sends_in_ten_seconds_are_one_too_many() {
     let (wake, _notices) = notice_channel();
     let shared = shared(directory.path(), wake);
     let (_session_directory, mut session, written, _inbound) = session_stub();
-    shared.gesture();
+    shared.gesture(&plugin);
     for call in 1..=6u64 {
         let request = HostCall::new(
             call::method::MESSAGES_SEND,

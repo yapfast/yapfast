@@ -81,12 +81,6 @@ impl Bridge {
         });
     }
 
-    /// Records that the person just did something: a plugin's send needs one
-    /// behind it unless its manifest asks for `messages.send.background`.
-    pub fn note_gesture(&self) {
-        self.shared.gesture();
-    }
-
     /// One plugin's settings form: the schema its manifest declares, and the
     /// values it holds now.
     ///

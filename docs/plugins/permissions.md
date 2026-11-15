@@ -114,12 +114,13 @@ turn of a window. The refusal says how long to wait, and that is the whole rate
 limit a plugin meets: it never argues with Discord's own buckets, because it
 never talks to Discord.
 
-A send counts as the person's while it follows something they did. Typing in
-the composer, sending, or using something a plugin drew records a gesture, and
-for 30 seconds after that `messages.send` alone covers what a plugin sends.
-Past 30 seconds, or with no gesture at all, the send is the plugin acting on its
-own and needs `messages.send.background`. The gesture is the window's, not one
-plugin's: any enabled plugin may act behind it.
+A send counts as the person's while it follows something they did. A command
+typed in the composer, a menu row chosen or a widget used records that the
+person asked that plugin for something, and for five seconds after that
+`messages.send` alone covers what the plugin sends. Past five seconds, or with no
+gesture at all, the send is the plugin acting on its own and needs
+`messages.send.background`. A gesture is one plugin's: typing a message, or
+using another plugin's button, is no gesture for this one.
 
 ## What each call needs
 

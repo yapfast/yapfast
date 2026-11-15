@@ -46,8 +46,10 @@ pub(crate) struct Shared {
     /// it: the parent never fetches a picture for a plugin, so a build without
     /// it answers `unsupported`.
     pub(super) pictures: Mutex<Option<Arc<dyn crate::media::Pictures>>>,
-    /// When the person last did something a plugin's send can stand behind.
-    pub(super) gesture: Mutex<Option<Instant>>,
+    /// When the person last asked each plugin for something: its command,
+    /// its menu row, a widget it drew. A send, an edit or a navigation stands
+    /// behind that plugin's own gesture and no other's.
+    pub(super) gestures: crate::permissions::Gestures,
     /// When each plugin last sent a message, for the 5-per-10-s the plan puts
     /// on `messages.send`.
     pub(super) sends: Mutex<BTreeMap<PluginId, Vec<Instant>>>,
@@ -97,10 +99,10 @@ impl Shared {
             .store(summary.colours_code, Ordering::Relaxed);
     }
 
-    /// Records that the person just did something, which is what a plugin's
-    /// send needs behind it.
-    pub(super) fn gesture(&self) {
-        *self.gesture.lock().unwrap_or_else(PoisonError::into_inner) = Some(Instant::now());
+    /// Records that the person just asked `plugin` for something, which is
+    /// what its send needs behind it.
+    pub(super) fn gesture(&self, plugin: &PluginId) {
+        self.gestures.record(plugin, Instant::now());
     }
 
     /// Whether `plugin` may send now: five in any ten seconds, as §9.1 caps it.
@@ -118,11 +120,8 @@ impl Shared {
 
     /// Whether a person did something recently enough for a plugin's send to
     /// stand behind it.
-    pub(super) fn has_gesture(&self) -> bool {
-        self.gesture
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .is_some_and(|at| at.elapsed() < GESTURE_WINDOW)
+    pub(super) fn has_gesture(&self, plugin: &PluginId) -> bool {
+        self.gestures.path(plugin, Instant::now()) == crate::permissions::SendPath::Gesture
     }
 
     /// The registry for reading.
