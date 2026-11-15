@@ -170,7 +170,7 @@ impl Application {
             });
             #[cfg(not(feature = "discord"))]
             {
-                let _ = room;
+                let _ = (room, guild);
                 true
             }
         };

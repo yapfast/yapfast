@@ -365,7 +365,7 @@ export component SettingsCard inherits Rectangle {
 export component SettingsScreen inherits Rectangle {
     /// The section showing: 0 account, 1 voice and video, 2 messages,
     /// 3 notifications, 4 Discord, 5 sounds, 6 advanced, 7 appearance,
-    /// 8 game activity.
+    /// 8 game activity, 9 about, 10 keybinds.
     in-out property <int> settings-section;
     in property <bool> discord-build;
     in property <bool> preview;
@@ -385,6 +385,7 @@ export component SettingsScreen inherits Rectangle {
         { text: @tr("My account"), icon: @image-url("icons/user.svg"), id: 0 },
         { text: @tr("Appearance"), icon: @image-url("icons/palette.svg"), id: 7 },
         { text: @tr("Voice & video"), icon: @image-url("icons/headphones.svg"), id: 1 },
+        { text: @tr("Keybinds"), icon: @image-url("icons/keyboard.svg"), id: 10 },
         { text: @tr("Messages"), icon: @image-url("icons/message-circle.svg"), id: 2 },
         { text: @tr("Notifications"), icon: @image-url("icons/bell.svg"), id: 3 },
         { text: @tr("Sounds"), icon: @image-url("icons/volume-2.svg"), id: 5 },
@@ -398,6 +399,7 @@ export component SettingsScreen inherits Rectangle {
         { text: @tr("My account"), icon: @image-url("icons/user.svg"), id: 0 },
         { text: @tr("Appearance"), icon: @image-url("icons/palette.svg"), id: 7 },
         { text: @tr("Voice & video"), icon: @image-url("icons/headphones.svg"), id: 1 },
+        { text: @tr("Keybinds"), icon: @image-url("icons/keyboard.svg"), id: 10 },
         { text: @tr("Messages"), icon: @image-url("icons/message-circle.svg"), id: 2 },
         { text: @tr("Notifications"), icon: @image-url("icons/bell.svg"), id: 3 },
         { text: @tr("Sounds"), icon: @image-url("icons/volume-2.svg"), id: 5 },
@@ -414,7 +416,7 @@ export component SettingsScreen inherits Rectangle {
                 : root.settings-section == 2 ? @tr("Messages") : root.settings-section == 3 ? @tr("Notifications")
                 : root.settings-section == 4 ? @tr("Discord") : root.settings-section == 5 ? @tr("Sounds")
                 : root.settings-section == 6 ? @tr("Advanced") : root.settings-section == 7 ? @tr("Appearance")
-                : root.settings-section == 9 ? @tr("About") : @tr("Game Activity");
+                : root.settings-section == 9 ? @tr("About") : root.settings-section == 10 ? @tr("Keybinds") : @tr("Game Activity");
             account-name: root.account-name; account-initial: root.account-initial;
             account-tint: root.account-tint; account-picture: root.account-picture;
             with-discord: root.discord-build && !root.preview;
@@ -489,6 +491,103 @@ export component AccountSettings inherits VerticalLayout {
     }
 }
 
+// A keybind's keys and the button that records them: while recording, the
+// keys pressed so far.
+component KeyRecorder inherits HorizontalLayout {
+    in property <string> label;
+    /// The keybind's keys, empty while there are none.
+    in property <string> keys;
+    in property <bool> recording;
+    in property <string> recorded-keys;
+    in property <length> box-width: 200px;
+    callback record(bool);
+    spacing: 8px; alignment: start;
+    Rectangle {
+        width: root.box-width; height: 36px; border-radius: 8px; background: Theme.sunken;
+        border-width: root.recording ? 2px : 0px; border-color: Theme.accent;
+        accessible-role: text;
+        accessible-label: root.label;
+        accessible-value: root.recording ? root.recorded-keys : root.keys != "" ? root.keys : @tr("No keybind set");
+        Text {
+            x: 12px; width: parent.width - 24px; overflow: elide; font-size: 14px;
+            text: root.recording ? (root.recorded-keys != "" ? root.recorded-keys : @tr("Press a key..."))
+                : root.keys != "" ? root.keys : @tr("No keybind set");
+            color: root.keys != "" && !root.recording ? Theme.text : Theme.muted;
+            font-weight: root.keys != "" && !root.recording ? 600 : 400;
+        }
+    }
+    ActionButton {
+        text: root.recording ? @tr("Stop recording") : root.keys == "" ? @tr("Record keybind") : @tr("Edit keybind");
+        danger: root.recording;
+        clicked => { root.record(!root.recording); }
+    }
+}
+
+/// A keybind on the Keybinds page: its action's place in the page's list,
+/// its keys' name or "", what the action does, and what the desktop did with
+/// it, while the desktop runs keybinds.
+export struct KeybindRow { action: int, keys: string, description: string, desktop: string }
+
+// Settings: keybinds, as Discord's Keybinds page.
+export component KeybindSettings inherits VerticalLayout {
+    in property <[KeybindRow]> rows;
+    /// Where keybinds work.
+    in property <string> note;
+    /// The row whose keys are being recorded, or -1, and the keys so far.
+    in property <int> recording: -1;
+    in property <string> recorded-keys;
+    callback add;
+    callback remove(int);
+    callback action-chosen(int, int);
+    /// Starts or stops recording a row's keys.
+    callback record(int, bool);
+    spacing: 16px;
+    HorizontalLayout {
+        spacing: 16px;
+        SettingsTitle { text: @tr("Keybinds"); horizontal-stretch: 1; }
+        Middle { ActionButton { text: @tr("Add a Keybind"); clicked => { root.add(); } } }
+    }
+    Label { text: root.note != "" ? root.note : @tr("Keybinds mute, deafen or talk from any app. Add one, choose what it does, and record its keys."); }
+    for row[index] in root.rows: Rectangle {
+        border-radius: 8px; background: Theme.sunken;
+        accessible-role: groupbox; accessible-label: @tr("Keybind {}", index + 1);
+        VerticalLayout {
+            padding: 16px; spacing: 12px;
+            HorizontalLayout {
+                spacing: 12px;
+                VerticalLayout {
+                    // As wide as the longest action, so rows line up.
+                    width: 220px; spacing: 8px; alignment: start;
+                    SettingsHeading { text: @tr("ACTION"); }
+                    Picker {
+                        model: [@tr("Unassigned"), @tr("Push to Talk (Normal)"), @tr("Push to Mute"), @tr("Toggle Mute"), @tr("Toggle Deafen"), @tr("Toggle VAD")];
+                        chosen: row.action; accessible-label: @tr("Action");
+                        selected => { root.action-chosen(index, self.current-index); }
+                    }
+                }
+                VerticalLayout {
+                    spacing: 8px; horizontal-stretch: 1; alignment: start;
+                    SettingsHeading { text: @tr("KEYBIND"); }
+                    KeyRecorder {
+                        label: @tr("Keybind"); keys: row.keys; box-width: 180px;
+                        recording: root.recording == index; recorded-keys: root.recorded-keys;
+                        record(on) => { root.record(index, on); }
+                    }
+                }
+                VerticalLayout {
+                    alignment: start;
+                    IconButton {
+                        icon: @image-url("icons/x.svg"); label: "Remove Keybind"; size: 32px; glyph: 16px;
+                        clicked => { root.remove(index); }
+                    }
+                }
+            }
+            Label { text: row.description; }
+            if row.desktop != "": Label { text: row.desktop; }
+        }
+    }
+}
+
 // Settings: the audio devices and camera, and how calls start and sound.
 export component VoiceSettings inherits VerticalLayout {
     in property <[string]> microphones;
@@ -526,10 +625,11 @@ export component VoiceSettings inherits VerticalLayout {
     in property <string> gate-meter-note;
     /// How calls send the microphone: 0 voice activity, 1 push to talk.
     in-out property <int> input-mode;
-    /// The push-to-talk key's name, empty while there's none, and whether
-    /// the next key pressed becomes it.
+    /// The push-to-talk keybind's name, empty while there's none, and
+    /// whether the keys pressed next become it, and those pressed so far.
     in property <string> talk-key;
     in-out property <bool> talk-recording;
+    in property <string> recorded-keys;
     /// How long the microphone keeps sending after the key comes up, in ms.
     in-out property <int> talk-delay: 20;
     /// Where the key works: in every app, or only in Yapfast and why.
@@ -565,7 +665,7 @@ export component VoiceSettings inherits VerticalLayout {
     callback select-camera(int);
     callback refresh-devices;
     callback preferences-changed;
-    /// Starts or stops recording the push-to-talk key.
+    /// Starts or stops recording the push-to-talk keybind.
     callback record-talk-key(bool);
     spacing: 16px;
     SettingsTitle { text: @tr("Voice & video"); }
@@ -750,29 +850,13 @@ export component VoiceSettings inherits VerticalLayout {
     if root.input-mode == 1: VerticalLayout {
         spacing: 8px;
         SettingsHeading { text: @tr("PUSH TO TALK KEYBIND"); }
-        HorizontalLayout {
-            spacing: 8px; alignment: start;
-            Rectangle {
-                width: 200px; height: 36px; border-radius: 8px; background: Theme.sunken;
-                border-width: root.talk-recording ? 2px : 0px; border-color: Theme.accent;
-                accessible-role: text;
-                accessible-label: @tr("Push to talk keybind");
-                accessible-value: root.talk-key != "" ? root.talk-key : @tr("No keybind set");
-                Text {
-                    x: 12px; width: parent.width - 24px; overflow: elide; font-size: 14px;
-                    text: root.talk-recording ? @tr("Press a key...") : root.talk-key != "" ? root.talk-key : @tr("No keybind set");
-                    color: root.talk-key != "" && !root.talk-recording ? Theme.text : Theme.muted;
-                    font-weight: root.talk-key != "" && !root.talk-recording ? 600 : 400;
-                }
-            }
-            ActionButton {
-                text: root.talk-recording ? @tr("Stop recording") : root.talk-key == "" ? @tr("Record keybind") : @tr("Edit keybind");
-                danger: root.talk-recording;
-                clicked => { root.record-talk-key(!root.talk-recording); }
-            }
+        KeyRecorder {
+            label: @tr("Push to talk keybind"); keys: root.talk-key;
+            recording: root.talk-recording; recorded-keys: root.recorded-keys;
+            record(on) => { root.record-talk-key(on); }
         }
         Label {
-            text: root.talk-recording ? @tr("Press the key to hold while you talk. Escape stops without changing it.")
+            text: root.talk-recording ? @tr("Press the keys to hold while you talk, then let go. Escape stops without changing it.")
                 : root.talk-key == "" ? @tr("Push to talk is on, but no keybind is set, so your microphone sends nothing.")
                 : root.talk-note;
         }

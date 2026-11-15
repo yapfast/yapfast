@@ -703,6 +703,69 @@ fn escape_in_the_composer_cancels_a_reply_and_keeps_the_draft() {
 }
 
 #[test]
+fn enter_and_escape_save_and_cancel_an_edit_unless_suggestions_show() {
+    use slint::platform::Key;
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = classic_window();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_explore_preview();
+    let own = window.get_messages().iter().find(|row| row.own).unwrap();
+    let body = |window: &YapfastWindow| {
+        window
+            .get_messages()
+            .iter()
+            .find(|row| row.item == own.item)
+            .unwrap()
+            .body
+    };
+    let edit = window.global::<InlineEdit>();
+    let start = || {
+        window.invoke_edit(own.item.clone());
+        settle(&window);
+        assert_eq!(edit.get_item(), own.item);
+    };
+    let typed = |text: &str| {
+        for letter in text.chars() {
+            tap(&window, letter.into());
+        }
+    };
+
+    // Typing reports the cursor to the application, which once took that for
+    // suggestions showing and gave them Enter and Escape.
+    start();
+    typed("?");
+    tap(&window, Key::Escape.into());
+    assert_eq!(edit.get_item(), "", "Escape cancels");
+    assert_eq!(body(&window), own.body);
+
+    start();
+    typed("!");
+    assert!(!edit.get_suggesting());
+    tap(&window, Key::Return.into());
+    assert_eq!(edit.get_item(), "", "Enter saves");
+    assert_eq!(body(&window), format!("{}!", own.body));
+
+    // While emoji show, Escape closes them and leaves the edit open.
+    start();
+    typed(" :smil");
+    assert!(window.get_emoji_suggestions().row_count() > 0);
+    assert!(edit.get_suggesting());
+    tap(&window, Key::Escape.into());
+    assert_eq!(window.get_emoji_suggestions().row_count(), 0);
+    assert!(!edit.get_suggesting());
+    assert_eq!(edit.get_item(), own.item, "the edit stays open");
+    tap(&window, Key::Escape.into());
+    assert_eq!(edit.get_item(), "", "and the next Escape cancels it");
+}
+
+#[test]
 fn an_edit_starts_with_the_cursor_after_the_text_and_escape_and_enter_end_it() {
     use slint::platform::{Key, WindowEvent};
     let window = one_message("Hi there");
@@ -1423,6 +1486,92 @@ fn preferences_set_the_clock_text_size_previews_and_unmuting() {
     // Boost gems show unless turned off.
     assert!(YapfastWindow::new().unwrap().get_boost_gems());
     assert!(Layout::default().boost_gems.unwrap_or(true));
+}
+
+#[test]
+fn keybinds_are_watched_as_settings_say() {
+    let mut layout: Layout = serde_json::from_value(serde_json::json!({
+        "push_to_talk_key": { "scancode": 47, "name": "V", "trigger": "v" },
+        "keybinds": [
+            { "id": 1, "action": "toggle_mute", "keys": {
+                "scancode": 50, "name": "M", "with": [{ "scancode": 29, "name": "Left Ctrl" }]
+            } },
+            { "id": 2, "action": "push_to_talk", "keys": { "scancode": 48, "name": "B" } },
+            { "id": 3, "action": "toggle_deafen" },
+            { "id": 4, "action": "toggle_go_live", "keys": { "scancode": 32, "name": "D" } },
+        ],
+    }))
+    .unwrap();
+    let ids = |layout: &Layout| -> Vec<String> {
+        layout
+            .watched_keybinds()
+            .into_iter()
+            .map(|watched| watched.id)
+            .collect()
+    };
+    // In voice activity push to talk does nothing; a keybind without keys
+    // or an action from a later build isn't watched.
+    assert_eq!(ids(&layout), ["keybind-1"]);
+    assert_eq!(layout.watched_keybinds()[0].keys.name(), "Ctrl + M");
+    layout.input_mode = InputMode::PushToTalk;
+    assert_eq!(ids(&layout), ["push-to-talk", "keybind-1", "keybind-2"]);
+    // Saved again, the action from a later build stays Unassigned rather
+    // than failing the file.
+    let saved = serde_json::to_value(&layout).unwrap();
+    assert_eq!(saved["keybinds"][3]["action"], "unassigned");
+    assert_eq!(saved["keybinds"][0]["keys"]["with"][0]["scancode"], 29);
+    let read: Layout = serde_json::from_value(saved).unwrap();
+    assert_eq!(read.keybinds, layout.keybinds);
+}
+
+#[test]
+fn the_keybinds_page_adds_chooses_and_removes_keybinds() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = classic_window();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    // Keybinds without keys watch nothing, so this test never asks the
+    // desktop for keys.
+    window.invoke_add_keybind();
+    window.invoke_add_keybind();
+    let rows = window.get_keybind_rows();
+    assert_eq!(rows.row_count(), 2);
+    let first = rows.row_data(0).unwrap();
+    assert_eq!(first.action, 0);
+    assert_eq!(first.keys, "");
+    assert!(
+        first
+            .description
+            .starts_with("This action doesn't do anything!")
+    );
+    window.invoke_keybind_action_chosen(0, 4);
+    window.invoke_keybind_action_chosen(1, 99);
+    let row = window.get_keybind_rows().row_data(0).unwrap();
+    assert_eq!(row.action, 4);
+    assert_eq!(
+        row.description,
+        "Toggle your speaker's playback on and off. Also disables your microphone while deafened."
+    );
+    window.invoke_record_keybind(1, true);
+    assert_eq!(window.get_keybind_recording(), 1);
+    window.invoke_record_talk_key(true);
+    assert_eq!(window.get_keybind_recording(), -1, "one recorder at a time");
+    assert!(window.get_talk_recording());
+    window.invoke_record_talk_key(false);
+    window.invoke_remove_keybind(0);
+    window.invoke_remove_keybind(5);
+    let saved = Layout::read(directory.path());
+    assert_eq!(saved.keybinds.len(), 1);
+    assert_eq!(saved.keybinds[0].id, 2, "ids stay with their keybinds");
+    window.invoke_add_keybind();
+    assert_eq!(Layout::read(directory.path()).keybinds[1].id, 3);
+    assert!(adapter.borrow().keybinds.is_none());
 }
 
 #[test]
@@ -2770,6 +2919,133 @@ fn the_animation_clock_draws_again_only_when_a_frame_changes() {
     assert_eq!(registry::revision(), held);
     registry::remove("test-still:1");
     registry::set_playing(false);
+}
+
+#[test]
+fn a_click_on_a_server_tag_opens_its_servers_card() {
+    use slint::platform::{Key, PointerEventButton, WindowEvent};
+    let window = showing(vec![ChatMessage {
+        author: "Bob".into(),
+        body: "hi".into(),
+        tag: Some(yapfast_core::chat::ServerTag {
+            text: "BOB".into(),
+            badge: None,
+            guild: std::num::NonZeroU64::new(10),
+        }),
+        ..Default::default()
+    }]);
+    // The card as the adapter builds it, for an account in the tag's server.
+    let mut state = yapfast_core::application::AppState::default();
+    state.servers.push(Arc::new(yapfast_core::chat::ChatServer {
+        id: "discord:10".into(),
+        name: "Crew".into(),
+        ..Default::default()
+    }));
+    let weak = window.as_weak();
+    window
+        .global::<ServerTags>()
+        .on_open(move |server, text, badge, x, y, width, height| {
+            let window = weak.unwrap();
+            window.invoke_anchor_link(x, y, width, height);
+            let tag = ShownTag {
+                server: server.to_string(),
+                text,
+                badge,
+            };
+            window.set_tag_card(tag_card(&tag, &state));
+            window.set_tag_card_open(true);
+        });
+    let button = PointerEventButton::Left;
+    // The tag follows the author's name, on the line above the message at
+    // the end of the list.
+    'sweep: for y in (560..700).step_by(3) {
+        for x in (360..520).step_by(3) {
+            let position = slint::LogicalPosition::new(x as f32, y as f32);
+            window
+                .window()
+                .dispatch_event(WindowEvent::PointerPressed { position, button });
+            window
+                .window()
+                .dispatch_event(WindowEvent::PointerReleased { position, button });
+            if window.get_tag_card_open() {
+                break 'sweep;
+            }
+        }
+    }
+    assert!(
+        window.get_tag_card_open(),
+        "a click on the tag opens its card"
+    );
+    let card = window.get_tag_card();
+    assert_eq!(card.name, "Crew");
+    assert_eq!(card.tag, "BOB");
+    assert!(card.joined, "Go to Server shows");
+    settle(&window);
+    tap(&window, Key::Escape.into());
+    assert!(!window.get_tag_card_open(), "Escape closes it");
+}
+
+#[test]
+fn a_server_tags_card_fills_in_as_discord_answers() {
+    let mut state = yapfast_core::application::AppState::default();
+    let tag = ShownTag {
+        server: "discord:10".into(),
+        text: "UFO".into(),
+        badge: "https://cdn.discordapp.com/clan-badges/10/abc.png?size=32".into(),
+    };
+    // Before Discord answers, the tag shows alone, its letter in the icon's
+    // place, and the rest loads.
+    let asked = tag_card(&tag, &state);
+    assert_eq!((asked.name.as_str(), asked.initial.as_str()), ("", "U"));
+    assert_eq!(asked.tag, "UFO");
+    assert_eq!(asked.badge, tag.badge);
+    assert_eq!((asked.online.as_str(), asked.note.as_str()), ("", ""));
+    assert!(asked.loading);
+    assert!(!asked.joined, "no way in to a server this account isn't in");
+    let answer = |result| Some(("discord:10".to_owned(), result));
+    state.tag_server = answer(Ok(Some(yapfast_core::chat::TagServer {
+        name: "Aliens".into(),
+        icon: Some("https://cdn.discordapp.com/icons/10/abc.png".into()),
+        description: "We come in peace".into(),
+        members: Some(4644),
+        online: Some(1),
+        // 2026-11-05, as the server's id says.
+        created_ms: 1_793_880_000_000,
+    })));
+    let answered = tag_card(&tag, &state);
+    assert_eq!(answered.name, "Aliens");
+    assert_eq!(answered.initial, "A");
+    assert_eq!(
+        answered.picture_url,
+        "https://cdn.discordapp.com/icons/10/abc.png"
+    );
+    assert_eq!(answered.online, "1 Online");
+    assert_eq!(
+        answered.members, "4,644 Members",
+        "grouped as Discord writes it"
+    );
+    assert!(answered.established.starts_with("Est. "));
+    assert!(answered.established.ends_with(" 2026"));
+    assert_eq!(answered.description, "We come in peace");
+    assert!(!answered.loading && !answered.joined);
+    // Another server's answer isn't this card's.
+    state.tag_server = Some(("discord:11".into(), Ok(None)));
+    assert!(tag_card(&tag, &state).loading);
+    // A server that shows its profile only to its members says so, as
+    // Discord's client does; one that failed to load offers to try again.
+    state.tag_server = answer(Ok(None));
+    let limited = tag_card(&tag, &state);
+    assert_eq!(limited.name, "Private Server");
+    assert_eq!(
+        limited.note,
+        "The server has limited who can see this profile."
+    );
+    assert!(limited.limited && !limited.failed);
+    state.tag_server = answer(Err("Discord is out of reach".into()));
+    let failed = tag_card(&tag, &state);
+    assert_eq!(failed.name, "Unknown Server");
+    assert_eq!(failed.note, "Unable to load server profile");
+    assert!(failed.failed && !failed.limited);
 }
 
 #[test]
@@ -6252,6 +6528,98 @@ fn friends_in_a_servers_voice_channel_show_where() {
             ("ann", "lounge", "lounge", "Alpha"),
             ("bob", "lounge", "lounge", "Alpha"),
         ]
+    );
+}
+
+#[test]
+fn a_voice_channels_chat_marks_its_server_only_by_mentions() {
+    use yapfast_core::chat::{ChatRoom, ChatServer, Reacts};
+    let room = |id: &str, voice: bool, unread: u64, mentions: u64| ChatRoom {
+        id: id.into(),
+        network: Network::Discord,
+        capabilities: Network::Discord.capabilities(),
+        name: id.into(),
+        direct: false,
+        voice,
+        encrypted: false,
+        members: 0,
+        unread,
+        mentions,
+        muted: false,
+        last_read: None,
+        locked: false,
+        join_locked: false,
+        read_only: false,
+        reacts: Reacts::Any,
+        slowed: false,
+        timed_out_until: None,
+        category: String::new(),
+        category_id: None,
+        request: false,
+        person: None,
+        people: Vec::new(),
+        ringing: Vec::new(),
+        incoming: false,
+        avatar: None,
+        decoration: None,
+        nameplate: None,
+        style: None,
+        upload_limit: 0,
+        presence: None,
+        activity: None,
+        activities: Default::default(),
+        parent: None,
+        forum: false,
+        mark: Default::default(),
+        unlisted: false,
+        tag: None,
+        official: false,
+        empty: false,
+        preview: None,
+        voice_started: None,
+    };
+    let unread_server = |rooms: Vec<ChatRoom>, discord: bool| {
+        let mut state = AppState::default();
+        state.rooms = rooms.into_iter().map(Arc::new).collect();
+        state.servers = vec![Arc::new(ChatServer {
+            id: "Alpha".into(),
+            name: "Alpha".into(),
+            channels: state.rooms.iter().map(|room| room.id.clone()).collect(),
+            discord,
+            ..Default::default()
+        })];
+        let rooms_by_id = state
+            .rooms
+            .iter()
+            .map(|room| (room.id.as_str(), &**room))
+            .collect();
+        let row = refresh::rail_rows(&state, &rooms_by_id, &Default::default()).remove(0);
+        (row.unread, row.badge.to_string())
+    };
+    assert_eq!(
+        unread_server(
+            vec![room("lounge", true, 3, 0), room("general", false, 0, 0)],
+            true
+        ),
+        (false, String::new()),
+        "Discord's client leaves a server read for its voice channels' chat"
+    );
+    assert_eq!(
+        unread_server(vec![room("lounge", true, 3, 1)], true),
+        (true, "1".into()),
+        "a mention there still counts"
+    );
+    assert_eq!(
+        unread_server(
+            vec![room("lounge", true, 3, 0), room("general", false, 1, 0)],
+            true
+        ),
+        (true, String::new())
+    );
+    assert_eq!(
+        unread_server(vec![room("lounge", true, 3, 0)], false),
+        (true, String::new()),
+        "a Matrix space's call room stays as it was"
     );
 }
 
@@ -11164,6 +11532,7 @@ fn the_mouse_side_buttons_go_back_and_forward() {
     }
 }
 
+#[cfg(feature = "discord")]
 #[test]
 fn a_profiles_more_menu_blocks_from_the_profile() {
     i_slint_backend_testing::init_no_event_loop();

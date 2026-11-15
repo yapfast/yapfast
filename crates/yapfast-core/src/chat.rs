@@ -2,7 +2,7 @@
 //! Matrix and Discord are Cargo features, so a build carries either or both.
 //! Each network runs in its own module beside this one: `matrix_chat` and
 //! `discord_text`. This module routes the UI's commands to them.
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, num::NonZeroU64, path::PathBuf, sync::Arc};
 
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
@@ -728,6 +728,9 @@ pub struct ServerTag {
     pub text: Arc<str>,
     /// The address of the badge's picture; see [`DiscordCommand::Pictures`].
     pub badge: Option<Arc<str>>,
+    /// The Discord server it's from, by its guild id, whose card it opens;
+    /// none when that isn't known.
+    pub guild: Option<NonZeroU64>,
 }
 
 /// A nameplate someone equips from Discord's shop: a strip of picture behind
@@ -2541,6 +2544,27 @@ pub struct ServerPreview {
     pub discoverable: bool,
 }
 
+/// What a server tag's card shows of the server it's from, as `GET
+/// /guilds/{guild.id}/profile` answers.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TagServer {
+    pub name: String,
+    /// The address of its icon, when it has one.
+    pub icon: Option<String>,
+    /// What it says of itself; empty without it.
+    pub description: String,
+    /// How many members it has, and how many are online, when Discord
+    /// counts them.
+    pub members: Option<u64>,
+    pub online: Option<u64>,
+    /// When it was made, from its id, in Unix milliseconds.
+    pub created_ms: u64,
+}
+
+/// What Discord answered for a server tag's card: the server's profile, none
+/// for a server that shows it only to its members, or why it failed.
+pub type TagServerAnswer = Result<Option<TagServer>, String>;
+
 /// A Discord server joined by an invite.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct JoinedServer {
@@ -3312,6 +3336,11 @@ pub enum DiscordCommand {
     /// its members are online, and whether Discover lists it.
     /// [`Event::ServerPreview`] follows.
     ServerPreview {
+        server: String,
+    },
+    /// The profile of the server a server tag is from, for the tag's card.
+    /// [`Event::TagServer`] follows.
+    TagServer {
         server: String,
     },
     /// What Stickers asks of Discord; [`Event::StickersChanged`] follows.
@@ -4440,6 +4469,12 @@ pub enum Event {
     ServerPreview {
         server: String,
         result: Result<ServerPreview, String>,
+    },
+    /// What a server tag's card shows of the server it's from, as
+    /// [`DiscordCommand::TagServer`] asked.
+    TagServer {
+        server: String,
+        result: TagServerAnswer,
     },
     /// Whether what Emoji asked of Discord went, uploading or not, and the
     /// server's emoji after it, when Discord sent them.

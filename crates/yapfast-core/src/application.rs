@@ -626,6 +626,9 @@ pub struct AppState {
     /// by server id, once Discord answered for it: how many of its members are
     /// online, and whether Discover lists it.
     pub server_previews: HashMap<String, chat::ServerPreview>,
+    /// What Discord last answered for a server tag's card, by the id of the
+    /// server it asked about; the card shows it while it's for its server.
+    pub tag_server: Option<(String, chat::TagServerAnswer)>,
     /// Who else is typing, by room.
     pub typing: HashMap<String, Vec<String>>,
     /// The `@` or `#` word being typed in the composer, if any: its sigil and
@@ -2337,6 +2340,10 @@ pub enum Action {
     /// opens: how many of its members are online, and whether Discover lists
     /// it. Nothing is asked twice for the same server.
     PreviewServer(String),
+    /// A server tag's card opened, by the id of the server the tag is from:
+    /// ask Discord for the server's profile, which it gives again from what
+    /// it fetched in the last few minutes.
+    OpenServerTag(String),
     /// Show the profile of the other person in a one-to-one DM, large.
     ShowDmProfile(String),
     /// Show the profile of a friend a profile lists as mutual, by Discord
@@ -2445,6 +2452,7 @@ pub struct Application {
     #[cfg(feature = "discord")]
     emoji_cache_current: bool,
     /// The server icons fetched ahead, so each is fetched once.
+    #[cfg(feature = "discord")]
     server_icons_prefetched: HashSet<String>,
     /// Names searched for in the selected room, lowercased.
     searched: HashSet<String>,
@@ -4064,6 +4072,7 @@ impl Application {
             Action::ShowProfile { user, large } => self.show_profile(user, large),
             Action::ShowDmProfile(id) => self.show_dm_profile(id),
             Action::PreviewServer(server) => self.preview_server(server),
+            Action::OpenServerTag(server) => self.open_server_tag(server),
             Action::ShowFriendProfile { user, large } => self.show_friend_profile(user, large),
             Action::EnlargeProfile => {
                 if let Some(view) = &mut self.state.profile {
@@ -4471,6 +4480,7 @@ impl Application {
             } => self.invite_revoked(server, code, result),
             Event::ServerPaused { server, result } => self.server_paused(server, result),
             Event::ServerPreview { server, result } => self.show_server_preview(server, result),
+            Event::TagServer { server, result } => self.show_tag_server(server, result),
             Event::EmojisChanged {
                 server,
                 upload,

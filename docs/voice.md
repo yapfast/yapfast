@@ -334,7 +334,7 @@ degraded connection. A joining request has a 35-second deadline. Leave cancels
 a pending join immediately and waits up to ten seconds for membership cleanup;
 normal leaving has the same cleanup deadline. Crash membership expiry uses a
 five-minute sticky lifetime. Ringing DM/group calls and screen sharing are
-later slices. Push-to-talk works as in
+later slices. Push-to-talk and the other [keybinds](keybinds.md) work as in
 Discord calls; see [Discord's microphone](discord/voice.md#push-to-talk). A call goes
 on with the window closed to the [tray](tray.md), whose menu can disconnect it.
 

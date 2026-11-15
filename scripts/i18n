@@ -146,8 +146,8 @@ def slint_texts(path):
 LITERAL = r'"((?:[^"\\]|\\.)*)"'
 RUST_CALLS = [
     # (regex, groups -> (context, text, plural))
-    (re.compile(r"\btr\(\s*" + LITERAL + r"\s*\)"), lambda m: (None, m[1], None)),
-    (re.compile(r"\btr_in\(\s*[^,()]+(?:\([^()]*\))?\s*,\s*" + LITERAL + r"\s*\)"), lambda m: (None, m[1], None)),
+    (re.compile(r"\btr\(\s*" + LITERAL + r"\s*,?\s*\)"), lambda m: (None, m[1], None)),
+    (re.compile(r"\btr_in\(\s*[^,()]+(?:\([^()]*\))?\s*,\s*" + LITERAL + r"\s*,?\s*\)"), lambda m: (None, m[1], None)),
     (re.compile(r"\btrn\(\s*" + LITERAL + r"\s*,\s*" + LITERAL), lambda m: (None, m[1], m[2])),
     (re.compile(r"\btrn_in\(\s*[^,()]+(?:\([^()]*\))?\s*,\s*" + LITERAL + r"\s*,\s*" + LITERAL), lambda m: (None, m[1], m[2])),
     (re.compile(r"\btr_ctx\(\s*" + LITERAL + r"\s*,\s*" + LITERAL + r"\s*\)"), lambda m: (m[1], m[2], None)),

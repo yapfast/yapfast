@@ -405,6 +405,14 @@ msgstr "Compte"
 msgid "Acknowledge the transfer"
 msgstr "Confirmer le transfert"
 
+#: ui/settings.slint
+msgid "ACTION"
+msgstr "ACTION"
+
+#: ui/settings.slint
+msgid "Action"
+msgstr "Action"
+
 #: ui/server_people.slint
 msgid "ACTIVE INVITE LINKS"
 msgstr "LIENS D'INVITATION ACTIFS"
@@ -432,6 +440,10 @@ msgstr "Ajouter"
 #: ui/friends.slint ui/yapfast/dm-heading.slint ui/yapfast.slint
 msgid "Add a friend"
 msgstr "Ajouter un ami"
+
+#: ui/settings.slint
+msgid "Add a Keybind"
+msgstr "Ajouter un raccourci"
 
 #: ui/server.slint
 msgid "Add a note"
@@ -725,9 +737,13 @@ msgstr "Voulez-vous vraiment partir ?"
 msgid "Are you sure you want to leave {0}? You won't be able to rejoin this {1} unless you are re-invited."
 msgstr "Voulez-vous vraiment quitter {0} ? Vous ne pourrez pas rejoindre ce {1} sans une nouvelle invitation."
 
-#: src/push_to_talk.rs
+#: src/keybinds.rs
 msgid "Asking your desktop to let Yapfast use the key in every app..."
 msgstr "Demande à votre bureau d'autoriser Yapfast à utiliser la touche dans toutes les applications..."
+
+#: src/keybinds.rs
+msgid "Asking your desktop to let Yapfast use these keybinds in every app..."
+msgstr "Votre bureau est invité à autoriser Yapfast à utiliser ces raccourcis dans toutes les applications..."
 
 #: ui/forum.slint ui/thread.slint ui/yapfast.slint src/ui/callbacks.rs
 msgid "Attach files"
@@ -832,6 +848,10 @@ msgstr "Message bloqué."
 #: src/ui/messages.rs
 msgid "Blocked user"
 msgstr "Utilisateur bloqué"
+
+#: src/ui/refresh.rs
+msgid "Blocking {} also removes them as a friend. Their messages show collapsed, and they can't message you."
+msgstr "Bloquer {} le retire aussi de vos amis. Ses messages s'affichent réduits, et il ne peut pas vous écrire."
 
 #: ui/people.slint ui/server.slint
 msgid "Board"
@@ -2269,9 +2289,17 @@ msgstr "Masquer les styles"
 msgid "Higher quality"
 msgstr "Qualité supérieure"
 
-#: src/push_to_talk.rs
+#: src/keybinds.rs
 msgid "Hold the key in any app to talk."
 msgstr "Maintenez la touche enfoncée dans n'importe quelle application pour parler."
+
+#: src/keybinds.rs
+msgid "Hold to temporarily disable your microphone while in Voice Activity mode."
+msgstr "Maintenez pour désactiver temporairement votre micro en mode Activité vocale."
+
+#: src/keybinds.rs
+msgid "Hold to temporarily enable your microphone while in Push to Talk mode."
+msgstr "Maintenez pour activer temporairement votre micro en mode Appuyer pour parler."
 
 #: ui/sign-in.slint
 msgid "HOMESERVER"
@@ -2288,6 +2316,10 @@ msgstr "Combien de temps votre micro continue d'émettre après que vous avez re
 #: ui/settings.slint
 msgid "How loud soundboard sounds play in Discord calls, yours and everyone else's. Discord keeps it for all your devices."
 msgstr "Le volume des sons de la table de mixage dans les appels Discord, les vôtres et ceux des autres. Discord le conserve pour tous vos appareils."
+
+#: src/ui/server_settings.rs
+msgid "I acknowledge that by transferring ownership of this server to {}, it officially belongs to them."
+msgstr "Je reconnais qu'en transférant la propriété de ce serveur à {}, il lui appartient officiellement."
 
 #: ui/server_settings.slint
 msgid "ICON"
@@ -2584,6 +2616,30 @@ msgstr "Conserver les permissions actuelles"
 #: ui/settings.slint
 msgid "Keeps your voice steady as you lean towards the microphone or away from it. Whispers and shouts still come through as they are."
 msgstr "Garde votre voix stable quand vous vous penchez vers le micro ou vous en éloignez. Les chuchotements et les cris passent toujours tels quels."
+
+#: ui/settings.slint
+msgid "KEYBIND"
+msgstr "RACCOURCI"
+
+#: ui/settings.slint
+msgid "Keybind"
+msgstr "Raccourci"
+
+#: ui/settings.slint
+msgid "Keybind {}"
+msgstr "Raccourci {}"
+
+#: ui/settings.slint ui/yapfast/settings-nav.slint
+msgid "Keybinds"
+msgstr "Raccourcis clavier"
+
+#: ui/settings.slint
+msgid "Keybinds mute, deafen or talk from any app. Add one, choose what it does, and record its keys."
+msgstr "Les raccourcis coupent le micro, activent la sourdine casque ou permettent de parler depuis n'importe quelle application. Ajoutez-en un, choisissez son action et enregistrez ses touches."
+
+#: src/keybinds.rs
+msgid "Keybinds work in any app."
+msgstr "Les raccourcis fonctionnent dans toutes les applications."
 
 #: ui/voice.slint
 msgid "Keyframes viewers asked for:"
@@ -3014,6 +3070,10 @@ msgid "Messages"
 msgstr "Messages"
 
 #: src/ui/server_settings.rs
+msgid "Messages from server members without a role will be filtered for sensitive image-based media."
+msgstr "Les messages des membres du serveur sans rôle seront filtrés pour détecter les contenus visuels sensibles."
+
+#: src/ui/server_settings.rs
 msgid "Messages will not be filtered for sensitive image-based media."
 msgstr "Les messages ne seront pas filtrés pour les contenus d'images sensibles."
 
@@ -3044,6 +3104,10 @@ msgstr "Réduire"
 #: src/ui/refresh.rs
 msgid "MODERATORS"
 msgstr "MODÉRATEURS"
+
+#: src/ui/server_settings.rs
+msgid "Moderators must have two-factor authentication enabled to ban, kick, or timeout members and delete messages."
+msgstr "Les modérateurs doivent avoir activé l'authentification à deux facteurs pour bannir, expulser ou mettre en sourdine des membres et supprimer des messages."
 
 #: ui/server.slint
 msgid "Modern"
@@ -3954,8 +4018,8 @@ msgid "Press Enter to run /{}"
 msgstr "Appuyez sur Entrée pour exécuter /{}"
 
 #: ui/settings.slint
-msgid "Press the key to hold while you talk. Escape stops without changing it."
-msgstr "Appuyez sur la touche à maintenir pendant que vous parlez. Échap arrête sans la changer."
+msgid "Press the keys to hold while you talk, then let go. Escape stops without changing it."
+msgstr "Appuyez sur les touches à maintenir pendant que vous parlez, puis relâchez. Échap arrête sans rien changer."
 
 #: ui/channel_settings.slint
 msgid "Pretty sure you don't want to do this"
@@ -4033,9 +4097,17 @@ msgstr "Pronoms"
 msgid "Pronouns can be up to {} characters."
 msgstr "Les pronoms peuvent comporter jusqu'à {} caractères."
 
+#: ui/settings.slint src/keybinds.rs
+msgid "Push to Mute"
+msgstr "Appuyer pour couper le micro"
+
 #: ui/settings.slint
 msgid "Push to talk"
 msgstr "Appuyer pour parler"
+
+#: ui/settings.slint src/keybinds.rs
+msgid "Push to Talk (Normal)"
+msgstr "Appuyer pour parler (normal)"
 
 #: ui/settings.slint
 msgid "Push to talk is on, but no keybind is set, so your microphone sends nothing."
@@ -4316,6 +4388,10 @@ msgstr "Émoji de l'icône du rôle"
 #: src/ui/server_settings.rs
 msgid "Role is locked because it is a higher rank than your highest role."
 msgstr "Le rôle est verrouillé car son rang est supérieur à celui de votre rôle le plus élevé."
+
+#: src/ui/server_settings.rs
+msgid "Role is locked because it is your highest ranked role. Please ask a higher rank or Server Owner for help."
+msgstr "Le rôle est verrouillé, car c'est votre rôle le plus élevé. Demandez de l'aide à un rang supérieur ou au propriétaire du serveur."
 
 #: ui/roles.slint
 msgid "ROLE NAME"
@@ -5381,6 +5457,10 @@ msgstr "Ils arriveront dans {}."
 msgid "Thinking co-op after nine, if people are up for it."
 msgstr "Je pense à du coop après neuf heures, si ça vous dit."
 
+#: src/keybinds.rs
+msgid "This action doesn't do anything! Please choose one from the drop down."
+msgstr "Cette action ne fait rien ! Choisissez-en une dans la liste déroulante."
+
 #: src/ui/refresh.rs
 msgid "This channel doesn't have any pinned messages yet."
 msgstr "Ce salon n'a pas encore de message épinglé."
@@ -5408,6 +5488,10 @@ msgstr "Cet évènement est en cours."
 #: ui/interactions.slint
 msgid "This form has a part Yapfast can't fill yet. Use it in Discord."
 msgstr "Ce formulaire comporte une partie que Yapfast ne sait pas encore remplir. Utilisez-le dans Discord."
+
+#: src/ui/refresh.rs
+msgid "This gift can only be redeemed in Discord. Open it in the browser to redeem it there."
+msgstr "Ce cadeau ne peut être utilisé que dans Discord. Ouvrez-le dans le navigateur pour l'utiliser là-bas."
 
 #: src/ui/refresh.rs
 msgid "This gift has already been redeemed."
@@ -5545,6 +5629,30 @@ msgstr "Aujourd'hui"
 msgid "Today at {time}"
 msgstr "Aujourd'hui à {time}"
 
+#: ui/settings.slint src/keybinds.rs
+msgid "Toggle Deafen"
+msgstr "Activer/désactiver la sourdine casque"
+
+#: ui/settings.slint src/keybinds.rs
+msgid "Toggle Mute"
+msgstr "Activer/désactiver la coupure du micro"
+
+#: src/keybinds.rs
+msgid "Toggle to switch between Push To Talk and Voice Activity mode."
+msgstr "Basculer entre les modes Appuyer pour parler et Activité vocale."
+
+#: ui/settings.slint src/keybinds.rs
+msgid "Toggle VAD"
+msgstr "Activer/désactiver l'activité vocale"
+
+#: src/keybinds.rs
+msgid "Toggle your microphone's transmission on and off."
+msgstr "Active ou désactive l'envoi de votre micro."
+
+#: src/keybinds.rs
+msgid "Toggle your speaker's playback on and off. Also disables your microphone while deafened."
+msgstr "Active ou désactive la lecture de vos haut-parleurs. Désactive aussi votre micro tant que vous êtes en sourdine casque."
+
 #: ui/discord.slint
 msgid "TOKEN"
 msgstr "JETON"
@@ -5633,6 +5741,10 @@ msgstr "Saisissez le nom d'un ami"
 msgid "Type your answer"
 msgstr "Saisissez votre réponse"
 
+#: ui/settings.slint src/keybinds.rs
+msgid "Unassigned"
+msgstr "Non attribué"
+
 #: ui/settings.slint
 msgid "Unblock"
 msgstr "Débloquer"
@@ -5661,7 +5773,7 @@ msgstr "Ne plus suivre la catégorie de salons"
 msgid "Unknown"
 msgstr "Inconnu"
 
-#: src/push_to_talk.rs
+#: src/keybinds.rs
 msgid "Unknown key"
 msgstr "Touche inconnue"
 
@@ -5720,6 +5832,10 @@ msgstr "Non lus"
 #: src/ui/menus.rs
 msgid "Until I turn it back on"
 msgstr "Jusqu'à ce que je le réactive"
+
+#: src/ui/refresh.rs
+msgid "Until it ends, {} can read the server but can't send messages, react, or join voice. The reason goes in the server's audit log."
+msgstr "Jusqu'à la fin de la sanction, {} peut lire le serveur, mais ne peut ni envoyer de messages, ni réagir, ni rejoindre un salon vocal. La raison figure dans le journal d'audit du serveur."
 
 #: ui/server_expressions.slint
 msgid "Update"
@@ -6101,6 +6217,14 @@ msgstr "Yapfast ne peut pas lire ce micro. Vérifiez qu'il est branché, ou choi
 msgid "Yapfast can't show this part of the message yet."
 msgstr "Yapfast ne peut pas encore afficher cette partie du message."
 
+#: src/keybinds.rs
+msgid "Yapfast can't watch keys in other apps on this system yet"
+msgstr "Yapfast ne peut pas encore surveiller les touches dans les autres applications sur ce système"
+
+#: src/keybinds.rs
+msgid "Yapfast couldn't watch keys in other apps"
+msgstr "Yapfast n'a pas pu surveiller les touches dans les autres applications"
+
 #: src/ui/refresh.rs
 msgid "Yapfast hasn't seen anyone with this role yet."
 msgstr "Yapfast n'a encore vu personne avec ce rôle."
@@ -6109,7 +6233,7 @@ msgstr "Yapfast n'a encore vu personne avec ce rôle."
 msgid "Yapfast looks for games among the programs running, and on Linux takes the Rich Presence games send. Your Discord account keeps this setting, so it's the same in Discord's apps."
 msgstr "Yapfast cherche des jeux parmi les programmes en cours d'exécution et, sous Linux, prend en compte la Rich Presence envoyée par les jeux. Votre compte Discord conserve ce réglage, il est donc identique dans les applications Discord."
 
-#: src/push_to_talk.rs
+#: src/keybinds.rs
 msgid "Yapfast lost the X server's keys"
 msgstr "Yapfast a perdu les touches du serveur X"
 
@@ -6192,6 +6316,10 @@ msgstr "Vous ne gérez aucun serveur auquel il peut être ajouté."
 #: ui/moderation.slint
 msgid "You haven't banned anybody...\nbut if and when you must, do not hesitate!"
 msgstr "Vous n'avez banni personne...\nmais si vous devez le faire, n'hésitez pas !"
+
+#: src/ui/refresh.rs
+msgid "You joined. This server asks new members to fill in a form before they can talk, which Yapfast can't show yet. Finish it in Discord's web app."
+msgstr "Vous avez rejoint le serveur. Il demande aux nouveaux membres de remplir un formulaire avant de pouvoir parler, ce que Yapfast ne peut pas encore afficher. Terminez-le dans l'application web de Discord."
 
 #: ui/voice.slint
 msgid "You may notice delayed audio at 250 ms or higher. If the problem persists, disconnect and try again.{}"
@@ -6281,17 +6409,33 @@ msgstr "Votre caméra"
 msgid "Your camera is off."
 msgstr "Votre caméra est désactivée."
 
+#: src/keybinds.rs
+msgid "Your desktop doesn't offer Yapfast global shortcuts"
+msgstr "Votre bureau ne propose pas de raccourcis globaux à Yapfast"
+
 #: ui/settings.slint
 msgid "Your desktop draws the window's title bar and buttons, as on its other windows. Off, Yapfast draws its own."
 msgstr "Votre bureau dessine la barre de titre et les boutons de la fenêtre, comme pour ses autres fenêtres. Désactivé, Yapfast dessine les siens."
 
-#: src/push_to_talk.rs
+#: src/keybinds.rs
+msgid "Your desktop gave it the shortcut {}."
+msgstr "Votre bureau lui a attribué le raccourci {}."
+
+#: src/keybinds.rs
 msgid "Your desktop gave push to talk the shortcut {}. Hold it in any app to talk; change it in your system's global shortcuts settings."
 msgstr "Votre bureau a donné à Appuyer pour parler le raccourci {}. Maintenez-le enfoncé dans n'importe quelle application pour parler ; modifiez-le dans les paramètres des raccourcis globaux de votre système."
 
-#: src/push_to_talk.rs
+#: src/keybinds.rs
+msgid "Your desktop hasn't allowed it yet."
+msgstr "Votre bureau ne l'a pas encore autorisé."
+
+#: src/keybinds.rs
 msgid "Your desktop hasn't allowed this shortcut yet. Approve it in your system's global shortcuts settings."
 msgstr "Votre bureau n'a pas encore autorisé ce raccourci. Approuvez-le dans les paramètres des raccourcis globaux de votre système."
+
+#: src/keybinds.rs
+msgid "Your desktop runs these keybinds in every app: it may ask you to allow each, or give one other keys. Change them in your system's global shortcuts settings."
+msgstr "Votre bureau exécute ces raccourcis dans toutes les applications : il peut demander d'autoriser chacun ou en attribuer d'autres. Modifiez-les dans les raccourcis globaux de votre système."
 
 #: ui/settings.slint
 msgid "Your Matrix notification rules decide"
@@ -6513,6 +6657,14 @@ msgstr "{} appelle"
 msgid "{} calling you."
 msgstr "{} vous appelle."
 
+#: src/ui/refresh.rs
+msgid "{} can join again with a new invite. The reason goes in the server's audit log."
+msgstr "{} peut rejoindre à nouveau avec une nouvelle invitation. La raison figure dans le journal d'audit du serveur."
+
+#: src/ui/refresh.rs
+msgid "{} can't join again until unbanned. The reason goes in the server's audit log."
+msgstr "{} ne peut pas rejoindre à nouveau tant qu'il n'est pas débanni. La raison figure dans le journal d'audit du serveur."
+
 #: src/ui/appearance.rs
 msgid "{} copy"
 msgstr "Copie de {}"
@@ -6693,7 +6845,11 @@ msgstr "{}, connecté sur un autre client"
 msgid "{}, server menu"
 msgstr "{}, menu du serveur"
 
-#: src/push_to_talk.rs
+#: src/keybinds.rs
+msgid "{}, so keybinds work only while Yapfast's window is in front."
+msgstr "{}, donc les raccourcis ne fonctionnent que lorsque la fenêtre de Yapfast est au premier plan."
+
+#: src/keybinds.rs
 msgid "{}, so push to talk works only while Yapfast's window is in front."
 msgstr "{}, donc Appuyer pour parler ne fonctionne que lorsque la fenêtre de Yapfast est au premier plan."
 

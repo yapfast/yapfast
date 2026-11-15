@@ -234,6 +234,22 @@ pub fn profile_day(seconds: u64) -> String {
     profile_day_in(&Local, seconds)
 }
 
+/// A month as Discord's client writes when a server was made, such as
+/// `Nov 2026`; empty when unknown.
+pub fn month(seconds: u64) -> String {
+    if seconds == 0 {
+        return String::new();
+    }
+    month_in(&Local, seconds)
+}
+
+fn month_in<Tz: TimeZone>(zone: &Tz, seconds: u64) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
+    at(zone, seconds).format("%b %Y").to_string()
+}
+
 fn profile_day_in<Tz: TimeZone>(zone: &Tz, seconds: u64) -> String
 where
     Tz::Offset: std::fmt::Display,
@@ -452,6 +468,8 @@ mod tests {
         let utc = FixedOffset::east_opt(0).unwrap();
         assert_eq!(profile_day_in(&utc, 1_793_880_000), "Nov 5, 2026");
         assert_eq!(profile_day(0), "");
+        assert_eq!(month_in(&utc, 1_793_880_000), "Nov 2026");
+        assert_eq!(month(0), "");
     }
 
     #[test]
