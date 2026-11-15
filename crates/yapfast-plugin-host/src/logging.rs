@@ -46,7 +46,7 @@ pub const RING_LINES: usize = 100;
 pub const MAX_LINE_BYTES: usize = 4 << 10;
 
 /// A line's text, cut to [`MAX_LINE_BYTES`] on a character boundary.
-fn capped(mut message: String) -> String {
+pub(crate) fn capped(mut message: String) -> String {
     const CUT: &str = "…";
     if message.len() <= MAX_LINE_BYTES {
         return message;

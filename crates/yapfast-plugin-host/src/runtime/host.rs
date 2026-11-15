@@ -396,10 +396,13 @@ fn log_record(payload: &serde_json::Value) -> Option<LogRecord> {
         message: String,
     }
     let line: Line = serde_json::from_value(payload.clone()).ok()?;
+    // Capped here, where the frame is built, and not only in the copy the
+    // ring buffer keeps: a line past the frame limit would otherwise be
+    // refused by the pipe.
     Some(LogRecord {
         level: line.level.unwrap_or(LogLevel::Info),
-        target: line.target.unwrap_or_else(|| LOG_METHOD.to_owned()),
-        message: line.message,
+        target: crate::logging::capped(line.target.unwrap_or_else(|| LOG_METHOD.to_owned())),
+        message: crate::logging::capped(line.message),
         at: now_ms(),
     })
 }
@@ -431,6 +434,11 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// The most one host call may carry: it travels to the parent in one frame,
+/// with room left for the envelope, and one that can't fit is refused here
+/// rather than decoded, queued and then dropped by the pipe.
+const MAX_HOST_CALL_BYTES: usize = yapfast_plugin_api::frame::MAX_FRAME - (16 << 10);
+
 /// The host call a guest passed as its one argument.
 ///
 /// The guest hands over its allocation, the way Extism's own kernel functions
@@ -451,6 +459,13 @@ fn read_call(plugin: &mut CurrentPlugin, inputs: &[Val], name: &str) -> Result<H
         })?;
     let call = {
         let bytes = plugin.memory_bytes(handle)?;
+        if bytes.len() > MAX_HOST_CALL_BYTES {
+            let size = bytes.len();
+            plugin.memory_free(handle)?;
+            return Err(Error::msg(format!(
+                "{name} was given {size} bytes, and a host call is at most {MAX_HOST_CALL_BYTES}"
+            )));
+        }
         serde_json::from_slice(bytes)
     };
     plugin.memory_free(handle)?;
