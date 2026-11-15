@@ -919,6 +919,12 @@ fn apply_package(
             fonts.push((*role, font(path)?));
         }
     }
+    let mut ransom = Vec::new();
+    for path in resolved.layout.names.iter().flat_map(|names| &names.fonts) {
+        ransom.push(font(path)?);
+    }
+    // Every font is in before the sounds, icons and cursors change: a font
+    // that can't be had leaves the theme shown as it was, all of it.
     super::theme_media::load(
         &resolved,
         folder,
@@ -926,10 +932,6 @@ fn apply_package(
         checked,
     )?;
     super::theme_cursor::load(&resolved, folder);
-    let mut ransom = Vec::new();
-    for path in resolved.layout.names.iter().flat_map(|names| &names.fonts) {
-        ransom.push(font(path)?);
-    }
     // While a protected dialog is open the theme is kept, not shown: its
     // colours come when the dialog closes.
     let colours = if STATE.with_borrow(|state| state.protected) {

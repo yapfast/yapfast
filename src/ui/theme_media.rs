@@ -285,12 +285,10 @@ pub fn load(
     let mut icons = Vec::new();
     let mut decoded = HashMap::new();
     let mut svgs = HashMap::new();
-    let (old_decoded, old_svgs) = STATE.with_borrow_mut(|state| {
-        (
-            std::mem::take(&mut state.decoded),
-            std::mem::take(&mut state.svgs),
-        )
-    });
+    // Copies of the handles, so a file that fails below leaves the theme's
+    // sounds and icons as they were.
+    let (old_decoded, old_svgs) =
+        STATE.with_borrow(|state| (state.decoded.clone(), state.svgs.clone()));
     let read = |file: &Path| {
         std::fs::read(folder.join(file)).map_err(|error| format!("{}: {error}", file.display()))
     };
