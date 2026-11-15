@@ -236,12 +236,20 @@ fn read_loop(mut input: impl Read, signals: Sender<Signal>) {
 fn write_loop(mut output: impl Write, frames: mpsc::Receiver<Out>) {
     for out in frames {
         match out {
-            Out::Frame(frame) => {
-                if let Err(error) = write_frame(&mut output, &frame) {
+            Out::Frame(frame) => match write_frame(&mut output, &frame) {
+                Ok(()) => {}
+                // An oversized frame is refused before a byte of it is
+                // written, so the stream is still in step: that one message
+                // is lost, not the pipe. Leaving here would mute every plugin
+                // for the rest of the session, and any guest can send one.
+                Err(error) if error.kind() == std::io::ErrorKind::InvalidInput => {
+                    tracing::warn!(%error, "a frame too large for the pipe is dropped");
+                }
+                Err(error) => {
                     tracing::error!(%error, "the pipe to Yapfast broke; the frame is lost");
                     return;
                 }
-            }
+            },
             Out::Stop => return,
         }
     }
@@ -390,5 +398,29 @@ mod tests {
         let report: FromHelper =
             serde_json::from_slice(&frames[0].payload).expect("the payload is a report");
         assert!(matches!(report, FromHelper::EventDone { .. }));
+    }
+}
+
+#[cfg(test)]
+mod oversized {
+    use super::*;
+
+    #[test]
+    fn a_frame_too_large_is_dropped_and_the_pipe_goes_on() {
+        let (frames, queue) = mpsc::channel();
+        let big = yapfast_plugin_api::frame::MAX_FRAME + 1;
+        frames
+            .send(Out::Frame(Frame::new(FrameKind::Reply, 1, vec![b'x'; big])))
+            .unwrap();
+        frames
+            .send(Out::Frame(Frame::new(FrameKind::Reply, 2, b"{}".to_vec())))
+            .unwrap();
+        frames.send(Out::Stop).unwrap();
+        let mut written = Vec::new();
+        write_loop(&mut written, queue);
+        // Only the small frame reached the stream, whole and in step.
+        let frame = read_frame(written.as_slice()).unwrap().expect("one frame");
+        assert_eq!(frame.id, 2);
+        assert_eq!(frame.payload, b"{}");
     }
 }
