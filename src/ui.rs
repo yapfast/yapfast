@@ -341,28 +341,59 @@ fn navigate(
     });
 }
 
+/// The letter key `letter`: that letter in the keyboard's layout, or in a
+/// layout without Latin letters, the key in its place.
+fn is_letter(
+    logical: &slint::winit_030::winit::keyboard::Key,
+    physical: slint::winit_030::winit::keyboard::PhysicalKey,
+    letter: &str,
+    code: slint::winit_030::winit::keyboard::KeyCode,
+) -> bool {
+    use slint::winit_030::winit::keyboard::{Key, PhysicalKey};
+    match logical {
+        Key::Character(text) if text.chars().all(|ch| ch.is_ascii_alphabetic()) => {
+            text.eq_ignore_ascii_case(letter)
+        }
+        _ => physical == PhysicalKey::Code(code),
+    }
+}
+
+/// The letter key `letter`: that letter in the keyboard's layout, or in a
+/// layout without Latin letters, the key in its place.
+fn is_letter_key(
+    key: &slint::winit_030::winit::event::KeyEvent,
+    letter: &str,
+    code: slint::winit_030::winit::keyboard::KeyCode,
+) -> bool {
+    is_letter(&key.logical_key, key.physical_key, letter, code)
+}
+
+/// The K key: the letter K in the keyboard's layout, or in a layout
+/// without Latin letters, the key in its place.
+fn is_k(key: &slint::winit_030::winit::event::KeyEvent) -> bool {
+    use slint::winit_030::winit::keyboard::KeyCode;
+    is_letter_key(key, "k", KeyCode::KeyK)
+}
+
+/// The F key: the letter F in the keyboard's layout, or in a layout
+/// without Latin letters, the key in its place.
+fn is_f(key: &slint::winit_030::winit::event::KeyEvent) -> bool {
+    use slint::winit_030::winit::keyboard::KeyCode;
+    is_letter_key(key, "f", KeyCode::KeyF)
+}
+
 /// Follows the native window's focus, for notifications, zooms the window
 /// with Ctrl and +, - and 0 or the scroll wheel, keeping the level in the
-/// layout, opens the quick switcher with Ctrl+K, and takes files dropped on
-/// it.
+/// layout, opens the quick switcher with Ctrl+K, focuses the search bar
+/// with Ctrl+F, and takes files dropped on it.
 fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
     use slint::winit_030::{
         EventResult,
         winit::{
-            event::{ElementState, KeyEvent, MouseButton, WindowEvent},
-            keyboard::{Key, KeyCode, NamedKey, PhysicalKey},
+            event::{ElementState, MouseButton, WindowEvent},
+            keyboard::{Key, NamedKey},
         },
     };
-    /// The K key: the letter K in the keyboard's layout, or in a layout
-    /// without Latin letters, the key in its place.
-    fn is_k(key: &KeyEvent) -> bool {
-        match &key.logical_key {
-            Key::Character(text) if text.chars().all(|letter| letter.is_ascii_alphabetic()) => {
-                text.eq_ignore_ascii_case("k")
-            }
-            _ => key.physical_key == PhysicalKey::Code(KeyCode::KeyK),
-        }
-    }
     let saved = zoom::saved(adapter.borrow().layout.zoom);
     let adapter = Rc::downgrade(adapter);
     let (to, weak) = (adapter.clone(), window.as_weak());
@@ -626,6 +657,28 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                                 (adapter.upgrade(), weak.upgrade())
                             {
                                 adapter.borrow_mut().action(&window, Action::ToggleSwitcher);
+                            }
+                        });
+                    }
+                    return EventResult::PreventDefault;
+                }
+                // Ctrl+F focuses the conversation search bar, wherever the
+                // focus is, as in Discord; not over the settings or a link
+                // that asks before it opens.
+                if let WindowEvent::KeyboardInput { event: key, .. } = event
+                    && key.state == ElementState::Pressed
+                    && keys.control_only()
+                    && is_f(key)
+                    && let Some(window) = weak.upgrade()
+                    && window.get_workspace()
+                    && !window.get_settings_open()
+                    && window.get_leaving_link().is_empty()
+                {
+                    if !key.repeat {
+                        let weak = weak.clone();
+                        slint::Timer::single_shot(Duration::ZERO, move || {
+                            if let Some(window) = weak.upgrade() {
+                                window.invoke_focus_search();
                             }
                         });
                     }

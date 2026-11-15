@@ -11538,6 +11538,57 @@ fn the_mouse_side_buttons_go_back_and_forward() {
     }
 }
 
+#[test]
+fn f_and_k_keys_are_recognized() {
+    use slint::winit_030::winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
+    let is_f_key = |logical: Key, physical: KeyCode| {
+        is_letter(&logical, PhysicalKey::Code(physical), "f", KeyCode::KeyF)
+    };
+    let is_k_key = |logical: Key, physical: KeyCode| {
+        is_letter(&logical, PhysicalKey::Code(physical), "k", KeyCode::KeyK)
+    };
+    // Logical matches
+    assert!(is_f_key(Key::Character("f".into()), KeyCode::KeyF));
+    assert!(is_f_key(Key::Character("F".into()), KeyCode::KeyF));
+    assert!(is_k_key(Key::Character("k".into()), KeyCode::KeyK));
+    assert!(is_k_key(Key::Character("K".into()), KeyCode::KeyK));
+
+    // Non-Latin layout fallback to physical key
+    assert!(is_f_key(Key::Character("а".into()), KeyCode::KeyF));
+    assert!(is_k_key(Key::Character("л".into()), KeyCode::KeyK));
+
+    // Different keys
+    assert!(!is_f_key(Key::Character("k".into()), KeyCode::KeyK));
+    assert!(!is_k_key(Key::Character("f".into()), KeyCode::KeyF));
+    assert!(!is_f_key(
+        Key::Named(NamedKey::ArrowLeft),
+        KeyCode::ArrowLeft
+    ));
+}
+
+#[test]
+fn focus_search_focuses_when_search_is_available() {
+    i_slint_backend_testing::init_no_event_loop();
+    let window = classic_window();
+    window.set_workspace(true);
+    assert_eq!(window.get_search_focus_tick(), 0);
+
+    // Not available when can_search is false
+    window.set_can_search(false);
+    assert!(!window.invoke_focus_search());
+    assert_eq!(window.get_search_focus_tick(), 0);
+
+    // Available when can_search is true
+    window.set_can_search(true);
+    assert!(window.invoke_focus_search());
+    assert_eq!(window.get_search_focus_tick(), 1);
+
+    // Blocked when covered by settings
+    window.set_settings_open(true);
+    assert!(!window.invoke_focus_search());
+    assert_eq!(window.get_search_focus_tick(), 1);
+}
+
 #[cfg(feature = "discord")]
 #[test]
 fn a_profiles_more_menu_blocks_from_the_profile() {
