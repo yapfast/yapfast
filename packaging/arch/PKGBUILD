@@ -4,7 +4,7 @@
 
 pkgname=yapfast
 # The release to build, by its tag; scripts/set-version keeps it at Cargo.toml's version.
-pkgver=0.3.0
+pkgver=0.4.0
 pkgrel=1
 _id=io.github.yapfast.Yapfast
 # The prebuilt native parts nix/native.nix pins.
