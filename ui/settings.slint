@@ -701,21 +701,22 @@ export component VoiceSettings inherits VerticalLayout {
         spacing: 8px;
         SettingsHeading { text: "MICROPHONE TEST"; }
         HorizontalLayout {
-            spacing: 16px; alignment: start;
+            spacing: 16px; alignment: stretch; horizontal-stretch: 1;
             ActionButton {
                 min-width: 160px; max-width: 160px; horizontal-stretch: 0;
                 text: root.microphone-testing ? "Stop testing" : "Test microphone"; small: true;
                 clicked => { root.microphone-testing = !root.microphone-testing; }
             }
             VerticalLayout {
-                min-width: 0; horizontal-stretch: 1;
+                min-width: 0; preferred-width: 0; horizontal-stretch: 1;
                 spacing: 6px;
                 HorizontalLayout {
-                    height: 24px; spacing: 3px;
+                    height: 24px; spacing: 3px; horizontal-stretch: 1;
                     accessible-role: progress-indicator;
                     accessible-label: "Microphone test input level";
                     accessible-value: round(max(0, min(1, (root.gate-level + 60) / 60)) * 100) + "%";
                     for segment in 48: Rectangle {
+                        horizontal-stretch: 1;
                         border-radius: 2px;
                         background: !root.microphone-testing || (segment + 0.5) / 48 > max(0, min(1, (root.gate-level + 60) / 60))
                             ? Theme.line : segment >= 40 ? Theme.danger : Theme.accent;
