@@ -506,7 +506,6 @@ impl App {
         .spacing(8)
         .padding(16);
         let ground = theme.sidebar;
-        // No shadow, as the editor's card: one this large is costly.
         let card = container(column![
             body,
             controls::bar(theme.line, Length::Fill, 1.0),
@@ -515,7 +514,7 @@ impl App {
         .width(width)
         .height(height)
         .clip(true)
-        .style(move |_| rounded(ground, 16));
+        .style(move |_| rounded(ground, 16).shadow(crate::style::window_shadow()));
         let close = self.icon_button(Icon::X, "Close", 32.0, 20, message(Event::Close), true);
         let card = stack![card, placed(close, width - 32.0 - 12.0, 12.0)];
         let dim = Color {

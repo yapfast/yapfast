@@ -425,18 +425,30 @@ impl App {
             bottom: 4.0,
             ..Padding::ZERO
         });
-        // The call this account is in shows who speaks.
+        // The call this account is in shows who speaks, in the call's
+        // order: this account first, as the Slint client lists it.
         let voice = &self.client.state().voice;
         let call = voice.active() && voice.room.as_deref() == Some(room.id.as_str());
-        for person in &room.people {
-            let live = call
-                .then(|| {
-                    voice
-                        .participants
-                        .iter()
-                        .find(|live| live.person == person.id || live.id == person.id)
-                })
-                .flatten();
+        let mut listed: Vec<_> = room
+            .people
+            .iter()
+            .map(|person| {
+                let live = call
+                    .then(|| {
+                        voice
+                            .participants
+                            .iter()
+                            .position(|live| live.person == person.id || live.id == person.id)
+                    })
+                    .flatten();
+                (live, person)
+            })
+            .collect();
+        if call {
+            listed.sort_by_key(|(live, _)| live.unwrap_or(usize::MAX));
+        }
+        for (live, person) in listed {
+            let live = live.map(|place| &voice.participants[place]);
             people = people.push(self.voice_person(&room.id, person, live));
         }
         column![line, people].spacing(GAP).into()

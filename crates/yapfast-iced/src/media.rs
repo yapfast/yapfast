@@ -236,6 +236,8 @@ impl App {
             _ => Rectangle::with_size(size),
         };
         let (width, height) = (at.width as u32, at.height as u32);
+        // A still that fills the whole box and is opaque hides its ground.
+        let mut hidden = false;
         let inner: Element<'_, Message> = match shown {
             Some(picture) if covered => {
                 // Averaged down to a few pixels and drawn large: a blur.
@@ -269,6 +271,7 @@ impl App {
                     .previews
                     .borrow_mut()
                     .get(picture, crate::pictures::shared);
+                hidden = at.size() == size && self.pictures.opaque(picture);
                 Pic::new(handle, size).at(at).radius(radius).into()
             }
             Some(picture) => {
@@ -278,7 +281,10 @@ impl App {
                     height,
                     fit == Fit::Cover,
                 ) {
-                    Some(handle) => Pic::new(handle, size).at(at).radius(radius).into(),
+                    Some(handle) => {
+                        hidden = at.size() == size && self.pictures.opaque(picture);
+                        Pic::new(handle, size).at(at).radius(radius).into()
+                    }
                     None => Space::new().width(size.width).height(size.height).into(),
                 }
             }
@@ -289,7 +295,7 @@ impl App {
             layers = layers.push(self.spoiler_cover(radius));
         }
         let boxed = container(layers).width(size.width).height(size.height);
-        if !ground {
+        if !ground || hidden {
             return boxed.into();
         }
         let raised = self.theme.raised;

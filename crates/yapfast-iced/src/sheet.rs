@@ -377,17 +377,18 @@ pub fn backdrop<'a>(
     margin: f32,
     close: Message,
 ) -> Element<'a, Message> {
-    let edge = theme.edge;
-    // No shadow: over the window dimmed by 70% it hardly shows, and the
-    // renderer works a card this large's out pixel by pixel each time
-    // anything on it is drawn again.
+    let (edge, ground) = (theme.edge, theme.chat);
     // Its parts round their own grounds to its corners; its edge goes over
-    // them.
+    // them. The ground under them is opaque, so its shadow is drawn only
+    // round it.
     let card = container(controls::edged(card, edge, RADIUS))
         .width(Length::Fill)
         .max_width(WIDEST)
         .height(Length::Fill)
-        .clip(true);
+        .clip(true)
+        .style(move |_| {
+            crate::style::rounded(ground, RADIUS).shadow(crate::style::raised_shadow())
+        });
     opaque(stack![
         controls::dimmed(close, DIM),
         container(opaque(card))

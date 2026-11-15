@@ -155,6 +155,9 @@ pub struct Pictures {
     moving: RefCell<HashSet<PlayKey>>,
     /// Copies of pictures at the sizes messages show them at.
     pub fitter: RefCell<Fitter>,
+    /// Whether each picture shown in a box is opaque all over, looked at
+    /// once: one that is hides the box's ground, which isn't drawn then.
+    opaque: RefCell<Converted<bool>>,
 }
 
 impl Pictures {
@@ -167,7 +170,15 @@ impl Pictures {
             playing: Default::default(),
             moving: Default::default(),
             fitter: RefCell::new(fitter),
+            opaque: Default::default(),
         }
+    }
+
+    /// Whether `picture` is opaque all over.
+    pub fn opaque(&self, picture: &Arc<Picture>) -> bool {
+        self.opaque.borrow_mut().get(picture, |picture| {
+            picture.rgba.chunks_exact(4).all(|pixel| pixel[3] == 255)
+        })
     }
 
     /// A view is being built until the guard drops: what it shows is noted
@@ -197,6 +208,7 @@ impl Pictures {
     /// too, and the sizes no picture is drawn at any more.
     pub fn prune(&self) {
         self.previews.borrow_mut().prune(1);
+        self.opaque.borrow_mut().prune(0);
         self.scaled.borrow_mut().retain(|_, converted| {
             converted.prune(0);
             !converted.is_empty()
@@ -206,6 +218,7 @@ impl Pictures {
     /// The window went: every picture made for it goes.
     pub fn forget(&self) {
         *self.previews.borrow_mut() = Default::default();
+        *self.opaque.borrow_mut() = Default::default();
         self.scaled.borrow_mut().clear();
         self.marks.borrow_mut().clear();
         self.emoji.borrow_mut().clear();
@@ -218,6 +231,7 @@ impl Pictures {
     #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.previews.borrow().is_empty()
+            && self.opaque.borrow().is_empty()
             && self.scaled.borrow().is_empty()
             && self.marks.borrow().is_empty()
             && self.emoji.borrow().is_empty()

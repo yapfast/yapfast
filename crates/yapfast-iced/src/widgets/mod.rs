@@ -97,10 +97,11 @@ mod live;
 mod picture;
 mod pointer;
 mod rows;
+mod settle;
 
 pub use self::{
     autoscroll::*, colour::*, cosmetic::*, drag::*, fold::*, layers::*, live::*, picture::*,
-    pointer::*, rows::*,
+    pointer::*, rows::*, settle::*,
 };
 
 // ---------------------------------------------------------------------------

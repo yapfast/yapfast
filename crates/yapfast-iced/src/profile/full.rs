@@ -42,7 +42,7 @@ impl App {
         .width(side_width)
         .height(Length::Fill)
         .clip(true)
-        .style(super::frame_style(inks, self.theme.edge, 12.0, false));
+        .style(super::frame_style(inks, self.theme.edge, 12.0, true));
         let side = mouse_area(self.dressed(shown, Mode::Side, side_width, side.into()))
             .on_enter(Message::Profile(Event::Pointed(true)))
             .on_exit(Message::Profile(Event::Pointed(false)));
@@ -108,7 +108,7 @@ impl App {
         container(row![side, right].spacing(8).padding(8))
             .width(width)
             .height(height)
-            .style(super::frame_style(inks, edge, 8.0, false))
+            .style(super::frame_style(inks, edge, 8.0, true))
             .into()
     }
 

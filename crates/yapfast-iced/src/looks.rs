@@ -36,7 +36,8 @@ pub enum MemberLine {
         text: String,
         icon: Option<Arc<str>>,
     },
-    Member(Box<MemberLook>),
+    /// Shared, so a member who didn't change keeps the look made before.
+    Member(Arc<MemberLook>),
 }
 
 /// A member's row as the Slint client's `MemberRow` has it.
@@ -129,17 +130,88 @@ impl MemberLook {
     }
 }
 
+/// What every member's look in a list is made with besides the member:
+/// a list made with others makes them all again.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LooksMadeWith {
+    pub owner: Option<String>,
+    pub dark: bool,
+    pub cosmetics: yapfast_core::application::Cosmetics,
+    pub hide_nameplates: bool,
+    pub in_server: bool,
+}
+
+impl LooksMadeWith {
+    pub fn of(state: &AppState, owner: Option<String>, dark: bool) -> Self {
+        Self {
+            owner,
+            dark,
+            cosmetics: state.cosmetics,
+            hide_nameplates: state.hide_nameplates,
+            in_server: in_server(state.selected.as_deref()),
+        }
+    }
+}
+
 /// The member list's lines for `members`, with each group's heading.
-/// `owner` is the server owner's id (`Client::server_owner`).
+/// `owner` is the server owner's id (`Client::server_owner`). Each look of
+/// `before` (the members and lines shown, made with the same
+/// [`LooksMadeWith`]) whose member is as it was is kept: under presence
+/// churn most of a list stays.
 pub fn member_lines(
     state: &AppState,
     members: &[ChatMember],
     owner: Option<&str>,
     dark: bool,
+    before: Option<(&[ChatMember], &[MemberLine])>,
 ) -> Vec<MemberLine> {
     let cosmetics = state.cosmetics;
     let in_server = in_server(state.selected.as_deref());
     let now = yapfast_core::clock::now_ms();
+    // The looks before, in their members' order, and where each member was.
+    let (old_members, old_looks): (&[ChatMember], Vec<&Arc<MemberLook>>) = match before {
+        Some((members, lines)) => (
+            members,
+            lines
+                .iter()
+                .filter_map(|line| match line {
+                    MemberLine::Member(look) => Some(look),
+                    MemberLine::Heading { .. } => None,
+                })
+                .collect(),
+        ),
+        None => (&[], Vec::new()),
+    };
+    let old_members = if old_looks.len() == old_members.len() {
+        old_members
+    } else {
+        &[]
+    };
+    // Found by id only when a member moved, made the first time one did.
+    let old_at = std::cell::OnceCell::<std::collections::HashMap<&str, usize>>::new();
+    let kept = |index: usize, member: &ChatMember| {
+        // A timeout ends with the clock, not with a change.
+        if member.timed_out_until.is_some() {
+            return None;
+        }
+        let at = if old_members
+            .get(index)
+            .is_some_and(|old| old.id == member.id)
+        {
+            index
+        } else {
+            *old_at
+                .get_or_init(|| {
+                    old_members
+                        .iter()
+                        .enumerate()
+                        .map(|(index, member)| (member.id.as_str(), index))
+                        .collect()
+                })
+                .get(member.id.as_str())?
+        };
+        (old_members.get(at)? == member).then(|| old_looks[at].clone())
+    };
     let mut lines = Vec::with_capacity(members.len() + 4);
     for (index, member) in members.iter().enumerate() {
         let heading = if let Some(group) = &member.group {
@@ -164,13 +236,17 @@ pub fn member_lines(
                 icon: member.group_icon.clone(),
             });
         }
+        if let Some(look) = kept(index, member) {
+            lines.push(MemberLine::Member(look));
+            continue;
+        }
         let subline = yapfast_core::yapfast_discord::activity::subline(
             &member.activities,
             member.activity.as_deref(),
         );
         let line = subline.name.as_deref().or(member.activity.as_deref());
         let (emoji, words) = line.map_or((None, ""), yapfast_core::discord::status_parts);
-        lines.push(MemberLine::Member(Box::new(MemberLook {
+        lines.push(MemberLine::Member(Arc::new(MemberLook {
             id: member.id.clone(),
             name: member.name.clone(),
             avatar: member.avatar.clone(),
@@ -587,7 +663,7 @@ mod tests {
             member("bob", Role::Member, None),
             member("cat", Role::Member, None),
         ];
-        let lines = member_lines(&state, &by_role, Some("ann"), true);
+        let lines = member_lines(&state, &by_role, Some("ann"), true, None);
         assert_eq!(headings(&lines), ["ADMINS — 1", "MEMBERS — 2"]);
         assert_eq!(lines.len(), 5, "two headings and three rows");
         let owner: Vec<bool> = lines
@@ -604,7 +680,7 @@ mod tests {
             member("bob", Role::Member, Some("Online — 2")),
             member("cat", Role::Member, Some("Offline — 1")),
         ];
-        let lines = member_lines(&state, &grouped, None, true);
+        let lines = member_lines(&state, &grouped, None, true, None);
         assert_eq!(headings(&lines), ["Online — 2", "Offline — 1"]);
     }
 
@@ -617,7 +693,7 @@ mod tests {
         let mut over = member("bob", Role::Member, None);
         over.timed_out_until = Some(now - 60_000);
         over.boosting_since = Some(1_700_000_000_000);
-        let lines = member_lines(&state, &[timed, over], None, true);
+        let lines = member_lines(&state, &[timed, over], None, true, None);
         let looks: Vec<_> = lines
             .iter()
             .filter_map(|line| match line {
@@ -636,6 +712,53 @@ mod tests {
                 .is_some_and(|words| words.starts_with("Server boosting since ")),
             "{:?}",
             looks[1].boosting
+        );
+    }
+
+    #[test]
+    fn a_roster_change_keeps_the_looks_of_members_who_stayed_the_same() {
+        let state = AppState::default();
+        let before = [
+            member("ann", Role::Member, None),
+            member("bob", Role::Member, None),
+            member("cat", Role::Member, None),
+        ];
+        let lines = member_lines(&state, &before, None, true, None);
+        // Bob went idle, Dan came before Cat.
+        let mut idle = member("bob", Role::Member, None);
+        idle.presence = Some(Presence::Idle);
+        let after = [
+            member("ann", Role::Member, None),
+            idle,
+            member("dan", Role::Member, None),
+            member("cat", Role::Member, None),
+        ];
+        let new = member_lines(&state, &after, None, true, Some((&before, &lines)));
+        let look = |lines: &[MemberLine], id: &str| match lines
+            .iter()
+            .find(|line| matches!(line, MemberLine::Member(look) if look.id == id))
+        {
+            Some(MemberLine::Member(look)) => look.clone(),
+            _ => panic!("{id} listed"),
+        };
+        assert!(std::sync::Arc::ptr_eq(
+            &look(&lines, "ann"),
+            &look(&new, "ann")
+        ));
+        assert!(
+            std::sync::Arc::ptr_eq(&look(&lines, "cat"), &look(&new, "cat")),
+            "moved down"
+        );
+        assert!(!std::sync::Arc::ptr_eq(
+            &look(&lines, "bob"),
+            &look(&new, "bob")
+        ));
+        assert_eq!(look(&new, "bob").presence, Some(Presence::Idle));
+        assert_eq!(headings(&new), ["MEMBERS — 4"]);
+        assert_eq!(
+            new,
+            member_lines(&state, &after, None, true, None),
+            "as made anew"
         );
     }
 }

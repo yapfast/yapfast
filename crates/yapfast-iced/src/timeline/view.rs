@@ -16,7 +16,7 @@ use crate::{
     fonts::{BOLD, MEDIUM, SEMIBOLD},
     pictures::{Face, Icon},
     style::{rounded, scrollbar},
-    widgets::{Corner, RightPress, Rows, Watch},
+    widgets::{Corner, RightPress, Rows, Settle, Watch},
 };
 
 use super::{
@@ -82,6 +82,11 @@ impl App {
             .width(Length::Fill)
             .height(Length::Fill)
             .style(scrollbar(&self.theme));
+        // Its scroll reports build the view again only when they matter.
+        let list = Settle::new(list, |message| match message {
+            Message::Timeline(viewport) => Some(viewport),
+            _ => None,
+        });
         // A press on no text clears the selection; letting go ends a drag.
         let list = Watch::new(
             list,

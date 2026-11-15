@@ -9,12 +9,14 @@ use std::collections::hash_map;
 #[derive(Debug)]
 pub struct Pipeline {
     cache: RefCell<Cache>,
+    opaque: RefCell<Opaque>,
 }
 
 impl Pipeline {
     pub fn new() -> Self {
         Self {
             cache: RefCell::new(Cache::default()),
+            opaque: RefCell::new(Opaque::default()),
         }
     }
 
@@ -108,6 +110,9 @@ impl Pipeline {
             && (bounds.width - image.width() as f32).abs() < 0.01
             && (bounds.height - image.height() as f32).abs() < 0.01
         {
+            // Patch 19: whether it's opaque is found once, not row by row
+            // for every frame it's drawn in.
+            let opaque = self.opaque.borrow_mut().of(handle.id(), image.data());
             crate::blit::blit(
                 image.data(),
                 image.width(),
@@ -117,6 +122,7 @@ impl Pipeline {
                 clip_bounds,
                 border_radius,
                 (opacity.clamp(0.0, 1.0) * 256.0).round() as u32,
+                opaque,
                 pixels,
             );
             return;
@@ -186,6 +192,7 @@ impl Pipeline {
 
     pub fn trim_cache(&mut self) {
         self.cache.borrow_mut().trim();
+        self.opaque.borrow_mut().trim();
     }
 }
 
@@ -214,6 +221,31 @@ fn native(handle: &raster::Handle) -> Option<tiny_skia::PixmapRef<'_>> {
 struct Cache {
     entries: FxHashMap<raster::Id, Option<Entry>>,
     hits: FxHashSet<raster::Id>,
+}
+
+/// Yapfast port (patch 19): whether each picture drawn in the last frame or
+/// this one is opaque all over, and those drawn in this one.
+#[derive(Debug, Default)]
+struct Opaque {
+    known: FxHashMap<raster::Id, bool>,
+    hits: FxHashSet<raster::Id>,
+}
+
+impl Opaque {
+    /// Whether the picture `id`, of premultiplied `pixels`, is opaque all
+    /// over: looked at once while it's drawn frame after frame.
+    fn of(&mut self, id: raster::Id, pixels: &[u8]) -> bool {
+        let _ = self.hits.insert(id);
+        *self
+            .known
+            .entry(id)
+            .or_insert_with(|| pixels.chunks_exact(4).all(|pixel| pixel[3] == 255))
+    }
+
+    fn trim(&mut self) {
+        self.known.retain(|key, _| self.hits.contains(key));
+        self.hits.clear();
+    }
 }
 
 impl Cache {

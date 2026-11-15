@@ -606,9 +606,7 @@ impl App {
                 .width(card_width)
                 .height(card_height)
                 .clip(true)
-                // No shadow, as Settings' card: the renderer works one this
-                // large out pixel by pixel with each redraw.
-                .style(crate::profile::frame_style(inks, theme.edge, 12.0, false))
+                .style(crate::profile::frame_style(inks, theme.edge, 12.0, true))
         ];
         if main {
             card = card.push(

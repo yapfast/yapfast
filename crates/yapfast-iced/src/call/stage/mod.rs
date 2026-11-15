@@ -538,9 +538,10 @@ impl App {
                         .frame(&format!("stream:{}", person.id), corners)
                         .unwrap_or_else(|| tile::note(self, None, self.watch_status()));
                     (content, Color::BLACK)
-                } else if person.video.is_some() {
-                    (Space::new().into(), Color::BLACK)
                 } else {
+                    // Their picture until their camera's first frame, as
+                    // without one; a camera whose frames stop keeps its
+                    // last.
                     let side = (size.height * 0.45).min(80.0).round();
                     let opacity = if person.connected { 1.0 } else { 0.5 };
                     let avatar = self.avatar(

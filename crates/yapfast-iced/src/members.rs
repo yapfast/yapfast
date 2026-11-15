@@ -95,10 +95,16 @@ impl App {
         // As the Slint client's `MemberPanel` with its Discord look: the
         // chat's ground, an outline down its left edge.
         let (ground, edge) = (self.theme.chat, self.theme.outline_chat);
-        let list = scrollable(rows)
-            .on_scroll(Message::Members)
-            .height(Length::Fill)
-            .style(scrollbar(&self.theme));
+        let list = crate::widgets::Settle::new(
+            scrollable(rows)
+                .on_scroll(Message::Members)
+                .height(Length::Fill)
+                .style(scrollbar(&self.theme)),
+            |message| match message {
+                Message::Members(viewport) => Some(viewport),
+                _ => None,
+            },
+        );
         // What the list is waiting for, or why it's empty, as the Slint
         // client's note over it.
         let note = match &self.client.state().members {

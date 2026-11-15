@@ -418,18 +418,21 @@ impl App {
         if held && members.as_ref().map(Arc::as_ptr) == self.members.as_ref().map(Arc::as_ptr) {
             return;
         }
-        let lines = match &members {
-            Some(members) => looks::member_lines(
-                state,
-                members,
-                self.client.server_owner().as_deref(),
-                self.theme.dark,
-            ),
+        let owner = self.client.server_owner();
+        let made = looks::LooksMadeWith::of(state, owner.clone(), self.theme.dark);
+        // The looks of members who didn't change stay as made.
+        let before = self
+            .members
+            .as_deref()
+            .filter(|_| self.roster_made.as_ref() == Some(&made))
+            .map(|members| (members.as_slice(), self.lines.as_slice()));
+        self.lines = match &members {
+            Some(members) => {
+                looks::member_lines(state, members, owner.as_deref(), self.theme.dark, before)
+            }
             None => Vec::new(),
         };
-        if lines != self.lines {
-            self.lines = lines;
-        }
+        self.roster_made = members.is_some().then_some(made);
         self.members = members;
         self.roster_shown = Some(Instant::now());
         self.make_activity_cards();

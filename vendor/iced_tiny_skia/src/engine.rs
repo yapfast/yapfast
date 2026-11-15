@@ -9,8 +9,9 @@ use crate::text;
 #[derive(Debug)]
 pub struct Engine {
     text_pipeline: text::Pipeline,
-    /// Yapfast port (patch 17): shadows worked out lately, by their shape.
-    shadows: Vec<(ShadowKey, tiny_skia::Pixmap)>,
+    /// Yapfast port (patches 17 and 18): shadows worked out lately, by
+    /// their shape, each as its nine slices.
+    shadows: Vec<(ShadowKey, Sliced)>,
 
     #[cfg(feature = "image")]
     pub(crate) raster_pipeline: crate::raster::Pipeline,
@@ -60,25 +61,18 @@ impl Engine {
             && (quad.border.width == 0.0 || quad.border.color.a == 0.0)
             && quad.shadow.color.a == 0.0
         {
-            if let Some(visible) = physical_bounds.intersection(&clip_bounds)
-                && let Some(rect) = tiny_skia::Rect::from_ltrb(
-                    visible.x.round(),
-                    visible.y.round(),
-                    (visible.x + visible.width).round(),
-                    (visible.y + visible.height).round(),
-                )
-            {
-                pixels.fill_rect(
-                    rect,
-                    &tiny_skia::Paint {
-                        shader: tiny_skia::Shader::SolidColor(into_color(
-                            *color,
-                        )),
-                        anti_alias: false,
-                        ..tiny_skia::Paint::default()
-                    },
-                    tiny_skia::Transform::identity(),
-                    None,
+            // Patch 19: written in directly (`blit::fill`).
+            if let Some(visible) = physical_bounds.intersection(&clip_bounds) {
+                crate::blit::fill(
+                    (
+                        visible.x.round() as i32,
+                        visible.y.round() as i32,
+                        (visible.x + visible.width).round() as i32,
+                        (visible.y + visible.height).round() as i32,
+                    ),
+                    into_color(*color),
+                    false,
+                    pixels,
                 );
             }
             return;
@@ -165,7 +159,17 @@ impl Engine {
                 (physical_bounds.x + physical_bounds.width - corner).floor(),
                 (physical_bounds.y + physical_bounds.height - corner).floor(),
             );
-            (matches!(background, Background::Color(color) if color.a >= 1.0)
+            // Yapfast port (patch 18): an opaque gradient covers it too (a
+            // themed profile's card).
+            let opaque = match background {
+                Background::Color(color) => color.a >= 1.0,
+                Background::Gradient(Gradient::Linear(linear)) => linear
+                    .stops
+                    .iter()
+                    .flatten()
+                    .all(|stop| stop.color.a >= 1.0),
+            };
+            (opaque
                 && right > left
                 && bottom > top)
                 .then(|| Rectangle {
@@ -209,11 +213,11 @@ impl Engine {
                 .into_iter()
                 .map(|radius| radius * transformation.scale_factor())
                 .collect::<Vec<_>>();
-            // Yapfast port (patch 17): a small shadow is worked out once for
-            // its whole reach, kept by its shape (size, place within a
-            // pixel, corners, blur, offset, colour), and each band is a
-            // copy from it. The hover bar moving with a scroll had every
-            // pixel of its shadow worked out again each frame.
+            // Yapfast port (patch 17): a shadow is worked out once, kept by
+            // its shape (size, place within a pixel, corners, blur, offset,
+            // colour), and each band is a copy from it. The hover bar
+            // moving with a scroll had every pixel of its shadow worked out
+            // again each frame.
             let origin = (reach.x.floor(), reach.y.floor());
             let key = ShadowKey::new(
                 physical_bounds,
@@ -226,71 +230,40 @@ impl Engine {
                 shadow,
                 transformation.scale_factor(),
             );
-            let found = self.shadows.iter().position(|(known, _)| *known == key);
-            // A large shadow (a menu's, the picker's) isn't kept: it would
-            // hold a megabyte after its panel closed, and it moves seldom.
-            // Only the bands the clip leaves outside its panel are worked
-            // out, as patch 11 has them.
-            let small = key.pixels.0 * key.pixels.1 <= SHADOW_KEPT_PIXELS;
-            if found.is_none() && !small {
-                for band in bands {
-                    if band.width < 1.0 || band.height < 1.0 {
-                        continue;
-                    }
-                    let corner = (band.x, band.y);
-                    let size = (band.width as u32, band.height as u32);
-                    if let Some(pixmap) =
-                        shadow_pixmap(physical_bounds, corner, size, &radii, shadow, transformation)
-                    {
-                        pixels.draw_pixmap(
-                            band.x as i32,
-                            band.y as i32,
-                            pixmap.as_ref(),
-                            &tiny_skia::PixmapPaint::default(),
-                            tiny_skia::Transform::default(),
-                            None,
-                        );
-                    }
-                }
-            } else {
-            let at = found.or_else(|| {
-                let pixmap = shadow_pixmap(
+            // Yapfast port (patch 18): a large shadow (a card's, a menu's)
+            // is kept as its nine slices: the corners whole, each edge one
+            // row or column across, and the middle one pixel, which the
+            // straight stretches of its edges and its middle repeat
+            // exactly. Stock, and with patch 11, a 1400 px card's shadow
+            // was worked out pixel by pixel each time anything on the card
+            // was drawn again. Every kept shadow is copied in directly,
+            // source over, rather than through tiny-skia's pattern
+            // pipeline.
+            let at = match self.shadows.iter().position(|(known, _)| *known == key) {
+                Some(at) => Some(at),
+                None => Sliced::new(
                     physical_bounds,
                     origin,
                     key.pixels,
                     &radii,
                     shadow,
                     transformation,
-                )?;
-                if self.shadows.len() == SHADOWS_KEPT {
-                    let _ = self.shadows.remove(0);
-                }
-                self.shadows.push((key, pixmap));
-                Some(self.shadows.len() - 1)
-            });
-            if let Some(pixmap) = at.map(|at| &self.shadows[at].1) {
-            let paint = tiny_skia::Paint {
-                shader: tiny_skia::Pattern::new(
-                    pixmap.as_ref(),
-                    tiny_skia::SpreadMode::Pad,
-                    tiny_skia::FilterQuality::Nearest,
-                    1.0,
-                    tiny_skia::Transform::from_translate(origin.0, origin.1),
-                ),
-                anti_alias: false,
-                ..tiny_skia::Paint::default()
+                )
+                .map(|sliced| {
+                    if self.shadows.len() == SHADOWS_KEPT {
+                        let _ = self.shadows.remove(0);
+                    }
+                    self.shadows.push((key, sliced));
+                    self.shadows.len() - 1
+                }),
             };
-            for band in bands {
-                if band.width < 1.0 || band.height < 1.0 {
-                    continue;
+            if let Some(sliced) = at.map(|at| &self.shadows[at].1) {
+                let origin = (origin.0 as i32, origin.1 as i32);
+                for band in bands {
+                    if band.width >= 1.0 && band.height >= 1.0 {
+                        sliced.draw(origin, band, pixels);
+                    }
                 }
-                if let Some(rect) =
-                    tiny_skia::Rect::from_xywh(band.x, band.y, band.width, band.height)
-                {
-                    pixels.fill_rect(rect, &paint, tiny_skia::Transform::identity(), None);
-                }
-            }
-            }
             }
         }
 
@@ -353,7 +326,11 @@ impl Engine {
             );
             return;
         }
-
+        // Yapfast port (patch 21): a quad of no colour (an outline drawn over
+        // a card, `controls::edged`) fills nothing; stock, its whole area
+        // went through the anti-aliased path and the clip mask.
+        let clear = matches!(background, Background::Color(color) if color.a <= 0.0);
+        if !clear {
         pixels.fill_path(
             &path,
             &tiny_skia::Paint {
@@ -410,6 +387,7 @@ impl Engine {
             transform,
             clip_mask,
         );
+        }
 
         if border_width > 0.0 {
             // Border path is offset by half the border width
@@ -442,7 +420,6 @@ impl Engine {
             if is_simple_border {
                 let border_path =
                     rounded_rectangle(border_bounds, border_radius);
-
                 pixels.stroke_path(
                     &border_path,
                     &tiny_skia::Paint {
@@ -1095,10 +1072,8 @@ pub fn adjust_clip_mask(clip_mask: &mut tiny_skia::Mask, bounds: Rectangle) {
 /// has one: the quad moved by the shadow's offset and grown by its blur.
 /// Drawing takes the shadow inside it; the layer's damage counts it too.
 /// How many shadows the engine keeps worked out: the hover bar's, a menu's,
-/// a popup's, with room for the sizes they take as they change.
+/// a popup's, a card's, with room for the sizes they take as they change.
 const SHADOWS_KEPT: usize = 8;
-/// The most pixels a kept shadow has: a hover bar's, 128 KiB.
-const SHADOW_KEPT_PIXELS: u32 = 32 * 1024;
 
 /// A shadow's shape, which its pixels follow from wholly.
 #[derive(Debug, Clone, PartialEq)]
@@ -1144,47 +1119,197 @@ impl ShadowKey {
     }
 }
 
-/// A shadow's pixels over `width` by `height` from `origin` (its whole
-/// reach, or a band of it), as stock iced works them out pixel by pixel.
-fn shadow_pixmap(
-    physical_bounds: Rectangle,
-    origin: (f32, f32),
-    (width, height): (u32, u32),
-    radii: &[f32],
-    shadow: crate::core::Shadow,
-    transformation: Transformation,
-) -> Option<tiny_skia::Pixmap> {
-    let half_width = physical_bounds.width / 2.0;
-    let half_height = physical_bounds.height / 2.0;
-    let size = tiny_skia::Size::from_wh(half_width, half_height)?;
-    let scale = transformation.scale_factor();
-    let colors: Vec<tiny_skia::PremultipliedColorU8> = (0..height)
-        .flat_map(|y| (0..width).map(move |x| (origin.0 + x as f32, origin.1 + y as f32)))
-        .map(|(x, y)| {
-            let shadow_distance = rounded_box_sdf(
-                Vector::new(
-                    x - physical_bounds.position().x - (shadow.offset.x * scale) - half_width,
-                    y - physical_bounds.position().y - (shadow.offset.y * scale) - half_height,
-                ),
-                size,
-                radii,
-            )
-            .max(0.0);
-            let shadow_alpha = 1.0
-                - smoothstep(
-                    -shadow.blur_radius * scale,
-                    shadow.blur_radius * scale,
-                    shadow_distance,
-                );
-            let mut color = into_color(shadow.color);
-            color.apply_opacity(shadow_alpha);
-            color.to_color_u8().premultiply()
+/// Yapfast port (patch 18): one axis of a shadow's reach, as its slices
+/// keep it. Its pixels from `start` to `end`, both in, lie along the
+/// straight stretch of the shadow's edges, where every pixel across is the
+/// same, and are kept as the one at `start`. Pixels are counted from the
+/// reach's corner.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Slices {
+    start: u32,
+    end: u32,
+}
+
+impl Slices {
+    /// Along an axis of `pixels` from `origin`, of a box from `near` to
+    /// `far` (offset included) whose corners take `corner` at most.
+    fn new(origin: f32, pixels: u32, near: f32, far: f32, corner: f32) -> Self {
+        // A pixel at `origin + i` is straight across when it's `corner` or
+        // more inside both ends.
+        let start = (near + corner - origin).ceil().max(0.0);
+        let end = (far - corner - origin).floor().min(pixels as f32 - 1.0);
+        if end > start {
+            Self {
+                start: start as u32,
+                end: end as u32,
+            }
+        } else {
+            Self { start: 0, end: 0 }
+        }
+    }
+
+    /// How many pixels are kept of `pixels`.
+    fn kept(self, pixels: u32) -> u32 {
+        pixels - (self.end - self.start)
+    }
+
+    /// The pixel of the reach a kept one stands for.
+    fn whole(self, kept: u32) -> u32 {
+        if kept <= self.start {
+            kept
+        } else {
+            kept + (self.end - self.start)
+        }
+    }
+
+    /// The kept pixel that stands for a pixel of the reach.
+    fn kept_at(self, whole: u32) -> u32 {
+        if whole < self.start {
+            whole
+        } else if whole <= self.end {
+            self.start
+        } else {
+            whole - (self.end - self.start)
+        }
+    }
+}
+
+/// Yapfast port (patches 17 and 18): a shadow's pixels, premultiplied in
+/// the frame's byte order, as kept: its nine slices (whole when it has no
+/// straight stretch).
+#[derive(Debug)]
+struct Sliced {
+    pixels: Vec<u32>,
+    width: u32,
+    x: Slices,
+    y: Slices,
+}
+
+impl Sliced {
+    /// Works the shadow out over its reach, `width` by `height` pixels
+    /// from `origin`, keeping one pixel of each straight stretch.
+    fn new(
+        physical_bounds: Rectangle,
+        origin: (f32, f32),
+        (width, height): (u32, u32),
+        radii: &[f32],
+        shadow: crate::core::Shadow,
+        transformation: Transformation,
+    ) -> Option<Self> {
+        let scale = transformation.scale_factor();
+        let corner = radii.iter().fold(0.0f32, |most, radius| most.max(*radius));
+        let (offset_x, offset_y) = (shadow.offset.x * scale, shadow.offset.y * scale);
+        let x = Slices::new(
+            origin.0,
+            width,
+            physical_bounds.x + offset_x,
+            physical_bounds.x + offset_x + physical_bounds.width,
+            corner,
+        );
+        let y = Slices::new(
+            origin.1,
+            height,
+            physical_bounds.y + offset_y,
+            physical_bounds.y + offset_y + physical_bounds.height,
+            corner,
+        );
+        let (kept_width, kept_height) = (x.kept(width), y.kept(height));
+        if kept_width == 0 || kept_height == 0 {
+            return None;
+        }
+        let half_width = physical_bounds.width / 2.0;
+        let half_height = physical_bounds.height / 2.0;
+        let size = tiny_skia::Size::from_wh(half_width, half_height)?;
+        let color = into_color(shadow.color);
+        let mut pixels = Vec::with_capacity((kept_width * kept_height) as usize);
+        for row in 0..kept_height {
+            let at_y = origin.1 + y.whole(row) as f32;
+            for column in 0..kept_width {
+                let at_x = origin.0 + x.whole(column) as f32;
+                let shadow_distance = rounded_box_sdf(
+                    Vector::new(
+                        at_x - physical_bounds.position().x - offset_x - half_width,
+                        at_y - physical_bounds.position().y - offset_y - half_height,
+                    ),
+                    size,
+                    radii,
+                )
+                .max(0.0);
+                let shadow_alpha = 1.0
+                    - smoothstep(
+                        -shadow.blur_radius * scale,
+                        shadow.blur_radius * scale,
+                        shadow_distance,
+                    );
+                let mut color = color;
+                color.apply_opacity(shadow_alpha);
+                let pixel = color.to_color_u8().premultiply();
+                pixels.push(u32::from_le_bytes([
+                    pixel.red(),
+                    pixel.green(),
+                    pixel.blue(),
+                    pixel.alpha(),
+                ]));
+            }
+        }
+        Some(Self {
+            pixels,
+            width: kept_width,
+            x,
+            y,
         })
-        .collect();
-    tiny_skia::Pixmap::from_vec(
-        bytemuck::cast_vec(colors),
-        tiny_skia::IntSize::from_wh(width, height)?,
-    )
+    }
+
+    /// Lays the shadow, its reach's corner at `origin`, over `band` (whole
+    /// pixels inside the frame), source over.
+    fn draw(&self, origin: (i32, i32), band: Rectangle, pixels: &mut tiny_skia::PixmapMut<'_>) {
+        let (frame_width, frame_height) = (pixels.width() as i32, pixels.height() as i32);
+        let left = (band.x as i32).max(origin.0).max(0);
+        let top = (band.y as i32).max(origin.1).max(0);
+        let right = ((band.x + band.width) as i32).min(frame_width);
+        let bottom = ((band.y + band.height) as i32).min(frame_height);
+        let reach_width = self.x.whole(self.width - 1) as i32 + 1;
+        let reach_height = self.y.whole(self.pixels.len() as u32 / self.width - 1) as i32 + 1;
+        let right = right.min(origin.0 + reach_width);
+        let bottom = bottom.min(origin.1 + reach_height);
+        if left >= right || top >= bottom {
+            return;
+        }
+        let stride = frame_width as usize;
+        let frame: &mut [u32] = bytemuck::cast_slice_mut(pixels.data_mut());
+        let (first, last) = ((left - origin.0) as u32, (right - origin.0) as u32);
+        // The run of the row before the straight stretch, along it, after it.
+        let straight = (
+            first.max(self.x.start).min(last),
+            (self.x.end + 1).max(first).min(last),
+        );
+        let straight = if self.x.end > self.x.start {
+            straight
+        } else {
+            (last, last)
+        };
+        for row in top..bottom {
+            let kept_row = self.y.kept_at((row - origin.1) as u32) as usize;
+            let source = &self.pixels[kept_row * self.width as usize..][..self.width as usize];
+            let target = &mut frame[row as usize * stride..][..stride];
+            let mut at = first;
+            while at < last {
+                if at == straight.0 && straight.1 > straight.0 {
+                    let pixel = source[self.x.start as usize];
+                    let from = (origin.0 + at as i32) as usize;
+                    let to = (origin.0 + straight.1 as i32) as usize;
+                    for below in &mut target[from..to] {
+                        *below = crate::blit::over(pixel, *below);
+                    }
+                    at = straight.1;
+                    continue;
+                }
+                let target = &mut target[(origin.0 + at as i32) as usize];
+                *target = crate::blit::over(source[self.x.kept_at(at) as usize], *target);
+                at += 1;
+            }
+        }
+    }
 }
 
 pub(crate) fn shadow_reach(quad: &Quad) -> Option<Rectangle> {
@@ -1195,4 +1320,130 @@ pub(crate) fn shadow_reach(quad: &Quad) -> Option<Rectangle> {
         width: quad.bounds.width + shadow.blur_radius * 2.0,
         height: quad.bounds.height + shadow.blur_radius * 2.0,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every pixel of a shadow's reach, worked out one by one as stock iced
+    /// does, then laid over a dark ground.
+    fn whole_shadow(bounds: Rectangle, radii: [f32; 4], shadow: crate::core::Shadow, size: (u32, u32)) -> Vec<u32> {
+        let quad = Quad { bounds, border: crate::core::Border::default(), shadow, ..Quad::default() };
+        let reach = shadow_reach(&quad).expect("a shadow");
+        let origin = (reach.x.floor(), reach.y.floor());
+        let ground = 0xff20_1d1c_u32;
+        let mut frame = vec![ground; (size.0 * size.1) as usize];
+        let (half_width, half_height) = (bounds.width / 2.0, bounds.height / 2.0);
+        let half = tiny_skia::Size::from_wh(half_width, half_height).expect("size");
+        for y in 0..size.1 {
+            for x in 0..size.0 {
+                let (at_x, at_y) = (x as f32, y as f32);
+                if at_x < origin.0 || at_y < origin.1 || at_x >= (reach.x + reach.width).ceil() || at_y >= (reach.y + reach.height).ceil() {
+                    continue;
+                }
+                let distance = rounded_box_sdf(
+                    Vector::new(
+                        at_x - bounds.x - shadow.offset.x - half_width,
+                        at_y - bounds.y - shadow.offset.y - half_height,
+                    ),
+                    half,
+                    &radii,
+                )
+                .max(0.0);
+                let alpha = 1.0 - smoothstep(-shadow.blur_radius, shadow.blur_radius, distance);
+                let mut color = into_color(shadow.color);
+                color.apply_opacity(alpha);
+                let pixel = color.to_color_u8().premultiply();
+                let pixel = u32::from_le_bytes([pixel.red(), pixel.green(), pixel.blue(), pixel.alpha()]);
+                let at = (y * size.0 + x) as usize;
+                frame[at] = crate::blit::over(pixel, frame[at]);
+            }
+        }
+        frame
+    }
+
+    /// The same drawn by the engine, through its kept slices, in bands.
+    fn drawn_shadow(bounds: Rectangle, radii: [f32; 4], shadow: crate::core::Shadow, size: (u32, u32)) -> (Vec<u32>, usize) {
+        let mut engine = Engine::new();
+        let ground = 0xff20_1d1c_u32;
+        let mut frame = vec![ground; (size.0 * size.1) as usize];
+        let mut pixmap = tiny_skia::PixmapMut::from_bytes(bytemuck::cast_slice_mut(&mut frame), size.0, size.1).expect("pixmap");
+        let mut mask = tiny_skia::Mask::new(size.0, size.1).expect("mask");
+        let quad = Quad {
+            bounds,
+            border: crate::core::Border { radius: crate::core::border::Radius { top_left: radii[0], top_right: radii[1], bottom_right: radii[2], bottom_left: radii[3] }, ..Default::default() },
+            shadow,
+            ..Quad::default()
+        };
+        // A see-through fill: the shadow shows under all of it.
+        let background = Background::Color(Color::TRANSPARENT);
+        // In two halves, as two damaged regions would draw it.
+        let whole = Rectangle::new(crate::core::Point::ORIGIN, Size::new(size.0 as f32, size.1 as f32));
+        let top = Rectangle { height: (size.1 / 2) as f32, ..whole };
+        let rest = Rectangle { y: top.height, height: whole.height - top.height, ..whole };
+        for clip in [top, rest] {
+            engine.draw_quad(&quad, &background, Transformation::IDENTITY, &mut pixmap, &mut mask, clip);
+        }
+        let kept = engine.shadows.iter().map(|(_, sliced)| sliced.pixels.len()).sum();
+        (frame, kept)
+    }
+
+    #[test]
+    fn an_outline_of_no_fill_draws_its_edge_and_leaves_what_it_rounds() {
+        let mut engine = Engine::new();
+        let ground = 0xff20_1d1c_u32;
+        let size = (120, 80);
+        let mut frame = vec![ground; (size.0 * size.1) as usize];
+        let mut pixmap = tiny_skia::PixmapMut::from_bytes(bytemuck::cast_slice_mut(&mut frame), size.0, size.1).expect("pixmap");
+        let mut mask = tiny_skia::Mask::new(size.0, size.1).expect("mask");
+        let quad = Quad {
+            bounds: Rectangle { x: 10.0, y: 10.0, width: 100.0, height: 60.0 },
+            border: crate::core::Border { color: Color::WHITE, width: 1.0, radius: 8.0.into() },
+            ..Quad::default()
+        };
+        // Clipped to part of it, as a damaged region inside a card is.
+        let clip = Rectangle { x: 0.0, y: 20.0, width: 120.0, height: 40.0 };
+        adjust_clip_mask(&mut mask, clip);
+        engine.draw_quad(&quad, &Background::Color(Color::TRANSPARENT), Transformation::IDENTITY, &mut pixmap, &mut mask, clip);
+        let at = |x: u32, y: u32| frame[(y * size.0 + x) as usize];
+        assert_eq!(at(60, 40), ground, "inside");
+        assert_eq!(at(60, 10), ground, "outside the clip");
+        assert_eq!(at(10, 40), 0xffff_ffff, "its left edge");
+        assert_eq!(at(109, 40), 0xffff_ffff, "its right edge");
+    }
+
+    #[test]
+    fn a_large_shadow_drawn_from_its_slices_is_the_shadow_worked_out_whole() {
+        let shadow = crate::core::Shadow {
+            color: Color { a: 0.5, ..Color::BLACK },
+            offset: Vector::new(0.0, 8.0),
+            blur_radius: 24.0,
+        };
+        // A card on whole pixels, and one between them, with uneven corners.
+        for (bounds, radii) in [
+            (Rectangle::new(crate::core::Point::new(60.0, 50.0), Size::new(600.0, 400.0)), [12.0; 4]),
+            (Rectangle::new(crate::core::Point::new(60.3, 49.6), Size::new(580.5, 390.25)), [16.0, 4.0, 0.0, 8.0]),
+        ] {
+            let size = (720, 520);
+            let (drawn, kept) = drawn_shadow(bounds, radii, shadow, size);
+            let whole = whole_shadow(bounds, radii, shadow, size);
+            let differing = drawn.iter().zip(&whole).filter(|(a, b)| a != b).count();
+            assert_eq!(differing, 0, "{bounds:?}: {differing} pixels differ");
+            // Its corners and one row and column across, not its reach.
+            assert!(kept < 120 * 120, "{kept} pixels kept");
+        }
+    }
+
+    #[test]
+    fn a_small_shadow_is_kept_whole_and_drawn_the_same() {
+        let shadow = crate::core::Shadow {
+            color: Color { a: 0.35, ..Color::BLACK },
+            offset: Vector::new(0.0, 2.0),
+            blur_radius: 10.0,
+        };
+        let bounds = Rectangle::new(crate::core::Point::new(20.0, 20.0), Size::new(30.0, 20.0));
+        let (drawn, _) = drawn_shadow(bounds, [8.0; 4], shadow, (80, 70));
+        assert_eq!(drawn, whole_shadow(bounds, [8.0; 4], shadow, (80, 70)));
+    }
 }

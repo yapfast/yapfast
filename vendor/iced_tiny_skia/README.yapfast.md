@@ -82,5 +82,31 @@ marked `Yapfast port` in the source and numbered there:
     again each frame, so the hover bar moving with a scroll, or a menu
     over a scrolling list, paid for its shadow in full every frame.
 
+18. `engine.rs` `draw_quad`, `Sliced`, `blit.rs` `over`: a shadow is kept
+    as its nine slices: the corners whole, each edge one row or column
+    across, and its middle one pixel, which the straight stretches of its
+    edges and its middle repeat exactly, so a 1400 px card's keeps a few
+    thousand pixels and any shadow is kept, not only small ones. Each band
+    is copied from it directly, source over; patch 17 filled the bands
+    through tiny-skia's pattern pipeline, and a large shadow was worked
+    out pixel by pixel again each time it was drawn. An opaque gradient
+    counts as an opaque body, which the shadow isn't drawn under. Tests
+    in `engine.rs` compare it with the shadow worked out whole.
+19. `blit.rs` `fill`, `blit`, `engine.rs`, `raster.rs` `Opaque`, `lib.rs`
+    `Renderer::draw`: a region's clear and a plain one-colour quad are
+    written into the frame directly, in place or source over, not through
+    tiny-skia's fill pipeline. A picture remembers whether it has any
+    pixel that isn't opaque, and an opaque one is copied without looking
+    at each pixel's alpha. A test in `blit.rs` covers the fill.
+20. `lib.rs` `Renderer::draw`, `covered`, `within_corners`: a region that
+    one opaque quad covers whole, clear of its rounded corners (each a
+    square of its radius), starts with that quad: what layers and quads
+    come before it is hidden, so they and the clear are skipped. A test
+    covers the corners.
+21. `engine.rs` `draw_quad`: a quad of no colour (an outline drawn over a
+    card) fills nothing and only its border is drawn. Stock, its whole
+    area went through the anti-aliased path and the clip mask. A test
+    draws one clipped.
+
 Unmarked lines are iced's. Updating iced means taking the new
 iced_tiny_skia and carrying each marked change over.

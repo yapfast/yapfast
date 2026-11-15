@@ -237,6 +237,7 @@ fn draw(
                     clip_bounds,
                     [0.0; 4],
                     (opacity.clamp(0.0, 1.0) * 256.0) as u32,
+                    false,
                     pixels,
                 );
             }

@@ -82,32 +82,32 @@ impl Renderer {
         for &damage_bounds in damage {
             let damage_bounds = damage_bounds * scale_factor;
 
-            let path = tiny_skia::PathBuilder::from_rect(
-                tiny_skia::Rect::from_xywh(
-                    damage_bounds.x,
-                    damage_bounds.y,
-                    damage_bounds.width,
-                    damage_bounds.height,
-                )
-                .expect("Create damage rectangle"),
-            );
+            // Yapfast port (patch 20): what's under the last opaque quad
+            // that covers the whole region isn't drawn: the layers before
+            // its own, the quads before it in it, and the clear. A video
+            // under Settings' card was drawn, and the call round it, for
+            // every frame the card hid.
+            let (first_layer, first_quad) =
+                covered(self.layers.as_slice(), damage_bounds, scale_factor);
 
-            pixels.fill_path(
-                &path,
-                &tiny_skia::Paint {
-                    shader: tiny_skia::Shader::SolidColor(engine::into_color(
-                        background_color,
-                    )),
-                    anti_alias: false,
-                    blend_mode: tiny_skia::BlendMode::Source,
-                    ..Default::default()
-                },
-                tiny_skia::FillRule::default(),
-                tiny_skia::Transform::identity(),
-                None,
-            );
+            // Yapfast port (patch 19): the region is cleared to the
+            // background directly, as its rasterized path covered it:
+            // the pixels whose centres are inside.
+            if first_layer == 0 && first_quad == 0 {
+                crate::blit::fill(
+                    (
+                        damage_bounds.x.round() as i32,
+                        damage_bounds.y.round() as i32,
+                        (damage_bounds.x + damage_bounds.width).round() as i32,
+                        (damage_bounds.y + damage_bounds.height).round() as i32,
+                    ),
+                    engine::into_color(background_color),
+                    true,
+                    pixels,
+                );
+            }
 
-            for layer in self.layers.iter() {
+            for (index, layer) in self.layers.iter().enumerate().skip(first_layer) {
                 let Some(layer_bounds) =
                     damage_bounds.intersection(&(layer.bounds * scale_factor))
                 else {
@@ -118,7 +118,8 @@ impl Renderer {
 
                 if !layer.quads.is_empty() {
                     let render_span = debug::render(debug::Primitive::Quad);
-                    for (quad, background) in &layer.quads {
+                    let skipped = if index == first_layer { first_quad } else { 0 };
+                    for (quad, background) in &layer.quads[skipped..] {
                         self.engine.draw_quad(
                             quad,
                             background,
@@ -200,6 +201,62 @@ impl Renderer {
 
         self.engine.trim();
     }
+}
+
+/// Yapfast port (patch 20): the first layer and its first quad to draw in
+/// `region` (physical pixels): those of the last opaque quad that covers
+/// the whole of it, inside its corners and its layer, or (0, 0).
+fn covered(layers: &[Layer], region: Rectangle, scale_factor: f32) -> (usize, usize) {
+    for (index, layer) in layers.iter().enumerate().rev() {
+        // A layer clips what's in it: one that leaves part of the region
+        // out can't cover it.
+        if !region.is_within(&(layer.bounds * scale_factor)) {
+            continue;
+        }
+        let found = layer.quads.iter().rposition(|(quad, background)| {
+            opaque(background)
+                && within_corners(
+                    region,
+                    quad.bounds * scale_factor,
+                    <[f32; 4]>::from(quad.border.radius).map(|radius| radius * scale_factor),
+                )
+        });
+        if let Some(quad) = found {
+            return (index, quad);
+        }
+    }
+    (0, 0)
+}
+
+/// Opaque all over inside its corners, whatever its border (drawn over
+/// its edge) and its shadow (drawn outside it).
+fn opaque(background: &Background) -> bool {
+    match background {
+        Background::Color(color) => color.a >= 1.0,
+        Background::Gradient(core::Gradient::Linear(linear)) => {
+            linear.stops.iter().flatten().all(|stop| stop.color.a >= 1.0)
+        }
+    }
+}
+
+/// Whether `region` is inside `bounds` and clear of its rounded corners,
+/// each a square of its radius (`[top left, top right, bottom right,
+/// bottom left]`): a region along an edge, between its corners, is covered.
+fn within_corners(region: Rectangle, bounds: Rectangle, radii: [f32; 4]) -> bool {
+    let (right, bottom) = (bounds.x + bounds.width, bounds.y + bounds.height);
+    let corners = [
+        (bounds.x, bounds.y),
+        (right - radii[1], bounds.y),
+        (right - radii[2], bottom - radii[2]),
+        (bounds.x, bottom - radii[3]),
+    ];
+    region.is_within(&bounds)
+        && corners.into_iter().zip(radii).all(|((x, y), radius)| {
+            radius <= 0.0
+                || region
+                    .intersection(&Rectangle { x, y, width: radius, height: radius })
+                    .is_none_or(|part| part.width <= 0.0 || part.height <= 0.0)
+        })
 }
 
 impl core::Renderer for Renderer {
@@ -462,5 +519,28 @@ impl renderer::Headless for Renderer {
         let viewport = Viewport::with_physical_size(size, scale_factor);
 
         window::compositor::screenshot(self, &viewport, background_color)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Rectangle, within_corners};
+
+    fn rect(x: f32, y: f32, width: f32, height: f32) -> Rectangle {
+        Rectangle { x, y, width, height }
+    }
+
+    #[test]
+    fn a_region_along_an_edge_between_the_corners_is_within_them() {
+        let card = rect(100.0, 100.0, 400.0, 300.0);
+        let radii = [12.0, 8.0, 16.0, 0.0];
+        // Along the right edge, clear of both right corners.
+        assert!(within_corners(rect(300.0, 108.0, 200.0, 276.0), card, radii));
+        // Into the top right corner's square, or the bottom right's.
+        assert!(!within_corners(rect(300.0, 107.0, 200.0, 50.0), card, radii));
+        assert!(!within_corners(rect(300.0, 300.0, 200.0, 85.0), card, radii));
+        // A square corner is no corner; outside the card isn't covered.
+        assert!(within_corners(rect(100.0, 300.0, 50.0, 100.0), card, radii));
+        assert!(!within_corners(rect(90.0, 200.0, 50.0, 50.0), card, radii));
     }
 }

@@ -12,6 +12,7 @@ use crate::core::Rectangle;
 /// byte order, onto `pixels` at (`x`, `y`), source over, within
 /// `clip_bounds`, with its corners cut round to `radius` (top left, top
 /// right, bottom right, bottom left) and scaled by `opacity` (256 is opaque).
+/// `opaque` says every source pixel is, which spares looking at each row.
 #[allow(clippy::too_many_arguments)]
 pub fn blit(
     source: &[u8],
@@ -22,6 +23,7 @@ pub fn blit(
     clip_bounds: Rectangle,
     radius: [f32; 4],
     opacity: u32,
+    opaque: bool,
     pixels: &mut tiny_skia::PixmapMut<'_>,
 ) {
     let (width, height) = (width as i32, height as i32);
@@ -79,7 +81,7 @@ pub fn blit(
         if left.is_none()
             && right.is_none()
             && opacity == 256
-            && source_row.chunks_exact(4).all(|pixel| pixel[3] == 255)
+            && (opaque || source_row.chunks_exact(4).all(|pixel| pixel[3] == 255))
         {
             target_row.copy_from_slice(source_row);
             continue;
@@ -145,6 +147,50 @@ fn scaled(pixel: u32, scale: u32) -> u32 {
     let even = ((pixel & 0x00ff_00ff) * scale >> 8) & 0x00ff_00ff;
     let odd = (((pixel >> 8) & 0x00ff_00ff) * scale >> 8) & 0x00ff_00ff;
     even | odd << 8
+}
+
+/// Yapfast port (patch 19): fills the whole pixels from (`left`, `top`) to
+/// (`right`, `bottom`) of `pixels` with `color`, straight, laid source over,
+/// or put in place of what's there (`replace`). tiny-skia filled a plain
+/// rectangle through its pipeline, a span at a time.
+pub fn fill(
+    (left, top, right, bottom): (i32, i32, i32, i32),
+    color: tiny_skia::Color,
+    replace: bool,
+    pixels: &mut tiny_skia::PixmapMut<'_>,
+) {
+    let (width, height) = (pixels.width() as i32, pixels.height() as i32);
+    let (left, top) = (left.max(0), top.max(0));
+    let (right, bottom) = (right.min(width), bottom.min(height));
+    if left >= right || top >= bottom {
+        return;
+    }
+    let color = color.premultiply().to_color_u8();
+    let pixel = u32::from_le_bytes([color.red(), color.green(), color.blue(), color.alpha()]);
+    if pixel >> 24 == 0 && !replace {
+        return;
+    }
+    let stride = width as usize;
+    let frame: &mut [u32] = bytemuck::cast_slice_mut(pixels.data_mut());
+    for row in top..bottom {
+        let row = &mut frame[row as usize * stride..][left as usize..right as usize];
+        if replace || pixel >> 24 == 255 {
+            row.fill(pixel);
+        } else {
+            for below in row {
+                *below = over(pixel, *below);
+            }
+        }
+    }
+}
+
+/// Yapfast port (patch 18): a premultiplied pixel laid source over another.
+pub fn over(pixel: u32, below: u32) -> u32 {
+    match pixel >> 24 {
+        0 => below,
+        255 => pixel,
+        alpha => pixel + times_255ths(below, 255 - alpha),
+    }
 }
 
 /// Each channel of a pixel times `factor` / 255, rounded.
@@ -295,6 +341,38 @@ pub fn gradient(
             let below = u32::from_le_bytes(target[..4].try_into().expect("four bytes"));
             let blended = pixel + times_255ths(below, 255 - alpha);
             target.copy_from_slice(&blended.to_le_bytes());
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_fill_lays_its_colour_over_or_in_place_inside_the_frame() {
+        let ground = 0xff10_2030_u32;
+        let mut frame = vec![ground; 8 * 4];
+        let mut pixels =
+            tiny_skia::PixmapMut::from_bytes(bytemuck::cast_slice_mut(&mut frame), 8, 4).expect("pixmap");
+        let half = tiny_skia::Color::from_rgba(1.0, 0.0, 0.0, 0.5).expect("colour");
+        // Past the frame's edge, it stops at it.
+        fill((-2, 1, 3, 9), half, false, &mut pixels);
+        fill((6, 0, 20, 1), half, true, &mut pixels);
+        let pixel = {
+            let color = half.premultiply().to_color_u8();
+            u32::from_le_bytes([color.red(), color.green(), color.blue(), color.alpha()])
+        };
+        for (at, &value) in frame.iter().enumerate() {
+            let (x, y) = (at % 8, at / 8);
+            let expected = if x < 3 && y >= 1 {
+                over(pixel, ground)
+            } else if x >= 6 && y == 0 {
+                pixel
+            } else {
+                ground
+            };
+            assert_eq!(value, expected, "at {x}, {y}");
         }
     }
 }

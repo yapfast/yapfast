@@ -139,6 +139,8 @@ pub struct App {
     /// `ROSTER_PAUSE`, and its lines.
     pub members: Option<Arc<Vec<ChatMember>>>,
     pub lines: Vec<MemberLine>,
+    /// What the member lines' looks were made with.
+    pub roster_made: Option<crate::looks::LooksMadeWith>,
     /// The Activity panel's cards over the member list, and whether it's
     /// opened past its first three.
     pub activity_cards: Vec<crate::members::ActivityCard>,
@@ -375,6 +377,7 @@ impl App {
             edge_changed: false,
             members: None,
             lines: Vec::new(),
+            roster_made: None,
             activity_cards: Vec::new(),
             activity_open: false,
             activity_for: (Arc::from([]), None),

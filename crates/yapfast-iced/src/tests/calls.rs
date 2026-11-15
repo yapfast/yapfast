@@ -1,8 +1,9 @@
 //! The call, as the Slint client's tests of it: the dock's noise toggle,
 //! the device menus' volumes and a device gone away, the share menu in a
 //! short window, the microphone's level only while its menu shows, the
-//! dock's channel line, a voice channel's Join, and someone's volumes and
-//! menu from their tile.
+//! dock's channel line, a voice channel's Join, someone's volumes and
+//! menu from their tile, a camera's tile before its first frame, and the
+//! call's own order under its channel.
 
 use iced::{Point, Rectangle, Size};
 use yapfast_core::{
@@ -399,4 +400,68 @@ fn cameras_are_made_at_the_windows_pixels_on_a_scaled_display() {
         wide.abs_diff(width * 2) <= 1 && tall.abs_diff(height * 2) <= 1,
         "{width}x{height} at 100%, {wide}x{tall} at 200%"
     );
+}
+
+#[test]
+fn a_camera_without_a_frame_yet_shows_their_picture_and_name() {
+    let (mut app, _folder, _) = in_call();
+    // Bob's camera is on, but no frame has come.
+    super::change(&mut app, |state| {
+        let mut bob = state.voice.participants[0].clone();
+        bob.id = "preview-bob".into();
+        bob.person = "bob".into();
+        bob.user = "Bob".into();
+        bob.local = false;
+        bob.video = Some(yapfast_core::picture::Feed::new());
+        state.voice.participants.push(bob);
+    });
+    assert!(app.voice_panel(), "the call's view");
+    // As the Slint client's tile: his name at its foot, over his picture,
+    // until the first frame.
+    assert!(shows(&app, "Bob"), "his tile's name");
+}
+
+#[test]
+fn the_call_this_account_is_in_lists_it_first_under_its_channel() {
+    let (mut app, _folder, room) = in_call();
+    let person = |id: &str, name: &str| yapfast_core::chat::VoicePerson {
+        id: id.into(),
+        name: name.into(),
+        avatar: None,
+        muted: false,
+        deafened: false,
+        server_muted: false,
+        server_deafened: false,
+        streaming: false,
+        video: false,
+        elsewhere: false,
+    };
+    // Discord lists a channel's people by name; this account is among them.
+    let you = app.client.state().voice.participants[0].person.clone();
+    super::change(&mut app, |state| {
+        let mut bob = state.voice.participants[0].clone();
+        bob.id = "preview-bob".into();
+        bob.person = "bob".into();
+        bob.local = false;
+        state.voice.participants.push(bob);
+        let lounge = state
+            .rooms
+            .iter_mut()
+            .find(|listed| listed.id == room)
+            .expect("Lounge");
+        std::sync::Arc::make_mut(lounge).people = vec![
+            person("ann", "Ann Listed"),
+            person("bob", "Bob Listed"),
+            person(&you, "Zed Listed"),
+        ];
+    });
+    let mut at = Vec::new();
+    interact(&mut app, |ui| {
+        for name in ["Zed Listed", "Ann Listed", "Bob Listed"] {
+            at.push(last(ui, name).y);
+        }
+    });
+    // This account first, then the call's others in its order, then
+    // anyone the call hasn't got yet.
+    assert!(at[0] < at[2] && at[2] < at[1], "{at:?}");
 }

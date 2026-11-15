@@ -112,7 +112,21 @@ pub fn card_shadow() -> iced::Shadow {
     }
 }
 
-/// The raised panels' shadow: menus, the picker, suggestions.
+/// The shadow of a window over a card: the Display Name Style's, over the
+/// profile editor.
+pub fn window_shadow() -> iced::Shadow {
+    iced::Shadow {
+        color: Color {
+            a: 0.7,
+            ..Color::BLACK
+        },
+        offset: iced::Vector::new(0.0, 16.0),
+        blur_radius: 48.0,
+    }
+}
+
+/// The raised panels' shadow: menus, the picker, suggestions; and the
+/// settings' cards.
 pub fn raised_shadow() -> iced::Shadow {
     iced::Shadow {
         color: Color {

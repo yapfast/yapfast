@@ -187,7 +187,8 @@ keeping the open channel, unread ones and busy voice channels, as
 Discord's does; under the pointer its heading offers a "+" that makes a
 channel in it, where this account may. A channel's row shows its kind's
 icon, its unread mark at the sidebar's edge, its mentions, and muted or
-locked faint; a busy voice channel lists who is in it and how long the
+locked faint; a busy voice channel lists who is in it (the call this
+account is in, in the call's order: this account first) and how long the
 call has gone on, which a timer set for the next whole minute brings up
 to date only while one shows (the same timer as open polls', the
 Activity panel's cards' and Active Now's); under the pointer, a card beside its row names who is there
@@ -1041,7 +1042,8 @@ parts of `ui/yapfast.slint`, with the adapter's logic beside them.
   lays the tiles out in a grid, or one large with the rest in a row under
   it; a click on a tile makes it large, and a click beside it the grid
   again. The tiles scroll when there are more than fit. Each tile is a
-  `tile::Tile`: a camera, a stream or the avatar, a green ring while the
+  `tile::Tile`: a camera, a stream or the avatar (a camera shows the
+  avatar until its first frame, and keeps its last if frames stop), a green ring while the
   person speaks, their name and marks, LIVE and how many watch. A stream
   not watched offers Watch stream; a watched one shows large with Stop
   watching and the full-screen button under the pointer, and a double click
@@ -1212,7 +1214,12 @@ what costs is kept out of the view:
 - Lists are virtualized by hand: `widgets::Rows` holds only the rows near
   its viewport, each keyed by its id, so its widget state follows it as
   rows come and go. A message's text is laid out once, when it comes, and
-  kept with its row.
+  kept with its row. The timeline's and the member list's scroll reports
+  go on only when they matter (`widgets::Settle`): a step well inside the
+  rows built beyond the edges, an end reached or left, a new size, and the
+  last a moment after the list stops; a wheel scroll reports many times a
+  frame, and each report builds the view again. The member list keeps the
+  look of each member who didn't change as the roster changes.
 - Pictures are the core's own buffers in tiny-skia's format, premultiplied
   BGRA (`pictures.rs`, `chat::set_pixel_buffers`), handed to iced without a
   copy. Copies at other sizes are made once and go when the core lets go of
@@ -1378,8 +1385,9 @@ When a second screen needs what a first one built, it moves here:
   `plain`, `notice`), and drawn (`App::body_view`, `App::run_span`) as
   selectable pieces (`select::Piece`), which follow their links.
 - `style.rs`: container grounds (`fill`, `rounded`, `corners`, and
-  `outlined` in a 1 px `edge`), the shadows (cards, raised panels, the
-  timeline's floating bars, the hover bar), the scrollbar.
+  `outlined` in a 1 px `edge`), the shadows (cards, raised panels and the
+  settings' cards, the Display Name Style window, the timeline's floating
+  bars, the hover bar), the scrollbar.
 - `pictures::Face::new(url, name, size)` with `key`, `opacity`,
   `decoration` and `dot`: an avatar as `App::face` draws it.
 - `widgets/`: `Pic`, `Animated`, `Framed` (a profile frame's layers
@@ -1389,7 +1397,8 @@ When a second screen needs what a first one built, it moves here:
   overlays `Place` (at a corner, the pointer, over a point, or with
   `Anchor::Span` under a button or above it) and `Above`, `PlateRow`, `Watch`, `RightPress` and
   `Holds` (a child that keeps the pointer's moves over it from what it floats over; `Rows`
-  hands events to its last row first, as a stack does).
+  hands events to its last row first, as a stack does), and `Settle` (a
+  scrollable whose scroll reports go on only when they matter).
 - `widgets::gauge` and `widgets::live_text`: a box painted from what it
   reads as it's drawn (a meter) and a line of text read so (a clock),
   each drawn again every so often while it shows, with no message.
@@ -1494,10 +1503,14 @@ the frame directly, clip by rectangles instead of masks, merge damage,
 draw video frames through the app's hook, keep each saved frame's
 background with it so a theme switch repaints regions an older frame
 painted in the old colour, count a shadow in its quad's damage so a
-shrinking overlay leaves no shadow behind, and keep one scaler context for
-every glyph, so fonts' hinting is set up once rather than for each text
-drawn; the wgpu ones fix two shader
-mistakes and upload large pictures in the frame.
+shrinking overlay leaves no shadow behind, keep each shadow worked out as
+its nine slices and copy it in directly, write a region's clear and
+plain fills into the frame directly, copy an opaque picture without
+reading its alpha, start a region at the last opaque quad that covers it
+whole, fill nothing for a quad of no colour (an outline over a card), and
+keep one scaler context for every glyph, so fonts' hinting is set up once
+rather than for each text drawn; the wgpu ones fix two shader mistakes
+and upload large pictures in the frame.
 
 ## Tests
 
@@ -1547,8 +1560,9 @@ noise toggle, a device gone away, the device volumes played and kept,
 the share menu in a short window and waiting for its own listing, the input level only while its menu
 shows, the dock's channel line, a voice channel's Join, and someone's
 volume from their menu, the signal's details with their tabs, the
-banners over a voice channel's call, and cameras made at the window's
-pixels on a scaled display; and in `tests/settings.rs` a theme chosen in
+banners over a voice channel's call, cameras made at the window's
+pixels on a scaled display, a camera's tile before its first frame, and
+the call's own order under its channel; and in `tests/settings.rs` a theme chosen in
 Appearance shown at once and kept, a custom theme made, edited, cancelled
 and deleted, preferences kept across a restart (and message times
 following the clock), a device chosen in Voice & video, push to talk's key
