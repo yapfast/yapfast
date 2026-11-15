@@ -181,12 +181,9 @@ pub fn closure(plugin: &PluginId, nodes: &[GraphNode]) -> Result<Vec<PluginId>, 
         if !wanted.insert(id) {
             continue;
         }
+        // A dependency named by another plugin and missing here is reported
+        // by `layers`, which knows who asked for it.
         let Some(node) = by_id.get(id) else {
-            if id != plugin {
-                // A dependency was named by another plugin; report the edge in
-                // `layers`, which knows who asked for it.
-                continue;
-            }
             continue;
         };
         queue.extend(node.dependencies.keys());

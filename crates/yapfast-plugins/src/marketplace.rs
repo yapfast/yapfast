@@ -715,8 +715,10 @@ impl Catalog {
                 "{} is pinned to commit {} in the registry, and its repository gave {}; nothing \
                  was installed",
                 entry.name,
-                &entry.rev[..8.min(entry.rev.len())],
-                &fetched.rev[..8.min(fetched.rev.len())],
+                // `get`, not a slice: the helper's answer is text it wrote,
+                // and a byte index into it can land inside a character.
+                entry.rev.get(..8).unwrap_or(&entry.rev),
+                fetched.rev.get(..8).unwrap_or(&fetched.rev),
             ));
         }
         let module = fetched.module.as_deref().unwrap_or_default();
