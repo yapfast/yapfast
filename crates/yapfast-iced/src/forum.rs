@@ -691,6 +691,11 @@ impl App {
         }
     }
 
+    /// Lets go of the guidelines, laid out in the old theme's inks.
+    pub fn forget_guidelines(&mut self) {
+        self.forum_post.guidelines = None;
+    }
+
     /// The forum's post guidelines, folding away.
     fn guidelines_view<'a>(&'a self, guidelines: &'a Body) -> Element<'a, Message> {
         let theme = &self.theme;

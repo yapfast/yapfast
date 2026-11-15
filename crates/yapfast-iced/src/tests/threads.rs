@@ -1,16 +1,12 @@
-//! The thread beside a channel and the picture viewer, as the Slint
-//! client's tests of them.
+//! The thread beside a channel, as the Slint client's tests of it.
 
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use iced::{
     keyboard::{self, key},
     widget::Id,
 };
-use yapfast_core::{
-    application::Viewer,
-    chat::{Attachment, ChatMessage, Picture, Pixels, Placement},
-};
+use yapfast_core::chat::ChatMessage;
 
 use super::{change, interact, preview, shows};
 use crate::thread::COMPOSER;
@@ -66,52 +62,6 @@ fn closing_the_thread_beside_lets_go_of_its_rows() {
     assert!(app.client.state().aside.is_none());
     assert!(app.aside.is_none());
     assert!(!shows(&app, "Saturday works for me"));
-}
-
-#[test]
-fn closing_the_viewer_lets_go_of_its_picture() {
-    let (mut app, _folder) = preview();
-    let picture = Arc::new(Picture {
-        width: 40,
-        height: 30,
-        rgba: Pixels::new(40, 30, vec![128; 40 * 30 * 4]),
-        ..Default::default()
-    });
-    change(&mut app, |state| {
-        state.messages = Arc::new(vec![Arc::new(ChatMessage {
-            item: "i0".into(),
-            author: "Sam".into(),
-            attachments: vec![Attachment {
-                name: "a.png".into(),
-                size: None,
-                image: true,
-                dimensions: Some((40, 30)),
-                preview: Some(picture),
-                preview_failed: false,
-                placement: Placement::Message,
-                gif: None,
-                spoiler: false,
-                video: false,
-                url: None,
-                description: None,
-            }],
-            ..Default::default()
-        })]);
-        state.viewer = Some(Viewer {
-            item: "i0".into(),
-            index: 0,
-            pictures: HashMap::new(),
-        });
-    });
-    assert!(app.viewer_size.is_some());
-    assert!(shows(&app, "a.png"));
-    let _ = app.update(crate::app::Message::Key(
-        keyboard::Key::Named(key::Named::Escape),
-        keyboard::Modifiers::default(),
-    ));
-    assert!(app.client.state().viewer.is_none());
-    assert!(app.viewer_size.is_none());
-    assert!(!shows(&app, "1 / 1"));
 }
 
 #[test]
@@ -233,6 +183,44 @@ fn files_dropped_over_the_thread_go_to_it() {
 }
 
 #[test]
+fn files_dropped_where_search_hides_the_thread_go_to_the_channel() {
+    use crate::uploads::Event;
+    let (mut app, folder) = thread_beside();
+    change(&mut app, |state| {
+        state.preview = false;
+        state.trusted = true;
+        for room in &mut state.rooms {
+            Arc::make_mut(room).encrypted = true;
+        }
+        // Search's results take the thread's place.
+        for room in &mut state.rooms {
+            Arc::make_mut(room).capabilities.search = true;
+        }
+        let place = state.search_place().expect("a place to search");
+        state.search = Some(yapfast_core::application::Search {
+            place,
+            query: "seeds".into(),
+            ..Default::default()
+        });
+    });
+    assert!(app.search_shown() && !app.aside_shown());
+    let file = folder.path().join("notes.txt");
+    std::fs::write(&file, "seeds").expect("a file");
+    let width = app.shell.frame.width;
+    let _ = app.uploads_event(Event::Hovered);
+    let _ = app.uploads_event(Event::Moved(iced::Point::new(width - 50.0, 300.0)));
+    assert!(!app.drop.aside, "not over a thread that shows");
+    let _ = app.uploads_event(Event::Dropped(file));
+    let _ = app.uploads_event(Event::Drop);
+    assert!(app.client.state().aside_staged().is_empty());
+    assert_eq!(
+        app.client.state().staged().len(),
+        1,
+        "staged in the channel"
+    );
+}
+
+#[test]
 fn the_thread_besides_composer_suggests_over_itself() {
     let (mut app, _folder) = thread_beside();
     interact(&mut app, |ui| {
@@ -290,4 +278,75 @@ fn where_winit_says_nothing_of_a_drag_the_platforms_pointer_says_where() {
         "staged in the thread"
     );
     assert!(app.follow_subscription().is_none(), "and no longer asked");
+}
+
+#[test]
+fn a_report_the_throttle_holds_back_follows_after_it() {
+    use crate::{app::Message, thread::Event};
+    let (mut app, _folder) = thread_beside();
+    let _ = app.update(Message::Thread(Event::Report));
+    // A second within the throttle: held back, and a timer for it.
+    let held = app.update(Message::Thread(Event::Report));
+    assert!(held.units() > 0, "a timer for the held report");
+}
+
+#[test]
+fn a_pictures_menu_in_the_thread_beside_opens_with_its_messages_rows() {
+    use crate::{app::Message, image_viewer::Event};
+    let (mut app, _folder) = thread_beside();
+    change(&mut app, |state| {
+        let aside = state.aside.as_mut().expect("the thread beside");
+        let messages = Arc::make_mut(&mut aside.messages);
+        let message = Arc::make_mut(&mut messages[0]);
+        message.attachments = vec![yapfast_core::chat::Attachment {
+            name: "map.png".into(),
+            size: None,
+            image: true,
+            dimensions: Some((400, 300)),
+            preview: None,
+            preview_failed: false,
+            placement: yapfast_core::chat::Placement::Message,
+            spoiler: false,
+            video: false,
+            gif: None,
+            url: Some("https://example.com/map.png".into()),
+            description: None,
+        }];
+    });
+    let _ = app.update(Message::Image(Event::Menu("t0".into(), 0, false)));
+    let menu = app.menu.as_ref().expect("a menu");
+    assert_eq!(menu.item.as_deref(), Some("t0"));
+    assert!(
+        menu.rows.iter().any(|row| row.label == "Copy Link"),
+        "with the picture's rows"
+    );
+}
+
+#[test]
+fn a_sent_threads_picture_lets_go_of_its_preview_beside_a_channels_file() {
+    use crate::uploads::Event;
+    let (mut app, folder) = thread_beside();
+    change(&mut app, |state| {
+        state.preview = false;
+        state.trusted = true;
+        for room in &mut state.rooms {
+            Arc::make_mut(room).encrypted = true;
+        }
+    });
+    let (notes, picture) = (folder.path().join("notes.txt"), folder.path().join("a.png"));
+    std::fs::write(&notes, "seeds").expect("a file");
+    std::fs::write(&picture, "not really").expect("a picture");
+    let _ = app.uploads_event(Event::Chosen(vec![notes]));
+    let _ = app.uploads_event(Event::ChosenAside(vec![picture.clone()]));
+    assert!(
+        app.thumbnails.contains_key(&picture),
+        "its preview asked for"
+    );
+    // One staged in each place, one preview: as many as the channel has.
+    let _ = app.uploads_event(Event::UnstageAside(0));
+    assert!(app.client.state().aside_staged().is_empty());
+    assert!(
+        !app.thumbnails.contains_key(&picture),
+        "the thread's picture's preview let go"
+    );
 }

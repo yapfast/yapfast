@@ -100,21 +100,6 @@ impl App {
                 _ => None,
             }));
         }
-        // Busy voice channels show how long their call has gone on, to the
-        // minute; open polls, how long they have left; activity cards and
-        // Active Now, how long ago. Every 15 s, so a minute shows at most
-        // 15 s late; `Message::Minute` rounds the clock to the minute.
-        if self
-            .side
-            .iter()
-            .any(|row| matches!(row, crate::sidebar::SideRow::Room(room) if room.started.is_some()))
-            || crate::polls::open_poll(&self.messages, self.minute)
-            || !self.activity_cards.is_empty()
-            || self.active_now_minutes()
-            || self.popover_playing()
-        {
-            subscriptions.push(iced::time::every(Duration::from_secs(15)).map(|_| Message::Minute));
-        }
         // A shown activity's time, each second.
         if self.profile_ticks() || self.active_now_ticks() || self.invites_ticking() {
             subscriptions.push(iced::time::every(Duration::from_secs(1)).map(|_| Message::Second));

@@ -180,6 +180,20 @@ impl App {
     }
 
     /// What the open emoji's or sticker's card says, from the core.
+    /// Lets go of the cards whose subject went (a sticker's message
+    /// deleted, the profile listing a mutual server closed): drawn as
+    /// nothing, they'd still hold the keys and take the next Escape.
+    pub fn info_sync(&mut self) {
+        if let Some((expression, _)) = &self.cards.expression
+            && self.expression_card(expression).is_none()
+        {
+            self.cards.expression = None;
+        }
+        if self.cards.server.is_some() && self.card_server().is_none() {
+            self.cards.server = None;
+        }
+    }
+
     fn expression_card(&self, expression: &Expression) -> Option<expression::Card> {
         match expression {
             Expression::Emoji(target) => Some(expression::emoji_for(&self.client.app, target)),

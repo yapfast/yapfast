@@ -71,6 +71,15 @@ pub struct Popovers {
     topic: Option<TopicShown>,
 }
 
+impl Popovers {
+    /// Lets go of what's laid out in the old theme's inks: the pins' cards
+    /// and the topic.
+    pub fn forget_laid(&mut self) {
+        self.pins.clear();
+        self.topic = None;
+    }
+}
+
 /// The topic in full, while it shows: whose, where its line was, and its
 /// Markdown with its line breaks, laid out once as it opens.
 struct TopicShown {

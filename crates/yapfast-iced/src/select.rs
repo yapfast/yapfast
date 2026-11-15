@@ -9,7 +9,10 @@
 //! in it. The selection itself is the app's: two `Mark`s, ordered by message,
 //! piece, line and byte, so a piece is told only the range it shows.
 
-use std::hash::{Hash, Hasher};
+use std::{
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
 
 use iced::{
     Color, Element, Event, Font, Length, Pixels, Point, Rectangle, Size, Theme,
@@ -47,13 +50,15 @@ pub struct Mark {
     pub index: usize,
 }
 
-/// What a piece reports.
-#[derive(Clone, Copy, Debug)]
+/// What a piece reports, with its message's item: the mark's row is the
+/// message's place as the view was built, which a batch handled first may
+/// have moved.
+#[derive(Clone, Debug)]
 pub enum Select {
     /// A press on text: a new selection starts here.
-    Start(Mark),
+    Start(Mark, Arc<str>),
     /// The pointer, dragging, is over this place.
-    To(Mark),
+    To(Mark, Arc<str>),
 }
 
 /// The part of the selection within one piece.
@@ -99,6 +104,8 @@ pub struct Piece<'a> {
     /// What the text is, so it's shaped again only when it changes.
     stamp: u64,
     row: usize,
+    /// Its message's item; a piece of no message selects nothing.
+    item: Option<Arc<str>>,
     part: PartNo,
     size: f32,
     line_height: f32,
@@ -138,6 +145,7 @@ impl<'a> Piece<'a> {
             spans,
             stamp: hasher.finish(),
             row,
+            item: None,
             part,
             size: 16.0,
             line_height: 22.0,
@@ -150,6 +158,12 @@ impl<'a> Piece<'a> {
             highlight: Color::TRANSPARENT,
             spot: None,
         }
+    }
+
+    /// The message it's a piece of, which a selection started on it names.
+    pub fn item(mut self, item: Option<Arc<str>>) -> Self {
+        self.item = item;
+        self
     }
 
     /// Keeps the place of a link pressed in `spot`, from the press
@@ -375,12 +389,12 @@ impl Widget<Message, Theme, Renderer> for Piece<'_> {
                         shell.capture_event();
                         return;
                     }
-                    if !self.starts {
+                    let Some(item) = self.item.clone().filter(|_| self.starts) else {
                         return;
-                    }
+                    };
                     let mark = self.mark(&state.paragraph, at, bounds);
                     state.reported = Some(mark);
-                    shell.publish(Message::Select(Select::Start(mark)));
+                    shell.publish(Message::Select(Select::Start(mark, item)));
                     shell.capture_event();
                 }
             }
@@ -400,11 +414,15 @@ impl Widget<Message, Theme, Renderer> for Piece<'_> {
                     0 => position.x < bounds.x + bounds.width,
                     _ => position.x >= bounds.x,
                 };
-                if level && beside && viewport.contains(position) {
+                if level
+                    && beside
+                    && viewport.contains(position)
+                    && let Some(item) = &self.item
+                {
                     let mark = self.mark(&state.paragraph, position, bounds);
                     if state.reported != Some(mark) {
                         state.reported = Some(mark);
-                        shell.publish(Message::Select(Select::To(mark)));
+                        shell.publish(Message::Select(Select::To(mark, item.clone())));
                     }
                 }
             }
@@ -638,30 +656,31 @@ pub struct Sel {
 impl App {
     /// A piece's report: a press starts a selection, a drag moves its end.
     pub fn select(&mut self, select: Select) {
-        let (Select::Start(mark) | Select::To(mark)) = select;
+        let (Select::Start(mark, item) | Select::To(mark, item)) = &select;
         // A selection stays in the timeline it started in.
         let aside = mark.row >= crate::timeline::ASIDE;
-        if let (Select::To(_), Some((from, _))) = (&select, &self.selection)
+        if let (Select::To(..), Some((from, _))) = (&select, &self.selection)
             && from.aside != aside
         {
             return;
         }
-        let Some(message) = self.row_message(mark.row) else {
+        // By its item: the row may have moved since the view was built.
+        if self.row_of(item).is_none() {
             return;
-        };
+        }
         let at = Sel {
             aside,
-            item: message.item.clone(),
+            item: item.to_string(),
             part: mark.part,
             line: mark.line,
             index: mark.index,
         };
         match select {
-            Select::Start(_) => {
+            Select::Start(..) => {
                 self.selection = Some((at.clone(), at));
                 self.selecting = true;
             }
-            Select::To(_) => {
+            Select::To(..) => {
                 if self.selecting
                     && let Some((_, to)) = &mut self.selection
                 {
@@ -828,6 +847,7 @@ mod tests {
             ..Default::default()
         };
         let look = RowLook {
+            item: Arc::from(""),
             first: true,
             day: None,
             unread_start: false,

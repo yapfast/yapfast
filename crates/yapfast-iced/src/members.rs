@@ -19,6 +19,7 @@ use crate::{
     fonts::{MEDIUM, SEMIBOLD},
     header,
     looks::{self, Chip, MemberLine, MemberLook},
+    people::StatusInk,
     people::{NameInk, Person},
     pictures::{Face, Icon},
     profile,
@@ -54,8 +55,9 @@ pub enum Event {
     Toggle,
     /// Its eye: hide the cards, or show them.
     Hide,
-    /// A card was clicked, by its place among the cards.
-    Open(usize),
+    /// A card was clicked, by whose it is: the cards may have moved
+    /// since.
+    Open(String),
 }
 
 /// A card of the Activity panel, from Discord's feed, as the Slint
@@ -86,7 +88,7 @@ impl App {
                 MemberLine::Heading { text, icon } => {
                     (text.as_str(), self.heading_row(text, icon.as_deref()))
                 }
-                MemberLine::Member(look) => (look.id.as_str(), self.member_row(index, look)),
+                MemberLine::Member(look) => (look.id.as_str(), self.member_row(look)),
             };
             rows.push(key(id), top, ROW, container(row).padding([0, 8]));
         }
@@ -97,10 +99,28 @@ impl App {
             .on_scroll(Message::Members)
             .height(Length::Fill)
             .style(scrollbar(&self.theme));
-        let list: Element<'_, Message> = match self.activity_panel() {
-            Some(panel) => column![panel, list].into(),
-            None => list.into(),
+        // What the list is waiting for, or why it's empty, as the Slint
+        // client's note over it.
+        let note = match &self.client.state().members {
+            None => Some("Loading members..."),
+            Some(Err(error)) => Some(*error),
+            Some(Ok(members)) if members.is_empty() => Some("No one else has joined yet."),
+            Some(Ok(_)) => None,
         };
+        let note = note.map(|note| {
+            container(
+                text(note)
+                    .size(13)
+                    .color(self.theme.muted)
+                    .width(Length::Fill),
+            )
+            .padding(16)
+        });
+        let list: Element<'_, Message> = column![]
+            .push(self.activity_panel())
+            .push(note)
+            .push(list)
+            .into();
         container(row![bar(edge, 1, Length::Fill), list])
             .width(WIDTH)
             .height(Length::Fill)
@@ -137,7 +157,7 @@ impl App {
     /// at) and presence, the name in its style's font and its role's
     /// colour, the role icon, server tag, APP tag, crown, boosting gem and
     /// timeout's clock, the activity line, and the nameplate behind it all.
-    fn member_row<'a>(&'a self, index: usize, look: &'a MemberLook) -> Element<'a, Message> {
+    fn member_row<'a>(&'a self, look: &'a MemberLook) -> Element<'a, Message> {
         let theme = &self.theme;
         let pointed = self.pointed.member.as_ref() == Some(&look.id);
         // The member whose card is open.
@@ -211,7 +231,8 @@ impl App {
         }
         let mut person = Person::new(face, name_line);
         if !look.status.is_empty() {
-            person = person.sub(self.status_line(&look.status, opacity));
+            person = person
+                .sub(self.status_line(&look.status, StatusInk::under_name(&self.theme, opacity)));
         }
         let plate = look
             .nameplate
@@ -251,6 +272,7 @@ impl App {
         );
         let id = look.id.clone();
         let menu_id = look.id.clone();
+        let open_id = look.id.clone();
         let origin = self.member_list_origin();
         let area = mouse_area(
             container(plated)
@@ -270,7 +292,7 @@ impl App {
         .interaction(iced::mouse::Interaction::Pointer)
         .on_enter(Message::PointMember(id.clone(), true))
         .on_exit(Message::PointMember(id, false))
-        .on_press(Message::OpenMember(index));
+        .on_press(Message::OpenMember(open_id));
         RightPress::new(area, move |at| {
             Message::PersonMenu(menu_id.clone(), at + origin)
         })
@@ -415,13 +437,8 @@ impl App {
             bottom: PANEL_BOTTOM,
             left: 8.0,
         });
-        for (index, card) in self
-            .activity_cards
-            .iter()
-            .enumerate()
-            .take(self.cards_shown())
-        {
-            panel = panel.push(container(self.activity_card(index, card)).padding(Padding {
+        for card in self.activity_cards.iter().take(self.cards_shown()) {
+            panel = panel.push(container(self.activity_card(card)).padding(Padding {
                 bottom: CARD_PITCH - CARD,
                 ..Padding::ZERO
             }));
@@ -448,7 +465,7 @@ impl App {
         PANEL_TOP + ACTIVITY_HEAD + self.cards_shown() as f32 * CARD_PITCH + PANEL_BOTTOM
     }
 
-    fn activity_card<'a>(&'a self, index: usize, card: &'a ActivityCard) -> Element<'a, Message> {
+    fn activity_card<'a>(&'a self, card: &'a ActivityCard) -> Element<'a, Message> {
         let theme = &self.theme;
         let tone = if card.live { theme.live } else { theme.muted };
         let mut when = row![].spacing(4).align_y(Alignment::Center);
@@ -496,7 +513,7 @@ impl App {
         let face = iced::widget::button(container(body).padding(8).height(CARD).clip(true))
             .padding(0)
             .width(Length::Fill)
-            .on_press(Message::MemberActivity(Event::Open(index)))
+            .on_press(Message::MemberActivity(Event::Open(card.id.clone())))
             .style(move |_, status| iced::widget::button::Style {
                 background: Some(if controls::lights(status) { lit } else { rest }.into()),
                 border: Border {
@@ -506,12 +523,9 @@ impl App {
                 },
                 ..Default::default()
             });
+        // The panel is in no scrollable: the point is the window's already.
         let user = card.id.clone();
-        let origin = Vector::new(self.window.width - WIDTH + 1.0, header::HEIGHT + 1.0);
-        RightPress::new(face, move |at| {
-            Message::PersonMenu(user.clone(), at + origin)
-        })
-        .into()
+        RightPress::new(face, move |at| Message::PersonMenu(user.clone(), at)).into()
     }
 
     /// What's done in the Activity panel.
@@ -528,8 +542,13 @@ impl App {
                 let hidden = !self.client.state().activity_cards_hidden;
                 self.hide_activity(hidden)
             }
-            Event::Open(index) => {
-                let Some(card) = self.activity_cards.get(index) else {
+            Event::Open(id) => {
+                let Some((index, card)) = self
+                    .activity_cards
+                    .iter()
+                    .enumerate()
+                    .find(|(_, card)| card.id == id)
+                else {
                     return Task::none();
                 };
                 let top =
@@ -564,8 +583,17 @@ impl App {
 
     /// A member's line was clicked: their card opens beside the list, its
     /// top 16 px above the row's.
-    pub fn open_member(&mut self, index: usize) -> Task<Message> {
-        let Some(MemberLine::Member(look)) = self.lines.get(index) else {
+    pub fn open_member(&mut self, id: &str) -> Task<Message> {
+        // Found by id: the lines may have moved since the click.
+        let Some((index, look)) =
+            self.lines
+                .iter()
+                .enumerate()
+                .find_map(|(index, line)| match line {
+                    MemberLine::Member(look) if look.id == id => Some((index, look)),
+                    _ => None,
+                })
+        else {
             return Task::none();
         };
         let top = header::HEIGHT + 1.0 + self.activity_height() + TOP + index as f32 * PITCH

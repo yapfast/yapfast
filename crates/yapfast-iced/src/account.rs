@@ -17,6 +17,7 @@ use crate::{
     app::{App, Message},
     fonts::BOLD,
     looks::{Status, one_line},
+    people::StatusInk,
     pictures::{Face, Icon},
     style::rounded,
     theme::rgb,
@@ -205,7 +206,7 @@ impl App {
                 .wrapping(text::Wrapping::None)
                 .into()
         } else {
-            self.status_line(&account.status, 1.0)
+            self.status_line(&account.status, StatusInk::under_name(&self.theme, 1.0))
         };
         let lit = theme.wash(0.08);
         let names = mouse_area(

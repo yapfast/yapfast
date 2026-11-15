@@ -10,9 +10,7 @@ use std::sync::Arc;
 use crate::{
     app::{App, Message},
     fonts::BOLD,
-    pictures::{Icon, Mark},
     style::{BLURPLE, faded, hex, rounded},
-    theme::rgb,
     widgets::Pic,
 };
 use iced::{
@@ -81,6 +79,18 @@ pub struct Status {
     pub emoji: Option<String>,
     pub icon: u8,
     pub bullet: bool,
+}
+
+impl<'a> From<&'a Status> for std::borrow::Cow<'a, Status> {
+    fn from(status: &'a Status) -> Self {
+        std::borrow::Cow::Borrowed(status)
+    }
+}
+
+impl From<Status> for std::borrow::Cow<'_, Status> {
+    fn from(status: Status) -> Self {
+        std::borrow::Cow::Owned(status)
+    }
 }
 
 impl Status {
@@ -475,44 +485,6 @@ pub struct Chip {
 }
 
 impl App {
-    /// What someone is up to, under their name: the activity's icon, a
-    /// bullet, a custom emoji's picture, the words, 12 px.
-    pub fn status_line<'a>(&'a self, status: &'a Status, opacity: f32) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let mut line = row![].spacing(4).align_y(Alignment::Center);
-        let side = 15.0;
-        let ink = faded(theme.muted, opacity);
-        if let Some(icon) = Icon::activity(status.icon) {
-            // Discord draws the game controller in its online green.
-            let color = rgb(if icon == Icon::Gamepad {
-                theme.live
-            } else {
-                theme.muted
-            });
-            if let Some(icon) = self.mark(Mark::Icon(icon, side as u32, color)) {
-                line = line.push(Pic::square(icon, side).opacity(opacity));
-            }
-            if status.bullet {
-                line = line.push(text("\u{2022}").size(12).color(ink));
-            }
-        }
-        if let Some(emoji) = &status.emoji {
-            line = line.push(match self.picture(emoji, side as u32, side as u32, false) {
-                Some(picture) => Element::from(Pic::square(picture, side).opacity(opacity)),
-                None => Space::new().width(side).height(side).into(),
-            });
-        }
-        if !status.words.is_empty() {
-            line = line.push(
-                text(status.words.as_str())
-                    .size(12)
-                    .color(ink)
-                    .wrapping(text::Wrapping::None),
-            );
-        }
-        line.into()
-    }
-
     /// A server tag as Discord's client draws it: a grey chip, the badge,
     /// then up to four letters, all faded by `opacity`.
     pub fn tag_chip(

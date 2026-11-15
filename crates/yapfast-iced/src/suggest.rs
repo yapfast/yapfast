@@ -54,8 +54,14 @@ pub struct Suggest {
 }
 
 impl Suggest {
-    pub fn step(&mut self, step: i32) {
-        self.index = (self.index as i32 + step).max(0) as usize;
+    /// The light moves `step` rows among `count`, going round both ways,
+    /// as the Slint client's.
+    pub fn step(&mut self, step: i32, count: usize) {
+        if count == 0 {
+            return;
+        }
+        let count = count as i64;
+        self.index = (self.lit(count as usize) as i64 + step as i64).rem_euclid(count) as usize;
     }
 
     pub fn set_index(&mut self, index: usize) {
@@ -94,6 +100,16 @@ impl App {
                 Some(Shown::Commands(rows, _)) => !rows.is_empty(),
                 shown => shown.is_some(),
             }
+    }
+
+    /// How many suggestions show, for the arrows to go round.
+    pub fn suggestion_count(&self) -> usize {
+        match self.shown_suggestions() {
+            Some(Shown::Commands(rows, _)) => rows.len(),
+            Some(Shown::Mentions(found)) => found.len(),
+            Some(Shown::Emoji) => self.suggest.emoji.len(),
+            None => 0,
+        }
     }
 
     fn shown_suggestions(&self) -> Option<Shown> {

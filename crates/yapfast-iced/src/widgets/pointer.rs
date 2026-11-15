@@ -1,7 +1,8 @@
 //! What the pointer does to a child: the timeline's presses ([`Watch`]),
 //! a right press ([`RightPress`]), what shows under it ([`Hover`]), where a
-//! button is as it's pressed ([`Spot`]), and the wheel with Ctrl
-//! ([`CtrlWheel`]).
+//! button is as it's pressed ([`Spot`]), the wheel with Ctrl
+//! ([`CtrlWheel`]), and a child that keeps the pointer's moves over it from
+//! what it floats over ([`Holds`]).
 
 use iced::{
     Element, Length, Point, Rectangle, Size, Theme, Vector,
@@ -66,6 +67,40 @@ impl Hooks for Watch {
                 }
             }
             _ => {}
+        }
+    }
+}
+
+/// Its child, which keeps the pointer's moves over it to itself: what it
+/// floats over, drawn before it (a message's row under the hover bar that
+/// reaches over it), doesn't take the pointer while it's over the child,
+/// nor does what it's in say the pointer left. Lists that overlap so
+/// ([`Rows`](super::Rows), iced's stack) hand events to what's drawn last
+/// first.
+pub struct Holds;
+
+impl Holds {
+    pub fn new<'a>(child: impl Into<Element<'a, Message>>) -> Wrap<'a, Self> {
+        Wrap::new(child, Self)
+    }
+}
+
+impl Hooks for Holds {
+    type State = Stateless;
+
+    fn update(
+        &mut self,
+        _: &mut Stateless,
+        event: &iced::Event,
+        at: At,
+        shell: &mut Shell<'_, Message>,
+        child: &mut Inner<'_, '_>,
+    ) {
+        child.update(shell);
+        if let iced::Event::Mouse(mouse::Event::CursorMoved { .. }) = event
+            && at.cursor.is_over(at.bounds)
+        {
+            shell.capture_event();
         }
     }
 }

@@ -24,6 +24,7 @@ use crate::{
     fonts::{BOLD, MEDIUM},
     looks::Status,
     markdown::{self, Body},
+    people::StatusInk,
     pictures::{Face, Icon},
     select::Piece,
     sidebar::room_icon,
@@ -245,11 +246,13 @@ impl App {
         } else if !header.activity.is_empty() {
             head = head.push(
                 container(
-                    container(self.status_line(&header.activity, 1.0))
-                        .padding([0, 10])
-                        .height(24)
-                        .align_y(Alignment::Center)
-                        .style(move |_| rounded(theme.raised, 12)),
+                    container(
+                        self.status_line(&header.activity, StatusInk::under_name(&self.theme, 1.0)),
+                    )
+                    .padding([0, 10])
+                    .height(24)
+                    .align_y(Alignment::Center)
+                    .style(move |_| rounded(theme.raised, 12)),
                 )
                 .width(Length::Fill),
             );

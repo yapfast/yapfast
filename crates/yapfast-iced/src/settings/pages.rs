@@ -19,6 +19,7 @@ use crate::{
     fonts::BOLD,
     form::{self, switch},
     layout::Animate,
+    people::StatusInk,
     pictures::Icon,
 };
 
@@ -457,7 +458,7 @@ impl App {
                         .font(BOLD)
                         .color(theme.text)
                         .wrapping(text::Wrapping::None),
-                    self.status_line(&account.status, 1.0)
+                    self.status_line(&account.status, StatusInk::under_name(&self.theme, 1.0))
                 ]
                 .spacing(2)
                 .width(Length::Fill)

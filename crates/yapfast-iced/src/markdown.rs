@@ -52,6 +52,14 @@ pub struct Run {
     pub emoji: Option<(String, String)>,
 }
 
+/// Whether a coloured link is a mention drawn on a pill: a person's, a
+/// role's or everyone's, as the Slint client's text tells them.
+fn pilled(link: &str) -> bool {
+    link.starts_with("yapfast:user/")
+        || link.starts_with("yapfast:role/")
+        || link == "yapfast:everyone"
+}
+
 /// What stands in a custom emoji's place in text: a space an em wide, its
 /// span sized to the picture.
 pub const EMOJI_MARK: char = '\u{2003}';
@@ -687,19 +695,23 @@ impl App {
                 .border(Border::default().rounded(3));
         }
         if let Some(rgb) = run.color {
-            // A mention, on a translucent pill of its colour, as the Slint
-            // client's patched text draws it.
             let color = crate::style::hex(rgb);
-            piece = piece
-                .color(color)
-                .background(Color { a: 0.16, ..color })
-                .border(Border::default().rounded(4))
-                .padding(Padding {
-                    top: -1.5,
-                    bottom: -1.5,
-                    left: 2.0,
-                    right: 2.0,
-                });
+            piece = piece.color(color);
+            // A mention of a person, a role or everyone, on a translucent
+            // pill of its colour, as the Slint client's patched text draws
+            // it; other coloured text (a notice's names, links and time)
+            // shows in the colour alone.
+            if run.link.as_deref().is_some_and(pilled) {
+                piece = piece
+                    .background(Color { a: 0.16, ..color })
+                    .border(Border::default().rounded(4))
+                    .padding(Padding {
+                        top: -1.5,
+                        bottom: -1.5,
+                        left: 2.0,
+                        right: 2.0,
+                    });
+            }
         } else if run.link.is_some() {
             piece = piece.color(theme.link);
         } else {
@@ -765,6 +777,7 @@ impl App {
                 })
                 .collect();
             let piece = Piece::new(spans, row, number)
+                .item(self.row_look(row).map(|look| look.item.clone()))
                 .pictures(pictures)
                 .size(size, (size * ratio).round())
                 .color(ink)
@@ -962,7 +975,35 @@ mod tests {
             .find(|run| run.text == "@Bob")
             .unwrap();
         assert_eq!(bob.color, Some(0x123456));
-        assert!(bob.link.is_some());
+        assert!(bob.link.as_deref().is_some_and(pilled), "on a pill");
+    }
+
+    #[test]
+    fn a_notices_names_links_and_time_are_coloured_but_not_pilled() {
+        use yapfast_core::chat::{ChatMessage, Notice, NoticeKind};
+        let message = ChatMessage {
+            author: "Ann".into(),
+            sender: "discord:5".into(),
+            time: "12:01".into(),
+            ..Default::default()
+        };
+        let pinned = Notice {
+            kind: NoticeKind::Pinned(Some("m1".into())),
+            text: String::new(),
+        };
+        let body = notice(&message, &pinned, 0xffffff, 0x808080);
+        let coloured: Vec<_> = body.parts[0]
+            .runs
+            .iter()
+            .filter(|run| run.color.is_some())
+            .collect();
+        assert!(coloured.len() >= 3, "{coloured:?}");
+        assert!(
+            coloured
+                .iter()
+                .all(|run| !run.link.as_deref().is_some_and(pilled)),
+            "none on a pill"
+        );
     }
 
     #[test]

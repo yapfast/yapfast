@@ -25,7 +25,7 @@ use crate::{
     fonts::BOLD,
     pictures::Icon,
     style::scrollbar,
-    widgets::Hover,
+    widgets::{Hover, Rows},
 };
 
 // The root crate's word on which desktops frame their windows, which the
@@ -44,6 +44,8 @@ const CAPTION_GLYPH: u32 = 12;
 const INBOX_WIDTH: f32 = 440.0;
 const INBOX_MOST: f32 = 560.0;
 const INBOX_ROW: f32 = 56.0;
+/// Round the inbox's rows.
+const INBOX_PAD: f32 = 4.0;
 
 /// Where Discord's help opens.
 const HELP: &str = "https://support.discord.com";
@@ -83,6 +85,7 @@ pub enum Event {
     Inbox,
     InboxTab(Tab),
     InboxOpen(String),
+    InboxScrolled(crate::sync::Scroll),
     CloseInbox,
     Help,
     /// The bar pressed, the pointer moved on it, the button let go.
@@ -112,16 +115,18 @@ pub enum Tab {
 pub struct Inbox {
     pub tab: Tab,
     pub rows: Vec<InboxRow>,
+    /// Its list's viewport: only the rows near it are built.
+    pub scroll: crate::sync::Scroll,
 }
 
 /// One line of the inbox: a channel or conversation with something waiting.
 #[derive(Clone, Debug, PartialEq)]
 pub struct InboxRow {
     pub id: String,
-    /// As the row shows it (a channel's with its `#`), and as its avatar's
-    /// initial is taken.
+    /// As the row shows it (a channel's with its `#`), and the name its
+    /// avatar's initial and tint are taken from.
     pub name: String,
-    pub initial: String,
+    pub avatar_name: String,
     pub place: String,
     pub picture: Option<String>,
     pub mentions: u64,
@@ -216,7 +221,10 @@ impl App {
             Event::Inbox => {
                 self.inbox = match self.inbox.take() {
                     Some(_) => None,
-                    None => Some(Inbox::default()),
+                    None => Some(Inbox {
+                        scroll: crate::sync::Scroll::new(INBOX_MOST),
+                        ..Inbox::default()
+                    }),
                 };
                 self.inbox_sync();
                 Task::none()
@@ -233,6 +241,12 @@ impl App {
                 self.client
                     .dispatch(yapfast_core::application::Action::SwitchTo(room));
                 self.sync()
+            }
+            Event::InboxScrolled(scroll) => {
+                if let Some(inbox) = &mut self.inbox {
+                    inbox.scroll = scroll;
+                }
+                Task::none()
             }
             Event::CloseInbox => {
                 self.inbox = None;
@@ -320,6 +334,18 @@ impl App {
         };
         let state = self.client.state();
         let mentions_only = inbox.tab == Tab::Mentions;
+        // Each channel's server, found once, as the Slint client's
+        // channel-to-server map.
+        let places: std::collections::HashMap<&str, &str> = state
+            .servers
+            .iter()
+            .flat_map(|server| {
+                server
+                    .channels
+                    .iter()
+                    .map(|channel| (channel.as_str(), server.name.as_str()))
+            })
+            .collect();
         let rows: Vec<InboxRow> = state
             .rooms
             .iter()
@@ -332,12 +358,10 @@ impl App {
                 } else {
                     format!("#{}", room.name)
                 },
-                initial: room.name.clone(),
-                place: state
-                    .servers
-                    .iter()
-                    .find(|server| server.channels.iter().any(|id| *id == room.id))
-                    .map(|server| server.name.clone())
+                avatar_name: room.name.clone(),
+                place: places
+                    .get(room.id.as_str())
+                    .map(|place| (*place).to_owned())
                     .unwrap_or_default(),
                 picture: room.direct.then(|| room.avatar.clone()).flatten(),
                 mentions: room.mentions,
@@ -649,7 +673,22 @@ impl App {
             .align_y(Alignment::Center)
             .into()
         } else {
-            scrollable(column(inbox.rows.iter().map(|entry| self.inbox_line(entry))).padding(4))
+            // Only the rows near the view are built: the Unreads can list
+            // hundreds.
+            let (first, last) = inbox.scroll.range(inbox.rows.len(), INBOX_ROW, INBOX_PAD);
+            let mut rows = Rows::new(inbox.rows.len() as f32 * INBOX_ROW + INBOX_PAD * 2.0);
+            for (index, entry) in inbox.rows.iter().enumerate().take(last).skip(first) {
+                rows.push(
+                    crate::app::key(&entry.id),
+                    INBOX_PAD + index as f32 * INBOX_ROW,
+                    INBOX_ROW,
+                    container(self.inbox_line(entry)).padding([0.0, INBOX_PAD]),
+                );
+            }
+            scrollable(rows)
+                .on_scroll(|viewport| {
+                    Message::Bar(Event::InboxScrolled(crate::sync::Scroll::of(viewport)))
+                })
                 .style(scrollbar(theme))
                 .height(Length::Fill)
                 .into()
@@ -661,7 +700,9 @@ impl App {
             body
         ])
         .width(INBOX_WIDTH)
-        .height((self.window.height - HEIGHT - 16.0).min(INBOX_MOST))
+        // `window` is the room under the bar already: the panel starts 4 px
+        // under it and stops 12 px over the window's foot.
+        .height((self.window.height - 4.0 - 12.0).min(INBOX_MOST))
         .style(move |_| iced::widget::container::Style {
             background: Some(raised.into()),
             border: iced::Border {
@@ -696,7 +737,7 @@ impl App {
         let mut line = row![
             self.avatar_tinted(
                 entry.picture.as_deref(),
-                &entry.initial,
+                &entry.avatar_name,
                 &entry.id,
                 32.0,
                 16.0,

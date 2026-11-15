@@ -279,6 +279,40 @@ fn a_stickers_card_names_the_server_it_is_from_which_opens() {
 }
 
 #[test]
+fn a_stickers_card_goes_with_its_message() {
+    use yapfast_core::chat::{Attachment, Placement};
+    let (mut app, _folder) = preview();
+    let item = app.client.state().messages[0].item.clone();
+    super::change(&mut app, |state| {
+        let messages = std::sync::Arc::make_mut(&mut state.messages);
+        let message = std::sync::Arc::make_mut(&mut messages[0]);
+        message.attachments.push(Attachment {
+            name: "wave".into(),
+            size: None,
+            image: true,
+            dimensions: None,
+            preview: None,
+            preview_failed: false,
+            placement: Placement::Sticker,
+            spoiler: false,
+            video: false,
+            gif: None,
+            url: Some("https://media.discordapp.net/stickers/77.png?size=160".into()),
+            description: None,
+        });
+    });
+    let index = app.client.state().messages[0].attachments.len() - 1;
+    let _ = app.update(Message::Info(Event::Sticker(item, index)));
+    assert!(app.cards.expression.is_some());
+    // Its author deletes it.
+    super::change(&mut app, |state| {
+        let messages = std::sync::Arc::make_mut(&mut state.messages);
+        messages.remove(0);
+    });
+    assert!(app.cards.expression.is_none(), "the card went with it");
+}
+
+#[test]
 fn a_click_on_an_emoji_in_a_message_opens_its_card() {
     let (mut app, _folder) = preview();
     super::change(&mut app, |state| {

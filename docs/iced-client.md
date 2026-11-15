@@ -153,7 +153,11 @@ window-control command `theme ID`: either writes `theme` into
 costs no picture: the client's icons
 and dots are drawn per colour and the ones of the old theme go, but
 avatars, emoji and attachments are the same buffers; the names styled for
-the other ground (dark or light) are made again as they show.
+the other ground (dark or light) are made again as they show. Text laid out
+with the theme's inks in it (mentions, a notice's names, the topic) is laid
+out again in the new ones: the timeline's and the thread's rows at once,
+keeping their heights, and found cards, pins and a forum's guidelines as
+each is next taken in.
 
 ## Rail and sidebar
 
@@ -167,7 +171,8 @@ A folder opens and closes on a click, its servers on a strip of its
 colour; closed it shows its first four servers' icons.
 
 The sidebar (`sidebar.rs`) is the Slint client's `RoomList`: on the DM
-home the search field (which keeps the DMs whose names hold its text),
+home the search field (which keeps the DMs whose names hold its text,
+and empties as the rail goes elsewhere),
 Friends and Requests, "Direct Messages" and each DM with its person's
 presence, the voice channel they're in and what they're up to; in a
 server its name, which opens the server's menu, then its pinned channels,
@@ -177,8 +182,9 @@ Discord's does; under the pointer its heading offers a "+" that makes a
 channel in it, where this account may. A channel's row shows its kind's
 icon, its unread mark at the sidebar's edge, its mentions, and muted or
 locked faint; a busy voice channel lists who is in it and how long the
-call has gone on, which a timer brings up to date each minute only while
-one shows; under the pointer, a card beside its row names who is there
+call has gone on, which a timer set for the next whole minute brings up
+to date only while one shows (the same timer as open polls', the
+Activity panel's cards' and Active Now's); under the pointer, a card beside its row names who is there
 (how many, who is live or filming, the first eight and how many more), put
 away by a click or its menu until the pointer leaves. A voice channel with a chat offers Open chat on its row under
 the pointer or while selected, which shows the chat without joining; the
@@ -533,7 +539,9 @@ Dismiss.
 
 The timeline (`timeline.rs`, one message's content in `message.rs`) groups
 messages as Discord does: the same person within seven minutes, unless
-one replies, answers a command or is a notice. A new day's date and the
+one replies, answers a command or is a notice. Each message's time is
+worked out as its row is made, and again at midnight (a timer set for it
+while a timeline shows), so today's become yesterday's. A new day's date and the
 "New" divider above the first unread message sit on a line across; a
 message that mentions this account (or replies to its message, while new)
 is tinted marigold with an edge. The first row holds the history's edge:
@@ -611,7 +619,8 @@ and its words in Discord's wording.
   and More, which opens the message's menu. Holding Shift swaps the
   reactions for Pin and (one's own) Reply, and More for a Delete that
   doesn't ask, as Discord's client does, unless its menu or picker is
-  open.
+  open. The bar reaches over the row above; the pointer on it stays on
+  its message.
 - A message's menu, on a right click or More, is the Slint client's: the
   four reactions used most, Add reaction, View Reactions, Edit, Reply,
   Forward, Copy text, Copy selection, End Poll Now (asked about in the poll's card), Pin or
@@ -634,7 +643,9 @@ and its words in Discord's wording.
 - A masked link (words that aren't where they go) asks first, as Slint's
   does: Go back, or Visit site. The text, and its embeds', is laid out once per message (`markdown.rs`):
 the core's blocks (headings, subtext, quotes, fenced code) apart, and in
-each the inline styles as runs, with mentions on pills of their colour,
+each the inline styles as runs, with mentions of people, roles and
+everyone on pills of their colour (a channel's and a notice's coloured text
+in its colour alone),
 links, and spoilers covered until clicked. A web address opens the browser; a
 mention or a notice's name opens the person's card, and a role's mention
 the role's card beside it (`info_cards.rs`, the Slint client's `RoleCard`):
@@ -838,7 +849,9 @@ member list, the DMs, and the lists still to come build on it.
   or while their card is open. Over the list, a server's Activity panel
   shows the first three cards of Discord's activity feed (what each person
   plays, listens to or watches, and since when); its eye hides the cards,
-  kept in `layout.json`, and its arrow opens the whole feed.
+  kept in `layout.json`, and its arrow opens the whole feed. Under it a
+  note says the list is loading, why it failed, or that no one else has
+  joined.
 - A DM's row (`sidebar.rs`) shows the person's face, styled name and server
   tag (OFFICIAL on Discord's own), the voice channel they're in or what
   they're up to, a group's members, and its nameplate under the pointer or
@@ -874,8 +887,9 @@ member list, the DMs, and the lists still to come build on it.
   with View full bio, the roles, and a box that messages them. The full
   profile (`full.rs`) has the card down its left, with Friends, Message and
   More under the name, Member Since, Friends Since, the roles, connections
-  and the note (saved on Enter or as it closes), and its tabs on the right:
-  Board, Activity (with recent activity), Wishlist, Mutual Friends and
+  and the note (saved on Enter, and as the profile closes, grows or goes
+  to another person; Escape puts back what was kept), and its tabs on the
+  right: Board, Activity (with recent activity), Wishlist, Mutual Friends and
   Mutual Servers (a server clicked shows its card over the profile, the
   Slint client's `ServerCard`: its banner and icon, name, members and
   channels, their nickname there, and Go to server), rows the shape of
@@ -1290,8 +1304,11 @@ When a second screen needs what a first one built, it moves here:
   point.
 - `controls::count_pill`: a count in a red pill, on a ring or not, with
   the metrics of the rail's or a row's (`Count`).
-- `looks::Status` and `App::status_line`: what someone is up to, on one
-  line under their name (the member list, DMs, the account's card).
+- `looks::Status` and `App::status_line`: what someone is up to on one
+  line, cut with "…" where its row ends, as `people::StatusInk` writes it:
+  `under_name` (12 px with the activity's icon, under a name in the member
+  list, DMs, the account's card) or `words` (an emoji and words at a size
+  of their own: friends, the profile's activity).
 - `App::glyph`: one of `ui/icons` at a size, in a colour; `Pic::boxed`
   centres it (or any picture) in a square, for a button's face or a badge;
   `App::icon_button` is the header's and composer's icon button.
@@ -1306,8 +1323,6 @@ When a second screen needs what a first one built, it moves here:
 - `App::open_person_menu` and `person::choose_person`: a person's menu
   and what its choices do, wherever the person shows.
 - `members::nameplate`: a nameplate behind a row.
-- `App::status_text`: an emoji and words on one line at a size of their
-  own.
 - `paint::NamePicture`: a display name painted whole in its style
   (gradients, strokes, stacked copies) and handed to the renderer once,
   its strokes past its text box: the profile's name, the Display Name
@@ -1322,7 +1337,9 @@ When a second screen needs what a first one built, it moves here:
   saturation, brightness and hue, kept as `Hsv`), the virtualized `Rows` (rows across
   the list, or with `Rows::place` boxes of their own), the anchored
   overlays `Place` (at a corner, the pointer, over a point, or with
-  `Anchor::Span` under a button or above it) and `Above`, `PlateRow`, `Watch` and `RightPress`.
+  `Anchor::Span` under a button or above it) and `Above`, `PlateRow`, `Watch`, `RightPress` and
+  `Holds` (a child that keeps the pointer's moves over it from what it floats over; `Rows`
+  hands events to its last row first, as a stack does).
   `Rows::measured` lays rows out at their content's height and hands the
   heights that differ to the app with no message, apart from those below
   the view of someone reading earlier messages. `Corner` holds a bar at a

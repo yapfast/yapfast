@@ -15,8 +15,7 @@ use iced::{
 use yapfast_core::chat::{self, Presence};
 
 use super::{
-    Event, MESSAGE_FIELD, Mode, NOTE_FIELD, PANEL_INSET, PANEL_WIDTH, Shown, StyledName, WIDTH,
-    frame_style,
+    Event, MESSAGE_FIELD, Mode, NOTE_FIELD, Shown, StyledName, WIDTH, frame_style,
     look::{Inks, Offer, Tab},
 };
 use crate::{
@@ -28,7 +27,7 @@ use crate::{
     pictures::{Icon, Mark},
     style::{corners, faded, hex, rounded},
     theme::rgb,
-    widgets::{Above, Pic},
+    widgets::{Above, Fold, Pic},
 };
 
 /// The selection row the bio's pieces say they're in: none of the
@@ -77,10 +76,14 @@ impl Mode {
 
 impl App {
     /// A profile's card in `mode`; `pointed` plays its decoration.
+    /// `width` is the profile's across: the card's, the docked panel's
+    /// inside its inset, or the full profile's side column's, which grows
+    /// with the window.
     pub(super) fn profile_body<'a>(
         &'a self,
         shown: &'a Shown,
         mode: Mode,
+        width: f32,
         pointed: bool,
     ) -> Element<'a, Message> {
         let look = &shown.look;
@@ -172,7 +175,7 @@ impl App {
             body = body.push(self.message_box(shown, &inks));
         }
         let content =
-            column![self.profile_top(shown, mode, pointed, &inks), body].padding(Padding {
+            column![self.profile_top(shown, mode, width, pointed, &inks), body].padding(Padding {
                 bottom: metrics.pad,
                 ..Padding::ZERO
             });
@@ -192,6 +195,7 @@ impl App {
         &'a self,
         shown: &'a Shown,
         mode: Mode,
+        width: f32,
         pointed: bool,
         inks: &Inks,
     ) -> Element<'a, Message> {
@@ -199,11 +203,6 @@ impl App {
         let profile = look.profile();
         let metrics = mode.metrics();
         let (banner_height, avatar, pad) = (metrics.banner, metrics.avatar, metrics.pad);
-        let width = match mode {
-            Mode::Card => WIDTH,
-            Mode::Docked => PANEL_WIDTH - 2.0 * PANEL_INSET,
-            Mode::Side => 340.0,
-        };
         // The banner: its picture, playing while shown, else the accent
         // colour (the theme's first colour on a themed card), else the
         // raised grey.
@@ -235,7 +234,6 @@ impl App {
         } else if let Some(still) = still {
             banner = banner.push(Pic::new(still, banner_size).radius_each(top_corners));
         }
-        let ring = avatar + 12.0;
         let face = mouse_area(self.profile_avatar(shown, avatar, pointed, inks.ground, mode))
             .interaction(if mode.large() {
                 iced::mouse::Interaction::default()
@@ -270,7 +268,6 @@ impl App {
                     .padding(10),
             );
         }
-        let _ = ring;
         top.into()
     }
 
@@ -939,19 +936,19 @@ impl App {
         if mode.full() {
             return shown;
         }
-        let cut = bio_lines(bio, WIDTH - 32.0, size) > 3;
-        let clamped = container(shown).max_height(line_height * 3.0).clip(true);
-        if !cut {
-            return clamped.into();
-        }
-        column![
-            clamped,
+        // Cut to three lines as laid out, with the link under them only
+        // when the bio is taller, as the Slint client compares the whole
+        // bio's height with the three lines'.
+        let three = line_height * 3.0;
+        Fold::new(
+            shown,
             button(text("View full bio").size(12).font(BOLD).color(inks.ink))
                 .padding(0)
                 .on_press(Message::Profile(Event::Enlarge(None, false)))
                 .style(|_, _| iced::widget::button::Style::default()),
-        ]
-        .spacing(6)
+            true,
+            (three + 2.0, three, 6.0),
+        )
         .into()
     }
 
@@ -1156,20 +1153,4 @@ impl App {
 /// card's ink.
 fn title<'a>(words: &'a str, ink: Color) -> Element<'a, Message> {
     text(words).size(12).font(BOLD).color(ink).into()
-}
-
-/// About how many lines `body` takes at `width` in `size` text: whether the
-/// card's three lines cut it short.
-fn bio_lines(body: &markdown::Body, width: f32, size: f32) -> usize {
-    let per_line = (width / (size * 0.5)).max(1.0) as usize;
-    body.parts
-        .iter()
-        .flat_map(|part| {
-            part.plain()
-                .split('\n')
-                .map(str::to_owned)
-                .collect::<Vec<_>>()
-        })
-        .map(|line| line.chars().count().div_ceil(per_line).max(1))
-        .sum()
 }

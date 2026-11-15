@@ -6,21 +6,61 @@
 //! draw their people with these, as the Slint client's `Avatar`,
 //! `StyledName`, `StatusText`, `VoiceSpot` and `RequestsHeading`.
 
-use std::collections::HashMap;
+use std::{borrow::Cow, collections::HashMap};
 
 use iced::{
-    Alignment, Color, Element, Length,
-    widget::{button, column, container, row, text, tooltip},
+    Alignment, Color, Element, Font, Length,
+    widget::{Space, button, column, container, row, text, tooltip},
 };
 use yapfast_core::{application::AppState, chat::ChatRoom};
 
 use crate::{
     app::{App, Message},
     controls::{self, ink_style},
-    fonts::{BOLD, shown_name, style_font},
-    looks::NameLook,
-    pictures::{Face, Icon},
+    elide::elide,
+    fonts::{BOLD, REGULAR, shown_name, style_font},
+    looks::{NameLook, Status},
+    pictures::{Face, Icon, Mark},
+    style::faded,
+    theme::rgb,
+    widgets::Pic,
 };
+
+/// How a status line is written: its size, weight, ink and opacity, and
+/// whether the activity's icon leads it.
+#[derive(Clone, Copy)]
+pub struct StatusInk {
+    pub size: f32,
+    pub font: Font,
+    pub ink: Color,
+    pub opacity: f32,
+    pub icon: bool,
+}
+
+impl StatusInk {
+    /// Under a name in a list: 12 px in the muted ink, faded by `opacity`,
+    /// the activity's icon first.
+    pub fn under_name(theme: &crate::theme::Theme, opacity: f32) -> Self {
+        Self {
+            size: 12.0,
+            font: REGULAR,
+            ink: theme.muted,
+            opacity,
+            icon: true,
+        }
+    }
+
+    /// An emoji and words alone, at a size, weight and ink of their own.
+    pub fn words(size: f32, font: Font, ink: Color) -> Self {
+        Self {
+            size,
+            font,
+            ink,
+            opacity: 1.0,
+            icon: false,
+        }
+    }
+}
 
 /// The gap between a person's avatar and their name, as Discord's lists
 /// leave it.
@@ -82,6 +122,51 @@ impl<'a> NameInk<'a> {
 }
 
 impl App {
+    /// What someone is up to on one line, as the Slint client's
+    /// `StatusText`: the activity's icon (the game controller in the online
+    /// green) and a bullet, a custom emoji's picture, then the words, cut
+    /// with "…" where the row ends.
+    pub fn status_line<'a>(
+        &'a self,
+        status: impl Into<Cow<'a, Status>>,
+        look: StatusInk,
+    ) -> Element<'a, Message> {
+        let status = status.into();
+        let theme = &self.theme;
+        let mut line = row![].spacing(4).align_y(Alignment::Center);
+        let side = (look.size + 3.0).round();
+        let ink = faded(look.ink, look.opacity);
+        if look.icon
+            && let Some(icon) = Icon::activity(status.icon)
+        {
+            let color = rgb(if icon == Icon::Gamepad {
+                theme.live
+            } else {
+                theme.muted
+            });
+            if let Some(icon) = self.mark(Mark::Icon(icon, side as u32, color)) {
+                line = line.push(Pic::square(icon, side).opacity(look.opacity));
+            }
+            if status.bullet {
+                line = line.push(text("\u{2022}").size(look.size).color(ink));
+            }
+        }
+        if let Some(emoji) = &status.emoji {
+            line = line.push(match self.picture(emoji, side as u32, side as u32, false) {
+                Some(picture) => Element::from(Pic::square(picture, side).opacity(look.opacity)),
+                None => Space::new().width(side).height(side).into(),
+            });
+        }
+        if !status.words.is_empty() {
+            let words: Cow<'a, str> = match status {
+                Cow::Borrowed(status) => Cow::Borrowed(status.words.as_str()),
+                Cow::Owned(status) => Cow::Owned(status.words),
+            };
+            line = line.push(elide(words).size(look.size).font(look.font).color(ink));
+        }
+        line.into()
+    }
+
     /// A person's row: the face, then the name over its line.
     pub fn person<'a>(&'a self, person: Person<'a>) -> iced::widget::Row<'a, Message> {
         let mut lines = column![person.name].width(Length::Fill);

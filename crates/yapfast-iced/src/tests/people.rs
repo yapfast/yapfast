@@ -595,3 +595,146 @@ fn a_boosters_gem_in_the_member_list_says_since_when() {
     );
     assert!(super::hover_draws(&mut ui, gem, over), "the gem's tooltip");
 }
+
+/// The member list's names, in order.
+fn member_names(app: &App) -> Vec<String> {
+    app.lines
+        .iter()
+        .filter_map(|line| match line {
+            crate::looks::MemberLine::Member(look) => Some(look.name.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_room_opened_during_the_member_lists_pause_shows_its_own_members() {
+    let (mut app, _folder) = preview();
+    app.show_roster(false);
+    assert!(member_names(&app).iter().any(|name| name == "Riley"));
+    // A change in this room's list, held for the pause...
+    change(&mut app, |state| {
+        for members in state.members.iter_mut().flatten() {
+            Arc::make_mut(members)[0].name = "Changed".into();
+        }
+    });
+    assert!(app.roster_waiting, "held for the pause");
+    // ...then another room, with its own members, before it's over.
+    change(&mut app, |state| {
+        let other = state
+            .rooms
+            .iter()
+            .find(|room| Some(&room.id) != state.selected.as_ref() && !room.direct)
+            .map(|room| room.id.clone())
+            .expect("another channel");
+        state.selected = Some(other);
+        let mut zed = state.members.iter().flatten().next().expect("members")[0].clone();
+        zed.id = "zed".into();
+        zed.name = "Zed".into();
+        state.members = Some(Ok(Arc::new(vec![zed])));
+    });
+    assert_eq!(member_names(&app), ["Zed"], "the new room's, at once");
+}
+
+#[test]
+fn the_member_list_says_what_its_waiting_for_or_why_its_empty() {
+    let (mut app, _folder) = preview();
+    change(&mut app, |state| state.members = None);
+    assert!(shows(&app, "Loading members..."));
+    change(&mut app, |state| {
+        state.members = Some(Ok(Arc::new(Vec::new())))
+    });
+    assert!(shows(&app, "No one else has joined yet."));
+    assert!(!shows(&app, "Loading members..."));
+}
+
+#[test]
+fn a_long_status_in_the_member_list_ends_in_an_ellipsis() {
+    let (mut app, _folder) = preview();
+    change(&mut app, |state| {
+        for members in state.members.iter_mut().flatten() {
+            for member in Arc::make_mut(members).iter_mut() {
+                if member.name == "Riley" {
+                    member.activity = Some(
+                        "Out walking the dogs by the river until the rain comes back again".into(),
+                    );
+                }
+            }
+        }
+    });
+    app.show_roster(false);
+    let right = app.window.width - 300.0;
+    let mut ui = iced_test::Simulator::with_size(Default::default(), app.shell.frame, app.view());
+    let cut = ui
+        .find(
+            |candidate: iced_test::selector::Candidate<'_>| match candidate {
+                iced_test::selector::Candidate::Text {
+                    content,
+                    visible_bounds: Some(bounds),
+                    ..
+                } if bounds.x > right && content.starts_with("Out walking") => {
+                    Some(content.to_owned())
+                }
+                _ => None,
+            },
+        )
+        .expect("Riley's status in the member list");
+    assert!(cut.ends_with('…'), "{cut:?}");
+}
+
+#[test]
+fn a_note_typed_on_a_profile_is_kept_as_it_changes_without_enter() {
+    let (mut app, _folder) = preview();
+    change(&mut app, |state| state.discord_user = Some("42".into()));
+    let user = app
+        .client
+        .state()
+        .members
+        .iter()
+        .flatten()
+        .flat_map(|members| members.iter())
+        .find(|member| member.name == "Riley")
+        .map(|member| member.id.clone())
+        .expect("Riley in the preview");
+    let _ = app.open_card(user, Point::new(400.0, 200.0));
+    // A Discord user's, whose notes Discord keeps.
+    change(&mut app, |state| {
+        state.profile.as_mut().expect("the card").profile.id = "77".into();
+    });
+    let _ = app.update(Message::Profile(profile::Event::Note(
+        "met at RustConf".into(),
+    )));
+    // Shown large without Enter: the note went first.
+    let _ = app.update(Message::Profile(profile::Event::Enlarge(None, false)));
+    let state = app.client.state();
+    let view = state.profile.as_ref().expect("the profile");
+    assert_eq!(view.profile.note, "met at RustConf");
+}
+
+#[test]
+fn view_full_bio_shows_when_the_bio_is_taller_than_three_lines_as_laid_out() {
+    let (mut app, _folder) = preview();
+    let user = app
+        .client
+        .state()
+        .members
+        .iter()
+        .flatten()
+        .flat_map(|members| members.iter())
+        .find(|member| member.name == "Riley")
+        .map(|member| member.id.clone())
+        .expect("Riley in the preview");
+    let _ = app.open_card(user, Point::new(400.0, 200.0));
+    let bio = |app: &mut App, bio: &str| {
+        let bio = bio.to_owned();
+        change(app, move |state| {
+            state.profile.as_mut().expect("the card").profile.bio = bio;
+        });
+    };
+    // Wide letters on one line: few by count, four lines as laid out.
+    bio(&mut app, &"W".repeat(70));
+    assert!(shows(&app, "View full bio"), "a long bio offers it");
+    // Narrow ones: many by count, two lines as laid out.
+    bio(&mut app, &"il ".repeat(40));
+    assert!(!shows(&app, "View full bio"), "a bio that fits doesn't");
+}

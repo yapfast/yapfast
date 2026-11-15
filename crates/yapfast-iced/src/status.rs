@@ -22,6 +22,7 @@ use crate::{
     dialogs::dialog,
     fonts::BOLD,
     form,
+    people::StatusInk,
     picker::{Tab, Target},
     pictures::{Icon, Mark},
     style::{corners, hex, rounded},
@@ -242,7 +243,8 @@ impl App {
         });
         let custom = state.custom_status.is_some();
         if custom {
-            body = body.push(self.status_line(&account.status, 1.0));
+            body = body
+                .push(self.status_line(&account.status, StatusInk::under_name(&self.theme, 1.0)));
         }
         if let Some(playing) = &state.discord_playing {
             body = body.push(self.playing_card(playing));

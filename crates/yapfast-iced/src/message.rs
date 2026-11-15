@@ -25,8 +25,8 @@ use crate::{
     select::Piece,
     style::{CHIP, hex, rounded},
     timeline::{
-        AUTHOR_GAP, AUTHOR_LINE, AVATAR, CONTENT_PAD, END_PAD, EmbedText, GROUP_GAP, GUTTER,
-        LINE_HEIGHT, RowLook,
+        AUTHOR_GAP, AUTHOR_LINE, AVATAR, CONTENT_PAD, END_PAD, EmbedText, GUTTER, LINE_HEIGHT,
+        RowLook,
     },
     widgets::{Fold, Pic},
 };
@@ -70,7 +70,7 @@ impl App {
             return Space::new().into();
         };
         if message.blocked && !self.revealed.contains(&blocked_key(&message.item)) {
-            return self.blocked_row(index, look);
+            return self.blocked_row(look);
         }
         let theme = &self.theme;
         let header = message.reply.is_some() || message.used.is_some();
@@ -211,7 +211,7 @@ impl App {
     /// A message from someone this account blocked, as Discord shows it
     /// until asked: "Blocked user" by a blank face, and "Blocked message."
     /// with Show it.
-    fn blocked_row<'a>(&'a self, index: usize, look: &RowLook) -> Element<'a, Message> {
+    fn blocked_row<'a>(&'a self, look: &RowLook) -> Element<'a, Message> {
         let theme = &self.theme;
         let mut content = column![].width(Length::Fill);
         let mut gutter =
@@ -245,7 +245,7 @@ impl App {
                     .color(theme.text),
                 button(text("Show it").size(self.text_size()))
                     .padding(0)
-                    .on_press(Message::ShowBlocked(index))
+                    .on_press(Message::ShowBlocked(look.item.clone()))
                     .style(controls::ink_style(theme.link, theme.text)),
             ]
             .spacing(4)
@@ -310,15 +310,15 @@ impl App {
                 size: AVATAR,
                 opacity: 1.0,
                 decoration,
-                play: self.pointed.message.as_ref() == Some(&message.item),
+                play: self.pointed.message.as_deref() == Some(message.item.as_str()),
                 dot: None,
             });
             layers = layers.push(placed(
-                mouse_area(face).on_press(Message::OpenAuthor(index)),
+                mouse_area(face).on_press(Message::OpenAuthor(look.item.clone())),
                 0.0,
                 if header { 24.0 } else { 2.0 },
             ));
-        } else if self.pointed.message.as_ref() == Some(&message.item) {
+        } else if self.pointed.message.as_deref() == Some(message.item.as_str()) {
             // Right-aligned to the avatar's edge.
             let clock = self
                 .sent_time(index, message)
@@ -430,9 +430,6 @@ impl App {
             .into()
     }
 
-    /// A message's author line, as the Slint client's with its Discord
-    /// look: the name in its style's font (only the font, in a server) and
-    /// role colour, the server tag chip, APP for a bot, the time.
     /// Messages' text size, as Messages' settings chose it.
     pub fn text_size(&self) -> f32 {
         crate::settings::message_size(self.layout.prefs.text_size)
@@ -445,6 +442,9 @@ impl App {
             .map_or(message.time.as_str(), |look| look.time.as_str())
     }
 
+    /// A message's author line, as the Slint client's with its Discord
+    /// look: the name in its style's font (only the font, in a server) and
+    /// role colour, the server tag chip, APP for a bot, the time.
     fn author_line<'a>(&'a self, index: usize, message: &'a ChatMessage) -> Element<'a, Message> {
         let theme = &self.theme;
         let cosmetics = self.client.state().cosmetics;
@@ -469,11 +469,12 @@ impl App {
             index,
             0,
         )
+        .item(Some(self.row_item(index)))
         .size(self.text_size(), AUTHOR_LINE)
         .color(color)
         .starts(false)
         .selection(self.selected(index, 0), self.selecting, theme.selection);
-        let mut line = row![mouse_area(name).on_press(Message::OpenAuthor(index))]
+        let mut line = row![mouse_area(name).on_press(Message::OpenAuthor(self.row_item(index)))]
             .spacing(8)
             .align_y(Alignment::Center);
         if let Some(tag) = cosmetics.tag(message.tag.as_ref()) {
@@ -497,6 +498,7 @@ impl App {
             line = line.push(self.bot_tag(1.0));
         }
         let time = Piece::new(vec![span(self.sent_time(index, message))], index, 1)
+            .item(Some(self.row_item(index)))
             .size(self.text_size() - 4.0, 16.0)
             .color(theme.muted)
             .selection(self.selected(index, 1), self.selecting, theme.selection);
@@ -527,7 +529,7 @@ impl App {
             );
             let shot: Element<'_, Message> = if covered {
                 mouse_area(shot)
-                    .on_press(Message::Reveal(index, at))
+                    .on_press(Message::Reveal(self.row_item(index), at))
                     .interaction(iced::mouse::Interaction::Pointer)
                     .into()
             } else if attachment.video
@@ -933,16 +935,12 @@ impl App {
         )
     }
 
-    /// A message's avatar or author was clicked: the card opens beside the
-    /// avatar, as the Slint client's `beside`.
     /// A body that folds, as the Slint client's when long messages fold:
     /// once it's a few lines past twelve, so Show more never uncovers only
     /// a line or two, it's cut to twelve with Show more under it.
     fn folding<'a>(&'a self, index: usize, body: Element<'a, Message>) -> Element<'a, Message> {
-        let item = self
-            .row_message(index)
-            .map_or("", |message| message.item.as_str());
-        let whole = self.revealed.contains(&fold_key(item));
+        let item = self.row_item(index);
+        let whole = self.revealed.contains(&fold_key(&item));
         let theme = &self.theme;
         let more = button(
             text(if whole { "Show less" } else { "Show more" })
@@ -950,7 +948,7 @@ impl App {
                 .font(SEMIBOLD),
         )
         .padding(0)
-        .on_press(Message::Unfold(index))
+        .on_press(Message::Unfold(item))
         .style(controls::ink_style(theme.link, theme.text));
         Fold::new(
             body,
@@ -959,6 +957,16 @@ impl App {
             (LINE_HEIGHT * 15.0, LINE_HEIGHT * 12.0, 3.0),
         )
         .into()
+    }
+
+    /// Where the picker and the menu of row `index`'s message open, from
+    /// its hover bar or the keys: under the bar's right end.
+    pub fn bar_menu_at(&self, index: usize) -> Point {
+        let (lane, _) = self.lane_place(index);
+        Point::new(
+            lane.left + lane.width - 16.0 - 200.0,
+            self.row_body_top(index) + 24.0,
+        )
     }
 
     /// A message's hover bar, as the Slint client's: the three reactions
@@ -973,9 +981,7 @@ impl App {
             return None;
         }
         let theme = &self.theme;
-        // Where the picker and the menu open: under the bar's right end.
-        let (lane, top) = self.lane_place(index);
-        let at = Point::new(lane.left + lane.width - 16.0 - 200.0, lane.top + top + 24.0);
+        let at = self.bar_menu_at(index);
         // The thread beside the channel is narrower: two quick reactions.
         let quick_reactions = if index >= crate::timeline::ASIDE {
             2
@@ -983,6 +989,7 @@ impl App {
             3
         };
         let item = &message.item;
+        let shared = self.row_item(index);
         let writes = if index >= crate::timeline::ASIDE {
             self.aside_writes()
         } else {
@@ -1054,33 +1061,37 @@ impl App {
                 false,
             )
         } else {
-            button(Icon::Ellipsis, "More", Message::RowMenu(index, at))
+            button(Icon::Ellipsis, "More", Message::RowMenu(shared.clone(), at))
         });
         let (ground, edge) = (theme.raised, theme.edge);
-        Some(
-            // The pointer on the bar is on its message, though the bar
-            // floats over the row above.
-            mouse_area(
-                container(buttons)
-                    .padding(3)
-                    .style(move |_| container::Style {
-                        background: Some(ground.into()),
-                        border: iced::Border {
-                            color: edge,
-                            width: 1.0,
-                            radius: 8.0.into(),
-                        },
-                        shadow: iced::Shadow {
-                            color: Color::from_rgba8(0, 0, 0, 0x59 as f32 / 255.0),
-                            offset: iced::Vector::new(0.0, 2.0),
-                            blur_radius: 10.0,
-                        },
-                        ..container::Style::default()
-                    }),
-            )
-            .on_enter(Message::PointRow(item.clone(), true))
-            .into(),
+        let bar = mouse_area(
+            container(buttons)
+                .padding(3)
+                .style(move |_| container::Style {
+                    background: Some(ground.into()),
+                    border: iced::Border {
+                        color: edge,
+                        width: 1.0,
+                        radius: 8.0.into(),
+                    },
+                    shadow: iced::Shadow {
+                        color: Color::from_rgba8(0, 0, 0, 0x59 as f32 / 255.0),
+                        offset: iced::Vector::new(0.0, 2.0),
+                        blur_radius: 10.0,
+                    },
+                    ..container::Style::default()
+                }),
         )
+        .on_enter(Message::PointRow(shared, true));
+        // The pointer on the bar is on its message, though the bar floats
+        // over the row above: the bar keeps its moves from that row, and
+        // from its own row's saying the pointer left. Not while a drag
+        // selects, whose moves the text under it follows.
+        Some(if self.selecting {
+            bar.into()
+        } else {
+            crate::widgets::Holds::new(bar).into()
+        })
     }
 
     /// The thread a message started, as the Slint client's `ThreadChip`:
@@ -1232,12 +1243,16 @@ impl App {
         (lane.width - GUTTER - END_PAD).max(0.0)
     }
 
+    /// A message's avatar or author was clicked: the card opens beside the
+    /// avatar, as the Slint client's `beside`.
     pub fn open_author(&mut self, index: usize) -> iced::Task<Message> {
         let Some(message) = self.row_message(index) else {
             return iced::Task::none();
         };
-        let (lane, top) = self.lane_place(index);
-        let y = lane.top + top + GROUP_GAP + CONTENT_PAD + 2.0;
+        let (lane, _) = self.lane_place(index);
+        // The avatar's top: moved down under a reply's line.
+        let header = message.reply.is_some() || message.used.is_some();
+        let y = self.row_body_top(index) + CONTENT_PAD + if header { 24.0 } else { 2.0 };
         let x = lane.left + (GUTTER - AVATAR) / 2.0;
         let width = crate::profile::WIDTH;
         let beside = if x + AVATAR + 8.0 + width <= self.window.width - 8.0 {

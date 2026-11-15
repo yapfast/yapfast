@@ -281,9 +281,31 @@ impl App {
     }
 
     /// What's done on a profile.
+    /// The note typed on the shown profile goes to the core, if it
+    /// changed: as Enter does, and as the Slint client's does when the
+    /// field loses the keys, before the profile closes or changes.
+    fn save_note(&mut self) {
+        let Some(shown) = &self.profiles.shown else {
+            return;
+        };
+        let profile = shown.look.profile();
+        if self.profiles.note != profile.note {
+            let (user, note) = (profile.id.clone(), self.profiles.note.clone());
+            self.client.dispatch(Action::SaveNote { user, note });
+        }
+    }
+
+    /// Escape: what was typed in the note goes back to what's kept.
+    pub fn revert_note(&mut self) {
+        if let Some(shown) = &self.profiles.shown {
+            self.profiles.note = shown.look.profile().note.clone();
+        }
+    }
+
     pub fn profile_event(&mut self, event: Event) -> Task<Message> {
         match event {
             Event::Enlarge(tab, panel) => {
+                self.save_note();
                 self.profiles.tab = tab;
                 if panel {
                     let Some(room) = self.client.state().selected.clone() else {
@@ -297,12 +319,14 @@ impl App {
                 self.unpoint_card();
             }
             Event::Close => {
+                self.save_note();
                 self.client.dispatch(Action::CloseProfile);
                 self.card = None;
                 return Task::batch([self.sync(), self.refocus()]);
             }
             Event::Befriend(user) => self.client.dispatch(Action::Befriend(user)),
             Event::Message(user) => {
+                self.save_note();
                 self.client.dispatch(Action::CloseProfile);
                 self.client.dispatch(Action::MessagePerson(user));
             }
@@ -340,21 +364,13 @@ impl App {
                 self.profiles.note = text;
                 return Task::none();
             }
-            Event::SaveNote => {
-                let Some(shown) = &self.profiles.shown else {
-                    return Task::none();
-                };
-                let profile = shown.look.profile();
-                if self.profiles.note != profile.note {
-                    let (user, note) = (profile.id.clone(), self.profiles.note.clone());
-                    self.client.dispatch(Action::SaveNote { user, note });
-                }
-            }
+            Event::SaveNote => self.save_note(),
             Event::Tab(tab) => {
                 self.profiles.tab = Some(tab);
                 return Task::batch([self.tell_tab(), self.sync()]);
             }
             Event::Friend(user) => {
+                self.save_note();
                 let large = self
                     .profiles
                     .shown
@@ -432,7 +448,7 @@ impl App {
             .shown
             .as_ref()
             .filter(|shown| !shown.look.view.large)?;
-        let body = self.profile_body(shown, Mode::Card, self.profiles.pointed);
+        let body = self.profile_body(shown, Mode::Card, WIDTH, self.profiles.pointed);
         let limit = self.window.height - 16.0;
         let content = container(scrollable(body).style(scrollbar(&self.theme)))
             .width(WIDTH)
@@ -479,7 +495,12 @@ impl App {
         let shown = self.profiles.panel.as_ref()?;
         let theme = &self.theme;
         let inks = self.inks(&shown.look, Mode::Docked);
-        let body = self.profile_body(shown, Mode::Docked, self.profiles.panel_pointed);
+        let body = self.profile_body(
+            shown,
+            Mode::Docked,
+            PANEL_WIDTH - 2.0 * PANEL_INSET,
+            self.profiles.panel_pointed,
+        );
         let scroll = scrollable(body)
             .height(Length::Fill)
             .style(scrollbar(theme));
@@ -562,7 +583,13 @@ impl App {
         {
             return Some(*colour);
         }
-        let picture = self.client.state().pictures.get(url)?;
+        // One picked in the editor and not sent yet is the card's own, as
+        // its avatar shows it.
+        let picked = shown.picked.borrow().get(url).cloned();
+        let picture = match &picked {
+            Some(picture) => picture,
+            None => self.client.state().pictures.get(url)?,
+        };
         let order = crate::pictures::byte_order(picture);
         let colour = crate::dominant_colour::dominant(&picture.rgba, order)?;
         *shown.avatar_colour.borrow_mut() = Some((url.to_owned(), colour));

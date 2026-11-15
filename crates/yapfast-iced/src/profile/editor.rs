@@ -531,14 +531,11 @@ impl App {
 
     /// The editor over the window dimmed by 60%; a click outside the card
     /// closes it.
-    pub fn profile_editor_view(&self) -> Option<Element<'_, Message>> {
-        let editor = self.profiles.editor.as_ref()?;
-        let core = self.client.state().profile_editor.as_ref()?;
-        let theme = &self.theme;
-        let main = core.main();
-        let (width, height) = (self.window.width, self.window.height);
-        let inks = self.inks(&editor.shown.look, Mode::Side);
-        let card_width = if main {
+    /// The editor's card's width: the main profile's with the styles
+    /// column or without, a server profile's.
+    fn editor_card_width(&self, editor: &Editor, main: bool) -> f32 {
+        let width = self.window.width;
+        if main {
             if editor.side {
                 (width - 8.0).min(1199.0)
             } else {
@@ -546,7 +543,34 @@ impl App {
             }
         } else {
             (width - 48.0).min(600.0)
-        };
+        }
+    }
+
+    /// Whether the card has room for the tabs beside the middle.
+    fn editor_tabs_shown(card_width: f32, main: bool) -> bool {
+        main && card_width >= 880.0
+    }
+
+    /// The middle column's width: what the styles column (and its line)
+    /// leave of the card, halved with the tabs, which fill as it does.
+    fn editor_middle_width(&self, editor: &Editor, main: bool) -> f32 {
+        let card = self.editor_card_width(editor, main);
+        let rest = card - if main && editor.side { SIDE + 1.0 } else { 0.0 };
+        if Self::editor_tabs_shown(card, main) {
+            rest / 2.0
+        } else {
+            rest
+        }
+    }
+
+    pub fn profile_editor_view(&self) -> Option<Element<'_, Message>> {
+        let editor = self.profiles.editor.as_ref()?;
+        let core = self.client.state().profile_editor.as_ref()?;
+        let theme = &self.theme;
+        let main = core.main();
+        let height = self.window.height;
+        let inks = self.inks(&editor.shown.look, Mode::Side);
+        let card_width = self.editor_card_width(editor, main);
         let card_height = (height - 48.0).min(if main { 798.0 } else { 620.0 });
         let middle = self.editor_middle(editor, core, &inks);
         let mut parts = row![];
@@ -560,7 +584,7 @@ impl App {
             );
         }
         parts = parts.push(container(middle).width(Length::Fill).height(Length::Fill));
-        if main && card_width >= 880.0 {
+        if Self::editor_tabs_shown(card_width, main) {
             parts = parts.push(self.editor_tabs(editor, &inks));
         }
         let mut card = stack![
@@ -747,7 +771,9 @@ impl App {
                     corners(if main { [0.0; 4] } else { top_corners })
                 ))
         ];
-        let width = 560.0;
+        // As wide as the middle, cover-fitted, as Slint's `width:
+        // parent.width`.
+        let width = self.editor_middle_width(editor, main).round();
         let banner_size = Size::new(width, banner_height);
         let still = profile.banner.as_deref().and_then(|url| {
             self.profile_picture(shown, url, width as u32, banner_height as u32, true)

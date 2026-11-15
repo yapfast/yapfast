@@ -34,6 +34,7 @@ use crate::{
     elide::elide,
     fonts::{BOLD, MEDIUM, SEMIBOLD},
     looks::Status,
+    people::StatusInk,
     people::{NameInk, Person},
     pictures::{Face, Icon},
     rail::count_badge,
@@ -1700,7 +1701,8 @@ impl App {
             line = line.push(self.voice_spot(spot, 12.0, !room.status.is_empty()));
         }
         if !room.status.is_empty() {
-            line = line.push(self.status_line(&room.status, opacity));
+            line = line
+                .push(self.status_line(&room.status, StatusInk::under_name(&self.theme, opacity)));
         } else if room.official && spot.is_none() {
             line = line.push(
                 text("Official Discord Message")

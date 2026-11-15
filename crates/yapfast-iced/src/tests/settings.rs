@@ -319,3 +319,36 @@ fn every_tagged_setting_has_its_tag() {
         );
     }
 }
+
+#[test]
+fn a_theme_switch_lays_the_timelines_text_out_in_the_new_inks() {
+    use yapfast_core::chat::{ChatMessage, Notice, NoticeKind};
+    let (mut app, _folder) = preview();
+    super::change(&mut app, |state| {
+        state.messages = std::sync::Arc::new(vec![std::sync::Arc::new(ChatMessage {
+            item: "n0".into(),
+            author: "Ann".into(),
+            time: "12:01".into(),
+            notice: Some(Notice {
+                kind: NoticeKind::Pinned(Some("m1".into())),
+                text: String::new(),
+            }),
+            ..Default::default()
+        })]);
+    });
+    let ink = |app: &crate::app::App| {
+        app.looks[0].body.parts[0]
+            .runs
+            .iter()
+            .find(|run| run.text.contains("Ann"))
+            .and_then(|run| run.color)
+    };
+    assert_eq!(ink(&app), Some(crate::theme::rgb(app.theme.text)));
+    assert!(app.choose_theme("catppuccin-latte"), "a light theme");
+    let _ = app.sync();
+    assert_eq!(
+        ink(&app),
+        Some(crate::theme::rgb(app.theme.text)),
+        "the author's name in the light theme's ink"
+    );
+}

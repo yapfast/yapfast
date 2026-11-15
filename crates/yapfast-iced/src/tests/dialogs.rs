@@ -85,6 +85,45 @@ fn the_custom_status_starts_from_the_one_set_and_saves_whats_written() {
 }
 
 #[test]
+fn the_quick_switchers_arrows_keep_the_lit_place_in_view() {
+    let (mut app, _folder) = preview();
+    super::change(&mut app, |state| {
+        let template = (*state.rooms[0]).clone();
+        for index in 0..20 {
+            state
+                .rooms
+                .push(std::sync::Arc::new(yapfast_core::chat::ChatRoom {
+                    id: format!("garden-{index}"),
+                    name: format!("garden-{index}"),
+                    ..template.clone()
+                }));
+        }
+    });
+    let _ = app.update(Message::Switcher(SwitcherEvent::Toggle));
+    let _ = app.update(Message::Switcher(SwitcherEvent::Search("garden".into())));
+    assert!(app.quick.places.len() >= 20, "{}", app.quick.places.len());
+    for _ in 0..12 {
+        press(&mut app, key::Named::ArrowDown);
+    }
+    assert_eq!(app.quick.chosen, 12);
+    let top = 12.0 * 40.0;
+    let height = ((app.window.height - 48.0).min(440.0) - 2.0 * 16.0 - 52.0 - 60.0).max(40.0);
+    assert!(
+        app.quick.offset <= top && top + 40.0 <= app.quick.offset + height,
+        "row 12 at {top} px in view of {} px from {} px",
+        height,
+        app.quick.offset
+    );
+    // Up past the first goes round to the last, at the list's end.
+    for _ in 0..13 {
+        press(&mut app, key::Named::ArrowUp);
+    }
+    let last = app.quick.places.len() - 1;
+    assert_eq!(app.quick.chosen, last);
+    assert!(app.quick.offset + height >= (last + 1) as f32 * 40.0);
+}
+
+#[test]
 fn the_quick_switcher_finds_a_place_and_goes_there() {
     let (mut app, _folder) = preview();
     let _ = app.update(Message::Switcher(SwitcherEvent::Toggle));
@@ -101,7 +140,7 @@ fn the_quick_switcher_finds_a_place_and_goes_there() {
     for _ in 0..found {
         press(&mut app, key::Named::ArrowDown);
     }
-    assert_eq!(app.switcher_chosen, 0);
+    assert_eq!(app.quick.chosen, 0);
     let first = match &app.client.state().switcher_places()[0] {
         yapfast_core::application::Place::Room(room) => room.id.clone(),
         yapfast_core::application::Place::Server(server) => server.id.clone(),

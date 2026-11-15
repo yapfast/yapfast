@@ -8,7 +8,7 @@
 //! window's focus is on nobody, so the keys come here.
 
 use iced::{
-    Point, Task,
+    Task,
     keyboard::{self, Key, key::Named},
     widget::operation,
 };
@@ -16,9 +16,7 @@ use yapfast_core::{application::Action, chat::Delivery};
 
 use crate::{
     app::{App, Message, NOBODY},
-    header,
     menus::MenuAct,
-    rail, sidebar,
 };
 
 impl App {
@@ -44,17 +42,8 @@ impl App {
             return Task::none();
         };
         self.keyed = Some(message.item.clone());
-        self.pointed.message = Some(message.item.clone());
+        self.pointed.message = Some(self.row_item(index));
         self.reveal_row(index)
-    }
-
-    /// Where a keyed message's menu or picker opens: under its hover bar's
-    /// right end, as a click on More would.
-    fn keyed_at(&self, index: usize) -> Point {
-        Point::new(
-            rail::WIDTH + sidebar::WIDTH + self.width - 16.0 - 200.0,
-            header::HEIGHT + 1.0 + self.tops[index] - self.view_top() + 24.0,
-        )
     }
 
     /// Stops stepping, as Escape or the composer taking the keys does.
@@ -97,7 +86,7 @@ impl App {
             return None;
         }
         let item = message.item.clone();
-        let at = self.keyed_at(index);
+        let at = self.bar_menu_at(index);
         let writes = self.composer_look().enabled;
         let letter = match key.as_ref() {
             Key::Character(text) => text.to_lowercase(),

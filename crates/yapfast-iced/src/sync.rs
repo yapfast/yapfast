@@ -32,7 +32,7 @@ use crate::{
 };
 
 /// A list's viewport, as its scrollable last reported it.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct Scroll {
     pub offset: f32,
     pub height: f32,
@@ -182,12 +182,26 @@ impl App {
         // Someone dragged may drop where their menu's Move to offers, of
         // the channels listed now.
         self.moving_targets();
+        self.clocks.calls = self.side.iter().any(
+            |row| matches!(row, crate::sidebar::SideRow::Room(room) if room.started.is_some()),
+        );
+        // The open inbox follows the rooms' unread marks, as Slint's.
+        self.inbox_sync();
     }
 
     /// Takes in what changed in the client's state; returns the work that
     /// follows (a scroll, pictures to ask for, rows to report).
     pub fn sync(&mut self) -> Task<Message> {
         let state = self.client.state();
+        // The DM search's filter is the DM home's: it goes as the rail
+        // goes to a server, or back home.
+        if self.filtered_in.as_ref() != Some(&state.navigation) {
+            self.filtered_in = Some(state.navigation.clone());
+            if !self.filter.is_empty() {
+                self.filter.clear();
+                self.lists_shown = None;
+            }
+        }
         // The lists and the header change with the rooms and servers, not
         // with each message or presence: they're made again only then.
         let key = lists_key(state, &self.theme.id);
@@ -203,7 +217,9 @@ impl App {
             self.account = account;
         }
         let mut tasks = vec![self.profile_sync(), self.status_sync()];
+        self.info_sync();
         self.friends_sync();
+        self.switcher_sync();
         self.active_now_sync();
         self.reactions_page();
         let state = self.client.state();
@@ -230,6 +246,8 @@ impl App {
             self.selection = None;
             self.selecting = false;
             self.menu = None;
+            // An emoji's or sticker's card was on the room left.
+            self.cards.expression = None;
             self.suggest.clear(&mut self.client);
             tasks.push(operation::scroll_to(
                 TIMELINE,
@@ -247,7 +265,18 @@ impl App {
                 self.draft.reset(&self.draft_known);
             }
         }
-        if self.thumbnails.len() != self.client.state().staged().len() {
+        let seen = {
+            let state = self.client.state();
+            let (staged, aside) = (state.staged(), state.aside_staged());
+            [
+                staged.as_ptr().addr(),
+                staged.len(),
+                aside.as_ptr().addr(),
+                aside.len(),
+            ]
+        };
+        if seen != self.staged_seen {
+            self.staged_seen = seen;
             tasks.push(self.previews());
         }
         tasks.push(self.roster(switched));
@@ -286,7 +315,7 @@ impl App {
         // Images of pictures the core let go of go too.
         self.pictures.prune();
         self.call_sync();
-        self.viewer_sync();
+        tasks.push(self.viewer_sync());
         tasks.push(self.thread_sync());
         self.popovers_sync();
         self.search_sync();
@@ -306,6 +335,7 @@ impl App {
         tasks.push(self.shell_sync());
         tasks.push(self.sync_mfa());
         tasks.push(self.follow_backend());
+        tasks.push(self.arm_clocks());
         Task::batch(tasks)
     }
 
@@ -353,14 +383,17 @@ impl App {
             (None, None) => true,
             _ => false,
         };
+        // A new room shows at once, even during a pause: the pending
+        // timer's show then finds nothing changed.
+        if switched {
+            self.show_roster(false);
+            return Task::none();
+        }
         if same || self.roster_waiting {
             return Task::none();
         }
         let since = self.roster_shown.map(|shown| shown.elapsed());
-        if switched
-            || self.members.is_none()
-            || since.is_none_or(|since| since >= looks::ROSTER_PAUSE)
-        {
+        if self.members.is_none() || since.is_none_or(|since| since >= looks::ROSTER_PAUSE) {
             self.show_roster(false);
             return Task::none();
         }
@@ -427,6 +460,7 @@ impl App {
         });
         self.looks = looks;
         self.heights = heights;
+        self.clocks.polls = crate::polls::open_poll(&self.messages, self.minute);
         self.place_rows();
     }
 
@@ -727,7 +761,7 @@ impl App {
                     .tag(message.tag.as_ref())
                     .and_then(|tag| tag.badge.as_deref()),
             );
-            if self.pointed.message.as_ref() == Some(&message.item) {
+            if self.pointed.message.as_deref() == Some(message.item.as_str()) {
                 want(decoration.map(looks::animated_url).as_deref());
             }
         }

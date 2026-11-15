@@ -142,12 +142,9 @@ impl App {
             });
             return iced::widget::operation::focus(crate::app::NOBODY);
         }
-        // In the timeline the message's own rows come first.
-        let Some(row) = self
-            .messages
-            .iter()
-            .position(|message| message.item == item)
-        else {
+        // In the timeline, or the thread beside, the message's own rows
+        // come first.
+        let Some(row) = self.row_of(&item) else {
             return Task::none();
         };
         let task = self.open_menu(row, at);
@@ -331,38 +328,46 @@ impl App {
     }
 
     /// Keeps the size the viewer opened at, once its picture is known, so
-    /// the full picture coming doesn't move it.
-    pub fn viewer_sync(&mut self) {
+    /// the full picture coming doesn't move it. A viewer whose message the
+    /// core let go of (a busy channel lets the oldest go) closes, its full
+    /// picture with it, and gives the keys back.
+    pub fn viewer_sync(&mut self) -> Task<Message> {
         let state = self.client.state();
         let Some(viewer) = state.viewer.as_ref() else {
             self.viewer_size = None;
-            return;
+            return Task::none();
         };
+        if state.message(&viewer.item).is_none() {
+            self.client.dispatch(Action::CloseImage);
+            self.viewer_size = None;
+            return self.refocus();
+        }
         if self
             .viewer_size
             .as_ref()
             .is_some_and(|(item, index, _)| *item == viewer.item && *index == viewer.index)
         {
-            return;
+            return Task::none();
         }
         let Some(attachment) = state
             .message(&viewer.item)
             .and_then(|message| message.attachments.get(viewer.index))
         else {
-            return;
+            return Task::none();
         };
         let full = match viewer.pictures.get(&viewer.index) {
             Some(Some(Ok(picture))) => Some((picture.width, picture.height)),
             _ => None,
         };
         if full.is_none() && attachment.dimensions.is_none() && attachment.preview.is_none() {
-            return;
+            return Task::none();
         }
         self.viewer_size = Some((
             viewer.item.clone(),
             viewer.index,
             natural_size(full, attachment),
         ));
+        Task::none()
     }
 
     /// The viewer's keys: Escape closes it, the arrows step.

@@ -64,8 +64,11 @@ pub enum Message {
     /// A channel or category dragged in the sidebar.
     Arrange(crate::arrange::Event),
     Account(crate::account::Event),
-    /// The minute turned, for the clocks of busy voice channels.
+    /// The minute turned, for the clocks that show minutes: busy voice
+    /// channels', open polls', the activity cards'.
     Minute,
+    /// The day turned: today's message times become yesterday's.
+    Day,
     /// The composer's and the inline edit's fields, bars and buttons.
     Write(crate::composer::Event),
     /// The expression picker: opened for the composer, the edit or a
@@ -78,8 +81,8 @@ pub enum Message {
     Select(Select),
     SelectEnd,
     SelectClear,
-    /// A right click on a message, by its place, where the pointer is.
-    RowMenu(usize, Point),
+    /// A right click on a message, by its item, where the pointer is.
+    RowMenu(Arc<str>, Point),
     /// The menu's row under the pointer or the keys, by its place.
     MenuLight(usize),
     MenuChoose(usize),
@@ -122,12 +125,12 @@ pub enum Message {
     /// A copy of a picture at the size it shows at was made.
     Fitted(crate::pictures::Fitted),
     /// A spoiler's cover over a message's attachment was clicked: the
-    /// message by its place, the attachment's index.
-    Reveal(usize, usize),
-    /// A long message's Show more or Show less, by its place.
-    Unfold(usize),
-    /// A blocked person's message, shown when asked for.
-    ShowBlocked(usize),
+    /// message by its item, the attachment's index.
+    Reveal(Arc<str>, usize),
+    /// A long message's Show more or Show less, by its item.
+    Unfold(Arc<str>),
+    /// A blocked person's message, shown when asked for, by its item.
+    ShowBlocked(Arc<str>),
     /// A poll's card.
     Poll(crate::polls::Event),
     /// A voice message's card.
@@ -143,11 +146,11 @@ pub enum Message {
     BotSelect(crate::bot_select::Event),
     /// The pointer came onto or left a member's row, a message, the card.
     PointMember(String, bool),
-    PointRow(String, bool),
-    /// A member's line was clicked, by its place in the list.
-    OpenMember(usize),
-    /// A message's avatar or author was clicked, by its place.
-    OpenAuthor(usize),
+    PointRow(Arc<str>, bool),
+    /// A member's line was clicked, by their id.
+    OpenMember(String),
+    /// A message's avatar or author was clicked, by the message's item.
+    OpenAuthor(Arc<str>),
     CloseProfile,
     /// Something done on a role's or a mutual server's card (`info_cards.rs`).
     Info(crate::info_cards::Event),

@@ -50,7 +50,7 @@ pub struct Pointed {
     /// A member list's row.
     pub member: Option<String>,
     /// The timeline's message, by item.
-    pub message: Option<String>,
+    pub message: Option<Arc<str>>,
     /// A voice message's card, by item.
     pub voice: Option<String>,
     /// A video cell, by `{item}/{index}`.
@@ -101,7 +101,13 @@ pub struct App {
     /// The composer written in last, the channel's or the thread's.
     pub writing_last: crate::composer::Writing,
     pub filter: String,
+    /// Where the rail went last, so the DM search's filter goes when it
+    /// goes elsewhere, as the Slint client's.
+    pub filtered_in: Option<yapfast_core::application::Navigation>,
+    /// The minute now, as the clocks that show minutes read it, and the
+    /// timers to the next minute and the next midnight, while armed.
     pub minute: u64,
+    pub clocks: crate::timeline::Clocks,
     /// What the conversation's header shows of the open room.
     pub header: crate::header::Header,
     pub selected: Option<String>,
@@ -177,6 +183,9 @@ pub struct App {
     /// Previews of the staged pictures, by path (none while being made),
     /// and files dragged over the window.
     pub thumbnails: HashMap<std::path::PathBuf, Option<Arc<yapfast_core::chat::Picture>>>,
+    /// The staged lists the previews were last made for, by place and
+    /// length: the channel's and the thread's.
+    pub staged_seen: [usize; 4],
     pub drop: crate::uploads::Drop,
     pub picker: Option<Picker>,
     /// The keys held with a click: Shift puts a GIF in the composer.
@@ -254,8 +263,8 @@ pub struct App {
     /// The account's popover, and the custom status's dialog's draft.
     pub popover: Option<crate::status::Popover>,
     pub status_draft: Option<crate::status::Draft>,
-    /// The quick switcher's place Enter goes to.
-    pub switcher_chosen: usize,
+    /// The quick switcher's places and the one Enter goes to.
+    pub quick: crate::switcher::Quick,
     pub build: crate::settings::Build,
     /// Push to talk's watcher while it's the input mode.
     pub talk: crate::settings::voice::Talk,
@@ -339,7 +348,9 @@ impl App {
             aside_drag: None,
             writing_last: Default::default(),
             filter: String::new(),
+            filtered_in: None,
             minute: yapfast_core::clock::now_ms() / 1000 / 60 * 60,
+            clocks: Default::default(),
             header: Default::default(),
             selected: None,
             messages: Default::default(),
@@ -380,6 +391,7 @@ impl App {
             edit: Draft::default(),
             suggest: Default::default(),
             thumbnails: HashMap::new(),
+            staged_seen: [0; 4],
             drop: Default::default(),
             picker: None,
             modifiers: keyboard::Modifiers::default(),
@@ -418,7 +430,7 @@ impl App {
             channel_screen: None,
             popover: None,
             status_draft: None,
-            switcher_chosen: 0,
+            quick: Default::default(),
             build: crate::build(),
             talk: Default::default(),
             clip_full: false,
@@ -532,11 +544,8 @@ impl App {
             Message::Side(event) => self.sidebar_event(event),
             Message::Arrange(event) => self.arrange_event(event),
             Message::Account(event) => self.account_event(event),
-            Message::Minute => {
-                self.minute = yapfast_core::clock::now_ms() / 1000 / 60 * 60;
-                self.make_activity_cards();
-                Task::none()
-            }
+            Message::Minute => self.minute_turned(),
+            Message::Day => self.day_turned(),
             Message::Write(event) => self.write_event(event),
             Message::OpenPicker(target, tab) => self.open_picker(target, tab),
             Message::Picker(event) => self.picker_event(event),
@@ -554,7 +563,10 @@ impl App {
                 self.selecting = false;
                 Task::none()
             }
-            Message::RowMenu(index, at) => self.open_menu(index, at),
+            Message::RowMenu(item, at) => match self.row_of(&item) {
+                Some(row) => self.open_menu(row, at),
+                None => Task::none(),
+            },
             Message::MenuLight(index) => self.menu_light(index),
             Message::SubLight(index) => {
                 if let Some(menu) = &mut self.menu {
@@ -636,13 +648,10 @@ impl App {
                 self.pictures.fitter.borrow_mut().made(fitted);
                 Task::none()
             }
-            Message::Reveal(row, attachment) => self.reveal(row, attachment),
-            Message::Unfold(row) => self.unfold(row),
-            Message::ShowBlocked(row) => {
-                if let Some(message) = self.row_message(row) {
-                    self.revealed
-                        .insert(crate::message::blocked_key(&message.item));
-                }
+            Message::Reveal(item, attachment) => self.reveal(&item, attachment),
+            Message::Unfold(item) => self.unfold(&item),
+            Message::ShowBlocked(item) => {
+                self.revealed.insert(crate::message::blocked_key(&item));
                 self.ask()
             }
             Message::Poll(event) => self.poll_event(event),
@@ -675,8 +684,11 @@ impl App {
                 point(&mut self.pointed.message, item, entered);
                 self.ask()
             }
-            Message::OpenMember(index) => self.open_member(index),
-            Message::OpenAuthor(index) => self.open_author(index),
+            Message::OpenMember(id) => self.open_member(&id),
+            Message::OpenAuthor(item) => match self.row_of(&item) {
+                Some(row) => self.open_author(row),
+                None => Task::none(),
+            },
             Message::CloseProfile => self.profile_event(crate::profile::Event::Close),
             Message::Info(event) => self.info_event(event),
             Message::Profile(event) => self.profile_event(event),
@@ -734,7 +746,7 @@ impl App {
 
 /// Keeps the thing the pointer is on: set on entering, cleared on leaving
 /// only if it's still the one left (the next one's entering may come first).
-pub fn point(pointed: &mut Option<String>, id: String, entered: bool) {
+pub fn point<T: PartialEq>(pointed: &mut Option<T>, id: T, entered: bool) {
     if entered {
         *pointed = Some(id);
     } else if pointed.as_ref() == Some(&id) {

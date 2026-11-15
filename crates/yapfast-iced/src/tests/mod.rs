@@ -725,6 +725,12 @@ fn the_dm_search_keeps_the_dms_whose_names_hold_it() {
     let _ = app.update(Message::Side(crate::sidebar::Event::Filter("fri".into())));
     assert!(shows(&app, "Friday crew"));
     assert!(!shows(&app, "Riley"));
+    // It's the DM home's: a server shows all its channels, and home again
+    // shows every DM.
+    let _ = app.update(Message::Rail(crate::rail::Event::Server("coop".into())));
+    assert!(shows(&app, "looking-for-group"), "the server's channels");
+    let _ = app.update(Message::Rail(crate::rail::Event::Home));
+    assert!(shows(&app, "Riley"), "every DM again");
 }
 
 /// The open room's messages made `count` long, each its own, the newest
@@ -1090,8 +1096,10 @@ mod dialogs;
 mod editor;
 mod header;
 mod link_dialogs;
+mod media;
 mod menus;
 mod people;
+mod rows;
 mod server;
 mod server_dialogs;
 mod settings;
@@ -1105,4 +1113,36 @@ fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |since| since.as_millis() as u64)
+}
+
+#[test]
+fn at_midnight_the_message_times_are_worked_out_again() {
+    let (mut app, _folder) = preview();
+    assert!(
+        app.clocks.day_armed,
+        "a timer to midnight while a timeline shows"
+    );
+    let time = app.looks[0].time.clone();
+    app.looks[0].time = "as at noon yesterday".into();
+    let _ = app.update(Message::Day);
+    assert_eq!(app.looks[0].time, time, "worked out for now");
+    assert!(app.clocks.day_armed, "and the next midnight's armed");
+}
+
+#[test]
+fn the_minute_timer_runs_only_while_something_shows_minutes() {
+    let (mut app, _folder) = preview();
+    // Nothing in the preview shows minutes: no timer.
+    app.activity_cards.clear();
+    app.clocks = Default::default();
+    let _ = app.arm_clocks();
+    assert!(!app.clocks.minute_armed);
+    // A call's length in the sidebar does.
+    app.clocks.calls = true;
+    let _ = app.arm_clocks();
+    assert!(app.clocks.minute_armed);
+    // The minute turns; with nothing left to show it, none is armed again.
+    app.clocks.calls = false;
+    let _ = app.update(Message::Minute);
+    assert!(!app.clocks.minute_armed);
 }

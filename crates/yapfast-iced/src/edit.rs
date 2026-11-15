@@ -34,11 +34,17 @@ impl App {
     /// Edits a message of one's own in its row: its text in the edit's
     /// field, which takes the keys, and the row scrolled into view.
     pub fn begin_edit(&mut self, item: String) -> Task<Message> {
-        self.client.dispatch(Action::Edit(item.clone()));
+        self.client.dispatch(Action::Edit(item));
+        self.take_edit()
+    }
+
+    /// The edit the core began, if it did: its text in the field, its row
+    /// in view, the keys in the field.
+    pub fn take_edit(&mut self) -> Task<Message> {
         let Some(edit) = self.client.state().edit() else {
             return Task::none();
         };
-        let text = edit.text.clone();
+        let (item, text) = (edit.item.clone(), edit.text.clone());
         self.editing = Some(item.clone());
         self.edit.reset(&text);
         self.suggest.clear(&mut self.client);

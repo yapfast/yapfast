@@ -94,6 +94,11 @@ impl App {
         self.client.state().search_shown().is_some()
     }
 
+    /// Lets go of the result cards, laid out in the old theme's inks.
+    pub fn forget_found(&mut self) {
+        self.searching.results.clear();
+    }
+
     /// Builds the cards of results not shown yet, keeping those still
     /// first: a next page adds to the end.
     pub fn search_sync(&mut self) {

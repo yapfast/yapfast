@@ -264,11 +264,14 @@ impl Widget<Message, Theme, Renderer> for Rows<'_> {
                 shell.publish((measure.report)(differ));
             }
         }
+        // The last drawn first, as iced's stack does: a row's hover bar
+        // floats over the row before it, and takes the pointer first.
         for ((child, state), layout) in self
             .children
             .iter_mut()
             .zip(&mut tree.children)
             .zip(layout.children())
+            .rev()
         {
             child.as_widget_mut().update(
                 state, event, layout, cursor, renderer, clipboard, shell, viewport,

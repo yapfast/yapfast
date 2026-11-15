@@ -13,6 +13,7 @@ use crate::{
     controls::{Kind, action, bar, ink_style},
     fonts::{BOLD, SEMIBOLD},
     looks::Status,
+    people::StatusInk,
     style::rounded,
     widgets::Pic,
 };
@@ -78,7 +79,7 @@ impl App {
                     emoji: activity.name_emoji.clone(),
                     ..Status::default()
                 };
-                self.status_text(status, 14.0, SEMIBOLD, inks.ink)
+                self.status_line(status, StatusInk::words(14.0, SEMIBOLD, inks.ink))
             }
         };
         lines = lines.push(title);
@@ -196,34 +197,5 @@ impl App {
             }
         }
         container(pictures).width(LARGE).height(LARGE).into()
-    }
-
-    /// A status's emoji and words on one line, in a size, weight and ink of
-    /// its own, as the Slint client's `StatusText`.
-    pub fn status_text<'a>(
-        &self,
-        status: Status,
-        size: f32,
-        font: iced::Font,
-        ink: Color,
-    ) -> Element<'a, Message> {
-        let side = (size + 3.0).round();
-        let mut line = row![].spacing(4).align_y(Alignment::Center);
-        if let Some(emoji) = &status.emoji {
-            line = line.push(match self.picture(emoji, side as u32, side as u32, false) {
-                Some(picture) => Element::from(Pic::square(picture, side)),
-                None => Space::new().width(side).height(side).into(),
-            });
-        }
-        if !status.words.is_empty() {
-            line = line.push(
-                text(status.words)
-                    .size(size)
-                    .font(font)
-                    .color(ink)
-                    .wrapping(text::Wrapping::None),
-            );
-        }
-        line.into()
     }
 }

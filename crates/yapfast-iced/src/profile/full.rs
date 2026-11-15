@@ -35,7 +35,7 @@ impl App {
         let inks = self.inks(look, Mode::Side);
         let side_width = (width * 0.4 - 8.0).max(340.0);
         let side = container(
-            scrollable(self.profile_body(shown, Mode::Side, true))
+            scrollable(self.profile_body(shown, Mode::Side, side_width, true))
                 .height(Length::Fill)
                 .style(scrollbar(&self.theme)),
         )

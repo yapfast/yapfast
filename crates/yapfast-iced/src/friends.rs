@@ -24,6 +24,7 @@ use crate::{
     dialogs::dialog,
     fonts::{BOLD, MEDIUM},
     looks::Status,
+    people::StatusInk,
     people::{Person, voice_spots},
     pictures::{Face, Icon},
     style::{rounded, scrollbar},
@@ -344,11 +345,10 @@ impl App {
             play: false,
             dot: Some((presence, rgb(surface), Point::new(20.0, 20.0))),
         };
-        let name = text(friend.name.as_str())
+        let name = crate::elide::elide(friend.name.as_str())
             .size(16)
             .font(BOLD)
-            .color(theme.text)
-            .wrapping(text::Wrapping::None);
+            .color(theme.text);
         let status = Status::of(friend.activity.as_deref());
         let sub: Element<'a, Message> = match (spot, status.is_empty()) {
             (Some(spot), true) => self.voice_spot(spot, 13.0, false),
@@ -357,8 +357,11 @@ impl App {
                 if let Some(spot) = spot {
                     line = line.push(self.voice_spot(spot, 13.0, true));
                 }
-                line.push(self.status_text(status, 13.0, iced::Font::default(), theme.muted))
-                    .into()
+                line.push(self.status_line(
+                    status,
+                    StatusInk::words(13.0, iced::Font::default(), theme.muted),
+                ))
+                .into()
             }
             (None, true) => text(presence_word(presence))
                 .size(13)
@@ -528,11 +531,10 @@ impl App {
         };
         let bold = request.unread || request.friend == Some(true);
         let mut words = column![
-            text(request.name)
+            crate::elide::elide(request.name)
                 .size(16)
                 .font(if bold { BOLD } else { MEDIUM })
-                .color(theme.text)
-                .wrapping(text::Wrapping::None),
+                .color(theme.text),
             text(about)
                 .size(13)
                 .color(if spam { theme.loud } else { theme.muted })

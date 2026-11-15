@@ -289,8 +289,16 @@ impl App {
         if theme == self.theme {
             return;
         }
-        self.theme = theme;
+        let old = std::mem::replace(&mut self.theme, theme);
         self.pictures.marks.borrow_mut().clear();
         self.show_roster(false);
+        // Text laid out in the old theme's inks: the rows' again now, the
+        // rest as each is next taken in.
+        self.recolour(&old);
+        self.header.topic = None;
+        self.popovers.forget_laid();
+        self.forget_found();
+        self.forget_guidelines();
+        self.drafts.starter = None;
     }
 }

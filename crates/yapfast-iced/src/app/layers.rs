@@ -334,7 +334,10 @@ impl App {
             Layer::Picker => self.picker_event(picker::Event::Field(field::Event::Escape)),
             Layer::ServerCard => self.info_event(crate::info_cards::Event::CloseServer),
             Layer::ExpressionCard => self.info_event(crate::info_cards::Event::CloseExpression),
-            Layer::Card => self.update(Message::CloseProfile),
+            Layer::Card => {
+                self.revert_note();
+                self.update(Message::CloseProfile)
+            }
             Layer::RoleCard => self.info_event(crate::info_cards::Event::CloseRole),
             Layer::Selection => {
                 self.selection = None;

@@ -71,6 +71,9 @@ pub struct Aside {
     pub height: f32,
     pub width: f32,
     reported: Option<Instant>,
+    /// A report held back by the throttle is due: the view as it is then
+    /// goes, so where a scroll stopped is told.
+    report_due: bool,
 }
 
 impl Aside {
@@ -91,6 +94,7 @@ impl Aside {
             height: 400.0,
             width,
             reported: None,
+            report_due: false,
         }
     }
 
@@ -152,6 +156,8 @@ pub struct Drafts {
 #[derive(Clone, Debug)]
 pub enum Event {
     Scrolled(Viewport),
+    /// A report the throttle held back fell due.
+    Report,
     Measured(Vec<(u64, f32)>),
     Earlier,
     Close,
@@ -199,6 +205,12 @@ impl App {
                     self.measure_aside(&same, true);
                 }
                 Task::batch([self.aside_report(), self.ask()])
+            }
+            Event::Report => {
+                if let Some(aside) = &mut self.aside {
+                    aside.report_due = false;
+                }
+                self.aside_report()
             }
             Event::Measured(heights) => {
                 self.aside_found(heights);
@@ -313,8 +325,11 @@ impl App {
     pub fn thread_sync(&mut self) -> Task<Message> {
         let state = self.client.state();
         let Some(core) = state.aside.as_ref() else {
-            self.aside = None;
-            self.drafts.aside.reset("");
+            // Once, as the thread closes: a new editor each sync takes the
+            // font system's lock the renderer shapes with.
+            if self.aside.take().is_some() || !self.drafts.aside.is_empty() {
+                self.drafts.aside.reset("");
+            }
             self.drafts.aside_known.clear();
             return self.new_thread_sync();
         };
@@ -497,12 +512,21 @@ impl App {
         let Some(aside) = &mut self.aside else {
             return Task::none();
         };
-        if aside.messages.is_empty()
-            || aside
-                .reported
-                .is_some_and(|reported| reported.elapsed() < REPORT_EVERY)
-        {
+        if aside.messages.is_empty() {
             return self.aside_earlier();
+        }
+        // At most one every REPORT_EVERY, the last after the throttle.
+        if let Some(since) = aside.reported.map(|reported| reported.elapsed())
+            && since < REPORT_EVERY
+        {
+            if aside.report_due {
+                return self.aside_earlier();
+            }
+            aside.report_due = true;
+            return Task::batch([
+                self.aside_earlier(),
+                crate::after(REPORT_EVERY - since, Message::Thread(Event::Report)),
+            ]);
         }
         aside.reported = Some(Instant::now());
         let (first, last) = aside.in_view(0.0);
@@ -1000,6 +1024,13 @@ impl<'a> SideComposer<'a> {
         })
         .enabled(self.enabled)
         .suggesting(app.suggesting(self.which));
+        // Ctrl+V takes files and pictures where the thread takes them, as
+        // the channel's composer does.
+        let field = if self.which == Writing::Aside && app.client.state().aside_can_attach() {
+            field.pastes()
+        } else {
+            field
+        };
         let lift = |button: Element<'static, Message>| -> Element<'a, Message> {
             container(button).padding(Padding::ZERO.bottom(8)).into()
         };

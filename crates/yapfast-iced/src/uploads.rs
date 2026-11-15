@@ -115,7 +115,7 @@ impl App {
             Event::Attach => self.attach(),
             Event::Chosen(files) => {
                 self.client.dispatch(Action::Stage(files));
-                Task::batch([self.sync(), self.previews(), self.refocus()])
+                Task::batch([self.sync(), self.refocus()])
             }
             Event::Unstage(index) => {
                 self.client.dispatch(Action::Unstage(index));
@@ -127,7 +127,7 @@ impl App {
             }
             Event::Clipboard(Some(files)) => {
                 self.client.dispatch(Action::Stage(files));
-                Task::batch([self.sync(), self.previews()])
+                self.sync()
             }
             Event::Clipboard(None) => iced::clipboard::read()
                 .map(|text| Message::Write(Write::Pasted(composer::Writing::Draft, text))),
@@ -137,7 +137,6 @@ impl App {
                 }
                 Task::batch([
                     self.sync(),
-                    self.previews(),
                     iced::widget::operation::focus(crate::thread::COMPOSER),
                 ])
             }
@@ -218,7 +217,7 @@ impl App {
         }
         let state = self.client.state();
         // Over the thread beside the channel, they go to it.
-        let aside = self.drop.aside && self.aside.is_some();
+        let aside = self.drop.aside && self.thread_shown();
         let (can_attach, refusal) = if aside {
             (state.aside_can_attach(), state.aside_drop_refusal(&paths))
         } else {
@@ -244,15 +243,20 @@ impl App {
         } else {
             self.refocus()
         };
-        Task::batch([self.sync(), self.previews(), focus])
+        Task::batch([self.sync(), focus])
+    }
+
+    /// Whether the thread beside the channel shows, to take files: not
+    /// the New Thread form, nor while search results take its place.
+    fn thread_shown(&self) -> bool {
+        self.aside.is_some() && self.aside_shown() && self.client.state().new_thread().is_none()
     }
 
     /// Whether a point of the window is over the thread beside the
     /// channel, below the header, as the Slint client's `over-aside`.
     fn over_aside(&self, at: iced::Point) -> bool {
         let bar = self.shell.frame.height - self.window.height;
-        self.aside.is_some()
-            && self.client.state().new_thread().is_none()
+        self.thread_shown()
             && at.x >= self.shell.frame.width - self.aside_width()
             && at.y >= bar + crate::header::HEIGHT
     }
@@ -504,7 +508,7 @@ impl App {
     pub fn drop_view(&self) -> Option<Element<'_, Message>> {
         let theme = &self.theme;
         let state = self.client.state();
-        let aside = self.drop.aside && self.aside.is_some();
+        let aside = self.drop.aside && self.thread_shown();
         let dragging = self.drop.dragging
             && if aside {
                 state.aside_can_attach()

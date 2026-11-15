@@ -118,6 +118,9 @@ pub fn continues(before: &ChatMessage, message: &ChatMessage) -> bool {
 /// last, and its text laid out.
 #[derive(Clone, Debug)]
 pub struct RowLook {
+    /// Its message's item, shared, so what a click on the row sends names
+    /// the message whatever place it holds by the time it's handled.
+    pub item: Arc<str>,
     pub first: bool,
     pub day: Option<String>,
     pub unread_start: bool,
@@ -128,6 +131,39 @@ pub struct RowLook {
     pub date: Option<chrono::NaiveDate>,
     /// When it was sent, on the clock Messages' settings chose.
     pub time: String,
+}
+
+/// The timers of the clocks on screen: one to the next minute while
+/// something shows minutes (a busy voice channel's call, an open poll,
+/// the Activity panel's cards, Active Now, the account's game), one to the
+/// next midnight while a timeline shows; and what of the first the lists
+/// worked out as they were made.
+#[derive(Default)]
+pub struct Clocks {
+    pub minute_armed: bool,
+    pub day_armed: bool,
+    /// A sidebar row shows its call's length; a loaded poll counts down.
+    pub calls: bool,
+    pub polls: bool,
+}
+
+/// How long until the next whole minute, a little past it.
+fn to_next_minute() -> Duration {
+    let ms = yapfast_core::clock::now_ms();
+    Duration::from_millis(60_000 - ms % 60_000 + 50)
+}
+
+/// How long until the next local midnight, a little past it.
+fn to_next_midnight() -> Duration {
+    let now = chrono::Local::now();
+    let tomorrow = now
+        .date_naive()
+        .succ_opt()
+        .and_then(|day| day.and_hms_opt(0, 0, 1));
+    tomorrow
+        .and_then(|midnight| midnight.and_local_timezone(chrono::Local).earliest())
+        .and_then(|midnight| (midnight - now).to_std().ok())
+        .unwrap_or(Duration::from_secs(3600))
 }
 
 /// The clock message times are shown on: 12-hour, and with seconds.
@@ -215,9 +251,15 @@ pub fn row_looks<'a>(
         .enumerate()
         .map(|(index, message)| {
             let before = index.checked_sub(1).map(|before| &*messages[before]);
-            let (laid, date, time) = match old(index) {
-                Some(look) => (look.body.clone(), look.date, look.time.clone()),
+            let (item, laid, date, time) = match old(index) {
+                Some(look) => (
+                    look.item.clone(),
+                    look.body.clone(),
+                    look.date,
+                    look.time.clone(),
+                ),
                 None => (
+                    Arc::from(message.item.as_str()),
                     body(index),
                     yapfast_core::clock::date(message.timestamp),
                     clock.sent(message, now),
@@ -228,6 +270,7 @@ pub fn row_looks<'a>(
             // The author shows again below the "New" divider.
             let unread_start = marks.first_unread == Some(message.item.as_str());
             RowLook {
+                item,
                 first: new_day
                     || unread_start
                     || before.is_none_or(|before| !continues(before, message)),
@@ -531,6 +574,30 @@ impl App {
         }
     }
 
+    /// The row holding the message `item` now: in the channel's timeline,
+    /// or the thread's beside it, numbered from [`ASIDE`]. What a click on
+    /// a row sends names its message, and is placed here when it's handled,
+    /// as a batch handled first may have moved every row.
+    pub fn row_of(&self, item: &str) -> Option<usize> {
+        self.messages
+            .iter()
+            .rposition(|message| message.item == item)
+            .or_else(|| {
+                let aside = self.aside.as_ref()?;
+                let index = aside
+                    .messages
+                    .iter()
+                    .rposition(|message| message.item == item)?;
+                Some(ASIDE + index)
+            })
+    }
+
+    /// Row `row`'s message's item, shared, for what its parts send.
+    pub fn row_item(&self, row: usize) -> Arc<str> {
+        self.row_look(row)
+            .map_or_else(|| Arc::from(""), |look| look.item.clone())
+    }
+
     /// Row `row`'s look, as [`App::row_message`] finds its message.
     pub fn row_look(&self, row: usize) -> Option<&RowLook> {
         match row.checked_sub(ASIDE) {
@@ -539,8 +606,9 @@ impl App {
         }
     }
 
-    /// Where row `row`'s timeline is in the window, and its top among the
-    /// rows, less the view's.
+    /// Where row `row`'s timeline is in the window, and the row's top in
+    /// it: among the rows, under the space a short history is held down
+    /// by, less the view's.
     pub fn lane_place(&self, row: usize) -> (LanePlace, f32) {
         match (row.checked_sub(ASIDE), self.aside.as_ref()) {
             (Some(index), Some(aside)) => (
@@ -549,7 +617,9 @@ impl App {
                     width: aside.width,
                     top: crate::header::HEIGHT + 1.0 + crate::thread::HEAD + 1.0,
                 },
-                aside.tops.get(index).copied().unwrap_or(0.0) - aside.view_top(),
+                aside.tops.get(index).copied().unwrap_or(0.0)
+                    + (aside.height - aside.total_height()).max(0.0)
+                    - aside.view_top(),
             ),
             _ => (
                 LanePlace {
@@ -557,9 +627,25 @@ impl App {
                     width: self.width,
                     top: crate::header::HEIGHT + 1.0,
                 },
-                self.tops.get(row).copied().unwrap_or(0.0) - self.view_top(),
+                self.tops.get(row).copied().unwrap_or(0.0)
+                    + (self.timeline_height - self.total_height()).max(0.0)
+                    - self.view_top(),
             ),
         }
+    }
+
+    /// Where row `row`'s message starts in the window, under its head (the
+    /// history's edge over the first, a divider) and the space above it:
+    /// the top of its hover bar's row and its avatar's padding.
+    pub fn row_body_top(&self, row: usize) -> f32 {
+        let (lane, top) = self.lane_place(row);
+        let edge = match row.checked_sub(ASIDE) {
+            Some(0) if self.aside.as_ref().is_some_and(|aside| aside.ready) => EDGE,
+            Some(_) => 0.0,
+            None if row == 0 => self.edge.height(),
+            None => 0.0,
+        };
+        lane.top + top + edge + self.row_look(row).map_or(0.0, top_space)
     }
 
     /// The preview's note, Matrix's verification and the core's notice,
@@ -774,11 +860,14 @@ impl App {
         // A right click opens the message's menu where the pointer is.
         let (lane, _) = self.lane_place(index);
         let origin = iced::Vector::new(lane.left, lane.top);
-        let content = RightPress::new(content, move |at| Message::RowMenu(index, at + origin));
+        let item = look.item.clone();
+        let content = RightPress::new(content, move |at| {
+            Message::RowMenu(item.clone(), at + origin)
+        });
         whole = whole.push(
             mouse_area(content)
-                .on_enter(Message::PointRow(message.item.clone(), true))
-                .on_exit(Message::PointRow(message.item.clone(), false)),
+                .on_enter(Message::PointRow(look.item.clone(), true))
+                .on_exit(Message::PointRow(look.item.clone(), false)),
         );
         if look.last {
             whole = whole.push(Space::new().height(TAIL - ROW_GAP));
@@ -1446,22 +1535,101 @@ impl App {
         }))
     }
 
-    /// A spoiler over a message's attachment was clicked: it shows.
-    pub fn reveal(&mut self, row: usize, attachment: usize) -> Task<Message> {
-        if let Some(message) = self.row_message(row) {
-            self.revealed
-                .insert(crate::message::reveal_key(&message.item, attachment));
+    /// Whether something on screen shows minutes.
+    fn minutes_shown(&self) -> bool {
+        self.clocks.calls
+            || self.clocks.polls
+            || (self.members_shown() && !self.activity_cards.is_empty())
+            || self.active_now_minutes()
+            || self.popover_playing()
+    }
+
+    /// Arms the timer to the next minute while something shows minutes,
+    /// and to the next midnight while a timeline shows: one wake each,
+    /// no interval running for nothing.
+    pub fn arm_clocks(&mut self) -> Task<Message> {
+        let mut tasks = Vec::new();
+        if !self.clocks.minute_armed && self.minutes_shown() {
+            self.clocks.minute_armed = true;
+            self.minute = yapfast_core::clock::now_ms() / 1000 / 60 * 60;
+            tasks.push(crate::after(to_next_minute(), Message::Minute));
         }
+        if !self.clocks.day_armed && !self.messages.is_empty() {
+            self.clocks.day_armed = true;
+            tasks.push(crate::after(to_next_midnight(), Message::Day));
+        }
+        Task::batch(tasks)
+    }
+
+    /// The minute turned: the clocks that show it move on.
+    pub fn minute_turned(&mut self) -> Task<Message> {
+        self.clocks.minute_armed = false;
+        self.minute = yapfast_core::clock::now_ms() / 1000 / 60 * 60;
+        self.clocks.polls = crate::polls::open_poll(&self.messages, self.minute);
+        self.make_activity_cards();
+        self.arm_clocks()
+    }
+
+    /// The day turned: each message's time is worked out again, so
+    /// today's read as yesterday's, as the Slint client restyles its
+    /// timeline at midnight. The rows keep their text and heights.
+    pub fn day_turned(&mut self) -> Task<Message> {
+        self.clocks.day_armed = false;
+        let prefs = &self.layout.prefs;
+        let clock = Clock {
+            twelve_hour: prefs.twelve_hour_clock,
+            seconds: prefs.clock_seconds,
+        };
+        let now = yapfast_core::clock::now_ms() / 1000;
+        for (look, message) in self.looks.iter_mut().zip(self.messages.iter()) {
+            look.time = clock.sent(message, now);
+        }
+        if let Some(aside) = &mut self.aside {
+            for (look, message) in aside.looks.iter_mut().zip(aside.messages.iter()) {
+                look.time = clock.sent(message, now);
+            }
+        }
+        self.arm_clocks()
+    }
+
+    /// A theme switch: the text laid out in the old theme's inks (its
+    /// mentions', a notice's) is laid out again in the new one's, in the
+    /// channel's timeline and the thread beside, the rows keeping their
+    /// heights. A switch that keeps those inks costs nothing.
+    pub fn recolour(&mut self, old: &crate::theme::Theme) {
+        let theme = &self.theme;
+        if (theme.mention, theme.text, theme.muted) == (old.mention, old.text, old.muted) {
+            return;
+        }
+        let (mention, ink, muted) = (rgb(theme.mention), rgb(theme.text), rgb(theme.muted));
+        let revealed = &self.revealed;
+        let lay = |message: &ChatMessage| {
+            Arc::new(body_of(message, mention, ink, muted, |spoiler| {
+                revealed.contains(&format!("{}/{spoiler}", message.item))
+            }))
+        };
+        for (look, message) in self.looks.iter_mut().zip(self.messages.iter()) {
+            look.body = lay(message);
+        }
+        if let Some(aside) = &mut self.aside {
+            for (look, message) in aside.looks.iter_mut().zip(aside.messages.iter()) {
+                look.body = lay(message);
+            }
+        }
+    }
+
+    /// A spoiler over a message's attachment was clicked: it shows.
+    pub fn reveal(&mut self, item: &str, attachment: usize) -> Task<Message> {
+        self.revealed
+            .insert(crate::message::reveal_key(item, attachment));
         Task::none()
     }
 
     /// A long message shows whole, or folds again.
-    pub fn unfold(&mut self, row: usize) -> Task<Message> {
-        if let Some(message) = self.row_message(row) {
-            let key = crate::message::fold_key(&message.item);
-            if !self.revealed.remove(&key) {
-                self.revealed.insert(key);
-            }
+    pub fn unfold(&mut self, item: &str) -> Task<Message> {
+        let key = crate::message::fold_key(item);
+        if !self.revealed.remove(&key) {
+            self.revealed.insert(key);
         }
         Task::none()
     }

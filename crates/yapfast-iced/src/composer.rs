@@ -551,9 +551,14 @@ impl App {
                 Task::none()
             }
             Event::Suggestion(index) => {
+                // The keys go back to the field the suggestion was for: a
+                // side composer's, the form's, the edit's or the channel's.
                 let which = self.suggest.field;
                 self.suggest.set_index(index);
-                Task::batch([self.choose_suggestion(which), self.refocus()])
+                Task::batch([
+                    self.choose_suggestion(which),
+                    operation::focus(crate::thread::field_id(which)),
+                ])
             }
             Event::CancelReply => {
                 self.client.dispatch(Action::CancelCompose);
@@ -636,6 +641,9 @@ impl App {
             EDIT
         } else if self.writing_aside() {
             crate::thread::COMPOSER
+        } else if self.client.state().new_post().is_some() {
+            // A forum has no composer: its New Post's body has the keys.
+            crate::forum::BODY
         } else {
             COMPOSER
         })
@@ -746,7 +754,8 @@ impl App {
                 Writing::NewPost => self.forum_event(crate::forum::Event::Create),
             },
             field::Event::Step(step) => {
-                self.suggest.step(step);
+                let count = self.suggestion_count();
+                self.suggest.step(step, count);
                 Task::none()
             }
             field::Event::Choose => self.choose_suggestion(which),
@@ -817,21 +826,14 @@ impl App {
                 operation::focus(NOBODY)
             }
             // Up in an empty composer edits the last message of one's own,
-            // as the Slint client's `edit-last`.
+            // as the Slint client's `edit-last`: the core's rule, which
+            // leaves Up to a command being written.
             field::Event::UpFromEmpty => {
                 if which != Writing::Draft {
                     return Task::none();
                 }
-                let last = self
-                    .messages
-                    .iter()
-                    .rev()
-                    .find(|message| message.can_edit && !message.deleted)
-                    .map(|message| message.item.clone());
-                match last {
-                    Some(item) => self.begin_edit(item),
-                    None => Task::none(),
-                }
+                self.client.dispatch(Action::EditLast);
+                self.take_edit()
             }
             field::Event::UpToMessages => self.step_into_messages(),
             field::Event::Paste => self.paste(which),

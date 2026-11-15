@@ -150,6 +150,36 @@ fn a_colon_word_suggests_emoji_and_enter_takes_the_first() {
 }
 
 #[test]
+fn up_on_the_first_suggestion_goes_round_to_the_last() {
+    let (mut app, _folder) = preview();
+    interact(&mut app, |ui| {
+        ui.click(Id::new(COMPOSER)).expect("the composer");
+        ui.typewrite("nice :smil");
+    });
+    let last = app
+        .suggest
+        .emoji
+        .last()
+        .expect("emoji are suggested")
+        .clone();
+    assert!(app.suggest.emoji.len() > 1, "more than one");
+    interact(&mut app, |ui| {
+        ui.click(Id::new(COMPOSER)).expect("the composer");
+        ui.tap_key(keyboard::Key::Named(key::Named::End));
+        ui.tap_key(keyboard::Key::Named(key::Named::ArrowUp));
+        ui.tap_key(keyboard::Key::Named(key::Named::Enter));
+    });
+    assert!(
+        app.draft.text().starts_with(&format!(
+            "nice {}",
+            yapfast_core::emoji::composer_text(&last.key)
+        )),
+        "the last took the word's place: {:?}",
+        app.draft.text()
+    );
+}
+
+#[test]
 fn the_emoji_pickers_search_puts_its_first_match_in_the_composer() {
     let (mut app, _folder) = preview();
     let _ = app.update(Message::OpenPicker(Target::Composer, Tab::Emoji));
@@ -202,7 +232,11 @@ fn alt_up_steps_into_the_messages_and_r_replies_to_the_one_stepped_on() {
         Some(&newest),
         "the newest is stepped on"
     );
-    assert_eq!(app.pointed.message.as_ref(), Some(&newest), "and lit");
+    assert_eq!(
+        app.pointed.message.as_deref(),
+        Some(newest.as_str()),
+        "and lit"
+    );
     window_key(&mut app, keyboard::Key::Named(key::Named::ArrowUp));
     let stepped = app.keyed.clone().expect("still stepping");
     assert_ne!(stepped, newest, "Up steps to an earlier message");
@@ -279,26 +313,6 @@ fn stepping_through_the_messages_only_letters_and_digits_leave_them() {
     window_key(&mut app, keyboard::Key::Character("x".into()));
     assert!(app.keyed.is_none(), "a letter leaves");
     assert_eq!(app.draft.text(), "x");
-}
-
-#[test]
-fn a_voice_messages_volume_opens_over_its_mute_and_the_wheel_turns_it() {
-    use crate::playback::Event;
-    let (mut app, _folder) = preview();
-    let volume = |app: &crate::app::App| app.client.state().voice_tuning.volume;
-    assert!((volume(&app) - 1.0).abs() < 0.001);
-    let _ = app.voice_event(Event::Turn(-1.0));
-    assert!((volume(&app) - 0.95).abs() < 0.001, "{}", volume(&app));
-    let _ = app.voice_event(Event::Volume(0.3));
-    assert!((volume(&app) - 0.3).abs() < 0.001);
-    // The button and the slider over it overlap: it stays open until the
-    // pointer has left both.
-    let _ = app.voice_event(Event::VolumeHover("v".into(), true));
-    let _ = app.voice_event(Event::VolumeHover("v".into(), true));
-    let _ = app.voice_event(Event::VolumeHover("v".into(), false));
-    assert!(app.voice_volume.is_some());
-    let _ = app.voice_event(Event::VolumeHover("v".into(), false));
-    assert!(app.voice_volume.is_none());
 }
 
 #[test]

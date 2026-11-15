@@ -171,6 +171,13 @@ fn the_own_title_bar_names_the_place_and_its_inbox_lists_the_unreads() {
     assert!(shows(&app, "Inbox"));
     assert!(shows(&app, "Mentions"));
     assert!(shows(&app, "#games"));
+    // What comes while it's open shows in it.
+    assert!(!shows(&app, "#general"));
+    unread(&mut app, "general", 1);
+    assert!(
+        shows(&app, "#general"),
+        "a new unread shows in the open inbox"
+    );
     let _ = app.update(Message::Bar(window_bar::Event::InboxOpen("games".into())));
     assert_eq!(app.client.state().selected.as_deref(), Some("games"));
     assert!(app.inbox.is_none(), "opening a row closes it");

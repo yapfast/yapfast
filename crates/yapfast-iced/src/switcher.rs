@@ -29,8 +29,10 @@ use crate::{
 pub const SWITCHER: &str = "switcher-search";
 pub const NEW_DM: &str = "new-dm-search";
 pub const QUESTION: &str = "poll-question";
-/// A switcher row's height.
+/// A switcher row's height, and its list's id, for keeping the row the
+/// keys light in view.
 const PITCH: f32 = 40.0;
+const LIST: &str = "switcher-list";
 /// What a poll may last, as the dialog offers it.
 const DURATIONS: [&str; 7] = [
     "1 hour", "4 hours", "8 hours", "1 day", "3 days", "1 week", "2 weeks",
@@ -43,6 +45,8 @@ pub enum Event {
     Search(String),
     /// Up or Down, Tab or Shift+Tab: the place Enter goes to.
     Step(i32),
+    /// The list scrolled this far down.
+    Scrolled(f32),
     Go,
     GoTo(String),
     Close,
@@ -64,6 +68,41 @@ fn message(event: Event) -> Message {
     Message::Switcher(event)
 }
 
+/// The quick switcher's places as the core ranked them for its search,
+/// worked out once per search and room list rather than per view, so the
+/// view, the arrows and Enter all go by the same list.
+#[derive(Default)]
+pub struct Quick {
+    /// The place Enter goes to.
+    pub chosen: usize,
+    pub places: Vec<Found>,
+    /// The search and the room lists they were found for.
+    made_for: Option<(String, u64)>,
+    /// How far down the list is scrolled.
+    pub offset: f32,
+}
+
+/// A place the switcher found, as its row shows it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Found {
+    pub id: String,
+    pub name: String,
+    /// Where it is: its server, "Direct message", "Channel" or "Server".
+    pub place: String,
+    pub unread: bool,
+    pub mentions: u64,
+    pub face: Face,
+}
+
+/// What a found place shows before its name.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Face {
+    /// A DM's or a server's picture, by its name's initial.
+    Avatar(Option<String>),
+    /// A channel's icon.
+    Icon(Icon),
+}
+
 impl App {
     pub fn switcher_event(&mut self, event: Event) -> Task<Message> {
         match event {
@@ -71,7 +110,7 @@ impl App {
                 if self.settings.is_some() {
                     return Task::none();
                 }
-                self.switcher_chosen = 0;
+                self.quick = Quick::default();
                 self.client.dispatch(Action::ToggleSwitcher);
                 if self.client.state().switcher.is_some() {
                     return Task::batch([self.sync(), operation::focus(SWITCHER)]);
@@ -79,24 +118,27 @@ impl App {
                 return Task::batch([self.sync(), self.refocus()]);
             }
             Event::Search(query) => {
-                self.switcher_chosen = 0;
+                self.quick.chosen = 0;
                 self.client.dispatch(Action::SearchSwitcher(query));
             }
             Event::Step(by) => {
-                let count = self.client.state().switcher_places().len();
+                let count = self.quick.places.len();
                 if count > 0 {
-                    let at = self.switcher_chosen.min(count - 1) as i32 + by;
-                    self.switcher_chosen = at.rem_euclid(count as i32) as usize;
+                    let at = self.quick.chosen.min(count - 1) as i32 + by;
+                    self.quick.chosen = at.rem_euclid(count as i32) as usize;
                 }
+                return self.keep_chosen_in_view();
+            }
+            Event::Scrolled(offset) => {
+                self.quick.offset = offset;
                 return Task::none();
             }
             Event::Go => {
-                let places = self.client.state().switcher_places();
-                let Some(place) = places.get(self.switcher_chosen.min(places.len().max(1) - 1))
-                else {
+                let places = &self.quick.places;
+                let Some(place) = places.get(self.quick.chosen.min(places.len().max(1) - 1)) else {
                     return Task::none();
                 };
-                let id = place_id(place).to_owned();
+                let id = place.id.clone();
                 return self.switcher_event(Event::GoTo(id));
             }
             Event::GoTo(id) => {
@@ -153,14 +195,102 @@ impl App {
         }
     }
 
+    /// Takes in the core's places for the switcher's search, when the
+    /// search or the room lists changed.
+    pub fn switcher_sync(&mut self) {
+        let state = self.client.state();
+        let Some(query) = state.switcher.as_ref() else {
+            if self.quick.made_for.is_some() {
+                self.quick = Quick::default();
+            }
+            return;
+        };
+        let made_for = (query.clone(), state.list_changes);
+        if self.quick.made_for.as_ref() == Some(&made_for) {
+            return;
+        }
+        // Each channel's server, found once.
+        let servers: std::collections::HashMap<&str, &str> = state
+            .servers
+            .iter()
+            .flat_map(|server| {
+                server
+                    .channels
+                    .iter()
+                    .map(|channel| (channel.as_str(), server.name.as_str()))
+            })
+            .collect();
+        self.quick.places = state
+            .switcher_places()
+            .iter()
+            .map(|place| match place {
+                Place::Room(room) => Found {
+                    id: room.id.clone(),
+                    name: room.name.clone(),
+                    place: if room.direct {
+                        "Direct message".to_owned()
+                    } else {
+                        servers
+                            .get(room.id.as_str())
+                            .map_or_else(|| "Channel".to_owned(), |name| (*name).to_owned())
+                    },
+                    unread: room.unread > 0 && !room.muted,
+                    mentions: room.mentions,
+                    face: if room.direct {
+                        Face::Avatar(room.avatar.clone())
+                    } else {
+                        Face::Icon(crate::sidebar::room_icon(room))
+                    },
+                },
+                Place::Server(server) => Found {
+                    id: server.id.clone(),
+                    name: server.name.clone(),
+                    place: "Server".to_owned(),
+                    unread: false,
+                    mentions: 0,
+                    face: Face::Avatar(server.icon.clone()),
+                },
+            })
+            .collect();
+        self.quick.made_for = Some(made_for);
+    }
+
+    /// The list's height: the dialog at most 440 px, less its padding, the
+    /// search and the hint under the list.
+    fn switcher_list_height(&self) -> f32 {
+        ((self.window.height - 48.0).min(440.0) - 2.0 * 16.0 - 52.0 - 60.0).max(PITCH)
+    }
+
+    /// The list scrolled so the row the keys light shows, as the Slint
+    /// client's `QuickSwitcher` moves its list.
+    fn keep_chosen_in_view(&mut self) -> Task<Message> {
+        let height = self.switcher_list_height();
+        let top = self.quick.chosen as f32 * PITCH;
+        let offset = if top < self.quick.offset {
+            top
+        } else if top + PITCH > self.quick.offset + height {
+            top + PITCH - height
+        } else {
+            return Task::none();
+        };
+        self.quick.offset = offset;
+        operation::scroll_to(
+            LIST,
+            scrollable::AbsoluteOffset {
+                x: None,
+                y: Some(offset),
+            },
+        )
+    }
+
     /// The quick switcher: a large search, PREVIOUS CHANNELS while it's
     /// empty, the places found, and how a search can be narrowed.
     pub fn switcher_view(&self) -> Option<Element<'_, Message>> {
         let state = self.client.state();
         let query = state.switcher.as_ref()?;
         let theme = &self.theme;
-        let places = state.switcher_places();
-        let current = self.switcher_chosen.min(places.len().saturating_sub(1));
+        let places = &self.quick.places;
+        let current = self.quick.chosen.min(places.len().saturating_sub(1));
         let field = form::field(theme, SWITCHER, "Where would you like to go?", query)
             .size(20)
             .padding(14)
@@ -189,10 +319,11 @@ impl App {
                 .padding(8),
             );
         }
-        let height = (self.window.height - 48.0).min(440.0) - 2.0 * 16.0 - 52.0 - 60.0;
         body = body.push(
             scrollable(list)
-                .height(height.max(PITCH))
+                .id(LIST)
+                .on_scroll(|viewport| message(Event::Scrolled(viewport.absolute_offset().y)))
+                .height(self.switcher_list_height())
                 .style(scrollbar(theme)),
         );
         body = body.push(
@@ -206,48 +337,18 @@ impl App {
 
     /// A place the switcher found: its picture or icon, its name (bold
     /// while unread), where it is, and its mentions.
-    fn switcher_row<'a>(&'a self, place: &Place<'a>, current: bool) -> Element<'a, Message> {
+    fn switcher_row<'a>(&'a self, found: &'a Found, current: bool) -> Element<'a, Message> {
         let theme = &self.theme;
-        let state = self.client.state();
-        let (face, name, where_, unread, mentions): (
-            Element<'a, Message>,
-            &str,
-            String,
-            bool,
-            u64,
-        ) = match place {
-            Place::Room(room) => {
-                let server = state
-                    .servers
-                    .iter()
-                    .find(|server| !room.direct && server.channels.contains(&room.id));
-                let face = if room.direct {
-                    self.avatar(room.avatar.as_deref(), &room.name, 24.0, 12.0, 1.0)
-                } else {
-                    self.glyph(crate::sidebar::room_icon(room), 20, theme.faint)
-                        .into()
-                };
-                let where_ = match server {
-                    _ if room.direct => "Direct message".to_owned(),
-                    Some(server) => server.name.clone(),
-                    None => "Channel".to_owned(),
-                };
-                (
-                    face,
-                    &room.name,
-                    where_,
-                    room.unread > 0 && !room.muted,
-                    room.mentions,
-                )
-            }
-            Place::Server(server) => (
-                self.avatar(server.icon.as_deref(), &server.name, 24.0, 12.0, 1.0),
-                &server.name,
-                "Server".to_owned(),
-                false,
-                0,
-            ),
+        let face: Element<'a, Message> = match &found.face {
+            Face::Avatar(picture) => self.avatar(picture.as_deref(), &found.name, 24.0, 12.0, 1.0),
+            Face::Icon(icon) => self.glyph(*icon, 20, theme.faint).into(),
         };
+        let (name, where_, unread, mentions) = (
+            found.name.as_str(),
+            found.place.as_str(),
+            found.unread,
+            found.mentions,
+        );
         let ink = if unread || current {
             theme.text
         } else {
@@ -288,7 +389,7 @@ impl App {
             .padding([0, 8])
             .height(PITCH)
             .width(Length::Fill)
-            .on_press(message(Event::GoTo(place_id(place).to_owned())))
+            .on_press(message(Event::GoTo(found.id.clone())))
             .style(move |_, status| button::Style {
                 background: if current {
                     Some(active.into())
@@ -640,13 +741,5 @@ impl App {
             index,
             emoji: Some(key),
         }));
-    }
-}
-
-/// Where a place goes.
-fn place_id<'a>(place: &Place<'a>) -> &'a str {
-    match place {
-        Place::Room(room) => &room.id,
-        Place::Server(server) => &server.id,
     }
 }
