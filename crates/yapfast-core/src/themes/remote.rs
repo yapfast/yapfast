@@ -194,14 +194,60 @@ pub fn read_commit(body: &[u8]) -> Result<String, String> {
 /// files a local folder's reading keeps are kept, `theme.json`, the files it
 /// names and a licence, under the same size limits.
 pub fn unpack(archive: &[u8], folder: &str) -> Result<Files, String> {
-    let broken = |error: std::io::Error| format!("The theme's archive couldn't be read: {error}");
     let folder: PathBuf = folder.split('/').filter(|part| !part.is_empty()).collect();
+    // First `theme.json` alone, for what it names; then only those files and
+    // a licence are kept, so the rest of a repository is never held.
+    let mut manifest = BTreeMap::new();
+    let mut too_large: Vec<PathBuf> = Vec::new();
+    walk(
+        archive,
+        &folder,
+        |relative| relative == Path::new(MANIFEST),
+        &mut manifest,
+        &mut too_large,
+    )?;
+    let named: std::collections::HashSet<PathBuf> = manifest
+        .get(Path::new(MANIFEST))
+        .and_then(|bytes| std::str::from_utf8(bytes).ok())
+        .and_then(|text| super::Package::parse(text).ok())
+        .map(|package| {
+            package
+                .files()
+                .into_iter()
+                .take(MAX_THEME_FILES + 1)
+                .map(|relative| relative.components().collect())
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut kept = BTreeMap::new();
+    too_large.clear();
+    walk(
+        archive,
+        &folder,
+        |relative| {
+            relative == Path::new(MANIFEST)
+                || named.contains(relative)
+                || LICENCE_FILES.iter().any(|name| relative == Path::new(name))
+        },
+        &mut kept,
+        &mut too_large,
+    )?;
+    files_of(kept, &too_large)
+}
+
+/// Reads the archive's files under the theme's folder that `wanted` takes,
+/// by their path there, under the archive's limits; the names of those too
+/// large to keep go in `too_large`, so naming one says so.
+fn walk(
+    archive: &[u8],
+    folder: &Path,
+    wanted: impl Fn(&Path) -> bool,
+    kept: &mut BTreeMap<PathBuf, Vec<u8>>,
+    too_large: &mut Vec<PathBuf>,
+) -> Result<(), String> {
+    let broken = |error: std::io::Error| format!("The theme's archive couldn't be read: {error}");
     let decoder = flate2::read::GzDecoder::new(archive).take(MAX_UNPACKED_BYTES + 1);
     let mut tar = tar::Archive::new(decoder);
-    // What's in the theme's folder, by its path there: small files' bytes,
-    // and the names of those too large to keep, so naming one says so.
-    let mut kept: BTreeMap<PathBuf, Vec<u8>> = BTreeMap::new();
-    let mut too_large: Vec<PathBuf> = Vec::new();
     let (mut entries, mut unpacked) = (0usize, 0u64);
     for entry in tar.entries().map_err(broken)? {
         let mut entry = entry.map_err(broken)?;
@@ -211,7 +257,8 @@ pub fn unpack(archive: &[u8], folder: &str) -> Result<Files, String> {
                 "The repository holds more than {MAX_ARCHIVE_ENTRIES} files; a theme's should hold only the theme"
             ));
         }
-        let size = entry.header().size().map_err(broken)?;
+        // The entry's size, as a PAX record may give it, not the header's.
+        let size = entry.size();
         unpacked = unpacked.saturating_add(size);
         if unpacked > MAX_UNPACKED_BYTES {
             return Err(
@@ -230,13 +277,13 @@ pub fn unpack(archive: &[u8], folder: &str) -> Result<Files, String> {
             .components()
             .skip(1)
             .collect::<PathBuf>()
-            .strip_prefix(&folder)
+            .strip_prefix(folder)
             .ok()
             .map(Path::to_path_buf)
         else {
             continue;
         };
-        if relative.as_os_str().is_empty() {
+        if relative.as_os_str().is_empty() || !wanted(&relative) {
             continue;
         }
         let limit = if relative == Path::new(MANIFEST) {
@@ -249,10 +296,17 @@ pub fn unpack(archive: &[u8], folder: &str) -> Result<Files, String> {
             continue;
         }
         let mut bytes = Vec::with_capacity(size as usize);
-        entry.read_to_end(&mut bytes).map_err(broken)?;
+        (&mut entry)
+            .take(limit + 1)
+            .read_to_end(&mut bytes)
+            .map_err(broken)?;
+        if bytes.len() as u64 > limit {
+            too_large.push(relative);
+            continue;
+        }
         kept.insert(relative, bytes);
     }
-    files_of(kept, &too_large)
+    Ok(())
 }
 
 /// A path in an archive, as the folders and name under its root; refused if
