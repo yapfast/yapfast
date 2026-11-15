@@ -62,6 +62,12 @@ pub fn delete(key: &str) -> Result<()> {
     Ok(())
 }
 
+/// Forgets every key the plugin holds.
+pub fn clear() -> Result<()> {
+    call::ok(method::STORAGE_CLEAR, serde_json::json!({}))?;
+    Ok(())
+}
+
 /// Every key under a prefix, in no particular order.
 ///
 /// An empty prefix lists everything the plugin holds.

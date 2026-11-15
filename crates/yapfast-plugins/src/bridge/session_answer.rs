@@ -20,7 +20,8 @@ impl Session {
             call::method::STORAGE_GET
             | call::method::STORAGE_SET
             | call::method::STORAGE_DELETE
-            | call::method::STORAGE_LIST => Some(Capability::Storage),
+            | call::method::STORAGE_LIST
+            | call::method::STORAGE_CLEAR => Some(Capability::Storage),
             // A read is a capability, and it is checked here rather than by
             // the method that answers it: a plugin that declares none of these
             // gets `denied` with the capability's name in the sentence.
@@ -110,6 +111,12 @@ impl Session {
                         message: format!("could not answer `{method}`: {error}"),
                     },
                 }
+            }
+            // PLAN.md 10.4's last storage method: everything the plugin keeps,
+            // gone, its quota with it. It takes no payload.
+            call::method::STORAGE_CLEAR => {
+                shared.store().storage_clear(plugin);
+                HostReturn::Ok(serde_json::Value::Bool(true))
             }
             call::method::SETTINGS_GET => {
                 let request: StorageGet = match call.parse() {

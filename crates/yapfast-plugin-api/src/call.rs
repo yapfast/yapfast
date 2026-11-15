@@ -35,6 +35,7 @@ pub mod method {
     pub const STORAGE_SET: &str = "storage.set";
     pub const STORAGE_DELETE: &str = "storage.delete";
     pub const STORAGE_LIST: &str = "storage.list";
+    pub const STORAGE_CLEAR: &str = "storage.clear";
     pub const SETTINGS_GET: &str = "settings.get";
     pub const SETTINGS_ON_CHANGE: &str = "settings.on_change";
     pub const HTTP_FETCH: &str = "http.fetch";
@@ -90,7 +91,7 @@ pub mod method {
     /// is what a test compares that table against: a method added above without
     /// a place in the table would answer `unsupported` to every guest forever,
     /// and nothing else would say so.
-    pub const ALL: [&str; 56] = [
+    pub const ALL: [&str; 57] = [
         APP_VERSION,
         APP_LOCALE,
         APP_THEME_MODE,
@@ -106,6 +107,7 @@ pub mod method {
         STORAGE_SET,
         STORAGE_DELETE,
         STORAGE_LIST,
+        STORAGE_CLEAR,
         SETTINGS_GET,
         SETTINGS_ON_CHANGE,
         HTTP_FETCH,

@@ -306,6 +306,7 @@ pub mod method {
     pub const STORAGE_SET: &str = "storage.set";
     pub const STORAGE_DELETE: &str = "storage.delete";
     pub const STORAGE_LIST: &str = "storage.list";
+    pub const STORAGE_CLEAR: &str = "storage.clear";
     pub const SETTINGS_GET: &str = "settings.get";
     pub const HTTP_FETCH: &str = "http.fetch";
     pub const TIMERS_AFTER: &str = "timers.after";

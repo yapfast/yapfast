@@ -219,7 +219,7 @@ impl Channel {
 /// Every name `call::method` has belongs here: a method left out is one no
 /// guest can reach, and a test compares the two lists to keep that from
 /// happening.
-const FORWARDED: [&str; 56] = [
+const FORWARDED: [&str; 57] = [
     method::APP_VERSION,
     method::APP_LOCALE,
     method::APP_THEME_MODE,
@@ -235,6 +235,7 @@ const FORWARDED: [&str; 56] = [
     method::STORAGE_SET,
     method::STORAGE_DELETE,
     method::STORAGE_LIST,
+    method::STORAGE_CLEAR,
     method::SETTINGS_GET,
     method::SETTINGS_ON_CHANGE,
     method::HTTP_FETCH,

@@ -545,6 +545,21 @@ impl Store {
         Ok(())
     }
 
+    /// Forgets every key a plugin holds; written with the next save, as a
+    /// delete is.
+    pub fn storage_clear(&mut self, plugin: &PluginId) {
+        let stored = self.stored(plugin);
+        if stored.values.is_empty() {
+            return;
+        }
+        stored.values.clear();
+        stored.bytes = 0;
+        stored.dirty = true;
+        if self.dirty_since.is_none() {
+            self.dirty_since = Some(Instant::now());
+        }
+    }
+
     /// The keys a plugin holds, optionally under a prefix.
     pub fn storage_list(&mut self, plugin: &PluginId, prefix: &str) -> Vec<String> {
         self.stored(plugin)
@@ -1303,6 +1318,22 @@ mod tests {
         store
             .storage_set(&plugin, "b", serde_json::json!("y".repeat(100)), 128)
             .expect("the room is free again");
+    }
+
+    #[test]
+    fn clearing_forgets_every_key_and_frees_the_quota() {
+        let (_directory, mut store) = store();
+        let plugin = id("com.example.clear");
+        for key in ["a", "b"] {
+            store
+                .storage_set(&plugin, key, serde_json::json!("x".repeat(50)), 128)
+                .expect("it fits");
+        }
+        store.storage_clear(&plugin);
+        assert!(store.storage_list(&plugin, "").is_empty());
+        store
+            .storage_set(&plugin, "c", serde_json::json!("y".repeat(100)), 128)
+            .expect("the whole quota is free again");
     }
 
     #[test]

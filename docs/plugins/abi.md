@@ -509,6 +509,7 @@ quota. It needs the `storage` capability.
 | `storage.set` | `{ key, value }` | `true`, or `denied` with the quota's sentence when the store would go past it |
 | `storage.delete` | `{ key }` | `true`, whether or not the key was there |
 | `storage.list` | `{ prefix }` | The keys it holds under that prefix, which is every key when it's empty |
+| `storage.clear` | `{}` | `true`: every key it held is gone, and its quota is free again |
 
 One value is one answer, so a value too big for a frame is refused with a
 sentence saying its size and what one answer carries, rather than read back as
