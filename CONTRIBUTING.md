@@ -95,8 +95,10 @@ quality, default to the cheaper setting and put the heavier one behind a switch.
 
 Pull requests to `main` run CI directly on Ubuntu, without Nix, using the Rust
 toolchain in `rust-toolchain.toml`. Separate jobs run formatting and doc links,
-`cargo audit --deny warnings`, `cargo machete`, and the default workspace build's
-`cargo check`, strict Clippy and tests. CI uses the development profile to avoid
+and the default workspace build's `cargo check`, strict Clippy and tests.
+`cargo audit --deny warnings` and `cargo machete` are temporarily commented out
+until the dependency findings are addressed in a separate PR.
+CI uses the development profile to avoid
 release optimization costs, while retaining the manifest's optimized noise
 suppression dependencies. Compilation excludes `feature-union`, which is for
 optional Matrix builds. CI also runs on
