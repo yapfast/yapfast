@@ -1500,6 +1500,7 @@ export component YapfastWindow inherits Window {
     /// Opens the share menu once its lists are in, including audio controls
     /// while sharing through the system portal.
     public function show-share-menu() {
+        root.share-menu-session += 1;
         share-menu.show();
     }
     callback stream-tick;
@@ -1961,6 +1962,7 @@ export component YapfastWindow inherits Window {
     }
     // The quality picked in the share menu, from the last choice each time it opens.
     property <int> pick-source;
+    property <int> share-menu-session;
     property <int> pick-resolution;
     property <int> pick-fps;
     property <bool> pick-high-quality;
@@ -2004,6 +2006,7 @@ export component YapfastWindow inherits Window {
         height: min(share-content.full-height, root.height - 16px);
         close-policy: PopupClosePolicy.close-on-click-outside;
         share-content := ShareMenu {
+            picker-session: root.share-menu-session;
             screens: root.share-screens; windows: root.share-windows; cameras: root.share-cameras;
             dialog: !root.share-lists; switching: root.pick-switch;
             pick-source <=> root.pick-source; pick-resolution <=> root.pick-resolution; pick-fps <=> root.pick-fps;

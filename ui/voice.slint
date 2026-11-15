@@ -1269,41 +1269,50 @@ component ScreenCard inherits Rectangle {
     }
 }
 
-// Going live: what to share, where Yapfast lists it, and the resolution, frame
-// rate and quality to share it at; or while sharing, what to share instead.
+// Long source lists keep their own fixed viewport.
+component ShareChoices inherits ScrollView {
+    in property <length> section-height: 128px;
+    in property <string> label;
+    accessible-role: groupbox; accessible-label: root.label;
+    min-height: root.section-height;
+    max-height: root.section-height;
+    content-width: self.width;
+    @children
+}
+
+// Going live, or choosing a different source while the stream keeps running.
 export component ShareMenu inherits Rectangle {
-    /// The screens, then the windows, then the cameras, to share; a pick
-    /// counts the screens first.
     in property <[ShareScreen]> screens;
     in property <[string]> windows;
     in property <[string]> cameras;
-    /// The system's dialog picks a screen or window: with cameras listed, a
-    /// choice of it comes before them.
     in property <bool> dialog;
-    /// Switching what's shared, at the stream's quality.
     in property <bool> switching;
     property <int> dialog-index: root.screens.length + root.windows.length;
     property <int> first-camera: root.dialog-index + (root.dialog ? 1 : 0);
-    property <bool> asks-dialog: root.dialog;
-    property <bool> lists: root.screens.length + root.windows.length + root.cameras.length > 0;
     in-out property <int> pick-source;
     in-out property <int> pick-resolution;
     in-out property <int> pick-fps;
-    /// The encoder's slower preset: a sharper picture for more CPU.
     in-out property <bool> pick-high-quality;
     in property <[string]> audio-options;
     in-out property <int> pick-audio;
+    property <bool> windows-open;
+    property <bool> audio-windows-open;
     callback audio-changed(int);
     callback go-live(int, int, int, bool);
-    /// The menu's height with every choice showing. In a window too short for
-    /// it, the menu is as tall as it gets and the choices scroll, above the
-    /// button that starts the stream, which stays.
+    in property <int> picker-session;
+    changed picker-session => {
+        root.windows-open = false;
+        root.audio-windows-open = false;
+        menu-scroll.content-y = 0px;
+    }
+    // The outer scroll is only needed when the window cannot fit all sections.
+    // The action button stays outside it.
     out property <length> full-height: choices.preferred-height + start.preferred-height + 12px;
     background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
     drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
     VerticalLayout {
         padding: 6px; spacing: 0px;
-        ScrollView {
+        menu-scroll := ScrollView {
             min-height: 0px; preferred-height: choices.preferred-height;
             choices := VerticalLayout {
                 spacing: 2px;
@@ -1311,50 +1320,55 @@ export component ShareMenu inherits Rectangle {
                     padding-left: 8px; padding-top: 4px; padding-bottom: 4px;
                     Text { text: "SCREENS"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
                 }
-                // Two to a row; one alone sits in the middle.
-                if root.screens.length > 0: Rectangle {
-                    property <length> gap: 4px;
-                    property <length> card: (self.width - self.gap) / 2;
-                    property <length> card-height: self.card * 9 / 16 + 30px;
-                    height: ceil(root.screens.length / 2) * (self.card-height + self.gap) - self.gap;
-                    for screen[index] in root.screens: ScreenCard {
-                        x: root.screens.length == 1 ? (parent.width - parent.card) / 2 : mod(index, 2) * (parent.card + parent.gap);
-                        y: floor(index / 2) * (parent.card-height + parent.gap);
-                        width: parent.card; height: parent.card-height;
-                        text: screen.title; picture: screen.picture; checked: index == root.pick-source;
-                        clicked => { root.pick-source = index; }
+                if root.screens.length > 0: ShareChoices {
+                    label: "Screen sources"; section-height: 144px;
+                    Rectangle {
+                        width: parent.width;
+                        property <length> gap: 4px;
+                        property <length> card: (self.width - self.gap) / 2;
+                        property <length> card-height: self.card * 9 / 16 + 30px;
+                        height: ceil(root.screens.length / 2) * (self.card-height + self.gap) - self.gap;
+                        for screen[index] in root.screens: ScreenCard {
+                            x: root.screens.length == 1 ? (parent.width - parent.card) / 2 : mod(index, 2) * (parent.card + parent.gap);
+                            y: floor(index / 2) * (parent.card-height + parent.gap);
+                            width: parent.card; height: parent.card-height;
+                            text: screen.title; picture: screen.picture; checked: index == root.pick-source;
+                            clicked => { root.pick-source = index; }
+                        }
                     }
                 }
-                if root.windows.length > 0: HorizontalLayout {
-                    padding-left: 8px; padding-top: root.screens.length > 0 ? 8px : 4px; padding-bottom: 4px;
-                    Text { text: "WINDOWS"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                if root.windows.length > 0: MenuItem {
+                    text: "Other windows";
+                    subtitle: root.pick-source >= root.screens.length && root.pick-source < root.dialog-index
+                        ? root.windows[root.pick-source - root.screens.length] : "";
+                    icon: root.windows-open ? @image-url("icons/chevron-down.svg") : @image-url("icons/chevron-right.svg");
+                    clicked => { root.windows-open = !root.windows-open; }
                 }
-                // Every window, and every camera below: the menu scrolls as
-                // one, since a list scrolling inside it kept the wheel at its
-                // end, and the choices under it out of reach from there.
-                if root.windows.length > 0: VerticalLayout {
-                    for window[index] in root.windows: MenuItem {
-                        text: window; checked: root.screens.length + index == root.pick-source;
-                        clicked => { root.pick-source = root.screens.length + index; }
+                if root.windows-open && root.windows.length > 0: ShareChoices {
+                    label: "Video windows";
+                    VerticalLayout {
+                        for window[index] in root.windows: MenuItem {
+                            text: window; checked: root.screens.length + index == root.pick-source;
+                            clicked => { root.pick-source = root.screens.length + index; }
+                        }
                     }
                 }
-                if root.asks-dialog: HorizontalLayout {
-                    padding-left: 8px; padding-top: 4px; padding-bottom: 4px;
-                    Text { text: "SCREEN"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
-                }
-                if root.asks-dialog: MenuItem {
+                if root.dialog: MenuItem {
                     text: "Screen or window"; subtitle: "Picked in the system's dialog";
                     checked: root.dialog-index == root.pick-source;
                     clicked => { root.pick-source = root.dialog-index; }
                 }
                 if root.cameras.length > 0: HorizontalLayout {
-                    padding-left: 8px; padding-top: root.dialog-index > 0 || root.asks-dialog ? 8px : 4px; padding-bottom: 4px;
+                    padding-left: 8px; padding-top: 8px; padding-bottom: 4px;
                     Text { text: "CAMERAS"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
                 }
-                if root.cameras.length > 0: VerticalLayout {
-                    for camera[index] in root.cameras: MenuItem {
-                        text: camera; checked: root.first-camera + index == root.pick-source;
-                        clicked => { root.pick-source = root.first-camera + index; }
+                if root.cameras.length > 0: ShareChoices {
+                    label: "Camera sources"; section-height: 96px;
+                    VerticalLayout {
+                        for camera[index] in root.cameras: MenuItem {
+                            text: camera; checked: root.first-camera + index == root.pick-source;
+                            clicked => { root.pick-source = root.first-camera + index; }
+                        }
                     }
                 }
                 if root.audio-options.length > 0: HorizontalLayout {
@@ -1364,31 +1378,52 @@ export component ShareMenu inherits Rectangle {
                 if root.switching && root.audio-options.length > 0: Text {
                     text: "Audio changes apply immediately"; color: Theme.secondary; font-size: 12px; wrap: word-wrap;
                 }
-                for audio[index] in root.audio-options: MenuItem {
-                    text: audio; checked: index == root.pick-audio;
-                    subtitle: index == 1 ? "Excludes Yapfast's own audio" : index > 1 ? "Only this application's audio" : "";
+                for index in min(2, root.audio-options.length): MenuItem {
+                    text: root.audio-options[index]; checked: index == root.pick-audio;
+                    subtitle: index == 1 ? "Excludes Yapfast's own audio" : "";
                     clicked => { root.pick-audio = index; root.audio-changed(index); }
                 }
+                if root.audio-options.length > 2: MenuItem {
+                    text: "Select window";
+                    subtitle: root.pick-audio > 1 ? root.audio-options[root.pick-audio] : "";
+                    icon: root.audio-windows-open ? @image-url("icons/chevron-down.svg") : @image-url("icons/chevron-right.svg");
+                    clicked => { root.audio-windows-open = !root.audio-windows-open; }
+                }
+                if root.audio-windows-open && root.audio-options.length > 2: ShareChoices {
+                    label: "Audio windows";
+                    VerticalLayout {
+                        for index in max(0, root.audio-options.length - 2): MenuItem {
+                            text: root.audio-options[index + 2]; checked: index + 2 == root.pick-audio;
+                            clicked => { root.pick-audio = index + 2; root.audio-changed(index + 2); }
+                        }
+                    }
+                }
                 if !root.switching: HorizontalLayout {
-                    padding-left: 8px; padding-top: root.lists ? 8px : 4px; padding-bottom: 4px;
+                    padding-left: 8px; padding-top: 8px; padding-bottom: 4px;
                     Text { text: "RESOLUTION"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
                 }
-                if !root.switching: VerticalLayout {
-                    spacing: 2px;
-                    for choice[index] in ["720p", "1080p", "Source"]: MenuItem {
-                        text: choice; checked: index == root.pick-resolution;
-                        clicked => { root.pick-resolution = index; }
+                if !root.switching: ShareChoices {
+                    label: "Stream resolution"; section-height: 100px;
+                    VerticalLayout {
+                        spacing: 2px;
+                        for choice[index] in ["720p", "1080p", "Source"]: MenuItem {
+                            text: choice; checked: index == root.pick-resolution;
+                            clicked => { root.pick-resolution = index; }
+                        }
                     }
                 }
                 if !root.switching: HorizontalLayout {
                     padding-left: 8px; padding-top: 8px; padding-bottom: 4px;
                     Text { text: "FRAME RATE"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
                 }
-                if !root.switching: VerticalLayout {
-                    spacing: 2px;
-                    for fps in [15, 30, 60]: MenuItem {
-                        text: fps + " fps"; checked: fps == root.pick-fps;
-                        clicked => { root.pick-fps = fps; }
+                if !root.switching: ShareChoices {
+                    label: "Stream frame rate"; section-height: 100px;
+                    VerticalLayout {
+                        spacing: 2px;
+                        for fps in [15, 30, 60]: MenuItem {
+                            text: fps + " fps"; checked: fps == root.pick-fps;
+                            clicked => { root.pick-fps = fps; }
+                        }
                     }
                 }
                 if !root.switching: HorizontalLayout {
@@ -1405,7 +1440,8 @@ export component ShareMenu inherits Rectangle {
         start := HorizontalLayout {
             padding: 4px; padding-top: 10px;
             ActionButton {
-                text: root.switching ? (root.pick-source < 0 ? "Done" : "Switch") : "Go Live"; icon: @image-url("icons/screen-share.svg"); primary: true; horizontal-stretch: 1;
+                text: root.switching ? (root.pick-source < 0 ? "Done" : "Switch") : "Go Live";
+                icon: @image-url("icons/screen-share.svg"); primary: true; horizontal-stretch: 1;
                 clicked => { root.go-live(root.pick-source, root.pick-resolution, root.pick-fps, root.pick-high-quality); }
             }
         }
