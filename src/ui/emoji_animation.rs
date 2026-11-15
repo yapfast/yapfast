@@ -541,6 +541,8 @@ impl Animations {
             window.as_weak(),
             Rc::new(Cell::new(std::time::Instant::now())),
         );
+        #[cfg(test)]
+        let _ = (&adapter, &weak, &clock);
         self.timer.start(
             slint::TimerMode::Repeated,
             std::time::Duration::from_millis(interval),

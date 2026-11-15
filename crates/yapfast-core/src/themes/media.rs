@@ -212,7 +212,7 @@ pub struct IconChoice {
 
 /// The icons a theme may replace, by their name in `ui/icons/` without
 /// `.svg`; the interface checks this list against its own.
-pub const ICONS: [&str; 135] = [
+pub const ICONS: [&str; 136] = [
     "arrow-left",
     "arrow-right",
     "at-sign",
@@ -264,6 +264,7 @@ pub const ICONS: [&str; 135] = [
     "image-warning",
     "image",
     "inbox",
+    "keyboard",
     "link",
     "lock",
     "log-out",

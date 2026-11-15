@@ -1,0 +1,74 @@
+// A theme's `content` section, when the person lets it style people's
+// profiles and media (Settings → Themes): avatar shapes, rings and
+// decorations, nameplates, embed links, activity tiles and the LIVE pill.
+// Pictures are recoloured in Rust as they're handed over, and names and
+// profile cards are built with it there; src/ui/theme_content.rs sets this.
+// Every value at its default draws the stock window.
+import { Theme, Look } from "theme.slint";
+
+export global ThemeContent {
+    /// Avatars' shape: 0 as stock, 1 circle, 2 square, 3 rounded with
+    /// `avatar-radius` at a 40 px avatar, scaled with its size.
+    in property <int> avatar-shape;
+    in property <length> avatar-radius;
+    /// Decorations aren't drawn or fetched.
+    in property <bool> hide-decorations;
+    /// A ring around every person's avatar; 0 px for none.
+    in property <length> ring-width;
+    in property <color> ring;
+    /// Nameplates: 0 as stock, 1 hidden, 2 tinted in the accent.
+    in property <int> nameplates;
+    /// Embeds' links take the accent's text colour.
+    in property <bool> embeds;
+    /// Activity tiles take the theme's corners and the LIVE pill its accent.
+    in property <bool> activity;
+
+    /// A person's avatar's corner radius at `size`, or `stock`.
+    public pure function avatar-corner(size: length, stock: length) -> length {
+        self.avatar-shape == 1 ? size / 2
+            : self.avatar-shape == 2 ? 0px
+            : self.avatar-shape == 3 ? min(size / 2, self.avatar-radius * size / 40px)
+            : stock
+    }
+
+    /// The links in an embed.
+    out property <color> embed-link: self.embeds ? Theme.accent-text : Theme.link;
+
+    /// Illuminated initials: a person's first letter beside their messages
+    /// (and in the member list with `initial-members`) in place of their
+    /// picture, in a theme face; the picture shows under the pointer with
+    /// `initial-reveal`.
+    in property <bool> initials;
+    in property <bool> initial-members;
+    in property <bool> initial-reveal: true;
+    in property <string> initial-face;
+    in property <color> initial-ink;
+    in property <float> initial-size: 0.8;
+    in property <color> initial-ground: transparent;
+    in property <color> initial-border: transparent;
+    in property <length> initial-border-width;
+    /// A display name's letter, or empty for a name that keeps its picture
+    /// (one starting with an emoji, CJK, or anything without case).
+    pure callback letter(string) -> string;
+    /// Whether `name`'s initial shows in place of its picture.
+    public pure function lettered(name: string, hovered: bool) -> bool {
+        self.initials && !(self.initial-reveal && hovered) && self.letter(name) != ""
+    }
+}
+
+// An illuminated initial, cut to the avatar's shape.
+export component IlluminatedInitial inherits Rectangle {
+    in property <string> name;
+    in property <length> size: 40px;
+    width: root.size; height: root.size;
+    background: ThemeContent.initial-ground;
+    border-radius: ThemeContent.avatar-corner(root.size, Look.avatar.radius >= 0px ? root.size * Look.avatar.radius / 100px : root.size / 2);
+    border-width: ThemeContent.initial-border-width; border-color: ThemeContent.initial-border;
+    accessible-role: none;
+    Text {
+        text: ThemeContent.letter(root.name);
+        font-family: ThemeContent.initial-face; font-size: root.size * ThemeContent.initial-size;
+        color: ThemeContent.initial-ink.alpha > 0 ? ThemeContent.initial-ink : Theme.accent-text;
+        horizontal-alignment: center; vertical-alignment: center; accessible-role: none;
+    }
+}
