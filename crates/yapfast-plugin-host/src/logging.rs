@@ -3,8 +3,7 @@
 //! The helper's own lines go to stderr, which the parent reads into its log.
 //! A plugin's lines are its own: [`GuestLogs`] takes the lines Extism's guest
 //! logging turns into tracing events, files each under the plugin the runtime
-//! stamps on it, keeps it in that plugin's ring and sends it to the parent as a
-//! frame, so the Plugins page can show a plugin's recent lines without a log
+//! stamps on it and sends it to the parent as a frame, which keeps the ring, so the Plugins page can show a plugin's recent lines without a log
 //! file of its own. Nothing a guest says is written to stderr, where it would
 //! be indistinguishable from the helper's own diagnostics.
 //!
@@ -14,10 +13,9 @@
 //! guest's environment is cleared and a stray variable in a developer's shell
 //! shouldn't change what a plugin sees.
 
-use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::sync::mpsc::Sender;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Mutex, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tracing::field::{Field, Visit};
@@ -30,19 +28,14 @@ use tracing_subscriber::registry::LookupSpan;
 use yapfast_plugin_api::PluginId;
 use yapfast_plugin_api::message::{FromHelper, LogLevel, LogRecord};
 
-/// Lines kept for each plugin. A page shows the last few dozen; the parent's
-/// own ring is the record that outlives this process.
-pub const RING_LINES: usize = 100;
-
 /// The most of a line's text that is kept.
 ///
 /// A frame may carry a mebibyte and a guest may write one per line, so a plugin
-/// that logged in large print would pin the helper's ring, the frame on its way
-/// to the parent and the parent's own ring at once: hundreds of megabytes,
-/// across two processes, for a page that shows a few dozen short lines. The text
-/// is cut where the record is made, and again where it is kept, for the lines
-/// the runtime makes of a `yf_post` rather than of a tracing event. The rest of
-/// the record travels as it was.
+/// that logged in large print would pin the frame on its way to the parent and
+/// the parent's ring: hundreds of megabytes for a page that shows a few dozen
+/// short lines. The text is cut where each record is made, from a tracing event
+/// here and from a `yf_post` in the runtime. The rest of the record travels as
+/// it was.
 pub const MAX_LINE_BYTES: usize = 4 << 10;
 
 /// A line's text, cut to [`MAX_LINE_BYTES`] on a character boundary.
@@ -105,63 +98,6 @@ fn filter() -> Targets {
     Targets::new().with_target("yapfast_plugin_host", level)
 }
 
-/// Every plugin's recent log lines.
-///
-/// Cloned freely: the rings are shared, so the pipe that fills them and
-/// whatever shows them read the same lines. Nothing here is on a plugin's call
-/// path except [`LogBuffer::record`], which appends to a ring that was sized
-/// when the plugin first logged.
-#[derive(Clone, Default)]
-pub struct LogBuffer {
-    rings: Arc<Mutex<HashMap<PluginId, VecDeque<LogRecord>>>>,
-}
-
-impl LogBuffer {
-    pub fn new() -> Self {
-        LogBuffer::default()
-    }
-
-    /// Keeps one line, dropping the oldest once the ring is full.
-    pub fn record(&self, plugin: &PluginId, mut record: LogRecord) {
-        record.message = capped(std::mem::take(&mut record.message));
-        let mut rings = lock(&self.rings);
-        let ring = rings
-            .entry(plugin.clone())
-            .or_insert_with(|| VecDeque::with_capacity(RING_LINES));
-        if ring.len() == RING_LINES {
-            ring.pop_front();
-        }
-        ring.push_back(record);
-    }
-
-    /// A plugin's lines, oldest first.
-    pub fn lines(&self, plugin: &PluginId) -> Vec<LogRecord> {
-        lock(&self.rings)
-            .get(plugin)
-            .map(|ring| ring.iter().cloned().collect())
-            .unwrap_or_default()
-    }
-
-    /// Drops a plugin's lines, for when its module is unloaded and nothing can
-    /// show them any more.
-    pub fn forget(&self, plugin: &PluginId) {
-        lock(&self.rings).remove(plugin);
-    }
-
-    /// Whether nothing at all has been logged yet.
-    pub fn is_empty(&self) -> bool {
-        lock(&self.rings).is_empty()
-    }
-}
-
-/// Takes the rings' lock, ignoring poisoning: a panicking thread must not stop
-/// the helper from recording why.
-fn lock<T>(rings: &Mutex<T>) -> MutexGuard<'_, T> {
-    rings
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
 /// Files a guest's log lines under the plugin that wrote them.
 ///
 /// Extism's guest logging reaches only tracing, so this layer reads the
@@ -188,8 +124,7 @@ where
             message: capped(fields.message.unwrap_or_default()),
             at: now_ms(),
         };
-        // The pipe's relay keeps the ring as the line passes it, so there is
-        // one owner of it rather than one here and one there.
+        // The parent keeps the ring; this only sends the line.
         let reports = REPORTS.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(reports) = reports.as_ref() {
             let _ = reports.send(FromHelper::Log { plugin, record });
@@ -245,73 +180,21 @@ fn now_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yapfast_plugin_api::message::LogLevel;
 
-    fn plugin() -> PluginId {
-        PluginId::parse("com.example.word-filter").expect("a valid id")
-    }
-
-    fn line(message: &str) -> LogRecord {
-        LogRecord {
-            level: LogLevel::Info,
-            target: "guest".into(),
-            message: message.into(),
-            at: 0,
-        }
-    }
-
-    #[test]
-    fn a_ring_keeps_the_newest_lines_and_drops_the_rest() {
-        let logs = LogBuffer::new();
-        for index in 0..RING_LINES + 5 {
-            logs.record(&plugin(), line(&index.to_string()));
-        }
-        let lines = logs.lines(&plugin());
-        assert_eq!(lines.len(), RING_LINES);
-        assert_eq!(lines[0].message, "5");
-        assert_eq!(lines[RING_LINES - 1].message, (RING_LINES + 4).to_string());
-    }
-
-    /// A guest writes what it wants, so a line is cut before it is kept: an
-    /// uncut one is pinned in this ring with every line after it.
+    /// A guest writes what it wants, so a line is cut before it is sent.
     #[test]
     fn a_long_line_is_cut_to_a_few_kilobytes() {
-        let logs = LogBuffer::new();
         // Two bytes a character, so the cut lands inside one and has to walk
         // back to a boundary: the text stays valid UTF-8.
-        logs.record(&plugin(), line(&"é".repeat(MAX_LINE_BYTES)));
-        let lines = logs.lines(&plugin());
-        let kept = &lines[0];
-        assert!(
-            kept.message.len() <= MAX_LINE_BYTES,
-            "{} bytes",
-            kept.message.len()
-        );
-        assert!(kept.message.ends_with('…'), "{}", kept.message);
-        // Only the text is cut; what the line was made of is all there.
-        assert_eq!(kept.level, LogLevel::Info);
-        assert_eq!(kept.target, "guest");
-        assert_eq!(kept.at, 0);
+        let kept = capped("é".repeat(MAX_LINE_BYTES));
+        assert!(kept.len() <= MAX_LINE_BYTES, "{} bytes", kept.len());
+        assert!(kept.ends_with('…'), "{kept}");
     }
 
     /// A line that already fits is the line the guest wrote.
     #[test]
     fn a_line_at_the_cap_is_kept_as_it_is() {
-        let logs = LogBuffer::new();
         let exact = "a".repeat(MAX_LINE_BYTES);
-        logs.record(&plugin(), line(&exact));
-        assert_eq!(logs.lines(&plugin())[0].message, exact);
-    }
-
-    #[test]
-    fn a_ring_belongs_to_one_plugin() {
-        let logs = LogBuffer::new();
-        logs.record(&plugin(), line("one"));
-        assert_eq!(logs.lines(&plugin()).len(), 1);
-        let other = PluginId::parse("com.example.other").expect("a valid id");
-        assert!(logs.lines(&other).is_empty());
-        logs.forget(&plugin());
-        assert!(logs.lines(&plugin()).is_empty());
-        assert!(logs.is_empty());
+        assert_eq!(capped(exact.clone()), exact);
     }
 }

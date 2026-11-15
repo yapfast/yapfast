@@ -22,7 +22,6 @@ use std::thread::{self, JoinHandle};
 use yapfast_plugin_api::frame::{Frame, FrameKind, read_frame, write_frame};
 use yapfast_plugin_api::message::FromHelper;
 
-use crate::logging::LogBuffer;
 
 /// What wakes the run loop.
 #[derive(Debug)]
@@ -95,7 +94,6 @@ pub struct Pipe {
     waker: Sender<Signal>,
     outbox: Outbox,
     reports: Sender<FromHelper>,
-    logs: LogBuffer,
     writer: Option<JoinHandle<()>>,
     relay: Option<JoinHandle<()>>,
 }
@@ -130,14 +128,12 @@ impl Pipe {
             .name("plugin-pipe-writer".into())
             .spawn(move || write_loop(output, outgoing))?;
 
-        let logs = LogBuffer::new();
         let (reports, relayed) = mpsc::channel();
         let relay = {
             let frames = frames.clone();
-            let logs = logs.clone();
             thread::Builder::new()
                 .name("plugin-pipe-reports".into())
-                .spawn(move || relay_loop(relayed, frames, logs))?
+                .spawn(move || relay_loop(relayed, frames))?
         };
 
         Ok(Pipe {
@@ -145,7 +141,6 @@ impl Pipe {
             waker,
             outbox: Outbox { frames },
             reports,
-            logs,
             writer: Some(writer),
             relay: Some(relay),
         })
@@ -179,11 +174,6 @@ impl Pipe {
         Waker {
             signals: self.waker.clone(),
         }
-    }
-
-    /// Every plugin's recent log lines, as they passed the relay.
-    pub fn logs(&self) -> LogBuffer {
-        self.logs.clone()
     }
 
     /// Writes `last` after everything already queued, waits for it to reach the
@@ -260,12 +250,11 @@ fn write_loop(mut output: impl Write, frames: mpsc::Receiver<Out>) {
     }
 }
 
-/// Turns the runtime's reports into frames, keeping each plugin's log lines.
-fn relay_loop(reports: mpsc::Receiver<FromHelper>, frames: Sender<Out>, logs: LogBuffer) {
+/// Turns the runtime's reports into frames. A plugin's log lines are kept by
+/// the parent, whose ring outlives this process; a copy here was read by
+/// nothing.
+fn relay_loop(reports: mpsc::Receiver<FromHelper>, frames: Sender<Out>) {
     for report in reports {
-        if let FromHelper::Log { plugin, record } = &report {
-            logs.record(plugin, record.clone());
-        }
         let frame = match encode(kind_of(&report), 0, &report) {
             Ok(frame) => frame,
             Err(error) => {
