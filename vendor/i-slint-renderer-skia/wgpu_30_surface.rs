@@ -793,11 +793,10 @@ impl Backend {
             // Metal has no image layout for Skia to hand back.
             #[cfg(target_vendor = "apple")]
             Self::Metal => Ok(()),
+            // Yapfast: D3D12 hands the swapchain buffer back in `PRESENT`; see
+            // `release_dx12_swapchain_surface`.
             #[cfg(target_family = "windows")]
-            Self::Dx12 => {
-                dx12::release_dx12_swapchain_surface(_gr_context, _skia_surface);
-                Ok(())
-            }
+            Self::Dx12 => dx12::release_dx12_swapchain_surface(_gr_context, _skia_surface),
             #[cfg(skia_wgpu_vulkan)]
             Self::Vulkan { queue_family_index } => vulkan::release_vulkan_surface(
                 _gr_context,

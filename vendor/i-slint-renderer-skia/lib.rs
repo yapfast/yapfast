@@ -49,6 +49,30 @@ std::thread_local! {
 pub fn yapfast_let_go_of_caches() {
     YAPFAST_LET_GO.set(true);
 }
+
+/// Yapfast: for a glyph of the font [`yapfast_draw_glyphs_as_pictures`] names, and
+/// the text's size in physical pixels, the picture to draw in its place, already
+/// the size it shows at, and where the picture's top left corner sits from the
+/// glyph's origin on the baseline. None leaves the glyph to Skia.
+pub type YapfastGlyphPicture = fn(u16, f32) -> Option<(skia_safe::Image, skia_safe::Vector)>;
+
+std::thread_local! {
+    /// Yapfast: set by [`yapfast_draw_glyphs_as_pictures`].
+    static YAPFAST_GLYPH_PICTURES: Cell<Option<(&'static [u8], YapfastGlyphPicture)>> =
+        const { Cell::new(None) };
+}
+
+/// Yapfast: text draws each glyph of `font`, a colour bitmap font the program
+/// holds, as the picture `picture` gives, on whole pixels, rather than as Skia's
+/// glyph. Skia shrinks a glyph's bitmap to the text's size without averaging
+/// its pixels, so an emoji drawn at a third of them came out jagged; a picture
+/// shrunk beforehand to the pixels it covers draws as it is. The font is told
+/// apart by where its bytes are, so it must be registered with fontique from
+/// that slice, not a copy of it.
+pub fn yapfast_draw_glyphs_as_pictures(font: &'static [u8], picture: YapfastGlyphPicture) {
+    YAPFAST_GLYPH_PICTURES.set(Some((font, picture)));
+}
+
 mod font_cache;
 mod itemrenderer;
 

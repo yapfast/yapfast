@@ -301,6 +301,13 @@ fn prepare(window: &YapfastWindow) {
     }
     window.set_emoji_font(emoji::family().into());
     emoji_text::register();
+    // Text draws each of the font's glyphs as its picture shrunk to the
+    // glyph's pixels. The renderer knows the font by these bytes, which the
+    // font `register` gave fontique holds rather than copies.
+    i_slint_renderer_skia::yapfast_draw_glyphs_as_pictures(
+        crate::twemoji::FONT,
+        crate::twemoji::glyph_picture,
+    );
     window
         .global::<Twemoji>()
         .on_text(|text| emoji_text::text(&text).into());

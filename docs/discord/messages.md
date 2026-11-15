@@ -426,7 +426,9 @@ Yapfast is back, rather than showing an error.
   emoji alone shows. That is taller than the line, so a `StyledText` and the
   composer let text past its box by 4px rather than cutting an emoji off, and
   each bitmap has a transparent margin, as Skia scales one without smoothing its
-  edges. A click on an emoji, custom or Unicode, opens its card: its name
+  edges. Twemoji's glyphs don't reach Skia: the renderer draws each as its
+  picture shrunk to the glyph's pixels (see [Chat UI](../chat-ui.md)). A
+  click on an emoji, custom or Unicode, opens its card: its name
   between colons, a line saying what it is, and, for a server's, the server it
   is from, which opens on a click. `GET /guilds/{guild.id}/preview` says how
   many of the server's members are online and whether Discover lists it, so

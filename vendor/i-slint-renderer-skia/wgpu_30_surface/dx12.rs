@@ -87,15 +87,21 @@ pub unsafe fn make_dx12_surface(
 /// itself left it before Skia took over, so it emits no barrier of its own. `Present` requires
 /// that state, and Skia's D3D backend only moves there when told the flush is for presenting: it
 /// ignores the texture state Vulkan's counterpart passes.
+///
+/// A failed flush leaves the frame undefined, so its error ends the frame before `Present`
+/// shows it, as Vulkan's does.
 pub fn release_dx12_swapchain_surface(
     gr_context: &mut skia_safe::gpu::DirectContext,
     skia_surface: &mut skia_safe::Surface,
-) {
-    gr_context.flush_surface_with_access(
-        skia_surface,
-        skia_safe::surfaces::BackendSurfaceAccess::Present,
-        &skia_safe::gpu::FlushInfo::default(),
-    );
+) -> Result<(), i_slint_core::platform::PlatformError> {
+    gr_context
+        .flush_surface_with_access(
+            skia_surface,
+            skia_safe::surfaces::BackendSurfaceAccess::Present,
+            &skia_safe::gpu::FlushInfo::default(),
+        )
+        .map(|_| ())
+        .map_err(|error| format!("Skia renderer: {error}").into())
 }
 
 #[cfg_attr(not(feature = "unstable-wgpu-30"), allow(dead_code))]

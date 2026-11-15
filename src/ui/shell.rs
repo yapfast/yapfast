@@ -428,6 +428,10 @@ impl Adapter {
         // Nothing draws the emoji now; the next window's refresh starts the
         // clock again if it shows any.
         self.animations.stop();
+        // Nor Twemoji's pictures, in text or a picker the window closed with
+        // open; the next window's draws decode those it shows.
+        crate::twemoji::forget_glyph_pictures();
+        crate::twemoji::forget();
         self.window = slint::Weak::default();
     }
 

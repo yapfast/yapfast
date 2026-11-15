@@ -36,7 +36,11 @@ up to 512×512 pixels sample mipmaps, because plain bilinear sampling made
 pictures drawn smaller than their pixels, such as avatars, look jagged. Larger
 ones, such as video frames, go without: each frame would build its mipmaps
 anew. So do pictures drawn no smaller than their pixels, such as a call's
-camera, made at its tile's size. On Linux it takes rust-skia's
+camera, made at its tile's size. Glyphs of the font Yapfast registers with
+`yapfast_draw_glyphs_as_pictures`, Twemoji's, draw as the pictures it gives,
+already shrunk to the glyph's pixels and placed on whole pixels, because
+Skia scales a colour bitmap glyph without averaging its pixels, which left
+emoji in text jagged. On Linux it takes rust-skia's
 prebuilt Skia with Skia's own FreeType: the one built for the system's FreeType
 lacks FreeType's COLRv1 calls, so it drew nothing for the COLRv1 build of Noto
 Color Emoji, the only one Fedora installs. Rust-skia builds that Skia only with
@@ -46,8 +50,9 @@ asks for Skia OpenGL or Skia Software by name; the wgpu renderers the winit
 backend still names make surfaces that fail to start. Windows turns wgpu back
 on through a dependency in Yapfast's own `Cargo.toml`, for Skia GPU on Direct3D
 12 (see `src/graphics.rs`). Each change is marked `Yapfast:` in
-`itemrenderer.rs`, `cached_image.rs`, `lib.rs`, `font_cache.rs` or
-`Cargo.toml`. Copy the matching release over it, and reapply them, when
+`itemrenderer.rs`, `cached_image.rs`, `lib.rs`, `font_cache.rs`,
+`wgpu_30_surface.rs`, `wgpu_30_surface/dx12.rs` or `Cargo.toml`. Copy the
+matching release over it, and reapply them, when
 upgrading Slint.
 
 `vendor/i-slint-core` is Slint's core at that commit with `StyledText` always
@@ -236,12 +241,14 @@ dependency in Cargo.toml:
   an entry they drop, so a size measured through the text layout cache before
   the window has a surface, or before a zoom, follows its text afterwards.
 - `i-slint-renderer-skia`: Slint's Skia renderer at `ac7d423f` with slight hinting,
-  mipmapped pictures, and Skia's own FreeType on
+  mipmapped pictures, Twemoji's glyphs drawn as pictures, and Skia's own
+  FreeType on
   Linux without wgpu, above, and a whole frame after every resize: Windows
   restores a minimized window at its old size without its pixels, which
   partial rendering left black. On Direct3D 12 it also hands each frame back
   in the `PRESENT` state, which `Present` requires and wgpu can't see is
-  missing.
+  missing, and a frame whose flush failed ends with its error rather than
+  being presented.
 - `matrix-rtc-livekit`: Element's matrix-rust-rtc at `5831af8`, with native
   audio tracks and cancellable joins.
 - `webrtc-sys`: webrtc-sys 0.3.35 with a Windows link fix, capture leveling,

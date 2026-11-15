@@ -162,7 +162,18 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   until frames arrive, and if they never do. A picture is drawn 22px in the
   message text and 48px in the large text a message of emoji alone shows, and
   the composer shows one as a picture too, since each glyph also answers to
-  the emoji's own code point. A `:shortcode:` sent without taking its
+  the emoji's own code point. The renderer draws each of the font's glyphs,
+  in any text, a reaction's and a name's too, as the picker draws a cell:
+  Twemoji's picture shrunk once to the pixels the glyph covers, each the mean
+  of the part of the 72px picture it covers, on whole pixels
+  (`twemoji::glyph_picture`). Skia's own glyph scaled the 72 pixels without
+  averaging them, jagged at a third of their size. A picture in 16px text
+  takes 2 KB, decoded once for its size and kept in two halves of at most
+  2 MiB each: one drawn again moves to the newer half, and when that fills
+  the older half goes, so what shows stays. Closing the window to the tray
+  lets go of them, and of the picker's Twemoji pictures, even if it closed
+  with the picker open.
+  A `:shortcode:` sent without taking its
   completion draws as its emoji. A link is underlined only while the pointer is
   on it, as in Discord's client. An emoji is a link, but one whose text is the
   picture alone is never underlined: the line would show across the bottom of

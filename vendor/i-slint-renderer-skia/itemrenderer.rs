@@ -1287,6 +1287,48 @@ impl GlyphRenderer for SkiaItemRenderer<'_> {
         y_offset: sharedparley::PhysicalLength,
         glyphs_it: &mut dyn Iterator<Item = sharedparley::parley::layout::Glyph>,
     ) {
+        // Yapfast: a glyph of the font `yapfast_draw_glyphs_as_pictures` names draws
+        // as its picture, its corner on a whole pixel so it copies rather than
+        // blurs; only the glyphs it has none for go on to Skia. Sampled smoothly,
+        // as a scaled popup still scales it on its way in.
+        let mut pictured;
+        let glyphs_it: &mut dyn Iterator<Item = sharedparley::parley::layout::Glyph> =
+            match crate::YAPFAST_GLYPH_PICTURES.get() {
+                Some((pictured_font, picture_of))
+                    if std::ptr::eq::<[u8]>(font.data.as_ref(), pictured_font) =>
+                {
+                    let origin = self.translation_origin().unwrap_or_default();
+                    let canvas = self.canvas;
+                    let paint = &brush;
+                    let (size, y_offset) = (font_size.get(), y_offset.get());
+                    let sampling = skia_safe::SamplingOptions::new(
+                        skia_safe::FilterMode::Linear,
+                        skia_safe::MipmapMode::None,
+                    );
+                    pictured = glyphs_it.filter(move |glyph| {
+                        let Some((picture, offset)) = picture_of(glyph.id as u16, size) else {
+                            return true;
+                        };
+                        let x = (origin.x + glyph.x + offset.x).round() - origin.x;
+                        let y = (origin.y + glyph.y + y_offset + offset.y).round() - origin.y;
+                        canvas.draw_image_with_sampling_options(
+                            &picture,
+                            (x, y),
+                            sampling,
+                            Some(paint),
+                        );
+                        false
+                    });
+                    &mut pictured
+                }
+                _ => glyphs_it,
+            };
+        let (glyph_ids, glyph_positions): (Vec<_>, Vec<_>) = glyphs_it
+            .map(|g| (g.id as skia_safe::GlyphId, skia_safe::Point::new(g.x, g.y + y_offset.get())))
+            .unzip();
+        if glyph_ids.is_empty() {
+            return;
+        }
         let Some(type_face) = crate::font_cache::FONT_CACHE
             .with_borrow_mut(|font_cache| font_cache.font_with_variations(font, synthesis))
         else {
@@ -1309,11 +1351,6 @@ impl GlyphRenderer for SkiaItemRenderer<'_> {
             // to the right, matching the forward lean of real italic/oblique faces.
             font.set_skew_x(-skew_degrees.to_radians().tan());
         }
-
-        let (glyph_ids, glyph_positions): (Vec<_>, Vec<_>) = glyphs_it
-            .into_iter()
-            .map(|g| (g.id as skia_safe::GlyphId, skia_safe::Point::new(g.x, g.y + y_offset.get())))
-            .unzip();
 
         self.canvas.draw_glyphs_at(
             &glyph_ids,

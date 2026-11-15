@@ -49,8 +49,8 @@ pub const TWEMOJI_MARGIN: u32 = 4;
 
 /// Twemoji's pictures, 72 pixels square as they are published with
 /// [`TWEMOJI_MARGIN`] around them, at the same shape as [`STRIKE`] to the nearest
-/// pixel.
-#[allow(dead_code, reason = "build.rs builds this font")]
+/// pixel. Text draws each glyph as its picture, placed and sized by these
+/// metrics.
 pub const TWEMOJI: Strike = Strike {
     ppem: 53,
     side: (72 + 2 * TWEMOJI_MARGIN) as u8,
