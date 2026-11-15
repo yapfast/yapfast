@@ -51,6 +51,32 @@ fn the_handshake_is_answered_with_ready() {
     }
 }
 
+/// PLAN.md 14: a guest's standard output can't reach the pipe. The helper's
+/// stdout is the frame stream, so a WASI guest's write landing there would turn
+/// every later frame into garbage; each frame still reads as a `FromHelper`,
+/// which `wait_for` checks, and the helper goes on serving.
+#[test]
+fn a_guests_stdout_never_reaches_the_pipe() {
+    let mut helper = Helper::start("stdout");
+    let talker = plugin("stdout");
+    let wasm = fixtures().join("stdout.wasm");
+    helper.activate_with(&talker, &wasm, PAGES, true);
+    helper.wait_for(BUDGET, "Activated", |message| {
+        matches!(message, FromHelper::Activated { .. })
+    });
+    for _ in 0..3 {
+        helper.event(&talker, an_event());
+        helper.wait_for(BUDGET, "EventDone", |message| {
+            matches!(message, FromHelper::EventDone { .. })
+        });
+    }
+    let echo = plugin("echo");
+    helper.activate(&echo, "echo.wat", PAGES);
+    helper.wait_for(BUDGET, "Activated", |message| {
+        matches!(message, FromHelper::Activated { plugin, .. } if *plugin == echo)
+    });
+}
+
 #[test]
 fn a_plugin_activates_and_runs_an_event() {
     let mut helper = Helper::start("activate");
@@ -612,6 +638,11 @@ impl Helper {
     /// Loading and activating are one phase, which is why the request carries
     /// both.
     fn activate_module(&mut self, plugin: &PluginId, wasm: &Path, memory_pages: u32) {
+        self.activate_with(plugin, wasm, memory_pages, false);
+    }
+
+    /// The same, saying whether the module asked for WASI.
+    fn activate_with(&mut self, plugin: &PluginId, wasm: &Path, memory_pages: u32, wasi: bool) {
         let id = self.next_id();
         self.send(
             FrameKind::Request,
@@ -621,7 +652,7 @@ impl Helper {
                 load: Some(Activation {
                     wasm: wasm.to_path_buf(),
                     memory_pages,
-                    wasi: false,
+                    wasi,
                     state: None,
                 }),
             },
