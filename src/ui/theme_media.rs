@@ -79,6 +79,8 @@ struct State {
     context: Context,
     /// Counts the themes loaded with icons, for [`generation`].
     loads: u64,
+    /// The load whose painted icons `IconPack` last asked `paint` for.
+    painted_at: Option<u64>,
     /// The stock icons, read from `IconPack` before a theme first set any.
     stock: Vec<Image>,
     /// Decoded sounds and loaded icons by the file's digest, kept while a
@@ -358,7 +360,9 @@ pub fn load(
         icons.push((index, image, choice.colour.clone()));
     }
     STATE.with_borrow_mut(|state| {
-        if !icons.is_empty() || !state.icons.is_empty() {
+        // The same icons painted the same way, as an option that changes
+        // none of them leaves them: nothing that shows them is built again.
+        if icons != state.icons || painted != state.painted {
             state.loads += 1;
         }
         state.sounds = sounds;
@@ -405,7 +409,12 @@ pub fn show(window: &YapfastWindow) {
             state.swapped = true;
         }
         pack.set_active(!state.painted.is_empty());
-        pack.set_revision(pack.get_revision().wrapping_add(1));
+        // Every icon asks `paint` again when the revision moves: only when
+        // what it answers may have.
+        if state.painted_at != Some(state.loads) {
+            state.painted_at = Some(state.loads);
+            pack.set_revision(pack.get_revision().wrapping_add(1));
+        }
     });
     changed();
     arm(window);

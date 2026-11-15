@@ -585,11 +585,11 @@ fn layer(folder: &Path, art: &TileArt, moves: bool) -> TileLayer {
 }
 
 fn layers(folder: &Path, arts: &[TileArt], moves: bool) -> ModelRc<TileLayer> {
-    ModelRc::new(VecModel::from(
+    super::theme_look::rows(
         arts.iter()
             .map(|art| layer(folder, art, moves))
             .collect::<Vec<_>>(),
-    ))
+    )
 }
 
 fn one(folder: &Path, art: Option<&TileArt>, moves: bool) -> TileLayer {
@@ -914,7 +914,7 @@ pub fn apply(
                 .map(|presence| presence.as_str().into())
                 .collect();
             presences.resize(4, SharedString::new());
-            lists.set_ring_presences(ModelRc::new(VecModel::from(presences)));
+            lists.set_ring_presences(super::theme_look::rows(presences));
         }
         lists.set_frames(layers(folder, &rows.frame, !still));
         if let Some(Separator::Line {
@@ -935,15 +935,15 @@ pub fn apply(
             Some(StatusStyle::Text) => 2,
             Some(StatusStyle::None) => 3,
         });
-        lists.set_glyphs(ModelRc::new(VecModel::from(
+        lists.set_glyphs(super::theme_look::rows(
             rows.status_glyphs
                 .iter()
                 .map(|known| glyph(folder, known.as_ref(), !still))
                 .collect::<Vec<_>>(),
-        )));
+        ));
         let meta = &rows.meta;
         lists.set_meta_on(meta.is_set());
-        lists.set_meta_presence(ModelRc::new(VecModel::from(
+        lists.set_meta_presence(super::theme_look::rows(
             [
                 &meta.online,
                 &meta.idle,
@@ -954,7 +954,7 @@ pub fn apply(
             .iter()
             .map(|words| words.as_deref().unwrap_or("").into())
             .collect::<Vec<SharedString>>(),
-        )));
+        ));
         lists.set_meta_playing(meta.playing.as_deref().unwrap_or("").into());
         lists.set_meta_listening(meta.listening.as_deref().unwrap_or("").into());
         lists.set_meta_watching(meta.watching.as_deref().unwrap_or("").into());

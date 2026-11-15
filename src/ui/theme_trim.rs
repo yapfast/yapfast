@@ -12,7 +12,7 @@
 
 use std::cell::Cell;
 
-use slint::{Brush, Color, ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{Brush, Color, ComponentHandle, ModelRc, SharedString};
 use yapfast_core::themes::chrome::{Label, SystemKind, fill};
 use yapfast_core::themes::layout::{MembersStyle, RailSide};
 use yapfast_core::themes::package::{Paint, Resolved, Role, Shape, Surface};
@@ -44,7 +44,7 @@ pub fn expand_one() -> bool {
 /// Every value back to stock.
 pub fn reset(window: &YapfastWindow) {
     let trim = window.global::<Trim>();
-    let none = || ModelRc::new(VecModel::<ArtImage>::default());
+    let none = ModelRc::<ArtImage>::default;
     trim.set_label(Frame::default());
     trim.set_label_art(none());
     trim.set_stripe(Color::default());
@@ -74,7 +74,7 @@ pub fn reset(window: &YapfastWindow) {
     trim.set_font_time(SharedString::new());
     trim.set_size_time(-1.);
     trim.set_weight_time(-1);
-    trim.set_role_marks(ModelRc::new(VecModel::<SharedString>::default()));
+    trim.set_role_marks(ModelRc::default());
     trim.set_topic_before(SharedString::new());
     trim.set_topic_after(SharedString::new());
     trim.set_member_count(SharedString::new());
@@ -170,7 +170,7 @@ pub fn apply(window: &YapfastWindow, resolved: &Resolved, fonts: &[(Role, String
             .iter()
             .map(|mark| kept(mark).into())
             .collect();
-        trim.set_role_marks(ModelRc::new(VecModel::from(marks)));
+        trim.set_role_marks(super::theme_look::rows(marks));
     }
     if let Some(topic) = chrome.labels.get(&Label::Topic) {
         let (before, after) = topic.split_once("{topic}").unwrap_or((topic, ""));

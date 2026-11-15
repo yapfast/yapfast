@@ -17,7 +17,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use image::{Rgba, RgbaImage};
-use slint::{Color, ComponentHandle, Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, VecModel};
+use slint::{
+    Color, ComponentHandle, Image, Model, ModelRc, Rgba8Pixel, SharedPixelBuffer, VecModel,
+};
 use yapfast_core::themes::Performance;
 use yapfast_core::themes::check::art::{
     CARD_ART, DISPLAY, GLASS_SHRINK, TEXTURE_SIDE, bake_key, blend_channel, shown, sized_cap,
@@ -132,7 +134,7 @@ fn runs(heavy: bool, performance: Performance, reduced: bool) -> bool {
 /// Clears every art value back to none. Called by `theme_look::reset`.
 pub fn reset(window: &YapfastWindow) {
     let art = window.global::<yapfast_ui::Art>();
-    let none = || ModelRc::new(VecModel::<ArtImage>::default());
+    let none = ModelRc::<ArtImage>::default;
     art.set_window(none());
     art.set_rail(none());
     art.set_sidebar(none());
@@ -207,7 +209,7 @@ pub fn reset(window: &YapfastWindow) {
     art.set_headings(unlit.clone());
     art.set_labels(unlit);
     art.set_particles(ModelRc::new(VecModel::<ArtParticle>::default()));
-    art.set_sprites(ModelRc::new(VecModel::<Image>::default()));
+    art.set_sprites(ModelRc::default());
     art.set_ripple(false);
     art.set_gloss(false);
     art.set_highlighter(false);
@@ -310,7 +312,7 @@ pub fn apply(
                 Some(art_image(layer, image, moves, 0.0))
             })
             .collect();
-        let model = ModelRc::new(VecModel::from(images));
+        let model = super::theme_look::rows(images);
         match surface {
             ArtSurface::Window => global.set_window(model),
             ArtSurface::Rail => global.set_rail(model),
@@ -430,7 +432,7 @@ pub fn apply(
         });
     }
     global.set_chat_overlays(overlays.iter().any(|overlay| overlay.chat));
-    global.set_overlays(ModelRc::new(VecModel::from(overlays)));
+    global.set_overlays(super::theme_look::rows(overlays));
     if let Some(glass) = &art.glass {
         for surface in &glass.surfaces {
             let set = match surface {
@@ -569,7 +571,7 @@ pub fn apply(
             .unwrap_or_default()
         })
         .collect();
-    global.set_sprites(ModelRc::new(VecModel::from(sprites)));
+    global.set_sprites(super::theme_look::rows(sprites));
     global.set_track(!art.particles.is_empty());
     global.set_particles_under(
         art.particles
@@ -852,7 +854,7 @@ fn cards(window: &YapfastWindow, resolved: &Resolved, decoder: &mut Decoder) {
         }
         placed.push(CardArt {
             picture,
-            choices: ModelRc::new(VecModel::from(choices)),
+            choices: super::theme_look::rows(choices),
             full: card.full,
             across: card.across,
             bottom: card.bottom,
@@ -867,7 +869,7 @@ fn cards(window: &YapfastWindow, resolved: &Resolved, decoder: &mut Decoder) {
     arrange.set_cards_over_bottom(over_bottom);
     window
         .global::<yapfast_ui::Art>()
-        .set_cards(ModelRc::new(VecModel::from(placed)));
+        .set_cards(super::theme_look::rows(placed));
 }
 
 /// The pictures on each of your own bubbles and on everyone else's, each
@@ -887,7 +889,7 @@ fn bubbles(window: &YapfastWindow, resolved: &Resolved, decoder: &mut Decoder) {
                 Some(art_image(layer, image, false, 0.0))
             })
             .collect();
-        ModelRc::new(VecModel::from(images))
+        super::theme_look::rows(images)
     };
     let arrange = window.global::<yapfast_ui::Arrange>();
     arrange.set_bubble_own_art(model(&bubbles.own_art, own_ground));
@@ -1831,9 +1833,14 @@ pub fn move_by(moved: &mut SlotMotion, property: Property, number: f32) {
 }
 
 pub fn set_rail(window: &YapfastWindow, rail: [SlotMotion; RAIL_PHASES]) {
-    window
-        .global::<yapfast_ui::Art>()
-        .set_rail_icons(ModelRc::new(VecModel::from(rail.to_vec())));
+    let art = window.global::<yapfast_ui::Art>();
+    // A step that moved nothing, as a stepped animation's frames between its
+    // turns, leaves the rail's icons as they are.
+    let shown = art.get_rail_icons();
+    if shown.row_count() == rail.len() && shown.iter().zip(&rail).all(|(a, b)| a == *b) {
+        return;
+    }
+    art.set_rail_icons(ModelRc::new(VecModel::from(rail.to_vec())));
 }
 
 /// `top` laid over `under`, both ARGB.

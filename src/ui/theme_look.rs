@@ -982,6 +982,53 @@ fn register_font_bytes(bytes: &Arc<Vec<u8>>, path: &Path) -> Result<String, Stri
     Ok(family)
 }
 
+/// A model of `rows`: the one a paint made before if its rows are the same,
+/// or nothing for none. A repeater over a model it's handed again keeps its
+/// instances, and what they drew; a new model of the same rows builds them
+/// all again, and uploads their pictures again.
+pub(super) fn rows<T: Clone + PartialEq + 'static>(rows: Vec<T>) -> ModelRc<T> {
+    if rows.is_empty() {
+        return ModelRc::default();
+    }
+    MODELS.with_borrow_mut(|models| {
+        let paint = models.paint;
+        let same = |model: &ModelRc<T>| {
+            model.row_count() == rows.len() && model.iter().zip(&rows).all(|(a, b)| a == *b)
+        };
+        for (made, used) in &mut models.made {
+            if let Some(model) = made.downcast_ref::<ModelRc<T>>()
+                && same(model)
+            {
+                *used = paint;
+                return model.clone();
+            }
+        }
+        let model = ModelRc::new(VecModel::from(rows));
+        models.made.push((Box::new(model.clone()), paint));
+        model
+    })
+}
+
+/// The models [`rows`] made, and the paint that last used each.
+#[derive(Default)]
+struct Models {
+    made: Vec<(Box<dyn std::any::Any>, u64)>,
+    paint: u64,
+}
+
+thread_local! {
+    static MODELS: std::cell::RefCell<Models> = std::cell::RefCell::default();
+}
+
+/// After a paint: the models it didn't use go, and the next paint counts on.
+fn settle_rows() {
+    MODELS.with_borrow_mut(|models| {
+        let paint = models.paint;
+        models.made.retain(|(_, used)| *used == paint);
+        models.paint += 1;
+    });
+}
+
 /// Forgets the applied theme and puts every token back.
 pub fn clear(window: &YapfastWindow) {
     STATE.with_borrow_mut(|state| {
@@ -1092,6 +1139,14 @@ pub fn reset(window: &YapfastWindow) {
 /// allow, and starts what moves. Does nothing while a protected dialog is
 /// open: that shows stock, and the theme comes back when it closes.
 fn paint(window: &YapfastWindow) {
+    // Every token goes back to stock and then to the theme's: held back as
+    // one change, only what ends up different invalidates what depends on
+    // it. An option that changes one colour reshapes no text and builds no
+    // list again.
+    i_slint_core::properties::batch(|| paint_now(window));
+}
+
+fn paint_now(window: &YapfastWindow) {
     reset(window);
     let (performance, unfocused) = STATE.with_borrow(|state| {
         let unfocused = state
@@ -1337,6 +1392,7 @@ fn paint(window: &YapfastWindow) {
         }
     });
     start_clock(window);
+    settle_rows();
 }
 
 pub(super) fn brush(paint: &Paint) -> Brush {

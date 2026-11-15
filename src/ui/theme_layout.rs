@@ -14,7 +14,7 @@ use std::hash::{Hash, Hasher};
 use slint::{Brush, Color, ComponentHandle, ModelRc, SharedString, VecModel};
 use yapfast_core::themes::Performance;
 use yapfast_core::themes::layout::{BorderPlace, Gel, Layout, Stroke};
-use yapfast_ui::{Arrange, ArtImage, BubbleGel, Dash, Look, Scrap, YapfastWindow};
+use yapfast_ui::{Arrange, BubbleGel, Dash, Look, Scrap, YapfastWindow};
 
 /// What the ransom callback cuts letters from.
 #[derive(Default)]
@@ -110,8 +110,8 @@ pub fn reset(window: &YapfastWindow) {
     arrange.set_bubble_other_paint(Brush::default());
     arrange.set_bubble_own_painted(false);
     arrange.set_bubble_other_painted(false);
-    arrange.set_bubble_own_art(ModelRc::new(VecModel::<ArtImage>::default()));
-    arrange.set_bubble_other_art(ModelRc::new(VecModel::<ArtImage>::default()));
+    arrange.set_bubble_own_art(ModelRc::default());
+    arrange.set_bubble_other_art(ModelRc::default());
     arrange.set_bubble_own_text_set(Color::default());
     arrange.set_bubble_radius(16.);
     arrange.set_bubble_own_gel(gel(&Gel::default()));
