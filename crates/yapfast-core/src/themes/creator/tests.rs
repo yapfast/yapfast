@@ -467,8 +467,54 @@ fn an_imported_font_is_copied_into_the_theme_and_carried_by_it() {
     assert!(licence.contains(&imported.file) && licence.contains("allowed to share"));
     // A copy, as an export makes, carries the font too.
     let export = tempfile::tempdir().expect("a temporary folder");
-    copy_folder(folder.path(), &export.path().join("castle")).expect("copied");
+    export_folder(folder.path(), &export.path().join("castle")).expect("copied");
     assert!(export.path().join("castle").join(&imported.file).is_file());
+}
+
+#[test]
+fn an_export_never_removes_what_is_already_there() {
+    let theme = tempfile::tempdir().expect("a temporary folder");
+    std::fs::write(theme.path().join("theme.json"), "{}").expect("written");
+    let home = tempfile::tempdir().expect("a temporary folder");
+    let projects = home.path().join("projects");
+    std::fs::create_dir(&projects).expect("made");
+    std::fs::write(projects.join("notes.txt"), "mine").expect("written");
+    assert!(export_folder(theme.path(), &projects).is_err());
+    assert_eq!(
+        std::fs::read_to_string(projects.join("notes.txt")).expect("kept"),
+        "mine"
+    );
+    assert!(!projects.join("theme.json").exists());
+    // A file of that name is refused too; an empty folder takes the export.
+    std::fs::write(home.path().join("file"), "x").expect("written");
+    assert!(export_folder(theme.path(), &home.path().join("file")).is_err());
+    std::fs::create_dir(home.path().join("empty")).expect("made");
+    export_folder(theme.path(), &home.path().join("empty")).expect("exported");
+    assert!(home.path().join("empty").join("theme.json").is_file());
+}
+
+#[test]
+fn a_save_that_fails_halfway_keeps_the_saved_theme() {
+    let saved = tempfile::tempdir().expect("a temporary folder");
+    let target = saved.path().join("1");
+    std::fs::create_dir(&target).expect("made");
+    std::fs::write(target.join("theme.json"), "saved").expect("written");
+    // A draft that isn't there can't be copied: the saved theme stays.
+    let missing = saved.path().join("no draft");
+    assert!(copy_folder(&missing, &target).is_err());
+    assert_eq!(
+        std::fs::read_to_string(target.join("theme.json")).expect("kept"),
+        "saved"
+    );
+    assert!(!saved.path().join("1.incoming").exists());
+    // A draft that is replaces it whole.
+    let draft = tempfile::tempdir().expect("a temporary folder");
+    std::fs::write(draft.path().join("theme.json"), "new").expect("written");
+    copy_folder(draft.path(), &target).expect("copied");
+    assert_eq!(
+        std::fs::read_to_string(target.join("theme.json")).expect("read"),
+        "new"
+    );
 }
 
 #[test]

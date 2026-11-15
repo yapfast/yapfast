@@ -620,9 +620,11 @@ impl Adapter {
             creator::write_folder(&draft, spec, name, id, &derived, font_bytes).and_then(|()| {
                 creator::copy_folder(&draft, &theme_look::creator_folder(&self.root, id))
             });
-        let _ = std::fs::remove_dir_all(&draft);
         match written {
-            Ok(()) => true,
+            Ok(()) => {
+                let _ = std::fs::remove_dir_all(&draft);
+                true
+            }
             Err(error) => {
                 self.app.state.notice = Some(format!("The theme couldn't be saved: {error}"));
                 false
@@ -716,7 +718,7 @@ impl Adapter {
                 return;
             };
             let target = picked.path().join(&folder_name);
-            let copied = creator::copy_folder(&draft, &target);
+            let copied = creator::export_folder(&draft, &target);
             let mut adapter = adapter.borrow_mut();
             adapter.app.state.notice = Some(match copied {
                 Ok(()) => format!(

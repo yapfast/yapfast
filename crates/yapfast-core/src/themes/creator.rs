@@ -1453,12 +1453,48 @@ pub fn write_folder(
     )
 }
 
-/// Copies one theme folder over another, file by file: the draft into a
-/// saved theme, or a saved theme into the draft or an export.
+/// Puts a copy of one theme folder where another stood: the draft into a
+/// saved theme, or a saved theme into the draft. The copy is made beside
+/// `to` first, so a copy that fails halfway leaves `to` as it was.
 pub fn copy_folder(from: &Path, to: &Path) -> std::io::Result<()> {
+    let mut beside = to.as_os_str().to_owned();
+    beside.push(".incoming");
+    let beside = PathBuf::from(beside);
+    if beside.exists() {
+        std::fs::remove_dir_all(&beside)?;
+    }
+    if let Err(error) = copy_tree(from, &beside) {
+        let _ = std::fs::remove_dir_all(&beside);
+        return Err(error);
+    }
     if to.exists() {
         std::fs::remove_dir_all(to)?;
     }
+    std::fs::rename(&beside, to)
+}
+
+/// Export: a copy of a theme folder in a new folder. Nothing already there
+/// is replaced or removed; a folder that has anything in it is refused.
+pub fn export_folder(from: &Path, to: &Path) -> std::io::Result<()> {
+    if std::fs::symlink_metadata(to).is_ok_and(|metadata| !metadata.is_dir())
+        || std::fs::read_dir(to).is_ok_and(|mut entries| entries.next().is_some())
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            format!("{} already exists and isn't empty", to.display()),
+        ));
+    }
+    if !from.is_dir() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "the theme's files are gone",
+        ));
+    }
+    copy_tree(from, to)
+}
+
+/// Copies a folder's files and folders into `to`, made if it's missing.
+fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(to)?;
     let mut stack: Vec<PathBuf> = vec![PathBuf::new()];
     while let Some(relative) = stack.pop() {
