@@ -2707,11 +2707,15 @@ export component YapfastWindow inherits Window {
                                     // Discord's (32,32,36) on its dark theme: the field colour, a step above the sheet.
                                     background: Theme.field;
                                     border-radius: 13px;
-                                    if boost-bar.share > 0: Rectangle {
+                                    if boost-bar.share > 0: Path {
                                         x: 2px; y: 2px; height: parent.height - 4px;
-                                        width: (parent.width - 4px) * boost-bar.share;
-                                        border-radius: 11px;
-                                        background: @linear-gradient(270deg, #ff73fa66, #ff73fa1a);
+                                        width: max(self.height, (parent.width - 4px) * boost-bar.share);
+                                        // A path, not a Rectangle: a rectangle's gradient fill ignores
+                                        // its radius, which left the fill's ends square.
+                                        viewbox-width: self.width / 1px;
+                                        viewbox-height: self.height / 1px;
+                                        commands: "M \{self.height / 2px} 0 L \{self.width / 1px - self.height / 2px} 0 A \{self.height / 2px} \{self.height / 2px} 0 0 1 \{self.width / 1px - self.height / 2px} \{self.height / 1px} L \{self.height / 2px} \{self.height / 1px} A \{self.height / 2px} \{self.height / 2px} 0 0 1 \{self.height / 2px} 0 Z";
+                                        fill: @linear-gradient(270deg, #ff73fa66, #ff73fa1a);
                                     }
                                     Text {
                                         x: 8px; width: parent.width - 40px; height: parent.height;
