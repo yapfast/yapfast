@@ -242,8 +242,10 @@ impl<'a> View<'a> {
         let mut header = column![header];
         // Its badges, in Discord's pills.
         if let Some(shown) = card.filter(|shown| !shown.look.profile().badges.is_empty()) {
-            header =
-                header.push(container(self.cx.badge_rows(shown)).padding(Padding::ZERO.left(16)));
+            header = header.push(
+                container(crate::profile::body::badge_rows(self.cx, shown))
+                    .padding(Padding::ZERO.left(16)),
+            );
         }
         let mut body = column![].spacing(12).padding(Padding {
             top: 8.0,
@@ -326,7 +328,7 @@ impl<'a> View<'a> {
         let account = self.cx.account;
         let profile = card.map(|shown| shown.look.profile());
         let ground = card
-            .and_then(|shown| self.cx.banner_ground(shown))
+            .and_then(|shown| crate::profile::banner_ground(self.cx, shown))
             .map(hex)
             .or(inks.themed.then_some(inks.primary))
             .unwrap_or(theme.sunken);
@@ -340,8 +342,14 @@ impl<'a> View<'a> {
         if let Some(picture) = card
             .zip(profile.and_then(|profile| profile.banner.as_deref()))
             .and_then(|(shown, url)| {
-                self.cx
-                    .profile_picture(shown, url, POPOVER as u32, BANNER as u32, true)
+                crate::profile::profile_picture(
+                    self.cx,
+                    shown,
+                    url,
+                    POPOVER as u32,
+                    BANNER as u32,
+                    true,
+                )
             })
         {
             banner = banner.push(
@@ -368,7 +376,7 @@ impl<'a> View<'a> {
             face = face.push(placed(Pic::square(dot, DOT), 66.0, 65.0));
         }
         let mut name = row![match card {
-            Some(shown) => self.cx.profile_name(shown, 20.0, inks.ink),
+            Some(shown) => crate::profile::body::profile_name(self.cx, shown, 20.0, inks.ink),
             None => text(account.name.as_str())
                 .size(20)
                 .font(BOLD)
@@ -543,18 +551,16 @@ impl<'a> View<'a> {
     }
 }
 
-impl App {
-    /// Whether the popover shows how long a game has run, which the
-    /// minute's clock keeps up to date.
-    pub fn popover_playing(&self) -> bool {
-        self.status.popover.is_some()
-            && self
-                .client
-                .state()
-                .discord_playing
-                .as_ref()
-                .is_some_and(|playing| playing.started_ms.is_some())
-    }
+/// Whether the popover shows how long a game has run, which the
+/// minute's clock keeps up to date.
+pub fn popover_playing(app: &App) -> bool {
+    app.status.popover.is_some()
+        && app
+            .client
+            .state()
+            .discord_playing
+            .as_ref()
+            .is_some_and(|playing| playing.started_ms.is_some())
 }
 
 /// The custom status's dialog.
@@ -578,7 +584,8 @@ impl<'a> View<'a> {
             .cx
             .look
             .dialog_head("Set a custom status", message(Event::Cancel));
-        let emoji = self.cx.emoji_slot(
+        let emoji = crate::dialogs::emoji_slot(
+            self.cx,
             draft.emoji.as_deref(),
             message(Event::Emoji),
             message(Event::RemoveEmoji),

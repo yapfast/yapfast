@@ -113,7 +113,8 @@ impl<'a> super::View<'a> {
         }
         let plated: Element<'a, Message> = match &room.nameplate {
             Some((url, palette)) if pointed || room.selected => {
-                let plate = self.cx.nameplate(url, DM_ROW, pointed, room.selected, 1.0);
+                let plate =
+                    crate::members::nameplate(self.cx, url, DM_ROW, pointed, room.selected, 1.0);
                 crate::widgets::PlateRow::new(
                     face,
                     plate,

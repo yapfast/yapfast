@@ -142,12 +142,10 @@ impl std::fmt::Debug for Event {
 /// Whether this build signs in with Matrix; one without links Discord.
 pub const MATRIX: bool = cfg!(feature = "matrix");
 
-impl App {
-    /// Whether the window shows the workspace: signed in, or previewing.
-    pub fn workspace(&self) -> bool {
-        let state = self.client.state();
-        state.preview || state.account.is_some()
-    }
+/// Whether the window shows the workspace: signed in, or previewing.
+pub fn workspace(app: &App) -> bool {
+    let state = app.client.state();
+    state.preview || state.account.is_some()
 }
 
 impl SignIn {
@@ -361,7 +359,7 @@ fn discord_form<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
     .spacing(8)
     .width(Length::Fill);
     if !state.busy {
-        form = form.push(cx.link_panel());
+        form = form.push(link_panel(cx));
     }
     if let Some(notice) = &state.notice
         && (state.busy || state.discord_link.is_none())
@@ -380,184 +378,182 @@ fn discord_form<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
     form.into()
 }
 
-impl<'a> crate::ctx::Ctx<'a> {
-    /// Discord's linking, phase by phase, as the Slint client's
-    /// `DiscordLinkPanel`: the warning and its buttons (the token's field
-    /// under them once asked for), the code and what to do with it, the
-    /// captcha, the token being checked.
-    pub(crate) fn link_panel(self) -> Element<'a, Message> {
-        let theme = self.look.theme;
-        let form = self.sign_in;
-        let link = self.state.discord_link.as_ref();
-        match link {
-            None | Some(DiscordLink::Failed(_)) => {
-                let warning = container(
-                    row![
-                        self.look.glyph(Icon::TriangleAlert, 18, theme.danger),
+/// Discord's linking, phase by phase, as the Slint client's
+/// `DiscordLinkPanel`: the warning and its buttons (the token's field
+/// under them once asked for), the code and what to do with it, the
+/// captcha, the token being checked.
+pub(crate) fn link_panel<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
+    let form = ctx.sign_in;
+    let link = ctx.state.discord_link.as_ref();
+    match link {
+        None | Some(DiscordLink::Failed(_)) => {
+            let warning = container(
+                row![
+                    ctx.look.glyph(Icon::TriangleAlert, 18, theme.danger),
+                    text(
+                        "Discord doesn't allow apps like Yapfast on personal accounts. \
+                         Linking puts your account at some risk of being suspended."
+                    )
+                    .size(14)
+                    .color(theme.text)
+                    .width(Length::Fill),
+                ]
+                .spacing(10),
+            )
+            .padding(12)
+            .width(Length::Fill)
+            .style({
+                let danger = theme.danger;
+                move |_| container::Style {
+                    background: Some(Color { a: 0.1, ..danger }.into()),
+                    border: Border {
+                        color: Color { a: 0.35, ..danger },
+                        width: 1.0,
+                        radius: 8.0.into(),
+                    },
+                    ..Default::default()
+                }
+            });
+            let mut panel = column![warning].spacing(12).width(Length::Fill);
+            if let Some(DiscordLink::Failed(note)) = link {
+                panel = panel.push(crate::form::error(theme, note.clone()).width(Length::Fill));
+            }
+            let again = link.is_some() && !form.token_open;
+            let mut buttons = row![action(
+                theme,
+                if again { "Try again" } else { "Show the code" },
+                if form.token_open {
+                    Kind::Plain
+                } else {
+                    Kind::Primary
+                },
+                Some(Message::SignIn(Event::ShowCode)),
+            )]
+            .spacing(8);
+            if !form.token_open {
+                buttons = buttons.push(action(
+                    theme,
+                    "Use a token",
+                    Kind::Plain,
+                    Some(Message::SignIn(Event::OpenToken)),
+                ));
+            }
+            panel = panel.push(buttons);
+            if form.token_open {
+                panel = panel.push(
+                    column![
+                        label(theme, "TOKEN"),
+                        row![
+                            field(theme, TOKEN, "Discord token", &form.token, true, true)
+                                .on_input(|text| Message::SignIn(Event::Token(text)))
+                                .on_submit(Message::SignIn(Event::LinkToken)),
+                            action(
+                                theme,
+                                "Link",
+                                Kind::Primary,
+                                (!form.token.is_empty())
+                                    .then_some(Message::SignIn(Event::LinkToken)),
+                            ),
+                        ]
+                        .spacing(8)
+                        .align_y(Alignment::Center),
                         text(
-                            "Discord doesn't allow apps like Yapfast on personal accounts. \
-                             Linking puts your account at some risk of being suspended."
+                            "Anyone with your token can use your account. Paste it only \
+                             here, and never share it."
                         )
-                        .size(14)
-                        .color(theme.text)
+                        .size(13)
+                        .color(theme.secondary)
                         .width(Length::Fill),
                     ]
-                    .spacing(10),
-                )
-                .padding(12)
-                .width(Length::Fill)
-                .style({
-                    let danger = theme.danger;
-                    move |_| container::Style {
-                        background: Some(Color { a: 0.1, ..danger }.into()),
-                        border: Border {
-                            color: Color { a: 0.35, ..danger },
-                            width: 1.0,
-                            radius: 8.0.into(),
-                        },
-                        ..Default::default()
-                    }
-                });
-                let mut panel = column![warning].spacing(12).width(Length::Fill);
-                if let Some(DiscordLink::Failed(note)) = link {
-                    panel = panel.push(crate::form::error(theme, note.clone()).width(Length::Fill));
-                }
-                let again = link.is_some() && !form.token_open;
-                let mut buttons = row![action(
-                    theme,
-                    if again { "Try again" } else { "Show the code" },
-                    if form.token_open {
-                        Kind::Plain
-                    } else {
-                        Kind::Primary
-                    },
-                    Some(Message::SignIn(Event::ShowCode)),
-                )]
-                .spacing(8);
-                if !form.token_open {
-                    buttons = buttons.push(action(
-                        theme,
-                        "Use a token",
-                        Kind::Plain,
-                        Some(Message::SignIn(Event::OpenToken)),
-                    ));
-                }
-                panel = panel.push(buttons);
-                if form.token_open {
-                    panel = panel.push(
-                        column![
-                            label(theme, "TOKEN"),
-                            row![
-                                field(theme, TOKEN, "Discord token", &form.token, true, true)
-                                    .on_input(|text| Message::SignIn(Event::Token(text)))
-                                    .on_submit(Message::SignIn(Event::LinkToken)),
-                                action(
-                                    theme,
-                                    "Link",
-                                    Kind::Primary,
-                                    (!form.token.is_empty())
-                                        .then_some(Message::SignIn(Event::LinkToken)),
-                                ),
-                            ]
-                            .spacing(8)
-                            .align_y(Alignment::Center),
-                            text(
-                                "Anyone with your token can use your account. Paste it only \
-                                 here, and never share it."
-                            )
-                            .size(13)
-                            .color(theme.secondary)
-                            .width(Length::Fill),
-                        ]
-                        .spacing(8),
-                    );
-                }
-                panel.into()
+                    .spacing(8),
+                );
             }
-            Some(DiscordLink::Checking) => text("Checking the token...")
-                .size(15)
-                .color(theme.secondary)
-                .into(),
-            Some(DiscordLink::Captcha(_)) => column![
-                text("Solve the captcha in your browser")
-                    .size(17)
-                    .font(BOLD)
-                    .color(theme.text),
-                text(
-                    "Discord wants to check you're a person before it links your account. \
-                     Yapfast opened the check in your browser; linking finishes once it's \
-                     solved."
-                )
-                .size(14)
-                .color(theme.secondary)
-                .width(Length::Fill),
-                container(action(
-                    theme,
-                    "Open it again",
-                    Kind::Plain,
-                    Some(Message::SignIn(Event::OpenCaptcha)),
-                ))
-                .padding(Padding {
-                    top: 8.0,
-                    ..Padding::ZERO
-                }),
-            ]
-            .spacing(8)
+            panel.into()
+        }
+        Some(DiscordLink::Checking) => text("Checking the token...")
+            .size(15)
+            .color(theme.secondary)
             .into(),
-            Some(DiscordLink::Starting | DiscordLink::Code(_) | DiscordLink::Scanned(_)) => {
-                let scanned = match link {
-                    Some(DiscordLink::Scanned(name)) => Some(name.as_str()),
-                    _ => None,
-                };
-                let code = form.code.as_ref().filter(|_| scanned.is_none());
-                let inside: Element<'_, Message> = match (code, scanned) {
-                    (Some((_, code, side)), _) => Pic::square(code.clone(), *side).into(),
-                    (None, Some(_)) => column![
-                        self.look.glyph(Icon::Check, 40, theme.live),
-                        text("Scanned").size(15).font(BOLD).color(theme.text),
-                    ]
-                    .spacing(8)
-                    .align_x(Alignment::Center)
-                    .into(),
-                    (None, None) => text("Getting a code...").size(14).color(theme.muted).into(),
-                };
-                let ground = if code.is_some() {
-                    Color::WHITE
-                } else {
-                    theme.sunken
-                };
-                let square = container(inside)
-                    .center(184)
-                    .style(move |_| rounded(ground, 12));
-                let (heading, words) = match scanned {
-                    Some(name) => (
-                        "Confirm on your phone".to_owned(),
-                        format!("Linking {name}. Tap Log in on your phone to finish."),
-                    ),
-                    None => (
-                        "Scan it with the Discord app".to_owned(),
-                        "On your phone, open Discord, go to Settings, tap Scan QR Code, and \
-                         point the camera here. A new code replaces this one after a couple of \
-                         minutes."
-                            .to_owned(),
-                    ),
-                };
-                row![
-                    square,
-                    column![
-                        text(heading).size(17).font(BOLD).color(theme.text),
-                        text(words)
-                            .size(14)
-                            .color(theme.secondary)
-                            .width(Length::Fill),
-                    ]
-                    .spacing(8)
-                    .width(Length::Fill)
+        Some(DiscordLink::Captcha(_)) => column![
+            text("Solve the captcha in your browser")
+                .size(17)
+                .font(BOLD)
+                .color(theme.text),
+            text(
+                "Discord wants to check you're a person before it links your account. \
+                 Yapfast opened the check in your browser; linking finishes once it's \
+                 solved."
+            )
+            .size(14)
+            .color(theme.secondary)
+            .width(Length::Fill),
+            container(action(
+                theme,
+                "Open it again",
+                Kind::Plain,
+                Some(Message::SignIn(Event::OpenCaptcha)),
+            ))
+            .padding(Padding {
+                top: 8.0,
+                ..Padding::ZERO
+            }),
+        ]
+        .spacing(8)
+        .into(),
+        Some(DiscordLink::Starting | DiscordLink::Code(_) | DiscordLink::Scanned(_)) => {
+            let scanned = match link {
+                Some(DiscordLink::Scanned(name)) => Some(name.as_str()),
+                _ => None,
+            };
+            let code = form.code.as_ref().filter(|_| scanned.is_none());
+            let inside: Element<'_, Message> = match (code, scanned) {
+                (Some((_, code, side)), _) => Pic::square(code.clone(), *side).into(),
+                (None, Some(_)) => column![
+                    ctx.look.glyph(Icon::Check, 40, theme.live),
+                    text("Scanned").size(15).font(BOLD).color(theme.text),
                 ]
-                .spacing(20)
-                .align_y(Alignment::Center)
-                .into()
-            }
+                .spacing(8)
+                .align_x(Alignment::Center)
+                .into(),
+                (None, None) => text("Getting a code...").size(14).color(theme.muted).into(),
+            };
+            let ground = if code.is_some() {
+                Color::WHITE
+            } else {
+                theme.sunken
+            };
+            let square = container(inside)
+                .center(184)
+                .style(move |_| rounded(ground, 12));
+            let (heading, words) = match scanned {
+                Some(name) => (
+                    "Confirm on your phone".to_owned(),
+                    format!("Linking {name}. Tap Log in on your phone to finish."),
+                ),
+                None => (
+                    "Scan it with the Discord app".to_owned(),
+                    "On your phone, open Discord, go to Settings, tap Scan QR Code, and \
+                     point the camera here. A new code replaces this one after a couple of \
+                     minutes."
+                        .to_owned(),
+                ),
+            };
+            row![
+                square,
+                column![
+                    text(heading).size(17).font(BOLD).color(theme.text),
+                    text(words)
+                        .size(14)
+                        .color(theme.secondary)
+                        .width(Length::Fill),
+                ]
+                .spacing(8)
+                .width(Length::Fill)
+            ]
+            .spacing(20)
+            .align_y(Alignment::Center)
+            .into()
         }
     }
 }

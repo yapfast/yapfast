@@ -1,7 +1,7 @@
 //! A profile's effect and frame, as the Slint client's `ProfileEffect` and
 //! `ProfileFrameLayer`: the effect lies over the card, its still at rest
 //! and its layers while the pointer is on the card and pictures play
-//! ([`App::plays`]), each layer from its start for its duration and again
+//! ([`pictures::plays`]), each layer from its start for its duration and again
 //! after its delay when it loops, until the last that doesn't loop ends;
 //! the frame's still layers lie round the card and past its sides
 //! ([`Framed`]). Neither costs anything where the profile has none, and
@@ -195,183 +195,183 @@ impl Profiles {
     }
 }
 
-impl<'a> crate::ctx::Ctx<'a> {
-    /// The card `card`, `width` wide, with its effect over it and its frame
-    /// round it, as `mode` shows them.
-    pub(super) fn dressed(
-        self,
-        shown: &'a Shown,
-        mode: Mode,
-        width: f32,
-        card: Element<'a, Message>,
-    ) -> Element<'a, Message> {
-        let since = match mode {
-            Mode::Docked => self.profiles.effect.panel,
-            Mode::Card | Mode::Side => self.profiles.effect.card,
-        };
-        let card = match self.effect_view(shown, width, since) {
-            Some(effect) => stack![card, effect].into(),
-            None => card,
-        };
-        let framed = match mode {
-            Mode::Card => true,
-            Mode::Side => self.look.window.height > FRAME_ROOM,
-            Mode::Docked => false,
-        };
-        match framed.then(|| self.frame_art(shown, mode, width)) {
-            Some(layers) if !layers.is_empty() => {
-                let (side, shift) = if mode.large() {
-                    (FRAME_SIDE_LARGE, FRAME_TOP_SHIFT)
-                } else {
-                    (FRAME_SIDE, 0.0)
-                };
-                Framed::new(card, layers, side, shift).into()
-            }
-            _ => card,
+/// The card `card`, `width` wide, with its effect over it and its frame
+/// round it, as `mode` shows them.
+pub(super) fn dressed<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    shown: &'a Shown,
+    mode: Mode,
+    width: f32,
+    card: Element<'a, Message>,
+) -> Element<'a, Message> {
+    let since = match mode {
+        Mode::Docked => ctx.profiles.effect.panel,
+        Mode::Card | Mode::Side => ctx.profiles.effect.card,
+    };
+    let card = match effect_view(ctx, shown, width, since) {
+        Some(effect) => stack![card, effect].into(),
+        None => card,
+    };
+    let framed = match mode {
+        Mode::Card => true,
+        Mode::Side => ctx.look.window.height > FRAME_ROOM,
+        Mode::Docked => false,
+    };
+    match framed.then(|| frame_art(ctx, shown, mode, width)) {
+        Some(layers) if !layers.is_empty() => {
+            let (side, shift) = if mode.large() {
+                (FRAME_SIDE_LARGE, FRAME_TOP_SHIFT)
+            } else {
+                (FRAME_SIDE, 0.0)
+            };
+            Framed::new(card, layers, side, shift).into()
         }
+        _ => card,
     }
+}
 
-    /// The effect over a card `width` wide: its still at rest, its layers
-    /// showing `since` it began to play while pictures play and until it
-    /// has played out.
-    fn effect_view(
-        self,
-        shown: &Shown,
-        width: f32,
-        since: Option<Instant>,
-    ) -> Option<Element<'a, Message>> {
-        let effect = worn_effect(self.state, shown).filter(|effect| !effect.layers.is_empty())?;
-        let pictures = &self.state.pictures;
-        let time = since.map(|since| since.elapsed().as_millis() as u64);
-        let playing = self.plays && time.is_some_and(|time| !finished(effect, time));
-        let tall = |url: &str| {
-            let picture = pictures.get(url)?;
-            (picture.width > 0)
-                .then(|| (width * picture.height as f32 / picture.width as f32).round())
-        };
-        let mut layers = stack![Space::new().width(Length::Fill).height(Length::Fill)];
-        if playing {
-            let time = time.unwrap_or_default();
-            for layer in effect
-                .layers
-                .iter()
-                .filter(|layer| layer_shown(layer, time))
-            {
-                let Some(height) = tall(&layer.src) else {
-                    continue;
-                };
-                let at = Rectangle::new(
-                    iced::Point::new(layer.x as f32, layer.y as f32),
-                    Size::new(width, height),
-                );
-                let size = Size::new(width, (at.y + height).max(1.0));
-                if let Some(moving) = self.moving(&layer.src, size, at, false) {
-                    layers = layers.push(moving);
-                } else if let Some(still) =
-                    self.picture(&layer.src, width as u32, height as u32, false)
-                {
-                    layers = layers.push(Pic::new(still, size).at(at));
-                }
-            }
-        } else {
-            let url = effect.still.as_deref()?;
-            let height = tall(url)?;
-            let still = self.picture(url, width as u32, height as u32, false)?;
-            layers = layers.push(Pic::new(still, Size::new(width, height)));
-        }
-        Some(
-            container(layers)
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .clip(true)
-                .into(),
-        )
-    }
-
-    /// The editor's tile of the effect worn: its still over a little
-    /// card, as Discord's tile shows it (a light panel, the name's and
-    /// bio's bars at the lower left), `size` big.
-    pub(super) fn effect_tile(self, shown: &Shown, size: Size) -> Option<Element<'a, Message>> {
-        let effect = worn_effect(self.state, shown)?;
-        if effect.still.is_none() && effect.layers.is_empty() {
-            return None;
-        }
-        let bar = |x: f32, y: f32, width: f32, height: f32, radius: f32, colour: u32| {
-            crate::controls::placed(
-                container(Space::new())
-                    .width(size.width * width)
-                    .height(size.height * height)
-                    .style(move |_| crate::style::rounded(crate::style::hex(colour), radius)),
-                size.width * x,
-                size.height * y,
-            )
-        };
-        let mut tile = stack![
-            Space::new().width(size.width).height(size.height),
-            bar(0.2, 0.12, 0.6, 0.38, 2.0, 0x8f8f93),
-            bar(0.19, 0.81, 0.28, 0.06, 1.0, 0x4d4e63),
-            bar(0.19, 0.9, 0.26, 0.07, 1.0, 0x414255),
-        ];
-        let still = effect.still.as_deref().and_then(|url| {
-            let picture = self.state.pictures.get(url)?;
-            let height = (size.width * picture.height as f32 / picture.width.max(1) as f32).round();
-            let handle = self.picture(url, size.width as u32, height as u32, false)?;
-            Some(Pic::new(handle, Size::new(size.width, height)))
-        });
-        if let Some(still) = still {
-            tile = tile.push(container(still).height(size.height).clip(true));
-        }
-        Some(tile.into())
-    }
-
-    /// The frame's layers at the width it's drawn, `side` past each of the
-    /// card's sides; the full profile leaves out the staple at the foot,
-    /// as Discord's does.
-    fn frame_art(self, shown: &Shown, mode: Mode, width: f32) -> Vec<FrameLayer> {
-        let state = self.state;
-        let profile = shown.look.profile();
-        let Some(frame) = state.cosmetics.frame(Some(&profile.frame)) else {
-            return Vec::new();
-        };
-        let side = if mode.large() {
-            FRAME_SIDE_LARGE
-        } else {
-            FRAME_SIDE
-        };
-        let across = width + 2.0 * side;
-        frame
+/// The effect over a card `width` wide: its still at rest, its layers
+/// showing `since` it began to play while pictures play and until it
+/// has played out.
+fn effect_view<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    shown: &Shown,
+    width: f32,
+    since: Option<Instant>,
+) -> Option<Element<'a, Message>> {
+    let effect = worn_effect(ctx.state, shown).filter(|effect| !effect.layers.is_empty())?;
+    let pictures = &ctx.state.pictures;
+    let time = since.map(|since| since.elapsed().as_millis() as u64);
+    let playing = ctx.plays && time.is_some_and(|time| !finished(effect, time));
+    let tall = |url: &str| {
+        let picture = pictures.get(url)?;
+        (picture.width > 0).then(|| (width * picture.height as f32 / picture.width as f32).round())
+    };
+    let mut layers = stack![Space::new().width(Length::Fill).height(Length::Fill)];
+    if playing {
+        let time = time.unwrap_or_default();
+        for layer in effect
+            .layers
             .iter()
-            .filter_map(|layer| {
-                let kind = match layer.kind.as_str() {
-                    "staple" => FrameKind::Staple,
-                    "rail" => FrameKind::Rail,
-                    "border" => FrameKind::Border,
-                    _ => return None,
-                };
-                let anchor = match layer.anchor.as_str() {
-                    "bottom" => FrameAnchor::Bottom,
-                    "center" => FrameAnchor::Center,
-                    _ => FrameAnchor::Top,
-                };
-                if mode.large() && kind == FrameKind::Staple && anchor == FrameAnchor::Bottom {
-                    return None;
-                }
-                let picture = state.pictures.get(&layer.src)?;
-                if picture.width == 0 {
-                    return None;
-                }
-                let height = (across * picture.height as f32 / picture.width as f32).round();
-                let handle = self.picture(&layer.src, across as u32, height as u32, false)?;
-                Some(FrameLayer {
-                    picture: handle,
-                    height,
-                    kind,
-                    anchor,
-                    front: layer.front,
-                })
-            })
-            .collect()
+            .filter(|layer| layer_shown(layer, time))
+        {
+            let Some(height) = tall(&layer.src) else {
+                continue;
+            };
+            let at = Rectangle::new(
+                iced::Point::new(layer.x as f32, layer.y as f32),
+                Size::new(width, height),
+            );
+            let size = Size::new(width, (at.y + height).max(1.0));
+            if let Some(moving) = ctx.moving(&layer.src, size, at, false) {
+                layers = layers.push(moving);
+            } else if let Some(still) = ctx.picture(&layer.src, width as u32, height as u32, false)
+            {
+                layers = layers.push(Pic::new(still, size).at(at));
+            }
+        }
+    } else {
+        let url = effect.still.as_deref()?;
+        let height = tall(url)?;
+        let still = ctx.picture(url, width as u32, height as u32, false)?;
+        layers = layers.push(Pic::new(still, Size::new(width, height)));
     }
+    Some(
+        container(layers)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .clip(true)
+            .into(),
+    )
+}
+
+/// The editor's tile of the effect worn: its still over a little
+/// card, as Discord's tile shows it (a light panel, the name's and
+/// bio's bars at the lower left), `size` big.
+pub(super) fn effect_tile<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    shown: &Shown,
+    size: Size,
+) -> Option<Element<'a, Message>> {
+    let effect = worn_effect(ctx.state, shown)?;
+    if effect.still.is_none() && effect.layers.is_empty() {
+        return None;
+    }
+    let bar = |x: f32, y: f32, width: f32, height: f32, radius: f32, colour: u32| {
+        crate::controls::placed(
+            container(Space::new())
+                .width(size.width * width)
+                .height(size.height * height)
+                .style(move |_| crate::style::rounded(crate::style::hex(colour), radius)),
+            size.width * x,
+            size.height * y,
+        )
+    };
+    let mut tile = stack![
+        Space::new().width(size.width).height(size.height),
+        bar(0.2, 0.12, 0.6, 0.38, 2.0, 0x8f8f93),
+        bar(0.19, 0.81, 0.28, 0.06, 1.0, 0x4d4e63),
+        bar(0.19, 0.9, 0.26, 0.07, 1.0, 0x414255),
+    ];
+    let still = effect.still.as_deref().and_then(|url| {
+        let picture = ctx.state.pictures.get(url)?;
+        let height = (size.width * picture.height as f32 / picture.width.max(1) as f32).round();
+        let handle = ctx.picture(url, size.width as u32, height as u32, false)?;
+        Some(Pic::new(handle, Size::new(size.width, height)))
+    });
+    if let Some(still) = still {
+        tile = tile.push(container(still).height(size.height).clip(true));
+    }
+    Some(tile.into())
+}
+
+/// The frame's layers at the width it's drawn, `side` past each of the
+/// card's sides; the full profile leaves out the staple at the foot,
+/// as Discord's does.
+fn frame_art(ctx: crate::ctx::Ctx<'_>, shown: &Shown, mode: Mode, width: f32) -> Vec<FrameLayer> {
+    let state = ctx.state;
+    let profile = shown.look.profile();
+    let Some(frame) = state.cosmetics.frame(Some(&profile.frame)) else {
+        return Vec::new();
+    };
+    let side = if mode.large() {
+        FRAME_SIDE_LARGE
+    } else {
+        FRAME_SIDE
+    };
+    let across = width + 2.0 * side;
+    frame
+        .iter()
+        .filter_map(|layer| {
+            let kind = match layer.kind.as_str() {
+                "staple" => FrameKind::Staple,
+                "rail" => FrameKind::Rail,
+                "border" => FrameKind::Border,
+                _ => return None,
+            };
+            let anchor = match layer.anchor.as_str() {
+                "bottom" => FrameAnchor::Bottom,
+                "center" => FrameAnchor::Center,
+                _ => FrameAnchor::Top,
+            };
+            if mode.large() && kind == FrameKind::Staple && anchor == FrameAnchor::Bottom {
+                return None;
+            }
+            let picture = state.pictures.get(&layer.src)?;
+            if picture.width == 0 {
+                return None;
+            }
+            let height = (across * picture.height as f32 / picture.width as f32).round();
+            let handle = ctx.picture(&layer.src, across as u32, height as u32, false)?;
+            Some(FrameLayer {
+                picture: handle,
+                height,
+                kind,
+                anchor,
+                front: layer.front,
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]

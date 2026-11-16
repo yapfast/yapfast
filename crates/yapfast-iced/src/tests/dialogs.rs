@@ -193,7 +193,10 @@ fn the_account_popover_shows_the_accounts_own_card_while_open() {
     assert!(shows(&app, "YAP"));
     assert!(shows(&app, "Playing") && shows(&app, "Factorio"));
     assert!(shows(&app, "2 hr 5 min") || shows(&app, "2 hr 4 min"));
-    assert!(app.popover_playing(), "its time kept up to the minute");
+    assert!(
+        crate::status::popover_playing(&app),
+        "its time kept up to the minute"
+    );
     press(&mut app, key::Named::Escape);
     assert!(app.status.popover.is_none());
     assert!(app.profiles.account.is_none(), "let go as it closes");

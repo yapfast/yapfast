@@ -156,101 +156,98 @@ pub struct ActivityCard {
     pub live: bool,
 }
 
-impl App {
-    /// How many of the Activity panel's cards show.
-    /// The Activity panel's height, which the list starts below.
-    pub fn activity_height(&self) -> f32 {
-        self.roster
-            .activity_height(self.client.state(), self.members_shown())
-    }
+/// How many of the Activity panel's cards show.
+/// The Activity panel's height, which the list starts below.
+pub fn activity_height(app: &App) -> f32 {
+    app.roster
+        .activity_height(app.client.state(), crate::header::members_shown(app))
+}
 
-    /// What's done in the Activity panel.
-    pub fn member_activity(&mut self, event: Event) -> Task<Message> {
-        match event {
-            Event::Toggle => {
-                if self.client.state().activity_cards_hidden {
-                    return self.hide_activity(false);
-                }
-                self.roster.activity_open = !self.roster.activity_open;
-                self.ask()
+/// What's done in the Activity panel.
+pub fn member_activity(app: &mut App, event: Event) -> Task<Message> {
+    match event {
+        Event::Toggle => {
+            if app.client.state().activity_cards_hidden {
+                return hide_activity(app, false);
             }
-            Event::Hide => {
-                let hidden = !self.client.state().activity_cards_hidden;
-                self.hide_activity(hidden)
-            }
-            Event::Open(id) => {
-                let Some((index, card)) = self
-                    .roster
-                    .activity_cards
-                    .iter()
-                    .enumerate()
-                    .find(|(_, card)| card.id == id)
-                else {
-                    return Task::none();
-                };
-                let top =
-                    header::HEIGHT + 1.0 + PANEL_TOP + ACTIVITY_HEAD + index as f32 * CARD_PITCH;
-                let at = Point::new(self.window.width - WIDTH - 8.0 - profile::WIDTH, top - 16.0);
-                self.open_card(card.id.clone(), at)
-            }
+            app.roster.activity_open = !app.roster.activity_open;
+            app.ask()
+        }
+        Event::Hide => {
+            let hidden = !app.client.state().activity_cards_hidden;
+            hide_activity(app, hidden)
+        }
+        Event::Open(id) => {
+            let Some((index, card)) = app
+                .roster
+                .activity_cards
+                .iter()
+                .enumerate()
+                .find(|(_, card)| card.id == id)
+            else {
+                return Task::none();
+            };
+            let top = header::HEIGHT + 1.0 + PANEL_TOP + ACTIVITY_HEAD + index as f32 * CARD_PITCH;
+            let at = Point::new(app.window.width - WIDTH - 8.0 - profile::WIDTH, top - 16.0);
+            app.open_card(card.id.clone(), at)
         }
     }
+}
 
-    /// Hides the Activity panel's cards or shows them, and keeps it.
-    fn hide_activity(&mut self, hidden: bool) -> Task<Message> {
-        crate::layout::store(self.client.root(), "activity_cards_hidden", hidden);
-        self.client.dispatch(Action::ActivityCardsHidden(hidden));
-        Task::batch([self.sync(), self.ask()])
-    }
+/// Hides the Activity panel's cards or shows them, and keeps it.
+fn hide_activity(app: &mut App, hidden: bool) -> Task<Message> {
+    crate::layout::store(app.client.root(), "activity_cards_hidden", hidden);
+    app.client.dispatch(Action::ActivityCardsHidden(hidden));
+    Task::batch([app.sync(), app.ask()])
+}
 
-    /// Makes the Activity panel's cards again from the core's feed, keeping
-    /// them when they come out the same.
-    pub fn make_activity_cards(&mut self) {
-        let state = self.client.state();
-        let cards = match (&state.selected, &self.roster.members) {
-            (Some(room), Some(members)) if self.server => {
-                activity_cards(state, room, members, yapfast_core::clock::now_ms())
-            }
-            _ => Vec::new(),
-        };
-        if cards != self.roster.activity_cards {
-            self.roster.activity_cards = cards;
+/// Makes the Activity panel's cards again from the core's feed, keeping
+/// them when they come out the same.
+pub fn make_activity_cards(app: &mut App) {
+    let state = app.client.state();
+    let cards = match (&state.selected, &app.roster.members) {
+        (Some(room), Some(members)) if app.server => {
+            activity_cards(state, room, members, yapfast_core::clock::now_ms())
         }
+        _ => Vec::new(),
+    };
+    if cards != app.roster.activity_cards {
+        app.roster.activity_cards = cards;
     }
+}
 
-    /// A member's line was clicked: their card opens beside the list, its
-    /// top 16 px above the row's.
-    pub fn open_member(&mut self, id: &str) -> Task<Message> {
-        // Found by id: the lines may have moved since the click.
-        let Some((index, look)) = self
-            .roster
-            .lines
-            .iter()
-            .enumerate()
-            .find_map(|(index, line)| match line {
-                MemberLine::Member(look) if look.id == id => Some((index, look)),
-                _ => None,
-            })
-        else {
-            return Task::none();
-        };
-        let top = header::HEIGHT + 1.0 + self.activity_height() + TOP + index as f32 * PITCH
-            - self.roster.scroll.offset;
-        let at = Point::new(self.window.width - WIDTH - 8.0 - profile::WIDTH, top - 16.0);
-        let user = look.id.clone();
-        self.open_card(user, at)
-    }
+/// A member's line was clicked: their card opens beside the list, its
+/// top 16 px above the row's.
+pub fn open_member(app: &mut App, id: &str) -> Task<Message> {
+    // Found by id: the lines may have moved since the click.
+    let Some((index, look)) = app
+        .roster
+        .lines
+        .iter()
+        .enumerate()
+        .find_map(|(index, line)| match line {
+            MemberLine::Member(look) if look.id == id => Some((index, look)),
+            _ => None,
+        })
+    else {
+        return Task::none();
+    };
+    let top = header::HEIGHT + 1.0 + activity_height(app) + TOP + index as f32 * PITCH
+        - app.roster.scroll.offset;
+    let at = Point::new(app.window.width - WIDTH - 8.0 - profile::WIDTH, top - 16.0);
+    let user = look.id.clone();
+    app.open_card(user, at)
+}
 
-    /// The pictures the Activity panel's cards show.
-    pub fn activity_pictures(&self) -> Vec<&str> {
-        self.roster
-            .activity_cards
-            .iter()
-            .take(self.roster.cards_shown(self.client.state()))
-            .flat_map(|card| [card.avatar.as_deref(), card.thumb.as_deref()])
-            .flatten()
-            .collect()
-    }
+/// The pictures the Activity panel's cards show.
+pub fn activity_pictures(app: &App) -> Vec<&str> {
+    app.roster
+        .activity_cards
+        .iter()
+        .take(app.roster.cards_shown(app.client.state()))
+        .flat_map(|card| [card.avatar.as_deref(), card.thumb.as_deref()])
+        .flatten()
+        .collect()
 }
 
 /// How far a nameplate's palette reaches over its row: further pointed at,
@@ -383,80 +380,81 @@ pub fn finished_ago(at_ms: u64, now_ms: u64) -> String {
     }
 }
 
-impl<'a> crate::ctx::Ctx<'a> {
-    /// The account's own nameplate behind its card or a tile `height`
-    /// tall, with its palette's colour for the theme, as the Slint client's
-    /// `Nameplate` with `account`: .4 strong, .6 when `hot`, playing when
-    /// `play`. None without one, or with Show nameplates off.
-    pub fn account_plate(
-        self,
-        height: f32,
-        hot: bool,
-        play: bool,
-    ) -> Option<(Element<'a, Message>, Option<Color>)> {
-        let state = self.state;
-        let plate = state
-            .account_nameplate
-            .as_ref()
-            .filter(|_| !state.hide_nameplates)?;
-        let picture =
-            self.plate_picture(&plate.picture, height, if hot { 0.6 } else { 0.4 }, play)?;
-        let palette = plate
-            .colors
-            .map(|[dark, light]| hex(if self.look.theme.dark { dark } else { light }));
-        Some((picture, palette))
-    }
-
-    /// A nameplate's picture at a row's right end, `height` tall, at
-    /// `strength`, its moving picture asked for and played when `play`.
-    fn plate_picture(
-        self,
-        url: &str,
-        height: f32,
-        strength: f32,
-        play: bool,
-    ) -> Option<Element<'a, Message>> {
-        let picture = self.state.pictures.get(url)?;
-        let width = (height * picture.width as f32 / picture.height.max(1) as f32).round();
-        let size = Size::new(width, height);
-        let moving = play
-            .then(|| {
-                self.moving(
-                    &looks::animated_url(url),
-                    size,
-                    Rectangle::with_size(size),
-                    false,
-                )
-            })
-            .flatten();
-        Some(match moving {
-            Some(moving) => moving.radius(8.0).opacity(strength).into(),
-            None => Element::from(
-                Pic::new(
-                    self.fit(picture, size.width as u32, size.height as u32, false)?,
-                    size,
-                )
-                .radius(8.0)
-                .opacity(strength),
-            ),
-        })
-    }
+/// The account's own nameplate behind its card or a tile `height`
+/// tall, with its palette's colour for the theme, as the Slint client's
+/// `Nameplate` with `account`: .4 strong, .6 when `hot`, playing when
+/// `play`. None without one, or with Show nameplates off.
+pub fn account_plate<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    height: f32,
+    hot: bool,
+    play: bool,
+) -> Option<(Element<'a, Message>, Option<Color>)> {
+    let state = ctx.state;
+    let plate = state
+        .account_nameplate
+        .as_ref()
+        .filter(|_| !state.hide_nameplates)?;
+    let picture = plate_picture(
+        ctx,
+        &plate.picture,
+        height,
+        if hot { 0.6 } else { 0.4 },
+        play,
+    )?;
+    let palette = plate
+        .colors
+        .map(|[dark, light]| hex(if ctx.look.theme.dark { dark } else { light }));
+    Some((picture, palette))
 }
 
-impl<'a> crate::ctx::Ctx<'a> {
-    /// A nameplate's picture behind a row `height` tall, playing while the
-    /// row is pointed at, stronger pointed at or selected.
-    pub fn nameplate(
-        self,
-        url: &str,
-        height: f32,
-        pointed: bool,
-        selected: bool,
-        opacity: f32,
-    ) -> Option<Element<'a, Message>> {
-        let strength = if pointed || selected { 0.9 } else { 0.6 } * opacity;
-        self.plate_picture(url, height, strength, pointed)
-    }
+/// A nameplate's picture at a row's right end, `height` tall, at
+/// `strength`, its moving picture asked for and played when `play`.
+fn plate_picture<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    url: &str,
+    height: f32,
+    strength: f32,
+    play: bool,
+) -> Option<Element<'a, Message>> {
+    let picture = ctx.state.pictures.get(url)?;
+    let width = (height * picture.width as f32 / picture.height.max(1) as f32).round();
+    let size = Size::new(width, height);
+    let moving = play
+        .then(|| {
+            ctx.moving(
+                &looks::animated_url(url),
+                size,
+                Rectangle::with_size(size),
+                false,
+            )
+        })
+        .flatten();
+    Some(match moving {
+        Some(moving) => moving.radius(8.0).opacity(strength).into(),
+        None => Element::from(
+            Pic::new(
+                ctx.fit(picture, size.width as u32, size.height as u32, false)?,
+                size,
+            )
+            .radius(8.0)
+            .opacity(strength),
+        ),
+    })
+}
+
+/// A nameplate's picture behind a row `height` tall, playing while the
+/// row is pointed at, stronger pointed at or selected.
+pub fn nameplate<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    url: &str,
+    height: f32,
+    pointed: bool,
+    selected: bool,
+    opacity: f32,
+) -> Option<Element<'a, Message>> {
+    let strength = if pointed || selected { 0.9 } else { 0.6 } * opacity;
+    plate_picture(ctx, url, height, strength, pointed)
 }
 
 impl<'a> View<'a> {
@@ -627,7 +625,7 @@ impl<'a> View<'a> {
         let plate = look
             .nameplate
             .as_ref()
-            .and_then(|(url, _)| self.cx.nameplate(url, ROW, pointed, selected, opacity));
+            .and_then(|(url, _)| nameplate(self.cx, url, ROW, pointed, selected, opacity));
         let content = self
             .cx
             .person(person)

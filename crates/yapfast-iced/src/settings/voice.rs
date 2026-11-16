@@ -605,11 +605,14 @@ impl<'a> Page<'a> {
         // click on a sound choosing it.
         let board = (nitro && open == Some(Drop::Start)).then(|| {
             let groups = catalog.map_or(&[][..], |groups| &groups[..]);
-            let board =
-                self.cx
-                    .sound_board("Choose an entrance sound", groups, None, false, |sound| {
-                        voice_message(Event::Entrance(Some(sound.id.clone())))
-                    });
+            let board = crate::call::popups::soundboard::sound_board(
+                self.cx,
+                "Choose an entrance sound",
+                groups,
+                None,
+                false,
+                |sound| voice_message(Event::Entrance(Some(sound.id.clone()))),
+            );
             container(board)
                 .style(crate::controls::menu_panel(theme))
                 .into()
@@ -869,23 +872,20 @@ fn entrance_servers(state: &AppState) -> Vec<Option<String>> {
         .collect()
 }
 
-impl App {
-    /// The entrance sounds' pictures, while Choose's soundboard is open.
-    pub fn entrance_pictures(&self) -> Vec<String> {
-        let open = self.win.settings.get().is_some_and(|settings| {
-            settings.open == Some(Drop::Start)
-                && settings.section() == crate::settings::Section::Voice
-        });
-        if !open {
-            return Vec::new();
-        }
-        self.client
-            .state()
-            .sound_catalog
-            .iter()
-            .flat_map(|groups| groups.iter())
-            .flat_map(|group| &group.sounds)
-            .filter_map(|sound| sound.picture.clone())
-            .collect()
+/// The entrance sounds' pictures, while Choose's soundboard is open.
+pub fn entrance_pictures(app: &App) -> Vec<String> {
+    let open = app.win.settings.get().is_some_and(|settings| {
+        settings.open == Some(Drop::Start) && settings.section() == crate::settings::Section::Voice
+    });
+    if !open {
+        return Vec::new();
     }
+    app.client
+        .state()
+        .sound_catalog
+        .iter()
+        .flat_map(|groups| groups.iter())
+        .flat_map(|group| &group.sounds)
+        .filter_map(|sound| sound.picture.clone())
+        .collect()
 }

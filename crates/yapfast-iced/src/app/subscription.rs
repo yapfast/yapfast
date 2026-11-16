@@ -65,14 +65,14 @@ impl App {
                     .map(|_| Message::Updates(crate::updates::Event::Due)),
             );
         }
-        if self.updates_installing() {
+        if crate::updates::updates_installing(self) {
             subscriptions.push(iced::time::every(Duration::from_millis(200)).map(|_| {
                 Message::Shell(crate::shell::Event::Heard(crate::desktop::Heard::Updates))
             }));
         }
         // Ctrl+K opens the quick switcher wherever the keys are, as the
         // Slint client's does.
-        if self.workspace() {
+        if crate::signin::workspace(self) {
             subscriptions.push(iced::event::listen_with(|event, _, _| match event {
                 iced::Event::Keyboard(keyboard::Event::KeyPressed {
                     key: keyboard::Key::Character(c),
@@ -110,15 +110,15 @@ impl App {
         }
         // The connection's details, copied out each second while they or
         // the signal's tooltip show; the call's clock moves by itself.
-        if shown && self.call.since.is_some() && self.link_shown() {
+        if shown && self.call.since.is_some() && crate::call::details::link_shown(self) {
             subscriptions.push(
                 iced::time::every(Duration::from_secs(1))
                     .map(|_| Message::Call(crate::call::Event::Second)),
             );
         }
-        subscriptions.extend(self.arrange_subscription());
-        subscriptions.extend(self.follow_subscription());
-        subscriptions.push(self.away_subscription());
+        subscriptions.extend(crate::arrange::arrange_subscription(self));
+        subscriptions.extend(crate::uploads::follow_subscription(self));
+        subscriptions.push(crate::away::away_subscription(self));
         subscriptions.extend(crate::keybinds::window_talk_keys());
         if self.call.grab.is_some() {
             subscriptions.push(iced::event::listen_with(|event, _, _| match event {

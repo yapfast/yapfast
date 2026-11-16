@@ -228,103 +228,100 @@ pub enum Event {
     CreateIn(String),
 }
 
-impl App {
-    /// What's done in the sidebar.
-    pub fn sidebar_event(&mut self, event: Event) -> Task<Message> {
-        match event {
-            Event::Scrolled(viewport) => {
-                self.sidebar.scroll = Scroll::of(viewport);
-                return self.ask();
-            }
-            Event::Point(id, entered) => {
-                if !entered {
-                    self.sidebar.voice_card_off = false;
-                }
-                crate::app::point(&mut self.pointed.side, id, entered);
-                // A DM's nameplate and moving decoration come as it's
-                // pointed at.
-                return self.ask();
-            }
-            Event::Select(id) => self.client.dispatch(Action::SelectRoom(id)),
-            // As the Slint client: the core's `SelectRoom` joins a voice
-            // channel's call first, and shows it once in it.
-            Event::Voice(id) => {
-                self.sidebar.voice_card_off = true;
-                self.client.dispatch(Action::SelectRoom(id));
-            }
-            Event::Toggle(fold) => {
-                self.lists_shown = None;
-                let Navigation::Server(server) = self.client.state().navigation.clone() else {
-                    return Task::none();
-                };
-                let collapsed = self.layout.collapsed.entry(server.clone()).or_default();
-                if !collapsed.remove(&fold) {
-                    collapsed.insert(fold);
-                }
-                if collapsed.is_empty() {
-                    self.layout.collapsed.remove(&server);
-                }
-                crate::layout::store(self.client.root(), "collapsed", &self.layout.collapsed);
-            }
-            Event::Filter(filter) => {
-                self.lists_shown = None;
-                self.sidebar.filter = filter;
-            }
-            Event::Friends => self
-                .client
-                .dispatch(Action::OpenDmScreen(DmScreen::Friends)),
-            Event::Requests => self
-                .client
-                .dispatch(Action::OpenDmScreen(DmScreen::Requests)),
-            Event::Browse => self.client.dispatch(Action::BrowseChannels),
-            Event::Header => {
-                let Some(server) = self.sidebar.header.server.clone() else {
-                    return Task::none();
-                };
-                if self.win.menu.as_ref().is_some_and(|menu| menu.header) {
-                    self.win.menu = None;
-                    return Task::none();
-                }
-                let at = Point::new(crate::rail::WIDTH + INSET, HEADER - 4.0);
-                return self.open_place_menu(&server, at, true);
-            }
-            Event::Invite => {
-                let Some(server) = self.sidebar.header.server.clone() else {
-                    return Task::none();
-                };
-                self.client.dispatch(Action::OpenInvite(server));
-                return Task::batch([
-                    self.sync(),
-                    iced::widget::operation::focus(crate::app::NOBODY),
-                ]);
-            }
-            Event::Events => {
-                let Some(server) = self.sidebar.header.server.clone() else {
-                    return Task::none();
-                };
-                let top = self.sidebar.top_height() - EVENTS_ROW;
-                let at = Point::new(crate::rail::WIDTH + INSET, top + EVENTS_ROW - INSET);
-                return self.open_events_menu(&server, at);
-            }
-            Event::Menu(id, at) => {
-                self.sidebar.voice_card_off = true;
-                return self.open_place_menu(&id, at, false);
-            }
-            Event::Wave(user) => self.client.dispatch(Action::MessageFromProfile {
-                user,
-                text: "\u{1F44B}".to_owned(),
-            }),
-            Event::OpenChat(room) => self.client.dispatch(Action::OpenChat(room)),
-            Event::VoiceChat(chat) => self.client.dispatch(Action::ShowVoiceChat(chat)),
-            Event::CreateIn(category) => {
-                return self.choose_place(
-                    category,
-                    yapfast_core::application::MenuChoice::CreateChannel,
-                );
-            }
+/// What's done in the sidebar.
+pub fn update(app: &mut App, event: Event) -> Task<Message> {
+    match event {
+        Event::Scrolled(viewport) => {
+            app.sidebar.scroll = Scroll::of(viewport);
+            return app.ask();
         }
-        self.sync()
+        Event::Point(id, entered) => {
+            if !entered {
+                app.sidebar.voice_card_off = false;
+            }
+            crate::app::point(&mut app.pointed.side, id, entered);
+            // A DM's nameplate and moving decoration come as it's
+            // pointed at.
+            return app.ask();
+        }
+        Event::Select(id) => app.client.dispatch(Action::SelectRoom(id)),
+        // As the Slint client: the core's `SelectRoom` joins a voice
+        // channel's call first, and shows it once in it.
+        Event::Voice(id) => {
+            app.sidebar.voice_card_off = true;
+            app.client.dispatch(Action::SelectRoom(id));
+        }
+        Event::Toggle(fold) => {
+            app.lists_shown = None;
+            let Navigation::Server(server) = app.client.state().navigation.clone() else {
+                return Task::none();
+            };
+            let collapsed = app.layout.collapsed.entry(server.clone()).or_default();
+            if !collapsed.remove(&fold) {
+                collapsed.insert(fold);
+            }
+            if collapsed.is_empty() {
+                app.layout.collapsed.remove(&server);
+            }
+            crate::layout::store(app.client.root(), "collapsed", &app.layout.collapsed);
+        }
+        Event::Filter(filter) => {
+            app.lists_shown = None;
+            app.sidebar.filter = filter;
+        }
+        Event::Friends => app.client.dispatch(Action::OpenDmScreen(DmScreen::Friends)),
+        Event::Requests => app
+            .client
+            .dispatch(Action::OpenDmScreen(DmScreen::Requests)),
+        Event::Browse => app.client.dispatch(Action::BrowseChannels),
+        Event::Header => {
+            let Some(server) = app.sidebar.header.server.clone() else {
+                return Task::none();
+            };
+            if app.win.menu.as_ref().is_some_and(|menu| menu.header) {
+                app.win.menu = None;
+                return Task::none();
+            }
+            let at = Point::new(crate::rail::WIDTH + INSET, HEADER - 4.0);
+            return crate::places::open_place_menu(app, &server, at, true);
+        }
+        Event::Invite => {
+            let Some(server) = app.sidebar.header.server.clone() else {
+                return Task::none();
+            };
+            app.client.dispatch(Action::OpenInvite(server));
+            return Task::batch([
+                app.sync(),
+                iced::widget::operation::focus(crate::app::NOBODY),
+            ]);
+        }
+        Event::Events => {
+            let Some(server) = app.sidebar.header.server.clone() else {
+                return Task::none();
+            };
+            let top = app.sidebar.top_height() - EVENTS_ROW;
+            let at = Point::new(crate::rail::WIDTH + INSET, top + EVENTS_ROW - INSET);
+            return crate::places::open_events_menu(app, &server, at);
+        }
+        Event::Menu(id, at) => {
+            app.sidebar.voice_card_off = true;
+            return crate::places::open_place_menu(app, &id, at, false);
+        }
+        Event::Wave(user) => app.client.dispatch(Action::MessageFromProfile {
+            user,
+            text: "\u{1F44B}".to_owned(),
+        }),
+        Event::OpenChat(room) => app.client.dispatch(Action::OpenChat(room)),
+        Event::VoiceChat(chat) => app.client.dispatch(Action::ShowVoiceChat(chat)),
+        Event::CreateIn(category) => {
+            return crate::places::choose_place(
+                app,
+                category,
+                yapfast_core::application::MenuChoice::CreateChannel,
+            );
+        }
     }
+    app.sync()
 }
 
 impl<'a> View<'a> {

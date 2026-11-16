@@ -131,7 +131,8 @@ impl App {
             Event::Toggle if self.win.settings.is_open() => Task::none(),
             Event::PollEmoji(index) => {
                 let at = self.pressed.get();
-                self.open_picker(
+                crate::picker::open_picker(
+                    self,
                     crate::picker::Target::Poll(index, at),
                     crate::picker::Tab::Emoji,
                 )
@@ -150,7 +151,11 @@ impl App {
         let settings = matches!(event, Event::Settings);
         if matches!(event, Event::Emoji) {
             let at = self.pressed.get();
-            return self.open_picker(crate::picker::Target::Status(at), crate::picker::Tab::Emoji);
+            return crate::picker::open_picker(
+                self,
+                crate::picker::Target::Status(at),
+                crate::picker::Tab::Emoji,
+            );
         }
         let mut cx = cx!(self);
         let task = self.status.update(event, &mut cx);
@@ -166,7 +171,9 @@ impl App {
         use crate::image_viewer::Event;
         match event {
             Event::Save(item, index) => crate::image_viewer::save(item, index, self.client.state()),
-            Event::Menu(item, index, video) => self.media_menu(item, index, video),
+            Event::Menu(item, index, video) => {
+                crate::image_viewer::media_menu(self, item, index, video)
+            }
             event => {
                 let mut cx = cx!(self);
                 self.viewer.update(event, &mut cx)

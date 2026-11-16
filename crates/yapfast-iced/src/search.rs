@@ -90,7 +90,8 @@ pub fn header_search<'a>(
     placeholder: &str,
     cx: Ctx<'a>,
 ) -> Element<'a, Message> {
-    cx.search_field(
+    search_field(
+        cx,
         FIELD,
         placeholder,
         &searching.text,
@@ -101,73 +102,71 @@ pub fn header_search<'a>(
     .into()
 }
 
-impl App {
-    /// The messages the results show.
-    pub fn searching_messages(
-        &self,
-    ) -> impl Iterator<Item = &std::sync::Arc<yapfast_core::chat::ChatMessage>> {
-        self.searching
-            .results
-            .iter()
-            .map(|result| &result.found.message)
-    }
+/// The messages the results show.
+pub fn searching_messages(
+    app: &App,
+) -> impl Iterator<Item = &std::sync::Arc<yapfast_core::chat::ChatMessage>> {
+    app.searching
+        .results
+        .iter()
+        .map(|result| &result.found.message)
+}
 
-    /// Whether the search's results show beside the conversation.
-    pub fn search_shown(&self) -> bool {
-        self.client.state().search_shown().is_some()
-    }
+/// Whether the search's results show beside the conversation.
+pub fn search_shown(app: &App) -> bool {
+    app.client.state().search_shown().is_some()
+}
 
-    /// Lets go of the result cards, laid out in the old theme's inks.
-    pub fn forget_found(&mut self) {
-        self.searching.results.clear();
-    }
+/// Lets go of the result cards, laid out in the old theme's inks.
+pub fn forget_found(app: &mut App) {
+    app.searching.results.clear();
+}
 
-    /// Builds the cards of results not shown yet, keeping those still
-    /// first: a next page adds to the end.
-    pub fn search_sync(&mut self) {
-        let state = self.client.state();
-        let Some(search) = state.search_shown() else {
-            if !self.searching.results.is_empty() {
-                self.searching.results = Vec::new();
-            }
-            return;
-        };
-        let hits = &search.results;
-        let kept = self
-            .searching
-            .results
-            .iter()
-            .zip(hits)
-            .take_while(|(shown, hit)| shown.found.message.item == hit.message.item)
-            .count();
-        if kept == self.searching.results.len() && kept == hits.len() {
-            return;
+/// Builds the cards of results not shown yet, keeping those still
+/// first: a next page adds to the end.
+pub fn search_sync(app: &mut App) {
+    let state = app.client.state();
+    let Some(search) = state.search_shown() else {
+        if !app.searching.results.is_empty() {
+            app.searching.results = Vec::new();
         }
-        let server = discord::parse_server(&search.place).is_some();
-        let fresh: Vec<_> = hits
-            .iter()
-            .enumerate()
-            .skip(kept)
-            .map(|(index, hit)| {
-                let starts = index == 0 || hits[index - 1].room != hit.room;
-                let heading = state
-                    .rooms
-                    .iter()
-                    .find(|room| room.id == hit.room)
-                    .filter(|_| server && starts)
-                    .map(|room| room.name.clone());
-                (Arc::new(hit.message.clone()), hit.room.clone(), heading)
-            })
-            .collect();
-        self.searching.results.truncate(kept);
-        for (message, room, heading) in fresh {
-            let found = self.found(message);
-            self.searching.results.push(Result {
-                found,
-                room,
-                heading,
-            });
-        }
+        return;
+    };
+    let hits = &search.results;
+    let kept = app
+        .searching
+        .results
+        .iter()
+        .zip(hits)
+        .take_while(|(shown, hit)| shown.found.message.item == hit.message.item)
+        .count();
+    if kept == app.searching.results.len() && kept == hits.len() {
+        return;
+    }
+    let server = discord::parse_server(&search.place).is_some();
+    let fresh: Vec<_> = hits
+        .iter()
+        .enumerate()
+        .skip(kept)
+        .map(|(index, hit)| {
+            let starts = index == 0 || hits[index - 1].room != hit.room;
+            let heading = state
+                .rooms
+                .iter()
+                .find(|room| room.id == hit.room)
+                .filter(|_| server && starts)
+                .map(|room| room.name.clone());
+            (Arc::new(hit.message.clone()), hit.room.clone(), heading)
+        })
+        .collect();
+    app.searching.results.truncate(kept);
+    for (message, room, heading) in fresh {
+        let found = crate::found::found(app, message);
+        app.searching.results.push(Result {
+            found,
+            room,
+            heading,
+        });
     }
 }
 
@@ -229,7 +228,7 @@ pub fn view<'a>(searching: &'a Searching, cx: Ctx<'a>) -> Option<Element<'a, Mes
             result.room.clone(),
             result.found.message.item.clone(),
         ));
-        entry = entry.push(cx.found_view(&result.found, jump));
+        entry = entry.push(crate::found::found_view(cx, &result.found, jump));
         list = list.push(entry);
     }
     if search.more() {
@@ -268,52 +267,50 @@ pub fn view<'a>(searching: &'a Searching, cx: Ctx<'a>) -> Option<Element<'a, Mes
     )
 }
 
-impl<'a> Ctx<'a> {
-    /// A search box as the Slint client's `HeaderSearch`: a sunken field,
-    /// wider while it holds something, its icon or Clear at its end. Its
-    /// width and height are the header's, which another place may set.
-    pub fn search_field(
-        self,
-        id: &'static str,
-        placeholder: &str,
-        value: &str,
-        on_input: impl Fn(String) -> Message + 'a,
-        submit: Message,
-        clear: Message,
-    ) -> container::Container<'a, Message> {
-        let theme = self.look.theme;
-        let (ink, hint, selection) = (theme.text, theme.muted, theme.selection);
-        let input = text_input(placeholder, value)
-            .id(iced::widget::Id::new(id))
-            .size(14)
-            .padding(0)
-            .on_input(on_input)
-            .on_submit(submit)
-            .style(move |_, _| text_input::Style {
-                background: Color::TRANSPARENT.into(),
-                border: Border::default(),
-                icon: ink,
-                placeholder: hint,
-                value: ink,
-                selection,
-            });
-        let end: Element<'a, Message> = if value.is_empty() {
-            self.look.glyph(Icon::Search, 20, theme.secondary).into()
-        } else {
-            self.look
-                .icon_button(Icon::X, "Clear search", clear)
-                .size(24.0, 14)
-                .below()
-                .into()
-        };
-        let field = row![input, end].spacing(4).align_y(Alignment::Center);
-        let (line, ground) = (theme.line, theme.sunken);
-        container(field)
-            .padding(Padding::ZERO.left(8).right(4))
-            .width(if value.is_empty() { BOX } else { BOX_USED })
-            .height(BOX_HEIGHT)
-            .align_y(Alignment::Center)
-            .clip(true)
-            .style(move |_| crate::style::outlined(ground, line, 8.0))
-    }
+/// A search box as the Slint client's `HeaderSearch`: a sunken field,
+/// wider while it holds something, its icon or Clear at its end. Its
+/// width and height are the header's, which another place may set.
+pub fn search_field<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    id: &'static str,
+    placeholder: &str,
+    value: &str,
+    on_input: impl Fn(String) -> Message + 'a,
+    submit: Message,
+    clear: Message,
+) -> container::Container<'a, Message> {
+    let theme = ctx.look.theme;
+    let (ink, hint, selection) = (theme.text, theme.muted, theme.selection);
+    let input = text_input(placeholder, value)
+        .id(iced::widget::Id::new(id))
+        .size(14)
+        .padding(0)
+        .on_input(on_input)
+        .on_submit(submit)
+        .style(move |_, _| text_input::Style {
+            background: Color::TRANSPARENT.into(),
+            border: Border::default(),
+            icon: ink,
+            placeholder: hint,
+            value: ink,
+            selection,
+        });
+    let end: Element<'a, Message> = if value.is_empty() {
+        ctx.look.glyph(Icon::Search, 20, theme.secondary).into()
+    } else {
+        ctx.look
+            .icon_button(Icon::X, "Clear search", clear)
+            .size(24.0, 14)
+            .below()
+            .into()
+    };
+    let field = row![input, end].spacing(4).align_y(Alignment::Center);
+    let (line, ground) = (theme.line, theme.sunken);
+    container(field)
+        .padding(Padding::ZERO.left(8).right(4))
+        .width(if value.is_empty() { BOX } else { BOX_USED })
+        .height(BOX_HEIGHT)
+        .align_y(Alignment::Center)
+        .clip(true)
+        .style(move |_| crate::style::outlined(ground, line, 8.0))
 }

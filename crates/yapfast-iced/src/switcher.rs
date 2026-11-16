@@ -691,7 +691,8 @@ impl<'a> View<'a> {
         several: bool,
     ) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
-        let emoji = self.cx.emoji_slot(
+        let emoji = crate::dialogs::emoji_slot(
+            self.cx,
             answer.emoji.as_deref(),
             message(Event::PollEmoji(index)),
             message(Event::Poll(PollEdit::Emoji { index, emoji: None })),
@@ -726,12 +727,10 @@ impl<'a> View<'a> {
     }
 }
 
-impl App {
-    /// The emoji the picker gave, for a poll's answer.
-    pub fn poll_draft_emoji(&mut self, index: usize, key: String) {
-        self.client.dispatch(Action::EditPoll(PollEdit::Emoji {
-            index,
-            emoji: Some(key),
-        }));
-    }
+/// The emoji the picker gave, for a poll's answer.
+pub fn poll_draft_emoji(app: &mut App, index: usize, key: String) {
+    app.client.dispatch(Action::EditPoll(PollEdit::Emoji {
+        index,
+        emoji: Some(key),
+    }));
 }

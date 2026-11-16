@@ -82,16 +82,16 @@ fn a_voice_messages_volume_opens_over_its_mute_and_the_wheel_turns_it() {
     let (mut app, _folder) = preview();
     let volume = |app: &crate::app::App| app.client.state().voice_tuning.volume;
     assert!((volume(&app) - 1.0).abs() < 0.001);
-    let _ = app.voice_event(Event::Turn(-1.0));
+    let _ = crate::playback::voice_event(&mut app, Event::Turn(-1.0));
     assert!((volume(&app) - 0.95).abs() < 0.001, "{}", volume(&app));
-    let _ = app.voice_event(Event::Volume(0.3));
+    let _ = crate::playback::voice_event(&mut app, Event::Volume(0.3));
     assert!((volume(&app) - 0.3).abs() < 0.001);
     // The button and the slider over it overlap: it stays open until the
     // pointer has left both.
-    let _ = app.voice_event(Event::VolumeHover("v".into(), true));
-    let _ = app.voice_event(Event::VolumeHover("v".into(), true));
-    let _ = app.voice_event(Event::VolumeHover("v".into(), false));
+    let _ = crate::playback::voice_event(&mut app, Event::VolumeHover("v".into(), true));
+    let _ = crate::playback::voice_event(&mut app, Event::VolumeHover("v".into(), true));
+    let _ = crate::playback::voice_event(&mut app, Event::VolumeHover("v".into(), false));
     assert!(app.playback.voice_volume.is_some());
-    let _ = app.voice_event(Event::VolumeHover("v".into(), false));
+    let _ = crate::playback::voice_event(&mut app, Event::VolumeHover("v".into(), false));
     assert!(app.playback.voice_volume.is_none());
 }

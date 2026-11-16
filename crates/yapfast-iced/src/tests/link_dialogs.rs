@@ -23,7 +23,8 @@ fn press(app: &mut App, named: key::Named) {
 fn authorizing_an_app_says_what_it_asks_for_and_where_it_goes() {
     let (mut app, _folder) = discord_server(0, |_, _| {});
     // A plain bot link is the dialog's, not the browser's.
-    let _ = app.follow_link(
+    let _ = crate::links::follow_link(
+        &mut app,
         "https://discord.com/oauth2/authorize?client_id=157730590492196864&scope=bot",
         Point::new(400.0, 300.0),
     );
@@ -142,7 +143,8 @@ fn authorizing_an_app_says_what_it_asks_for_and_where_it_goes() {
 #[test]
 fn a_gift_shows_what_it_grants_and_redeems_on_the_click() {
     let (mut app, _folder) = discord_server(0, |_, _| {});
-    let _ = app.follow_link(
+    let _ = crate::links::follow_link(
+        &mut app,
         "https://discord.gift/2CG6SV9QtRxerJTgCYNDnU7M",
         Point::new(400.0, 300.0),
     );

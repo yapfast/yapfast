@@ -366,42 +366,36 @@ struct Marks<'a> {
     open_folder: bool,
 }
 
-impl App {
-    /// What's done on the rail.
-    pub fn rail_event(&mut self, event: Event) -> Task<Message> {
-        match event {
-            Event::Scrolled(viewport) => {
-                self.rail.scroll = Scroll::of(viewport);
-                return self.ask();
-            }
-            Event::Point(id, entered) => {
-                crate::app::point(&mut self.pointed.rail, id, entered);
-                return Task::none();
-            }
-            Event::Home => self
-                .client
-                .dispatch(Action::Navigate(Navigation::DirectMessages)),
-            Event::Server(id) => self
-                .client
-                .dispatch(Action::Navigate(Navigation::Server(id))),
-            Event::Folder(id) => {
-                self.lists_shown = None;
-                if !self.layout.open_folders.remove(&id) {
-                    self.layout.open_folders.insert(id);
-                }
-                crate::layout::store(
-                    self.client.root(),
-                    "open_folders",
-                    &self.layout.open_folders,
-                );
-                self.rail.items = rail(self.client.state(), &self.layout.open_folders);
-                return self.ask();
-            }
-            Event::Dm(id) => self.client.dispatch(Action::Open(id)),
-            Event::Join => self.client.dispatch(Action::OpenJoinServer),
+/// What's done on the rail.
+pub fn update(app: &mut App, event: Event) -> Task<Message> {
+    match event {
+        Event::Scrolled(viewport) => {
+            app.rail.scroll = Scroll::of(viewport);
+            return app.ask();
         }
-        self.sync()
+        Event::Point(id, entered) => {
+            crate::app::point(&mut app.pointed.rail, id, entered);
+            return Task::none();
+        }
+        Event::Home => app
+            .client
+            .dispatch(Action::Navigate(Navigation::DirectMessages)),
+        Event::Server(id) => app
+            .client
+            .dispatch(Action::Navigate(Navigation::Server(id))),
+        Event::Folder(id) => {
+            app.lists_shown = None;
+            if !app.layout.open_folders.remove(&id) {
+                app.layout.open_folders.insert(id);
+            }
+            crate::layout::store(app.client.root(), "open_folders", &app.layout.open_folders);
+            app.rail.items = rail(app.client.state(), &app.layout.open_folders);
+            return app.ask();
+        }
+        Event::Dm(id) => app.client.dispatch(Action::Open(id)),
+        Event::Join => app.client.dispatch(Action::OpenJoinServer),
     }
+    app.sync()
 }
 
 impl<'a> View<'a> {

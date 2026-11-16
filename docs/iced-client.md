@@ -374,7 +374,7 @@ round.
   noise suppression and its strength, the soundboard's volume (Discord
   keeps it; the slider follows a drag and what it's left at is sent), the entrance sound for every server or one (Choose, with
   Nitro, opens the sounds Discord has as the call's soundboard does,
-  `Ctx::sound_board`, a click choosing one), the room's echo and, on Windows,
+  `soundboard::sound_board`, a click choosing one), the room's echo and, on Windows,
   Windows' own effects; the input mode, and either the gate's sensitivity
   over the microphone's level as the gate hears it (read as it's drawn,
   twenty times a second, only while it shows) or push to talk's keybind and release delay. Where no global key works
@@ -614,7 +614,7 @@ for the next page, a click jumping to the message in its room. Close,
 Escape or clearing the box ends the search and lets go of the cards.
 
 Over the timeline, and under the header of a voice channel's call
-(`banners.rs`, `App::banners`), as the Slint client stacks them: the
+(`banners::view`), as the Slint client stacks them: the
 preview's "Local preview: sample data" line, Matrix's verification while
 the device isn't trusted, and the core's notice (`AppState::notice`) with
 Dismiss.
@@ -851,7 +851,7 @@ back to the newest message.
 
 A Discord forum shows in place of a channel's messages and composer
 (`forum.rs`, the Slint client's `ForumPanel`): a search of its posts'
-titles in the header's search box (`App::search_field`, its Clear
+titles in the header's search box (`search::search_field`, its Clear
 showing the posts again) and New Post, then its posts as cards (tags, title with NEW, who
 wrote the first message and how it starts, the top reaction or the
 forum's own, replies, how long ago, the first picture), the active ones
@@ -900,7 +900,7 @@ into view, tells the core which of its messages show, and its composer
 (`thread::SideComposer`) has its own draft, reply bar, files and Send.
 Closing it, or the core letting go of it, drops its rows.
 
-Keys nothing took (`App::type_anywhere`, the Slint client's
+Keys nothing took (`composer::type_anywhere`, the Slint client's
 `type-into-composer`) go on the end of the composer written in last, the
 thread's from when it opens or the channel's, which then has the keys:
 text, Space, Backspace and Delete, without Ctrl; Tab only gives it the
@@ -1329,7 +1329,7 @@ what costs is kept out of the view:
 - Moving pictures (`animated::Animated`) advance inside their widget on the
   window's redraws, all on one clock, so a frame costs no message and no
   rebuild of the view; decoders of pictures no longer shown go after each
-  view. They play as Messages' Animate setting says (`App::plays`):
+  view. They play as Messages' Animate setting says (`pictures::plays`):
   always, never, or while the window has the focus; held still, each
   shows its first frame.
 - Popups open as the Slint client's do (`PopupMotion`): over 100 ms,
@@ -1454,9 +1454,21 @@ waiting (`uploads::Uploads`) and what plays in the timeline
 drawn by a view of their own state and a `Ctx` (`rail::view`,
 `sidebar::view`, `members::view`), and the conversation's parts, its
 header, timeline, rows, composer, thread, forum, friends and the call's
-dock and popups by `Ctx` methods. The call's stage and corner and the
-window's bar are still drawn by the app, as they read where the window
-lays them out.
+dock and popups by free functions of a `Ctx` in their own modules
+(`header::view`, `composer::view`, `timeline::view::timeline`).
+
+The main areas work on the root itself: what they do reaches across the
+window (sending scrolls the timeline, a menu's row acts on any part), so
+an area's update is a free function of the app in its own module,
+`update(app: &mut App, event) -> Task<Message>` (`composer::update`,
+`thread::update`, `call::update`, `rail::update`), with its helpers
+beside it, and the views that read where the window lays things out (the
+call's stage and corner, the window's bar) are free functions of an
+`&App` there too. None is a method of `App`: rustc compiles a method with
+its type, so they would all build as one unit, and an edit to any would
+build them all again. `App`'s own methods are the root's: what each
+message does and the settle pass (`app/`), taking in the core's state
+(`sync.rs`) and the window, tray and desktop (`shell.rs`).
 
 - Its state lives in a `slot::Slot` on the app while it's open, and goes
   only through `Slot::close`, which runs its `Closes::close` with why
@@ -1490,10 +1502,14 @@ lays them out.
   the theme, noise suppression).
 - Its view is a free function of its state and a `ctx::Ctx`
   (`settings::view`), with its parts on a view type of its own
-  (`settings::Page`) rather than on the app. Parts several screens draw
-  are `Ctx` methods: message text (`Ctx::body_view`, which reads the rows'
-  looks and the selection through `timeline::Lanes`), a message's row,
-  found cards, faces and pictures, and the profile card's parts. `Ctx`
+  (`settings::Page`) rather than on the app. A view is never a method
+  of `Ctx`: rustc compiles a method with its type, so every view would
+  build in one unit, and an edit to any of them would build them all
+  again. `Ctx`'s own methods are the few every screen draws with: faces
+  and pictures (`pictures.rs`), a person's row and what they're up to
+  (`people.rs`), tags (`looks.rs`), a message's picture (`media.rs`),
+  message text (`Ctx::body_view`, which reads the rows' looks and the
+  selection through `timeline::Lanes`) and the timeline's lookups. `Ctx`
   is references to what views read, made once per view
   (`App::ctx`): the core's state, the theme and pictures, the areas'
   state, what the pointer is on and where it was pressed, the menu and
@@ -1731,10 +1747,10 @@ and the app uses them with its one `Message`, so nothing is mapped:
   dot with a hole; lists that leave it off for offline people leave it
   out themselves, as Slint's).
 - `people::Person` and `Ctx::person`: a person's row, their face, then
-  their name over its line; `App::person_name` draws a name in its style
-  (`NameInk`), `App::voice_spot` the voice channel someone is in, and
-  `App::list_heading` a list's heading.
-- `App::open_person_menu` and `person::choose_person`: a person's menu
+  their name over its line; `Ctx::person_name` draws a name in its style
+  (`NameInk`), `Ctx::voice_spot` the voice channel someone is in, and
+  `Ctx::list_heading` a list's heading.
+- `person::open_person_menu` and `person::choose_person`: a person's menu
   and what its choices do, wherever the person shows.
 - `members::nameplate`: a nameplate behind a row.
 - `paint::NamePicture`: a display name painted whole in its style
@@ -1742,7 +1758,7 @@ and the app uses them with its one `Message`, so nothing is mapped:
   its strokes past its text box: the profile's name, the Display Name
   Style window's tiles and previews.
 - `markdown.rs`: text laid out as Discord's client does (`parse`,
-  `plain`, `notice`), and drawn (`App::body_view`, `App::run_span`) as
+  `plain`, `notice`), and drawn (`Ctx::body_view`, `Ctx::run_span`) as
   selectable pieces (`piece::Piece`), which send the link and
   selection messages they're made with.
 - `style.rs`: container grounds (`fill`, `rounded`, `corners`, and
@@ -1808,13 +1824,13 @@ and the app uses them with its one `Message`, so nothing is mapped:
   choices, one picked; `controls::Check` and `Look::checkbox` a menu row's
   tick or checkbox, and `Item::subtitle` a second line under its label.
 - `widgets::Hover`: a layer shown over its child only under the pointer.
-- `found::Found` and `App::found_view`: a message found (pinned, a
+- `found::Found` and `found::found_view`: a message found (pinned, a
   search's result, a thread's start) as a card: avatar, name in its role
   colour, when, eight lines of text, its first pictures, its poll and
   files; a click or Jump under the pointer shows it.
-- `App::popover_frame`: a popover's frame under a header button (the
+- `popovers::View::frame`: a popover's frame under a header button (the
   Slint client's `Popover`): icon, heading, detail, buttons at its end,
-  Close. `App::search_field`: a search box (`HeaderSearch`).
+  Close. `search::search_field`: a search box (`HeaderSearch`).
 - `thread::SideComposer`: a composer beside the chat (the thread's, a new
   thread's or post's first message): its field, reply bar, files, attach
   and send. `thread::leave_question` asks before a form with changes
@@ -1855,7 +1871,7 @@ and the app uses them with its one `Message`, so nothing is mapped:
   the bar over the page's foot, a page that fills its height for a list
   of its own); `backdrop`, the card over the dimmed window that Settings
   shares, and `nav_row`, a section's row in either.
-- `Ctx::emoji_button`: an emoji on a lit square, for quick reactions in
+- `suggest::emoji_button`: an emoji on a lit square, for quick reactions in
   menus and the hover bar. `controls::action(..).small()` and `.icon()`
   make an app's button; `Kind::Success` is the green one.
 

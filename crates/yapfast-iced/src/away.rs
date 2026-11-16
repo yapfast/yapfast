@@ -3,7 +3,7 @@
 //! in the window counts, a passing pointer doesn't. Once nobody has for
 //! [`QUIET`], Discord hears since when (`Action::Inactive`, with Settings'
 //! Show idle), and goes AFK and then idle on its own clock; moving
-//! pictures hold still until someone is back ([`App::plays`]).
+//! pictures hold still until someone is back ([`pictures::plays`]).
 //!
 //! Input while someone is using it costs no message: the event filter
 //! notes the time in [`LAST_USE`], and one timer, due [`QUIET`] after the
@@ -61,68 +61,61 @@ fn is_use(event: &iced::Event) -> bool {
     )
 }
 
-impl App {
-    /// Watches for nobody using Yapfast, from now.
-    pub fn watch_away(&mut self) -> Task<Message> {
-        LAST_USE.store(now(), Ordering::Relaxed);
-        crate::after(QUIET, Message::Away(Event::Check))
-    }
+/// Watches for nobody using Yapfast, from now.
+pub fn watch_away() -> Task<Message> {
+    LAST_USE.store(now(), Ordering::Relaxed);
+    crate::after(QUIET, Message::Away(Event::Check))
+}
 
-    pub fn away_event(&mut self, event: Event) -> Task<Message> {
-        match event {
-            Event::Check if self.away.inactive => Task::none(),
-            Event::Check => {
-                let quiet =
-                    Duration::from_millis(now().saturating_sub(LAST_USE.load(Ordering::Relaxed)));
-                if quiet < QUIET {
-                    return crate::after(QUIET - quiet, Message::Away(Event::Check));
-                }
-                self.away.inactive = true;
-                self.tell_away();
-                Task::none()
+pub fn update(app: &mut App, event: Event) -> Task<Message> {
+    match event {
+        Event::Check if app.away.inactive => Task::none(),
+        Event::Check => {
+            let quiet =
+                Duration::from_millis(now().saturating_sub(LAST_USE.load(Ordering::Relaxed)));
+            if quiet < QUIET {
+                return crate::after(QUIET - quiet, Message::Away(Event::Check));
             }
-            Event::Used => {
+            app.away.inactive = true;
+            tell_away(app);
+            Task::none()
+        }
+        Event::Used => {
+            LAST_USE.store(now(), Ordering::Relaxed);
+            if !app.away.inactive {
+                return Task::none();
+            }
+            app.away.inactive = false;
+            tell_away(app);
+            Task::batch([app.sync(), crate::after(QUIET, Message::Away(Event::Check))])
+        }
+    }
+}
+
+/// Tells Discord again, as Show idle changed.
+pub fn idle_setting_changed(app: &mut App) {
+    if app.away.inactive {
+        tell_away(app);
+    }
+}
+
+fn tell_away(app: &mut App) {
+    let since = app.away.inactive.then(|| LAST_USE.load(Ordering::Relaxed));
+    let show_idle = app.layout.prefs.show_idle.unwrap_or(true);
+    app.client.dispatch(Action::Inactive { since, show_idle });
+}
+
+/// The window's input: noted without a message while someone is using
+/// it, and the first once it went quiet as [`Event::Used`].
+pub fn away_subscription(app: &App) -> Subscription<Message> {
+    if app.away.inactive {
+        iced::event::listen_with(|event, _, _| is_use(&event).then_some(Message::Away(Event::Used)))
+    } else {
+        iced::event::listen_with(|event, _, _| {
+            if is_use(&event) {
                 LAST_USE.store(now(), Ordering::Relaxed);
-                if !self.away.inactive {
-                    return Task::none();
-                }
-                self.away.inactive = false;
-                self.tell_away();
-                Task::batch([
-                    self.sync(),
-                    crate::after(QUIET, Message::Away(Event::Check)),
-                ])
             }
-        }
-    }
-
-    /// Tells Discord again, as Show idle changed.
-    pub fn idle_setting_changed(&mut self) {
-        if self.away.inactive {
-            self.tell_away();
-        }
-    }
-
-    fn tell_away(&mut self) {
-        let since = self.away.inactive.then(|| LAST_USE.load(Ordering::Relaxed));
-        let show_idle = self.layout.prefs.show_idle.unwrap_or(true);
-        self.client.dispatch(Action::Inactive { since, show_idle });
-    }
-
-    /// The window's input: noted without a message while someone is using
-    /// it, and the first once it went quiet as [`Event::Used`].
-    pub fn away_subscription(&self) -> Subscription<Message> {
-        if self.away.inactive {
-            iced::event::listen_with(|event, _, _| {
-                is_use(&event).then_some(Message::Away(Event::Used))
-            })
-        } else {
-            iced::event::listen_with(|event, _, _| {
-                if is_use(&event) {
-                    LAST_USE.store(now(), Ordering::Relaxed);
-                }
-                None
-            })
-        }
+            None
+        })
     }
 }

@@ -84,45 +84,43 @@ struct CardRow {
     room: Option<String>,
 }
 
-impl App {
-    /// Makes the cards again while the friends list shows, and lets go of
-    /// them when it doesn't.
-    pub fn active_now_sync(&mut self) {
-        if self.dm_screen() != Some(DmScreen::Friends) || !self.ctx().active_now_fits() {
-            self.active_now.clear();
-            self.active_now_made = None;
-            return;
-        }
-        // Made from the friends and the voice channels' people alone.
-        let state = self.client.state();
-        let made = Some((state.people_changes, state.list_changes));
-        if self.active_now_made == made {
-            return;
-        }
-        self.active_now_made = made;
-        let cards = cards(self.client.state());
-        if cards != self.active_now {
-            self.active_now = cards;
-        }
+/// Makes the cards again while the friends list shows, and lets go of
+/// them when it doesn't.
+pub fn active_now_sync(app: &mut App) {
+    if crate::friends::dm_screen(app) != Some(DmScreen::Friends) || !active_now_fits(app.ctx()) {
+        app.active_now.clear();
+        app.active_now_made = None;
+        return;
     }
+    // Made from the friends and the voice channels' people alone.
+    let state = app.client.state();
+    let made = Some((state.people_changes, state.list_changes));
+    if app.active_now_made == made {
+        return;
+    }
+    app.active_now_made = made;
+    let cards = cards(app.client.state());
+    if cards != app.active_now {
+        app.active_now = cards;
+    }
+}
 
-    /// Whether a card shows a time that moves each minute.
-    pub fn active_now_minutes(&self) -> bool {
-        self.active_now.iter().any(|card| card.start.is_some())
-    }
+/// Whether a card shows a time that moves each minute.
+pub fn active_now_minutes(app: &App) -> bool {
+    app.active_now.iter().any(|card| card.start.is_some())
+}
 
-    pub fn active_now_pictures(&self) -> Vec<String> {
-        let mut urls = Vec::new();
-        for card in &self.active_now {
-            urls.extend(card.face.avatar.clone());
-            urls.extend(card.icon.clone());
-            for row in &card.rows {
-                urls.extend(row.icon.clone());
-                urls.extend(row.faces.iter().filter_map(|face| face.avatar.clone()));
-            }
+pub fn active_now_pictures(app: &App) -> Vec<String> {
+    let mut urls = Vec::new();
+    for card in &app.active_now {
+        urls.extend(card.face.avatar.clone());
+        urls.extend(card.icon.clone());
+        for row in &card.rows {
+            urls.extend(row.icon.clone());
+            urls.extend(row.faces.iter().filter_map(|face| face.avatar.clone()));
         }
-        urls
     }
+    urls
 }
 
 /// "13m", "1h", "2d", as Discord's Active Now times a game.
@@ -480,245 +478,251 @@ fn faces(people: impl Iterator<Item = Someone>) -> (Vec<Someone>, usize) {
     (all, more)
 }
 
-impl<'a> crate::ctx::Ctx<'a> {
-    /// The column beside the friends list.
-    pub fn active_now_view(self) -> Element<'a, Message> {
-        let theme = self.look.theme;
-        let mut page = column![text("Active Now").size(20).font(BOLD).color(theme.text)]
-            .spacing(16)
-            .padding(Padding {
-                top: 16.0,
-                left: 16.0,
-                right: 12.0,
-                bottom: 16.0,
-            })
-            .height(Length::Fill);
-        if self.active_now.is_empty() {
-            page = page.push(
-                column![
-                    text("It's quiet for now...")
-                        .size(16)
-                        .font(BOLD)
-                        .color(theme.text)
-                        .width(Length::Fill)
-                        .align_x(Alignment::Center),
-                    text(
-                        "When a friend starts an activity \u{2014} like playing a game or hanging out on voice \u{2014} we'll show it here!"
-                    )
-                    .size(13)
-                    .color(theme.muted)
-                    .width(Length::Fill)
-                    .align_x(Alignment::Center),
-                ]
-                .spacing(6)
-                .padding(Padding {
-                    top: 8.0,
-                    ..Padding::ZERO
-                }),
-            );
-        } else {
-            let now = yapfast_core::clock::now_ms() / 1000;
-            let mut cards = column![].spacing(12);
-            for card in self.active_now {
-                cards = cards.push(self.active_card(card, now));
-            }
-            page = page.push(
-                scroll_view(cards)
-                    .height(Length::Fill)
-                    .style(scrollbar(theme)),
-            );
-        }
-        let panel = theme.panel;
-        row![
-            bar(theme.line, 1, Length::Fill),
-            container(page)
-                .width(WIDTH - 1.0)
-                .height(Length::Fill)
-                .style(move |_| rounded(panel, 0))
-        ]
-        .into()
-    }
-
-    fn active_card(self, card: &'a Card, now: u64) -> Element<'a, Message> {
-        let theme = self.look.theme;
-        let since = card
-            .start
-            .map(|start| format!(" \u{2013} {}", since(now.saturating_sub(start))))
-            .unwrap_or_default();
-        let mut head = row![
-            self.avatar(
-                card.face.avatar.as_deref(),
-                &card.face.name,
-                36.0,
-                18.0,
-                1.0
-            ),
+/// The column beside the friends list.
+pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
+    let mut page = column![text("Active Now").size(20).font(BOLD).color(theme.text)]
+        .spacing(16)
+        .padding(Padding {
+            top: 16.0,
+            left: 16.0,
+            right: 12.0,
+            bottom: 16.0,
+        })
+        .height(Length::Fill);
+    if ctx.active_now.is_empty() {
+        page = page.push(
             column![
-                text(card.title.as_str())
-                    .size(15)
+                text("It's quiet for now...")
+                    .size(16)
                     .font(BOLD)
                     .color(theme.text)
-                    .wrapping(text::Wrapping::None),
-                text(format!("{}{since}", card.doing))
-                    .size(13)
-                    .color(theme.muted)
-                    .wrapping(text::Wrapping::None),
-            ]
-            .width(Length::Fill),
-        ]
-        .spacing(12)
-        .padding([0, 16])
-        .height(62)
-        .align_y(Alignment::Center);
-        if let Some(icon) = &card.icon {
-            head = head.push(self.row_icon(Some(icon), "", false));
-        }
-        let hover = theme.hover;
-        let head = button(head)
-            .padding(0)
-            .width(Length::Fill)
-            .on_press(Message::Friends(crate::friends::Event::Menu(
-                card.face.id.clone(),
-            )))
-            .style(crate::controls::lit_style(None, hover, 0.0));
-        let mut body = column![head];
-        for entry in &card.rows {
-            body = body
-                .push(bar(theme.line, Length::Fill, 1))
-                .push(self.active_row(entry));
-        }
-        let (raised, edge) = (theme.raised, theme.edge);
-        container(body)
-            .width(Length::Fill)
-            .clip(true)
-            .style(move |_| crate::style::outlined(raised, edge, 8.0))
-            .into()
-    }
-
-    fn active_row(self, entry: &'a CardRow) -> Element<'a, Message> {
-        let theme = self.look.theme;
-        let mut words = column![
-            text(entry.title.as_str())
-                .size(14)
-                .font(SEMIBOLD)
-                .color(theme.text)
-                .wrapping(text::Wrapping::None)
-        ]
-        .width(Length::Fill);
-        if !entry.detail.is_empty() {
-            words = words.push(
-                text(entry.detail.as_str())
-                    .size(12)
-                    .color(theme.muted)
-                    .wrapping(text::Wrapping::None),
-            );
-        }
-        // Its time moves by itself, each second: no message, no view.
-        if entry.kind == RowKind::Detail
-            && let Some(start) = entry.start
-        {
-            words = words.push(
-                crate::widgets::live_text(std::time::Duration::from_secs(1), move || {
-                    elapsed((yapfast_core::clock::now_ms() / 1000).saturating_sub(start))
-                })
-                .size(12)
-                .color(theme.muted),
-            );
-        }
-        let mut line = row![
-            self.row_icon(
-                entry.icon.as_deref(),
-                &entry.named,
-                entry.kind == RowKind::Voice
-            ),
-            words
-        ]
-        .spacing(12)
-        .padding([8, 16])
-        .align_y(Alignment::Center);
-        if !entry.faces.is_empty() || entry.more > 0 {
-            line = line.push(self.faces(&entry.faces, entry.more));
-        }
-        // At least 52 px tall, taller for a third line.
-        let line = line.push(Space::new().width(0).height(36));
-        let Some(room) = &entry.room else {
-            return line.into();
-        };
-        let hover = theme.hover;
-        button(line)
-            .padding(0)
-            .width(Length::Fill)
-            .on_press(Message::Side(crate::sidebar::Event::Select(room.clone())))
-            .style(crate::controls::lit_style(None, hover, 0.0))
-            .into()
-    }
-
-    /// A row's picture: a server's icon, or a game's; else its initial on
-    /// its tint.
-    fn row_icon(self, url: Option<&str>, named: &str, round: bool) -> Element<'a, Message> {
-        let radius = if round { 16.0 } else { 8.0 };
-        if let Some(picture) = url.and_then(|url| self.picture(url, 32, 32, true)) {
-            return Pic::square(picture, 32.0).radius(radius).into();
-        }
-        if named.is_empty() {
-            return Space::new().width(32).height(32).into();
-        }
-        let ground = hex(tint(named));
-        container(
-            text(initials(named))
-                .size(13)
-                .font(BOLD)
-                .color(iced::Color::WHITE),
-        )
-        .center(32)
-        .style(move |_| rounded(ground, radius))
-        .into()
-    }
-
-    /// Overlapping faces, and how many more.
-    fn faces(self, faces: &'a [Someone], more: usize) -> Element<'a, Message> {
-        let raised = self.look.theme.raised;
-        let count = faces.len() + usize::from(more > 0);
-        let width = count as f32 * 20.0 + 6.0;
-        let mut layers = stack![Space::new().width(width).height(26)];
-        for (index, face) in faces.iter().enumerate() {
-            layers = layers.push(placed(
-                container(self.avatar(face.avatar.as_deref(), &face.name, 22.0, 11.0, 1.0))
-                    .center(26)
-                    .style(move |_| rounded(raised, 13)),
-                index as f32 * 20.0,
-                0.0,
-            ));
-        }
-        if more > 0 {
-            let (sunken, secondary) = (self.look.theme.sunken, self.look.theme.secondary);
-            layers = layers.push(placed(
-                container(
-                    container(
-                        text(format!("+{more}"))
-                            .size(10)
-                            .font(BOLD)
-                            .color(secondary),
-                    )
-                    .center(22)
-                    .style(move |_| rounded(sunken, 11)),
+                    .width(Length::Fill)
+                    .align_x(Alignment::Center),
+                text(
+                    "When a friend starts an activity \u{2014} like playing a game or hanging out on voice \u{2014} we'll show it here!"
                 )
-                .center(26)
-                .style(move |_| rounded(raised, 13)),
-                faces.len() as f32 * 20.0,
-                0.0,
-            ));
+                .size(13)
+                .color(theme.muted)
+                .width(Length::Fill)
+                .align_x(Alignment::Center),
+            ]
+            .spacing(6)
+            .padding(Padding {
+                top: 8.0,
+                ..Padding::ZERO
+            }),
+        );
+    } else {
+        let now = yapfast_core::clock::now_ms() / 1000;
+        let mut cards = column![].spacing(12);
+        for card in ctx.active_now {
+            cards = cards.push(active_card(ctx, card, now));
         }
-        layers.into()
+        page = page.push(
+            scroll_view(cards)
+                .height(Length::Fill)
+                .style(scrollbar(theme)),
+        );
     }
+    let panel = theme.panel;
+    row![
+        bar(theme.line, 1, Length::Fill),
+        container(page)
+            .width(WIDTH - 1.0)
+            .height(Length::Fill)
+            .style(move |_| rounded(panel, 0))
+    ]
+    .into()
 }
 
-impl<'a> crate::ctx::Ctx<'a> {
-    /// Whether the Friends screen is wide enough for the column: narrower,
-    /// it isn't drawn, so its cards aren't made, timed or fetched for.
-    pub fn active_now_fits(self) -> bool {
-        self.look.window.width - crate::conversation::NAVIGATION >= ROOM
+fn active_card<'a>(ctx: crate::ctx::Ctx<'a>, card: &'a Card, now: u64) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
+    let since = card
+        .start
+        .map(|start| format!(" \u{2013} {}", since(now.saturating_sub(start))))
+        .unwrap_or_default();
+    let mut head = row![
+        ctx.avatar(
+            card.face.avatar.as_deref(),
+            &card.face.name,
+            36.0,
+            18.0,
+            1.0
+        ),
+        column![
+            text(card.title.as_str())
+                .size(15)
+                .font(BOLD)
+                .color(theme.text)
+                .wrapping(text::Wrapping::None),
+            text(format!("{}{since}", card.doing))
+                .size(13)
+                .color(theme.muted)
+                .wrapping(text::Wrapping::None),
+        ]
+        .width(Length::Fill),
+    ]
+    .spacing(12)
+    .padding([0, 16])
+    .height(62)
+    .align_y(Alignment::Center);
+    if let Some(icon) = &card.icon {
+        head = head.push(row_icon(ctx, Some(icon), "", false));
     }
+    let hover = theme.hover;
+    let head = button(head)
+        .padding(0)
+        .width(Length::Fill)
+        .on_press(Message::Friends(crate::friends::Event::Menu(
+            card.face.id.clone(),
+        )))
+        .style(crate::controls::lit_style(None, hover, 0.0));
+    let mut body = column![head];
+    for entry in &card.rows {
+        body = body
+            .push(bar(theme.line, Length::Fill, 1))
+            .push(active_row(ctx, entry));
+    }
+    let (raised, edge) = (theme.raised, theme.edge);
+    container(body)
+        .width(Length::Fill)
+        .clip(true)
+        .style(move |_| crate::style::outlined(raised, edge, 8.0))
+        .into()
+}
+
+fn active_row<'a>(ctx: crate::ctx::Ctx<'a>, entry: &'a CardRow) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
+    let mut words = column![
+        text(entry.title.as_str())
+            .size(14)
+            .font(SEMIBOLD)
+            .color(theme.text)
+            .wrapping(text::Wrapping::None)
+    ]
+    .width(Length::Fill);
+    if !entry.detail.is_empty() {
+        words = words.push(
+            text(entry.detail.as_str())
+                .size(12)
+                .color(theme.muted)
+                .wrapping(text::Wrapping::None),
+        );
+    }
+    // Its time moves by itself, each second: no message, no view.
+    if entry.kind == RowKind::Detail
+        && let Some(start) = entry.start
+    {
+        words = words.push(
+            crate::widgets::live_text(std::time::Duration::from_secs(1), move || {
+                elapsed((yapfast_core::clock::now_ms() / 1000).saturating_sub(start))
+            })
+            .size(12)
+            .color(theme.muted),
+        );
+    }
+    let mut line = row![
+        row_icon(
+            ctx,
+            entry.icon.as_deref(),
+            &entry.named,
+            entry.kind == RowKind::Voice
+        ),
+        words
+    ]
+    .spacing(12)
+    .padding([8, 16])
+    .align_y(Alignment::Center);
+    if !entry.faces.is_empty() || entry.more > 0 {
+        line = line.push(faces_row(ctx, &entry.faces, entry.more));
+    }
+    // At least 52 px tall, taller for a third line.
+    let line = line.push(Space::new().width(0).height(36));
+    let Some(room) = &entry.room else {
+        return line.into();
+    };
+    let hover = theme.hover;
+    button(line)
+        .padding(0)
+        .width(Length::Fill)
+        .on_press(Message::Side(crate::sidebar::Event::Select(room.clone())))
+        .style(crate::controls::lit_style(None, hover, 0.0))
+        .into()
+}
+
+/// A row's picture: a server's icon, or a game's; else its initial on
+/// its tint.
+fn row_icon<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    url: Option<&str>,
+    named: &str,
+    round: bool,
+) -> Element<'a, Message> {
+    let radius = if round { 16.0 } else { 8.0 };
+    if let Some(picture) = url.and_then(|url| ctx.picture(url, 32, 32, true)) {
+        return Pic::square(picture, 32.0).radius(radius).into();
+    }
+    if named.is_empty() {
+        return Space::new().width(32).height(32).into();
+    }
+    let ground = hex(tint(named));
+    container(
+        text(initials(named))
+            .size(13)
+            .font(BOLD)
+            .color(iced::Color::WHITE),
+    )
+    .center(32)
+    .style(move |_| rounded(ground, radius))
+    .into()
+}
+
+/// Overlapping faces, and how many more.
+fn faces_row<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    faces: &'a [Someone],
+    more: usize,
+) -> Element<'a, Message> {
+    let raised = ctx.look.theme.raised;
+    let count = faces.len() + usize::from(more > 0);
+    let width = count as f32 * 20.0 + 6.0;
+    let mut layers = stack![Space::new().width(width).height(26)];
+    for (index, face) in faces.iter().enumerate() {
+        layers = layers.push(placed(
+            container(ctx.avatar(face.avatar.as_deref(), &face.name, 22.0, 11.0, 1.0))
+                .center(26)
+                .style(move |_| rounded(raised, 13)),
+            index as f32 * 20.0,
+            0.0,
+        ));
+    }
+    if more > 0 {
+        let (sunken, secondary) = (ctx.look.theme.sunken, ctx.look.theme.secondary);
+        layers = layers.push(placed(
+            container(
+                container(
+                    text(format!("+{more}"))
+                        .size(10)
+                        .font(BOLD)
+                        .color(secondary),
+                )
+                .center(22)
+                .style(move |_| rounded(sunken, 11)),
+            )
+            .center(26)
+            .style(move |_| rounded(raised, 13)),
+            faces.len() as f32 * 20.0,
+            0.0,
+        ));
+    }
+    layers.into()
+}
+
+/// Whether the Friends screen is wide enough for the column: narrower,
+/// it isn't drawn, so its cards aren't made, timed or fetched for.
+pub fn active_now_fits(ctx: crate::ctx::Ctx<'_>) -> bool {
+    ctx.look.window.width - crate::conversation::NAVIGATION >= ROOM
 }
 
 #[cfg(test)]

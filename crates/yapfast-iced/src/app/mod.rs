@@ -319,28 +319,28 @@ impl App {
             linking: None,
             mfa: mfa::Mfa::default(),
         };
-        app.fit_window();
+        crate::window_bar::fit_window(&mut app);
         app.follow_popups();
-        let talk = app.watch_keybinds();
+        let talk = crate::keybinds::watch_keybinds(&mut app);
         if app.layout.voice.noise_suppression != yapfast_core::noise::Suppressor::Off {
             app.call.noise_last = app.layout.voice.noise_suppression;
         }
         // Started on a saved account: see `SignIn::starting`.
-        app.sign_in.starting = !app.workspace() && app.client.state().busy;
+        app.sign_in.starting = !crate::signin::workspace(&app) && app.client.state().busy;
         let frames = Task::batch([
             video::follow(app.video.clone(), Message::Frames),
             Task::run(fitted, Message::Fitted),
         ]);
         let sync = app.sync();
         // The sign-in screen's first field takes the keys.
-        let focus = if app.workspace() {
+        let focus = if crate::signin::workspace(&app) {
             Task::none()
         } else if signin::MATRIX {
             operation::focus(signin::USERNAME)
         } else {
             Task::none()
         };
-        let away = app.watch_away();
+        let away = crate::away::watch_away();
         (app, Task::batch([sync, frames, focus, away, talk]))
     }
 
@@ -356,13 +356,13 @@ impl App {
         self.follow_popups();
         // The bar comes and goes with full screen, and the room under it
         // with it.
-        self.fit_window();
+        crate::window_bar::fit_window(self);
         task
     }
 
     fn handle_message(&mut self, message: Message) -> Task<Message> {
-        self.take_found();
-        self.take_aside_found();
+        crate::timeline::scroll::take_found(self);
+        crate::thread::take_aside_found(self);
         match message {
             Message::Events(batch) => {
                 let events = std::mem::take(&mut *batch.lock().expect("event batch"));
@@ -388,9 +388,9 @@ impl App {
                 let mut cx = crate::ctx::cx!(self);
                 self.mfa.update(event, &mut cx)
             }
-            Message::Control(command) => self.control(&command),
+            Message::Control(command) => crate::control::control(self, &command),
             Message::Timeline(viewport) => self.timeline_scrolled(viewport),
-            Message::Measured(heights) => self.measured(heights),
+            Message::Measured(heights) => crate::timeline::scroll::measured(self, heights),
             Message::Earlier => {
                 self.client.dispatch(Action::Earlier);
                 self.sync()
@@ -399,7 +399,7 @@ impl App {
                 self.client.dispatch(Action::Later);
                 self.sync()
             }
-            Message::DismissNotice => self.dismiss_notice(),
+            Message::DismissNotice => crate::banners::dismiss_notice(self),
             Message::JumpUnread => {
                 self.client.dispatch(Action::JumpToUnread);
                 self.sync()
@@ -415,31 +415,31 @@ impl App {
                 }
                 Task::none()
             }
-            Message::Link(link, at) => self.follow_link(&link, at),
+            Message::Link(link, at) => crate::links::follow_link(self, &link, at),
             Message::Members(viewport) => {
                 self.roster.scroll = Scroll::of(viewport);
                 self.ask()
             }
-            Message::MemberActivity(event) => self.member_activity(event),
-            Message::Rail(event) => self.rail_event(event),
-            Message::Side(event) => self.sidebar_event(event),
-            Message::Arrange(event) => self.arrange_event(event),
-            Message::Account(event) => self.account_event(event),
-            Message::Minute => self.minute_turned(),
-            Message::Day => self.day_turned(),
-            Message::Write(event) => self.write_event(event),
-            Message::OpenPicker(target, tab) => self.open_picker(target, tab),
-            Message::Picker(event) => self.picker_event(event),
+            Message::MemberActivity(event) => crate::members::member_activity(self, event),
+            Message::Rail(event) => crate::rail::update(self, event),
+            Message::Side(event) => crate::sidebar::update(self, event),
+            Message::Arrange(event) => crate::arrange::update(self, event),
+            Message::Account(event) => crate::account::update(self, event),
+            Message::Minute => crate::timeline::clocks::minute_turned(self),
+            Message::Day => crate::timeline::clocks::day_turned(self),
+            Message::Write(event) => crate::composer::update(self, event),
+            Message::OpenPicker(target, tab) => crate::picker::open_picker(self, target, tab),
+            Message::Picker(event) => crate::picker::picker_event(self, event),
             Message::Forward(event) => {
                 let mut cx = crate::ctx::cx!(self);
                 self.forward.update(event, &mut cx)
             }
             Message::Select(select) => {
-                self.select(select);
+                crate::select::select(self, select);
                 Task::none()
             }
             Message::SelectEnd => {
-                self.select_end();
+                crate::select::select_end(self);
                 Task::none()
             }
             Message::SelectClear => {
@@ -447,32 +447,32 @@ impl App {
                 self.timeline.selecting = false;
                 Task::none()
             }
-            Message::RowMenu(item, at) => match self.row_of(&item) {
-                Some(row) => self.open_menu(row, at),
+            Message::RowMenu(item, at) => match crate::timeline::row_of(self, &item) {
+                Some(row) => crate::menus::open_menu(self, row, at),
                 None => Task::none(),
             },
-            Message::MenuLight(index) => self.menu_light(index),
+            Message::MenuLight(index) => crate::menus::menu_light(self, index),
             Message::SubLight(index) => {
                 if let Some(menu) = &mut self.win.menu {
                     menu.sub_lit = Some(index);
                 }
                 Task::none()
             }
-            Message::SubChoose(index) => self.choose_sub(index),
-            Message::MenuChoose(index) => self.choose(index),
+            Message::SubChoose(index) => crate::menus::choose_sub(self, index),
+            Message::MenuChoose(index) => crate::menus::choose(self, index),
             Message::MenuScrolled(down) => {
                 if let Some(menu) = &mut self.win.menu {
                     menu.scrolled = down;
                 }
                 Task::none()
             }
-            Message::Act(act, item, at) => self.act(act, item, at, None),
+            Message::Act(act, item, at) => crate::menus::act(self, act, item, at, None),
             Message::CloseMenu => {
                 self.win.menu = None;
-                self.refocus()
+                crate::composer::refocus(self)
             }
             Message::PersonMenu(user, at) => {
-                self.open_person_menu(&user, at, crate::person::CONTEXT_MENU)
+                crate::person::open_person_menu(self, &user, at, crate::person::CONTEXT_MENU)
             }
             Message::Person(event) => {
                 let mut cx = crate::ctx::cx!(self);
@@ -480,15 +480,15 @@ impl App {
             }
             Message::ConfirmDelete => {
                 self.client.dispatch(Action::ConfirmDelete);
-                Task::batch([self.sync(), self.refocus()])
+                Task::batch([self.sync(), crate::composer::refocus(self)])
             }
             Message::CancelDelete => {
                 self.client.dispatch(Action::CancelDelete);
-                Task::batch([self.sync(), self.refocus()])
+                Task::batch([self.sync(), crate::composer::refocus(self)])
             }
             Message::Key(key, modifiers) => self.key(key, modifiers),
             Message::Pressed(key, modifiers, physical) => {
-                self.talk_pressed = self.is_talk_key(physical);
+                self.talk_pressed = crate::keybinds::is_talk_key(self, physical);
                 let task = self.key(key, modifiers);
                 self.talk_pressed = false;
                 task
@@ -520,15 +520,15 @@ impl App {
             Message::Nothing => Task::none(),
             Message::Bell => {
                 // Under the bell, 6 px down, as the Slint client's.
-                let at = self.header_button().map_or(self.pressed.get(), |bell| {
+                let at = crate::popovers::header_button(self).map_or(self.pressed.get(), |bell| {
                     Point::new(bell.x, bell.y + bell.height + 6.0)
                 });
-                self.open_bell(at)
+                crate::places::open_bell(self, at)
             }
             Message::React(item, key) => {
                 self.win.menu = None;
                 self.client.dispatch(Action::React { item, key });
-                Task::batch([self.sync(), self.refocus()])
+                Task::batch([self.sync(), crate::composer::refocus(self)])
             }
             Message::AskPictures => self.ask_now(),
             Message::Report => {
@@ -539,32 +539,32 @@ impl App {
                 self.win.pictures.fitter.borrow_mut().made(fitted);
                 Task::none()
             }
-            Message::Reveal(item, attachment) => self.reveal(&item, attachment),
-            Message::Unfold(item) => self.unfold(&item),
+            Message::Reveal(item, attachment) => crate::timeline::reveal(self, &item, attachment),
+            Message::Unfold(item) => crate::timeline::unfold(self, &item),
             Message::ShowBlocked(item) => {
                 self.timeline
                     .revealed
                     .insert(crate::message::blocked_key(&item));
                 self.ask()
             }
-            Message::Poll(event) => self.poll_event(event),
-            Message::Voice(event) => self.voice_event(event),
-            Message::Clip(clip) => self.clip_event(clip),
+            Message::Poll(event) => crate::polls::update(self, event),
+            Message::Voice(event) => crate::playback::voice_event(self, event),
+            Message::Clip(clip) => crate::playback::clip_event(self, clip),
             Message::Image(event) => self.image_event(event),
-            Message::Thread(event) => self.thread_event(event),
-            Message::Popover(event) => self.popover_event(event),
+            Message::Thread(event) => crate::thread::update(self, event),
+            Message::Popover(event) => crate::popovers::popover_event(self, event),
             Message::Modal(event) => {
                 let mut cx = crate::ctx::cx!(self);
                 self.modal.update(event, &mut cx)
             }
-            Message::Forum(event) => self.forum_event(event),
-            Message::BrowseChannels(event) => self.browse_channels_event(event),
+            Message::Forum(event) => crate::forum::update(self, event),
+            Message::BrowseChannels(event) => crate::browse_channels::update(self, event),
             Message::Search(event) => {
                 let mut cx = crate::ctx::cx!(self);
                 self.searching.update(event, &mut cx)
             }
             Message::Focus(id) => operation::focus(id),
-            Message::Leave(visit) => self.leave(visit),
+            Message::Leave(visit) => crate::dialogs::leave(self, visit),
             Message::BotSelect(event) => {
                 let mut cx = crate::ctx::cx!(self);
                 crate::bot_select::update(event, &mut cx)
@@ -586,9 +586,9 @@ impl App {
                 point(&mut self.pointed.message, item, entered);
                 self.ask()
             }
-            Message::OpenMember(id) => self.open_member(&id),
-            Message::OpenAuthor(item) => match self.row_of(&item) {
-                Some(row) => self.open_author(row),
+            Message::OpenMember(id) => crate::members::open_member(self, &id),
+            Message::OpenAuthor(item) => match crate::timeline::row_of(self, &item) {
+                Some(row) => crate::message::open_author(self, row),
                 None => Task::none(),
             },
             Message::CloseProfile => self.profile_event(crate::profile::Event::Close),
@@ -599,30 +599,30 @@ impl App {
                 Task::none()
             }
             Message::Profile(event) => self.profile_event(event),
-            Message::Friends(event) => self.friends_event(event),
+            Message::Friends(event) => crate::friends::update(self, event),
             Message::Reactions(event) => {
                 let mut cx = crate::ctx::cx!(self);
                 self.reactions.update(event, &mut cx)
             }
             Message::Frames(clip_time) => {
-                self.frames_found(clip_time);
+                crate::call::stage::frames_found(self, clip_time);
                 Task::none()
             }
-            Message::Call(event) => self.call_event(event),
+            Message::Call(event) => crate::call::update(self, event),
             Message::Settings(event) => self.settings_event(event),
-            Message::Updates(event) => self.updates_event(event),
-            Message::Keybinds(count, told) => self.keybinds_told(count, told),
+            Message::Updates(event) => crate::updates::update(self, event),
+            Message::Keybinds(count, told) => crate::keybinds::keybinds_told(self, count, told),
             Message::ServerSettings(event) => self.server_settings_event(event),
             Message::Resized(size) => {
                 self.shell.frame = size;
                 self.fit_zoom();
-                let fitted = self.ctx().active_now_fits();
-                self.fit_window();
-                if self.ctx().active_now_fits() == fitted {
-                    return self.read_window_state();
+                let fitted = crate::active_now::active_now_fits(self.ctx());
+                crate::window_bar::fit_window(self);
+                if crate::active_now::active_now_fits(self.ctx()) == fitted {
+                    return crate::window_bar::read_window_state(self);
                 }
-                self.active_now_sync();
-                Task::batch([self.read_window_state(), self.ask()])
+                crate::active_now::active_now_sync(self);
+                Task::batch([crate::window_bar::read_window_state(self), self.ask()])
             }
             Message::ServerDialog(event) => {
                 let mut cx = crate::ctx::cx!(self);
@@ -632,7 +632,7 @@ impl App {
                 let mut cx = crate::ctx::cx!(self);
                 self.link_dialogs.update(event, &mut cx)
             }
-            Message::Away(event) => self.away_event(event),
+            Message::Away(event) => crate::away::update(self, event),
             Message::ChannelSettings(event) => self.channel_settings_event(event),
             Message::Status(event) => self.status_event(event),
             Message::Switcher(event) => self.switcher_event(event),
@@ -641,7 +641,7 @@ impl App {
                 self.zoom_key(&key, physical).unwrap_or_else(Task::none)
             }
             Message::ZoomStep(step) => self.zoom_step(step),
-            Message::Bar(event) => self.bar_event(event),
+            Message::Bar(event) => crate::window_bar::update(self, event),
         }
     }
 

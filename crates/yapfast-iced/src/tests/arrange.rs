@@ -106,7 +106,7 @@ fn a_channel_clicked_opens_and_pressed_and_moved_is_dragged() {
     assert_eq!(dragged.dragged, place(&app, "discord:10:11"));
     // Let go where it was, it stays, and nothing opens.
     let selected = app.client.state().selected.clone();
-    let _ = app.arrange_event(Event::Drop);
+    let _ = crate::arrange::update(&mut app, Event::Drop);
     assert!(app.sidebar.arranging.is_none());
     assert_eq!(app.client.state().selected, selected);
 }

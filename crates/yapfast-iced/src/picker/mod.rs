@@ -224,7 +224,7 @@ impl Picker {
     }
 
     /// What's done in the picker; its edge dragged is the root's, which
-    /// knows the room it has (`App::picker_event`).
+    /// knows the room it has (`picker::picker_event`).
     pub fn update(&mut self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
         let tab = self.tab;
         match event {
@@ -392,93 +392,91 @@ fn close_tab(tab: Tab, cx: &mut Cx<'_>) {
     }
 }
 
-impl App {
-    /// Opens the picker for the composer, the edit or a reaction, on a tab;
-    /// the same again closes it.
-    pub fn open_picker(&mut self, target: Target, tab: Tab) -> Task<Message> {
-        self.win.menu = None;
-        let tabs = target == Target::Composer && self.client.state().can_pick_gifs();
-        let tab = if tabs { tab } else { Tab::Emoji };
-        let width = if tabs {
-            self.layout
-                .picker_width
-                .unwrap_or(WIDTH)
-                .clamp(WIDTH, self.picker_room())
-        } else {
-            WIDTH
-        };
-        let mut cx = cx!(self);
-        let task = match self.win.picker.get_mut() {
-            Some(picker) if picker.target == target && picker.tab == tab => {
-                self.win.picker.close(&mut cx, Why::User);
-                Task::none()
-            }
-            Some(picker) if picker.target == target => picker.switch_tab(tab, &mut cx),
-            _ => {
-                self.win.picker.close(&mut cx, Why::User);
-                self.win
-                    .picker
-                    .open(|| Picker::open(target, tab, tabs, width, &mut cx));
-                cx.touch();
-                // After the keys the closed one gave back.
-                cx.request(Request::Focus(Focus::Id(FIELD)));
-                Task::none()
-            }
-        };
-        Task::batch([task, self.settle()])
-    }
+/// Opens the picker for the composer, the edit or a reaction, on a tab;
+/// the same again closes it.
+pub fn open_picker(app: &mut App, target: Target, tab: Tab) -> Task<Message> {
+    app.win.menu = None;
+    let tabs = target == Target::Composer && app.client.state().can_pick_gifs();
+    let tab = if tabs { tab } else { Tab::Emoji };
+    let width = if tabs {
+        app.layout
+            .picker_width
+            .unwrap_or(WIDTH)
+            .clamp(WIDTH, picker_room(app))
+    } else {
+        WIDTH
+    };
+    let mut cx = cx!(app);
+    let task = match app.win.picker.get_mut() {
+        Some(picker) if picker.target == target && picker.tab == tab => {
+            app.win.picker.close(&mut cx, Why::User);
+            Task::none()
+        }
+        Some(picker) if picker.target == target => picker.switch_tab(tab, &mut cx),
+        _ => {
+            app.win.picker.close(&mut cx, Why::User);
+            app.win
+                .picker
+                .open(|| Picker::open(target, tab, tabs, width, &mut cx));
+            cx.touch();
+            // After the keys the closed one gave back.
+            cx.request(Request::Focus(Focus::Id(FIELD)));
+            Task::none()
+        }
+    };
+    Task::batch([task, app.settle()])
+}
 
-    /// The picker closes, if it's open.
-    pub fn close_picker(&mut self) -> Task<Message> {
-        let mut cx = cx!(self);
-        self.win.picker.close(&mut cx, Why::User);
-        self.settle()
-    }
+/// The picker closes, if it's open.
+pub fn close_picker(app: &mut App) -> Task<Message> {
+    let mut cx = cx!(app);
+    app.win.picker.close(&mut cx, Why::User);
+    app.settle()
+}
 
-    /// The picker's: its edge dragged widens it in the room it has.
-    pub fn picker_event(&mut self, event: Event) -> Task<Message> {
-        let room = self.picker_room();
-        let mut cx = cx!(self);
-        let Some(picker) = self.win.picker.get_mut() else {
-            return Task::none();
-        };
-        match event {
-            Event::Widen(by) => {
-                picker.widen(by, room, &mut cx);
-                Task::none()
-            }
-            event => picker.update(event, &mut cx),
+/// The picker's: its edge dragged widens it in the room it has.
+pub fn picker_event(app: &mut App, event: Event) -> Task<Message> {
+    let room = picker_room(app);
+    let mut cx = cx!(app);
+    let Some(picker) = app.win.picker.get_mut() else {
+        return Task::none();
+    };
+    match event {
+        Event::Widen(by) => {
+            picker.widen(by, room, &mut cx);
+            Task::none()
+        }
+        event => picker.update(event, &mut cx),
+    }
+}
+
+/// An emoji picked goes where the picker was opened for: the
+/// composer's text, the edit's, a reaction, the custom status or a
+/// poll's answer.
+pub fn place_emoji(app: &mut App, target: Target, key: String) -> Task<Message> {
+    let text = yapfast_core::emoji::composer_text(&key);
+    match target {
+        Target::Composer => crate::composer::insert(app, Writing::Draft, &text),
+        Target::Edit => crate::composer::insert(app, Writing::Edit, &text),
+        Target::React(item, _) => {
+            app.client.dispatch(Action::React { item, key });
+            app.dirty = true;
+        }
+        Target::Status(_) => app.status.emoji(key),
+        Target::Poll(index, _) => {
+            crate::switcher::poll_draft_emoji(app, index, key);
+            app.dirty = true;
         }
     }
+    Task::none()
+}
 
-    /// An emoji picked goes where the picker was opened for: the
-    /// composer's text, the edit's, a reaction, the custom status or a
-    /// poll's answer.
-    pub fn place_emoji(&mut self, target: Target, key: String) -> Task<Message> {
-        let text = yapfast_core::emoji::composer_text(&key);
-        match target {
-            Target::Composer => self.insert(Writing::Draft, &text),
-            Target::Edit => self.insert(Writing::Edit, &text),
-            Target::React(item, _) => {
-                self.client.dispatch(Action::React { item, key });
-                self.dirty = true;
-            }
-            Target::Status(_) => self.status.emoji(key),
-            Target::Poll(index, _) => {
-                self.poll_draft_emoji(index, key);
-                self.dirty = true;
-            }
-        }
-        Task::none()
-    }
-
-    /// How wide the expression picker may grow: from its right edge, over
-    /// the emoji button, to 8 px right of the server rail, or 8 px from the
-    /// window's own edge if that comes first, as the Slint client's.
-    pub fn picker_room(&self) -> f32 {
-        let right = self.chat_right() - 8.0 - 4.0;
-        (self.window.width - 88.0).min(right - 80.0).max(WIDTH)
-    }
+/// How wide the expression picker may grow: from its right edge, over
+/// the emoji button, to 8 px right of the server rail, or 8 px from the
+/// window's own edge if that comes first, as the Slint client's.
+pub fn picker_room(app: &App) -> f32 {
+    let right = crate::conversation::chat_right(app) - 8.0 - 4.0;
+    (app.window.width - 88.0).min(right - 80.0).max(WIDTH)
 }
 
 /// The picker, framed, with its tabs when it has them.

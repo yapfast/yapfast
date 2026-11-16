@@ -31,7 +31,7 @@ use crate::{
     widgets::{RightPress, Rows},
 };
 
-mod requests;
+pub mod requests;
 
 use requests::request_rows;
 pub use requests::waiting;
@@ -79,120 +79,115 @@ pub enum Event {
     CloseAdd,
 }
 
-impl App {
-    /// The DM home's screen in place of a conversation, if one shows.
-    pub fn dm_screen(&self) -> Option<DmScreen> {
-        let state = self.client.state();
-        (state.navigation == Navigation::DirectMessages && state.selected.is_none())
-            .then_some(state.dm_screen)
-            .flatten()
-    }
+/// The DM home's screen in place of a conversation, if one shows.
+pub fn dm_screen(app: &App) -> Option<DmScreen> {
+    let state = app.client.state();
+    (state.navigation == Navigation::DirectMessages && state.selected.is_none())
+        .then_some(state.dm_screen)
+        .flatten()
+}
 
-    pub fn friends_event(&mut self, event: Event) -> Task<Message> {
-        match event {
-            Event::All(all) => {
-                self.friends.all = all;
-                self.friends.scroll = None;
-                return Task::batch([
-                    operation::scroll_to(
-                        LIST,
-                        iced::widget::scrollable::AbsoluteOffset {
-                            x: None,
-                            y: Some(0.0),
-                        },
-                    ),
-                    self.ask(),
-                ]);
-            }
-            Event::Filter(filter) => {
-                self.friends.filter = filter;
-                return self.ask();
-            }
-            Event::Scrolled(scroll) => {
-                self.friends.scroll = Some(scroll);
-                return self.ask();
-            }
-            Event::Message(user) => self.client.dispatch(Action::MessagePerson(user)),
-            Event::Menu(user) => {
-                let at = self.pressed.get();
-                return self.open_person_menu(&user, at, crate::person::CONTEXT_MENU);
-            }
-            Event::Accept(user) => self.client.dispatch(Action::Befriend(user)),
-            Event::Remove(user) => self.client.dispatch(Action::RemoveFriendRequest(user)),
-            Event::Open(room) => {
-                return self.update(Message::Side(crate::sidebar::Event::Select(room)));
-            }
-            Event::Spam => {
-                self.friends.spam_open = !self.friends.spam_open;
-                return self.ask();
-            }
-            Event::OpenAdd => {
-                self.client.dispatch(Action::OpenAddFriend);
-                self.friends.add_name.clear();
-                self.friends.add_sent = false;
-                return Task::batch([self.sync(), operation::focus(ADD_FIELD)]);
-            }
-            Event::AddName(name) => {
-                self.friends.add_name = name;
-                return Task::none();
-            }
-            Event::Send => {
-                let name = self.friends.add_name.clone();
-                if !name.trim().is_empty() {
-                    self.client.dispatch(Action::AddFriend(name));
-                }
-            }
-            Event::CloseAdd => {
-                self.client.dispatch(Action::CloseAddFriend);
-                return Task::batch([self.sync(), self.refocus()]);
+pub fn update(app: &mut App, event: Event) -> Task<Message> {
+    match event {
+        Event::All(all) => {
+            app.friends.all = all;
+            app.friends.scroll = None;
+            return Task::batch([
+                operation::scroll_to(
+                    LIST,
+                    iced::widget::scrollable::AbsoluteOffset {
+                        x: None,
+                        y: Some(0.0),
+                    },
+                ),
+                app.ask(),
+            ]);
+        }
+        Event::Filter(filter) => {
+            app.friends.filter = filter;
+            return app.ask();
+        }
+        Event::Scrolled(scroll) => {
+            app.friends.scroll = Some(scroll);
+            return app.ask();
+        }
+        Event::Message(user) => app.client.dispatch(Action::MessagePerson(user)),
+        Event::Menu(user) => {
+            let at = app.pressed.get();
+            return crate::person::open_person_menu(app, &user, at, crate::person::CONTEXT_MENU);
+        }
+        Event::Accept(user) => app.client.dispatch(Action::Befriend(user)),
+        Event::Remove(user) => app.client.dispatch(Action::RemoveFriendRequest(user)),
+        Event::Open(room) => {
+            return app.update(Message::Side(crate::sidebar::Event::Select(room)));
+        }
+        Event::Spam => {
+            app.friends.spam_open = !app.friends.spam_open;
+            return app.ask();
+        }
+        Event::OpenAdd => {
+            app.client.dispatch(Action::OpenAddFriend);
+            app.friends.add_name.clear();
+            app.friends.add_sent = false;
+            return Task::batch([app.sync(), operation::focus(ADD_FIELD)]);
+        }
+        Event::AddName(name) => {
+            app.friends.add_name = name;
+            return Task::none();
+        }
+        Event::Send => {
+            let name = app.friends.add_name.clone();
+            if !name.trim().is_empty() {
+                app.client.dispatch(Action::AddFriend(name));
             }
         }
-        self.sync()
-    }
-
-    /// A request that went clears the name, ready for the next.
-    pub fn friends_sync(&mut self) {
-        let sent = self
-            .client
-            .state()
-            .add_friend
-            .as_ref()
-            .is_some_and(|dialog| matches!(dialog.outcome, Some(Ok(_))));
-        if sent && !self.friends.add_sent {
-            self.friends.add_name.clear();
+        Event::CloseAdd => {
+            app.client.dispatch(Action::CloseAddFriend);
+            return Task::batch([app.sync(), crate::composer::refocus(app)]);
         }
-        self.friends.add_sent = sent;
     }
+    app.sync()
+}
 
-    /// The pictures the friends and requests screens show: the avatars of
-    /// the friends in view, the requests', and Active Now's.
-    pub fn friends_pictures(&self) -> Vec<String> {
-        let mut urls = Vec::new();
-        match self.dm_screen() {
-            Some(DmScreen::Friends) => {
-                let shown = self.ctx().friends_shown();
-                let scroll = self
-                    .friends
-                    .scroll
-                    .unwrap_or(Scroll::new(self.window.height));
-                let (first, last) = scroll.range(shown.len(), ROW, 0.0);
-                urls.extend(
-                    shown[first..last]
-                        .iter()
-                        .filter_map(|friend| friend.avatar.clone()),
-                );
-                urls.extend(self.active_now_pictures());
-            }
-            Some(DmScreen::Requests) => {
-                let rows = request_rows(self.client.state());
-                for request in rows.incoming.iter().chain(&rows.sent).chain(&rows.spam) {
-                    urls.extend(request.avatar.map(str::to_owned));
-                }
-            }
-            None => {}
-        }
-        urls
+/// A request that went clears the name, ready for the next.
+pub fn friends_sync(app: &mut App) {
+    let sent = app
+        .client
+        .state()
+        .add_friend
+        .as_ref()
+        .is_some_and(|dialog| matches!(dialog.outcome, Some(Ok(_))));
+    if sent && !app.friends.add_sent {
+        app.friends.add_name.clear();
     }
+    app.friends.add_sent = sent;
+}
+
+/// The pictures the friends and requests screens show: the avatars of
+/// the friends in view, the requests', and Active Now's.
+pub fn friends_pictures(app: &App) -> Vec<String> {
+    let mut urls = Vec::new();
+    match dm_screen(app) {
+        Some(DmScreen::Friends) => {
+            let shown = friends_shown(app.ctx());
+            let scroll = app.friends.scroll.unwrap_or(Scroll::new(app.window.height));
+            let (first, last) = scroll.range(shown.len(), ROW, 0.0);
+            urls.extend(
+                shown[first..last]
+                    .iter()
+                    .filter_map(|friend| friend.avatar.clone()),
+            );
+            urls.extend(crate::active_now::active_now_pictures(app));
+        }
+        Some(DmScreen::Requests) => {
+            let rows = request_rows(app.client.state());
+            for request in rows.incoming.iter().chain(&rows.sent).chain(&rows.spam) {
+                urls.extend(request.avatar.map(str::to_owned));
+            }
+        }
+        None => {}
+    }
+    urls
 }
 
 /// A friend counts as around unless offline.
@@ -212,312 +207,312 @@ fn presence_word(presence: Presence) -> &'static str {
     }
 }
 
-impl<'a> crate::ctx::Ctx<'a> {
-    /// The header over the friends list or the requests: the screen's icon
-    /// and name, and on the friends list its tabs and Add Friend.
-    pub fn friends_header(self, screen: DmScreen) -> Element<'a, Message> {
-        let theme = self.look.theme;
-        let (icon, name) = match screen {
-            DmScreen::Friends => (Icon::Users, "Friends"),
-            DmScreen::Requests => (Icon::Inbox, "Requests"),
-        };
-        let mut head = row![
-            self.look.glyph(icon, 22, theme.muted),
-            text(name).size(16).font(BOLD).color(theme.text)
-        ]
-        .spacing(10)
-        .align_y(Alignment::Center);
-        if screen == DmScreen::Friends {
-            let all = self.friends.all;
-            head = head
-                .push(controls::bar(theme.line, 1, 24))
-                .push(self.header_tab("Online", !all, Event::All(false)))
-                .push(self.header_tab("All", all, Event::All(true)))
-                .push(
-                    action(
-                        theme,
-                        "Add Friend",
-                        Kind::Primary,
-                        Some(Message::Friends(Event::OpenAdd)),
-                    )
-                    .small(),
-                );
-        }
-        container(head.push(Space::new().width(Length::Fill)))
-            .padding([0, 16])
-            .width(Length::Fill)
-            .height(crate::header::HEIGHT)
-            .align_y(Alignment::Center)
-            .into()
-    }
-
-    /// A tab in the friends header, as the Slint client's `HeaderTab`.
-    fn header_tab(self, label: &'static str, chosen: bool, event: Event) -> Element<'a, Message> {
-        let theme = self.look.theme;
-        let (text_ink, secondary, active, hover) =
-            (theme.text, theme.secondary, theme.active, theme.hover);
-        button(
-            container(text(label).size(15).font(MEDIUM))
-                .padding([0, 10])
-                .height(28)
-                .align_y(Alignment::Center),
-        )
-        .padding(0)
-        .on_press(Message::Friends(event))
-        .style(move |_, status| {
-            let lit = controls::lights(status);
-            button::Style {
-                background: if chosen {
-                    Some(active.into())
-                } else if lit {
-                    Some(hover.into())
-                } else {
-                    None
-                },
-                text_color: if chosen || lit { text_ink } else { secondary },
-                border: Border::default().rounded(6),
-                ..Default::default()
-            }
-        })
-        .into()
-    }
-
-    /// The friends list, beside Active Now when there's room for it.
-    pub fn friends_screen(self) -> Element<'a, Message> {
-        let wide = self.active_now_fits();
-        let list = self.friends_list();
-        if !wide {
-            return list;
-        }
-        row![
-            container(list).width(Length::Fill).clip(true),
-            self.active_now_view()
-        ]
-        .into()
-    }
-
-    fn friends_list(self) -> Element<'a, Message> {
-        let theme = self.look.theme;
-        let state = self.state;
-        if state.friends.is_empty() {
-            return self.look.empty_screen(
-                Icon::Users,
-                "No friends yet",
-                "Add someone with their Discord username.",
-                Some(("Add a friend", Message::Friends(Event::OpenAdd))),
+/// The header over the friends list or the requests: the screen's icon
+/// and name, and on the friends list its tabs and Add Friend.
+pub fn friends_header<'a>(ctx: crate::ctx::Ctx<'a>, screen: DmScreen) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
+    let (icon, name) = match screen {
+        DmScreen::Friends => (Icon::Users, "Friends"),
+        DmScreen::Requests => (Icon::Inbox, "Requests"),
+    };
+    let mut head = row![
+        ctx.look.glyph(icon, 22, theme.muted),
+        text(name).size(16).font(BOLD).color(theme.text)
+    ]
+    .spacing(10)
+    .align_y(Alignment::Center);
+    if screen == DmScreen::Friends {
+        let all = ctx.friends.all;
+        head = head
+            .push(controls::bar(theme.line, 1, 24))
+            .push(header_tab(ctx, "Online", !all, Event::All(false)))
+            .push(header_tab(ctx, "All", all, Event::All(true)))
+            .push(
+                action(
+                    theme,
+                    "Add Friend",
+                    Kind::Primary,
+                    Some(Message::Friends(Event::OpenAdd)),
+                )
+                .small(),
             );
-        }
-        let shown = self.friends_shown();
-        let search = field(theme, SEARCH, "Search", &self.friends.filter, false, true)
-            .size(15)
-            .padding([8, 10])
-            .on_input(|text| Message::Friends(Event::Filter(text)));
-        let heading = format!(
-            "{} — {}",
-            if self.friends.all {
-                "ALL FRIENDS"
-            } else {
-                "ONLINE"
-            },
-            shown.len()
-        );
-        let mut page = column![search, self.list_heading(heading)]
-            .spacing(8)
-            .padding(Padding {
-                top: 16.0,
-                left: 16.0,
-                right: 16.0,
-                bottom: 0.0,
-            })
-            .height(Length::Fill);
-        if shown.is_empty() {
-            let words = if self.friends.filter.is_empty() {
-                "None of your friends are around right now."
-            } else {
-                "No friend's name matches that."
-            };
-            page =
-                page.push(container(text(words).size(14).color(theme.secondary)).padding([0, 8]));
-        }
-        let scroll = self
-            .friends
-            .scroll
-            .unwrap_or(Scroll::new(self.look.window.height));
-        let (first, last) = scroll.range(shown.len(), ROW, 0.0);
-        let total = shown.len() as f32 * ROW + 16.0;
-        let spots = voice_spots(state);
-        let mut rows = Rows::new(total);
-        for (index, friend) in shown.iter().enumerate().take(last).skip(first) {
-            rows.push(
-                crate::app::key(&friend.id),
-                index as f32 * ROW,
-                ROW,
-                self.friend_row(friend, spots.get(friend.id.as_str()).copied()),
-            );
-        }
-        let list = scroll_view(rows)
-            .id(iced::widget::Id::new(LIST))
-            .on_scroll(|viewport| Message::Friends(Event::Scrolled(Scroll::of(viewport))))
-            .height(Length::Fill)
-            .style(scrollbar(theme));
-        page.push(list).into()
     }
-
-    /// A friend in the list, as the Slint client's `FriendItem`: ruled from
-    /// the one above unless pointed at; a click opens their DM.
-    fn friend_row(
-        self,
-        friend: &'a Friend,
-        spot: Option<(&'a str, &'a str, &'a str)>,
-    ) -> Element<'a, Message> {
-        let theme = self.look.theme;
-        let pointed = self.pointed.member.as_deref() == Some(friend.id.as_str());
-        let surface = if pointed { theme.hover } else { theme.chat };
-        let presence = friend.presence.unwrap_or(Presence::Offline);
-        let face = Face::new(friend.avatar.as_deref(), &friend.name, 32.0).dot(Some((
-            presence,
-            rgb(surface),
-            Point::new(20.0, 20.0),
-        )));
-        let name = crate::elide::elide(friend.name.as_str())
-            .size(16)
-            .font(BOLD)
-            .color(theme.text);
-        let status = Status::of(friend.activity.as_deref());
-        let sub: Element<'a, Message> = match (spot, status.is_empty()) {
-            (Some(spot), true) => self.voice_spot(spot, 13.0, false),
-            (spot, false) => {
-                let mut line = row![].spacing(4).align_y(Alignment::Center);
-                if let Some(spot) = spot {
-                    line = line.push(self.voice_spot(spot, 13.0, true));
-                }
-                line.push(self.status_line(
-                    status,
-                    StatusInk::words(13.0, iced::Font::default(), theme.muted),
-                ))
-                .into()
-            }
-            (None, true) => text(presence_word(presence))
-                .size(13)
-                .color(theme.muted)
-                .into(),
-        };
-        let message = Message::Friends(Event::Message(friend.id.clone()));
-        let (raised, hover) = (theme.raised, theme.active);
-        let send = button(
-            self.look
-                .glyph(Icon::MessageCircle, 20, theme.secondary)
-                .boxed(36),
-        )
-        .padding(0)
-        .width(36)
-        .height(36)
-        .on_press(message.clone())
-        .style(lit_style(Some(raised), hover, 18.0));
-        let send = iced::widget::tooltip(
-            send,
-            controls::tip(theme, "Message"),
-            iced::widget::tooltip::Position::Bottom,
-        )
-        .gap(6);
-        let content = row![self.person(Person::new(face, name).sub(sub)), send]
-            .spacing(12)
-            .padding([0, 10])
-            .height(ROW)
-            .align_y(Alignment::Center);
-        let ground = theme.hover;
-        let row_face = button(content)
-            .padding(0)
-            .width(Length::Fill)
-            .on_press(message)
-            .style(crate::controls::lit_style(None, ground, 8.0));
-        let line = theme.line;
-        let mut layers = stack![row_face];
-        if !pointed {
-            layers = layers.push(container(controls::bar(line, Length::Fill, 1)).padding([0, 10]));
-        }
-        let id = friend.id.clone();
-        let area = mouse_area(layers)
-            .on_enter(Message::PointMember(friend.id.clone(), true))
-            .on_exit(Message::PointMember(friend.id.clone(), false));
-        RightPress::new(area, move |_| Message::Friends(Event::Menu(id.clone()))).into()
-    }
-
-    /// The dialog that adds a Discord friend by username.
-    pub fn add_friend_view(self) -> Option<Element<'a, Message>> {
-        let dialog_state = self.state.add_friend.as_ref()?;
-        let theme = self.look.theme;
-        let close = button(self.look.glyph(Icon::X, 18, theme.secondary).boxed(28))
-            .padding(0)
-            .on_press(Message::Friends(Event::CloseAdd))
-            .style(lit_style(None, theme.hover, 6.0));
-        let sending = dialog_state.sending;
-        let name = &self.friends.add_name;
-        let mut input = field(theme, ADD_FIELD, "Username", name, false, true)
-            .size(15)
-            .padding(10)
-            .on_input(|text| Message::Friends(Event::AddName(text)));
-        if !sending && !name.is_empty() {
-            input = input.on_submit(Message::Friends(Event::Send));
-        }
-        let send = action(
-            theme,
-            "Send request",
-            Kind::Primary,
-            (!sending && !name.is_empty()).then_some(Message::Friends(Event::Send)),
-        );
-        let mut body = column![
-            row![
-                text("Add a friend")
-                    .size(18)
-                    .font(BOLD)
-                    .color(theme.text)
-                    .width(Length::Fill),
-                close
-            ]
-            .align_y(Alignment::Center),
-            text("Send someone a friend request on Discord with their username.")
-                .size(14)
-                .color(theme.secondary),
-            row![input, send].spacing(8).align_y(Alignment::Center),
-        ]
-        .spacing(12)
-        .padding(20);
-        let (note, ink) = match dialog_state {
-            AddFriend { sending: true, .. } => ("Sending...".to_owned(), theme.muted),
-            AddFriend {
-                outcome: Some(Ok(name)),
-                ..
-            } => (format!("Sent {name} a friend request."), theme.live),
-            AddFriend {
-                outcome: Some(Err(error)),
-                ..
-            } => (error.clone(), theme.danger),
-            _ => (String::new(), theme.muted),
-        };
-        if !note.is_empty() {
-            body = body.push(text(note).size(14).color(ink));
-        }
-        let width = ADD_WIDTH.min(self.look.window.width - 48.0);
-        Some(dialog(
-            theme,
-            body.into(),
-            width,
-            Message::Friends(Event::CloseAdd),
-        ))
-    }
+    container(head.push(Space::new().width(Length::Fill)))
+        .padding([0, 16])
+        .width(Length::Fill)
+        .height(crate::header::HEIGHT)
+        .align_y(Alignment::Center)
+        .into()
 }
 
-impl<'a> crate::ctx::Ctx<'a> {
-    /// The friends shown: those around, or all, whose names hold the
-    /// search's text.
-    fn friends_shown(self) -> Vec<&'a Friend> {
-        let query = self.friends.filter.trim().to_lowercase();
-        self.state
-            .friends
-            .iter()
-            .filter(|friend| self.friends.all || around(friend))
-            .filter(|friend| query.is_empty() || friend.name.to_lowercase().contains(&query))
-            .collect()
+/// A tab in the friends header, as the Slint client's `HeaderTab`.
+fn header_tab<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    label: &'static str,
+    chosen: bool,
+    event: Event,
+) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
+    let (text_ink, secondary, active, hover) =
+        (theme.text, theme.secondary, theme.active, theme.hover);
+    button(
+        container(text(label).size(15).font(MEDIUM))
+            .padding([0, 10])
+            .height(28)
+            .align_y(Alignment::Center),
+    )
+    .padding(0)
+    .on_press(Message::Friends(event))
+    .style(move |_, status| {
+        let lit = controls::lights(status);
+        button::Style {
+            background: if chosen {
+                Some(active.into())
+            } else if lit {
+                Some(hover.into())
+            } else {
+                None
+            },
+            text_color: if chosen || lit { text_ink } else { secondary },
+            border: Border::default().rounded(6),
+            ..Default::default()
+        }
+    })
+    .into()
+}
+
+/// The friends list, beside Active Now when there's room for it.
+pub fn friends_screen<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
+    let wide = crate::active_now::active_now_fits(ctx);
+    let list = friends_list(ctx);
+    if !wide {
+        return list;
     }
+    row![
+        container(list).width(Length::Fill).clip(true),
+        crate::active_now::view(ctx)
+    ]
+    .into()
+}
+
+fn friends_list<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
+    let state = ctx.state;
+    if state.friends.is_empty() {
+        return ctx.look.empty_screen(
+            Icon::Users,
+            "No friends yet",
+            "Add someone with their Discord username.",
+            Some(("Add a friend", Message::Friends(Event::OpenAdd))),
+        );
+    }
+    let shown = friends_shown(ctx);
+    let search = field(theme, SEARCH, "Search", &ctx.friends.filter, false, true)
+        .size(15)
+        .padding([8, 10])
+        .on_input(|text| Message::Friends(Event::Filter(text)));
+    let heading = format!(
+        "{} — {}",
+        if ctx.friends.all {
+            "ALL FRIENDS"
+        } else {
+            "ONLINE"
+        },
+        shown.len()
+    );
+    let mut page = column![search, ctx.list_heading(heading)]
+        .spacing(8)
+        .padding(Padding {
+            top: 16.0,
+            left: 16.0,
+            right: 16.0,
+            bottom: 0.0,
+        })
+        .height(Length::Fill);
+    if shown.is_empty() {
+        let words = if ctx.friends.filter.is_empty() {
+            "None of your friends are around right now."
+        } else {
+            "No friend's name matches that."
+        };
+        page = page.push(container(text(words).size(14).color(theme.secondary)).padding([0, 8]));
+    }
+    let scroll = ctx
+        .friends
+        .scroll
+        .unwrap_or(Scroll::new(ctx.look.window.height));
+    let (first, last) = scroll.range(shown.len(), ROW, 0.0);
+    let total = shown.len() as f32 * ROW + 16.0;
+    let spots = voice_spots(state);
+    let mut rows = Rows::new(total);
+    for (index, friend) in shown.iter().enumerate().take(last).skip(first) {
+        rows.push(
+            crate::app::key(&friend.id),
+            index as f32 * ROW,
+            ROW,
+            friend_row(ctx, friend, spots.get(friend.id.as_str()).copied()),
+        );
+    }
+    let list = scroll_view(rows)
+        .id(iced::widget::Id::new(LIST))
+        .on_scroll(|viewport| Message::Friends(Event::Scrolled(Scroll::of(viewport))))
+        .height(Length::Fill)
+        .style(scrollbar(theme));
+    page.push(list).into()
+}
+
+/// A friend in the list, as the Slint client's `FriendItem`: ruled from
+/// the one above unless pointed at; a click opens their DM.
+fn friend_row<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    friend: &'a Friend,
+    spot: Option<(&'a str, &'a str, &'a str)>,
+) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
+    let pointed = ctx.pointed.member.as_deref() == Some(friend.id.as_str());
+    let surface = if pointed { theme.hover } else { theme.chat };
+    let presence = friend.presence.unwrap_or(Presence::Offline);
+    let face = Face::new(friend.avatar.as_deref(), &friend.name, 32.0).dot(Some((
+        presence,
+        rgb(surface),
+        Point::new(20.0, 20.0),
+    )));
+    let name = crate::elide::elide(friend.name.as_str())
+        .size(16)
+        .font(BOLD)
+        .color(theme.text);
+    let status = Status::of(friend.activity.as_deref());
+    let sub: Element<'a, Message> = match (spot, status.is_empty()) {
+        (Some(spot), true) => ctx.voice_spot(spot, 13.0, false),
+        (spot, false) => {
+            let mut line = row![].spacing(4).align_y(Alignment::Center);
+            if let Some(spot) = spot {
+                line = line.push(ctx.voice_spot(spot, 13.0, true));
+            }
+            line.push(ctx.status_line(
+                status,
+                StatusInk::words(13.0, iced::Font::default(), theme.muted),
+            ))
+            .into()
+        }
+        (None, true) => text(presence_word(presence))
+            .size(13)
+            .color(theme.muted)
+            .into(),
+    };
+    let message = Message::Friends(Event::Message(friend.id.clone()));
+    let (raised, hover) = (theme.raised, theme.active);
+    let send = button(
+        ctx.look
+            .glyph(Icon::MessageCircle, 20, theme.secondary)
+            .boxed(36),
+    )
+    .padding(0)
+    .width(36)
+    .height(36)
+    .on_press(message.clone())
+    .style(lit_style(Some(raised), hover, 18.0));
+    let send = iced::widget::tooltip(
+        send,
+        controls::tip(theme, "Message"),
+        iced::widget::tooltip::Position::Bottom,
+    )
+    .gap(6);
+    let content = row![ctx.person(Person::new(face, name).sub(sub)), send]
+        .spacing(12)
+        .padding([0, 10])
+        .height(ROW)
+        .align_y(Alignment::Center);
+    let ground = theme.hover;
+    let row_face = button(content)
+        .padding(0)
+        .width(Length::Fill)
+        .on_press(message)
+        .style(crate::controls::lit_style(None, ground, 8.0));
+    let line = theme.line;
+    let mut layers = stack![row_face];
+    if !pointed {
+        layers = layers.push(container(controls::bar(line, Length::Fill, 1)).padding([0, 10]));
+    }
+    let id = friend.id.clone();
+    let area = mouse_area(layers)
+        .on_enter(Message::PointMember(friend.id.clone(), true))
+        .on_exit(Message::PointMember(friend.id.clone(), false));
+    RightPress::new(area, move |_| Message::Friends(Event::Menu(id.clone()))).into()
+}
+
+/// The dialog that adds a Discord friend by username.
+pub fn add_friend_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
+    let dialog_state = ctx.state.add_friend.as_ref()?;
+    let theme = ctx.look.theme;
+    let close = button(ctx.look.glyph(Icon::X, 18, theme.secondary).boxed(28))
+        .padding(0)
+        .on_press(Message::Friends(Event::CloseAdd))
+        .style(lit_style(None, theme.hover, 6.0));
+    let sending = dialog_state.sending;
+    let name = &ctx.friends.add_name;
+    let mut input = field(theme, ADD_FIELD, "Username", name, false, true)
+        .size(15)
+        .padding(10)
+        .on_input(|text| Message::Friends(Event::AddName(text)));
+    if !sending && !name.is_empty() {
+        input = input.on_submit(Message::Friends(Event::Send));
+    }
+    let send = action(
+        theme,
+        "Send request",
+        Kind::Primary,
+        (!sending && !name.is_empty()).then_some(Message::Friends(Event::Send)),
+    );
+    let mut body = column![
+        row![
+            text("Add a friend")
+                .size(18)
+                .font(BOLD)
+                .color(theme.text)
+                .width(Length::Fill),
+            close
+        ]
+        .align_y(Alignment::Center),
+        text("Send someone a friend request on Discord with their username.")
+            .size(14)
+            .color(theme.secondary),
+        row![input, send].spacing(8).align_y(Alignment::Center),
+    ]
+    .spacing(12)
+    .padding(20);
+    let (note, ink) = match dialog_state {
+        AddFriend { sending: true, .. } => ("Sending...".to_owned(), theme.muted),
+        AddFriend {
+            outcome: Some(Ok(name)),
+            ..
+        } => (format!("Sent {name} a friend request."), theme.live),
+        AddFriend {
+            outcome: Some(Err(error)),
+            ..
+        } => (error.clone(), theme.danger),
+        _ => (String::new(), theme.muted),
+    };
+    if !note.is_empty() {
+        body = body.push(text(note).size(14).color(ink));
+    }
+    let width = ADD_WIDTH.min(ctx.look.window.width - 48.0);
+    Some(dialog(
+        theme,
+        body.into(),
+        width,
+        Message::Friends(Event::CloseAdd),
+    ))
+}
+
+/// The friends shown: those around, or all, whose names hold the
+/// search's text.
+fn friends_shown<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<&'a Friend> {
+    let query = ctx.friends.filter.trim().to_lowercase();
+    ctx.state
+        .friends
+        .iter()
+        .filter(|friend| ctx.friends.all || around(friend))
+        .filter(|friend| query.is_empty() || friend.name.to_lowercase().contains(&query))
+        .collect()
 }

@@ -112,7 +112,7 @@ fn a_search_shows_its_results_beside_and_escape_ends_it_letting_go_of_them() {
     // A server's results are headed with their channel's name.
     assert!(shows(&app, "general"));
     assert!(
-        !app.members_shown(),
+        !crate::header::members_shown(&app),
         "the results take the member list's place"
     );
     escape(&mut app);
@@ -137,7 +137,8 @@ fn add_people_counts_the_room_left_in_the_group() {
     assert!(shows(&app, "Select Friends"));
     assert!(shows(&app, "You can add 2 more friends."));
     // Typing in its search leaves the focus, and so the caret, alone.
-    let typed = app.popover_event(crate::popovers::Event::PeopleQuery("ri".into()));
+    let typed =
+        crate::popovers::popover_event(&mut app, crate::popovers::Event::PeopleQuery("ri".into()));
     assert_eq!(typed.units(), 0, "nothing focused again");
     escape(&mut app);
     assert!(app.client.state().add_people.is_none());
@@ -158,17 +159,20 @@ fn a_click_on_the_topic_shows_it_in_full_until_escape_or_another_room() {
         ui.click("Plans for game night. Bring snacks.")
             .expect("the topic's line");
     });
-    assert!(app.popover_open());
+    assert!(crate::popovers::popover_open(&app));
     assert!(
         shows(&app, "Plans for game night.\nBring snacks."),
         "its own lines"
     );
     escape(&mut app);
-    assert!(!app.popover_open());
+    assert!(!crate::popovers::popover_open(&app));
     let _ = app.update(Message::Popover(crate::popovers::Event::Topic));
-    assert!(app.popover_open());
+    assert!(crate::popovers::popover_open(&app));
     interact(&mut app, |ui| {
         ui.click("games").expect("the games channel");
     });
-    assert!(!app.popover_open(), "it goes with its room");
+    assert!(
+        !crate::popovers::popover_open(&app),
+        "it goes with its room"
+    );
 }

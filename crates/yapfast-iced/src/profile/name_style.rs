@@ -515,523 +515,526 @@ fn swatch(key: &str, stripes: bool) -> Background {
     Background::Gradient(fill.into())
 }
 
-impl<'a> crate::ctx::Ctx<'a> {
-    /// The window over the editor dimmed by half; a click on the dim
-    /// closes it.
-    pub(super) fn name_style_view(
-        self,
-        window: &'a Window,
-        shown: &'a Shown,
-    ) -> Element<'a, Message> {
-        let theme = self.look.theme;
-        let width = WIDTH.min(self.look.window.width - ROOM);
-        let height = HEIGHT.min(self.look.window.height - ROOM);
-        let body = row![
-            self.style_choices(window),
-            self.style_previews(window, shown, width - CHOICES, height - 1.0 - FOOT),
-        ]
-        .height(Length::Fill);
-        let foot = row![
-            Space::new().width(Length::Fill),
-            action(
-                theme,
-                "Surprise Me",
-                Kind::Plain,
-                Some(message(Event::Surprise))
-            ),
-            action(
-                theme,
-                "Apply",
-                Kind::Primary,
-                window.changed().then(|| message(Event::Apply))
-            ),
-        ]
-        .spacing(8)
-        .padding(16);
-        let ground = theme.sidebar;
-        let card = container(column![
-            body,
-            controls::bar(theme.line, Length::Fill, 1.0),
-            foot
-        ])
-        .width(width)
-        .height(height)
-        .clip(true)
-        .style(move |_| rounded(ground, 16).shadow(crate::style::window_shadow()));
-        let close = self
-            .look
-            .icon_button(Icon::X, "Close", message(Event::Close))
-            .size(32.0, 20)
-            .below();
-        let card = stack![card, placed(close, width - 32.0 - 12.0, 12.0)];
-        let dim = Color {
-            a: 0.5,
-            ..Color::BLACK
-        };
-        let backdrop = mouse_area(
-            container(Space::new())
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .style(move |_| crate::style::fill(dim)),
+/// The window over the editor dimmed by half; a click on the dim
+/// closes it.
+pub(super) fn name_style_view<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    window: &'a Window,
+    shown: &'a Shown,
+) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
+    let width = WIDTH.min(ctx.look.window.width - ROOM);
+    let height = HEIGHT.min(ctx.look.window.height - ROOM);
+    let body = row![
+        style_choices(ctx, window),
+        style_previews(ctx, window, shown, width - CHOICES, height - 1.0 - FOOT),
+    ]
+    .height(Length::Fill);
+    let foot = row![
+        Space::new().width(Length::Fill),
+        action(
+            theme,
+            "Surprise Me",
+            Kind::Plain,
+            Some(message(Event::Surprise))
+        ),
+        action(
+            theme,
+            "Apply",
+            Kind::Primary,
+            window.changed().then(|| message(Event::Apply))
+        ),
+    ]
+    .spacing(8)
+    .padding(16);
+    let ground = theme.sidebar;
+    let card = container(column![
+        body,
+        controls::bar(theme.line, Length::Fill, 1.0),
+        foot
+    ])
+    .width(width)
+    .height(height)
+    .clip(true)
+    .style(move |_| rounded(ground, 16).shadow(crate::style::window_shadow()));
+    let close = ctx
+        .look
+        .icon_button(Icon::X, "Close", message(Event::Close))
+        .size(32.0, 20)
+        .below();
+    let card = stack![card, placed(close, width - 32.0 - 12.0, 12.0)];
+    let dim = Color {
+        a: 0.5,
+        ..Color::BLACK
+    };
+    let backdrop = mouse_area(
+        container(Space::new())
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(move |_| crate::style::fill(dim)),
+    )
+    .on_press(message(Event::Close));
+    opaque(stack![
+        opaque(backdrop),
+        container(opaque(card)).center(Length::Fill)
+    ])
+}
+
+/// The choices' column: the fonts, the effects and the colours.
+fn style_choices<'a>(ctx: crate::ctx::Ctx<'a>, window: &'a Window) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
+    let label = |words: &'static str| text(words).size(13).font(SEMIBOLD).color(theme.secondary);
+    let faces = FACES.map(|(font, label)| {
+        let face = text("Gg")
+            .size(22)
+            .font(name_font(family(font), face_weight(font)))
+            .color(theme.text);
+        let tile = style_tile(
+            ctx,
+            face.into(),
+            window.font == font,
+            message(Event::Font(font)),
+        );
+        tooltip(tile, controls::tip(theme, label), tooltip::Position::Top)
+            .gap(6)
+            .into()
+    });
+    let effects = EFFECTS.map(|(effect, label)| {
+        let name = style_name(
+            ctx,
+            window,
+            11,
+            effect,
+            presets(effect)[0],
+            label,
+            (TILE_NAME, DEFAULT_WEIGHT),
+        );
+        style_tile(
+            ctx,
+            name,
+            window.effect == effect,
+            message(Event::Effect(effect)),
         )
-        .on_press(message(Event::Close));
-        opaque(stack![
-            opaque(backdrop),
-            container(opaque(card)).center(Length::Fill)
-        ])
-    }
+    });
+    column![
+        text("Change Display Name Style")
+            .size(22)
+            .font(BOLD)
+            .color(theme.text),
+        label("Font"),
+        grid(faces.into_iter().collect()),
+        label("Effect"),
+        grid(effects.into_iter().collect()),
+        label("Colour"),
+        colour_choices(ctx, window),
+    ]
+    .spacing(12)
+    .padding(PAD)
+    .width(CHOICES)
+    .into()
+}
 
-    /// The choices' column: the fonts, the effects and the colours.
-    fn style_choices(self, window: &'a Window) -> Element<'a, Message> {
-        let theme = self.look.theme;
-        let label =
-            |words: &'static str| text(words).size(13).font(SEMIBOLD).color(theme.secondary);
-        let faces = FACES.map(|(font, label)| {
-            let face = text("Gg")
-                .size(22)
-                .font(name_font(family(font), face_weight(font)))
-                .color(theme.text);
-            let tile =
-                self.style_tile(face.into(), window.font == font, message(Event::Font(font)));
-            tooltip(tile, controls::tip(theme, label), tooltip::Position::Top)
-                .gap(6)
-                .into()
-        });
-        let effects = EFFECTS.map(|(effect, label)| {
-            let name = self.style_name(
-                window,
-                11,
-                effect,
-                presets(effect)[0],
-                label,
-                (TILE_NAME, DEFAULT_WEIGHT),
-            );
-            self.style_tile(
-                name,
-                window.effect == effect,
-                message(Event::Effect(effect)),
-            )
-        });
-        column![
-            text("Change Display Name Style")
-                .size(22)
-                .font(BOLD)
-                .color(theme.text),
-            label("Font"),
-            grid(faces.into_iter().collect()),
-            label("Effect"),
-            grid(effects.into_iter().collect()),
-            label("Colour"),
-            self.colour_choices(window),
-        ]
-        .spacing(12)
-        .padding(PAD)
-        .width(CHOICES)
+/// A font's or an effect's tile: raised, lit under the pointer, the
+/// chosen one in the accent's wash and edge.
+fn style_tile<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    face: Element<'a, Message>,
+    chosen: bool,
+    pressed: Message,
+) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
+    let (raised, hover, accent) = (theme.raised, theme.hover, theme.accent);
+    button(container(face).center(Length::Fill))
+        .padding(0)
+        .width(TILE)
+        .height(TILE_HEIGHT)
+        .on_press(pressed)
+        .style(move |_, status| button::Style {
+            background: Some(
+                if chosen {
+                    faded(accent, 0.16)
+                } else if lights(status) {
+                    hover
+                } else {
+                    raised
+                }
+                .into(),
+            ),
+            border: Border {
+                color: accent,
+                width: if chosen { 2.0 } else { 0.0 },
+                radius: 12.0.into(),
+            },
+            ..Default::default()
+        })
         .into()
-    }
+}
 
-    /// A font's or an effect's tile: raised, lit under the pointer, the
-    /// chosen one in the accent's wash and edge.
-    fn style_tile(
-        self,
-        face: Element<'a, Message>,
-        chosen: bool,
-        pressed: Message,
-    ) -> Element<'a, Message> {
-        let theme = self.look.theme;
-        let (raised, hover, accent) = (theme.raised, theme.hover, theme.accent);
-        button(container(face).center(Length::Fill))
+/// A name drawn in a style, kept while the window shows it.
+fn style_name<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    window: &Window,
+    font: u8,
+    effect: u8,
+    key: &str,
+    name: &str,
+    (size, weight): (f32, u16),
+) -> Element<'a, Message> {
+    let dark = ctx.look.theme.dark;
+    let stamp = (dark, font_system().read().expect("font system").version());
+    let mut names = window.names.borrow_mut();
+    if names.stamp != Some(stamp) {
+        names.made.clear();
+        names.stamp = Some(stamp);
+    }
+    let made = names
+        .made
+        .entry((font, effect, key.to_owned(), name.to_owned(), size as u32))
+        .or_insert_with(|| {
+            let colours = colours(key);
+            let colours = if colours.is_empty() {
+                vec![0xf0f0f2]
+            } else {
+                colours
+            };
+            let style = NameStyle::new(font, effect, &colours);
+            let look =
+                looks::name_look(Some(&style), name, false, dark).expect("a style with colours");
+            NamePicture::new(&look, name, size, weight)
+        });
+    made.view()
+}
+
+/// The colours: one's own (the eyedropper), or the bar of a gradient's
+/// or prism's handles; then the effect's presets. The pad opens over
+/// the row.
+fn colour_choices<'a>(ctx: crate::ctx::Ctx<'a>, window: &'a Window) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
+    let mut line = row![].spacing(8).height(SWATCH);
+    if window.bar() {
+        line = line.push(handle_bar(window));
+    } else {
+        let open = window.picker == Some(Picker::Own);
+        let (raised, hover) = (theme.raised, theme.hover);
+        line = line.push(
+            button(
+                ctx.look
+                    .glyph(Icon::Eyedropper, 16, theme.text)
+                    .boxed(SWATCH as u32),
+            )
             .padding(0)
-            .width(TILE)
-            .height(TILE_HEIGHT)
-            .on_press(pressed)
+            .width(SWATCH)
+            .height(SWATCH)
+            .on_press(message(Event::Own))
             .style(move |_, status| button::Style {
                 background: Some(
-                    if chosen {
-                        faded(accent, 0.16)
-                    } else if lights(status) {
+                    if open || lights(status) {
                         hover
                     } else {
                         raised
                     }
                     .into(),
                 ),
-                border: Border {
-                    color: accent,
-                    width: if chosen { 2.0 } else { 0.0 },
-                    radius: 12.0.into(),
-                },
+                border: Border::default().rounded(12),
                 ..Default::default()
-            })
-            .into()
+            }),
+        );
     }
-
-    /// A name drawn in a style, kept while the window shows it.
-    fn style_name(
-        self,
-        window: &Window,
-        font: u8,
-        effect: u8,
-        key: &str,
-        name: &str,
-        (size, weight): (f32, u16),
-    ) -> Element<'a, Message> {
-        let dark = self.look.theme.dark;
-        let stamp = (dark, font_system().read().expect("font system").version());
-        let mut names = window.names.borrow_mut();
-        if names.stamp != Some(stamp) {
-            names.made.clear();
-            names.stamp = Some(stamp);
-        }
-        let made = names
-            .made
-            .entry((font, effect, key.to_owned(), name.to_owned(), size as u32))
-            .or_insert_with(|| {
-                let colours = colours(key);
-                let colours = if colours.is_empty() {
-                    vec![0xf0f0f2]
-                } else {
-                    colours
-                };
-                let style = NameStyle::new(font, effect, &colours);
-                let look = looks::name_look(Some(&style), name, false, dark)
-                    .expect("a style with colours");
-                NamePicture::new(&look, name, size, weight)
-            });
-        made.view()
-    }
-
-    /// The colours: one's own (the eyedropper), or the bar of a gradient's
-    /// or prism's handles; then the effect's presets. The pad opens over
-    /// the row.
-    fn colour_choices(self, window: &'a Window) -> Element<'a, Message> {
-        let theme = self.look.theme;
-        let mut line = row![].spacing(8).height(SWATCH);
-        if window.bar() {
-            line = line.push(self.handle_bar(window));
-        } else {
-            let open = window.picker == Some(Picker::Own);
-            let (raised, hover) = (theme.raised, theme.hover);
-            line = line.push(
-                button(
-                    self.look
-                        .glyph(Icon::Eyedropper, 16, theme.text)
-                        .boxed(SWATCH as u32),
-                )
-                .padding(0)
+    let ink = theme.text;
+    for &key in presets(window.effect) {
+        let chosen = window.paint.key == key;
+        let fill = swatch(key, window.effect == 8);
+        line = line.push(
+            button(Space::new())
                 .width(SWATCH)
                 .height(SWATCH)
-                .on_press(message(Event::Own))
-                .style(move |_, status| button::Style {
-                    background: Some(
-                        if open || lights(status) {
-                            hover
-                        } else {
-                            raised
-                        }
-                        .into(),
-                    ),
-                    border: Border::default().rounded(12),
+                .on_press(message(Event::Preset(key)))
+                .style(move |_, _| button::Style {
+                    background: Some(fill),
+                    border: Border {
+                        color: ink,
+                        width: if chosen { 3.0 } else { 0.0 },
+                        radius: 12.0.into(),
+                    },
                     ..Default::default()
                 }),
-            );
-        }
-        let ink = theme.text;
-        for &key in presets(window.effect) {
-            let chosen = window.paint.key == key;
-            let fill = swatch(key, window.effect == 8);
-            line = line.push(
-                button(Space::new())
-                    .width(SWATCH)
-                    .height(SWATCH)
-                    .on_press(message(Event::Preset(key)))
-                    .style(move |_, _| button::Style {
-                        background: Some(fill),
-                        border: Border {
-                            color: ink,
-                            width: if chosen { 3.0 } else { 0.0 },
-                            radius: 12.0.into(),
-                        },
-                        ..Default::default()
-                    }),
-            );
-        }
-        let pad = window.picker.map(|_| {
-            form::colour_card(
-                theme,
-                ColourPad::new(window.hsv, |hsv| message(Event::Hsv(hsv))),
-                form::field(theme, CODE, "#rrggbb", &window.code)
-                    .on_input(|code| message(Event::Code(code)))
-                    .on_submit(message(Event::Away)),
-            )
-        });
-        Popover::new(line, pad, Side::Above)
-            .width(Width::Own(form::COLOUR_CARD))
-            .gap(8.0)
-            .outside(message(Event::Away))
-            .into()
-    }
-
-    /// One's own gradient or prism: the colours across a bar, a handle on
-    /// each, the open one's edge thicker.
-    fn handle_bar(self, window: &Window) -> Element<'a, Message> {
-        let codes = window.handles();
-        let count = codes.len();
-        let colours: Vec<Color> = codes
-            .iter()
-            .map(|code| parse(code).map_or(Color::TRANSPARENT, hex))
-            .collect();
-        let mut fill = Linear::new(iced::Degrees(90.0));
-        for (index, colour) in colours.iter().enumerate() {
-            fill = fill.add_stop(index as f32 / (count - 1) as f32, *colour);
-        }
-        let fill = Background::Gradient(fill.into());
-        let handle_width = if count == 2 { 24.0 } else { 20.0 };
-        let mut bar = stack![
-            container(Space::new())
-                .width(BAR)
-                .height(SWATCH)
-                .style(move |_| container::Style {
-                    background: Some(fill),
-                    border: Border::default().rounded(12),
-                    ..Default::default()
-                })
-        ];
-        for (index, colour) in colours.into_iter().enumerate() {
-            let open = window.picker == Some(Picker::Handle(index));
-            let x = 5.0 + index as f32 * (BAR - 10.0 - handle_width) / (count - 1) as f32;
-            let handle = button(Space::new())
-                .width(handle_width)
-                .height(24)
-                .on_press(message(Event::Handle(index)))
-                .style(move |_, _| button::Style {
-                    background: Some(colour.into()),
-                    border: Border {
-                        color: Color::WHITE,
-                        width: if open { 3.0 } else { 2.0 },
-                        radius: 7.0.into(),
-                    },
-                    shadow: Shadow {
-                        color: Color {
-                            a: 0.5,
-                            ..Color::BLACK
-                        },
-                        offset: Vector::ZERO,
-                        blur_radius: 4.0,
-                    },
-                    ..Default::default()
-                });
-            bar = bar.push(placed(handle, x, (SWATCH - 24.0) / 2.0));
-        }
-        bar.into()
-    }
-
-    /// How it looks, laid out as Discord's, each over the one before: the
-    /// profile's card, a message, a member row; the light or dark choice
-    /// and the note in the corner.
-    fn style_previews(
-        self,
-        window: &'a Window,
-        shown: &'a Shown,
-        width: f32,
-        height: f32,
-    ) -> Element<'a, Message> {
-        let theme = self.look.theme;
-        let profile = shown.look.profile();
-        let name = profile.name.as_str();
-        let (font, effect, key) = (window.font, window.effect, window.paint.key.as_str());
-        let (sample_fill, sample_ink, sample_edge) = if window.light {
-            (hex(LIGHT_FILL), hex(LIGHT_INK), Color::TRANSPARENT)
-        } else {
-            (theme.raised, theme.text, theme.edge)
-        };
-        let inks = super::look::Inks::new(theme, profile.theme, theme.raised);
-        let card_shadow = |blur: f32, alpha: f32, y: f32| Shadow {
-            color: Color {
-                a: alpha,
-                ..Color::BLACK
-            },
-            offset: Vector::new(0.0, y),
-            blur_radius: blur,
-        };
-        // The profile's card.
-        let mut avatar = stack![self.avatar(profile.avatar.as_deref(), name, 80.0, 40.0, 1.0)];
-        if let Some(dot) = profile
-            .presence
-            .and_then(|presence| self.mark(Mark::Dot(presence, rgb(inks.start))))
-        {
-            let size = 80.0 * 0.291;
-            avatar = avatar.push(placed(
-                Pic::square(dot, size),
-                40.0 + 80.0 * 0.305 - size / 2.0,
-                40.0 + 80.0 * 0.31 - size / 2.0,
-            ));
-        }
-        let handle_ink = if inks.themed { inks.ink } else { Color::WHITE };
-        let mut handle = row![text(profile.handle.as_str()).size(13).color(handle_ink)]
-            .spacing(6)
-            .height(26)
-            .align_y(Alignment::Center);
-        for badge in profile.badges.iter().take(3) {
-            if let Some(picture) = self.profile_picture(shown, &badge.icon, 20, 20, false) {
-                handle = handle.push(Pic::square(picture, 20.0));
-            }
-        }
-        let (start, end, edge) = (inks.start, inks.end, theme.edge);
-        let card = container(stack![
-            Space::new().width(305).height(216),
-            placed(avatar, 16.0, 56.0),
-            placed(
-                self.style_name(window, font, effect, key, name, (21.0, 700)),
-                18.0,
-                145.0
-            ),
-            placed(handle, 18.0, 176.0),
-        ])
-        .clip(true)
-        .style(move |_| container::Style {
-            background: Some(Background::Gradient(
-                Linear::new(iced::Degrees(180.0))
-                    .add_stop(0.0, start)
-                    .add_stop(1.0, end)
-                    .into(),
-            )),
-            border: crate::style::edge(edge, 14.0),
-            shadow: card_shadow(24.0, 0.4, 8.0),
-            ..Default::default()
-        });
-        // A message: its name stays plain, in the style's font.
-        let family = family(font);
-        let message_card = container(stack![
-            Space::new().width(320).height(85),
-            placed(
-                self.avatar(profile.avatar.as_deref(), name, 40.0, 20.0, 1.0),
-                20.0,
-                22.0
-            ),
-            placed(
-                text(name)
-                    .size(17)
-                    .font(name_font(family, 600))
-                    .color(sample_ink)
-                    .wrapping(text::Wrapping::None),
-                72.0,
-                20.0
-            ),
-            placed(text(SAMPLE).size(15).color(sample_ink), 72.0, 46.0),
-        ])
-        .style(move |_| container::Style {
-            border: crate::style::edge(sample_edge, 12.0),
-            shadow: card_shadow(18.0, 0.33, 6.0),
-            ..rounded(sample_fill, 12)
-        });
-        // A member row.
-        let member = container(stack![
-            Space::new().width(282).height(50),
-            placed(
-                self.avatar(profile.avatar.as_deref(), name, 32.0, 16.0, 1.0),
-                10.0,
-                9.0
-            ),
-            placed(
-                self.style_name(window, font, effect, key, name, (17.0, 600)),
-                52.0,
-                14.0
-            ),
-        ])
-        .style(move |_| container::Style {
-            border: crate::style::edge(sample_edge, 10.0),
-            shadow: card_shadow(14.0, 0.33, 4.0),
-            ..rounded(sample_fill, 10)
-        });
-        let note = container(
-            text(
-                "Colours and effects don't show in servers, and may look different across Discord.",
-            )
-            .size(12)
-            .color(theme.muted),
-        )
-        .width((width - 56.0 - 92.0).max(0.0));
-        let (sunken, wash) = (
-            theme.sunken,
-            mix(faded(theme.accent, 0.1), theme.sunken, 0.5),
         );
-        container(stack![
-            Space::new().width(Length::Fill).height(Length::Fill),
-            placed(card, 40.0, 132.0),
-            placed(message_card, 65.0, 338.0),
-            placed(member, 40.0, 418.0),
-            placed(
-                self.light_choice(window.light),
-                width - 76.0 - 24.0,
-                height - 64.0
-            ),
-            placed(note, 28.0, height - 72.0),
-        ])
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .clip(true)
-        .style(move |_| container::Style {
-            background: Some(Background::Gradient(
-                Linear::new(iced::Degrees(160.0))
-                    .add_stop(0.0, sunken)
-                    .add_stop(1.0, wash)
-                    .into(),
-            )),
-            ..Default::default()
-        })
-        .into()
     }
+    let pad = window.picker.map(|_| {
+        form::colour_card(
+            theme,
+            ColourPad::new(window.hsv, |hsv| message(Event::Hsv(hsv))),
+            form::field(theme, CODE, "#rrggbb", &window.code)
+                .on_input(|code| message(Event::Code(code)))
+                .on_submit(message(Event::Away)),
+        )
+    });
+    Popover::new(line, pad, Side::Above)
+        .width(Width::Own(form::COLOUR_CARD))
+        .gap(8.0)
+        .outside(message(Event::Away))
+        .into()
+}
 
-    /// Dark or light, for the message and the member row.
-    fn light_choice(self, light: bool) -> Element<'a, Message> {
-        let mut choice = row![].spacing(4).padding(4);
-        for (mode, icon) in [(false, Icon::Moon), (true, Icon::Sun)] {
-            let chosen = light == mode;
-            let ink = if chosen {
-                Color::WHITE
-            } else {
-                faded(Color::WHITE, 0.65)
-            };
-            choice = choice.push(
-                button(self.look.glyph(icon, 16, ink).boxed(32))
-                    .padding(0)
-                    .width(32)
-                    .height(32)
-                    .on_press(message(Event::Light(mode)))
-                    .style(move |_, status| button::Style {
-                        background: Some(
-                            faded(
-                                Color::WHITE,
-                                if chosen {
-                                    0.15
-                                } else if lights(status) {
-                                    0.08
-                                } else {
-                                    0.0
-                                },
-                            )
-                            .into(),
-                        ),
-                        border: Border::default().rounded(9),
-                        ..Default::default()
-                    }),
-            );
-        }
-        container(choice)
-            .width(76)
-            .height(40)
-            .style(|_| {
-                rounded(
-                    Color {
-                        a: 0.35,
+/// One's own gradient or prism: the colours across a bar, a handle on
+/// each, the open one's edge thicker.
+fn handle_bar<'a>(window: &Window) -> Element<'a, Message> {
+    let codes = window.handles();
+    let count = codes.len();
+    let colours: Vec<Color> = codes
+        .iter()
+        .map(|code| parse(code).map_or(Color::TRANSPARENT, hex))
+        .collect();
+    let mut fill = Linear::new(iced::Degrees(90.0));
+    for (index, colour) in colours.iter().enumerate() {
+        fill = fill.add_stop(index as f32 / (count - 1) as f32, *colour);
+    }
+    let fill = Background::Gradient(fill.into());
+    let handle_width = if count == 2 { 24.0 } else { 20.0 };
+    let mut bar = stack![
+        container(Space::new())
+            .width(BAR)
+            .height(SWATCH)
+            .style(move |_| container::Style {
+                background: Some(fill),
+                border: Border::default().rounded(12),
+                ..Default::default()
+            })
+    ];
+    for (index, colour) in colours.into_iter().enumerate() {
+        let open = window.picker == Some(Picker::Handle(index));
+        let x = 5.0 + index as f32 * (BAR - 10.0 - handle_width) / (count - 1) as f32;
+        let handle = button(Space::new())
+            .width(handle_width)
+            .height(24)
+            .on_press(message(Event::Handle(index)))
+            .style(move |_, _| button::Style {
+                background: Some(colour.into()),
+                border: Border {
+                    color: Color::WHITE,
+                    width: if open { 3.0 } else { 2.0 },
+                    radius: 7.0.into(),
+                },
+                shadow: Shadow {
+                    color: Color {
+                        a: 0.5,
                         ..Color::BLACK
                     },
-                    12,
-                )
-            })
-            .into()
+                    offset: Vector::ZERO,
+                    blur_radius: 4.0,
+                },
+                ..Default::default()
+            });
+        bar = bar.push(placed(handle, x, (SWATCH - 24.0) / 2.0));
     }
+    bar.into()
+}
+
+/// How it looks, laid out as Discord's, each over the one before: the
+/// profile's card, a message, a member row; the light or dark choice
+/// and the note in the corner.
+fn style_previews<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    window: &'a Window,
+    shown: &'a Shown,
+    width: f32,
+    height: f32,
+) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
+    let profile = shown.look.profile();
+    let name = profile.name.as_str();
+    let (font, effect, key) = (window.font, window.effect, window.paint.key.as_str());
+    let (sample_fill, sample_ink, sample_edge) = if window.light {
+        (hex(LIGHT_FILL), hex(LIGHT_INK), Color::TRANSPARENT)
+    } else {
+        (theme.raised, theme.text, theme.edge)
+    };
+    let inks = super::look::Inks::new(theme, profile.theme, theme.raised);
+    let card_shadow = |blur: f32, alpha: f32, y: f32| Shadow {
+        color: Color {
+            a: alpha,
+            ..Color::BLACK
+        },
+        offset: Vector::new(0.0, y),
+        blur_radius: blur,
+    };
+    // The profile's card.
+    let mut avatar = stack![ctx.avatar(profile.avatar.as_deref(), name, 80.0, 40.0, 1.0)];
+    if let Some(dot) = profile
+        .presence
+        .and_then(|presence| ctx.mark(Mark::Dot(presence, rgb(inks.start))))
+    {
+        let size = 80.0 * 0.291;
+        avatar = avatar.push(placed(
+            Pic::square(dot, size),
+            40.0 + 80.0 * 0.305 - size / 2.0,
+            40.0 + 80.0 * 0.31 - size / 2.0,
+        ));
+    }
+    let handle_ink = if inks.themed { inks.ink } else { Color::WHITE };
+    let mut handle = row![text(profile.handle.as_str()).size(13).color(handle_ink)]
+        .spacing(6)
+        .height(26)
+        .align_y(Alignment::Center);
+    for badge in profile.badges.iter().take(3) {
+        if let Some(picture) =
+            crate::profile::profile_picture(ctx, shown, &badge.icon, 20, 20, false)
+        {
+            handle = handle.push(Pic::square(picture, 20.0));
+        }
+    }
+    let (start, end, edge) = (inks.start, inks.end, theme.edge);
+    let card = container(stack![
+        Space::new().width(305).height(216),
+        placed(avatar, 16.0, 56.0),
+        placed(
+            style_name(ctx, window, font, effect, key, name, (21.0, 700)),
+            18.0,
+            145.0
+        ),
+        placed(handle, 18.0, 176.0),
+    ])
+    .clip(true)
+    .style(move |_| container::Style {
+        background: Some(Background::Gradient(
+            Linear::new(iced::Degrees(180.0))
+                .add_stop(0.0, start)
+                .add_stop(1.0, end)
+                .into(),
+        )),
+        border: crate::style::edge(edge, 14.0),
+        shadow: card_shadow(24.0, 0.4, 8.0),
+        ..Default::default()
+    });
+    // A message: its name stays plain, in the style's font.
+    let family = family(font);
+    let message_card = container(stack![
+        Space::new().width(320).height(85),
+        placed(
+            ctx.avatar(profile.avatar.as_deref(), name, 40.0, 20.0, 1.0),
+            20.0,
+            22.0
+        ),
+        placed(
+            text(name)
+                .size(17)
+                .font(name_font(family, 600))
+                .color(sample_ink)
+                .wrapping(text::Wrapping::None),
+            72.0,
+            20.0
+        ),
+        placed(text(SAMPLE).size(15).color(sample_ink), 72.0, 46.0),
+    ])
+    .style(move |_| container::Style {
+        border: crate::style::edge(sample_edge, 12.0),
+        shadow: card_shadow(18.0, 0.33, 6.0),
+        ..rounded(sample_fill, 12)
+    });
+    // A member row.
+    let member = container(stack![
+        Space::new().width(282).height(50),
+        placed(
+            ctx.avatar(profile.avatar.as_deref(), name, 32.0, 16.0, 1.0),
+            10.0,
+            9.0
+        ),
+        placed(
+            style_name(ctx, window, font, effect, key, name, (17.0, 600)),
+            52.0,
+            14.0
+        ),
+    ])
+    .style(move |_| container::Style {
+        border: crate::style::edge(sample_edge, 10.0),
+        shadow: card_shadow(14.0, 0.33, 4.0),
+        ..rounded(sample_fill, 10)
+    });
+    let note = container(
+        text("Colours and effects don't show in servers, and may look different across Discord.")
+            .size(12)
+            .color(theme.muted),
+    )
+    .width((width - 56.0 - 92.0).max(0.0));
+    let (sunken, wash) = (
+        theme.sunken,
+        mix(faded(theme.accent, 0.1), theme.sunken, 0.5),
+    );
+    container(stack![
+        Space::new().width(Length::Fill).height(Length::Fill),
+        placed(card, 40.0, 132.0),
+        placed(message_card, 65.0, 338.0),
+        placed(member, 40.0, 418.0),
+        placed(
+            light_choice(ctx, window.light),
+            width - 76.0 - 24.0,
+            height - 64.0
+        ),
+        placed(note, 28.0, height - 72.0),
+    ])
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .clip(true)
+    .style(move |_| container::Style {
+        background: Some(Background::Gradient(
+            Linear::new(iced::Degrees(160.0))
+                .add_stop(0.0, sunken)
+                .add_stop(1.0, wash)
+                .into(),
+        )),
+        ..Default::default()
+    })
+    .into()
+}
+
+/// Dark or light, for the message and the member row.
+fn light_choice<'a>(ctx: crate::ctx::Ctx<'a>, light: bool) -> Element<'a, Message> {
+    let mut choice = row![].spacing(4).padding(4);
+    for (mode, icon) in [(false, Icon::Moon), (true, Icon::Sun)] {
+        let chosen = light == mode;
+        let ink = if chosen {
+            Color::WHITE
+        } else {
+            faded(Color::WHITE, 0.65)
+        };
+        choice = choice.push(
+            button(ctx.look.glyph(icon, 16, ink).boxed(32))
+                .padding(0)
+                .width(32)
+                .height(32)
+                .on_press(message(Event::Light(mode)))
+                .style(move |_, status| button::Style {
+                    background: Some(
+                        faded(
+                            Color::WHITE,
+                            if chosen {
+                                0.15
+                            } else if lights(status) {
+                                0.08
+                            } else {
+                                0.0
+                            },
+                        )
+                        .into(),
+                    ),
+                    border: Border::default().rounded(9),
+                    ..Default::default()
+                }),
+        );
+    }
+    container(choice)
+        .width(76)
+        .height(40)
+        .style(|_| {
+            rounded(
+                Color {
+                    a: 0.35,
+                    ..Color::BLACK
+                },
+                12,
+            )
+        })
+        .into()
 }
 
 #[cfg(test)]

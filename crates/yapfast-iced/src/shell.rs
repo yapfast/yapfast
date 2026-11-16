@@ -124,7 +124,7 @@ impl App {
         self.show_tray();
         // Once at start with the check on, as the Slint client looks.
         if self.layout.prefs.check_for_updates {
-            self.look_for_updates(true);
+            crate::updates::look_for_updates(self, true);
         }
         let heard = Task::run(
             iced::futures::stream::unfold(heard, |mut heard| async move {
@@ -189,7 +189,7 @@ impl App {
                 if self.shell.window == Some(id) && self.shell.display_scale != Some(scale) {
                     self.shell.display_scale = Some(scale);
                     // Frames are made at the window's pixels.
-                    self.place_videos();
+                    crate::call::stage::place_videos(self);
                 }
                 Task::none()
             }
@@ -198,7 +198,7 @@ impl App {
                 if self.shell.window == Some(id) && self.shell.monitor_scale != scale {
                     tracing::info!(?scale, window = ?self.shell.display_scale, "the monitor's scale");
                     self.shell.monitor_scale = scale;
-                    self.place_videos();
+                    crate::call::stage::place_videos(self);
                 }
                 Task::none()
             }
@@ -254,7 +254,7 @@ impl App {
                 let open = self.open_window();
                 // The notification of a newer release opens About.
                 if room == ABOUT {
-                    return Task::batch([open, self.open_about()]);
+                    return Task::batch([open, crate::updates::open_about(self)]);
                 }
                 let closed = self.close_settings();
                 self.client.dispatch(Action::OpenChat(room));
@@ -272,7 +272,7 @@ impl App {
                 self.shell.token = token;
                 Task::batch([self.open_window(), self.open_pending_link()])
             }
-            Heard::Updates => self.updates_heard(),
+            Heard::Updates => crate::updates::updates_heard(self),
             Heard::Drag(drag) => self.dragged(drag),
         }
     }
@@ -337,18 +337,18 @@ impl App {
             decorate,
             self.activate(id, token),
             self.open_pending_link(),
-            self.read_window_state(),
+            crate::window_bar::read_window_state(self),
             window::scale_factor(id).map(move |scale| Message::Shell(Event::Scaled(id, scale))),
             Self::read_monitor_scale(id),
         ];
         if self.shell.maximized {
             tasks.push(window::maximize(id, true));
         }
-        if self.workspace() && self.client.state().shows_text() {
+        if crate::signin::workspace(self) && self.client.state().shows_text() {
             tasks.push(iced::widget::operation::focus(crate::composer::COMPOSER));
         }
         // The call's videos show again.
-        self.place_videos();
+        crate::call::stage::place_videos(self);
         Task::batch(tasks)
     }
 
@@ -431,7 +431,7 @@ impl App {
     fn forget_window(&mut self, keep: crate::app::Keep) -> Task<Message> {
         use crate::slot::Why;
         self.shell.focused = false;
-        self.close_popup();
+        crate::call::popups::close_popup(self);
         self.call.details.pointed = false;
         self.profiles.card = None;
         let mut cx = crate::ctx::cx!(self);
@@ -455,7 +455,7 @@ impl App {
         } else {
             Task::none()
         };
-        self.place_videos();
+        crate::call::stage::place_videos(self);
         self.win.pictures.forget();
         self.win.icons.forget();
         settled
@@ -509,11 +509,14 @@ impl App {
         let focused = self.shell.focused;
         let reading = focused && self.client.state().selected.as_ref() == Some(&alert.room);
         if !alert.call && !reading {
-            self.play(if alert.mention {
-                Sound::Mention
-            } else {
-                Sound::Message
-            });
+            crate::call::play(
+                self,
+                if alert.mention {
+                    Sound::Mention
+                } else {
+                    Sound::Message
+                },
+            );
         }
         let prefs = &self.layout.prefs;
         let mut task = Task::none();
@@ -544,7 +547,7 @@ impl App {
             return Task::none();
         };
         let middle = iced::Point::new(self.window.width / 2.0, self.window.height / 3.0);
-        self.follow_link(&link, middle)
+        crate::links::follow_link(self, &link, middle)
     }
 
     /// Files dragged over the window, as the desktop follows them where
@@ -552,19 +555,22 @@ impl App {
     fn dragged(&mut self, drag: desktop::Drag) -> Task<Message> {
         use crate::uploads::Event;
         match drag {
-            desktop::Drag::Entered => self.uploads_event(Event::Hovered),
+            desktop::Drag::Entered => crate::uploads::update(self, Event::Hovered),
             desktop::Drag::Moved(x, y) => {
                 let zoom = self.shell.zoom;
-                self.uploads_event(Event::Moved(iced::Point::new(
-                    (x / f64::from(zoom)) as f32,
-                    (y / f64::from(zoom)) as f32,
-                )))
+                crate::uploads::update(
+                    self,
+                    Event::Moved(iced::Point::new(
+                        (x / f64::from(zoom)) as f32,
+                        (y / f64::from(zoom)) as f32,
+                    )),
+                )
             }
-            desktop::Drag::Left => self.uploads_event(Event::Left),
+            desktop::Drag::Left => crate::uploads::update(self, Event::Left),
             desktop::Drag::Dropped(files) => {
                 let tasks: Vec<_> = files
                     .into_iter()
-                    .map(|file| self.uploads_event(Event::Dropped(file)))
+                    .map(|file| crate::uploads::update(self, Event::Dropped(file)))
                     .collect();
                 Task::batch(tasks)
             }
@@ -649,8 +655,8 @@ impl App {
         // The layout gets fewer logical pixels to fill; the next resize says
         // so exactly.
         self.shell.frame = self.shell.frame * (level / next);
-        self.fit_window();
-        self.place_videos();
+        crate::window_bar::fit_window(self);
+        crate::call::stage::place_videos(self);
         crate::layout::store(self.client.root(), "zoom", next);
         let count = self.shell.zoom_note.map_or(0, |count| count + 1);
         self.shell.zoom_note = Some(count);
@@ -675,7 +681,7 @@ impl App {
             tracing::info!(level, fitted, "the saved zoom doesn't fit the window");
             self.shell.zoom = fitted;
             self.shell.frame = self.shell.frame * (level / fitted);
-            self.fit_window();
+            crate::window_bar::fit_window(self);
         }
     }
 

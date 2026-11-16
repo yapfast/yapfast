@@ -164,44 +164,42 @@ pub fn allocator_stats() {
     }
 }
 
-impl App {
-    /// A line of the test display's control file.
-    pub(crate) fn control(&mut self, command: &str) -> Task<Message> {
-        tracing::info!(command, "test window control");
-        match parse(command) {
-            Command::Stats => allocator_stats(),
-            Command::Trim => trim(),
-            Command::Quit => return self.quit(),
-            Command::Close => return self.close_requested(),
-            Command::Destroy => {
-                // The window goes without its memory given back: a `trim`
-                // after shows what closing frees.
-                return self.drop_window();
-            }
-            Command::Open => return self.open_window(),
-            Command::Hide => {
-                if let Some(id) = self.shell.window {
-                    return iced::window::set_mode(id, iced::window::Mode::Hidden);
-                }
-            }
-            Command::Show => {
-                if let Some(id) = self.shell.window {
-                    return iced::window::set_mode(id, iced::window::Mode::Windowed);
-                }
-            }
-            Command::Act(action) => {
-                self.client.dispatch(action);
-                return self.sync();
-            }
-            Command::Theme(id) => {
-                if !self.choose_theme(&id) {
-                    tracing::warn!(id, "no such theme");
-                }
-            }
-            Command::Unknown => tracing::warn!(command, "unknown window control"),
+/// A line of the test display's control file.
+pub(crate) fn control(app: &mut App, command: &str) -> Task<Message> {
+    tracing::info!(command, "test window control");
+    match parse(command) {
+        Command::Stats => allocator_stats(),
+        Command::Trim => trim(),
+        Command::Quit => return app.quit(),
+        Command::Close => return app.close_requested(),
+        Command::Destroy => {
+            // The window goes without its memory given back: a `trim`
+            // after shows what closing frees.
+            return app.drop_window();
         }
-        Task::none()
+        Command::Open => return app.open_window(),
+        Command::Hide => {
+            if let Some(id) = app.shell.window {
+                return iced::window::set_mode(id, iced::window::Mode::Hidden);
+            }
+        }
+        Command::Show => {
+            if let Some(id) = app.shell.window {
+                return iced::window::set_mode(id, iced::window::Mode::Windowed);
+            }
+        }
+        Command::Act(action) => {
+            app.client.dispatch(action);
+            return app.sync();
+        }
+        Command::Theme(id) => {
+            if !app.choose_theme(&id) {
+                tracing::warn!(id, "no such theme");
+            }
+        }
+        Command::Unknown => tracing::warn!(command, "unknown window control"),
     }
+    Task::none()
 }
 
 #[cfg(test)]

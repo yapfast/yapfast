@@ -167,600 +167,609 @@ pub fn history_keys() -> iced::Subscription<Message> {
     })
 }
 
-impl App {
-    /// The room under the title bar is what the window's content lays out
-    /// in (`Below`), so it's the window's size to everything under it.
-    pub fn fit_window(&mut self) {
-        let frame = self.shell.frame;
-        let room = Size::new(frame.width, (frame.height - self.bar_height()).max(0.0));
-        if room != self.window {
-            self.window = room;
-        }
+/// The room under the title bar is what the window's content lays out
+/// in (`Below`), so it's the window's size to everything under it.
+pub fn fit_window(app: &mut App) {
+    let frame = app.shell.frame;
+    let room = Size::new(frame.width, (frame.height - bar_height(app)).max(0.0));
+    if room != app.window {
+        app.window = room;
     }
+}
 
-    /// The room the title bar takes at the window's top.
-    pub fn bar_height(&self) -> f32 {
-        if self.shell.own_title_bar && !self.full_screen() {
-            HEIGHT
-        } else {
-            0.0
-        }
+/// The room the title bar takes at the window's top.
+pub fn bar_height(app: &App) -> f32 {
+    if app.shell.own_title_bar && !full_screen(app) {
+        HEIGHT
+    } else {
+        0.0
     }
+}
 
-    /// Something full screen covers the window and the bar, or the window
-    /// is full screen itself.
-    fn full_screen(&self) -> bool {
-        self.shell.full_screen || self.playback.clip_full || self.full_shown()
-    }
+/// Something full screen covers the window and the bar, or the window
+/// is full screen itself.
+fn full_screen(app: &App) -> bool {
+    app.shell.full_screen || app.playback.clip_full || crate::call::stage::full_shown(app)
+}
 
-    /// Asks the window whether it's maximized or full screen, as its size
-    /// changed.
-    pub fn read_window_state(&self) -> Task<Message> {
-        let Some(id) = self.shell.window else {
-            return Task::none();
-        };
-        window::is_maximized(id).then(move |maximized| {
-            window::mode(id).map(move |mode| {
-                Message::Bar(Event::State(maximized, mode == window::Mode::Fullscreen))
-            })
+/// Asks the window whether it's maximized or full screen, as its size
+/// changed.
+pub fn read_window_state(app: &App) -> Task<Message> {
+    let Some(id) = app.shell.window else {
+        return Task::none();
+    };
+    window::is_maximized(id).then(move |maximized| {
+        window::mode(id).map(move |mode| {
+            Message::Bar(Event::State(maximized, mode == window::Mode::Fullscreen))
         })
-    }
+    })
+}
 
-    pub fn bar_event(&mut self, event: Event) -> Task<Message> {
-        let id = self.shell.window;
-        match event {
-            Event::Back | Event::Forward if !self.workspace() || self.win.settings.is_open() => {
-                Task::none()
-            }
-            Event::Back | Event::Forward => {
-                self.client.dispatch(match event {
-                    Event::Back => yapfast_core::application::Action::NavigateBack,
-                    _ => yapfast_core::application::Action::NavigateForward,
-                });
-                self.sync()
-            }
-            Event::Inbox => {
-                self.inbox = match self.inbox.take() {
-                    Some(_) => None,
-                    None => Some(Inbox {
-                        scroll: crate::sync::Scroll::new(INBOX_MOST),
-                        ..Inbox::default()
-                    }),
-                };
-                self.inbox_sync();
-                Task::none()
-            }
-            Event::InboxTab(tab) => {
-                if let Some(inbox) = &mut self.inbox {
-                    inbox.tab = tab;
-                }
-                self.inbox_sync();
-                Task::none()
-            }
-            Event::InboxOpen(room) => {
-                self.inbox = None;
-                self.client
-                    .dispatch(yapfast_core::application::Action::SwitchTo(room));
-                self.sync()
-            }
-            Event::InboxScrolled(scroll) => {
-                if let Some(inbox) = &mut self.inbox {
-                    inbox.scroll = scroll;
-                }
-                Task::none()
-            }
-            Event::CloseInbox => {
-                self.inbox = None;
-                Task::none()
-            }
-            Event::Help => {
-                crate::browser::open(HELP);
-                Task::none()
-            }
-            Event::Press => {
-                self.bar_drag.armed = Some(None);
-                Task::none()
-            }
-            Event::Moved(at) => {
-                let Some(armed) = &mut self.bar_drag.armed else {
-                    return Task::none();
-                };
-                let Some(from) = *armed else {
-                    *armed = Some(at);
-                    return Task::none();
-                };
-                if (at.x - from.x).abs() > DRAG_AFTER || (at.y - from.y).abs() > DRAG_AFTER {
-                    // The desktop takes the pointer for the move, and the
-                    // window may not hear the button let go.
-                    self.bar_drag.armed = None;
-                    return id.map_or_else(Task::none, window::drag);
-                }
-                Task::none()
-            }
-            Event::Release => {
-                self.bar_drag.armed = None;
-                Task::none()
-            }
-            Event::Maximize => {
-                self.bar_drag.armed = None;
-                id.map_or_else(Task::none, window::toggle_maximize)
-            }
-            Event::Minimize => id.map_or_else(Task::none, |id| window::minimize(id, true)),
-            // As the desktop's close button: to the tray, or quit.
-            Event::Close => self.close_requested(),
-            Event::Resize(direction) => {
-                id.map_or_else(Task::none, |id| window::drag_resize(id, direction))
-            }
-            Event::State(maximized, full) => {
-                self.shell.maximized = maximized;
-                self.shell.full_screen = full;
-                Task::none()
-            }
+pub fn update(app: &mut App, event: Event) -> Task<Message> {
+    let id = app.shell.window;
+    match event {
+        Event::Back | Event::Forward
+            if !crate::signin::workspace(app) || app.win.settings.is_open() =>
+        {
+            Task::none()
         }
-    }
-
-    /// Appearance's switch: the window is made again with the desktop's
-    /// frame or without it, where it was.
-    pub fn choose_title_bar(&mut self, system: bool) -> Task<Message> {
-        let own = own(Some(system));
-        if own == self.shell.own_title_bar {
-            return Task::none();
+        Event::Back | Event::Forward => {
+            app.client.dispatch(match event {
+                Event::Back => yapfast_core::application::Action::NavigateBack,
+                _ => yapfast_core::application::Action::NavigateForward,
+            });
+            app.sync()
         }
-        self.shell.own_title_bar = own;
-        self.inbox = None;
-        if self.shell.window.is_none() {
-            return Task::none();
-        }
-        // iced could take the frame off the window as it is, but where the
-        // desktop draws none winit draws its own, and a maximized window
-        // taking it or losing it grows or shrinks past the screen.
-        // Settings, which the switch is in, stay open as they are.
-        let closed = self.drop_window_keeping(crate::app::Keep { settings: true });
-        let opened = self.open_window();
-        Task::batch([closed, opened])
-    }
-
-    /// The inbox's rows for its tab, from what the client already knows:
-    /// the channels and conversations with unread messages, muted ones only
-    /// for a mention, or those that mention this account.
-    pub fn inbox_sync(&mut self) {
-        let Some(inbox) = &mut self.inbox else {
-            return;
-        };
-        let state = self.client.state();
-        let mentions_only = inbox.tab == Tab::Mentions;
-        // Each channel's server, found once, as the Slint client's
-        // channel-to-server map.
-        let places: std::collections::HashMap<&str, &str> = state
-            .servers
-            .iter()
-            .flat_map(|server| {
-                server
-                    .channels
-                    .iter()
-                    .map(|channel| (channel.as_str(), server.name.as_str()))
-            })
-            .collect();
-        let rows: Vec<InboxRow> = state
-            .rooms
-            .iter()
-            .filter(|room| !room.request && !room.unlisted)
-            .filter(|room| room.mentions > 0 || (!mentions_only && room.unread > 0 && !room.muted))
-            .map(|room| InboxRow {
-                id: room.id.clone(),
-                name: if room.direct {
-                    room.name.clone()
-                } else {
-                    format!("#{}", room.name)
-                },
-                avatar_name: room.name.clone(),
-                place: places
-                    .get(room.id.as_str())
-                    .map(|place| (*place).to_owned())
-                    .unwrap_or_default(),
-                picture: room.direct.then(|| room.avatar.clone()).flatten(),
-                mentions: room.mentions,
-            })
-            .collect();
-        if rows != inbox.rows {
-            inbox.rows = rows;
-        }
-    }
-
-    /// The bar across the window's top, when Yapfast draws it.
-    pub fn window_bar(&self) -> Option<Element<'_, Message>> {
-        if self.bar_height() == 0.0 {
-            return None;
-        }
-        let theme = &self.theme;
-        let workspace = self.workspace();
-        let state = self.client.state();
-        let settings_open = self.win.settings.is_open();
-        let place = if !workspace {
-            "Yapfast".to_owned()
-        } else if self.sidebar.header.server.is_none() {
-            "Direct Messages".to_owned()
-        } else {
-            self.sidebar.header.name.clone()
-        };
-        let ink = if self.shell.focused {
-            theme.secondary
-        } else {
-            theme.faint
-        };
-        let middle = row![
-            self.look().glyph(Icon::Dm, 16, theme.secondary).boxed(16.0),
-            elide(place).size(12).font(BOLD).color(ink).shrink()
-        ]
-        .spacing(8)
-        .align_y(Alignment::Center);
-        let back = workspace && !settings_open && state.can_go_back();
-        let forward = workspace && !settings_open && state.can_go_forward();
-        let left = row![
-            self.bar_button(Icon::ArrowLeft, "Back", back.then_some(Event::Back), false),
-            self.bar_button(
-                Icon::ArrowRight,
-                "Forward",
-                forward.then_some(Event::Forward),
-                false
-            ),
-        ]
-        .spacing(4)
-        .padding(iced::Padding {
-            left: 8.0,
-            ..iced::Padding::ZERO
-        })
-        .align_y(Alignment::Center);
-        let mut right = row![].align_y(Alignment::Center);
-        if workspace {
-            right = right.push(
-                row![
-                    self.bar_button(
-                        Icon::Inbox,
-                        "Inbox",
-                        Some(Event::Inbox),
-                        self.inbox.is_some()
-                    ),
-                    self.bar_button(Icon::Help, "Help", Some(Event::Help), false),
-                ]
-                .spacing(4)
-                .padding(iced::Padding {
-                    right: 12.0,
-                    ..iced::Padding::ZERO
+        Event::Inbox => {
+            app.inbox = match app.inbox.take() {
+                Some(_) => None,
+                None => Some(Inbox {
+                    scroll: crate::sync::Scroll::new(INBOX_MOST),
+                    ..Inbox::default()
                 }),
+            };
+            inbox_sync(app);
+            Task::none()
+        }
+        Event::InboxTab(tab) => {
+            if let Some(inbox) = &mut app.inbox {
+                inbox.tab = tab;
+            }
+            inbox_sync(app);
+            Task::none()
+        }
+        Event::InboxOpen(room) => {
+            app.inbox = None;
+            app.client
+                .dispatch(yapfast_core::application::Action::SwitchTo(room));
+            app.sync()
+        }
+        Event::InboxScrolled(scroll) => {
+            if let Some(inbox) = &mut app.inbox {
+                inbox.scroll = scroll;
+            }
+            Task::none()
+        }
+        Event::CloseInbox => {
+            app.inbox = None;
+            Task::none()
+        }
+        Event::Help => {
+            crate::browser::open(HELP);
+            Task::none()
+        }
+        Event::Press => {
+            app.bar_drag.armed = Some(None);
+            Task::none()
+        }
+        Event::Moved(at) => {
+            let Some(armed) = &mut app.bar_drag.armed else {
+                return Task::none();
+            };
+            let Some(from) = *armed else {
+                *armed = Some(at);
+                return Task::none();
+            };
+            if (at.x - from.x).abs() > DRAG_AFTER || (at.y - from.y).abs() > DRAG_AFTER {
+                // The desktop takes the pointer for the move, and the
+                // window may not hear the button let go.
+                app.bar_drag.armed = None;
+                return id.map_or_else(Task::none, window::drag);
+            }
+            Task::none()
+        }
+        Event::Release => {
+            app.bar_drag.armed = None;
+            Task::none()
+        }
+        Event::Maximize => {
+            app.bar_drag.armed = None;
+            id.map_or_else(Task::none, window::toggle_maximize)
+        }
+        Event::Minimize => id.map_or_else(Task::none, |id| window::minimize(id, true)),
+        // As the desktop's close button: to the tray, or quit.
+        Event::Close => app.close_requested(),
+        Event::Resize(direction) => {
+            id.map_or_else(Task::none, |id| window::drag_resize(id, direction))
+        }
+        Event::State(maximized, full) => {
+            app.shell.maximized = maximized;
+            app.shell.full_screen = full;
+            Task::none()
+        }
+    }
+}
+
+/// Appearance's switch: the window is made again with the desktop's
+/// frame or without it, where it was.
+pub fn choose_title_bar(app: &mut App, system: bool) -> Task<Message> {
+    let own = own(Some(system));
+    if own == app.shell.own_title_bar {
+        return Task::none();
+    }
+    app.shell.own_title_bar = own;
+    app.inbox = None;
+    if app.shell.window.is_none() {
+        return Task::none();
+    }
+    // iced could take the frame off the window as it is, but where the
+    // desktop draws none winit draws its own, and a maximized window
+    // taking it or losing it grows or shrinks past the screen.
+    // Settings, which the switch is in, stay open as they are.
+    let closed = app.drop_window_keeping(crate::app::Keep { settings: true });
+    let opened = app.open_window();
+    Task::batch([closed, opened])
+}
+
+/// The inbox's rows for its tab, from what the client already knows:
+/// the channels and conversations with unread messages, muted ones only
+/// for a mention, or those that mention this account.
+pub fn inbox_sync(app: &mut App) {
+    let Some(inbox) = &mut app.inbox else {
+        return;
+    };
+    let state = app.client.state();
+    let mentions_only = inbox.tab == Tab::Mentions;
+    // Each channel's server, found once, as the Slint client's
+    // channel-to-server map.
+    let places: std::collections::HashMap<&str, &str> = state
+        .servers
+        .iter()
+        .flat_map(|server| {
+            server
+                .channels
+                .iter()
+                .map(|channel| (channel.as_str(), server.name.as_str()))
+        })
+        .collect();
+    let rows: Vec<InboxRow> = state
+        .rooms
+        .iter()
+        .filter(|room| !room.request && !room.unlisted)
+        .filter(|room| room.mentions > 0 || (!mentions_only && room.unread > 0 && !room.muted))
+        .map(|room| InboxRow {
+            id: room.id.clone(),
+            name: if room.direct {
+                room.name.clone()
+            } else {
+                format!("#{}", room.name)
+            },
+            avatar_name: room.name.clone(),
+            place: places
+                .get(room.id.as_str())
+                .map(|place| (*place).to_owned())
+                .unwrap_or_default(),
+            picture: room.direct.then(|| room.avatar.clone()).flatten(),
+            mentions: room.mentions,
+        })
+        .collect();
+    if rows != inbox.rows {
+        inbox.rows = rows;
+    }
+}
+
+/// The bar across the window's top, when Yapfast draws it.
+pub fn window_bar(app: &App) -> Option<Element<'_, Message>> {
+    if bar_height(app) == 0.0 {
+        return None;
+    }
+    let theme = &app.theme;
+    let workspace = crate::signin::workspace(app);
+    let state = app.client.state();
+    let settings_open = app.win.settings.is_open();
+    let place = if !workspace {
+        "Yapfast".to_owned()
+    } else if app.sidebar.header.server.is_none() {
+        "Direct Messages".to_owned()
+    } else {
+        app.sidebar.header.name.clone()
+    };
+    let ink = if app.shell.focused {
+        theme.secondary
+    } else {
+        theme.faint
+    };
+    let middle = row![
+        app.look().glyph(Icon::Dm, 16, theme.secondary).boxed(16.0),
+        elide(place).size(12).font(BOLD).color(ink).shrink()
+    ]
+    .spacing(8)
+    .align_y(Alignment::Center);
+    let back = workspace && !settings_open && state.can_go_back();
+    let forward = workspace && !settings_open && state.can_go_forward();
+    let left = row![
+        bar_button(
+            app,
+            Icon::ArrowLeft,
+            "Back",
+            back.then_some(Event::Back),
+            false
+        ),
+        bar_button(
+            app,
+            Icon::ArrowRight,
+            "Forward",
+            forward.then_some(Event::Forward),
+            false
+        ),
+    ]
+    .spacing(4)
+    .padding(iced::Padding {
+        left: 8.0,
+        ..iced::Padding::ZERO
+    })
+    .align_y(Alignment::Center);
+    let mut right = row![].align_y(Alignment::Center);
+    if workspace {
+        right = right.push(
+            row![
+                bar_button(
+                    app,
+                    Icon::Inbox,
+                    "Inbox",
+                    Some(Event::Inbox),
+                    app.inbox.is_some()
+                ),
+                bar_button(app, Icon::Help, "Help", Some(Event::Help), false),
+            ]
+            .spacing(4)
+            .padding(iced::Padding {
+                right: 12.0,
+                ..iced::Padding::ZERO
+            }),
+        );
+    }
+    let maximized = app.shell.maximized;
+    right = right
+        .push(caption_button(app, Icon::Minus, Event::Minimize, false))
+        .push(caption_button(
+            app,
+            if maximized {
+                Icon::Restore
+            } else {
+                Icon::Square
+            },
+            Event::Maximize,
+            false,
+        ))
+        .push(caption_button(app, Icon::X, Event::Close, true));
+    // The bar's ground moves the window; its buttons sit over it. Its
+    // moves are messages only once pressed: a pointer passing over it
+    // sends none.
+    let mut ground = mouse_area(container(Space::new()).width(Length::Fill).height(HEIGHT))
+        .interaction(Interaction::Idle)
+        .on_press(Message::Bar(Event::Press))
+        .on_release(Message::Bar(Event::Release))
+        .on_double_click(Message::Bar(Event::Maximize));
+    if app.bar_drag.armed.is_some() {
+        ground = ground.on_move(|at| Message::Bar(Event::Moved(at)));
+    }
+    let rail = theme.rail;
+    let bar = stack![
+        ground,
+        container(middle)
+            .center_x(Length::Fill)
+            .height(HEIGHT)
+            .align_y(Alignment::Center)
+            .padding([0, 230]),
+        row![left, Space::new().width(Length::Fill), right]
+            .height(HEIGHT)
+            .align_y(Alignment::Center),
+    ];
+    Some(
+        container(bar)
+            .width(Length::Fill)
+            .height(HEIGHT)
+            .style(move |_| crate::style::fill(rail))
+            .into(),
+    )
+}
+
+/// A button in the bar's own row, as the Slint client's `BarButton`: a
+/// 16 px glyph on a 4 px rounded ground, its label in a tip below.
+fn bar_button<'a>(
+    app: &'a App,
+    icon: Icon,
+    label: &'static str,
+    event: Option<Event>,
+    active: bool,
+) -> Element<'a, Message> {
+    let theme = &app.theme;
+    let enabled = event.is_some();
+    let rest_ink = if !enabled {
+        theme.faint
+    } else if active {
+        theme.text
+    } else {
+        theme.secondary
+    };
+    let base = app.look().glyph(icon, 16, rest_ink).boxed(16.0);
+    let face: Element<'_, Message> = if enabled && !active {
+        Hover::new(base, app.look().glyph(icon, 16, theme.text).boxed(16.0)).into()
+    } else {
+        base.into()
+    };
+    let rest = active.then(|| theme.wash(0.12));
+    let lit = if !enabled {
+        iced::Color::TRANSPARENT
+    } else if active {
+        theme.wash(0.12)
+    } else {
+        theme.wash(0.08)
+    };
+    let face = button(container(face).center(Length::Fill))
+        .padding(0)
+        .width(28)
+        .height(24)
+        .on_press_maybe(event.map(Message::Bar))
+        .style(lit_style(rest, lit, 4.0));
+    // What the click opens opens under the tip, which goes while it's open.
+    if active {
+        return face.into();
+    }
+    tooltip(face, controls::tip(theme, label), tooltip::Position::Bottom)
+        .gap(6)
+        .into()
+}
+
+/// The window's minimize, maximize and close, as the Slint client's
+/// `CaptionButton`: close lights red.
+fn caption_button(app: &App, icon: Icon, event: Event, close: bool) -> Element<'_, Message> {
+    let theme = &app.theme;
+    let base = app
+        .look()
+        .glyph(icon, CAPTION_GLYPH, theme.secondary)
+        .boxed(12.0);
+    let face: Element<'_, Message> = if close {
+        Hover::new(
+            base,
+            app.look()
+                .glyph(icon, CAPTION_GLYPH, theme.on_danger)
+                .boxed(12.0),
+        )
+        .into()
+    } else {
+        base.into()
+    };
+    let lit = if close { theme.danger } else { theme.hover };
+    button(container(face).center(Length::Fill))
+        .padding(0)
+        .width(CAPTION)
+        .height(HEIGHT)
+        .on_press(Message::Bar(event))
+        .style(lit_style(None, lit, 0.0))
+        .into()
+}
+
+/// The edges and corners that resize a window without the desktop's
+/// frame, while it isn't maximized: a layer over the window that only
+/// they take the pointer in.
+pub fn resize_edges(app: &App) -> Option<Element<'_, Message>> {
+    if bar_height(app) == 0.0 || app.shell.maximized {
+        return None;
+    }
+    use window::Direction;
+    let grip = |direction: Direction, width: Length, height: Length| -> Element<'_, Message> {
+        let cursor = match direction {
+            Direction::North | Direction::South => Interaction::ResizingVertically,
+            Direction::East | Direction::West => Interaction::ResizingHorizontally,
+            Direction::NorthWest | Direction::SouthEast => Interaction::ResizingDiagonallyDown,
+            Direction::NorthEast | Direction::SouthWest => Interaction::ResizingDiagonallyUp,
+        };
+        mouse_area(container(Space::new()).width(width).height(height))
+            .interaction(cursor)
+            .on_press(Message::Bar(Event::Resize(direction)))
+            .into()
+    };
+    let fill = Length::Fill;
+    let top = row![
+        grip(
+            Direction::NorthWest,
+            Length::Fixed(CORNER),
+            Length::Fixed(CORNER)
+        ),
+        column![
+            grip(Direction::North, fill, Length::Fixed(EDGE)),
+            Space::new().height(CORNER - EDGE)
+        ]
+        .width(fill),
+        grip(
+            Direction::NorthEast,
+            Length::Fixed(CORNER),
+            Length::Fixed(CORNER)
+        ),
+    ]
+    .height(CORNER);
+    let sides = row![
+        grip(Direction::West, Length::Fixed(EDGE), fill),
+        Space::new().width(fill).height(fill),
+        grip(Direction::East, Length::Fixed(EDGE), fill),
+    ]
+    .height(fill);
+    let bottom = row![
+        grip(
+            Direction::SouthWest,
+            Length::Fixed(CORNER),
+            Length::Fixed(CORNER)
+        ),
+        column![
+            Space::new().height(CORNER - EDGE),
+            grip(Direction::South, fill, Length::Fixed(EDGE))
+        ]
+        .width(fill),
+        grip(
+            Direction::SouthEast,
+            Length::Fixed(CORNER),
+            Length::Fixed(CORNER)
+        ),
+    ]
+    .height(CORNER);
+    Some(column![top, sides, bottom].into())
+}
+
+/// The inbox popout under the bar's Inbox button, as Discord's: 440 px
+/// wide, Unreads and Mentions, a click on a row going there.
+pub fn inbox_view(app: &App) -> Option<Element<'_, Message>> {
+    let inbox = app.inbox.as_ref()?;
+    if bar_height(app) == 0.0 || !crate::signin::workspace(app) {
+        return None;
+    }
+    let theme = &app.theme;
+    let tab = |label: &'static str, which: Tab, width: f32| -> Element<'_, Message> {
+        let selected = inbox.tab == which;
+        button(
+            container(text(label).size(14).font(BOLD).color(if selected {
+                theme.text
+            } else {
+                theme.secondary
+            }))
+            .center(Length::Fill),
+        )
+        .padding(0)
+        .width(width)
+        .height(32)
+        .on_press(Message::Bar(Event::InboxTab(which)))
+        .style(lit_style(
+            selected.then(|| theme.wash(0.12)),
+            theme.wash(if selected { 0.12 } else { 0.06 }),
+            4.0,
+        ))
+        .into()
+    };
+    let head = row![
+        text("Inbox").size(16).font(BOLD).color(theme.text),
+        Space::new().width(Length::Fill),
+        tab("Unreads", Tab::Unreads, 80.0),
+        tab("Mentions", Tab::Mentions, 92.0),
+    ]
+    .spacing(8)
+    .padding([0, 16])
+    .height(48)
+    .align_y(Alignment::Center);
+    let body: Element<'_, Message> = if inbox.rows.is_empty() {
+        container(
+            text(match inbox.tab {
+                Tab::Unreads => "Unread messages from your unmuted channels show up here.",
+                Tab::Mentions => "Nothing mentions you right now.",
+            })
+            .size(14)
+            .color(theme.muted)
+            .align_x(Alignment::Center)
+            .width(Length::Fill),
+        )
+        .padding(iced::Padding {
+            top: 16.0,
+            left: 16.0,
+            right: 16.0,
+            bottom: 0.0,
+        })
+        .height(136)
+        .align_y(Alignment::Center)
+        .into()
+    } else {
+        // Only the rows near the view are built: the Unreads can list
+        // hundreds.
+        let (first, last) = inbox.scroll.range(inbox.rows.len(), INBOX_ROW, INBOX_PAD);
+        let mut rows = Rows::new(inbox.rows.len() as f32 * INBOX_ROW + INBOX_PAD * 2.0);
+        for (index, entry) in inbox.rows.iter().enumerate().take(last).skip(first) {
+            rows.push(
+                crate::app::key(&entry.id),
+                INBOX_PAD + index as f32 * INBOX_ROW,
+                INBOX_ROW,
+                container(inbox_line(app, entry)).padding([0.0, INBOX_PAD]),
             );
         }
-        let maximized = self.shell.maximized;
-        right = right
-            .push(self.caption_button(Icon::Minus, Event::Minimize, false))
-            .push(self.caption_button(
-                if maximized {
-                    Icon::Restore
-                } else {
-                    Icon::Square
-                },
-                Event::Maximize,
-                false,
-            ))
-            .push(self.caption_button(Icon::X, Event::Close, true));
-        // The bar's ground moves the window; its buttons sit over it. Its
-        // moves are messages only once pressed: a pointer passing over it
-        // sends none.
-        let mut ground = mouse_area(container(Space::new()).width(Length::Fill).height(HEIGHT))
-            .interaction(Interaction::Idle)
-            .on_press(Message::Bar(Event::Press))
-            .on_release(Message::Bar(Event::Release))
-            .on_double_click(Message::Bar(Event::Maximize));
-        if self.bar_drag.armed.is_some() {
-            ground = ground.on_move(|at| Message::Bar(Event::Moved(at)));
-        }
-        let rail = theme.rail;
-        let bar = stack![
-            ground,
-            container(middle)
-                .center_x(Length::Fill)
-                .height(HEIGHT)
-                .align_y(Alignment::Center)
-                .padding([0, 230]),
-            row![left, Space::new().width(Length::Fill), right]
-                .height(HEIGHT)
-                .align_y(Alignment::Center),
-        ];
-        Some(
-            container(bar)
-                .width(Length::Fill)
-                .height(HEIGHT)
-                .style(move |_| crate::style::fill(rail))
-                .into(),
-        )
-    }
-
-    /// A button in the bar's own row, as the Slint client's `BarButton`: a
-    /// 16 px glyph on a 4 px rounded ground, its label in a tip below.
-    fn bar_button(
-        &self,
-        icon: Icon,
-        label: &'static str,
-        event: Option<Event>,
-        active: bool,
-    ) -> Element<'_, Message> {
-        let theme = &self.theme;
-        let enabled = event.is_some();
-        let rest_ink = if !enabled {
-            theme.faint
-        } else if active {
-            theme.text
-        } else {
-            theme.secondary
-        };
-        let base = self.look().glyph(icon, 16, rest_ink).boxed(16.0);
-        let face: Element<'_, Message> = if enabled && !active {
-            Hover::new(base, self.look().glyph(icon, 16, theme.text).boxed(16.0)).into()
-        } else {
-            base.into()
-        };
-        let rest = active.then(|| theme.wash(0.12));
-        let lit = if !enabled {
-            iced::Color::TRANSPARENT
-        } else if active {
-            theme.wash(0.12)
-        } else {
-            theme.wash(0.08)
-        };
-        let face = button(container(face).center(Length::Fill))
-            .padding(0)
-            .width(28)
-            .height(24)
-            .on_press_maybe(event.map(Message::Bar))
-            .style(lit_style(rest, lit, 4.0));
-        // What the click opens opens under the tip, which goes while it's open.
-        if active {
-            return face.into();
-        }
-        tooltip(face, controls::tip(theme, label), tooltip::Position::Bottom)
-            .gap(6)
-            .into()
-    }
-
-    /// The window's minimize, maximize and close, as the Slint client's
-    /// `CaptionButton`: close lights red.
-    fn caption_button(&self, icon: Icon, event: Event, close: bool) -> Element<'_, Message> {
-        let theme = &self.theme;
-        let base = self
-            .look()
-            .glyph(icon, CAPTION_GLYPH, theme.secondary)
-            .boxed(12.0);
-        let face: Element<'_, Message> = if close {
-            Hover::new(
-                base,
-                self.look()
-                    .glyph(icon, CAPTION_GLYPH, theme.on_danger)
-                    .boxed(12.0),
-            )
-            .into()
-        } else {
-            base.into()
-        };
-        let lit = if close { theme.danger } else { theme.hover };
-        button(container(face).center(Length::Fill))
-            .padding(0)
-            .width(CAPTION)
-            .height(HEIGHT)
-            .on_press(Message::Bar(event))
-            .style(lit_style(None, lit, 0.0))
-            .into()
-    }
-
-    /// The edges and corners that resize a window without the desktop's
-    /// frame, while it isn't maximized: a layer over the window that only
-    /// they take the pointer in.
-    pub fn resize_edges(&self) -> Option<Element<'_, Message>> {
-        if self.bar_height() == 0.0 || self.shell.maximized {
-            return None;
-        }
-        use window::Direction;
-        let grip = |direction: Direction, width: Length, height: Length| -> Element<'_, Message> {
-            let cursor = match direction {
-                Direction::North | Direction::South => Interaction::ResizingVertically,
-                Direction::East | Direction::West => Interaction::ResizingHorizontally,
-                Direction::NorthWest | Direction::SouthEast => Interaction::ResizingDiagonallyDown,
-                Direction::NorthEast | Direction::SouthWest => Interaction::ResizingDiagonallyUp,
-            };
-            mouse_area(container(Space::new()).width(width).height(height))
-                .interaction(cursor)
-                .on_press(Message::Bar(Event::Resize(direction)))
-                .into()
-        };
-        let fill = Length::Fill;
-        let top = row![
-            grip(
-                Direction::NorthWest,
-                Length::Fixed(CORNER),
-                Length::Fixed(CORNER)
-            ),
-            column![
-                grip(Direction::North, fill, Length::Fixed(EDGE)),
-                Space::new().height(CORNER - EDGE)
-            ]
-            .width(fill),
-            grip(
-                Direction::NorthEast,
-                Length::Fixed(CORNER),
-                Length::Fixed(CORNER)
-            ),
-        ]
-        .height(CORNER);
-        let sides = row![
-            grip(Direction::West, Length::Fixed(EDGE), fill),
-            Space::new().width(fill).height(fill),
-            grip(Direction::East, Length::Fixed(EDGE), fill),
-        ]
-        .height(fill);
-        let bottom = row![
-            grip(
-                Direction::SouthWest,
-                Length::Fixed(CORNER),
-                Length::Fixed(CORNER)
-            ),
-            column![
-                Space::new().height(CORNER - EDGE),
-                grip(Direction::South, fill, Length::Fixed(EDGE))
-            ]
-            .width(fill),
-            grip(
-                Direction::SouthEast,
-                Length::Fixed(CORNER),
-                Length::Fixed(CORNER)
-            ),
-        ]
-        .height(CORNER);
-        Some(column![top, sides, bottom].into())
-    }
-
-    /// The inbox popout under the bar's Inbox button, as Discord's: 440 px
-    /// wide, Unreads and Mentions, a click on a row going there.
-    pub fn inbox_view(&self) -> Option<Element<'_, Message>> {
-        let inbox = self.inbox.as_ref()?;
-        if self.bar_height() == 0.0 || !self.workspace() {
-            return None;
-        }
-        let theme = &self.theme;
-        let tab = |label: &'static str, which: Tab, width: f32| -> Element<'_, Message> {
-            let selected = inbox.tab == which;
-            button(
-                container(text(label).size(14).font(BOLD).color(if selected {
-                    theme.text
-                } else {
-                    theme.secondary
-                }))
-                .center(Length::Fill),
-            )
-            .padding(0)
-            .width(width)
-            .height(32)
-            .on_press(Message::Bar(Event::InboxTab(which)))
-            .style(lit_style(
-                selected.then(|| theme.wash(0.12)),
-                theme.wash(if selected { 0.12 } else { 0.06 }),
-                4.0,
-            ))
-            .into()
-        };
-        let head = row![
-            text("Inbox").size(16).font(BOLD).color(theme.text),
-            Space::new().width(Length::Fill),
-            tab("Unreads", Tab::Unreads, 80.0),
-            tab("Mentions", Tab::Mentions, 92.0),
-        ]
-        .spacing(8)
-        .padding([0, 16])
-        .height(48)
-        .align_y(Alignment::Center);
-        let body: Element<'_, Message> = if inbox.rows.is_empty() {
-            container(
-                text(match inbox.tab {
-                    Tab::Unreads => "Unread messages from your unmuted channels show up here.",
-                    Tab::Mentions => "Nothing mentions you right now.",
-                })
-                .size(14)
-                .color(theme.muted)
-                .align_x(Alignment::Center)
-                .width(Length::Fill),
-            )
-            .padding(iced::Padding {
-                top: 16.0,
-                left: 16.0,
-                right: 16.0,
-                bottom: 0.0,
+        scroll_view(rows)
+            .on_scroll(|viewport| {
+                Message::Bar(Event::InboxScrolled(crate::sync::Scroll::of(viewport)))
             })
-            .height(136)
-            .align_y(Alignment::Center)
+            .style(scrollbar(theme))
+            .height(Length::Fill)
             .into()
-        } else {
-            // Only the rows near the view are built: the Unreads can list
-            // hundreds.
-            let (first, last) = inbox.scroll.range(inbox.rows.len(), INBOX_ROW, INBOX_PAD);
-            let mut rows = Rows::new(inbox.rows.len() as f32 * INBOX_ROW + INBOX_PAD * 2.0);
-            for (index, entry) in inbox.rows.iter().enumerate().take(last).skip(first) {
-                rows.push(
-                    crate::app::key(&entry.id),
-                    INBOX_PAD + index as f32 * INBOX_ROW,
-                    INBOX_ROW,
-                    container(self.inbox_line(entry)).padding([0.0, INBOX_PAD]),
-                );
-            }
-            scroll_view(rows)
-                .on_scroll(|viewport| {
-                    Message::Bar(Event::InboxScrolled(crate::sync::Scroll::of(viewport)))
-                })
-                .style(scrollbar(theme))
-                .height(Length::Fill)
-                .into()
-        };
-        let (raised, line) = (theme.raised, theme.line);
-        let panel = container(column![
-            head,
-            controls::bar(theme.line, Length::Fill, 1),
-            body
-        ])
-        .width(INBOX_WIDTH)
-        // `window` is the room under the bar already: the panel starts 4 px
-        // under it and stops 12 px over the window's foot.
-        .height((self.window.height - 4.0 - 12.0).min(INBOX_MOST))
-        .style(move |_| iced::widget::container::Style {
-            background: Some(raised.into()),
-            border: crate::style::edge(line, 8.0),
-            shadow: crate::style::raised_shadow(),
-            ..Default::default()
-        });
-        let at = Point::new(self.window.width - INBOX_WIDTH - 8.0, HEIGHT + 4.0);
-        Some(
-            stack![
-                controls::outside(Message::Bar(Event::CloseInbox), false),
-                controls::placed(mouse_area(panel).on_press(Message::Nothing), at.x, at.y),
-            ]
-            .into(),
-        )
-    }
-
-    fn inbox_line<'a>(&'a self, entry: &'a InboxRow) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let mut names = column![
-            elide(entry.name.as_str())
-                .size(14)
-                .font(BOLD)
-                .color(theme.text)
-        ];
-        if !entry.place.is_empty() {
-            names = names.push(elide(entry.place.as_str()).size(12).color(theme.muted));
-        }
-        let mut line = row![
-            self.ctx().avatar_tinted(
-                entry.picture.as_deref(),
-                &entry.avatar_name,
-                &entry.id,
-                32.0,
-                16.0,
-                1.0
-            ),
-            container(names.spacing(2)).width(Length::Fill)
+    };
+    let (raised, line) = (theme.raised, theme.line);
+    let panel = container(column![
+        head,
+        controls::bar(theme.line, Length::Fill, 1),
+        body
+    ])
+    .width(INBOX_WIDTH)
+    // `window` is the room under the bar already: the panel starts 4 px
+    // under it and stops 12 px over the window's foot.
+    .height((app.window.height - 4.0 - 12.0).min(INBOX_MOST))
+    .style(move |_| iced::widget::container::Style {
+        background: Some(raised.into()),
+        border: crate::style::edge(line, 8.0),
+        shadow: crate::style::raised_shadow(),
+        ..Default::default()
+    });
+    let at = Point::new(app.window.width - INBOX_WIDTH - 8.0, HEIGHT + 4.0);
+    Some(
+        stack![
+            controls::outside(Message::Bar(Event::CloseInbox), false),
+            controls::placed(mouse_area(panel).on_press(Message::Nothing), at.x, at.y),
         ]
-        .spacing(12)
-        .align_y(Alignment::Center);
-        if entry.mentions > 0 {
-            line = line.push(controls::count_pill(
-                theme,
-                &controls::count_badge(entry.mentions),
-                controls::INBOX_COUNT,
-                None,
-            ));
-        }
-        button(line)
-            .padding(8)
-            .width(Length::Fill)
-            .height(INBOX_ROW)
-            .on_press(Message::Bar(Event::InboxOpen(entry.id.clone())))
-            .style(lit_style(None, theme.wash(0.06), 4.0))
-            .into()
+        .into(),
+    )
+}
+
+fn inbox_line<'a>(app: &'a App, entry: &'a InboxRow) -> Element<'a, Message> {
+    let theme = &app.theme;
+    let mut names = column![
+        elide(entry.name.as_str())
+            .size(14)
+            .font(BOLD)
+            .color(theme.text)
+    ];
+    if !entry.place.is_empty() {
+        names = names.push(elide(entry.place.as_str()).size(12).color(theme.muted));
     }
+    let mut line = row![
+        app.ctx().avatar_tinted(
+            entry.picture.as_deref(),
+            &entry.avatar_name,
+            &entry.id,
+            32.0,
+            16.0,
+            1.0
+        ),
+        container(names.spacing(2)).width(Length::Fill)
+    ]
+    .spacing(12)
+    .align_y(Alignment::Center);
+    if entry.mentions > 0 {
+        line = line.push(controls::count_pill(
+            theme,
+            &controls::count_badge(entry.mentions),
+            controls::INBOX_COUNT,
+            None,
+        ));
+    }
+    button(line)
+        .padding(8)
+        .width(Length::Fill)
+        .height(INBOX_ROW)
+        .on_press(Message::Bar(Event::InboxOpen(entry.id.clone())))
+        .style(lit_style(None, theme.wash(0.06), 4.0))
+        .into()
 }

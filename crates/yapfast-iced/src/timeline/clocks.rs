@@ -59,66 +59,64 @@ impl Clock {
     }
 }
 
-impl App {
-    /// Whether something on screen shows minutes.
-    pub(super) fn minutes_shown(&self) -> bool {
-        self.timeline.clocks.calls
-            || self.timeline.clocks.polls
-            || (self.members_shown() && !self.roster.activity_cards.is_empty())
-            || self.active_now_minutes()
-            || self.popover_playing()
-    }
+/// Whether something on screen shows minutes.
+pub(super) fn minutes_shown(app: &App) -> bool {
+    app.timeline.clocks.calls
+        || app.timeline.clocks.polls
+        || (crate::header::members_shown(app) && !app.roster.activity_cards.is_empty())
+        || crate::active_now::active_now_minutes(app)
+        || crate::status::popover_playing(app)
+}
 
-    /// Arms the timer to the next minute while something shows minutes,
-    /// and to the next midnight while a timeline shows: one wake each,
-    /// no interval running for nothing.
-    pub fn arm_clocks(&mut self) -> Task<Message> {
-        let mut tasks = Vec::new();
-        if !self.timeline.clocks.minute_armed && self.minutes_shown() {
-            self.timeline.clocks.minute_armed = true;
-            self.minute = yapfast_core::clock::now_ms() / 1000 / 60 * 60;
-            tasks.push(crate::after(to_next_minute(), Message::Minute));
-        }
-        if !self.timeline.clocks.day_armed && !self.timeline.messages.is_empty() {
-            self.timeline.clocks.day_armed = true;
-            tasks.push(crate::after(to_next_midnight(), Message::Day));
-        }
-        Task::batch(tasks)
+/// Arms the timer to the next minute while something shows minutes,
+/// and to the next midnight while a timeline shows: one wake each,
+/// no interval running for nothing.
+pub fn arm_clocks(app: &mut App) -> Task<Message> {
+    let mut tasks = Vec::new();
+    if !app.timeline.clocks.minute_armed && minutes_shown(app) {
+        app.timeline.clocks.minute_armed = true;
+        app.minute = yapfast_core::clock::now_ms() / 1000 / 60 * 60;
+        tasks.push(crate::after(to_next_minute(), Message::Minute));
     }
-
-    /// The minute turned: the clocks that show it move on.
-    pub fn minute_turned(&mut self) -> Task<Message> {
-        self.timeline.clocks.minute_armed = false;
-        self.minute = yapfast_core::clock::now_ms() / 1000 / 60 * 60;
-        self.timeline.clocks.polls = crate::polls::open_poll(&self.timeline.messages, self.minute);
-        self.make_activity_cards();
-        self.arm_clocks()
+    if !app.timeline.clocks.day_armed && !app.timeline.messages.is_empty() {
+        app.timeline.clocks.day_armed = true;
+        tasks.push(crate::after(to_next_midnight(), Message::Day));
     }
+    Task::batch(tasks)
+}
 
-    /// The day turned: each message's time is worked out again, so
-    /// today's read as yesterday's, as the Slint client restyles its
-    /// timeline at midnight. The rows keep their text and heights.
-    pub fn day_turned(&mut self) -> Task<Message> {
-        self.timeline.clocks.day_armed = false;
-        let prefs = &self.layout.prefs;
-        let clock = Clock {
-            twelve_hour: prefs.twelve_hour_clock,
-            seconds: prefs.clock_seconds,
-        };
-        let now = yapfast_core::clock::now_ms() / 1000;
-        for (look, message) in self
-            .timeline
-            .looks
-            .iter_mut()
-            .zip(self.timeline.messages.iter())
-        {
+/// The minute turned: the clocks that show it move on.
+pub fn minute_turned(app: &mut App) -> Task<Message> {
+    app.timeline.clocks.minute_armed = false;
+    app.minute = yapfast_core::clock::now_ms() / 1000 / 60 * 60;
+    app.timeline.clocks.polls = crate::polls::open_poll(&app.timeline.messages, app.minute);
+    crate::members::make_activity_cards(app);
+    arm_clocks(app)
+}
+
+/// The day turned: each message's time is worked out again, so
+/// today's read as yesterday's, as the Slint client restyles its
+/// timeline at midnight. The rows keep their text and heights.
+pub fn day_turned(app: &mut App) -> Task<Message> {
+    app.timeline.clocks.day_armed = false;
+    let prefs = &app.layout.prefs;
+    let clock = Clock {
+        twelve_hour: prefs.twelve_hour_clock,
+        seconds: prefs.clock_seconds,
+    };
+    let now = yapfast_core::clock::now_ms() / 1000;
+    for (look, message) in app
+        .timeline
+        .looks
+        .iter_mut()
+        .zip(app.timeline.messages.iter())
+    {
+        look.time = clock.sent(message, now);
+    }
+    if let Some(aside) = &mut app.aside {
+        for (look, message) in aside.looks.iter_mut().zip(aside.messages.iter()) {
             look.time = clock.sent(message, now);
         }
-        if let Some(aside) = &mut self.aside {
-            for (look, message) in aside.looks.iter_mut().zip(aside.messages.iter()) {
-                look.time = clock.sent(message, now);
-            }
-        }
-        self.arm_clocks()
     }
+    arm_clocks(app)
 }

@@ -19,110 +19,109 @@ use crate::{
     menus::MenuAct,
 };
 
-impl App {
-    /// Alt+Up in the composer: the newest message is the one stepped on.
-    pub fn step_into_messages(&mut self) -> Task<Message> {
-        let Some(last) = self.timeline.messages.len().checked_sub(1) else {
-            return Task::none();
-        };
-        Task::batch([operation::focus(NOBODY), self.step_to(last)])
-    }
+/// Alt+Up in the composer: the newest message is the one stepped on.
+pub fn step_into_messages(app: &mut App) -> Task<Message> {
+    let Some(last) = app.timeline.messages.len().checked_sub(1) else {
+        return Task::none();
+    };
+    Task::batch([operation::focus(NOBODY), step_to(app, last)])
+}
 
-    /// The message stepped on, by its place, while there is one.
-    fn keyed_index(&self) -> Option<usize> {
-        let item = self.keyed.as_ref()?;
-        self.timeline
-            .messages
-            .iter()
-            .position(|message| message.item == *item)
-    }
+/// The message stepped on, by its place, while there is one.
+fn keyed_index(app: &App) -> Option<usize> {
+    let item = app.keyed.as_ref()?;
+    app.timeline
+        .messages
+        .iter()
+        .position(|message| message.item == *item)
+}
 
-    fn step_to(&mut self, index: usize) -> Task<Message> {
-        let index = index.min(self.timeline.messages.len().saturating_sub(1));
-        let Some(message) = self.timeline.messages.get(index) else {
-            return Task::none();
-        };
-        self.keyed = Some(message.item.clone());
-        self.pointed.message = Some(self.row_item(index));
-        self.reveal_row(index)
-    }
+fn step_to(app: &mut App, index: usize) -> Task<Message> {
+    let index = index.min(app.timeline.messages.len().saturating_sub(1));
+    let Some(message) = app.timeline.messages.get(index) else {
+        return Task::none();
+    };
+    app.keyed = Some(message.item.clone());
+    app.pointed.message = Some(crate::timeline::row_item(app, index));
+    crate::edit::reveal_row(app, index)
+}
 
-    /// Stops stepping, as Escape or the composer taking the keys does.
-    pub fn leave_messages(&mut self) {
-        if self.keyed.take().is_some() {
-            self.pointed.message = None;
-        }
+/// Stops stepping, as Escape or the composer taking the keys does.
+pub fn leave_messages(app: &mut App) {
+    if app.keyed.take().is_some() {
+        app.pointed.message = None;
     }
+}
 
-    /// A key while stepping through the messages; none for one it leaves.
-    pub fn browse_key(
-        &mut self,
-        key: &Key,
-        modifiers: keyboard::Modifiers,
-    ) -> Option<Task<Message>> {
-        let index = self.keyed_index()?;
-        let named = match key {
-            Key::Named(named) => Some(*named),
-            _ => None,
-        };
-        let last = self.timeline.messages.len().saturating_sub(1);
-        let step = match named {
-            Some(Named::ArrowUp) => Some(index.saturating_sub(1)),
-            Some(Named::ArrowDown) => Some(index + 1),
-            Some(Named::PageUp) => Some(index.saturating_sub(5)),
-            Some(Named::PageDown) => Some(index + 5),
-            Some(Named::Home) => Some(0),
-            Some(Named::End) => Some(last),
-            _ => None,
-        };
-        if let Some(to) = step {
-            return Some(self.step_to(to));
+/// A key while stepping through the messages; none for one it leaves.
+pub fn browse_key(
+    app: &mut App,
+    key: &Key,
+    modifiers: keyboard::Modifiers,
+) -> Option<Task<Message>> {
+    let index = keyed_index(app)?;
+    let named = match key {
+        Key::Named(named) => Some(*named),
+        _ => None,
+    };
+    let last = app.timeline.messages.len().saturating_sub(1);
+    let step = match named {
+        Some(Named::ArrowUp) => Some(index.saturating_sub(1)),
+        Some(Named::ArrowDown) => Some(index + 1),
+        Some(Named::PageUp) => Some(index.saturating_sub(5)),
+        Some(Named::PageDown) => Some(index + 5),
+        Some(Named::Home) => Some(0),
+        Some(Named::End) => Some(last),
+        _ => None,
+    };
+    if let Some(to) = step {
+        return Some(step_to(app, to));
+    }
+    if named == Some(Named::Escape) {
+        leave_messages(app);
+        return Some(crate::composer::refocus(app));
+    }
+    let message = app.timeline.messages.get(index)?.clone();
+    if message.deleted || message.delivery != Delivery::default() {
+        return None;
+    }
+    let item = message.item.clone();
+    let at = crate::message::hover_bar::bar_menu_at(app.ctx(), index);
+    let writes = crate::composer::composer_look(app.ctx()).enabled;
+    let letter = match key.as_ref() {
+        Key::Character(text) => text.to_lowercase(),
+        _ => String::new(),
+    };
+    let act =
+        |app: &mut App, act: MenuAct| Some(crate::menus::act(app, act, item.clone(), at, None));
+    match (named, letter.as_str()) {
+        (Some(Named::Enter), _) if modifiers.alt() => {
+            if app.client.app.marks_unread(&item) {
+                app.client.dispatch(Action::MarkUnread(item.clone()));
+            }
+            Some(app.sync())
         }
-        if named == Some(Named::Escape) {
-            self.leave_messages();
-            return Some(self.refocus());
+        (Some(Named::Enter | Named::ContextMenu), _) => {
+            Some(crate::menus::open_menu(app, index, at))
         }
-        let message = self.timeline.messages.get(index)?.clone();
-        if message.deleted || message.delivery != Delivery::default() {
-            return None;
+        (Some(Named::F10), _) if modifiers.shift() => Some(crate::menus::open_menu(app, index, at)),
+        (_, "+" | "=") if message.can_react => act(app, MenuAct::AddReaction),
+        (_, "r") if message.can_reply && writes => {
+            leave_messages(app);
+            act(app, MenuAct::Reply)
         }
-        let item = message.item.clone();
-        let at = self.ctx().bar_menu_at(index);
-        let writes = self.ctx().composer_look().enabled;
-        let letter = match key.as_ref() {
-            Key::Character(text) => text.to_lowercase(),
-            _ => String::new(),
-        };
-        let act = |app: &mut Self, act: MenuAct| Some(app.act(act, item.clone(), at, None));
-        match (named, letter.as_str()) {
-            (Some(Named::Enter), _) if modifiers.alt() => {
-                if self.client.app.marks_unread(&item) {
-                    self.client.dispatch(Action::MarkUnread(item.clone()));
-                }
-                Some(self.sync())
-            }
-            (Some(Named::Enter | Named::ContextMenu), _) => Some(self.open_menu(index, at)),
-            (Some(Named::F10), _) if modifiers.shift() => Some(self.open_menu(index, at)),
-            (_, "+" | "=") if message.can_react => act(self, MenuAct::AddReaction),
-            (_, "r") if message.can_reply && writes => {
-                self.leave_messages();
-                act(self, MenuAct::Reply)
-            }
-            (_, "e") if message.own && message.can_edit && writes => {
-                self.leave_messages();
-                act(self, MenuAct::Edit)
-            }
-            (Some(Named::Delete | Named::Backspace), _) if message.can_delete && writes => {
-                act(self, MenuAct::Delete)
-            }
-            // Copying leaves the keys where they are.
-            (_, "c") if !message.body.is_empty() => {
-                Some(iced::clipboard::write(message.body.clone()))
-            }
-            (_, "f") if message.can_forward && crate::forward::allowed(self.client.state()) => {
-                act(self, MenuAct::Forward)
-            }
-            _ => None,
+        (_, "e") if message.own && message.can_edit && writes => {
+            leave_messages(app);
+            act(app, MenuAct::Edit)
         }
+        (Some(Named::Delete | Named::Backspace), _) if message.can_delete && writes => {
+            act(app, MenuAct::Delete)
+        }
+        // Copying leaves the keys where they are.
+        (_, "c") if !message.body.is_empty() => Some(iced::clipboard::write(message.body.clone())),
+        (_, "f") if message.can_forward && crate::forward::allowed(app.client.state()) => {
+            act(app, MenuAct::Forward)
+        }
+        _ => None,
     }
 }

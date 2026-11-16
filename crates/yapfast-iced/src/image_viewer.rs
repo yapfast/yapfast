@@ -341,79 +341,75 @@ impl<'a> View<'a> {
     }
 }
 
-impl App {
-    /// A message's menu for one of its pictures or videos, at the pointer:
-    /// in the timeline, its rows and then these; in the viewer, these.
-    pub(crate) fn media_menu(&mut self, item: String, index: usize, video: bool) -> Task<Message> {
-        let at = self.pressed.get();
-        let preview = self.client.state().preview;
-        let link = self
-            .client
-            .state()
-            .message(&item)
-            .and_then(|message| message.attachments.get(index))
-            .and_then(|attachment| attachment.url.clone())
-            .unwrap_or_default();
-        let rows = media_rows(index, video, preview, !link.is_empty());
-        if self.client.state().viewer.is_some() {
-            if rows.is_empty() {
-                return Task::none();
-            }
-            self.win.menu = Some(Menu {
-                item: Some(item),
-                ..Menu::new(at, rows)
-            });
-            return iced::widget::operation::focus(crate::app::NOBODY);
-        }
-        // In the timeline, or the thread beside, the message's own rows
-        // come first.
-        let Some(row) = self.row_of(&item) else {
+/// A message's menu for one of its pictures or videos, at the pointer:
+/// in the timeline, its rows and then these; in the viewer, these.
+pub(crate) fn media_menu(app: &mut App, item: String, index: usize, video: bool) -> Task<Message> {
+    let at = app.pressed.get();
+    let preview = app.client.state().preview;
+    let link = app
+        .client
+        .state()
+        .message(&item)
+        .and_then(|message| message.attachments.get(index))
+        .and_then(|attachment| attachment.url.clone())
+        .unwrap_or_default();
+    let rows = media_rows(index, video, preview, !link.is_empty());
+    if app.client.state().viewer.is_some() {
+        if rows.is_empty() {
             return Task::none();
-        };
-        let task = self.open_menu(row, at);
-        if let Some(menu) = &mut self.win.menu {
-            let mut extra = rows.into_iter();
-            if let Some(first) = extra.next() {
-                // Before Delete and Copy Message ID, as Slint's.
-                let at = menu
-                    .rows
-                    .iter()
-                    .position(|row| row.separated)
-                    .unwrap_or(menu.rows.len());
-                let mut inserted = vec![MenuRow {
-                    separated: true,
-                    ..first
-                }];
-                inserted.extend(extra);
-                menu.rows.splice(at..at, inserted);
-            }
         }
-        task
+        app.win.menu = Some(Menu {
+            item: Some(item),
+            ..Menu::new(at, rows)
+        });
+        return iced::widget::operation::focus(crate::app::NOBODY);
     }
-
-    /// What a media row of a menu does to the message `item`'s attachment
-    /// `index`.
-    pub fn media_act(&mut self, act: MenuAct, item: String, index: usize) -> Task<Message> {
-        let link = self
-            .client
-            .state()
-            .message(&item)
-            .and_then(|message| message.attachments.get(index))
-            .and_then(|attachment| attachment.url.clone())
-            .unwrap_or_default();
-        let focus = self.refocus();
-        match act {
-            MenuAct::CopyImage => Task::batch([focus, self.image_event(Event::Copy(item, index))]),
-            MenuAct::SaveMedia => Task::batch([focus, save(item, index, self.client.state())]),
-            MenuAct::CopyMediaLink => {
-                Task::batch([focus, iced::clipboard::write(link.to_string())])
-            }
-            MenuAct::OpenMediaLink => {
-                crate::browser::open(&link);
-                focus
-            }
-            _ => focus,
+    // In the timeline, or the thread beside, the message's own rows
+    // come first.
+    let Some(row) = crate::timeline::row_of(app, &item) else {
+        return Task::none();
+    };
+    let task = crate::menus::open_menu(app, row, at);
+    if let Some(menu) = &mut app.win.menu {
+        let mut extra = rows.into_iter();
+        if let Some(first) = extra.next() {
+            // Before Delete and Copy Message ID, as Slint's.
+            let at = menu
+                .rows
+                .iter()
+                .position(|row| row.separated)
+                .unwrap_or(menu.rows.len());
+            let mut inserted = vec![MenuRow {
+                separated: true,
+                ..first
+            }];
+            inserted.extend(extra);
+            menu.rows.splice(at..at, inserted);
         }
+    }
+    task
+}
+
+/// What a media row of a menu does to the message `item`'s attachment
+/// `index`.
+pub fn media_act(app: &mut App, act: MenuAct, item: String, index: usize) -> Task<Message> {
+    let link = app
+        .client
+        .state()
+        .message(&item)
+        .and_then(|message| message.attachments.get(index))
+        .and_then(|attachment| attachment.url.clone())
+        .unwrap_or_default();
+    let focus = crate::composer::refocus(app);
+    match act {
+        MenuAct::CopyImage => Task::batch([focus, app.image_event(Event::Copy(item, index))]),
+        MenuAct::SaveMedia => Task::batch([focus, save(item, index, app.client.state())]),
+        MenuAct::CopyMediaLink => Task::batch([focus, iced::clipboard::write(link.to_string())]),
+        MenuAct::OpenMediaLink => {
+            crate::browser::open(&link);
+            focus
+        }
+        _ => focus,
     }
 }
 

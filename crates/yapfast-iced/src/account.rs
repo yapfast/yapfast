@@ -145,253 +145,254 @@ pub enum Event {
     Reconnect,
 }
 
-impl App {
-    pub fn account_event(&mut self, event: Event) -> iced::Task<Message> {
-        match event {
-            Event::Point(pointed) => {
-                self.account_pointed = pointed;
-                return self.ask();
-            }
-            // In a call they toggle; out of one they say how the next
-            // starts.
-            Event::Mute if self.account.in_call => {
-                self.client
-                    .dispatch(yapfast_core::application::Action::Voice(
-                        voice::Command::Mute(!self.account.muted),
-                    ))
-            }
-            Event::Deafen if self.account.in_call => {
-                self.client
-                    .dispatch(yapfast_core::application::Action::Voice(
-                        voice::Command::Deafen(!self.account.deafened),
-                    ))
-            }
-            Event::Mute | Event::Deafen => {
-                self.toggle_on_join(matches!(event, Event::Deafen));
-                return iced::Task::none();
-            }
-            Event::Reconnect if self.client.state().busy => return iced::Task::none(),
-            Event::Reconnect => self
-                .client
-                .dispatch(yapfast_core::application::Action::RetrySync),
+pub fn update(app: &mut App, event: Event) -> iced::Task<Message> {
+    match event {
+        Event::Point(pointed) => {
+            app.account_pointed = pointed;
+            return app.ask();
         }
-        self.sync()
+        // In a call they toggle; out of one they say how the next
+        // starts.
+        Event::Mute if app.account.in_call => {
+            app.client
+                .dispatch(yapfast_core::application::Action::Voice(
+                    voice::Command::Mute(!app.account.muted),
+                ))
+        }
+        Event::Deafen if app.account.in_call => {
+            app.client
+                .dispatch(yapfast_core::application::Action::Voice(
+                    voice::Command::Deafen(!app.account.deafened),
+                ))
+        }
+        Event::Mute | Event::Deafen => {
+            crate::call::toggle_on_join(app, matches!(event, Event::Deafen));
+            return iced::Task::none();
+        }
+        Event::Reconnect if app.client.state().busy => return iced::Task::none(),
+        Event::Reconnect => app
+            .client
+            .dispatch(yapfast_core::application::Action::RetrySync),
     }
+    app.sync()
 }
 
-impl<'a> crate::ctx::Ctx<'a> {
-    /// The card, inset from the rail's and the sidebar's edges.
-    pub fn account_view(self) -> Element<'a, Message> {
-        let theme = self.look.theme;
-        let account = self.account;
-        let pointed = self.account_pointed;
-        let state = self.state;
-        let decoration = state
-            .cosmetics
-            .decoration(state.account_decoration.as_deref());
-        let face = self.face(
-            Face::new(account.avatar.as_deref(), &account.name, AVATAR)
-                .decoration(decoration, pointed)
-                .dot(
-                    account
-                        .presence
-                        .map(|presence| (presence, rgb(theme.panel), Point::new(26.0, 26.0))),
-                ),
-        );
-        let second: Element<'a, Message> = if pointed && !account.username.is_empty() {
-            text(account.username.as_str())
-                .size(13)
-                .color(theme.muted)
-                .wrapping(text::Wrapping::None)
-                .into()
-        } else {
-            self.status_line(&account.status, StatusInk::under_name(self.look.theme, 1.0))
-        };
-        let lit = theme.wash(0.08);
-        let names = mouse_area(
-            container(
-                column![
-                    text(account.name.as_str())
-                        .size(15)
-                        .font(BOLD)
-                        .color(theme.text)
-                        .wrapping(text::Wrapping::None),
-                    second
-                ]
-                .width(Length::Fill),
-            )
-            .padding([0, 6])
-            .height(Length::Fill)
-            .width(Length::Fill)
-            .align_y(Alignment::Center)
-            .clip(true)
-            .style(move |_| {
-                if pointed {
-                    rounded(lit, 6)
-                } else {
-                    Default::default()
-                }
-            }),
+/// The card, inset from the rail's and the sidebar's edges.
+pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
+    let account = ctx.account;
+    let pointed = ctx.account_pointed;
+    let state = ctx.state;
+    let decoration = state
+        .cosmetics
+        .decoration(state.account_decoration.as_deref());
+    let face = ctx.face(
+        Face::new(account.avatar.as_deref(), &account.name, AVATAR)
+            .decoration(decoration, pointed)
+            .dot(
+                account
+                    .presence
+                    .map(|presence| (presence, rgb(theme.panel), Point::new(26.0, 26.0))),
+            ),
+    );
+    let second: Element<'a, Message> = if pointed && !account.username.is_empty() {
+        text(account.username.as_str())
+            .size(13)
+            .color(theme.muted)
+            .wrapping(text::Wrapping::None)
+            .into()
+    } else {
+        ctx.status_line(&account.status, StatusInk::under_name(ctx.look.theme, 1.0))
+    };
+    let lit = theme.wash(0.08);
+    let names = mouse_area(
+        container(
+            column![
+                text(account.name.as_str())
+                    .size(15)
+                    .font(BOLD)
+                    .color(theme.text)
+                    .wrapping(text::Wrapping::None),
+                second
+            ]
+            .width(Length::Fill),
         )
-        .on_press(Message::Status(crate::status::Event::Toggle))
-        .on_enter(Message::Account(Event::Point(true)))
-        .on_exit(Message::Account(Event::Point(false)));
-        let join = (
-            self.layout.unmute_on_join.unwrap_or(true),
-            self.layout.deafen_on_join,
-        );
-        let (mic, mic_label) = if account.shown_muted(join) {
-            (
-                Icon::MicOff,
-                if account.in_call {
-                    "Unmute"
-                } else {
-                    "Join calls unmuted"
-                },
-            )
-        } else {
-            (
-                Icon::Mic,
-                if account.in_call {
-                    "Mute"
-                } else {
-                    "Join calls muted"
-                },
-            )
-        };
-        let (ear, ear_label) = if account.shown_deafened(join) {
-            (
-                Icon::HeadphoneOff,
-                if account.in_call {
-                    "Undeafen"
-                } else {
-                    "Join calls undeafened"
-                },
-            )
-        } else {
-            (
-                Icon::Headphones,
-                if account.in_call {
-                    "Deafen"
-                } else {
-                    "Join calls deafened"
-                },
-            )
-        };
-        // Each device's toggle with the caret of its menu, as the Slint
-        // client's `DeviceToggle`; the menu opens above it.
-        let caret = |label, popup| {
-            self.spot(
-                self.look
-                    .icon_button(
-                        Icon::ChevronDown,
-                        label,
-                        Message::Call(crate::call::Event::Open(popup)),
-                    )
-                    .size(20.0, 16),
-            )
-        };
-        let alert = |on: bool| if on { theme.danger } else { theme.text };
-        let controls = row![
-            row![
-                self.tinted_button(
-                    mic,
-                    mic_label,
-                    alert(account.shown_muted(join)),
-                    20,
-                    Message::Account(Event::Mute)
-                ),
-                caret("Input options", crate::call::Popup::Input),
-            ],
-            row![
-                self.tinted_button(
-                    ear,
-                    ear_label,
-                    alert(account.shown_deafened(join)),
-                    21,
-                    Message::Account(Event::Deafen)
-                ),
-                caret("Output options", crate::call::Popup::Output),
-            ],
-        ]
-        .spacing(5)
-        .align_y(Alignment::Center);
-        // Offline, Reconnect before Settings, as the Slint client's.
-        let state = self.state;
-        let controls = if !state.preview && !state.online {
-            controls.push(self.tinted_button(
-                Icon::Refresh,
-                "Reconnect",
-                theme.secondary,
+        .padding([0, 6])
+        .height(Length::Fill)
+        .width(Length::Fill)
+        .align_y(Alignment::Center)
+        .clip(true)
+        .style(move |_| {
+            if pointed {
+                rounded(lit, 6)
+            } else {
+                Default::default()
+            }
+        }),
+    )
+    .on_press(Message::Status(crate::status::Event::Toggle))
+    .on_enter(Message::Account(Event::Point(true)))
+    .on_exit(Message::Account(Event::Point(false)));
+    let join = (
+        ctx.layout.unmute_on_join.unwrap_or(true),
+        ctx.layout.deafen_on_join,
+    );
+    let (mic, mic_label) = if account.shown_muted(join) {
+        (
+            Icon::MicOff,
+            if account.in_call {
+                "Unmute"
+            } else {
+                "Join calls unmuted"
+            },
+        )
+    } else {
+        (
+            Icon::Mic,
+            if account.in_call {
+                "Mute"
+            } else {
+                "Join calls muted"
+            },
+        )
+    };
+    let (ear, ear_label) = if account.shown_deafened(join) {
+        (
+            Icon::HeadphoneOff,
+            if account.in_call {
+                "Undeafen"
+            } else {
+                "Join calls undeafened"
+            },
+        )
+    } else {
+        (
+            Icon::Headphones,
+            if account.in_call {
+                "Deafen"
+            } else {
+                "Join calls deafened"
+            },
+        )
+    };
+    // Each device's toggle with the caret of its menu, as the Slint
+    // client's `DeviceToggle`; the menu opens above it.
+    let caret = |label, popup| {
+        ctx.spot(
+            ctx.look
+                .icon_button(
+                    Icon::ChevronDown,
+                    label,
+                    Message::Call(crate::call::Event::Open(popup)),
+                )
+                .size(20.0, 16),
+        )
+    };
+    let alert = |on: bool| if on { theme.danger } else { theme.text };
+    let controls = row![
+        row![
+            tinted_button(
+                ctx,
+                mic,
+                mic_label,
+                alert(account.shown_muted(join)),
                 20,
-                Message::Account(Event::Reconnect),
-            ))
-        } else {
-            controls
-        };
-        let controls = controls.push(self.tinted_button(
-            Icon::Settings,
-            "Settings",
-            theme.text,
-            24,
-            Message::Settings(crate::settings::Event::Open(
-                crate::settings::Section::Account,
-            )),
-        ));
-        let ground = theme.panel;
-        let face = mouse_area(face)
-            .on_press(Message::Status(crate::status::Event::Toggle))
-            .interaction(iced::mouse::Interaction::Pointer);
-        let card = row![
-            container(face)
-                .width(50)
-                .padding(Padding {
-                    left: 8.0,
-                    ..Padding::ZERO
-                })
-                .align_y(Alignment::Center),
-            container(names).padding([6, 0]).height(Length::Fill),
-            controls,
-        ]
-        .spacing(5)
-        .padding(Padding {
-            right: 14.0,
-            ..Padding::ZERO
-        })
-        .height(HEIGHT)
-        .align_y(Alignment::Center);
-        // The account's nameplate fills the card, brighter and playing
-        // under the pointer.
-        let card: Element<'a, Message> = match self.account_plate(HEIGHT, pointed, pointed) {
+                Message::Account(Event::Mute)
+            ),
+            caret("Input options", crate::call::Popup::Input),
+        ],
+        row![
+            tinted_button(
+                ctx,
+                ear,
+                ear_label,
+                alert(account.shown_deafened(join)),
+                21,
+                Message::Account(Event::Deafen)
+            ),
+            caret("Output options", crate::call::Popup::Output),
+        ],
+    ]
+    .spacing(5)
+    .align_y(Alignment::Center);
+    // Offline, Reconnect before Settings, as the Slint client's.
+    let state = ctx.state;
+    let controls = if !state.preview && !state.online {
+        controls.push(tinted_button(
+            ctx,
+            Icon::Refresh,
+            "Reconnect",
+            theme.secondary,
+            20,
+            Message::Account(Event::Reconnect),
+        ))
+    } else {
+        controls
+    };
+    let controls = controls.push(tinted_button(
+        ctx,
+        Icon::Settings,
+        "Settings",
+        theme.text,
+        24,
+        Message::Settings(crate::settings::Event::Open(
+            crate::settings::Section::Account,
+        )),
+    ));
+    let ground = theme.panel;
+    let face = mouse_area(face)
+        .on_press(Message::Status(crate::status::Event::Toggle))
+        .interaction(iced::mouse::Interaction::Pointer);
+    let card = row![
+        container(face)
+            .width(50)
+            .padding(Padding {
+                left: 8.0,
+                ..Padding::ZERO
+            })
+            .align_y(Alignment::Center),
+        container(names).padding([6, 0]).height(Length::Fill),
+        controls,
+    ]
+    .spacing(5)
+    .padding(Padding {
+        right: 14.0,
+        ..Padding::ZERO
+    })
+    .height(HEIGHT)
+    .align_y(Alignment::Center);
+    // The account's nameplate fills the card, brighter and playing
+    // under the pointer.
+    let card: Element<'a, Message> =
+        match crate::members::account_plate(ctx, HEIGHT, pointed, pointed) {
             Some((plate, palette)) => PlateRow::new(card, Some(plate), palette, ground, 0.0, 1.0)
                 .account()
                 .into(),
             None => card.into(),
         };
-        container(
-            container(card)
-                .clip(true)
-                .style(move |_| rounded(ground, 8)),
-        )
-        .padding(Padding {
-            left: INSET,
-            right: INSET,
-            bottom: INSET,
-            top: 0.0,
-        })
-        .into()
-    }
+    container(
+        container(card)
+            .clip(true)
+            .style(move |_| rounded(ground, 8)),
+    )
+    .padding(Padding {
+        left: INSET,
+        right: INSET,
+        bottom: INSET,
+        top: 0.0,
+    })
+    .into()
+}
 
-    /// An icon button of the card's, 32 px, its glyph in `ink`.
-    fn tinted_button(
-        self,
-        icon: Icon,
-        label: &'static str,
-        ink: iced::Color,
-        glyph: u32,
-        message: Message,
-    ) -> Element<'a, Message> {
-        let face = Pic::square(self.look.icon(icon, glyph, rgb(ink)), glyph as f32);
-        self.look.face_button(face, 32.0, label, message).into()
-    }
+/// An icon button of the card's, 32 px, its glyph in `ink`.
+fn tinted_button<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    icon: Icon,
+    label: &'static str,
+    ink: iced::Color,
+    glyph: u32,
+    message: Message,
+) -> Element<'a, Message> {
+    let face = Pic::square(ctx.look.icon(icon, glyph, rgb(ink)), glyph as f32);
+    ctx.look.face_button(face, 32.0, label, message).into()
 }

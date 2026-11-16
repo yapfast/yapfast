@@ -6,7 +6,7 @@
 use yapfast_core::chat::ChatMessage;
 
 pub use crate::piece::{Mark, Part, PartNo, Piece, Select, copied};
-use crate::{app::App, markdown::FIRST_PART, timeline::RowLook};
+use crate::{markdown::FIRST_PART, timeline::RowLook};
 
 // ---------------------------------------------------------------------------
 // The timeline's selection, as the app keeps it
@@ -23,59 +23,57 @@ pub struct Sel {
     index: usize,
 }
 
-impl App {
-    /// A piece's report: a press starts a selection, a drag moves its end.
-    pub fn select(&mut self, select: Select) {
-        let (Select::Start(mark, item) | Select::To(mark, item)) = &select;
-        // A selection stays in the timeline it started in.
-        let aside = mark.row >= crate::timeline::ASIDE;
-        if let (Select::To(..), Some((from, _))) = (&select, &self.timeline.selection)
-            && from.aside != aside
-        {
-            return;
+/// A piece's report: a press starts a selection, a drag moves its end.
+pub fn select(app: &mut crate::app::App, select: Select) {
+    let (Select::Start(mark, item) | Select::To(mark, item)) = &select;
+    // A selection stays in the timeline it started in.
+    let aside = mark.row >= crate::timeline::ASIDE;
+    if let (Select::To(..), Some((from, _))) = (&select, &app.timeline.selection)
+        && from.aside != aside
+    {
+        return;
+    }
+    // By its item: the row may have moved since the view was built.
+    if crate::timeline::row_of(app, item).is_none() {
+        return;
+    }
+    let at = Sel {
+        aside,
+        item: item.to_string(),
+        part: mark.part,
+        line: mark.line,
+        index: mark.index,
+    };
+    match select {
+        Select::Start(..) => {
+            app.timeline.selection = Some((at.clone(), at));
+            app.timeline.selecting = true;
         }
-        // By its item: the row may have moved since the view was built.
-        if self.row_of(item).is_none() {
-            return;
-        }
-        let at = Sel {
-            aside,
-            item: item.to_string(),
-            part: mark.part,
-            line: mark.line,
-            index: mark.index,
-        };
-        match select {
-            Select::Start(..) => {
-                self.timeline.selection = Some((at.clone(), at));
-                self.timeline.selecting = true;
-            }
-            Select::To(..) => {
-                if self.timeline.selecting
-                    && let Some((_, to)) = &mut self.timeline.selection
-                {
-                    *to = at;
-                }
+        Select::To(..) => {
+            if app.timeline.selecting
+                && let Some((_, to)) = &mut app.timeline.selection
+            {
+                *to = at;
             }
         }
     }
+}
 
-    /// The button let go: a press that selected nothing selects nothing.
-    pub fn select_end(&mut self) {
-        self.timeline.selecting = false;
-        if self
-            .timeline
-            .selection
-            .as_ref()
-            .is_some_and(|(from, to)| from == to)
-        {
-            self.timeline.selection = None;
-        }
+/// The button let go: a press that selected nothing selects nothing.
+pub fn select_end(app: &mut crate::app::App) {
+    app.timeline.selecting = false;
+    if app
+        .timeline
+        .selection
+        .as_ref()
+        .is_some_and(|(from, to)| from == to)
+    {
+        app.timeline.selection = None;
     }
+}
 
-    pub fn copied(&self) -> Option<String> {
-        self.lanes().copied()
-    }
+pub fn copied_selection(app: &crate::app::App) -> Option<String> {
+    crate::timeline::lanes(app).copied()
 }
 
 impl crate::timeline::Lanes<'_> {

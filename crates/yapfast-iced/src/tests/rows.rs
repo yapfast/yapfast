@@ -141,8 +141,11 @@ fn a_selection_starts_on_its_message_after_the_rows_moved() {
     for message in pressed {
         let _ = app.update(message);
     }
-    let (from, _) = app.lanes().marks().expect("a selection");
-    assert_eq!(from.row, app.row_of("long-78").expect("still there"));
+    let (from, _) = crate::timeline::lanes(&app).marks().expect("a selection");
+    assert_eq!(
+        from.row,
+        crate::timeline::row_of(&app, "long-78").expect("still there")
+    );
 }
 
 #[test]
@@ -241,7 +244,7 @@ fn the_hover_bar_of_a_grouped_message_keeps_it_where_it_reaches_over_the_row_abo
     // the timeline's (the member list's left), 6 px above the row's top (its text less the 1 px
     // over a grouped message and its content's 2 px): over the row above.
     let row_top = text.y - 3.0;
-    let x = app.chat_right() - 16.0 - 3.0 - 16.0;
+    let x = crate::conversation::chat_right(&app) - 16.0 - 3.0 - 16.0;
     let entered = moved(&mut app, Point::new(x, row_top - 6.0));
     assert!(
         !entered.iter().any(|item| &**item == "g0"),
@@ -298,7 +301,7 @@ fn a_rows_menu_and_its_authors_card_open_by_its_message_under_any_head() {
     };
     let mut cards = Vec::new();
     for (row, name) in names.iter().enumerate() {
-        let _ = app.open_author(row);
+        let _ = crate::message::open_author(&mut app, row);
         cards.push(app.profiles.card.take().expect("a card").at.y - name);
     }
     assert!(
@@ -306,7 +309,7 @@ fn a_rows_menu_and_its_authors_card_open_by_its_message_under_any_head() {
         "each card as far from its author's name: {cards:?}"
     );
     let menus: Vec<f32> = (0..3)
-        .map(|row| app.ctx().bar_menu_at(row).y - names[row])
+        .map(|row| crate::message::hover_bar::bar_menu_at(app.ctx(), row).y - names[row])
         .collect();
     assert!(
         menus.iter().all(|menu| (menu - menus[1]).abs() < 0.5),

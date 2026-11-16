@@ -182,14 +182,12 @@ fn one_line(topic: &Topic, link: u32) -> Body {
     body
 }
 
-impl App {
-    /// Whether the member list shows beside the timeline.
-    pub fn members_shown(&self) -> bool {
-        self.header.members_available
-            && !self.roster.hidden
-            && !self.aside_shown()
-            && !self.search_shown()
-    }
+/// Whether the member list shows beside the timeline.
+pub fn members_shown(app: &App) -> bool {
+    app.header.members_available
+        && !app.roster.hidden
+        && !crate::thread::aside_shown(app)
+        && !crate::search::search_shown(app)
 }
 
 /// Discord's small round dot between a name and its topic, with room
@@ -205,338 +203,344 @@ fn dot(theme: &crate::theme::Theme) -> Element<'static, Message> {
         .into()
 }
 
-impl<'a> crate::ctx::Ctx<'a> {
-    pub fn header_view(self) -> Element<'a, Message> {
-        let header = self.header;
-        let theme = self.look.theme;
-        let mut head = row![].spacing(10).align_y(Alignment::Center);
-        if header.direct {
-            head =
-                head.push(self.face(
-                    Face::new(header.avatar.as_deref(), &header.name, AVATAR).dot(
-                        header.presence.map(|presence| {
-                            (presence, rgb(theme.chat), iced::Point::new(14.0, 14.0))
-                        }),
-                    ),
-                ));
-        }
-        if let Some((id, name, forum)) = &header.parent {
-            let icon = if *forum { Icon::ForumPost } else { Icon::Hash };
-            head = head
-                .push(self.look.glyph(icon, ROOM_ICON, theme.muted))
-                .push(
-                    button(text(name.as_str()).size(16).font(BOLD))
-                        .padding(0)
-                        .on_press(Message::Side(crate::sidebar::Event::Select(id.clone())))
-                        .style(controls::ink_style(theme.secondary, theme.text)),
-                )
-                .push(self.look.glyph(Icon::ChevronRight, 16, theme.faint));
-        }
-        if let Some(icon) = header.icon {
-            head = head.push(self.look.glyph(icon, ROOM_ICON, theme.muted));
-        }
-        let fills = header.topic.is_none() && header.activity.is_empty();
-        let name = container(
-            text(header.name.as_str())
-                .size(16)
-                .font(BOLD)
-                .color(theme.text)
-                .wrapping(text::Wrapping::None),
-        )
-        .clip(true);
-        head = head.push(if fills {
-            name.width(Length::Fill)
-        } else {
-            name
-        });
-        if let Some((_, topic)) = &header.topic {
-            // A click shows it in full under the line, as Discord does;
-            // its links open from there.
-            let line = iced::widget::mouse_area(
-                container(self.topic_line(topic))
-                    .width(Length::Fill)
-                    .clip(true),
-            )
-            .on_press(Message::Popover(crate::popovers::Event::Topic))
-            .interaction(iced::mouse::Interaction::Pointer);
-            head = head.push(dot(theme)).push(self.spot(line));
-        } else if !header.activity.is_empty() {
-            head = head.push(
-                container(
-                    container(self.status_line(
-                        &header.activity,
-                        StatusInk::under_name(self.look.theme, 1.0),
-                    ))
-                    .padding([0, 10])
-                    .height(24)
-                    .align_y(Alignment::Center)
-                    .style(move |_| rounded(theme.raised, 12)),
-                )
-                .width(Length::Fill),
-            );
-        }
-        head = head.extend(self.header_buttons());
-        container(head)
-            .padding([0, 16])
-            .width(Length::Fill)
-            .height(HEIGHT)
-            .align_y(Alignment::Center)
-            .into()
-    }
-
-    /// The topic's one line, in the muted ink.
-    fn topic_line(self, topic: &'a Body) -> Element<'a, Message> {
-        let ink = self.look.theme.muted;
-        let spans = topic
-            .parts
-            .iter()
-            .flat_map(|part| &part.runs)
-            .map(|run| self.run_span(run, ink))
-            .collect();
-        Piece::new(spans, usize::MAX, 0, Message::Link, Message::Select)
-            .unlined(yapfast_core::emoji::card::LINK)
-            .size(14.0, 18.0)
-            .color(ink)
-            .starts(false)
-            .into()
-    }
-
-    /// One of the header's buttons: its glyph lit while what it opens is
-    /// open, and where it is as it's pressed, which what it opens opens
-    /// from.
-    fn header_icon_button(
-        self,
-        icon: Icon,
-        label: &'static str,
-        message: Message,
-        lit: bool,
-    ) -> Element<'a, Message> {
-        let ink = if lit {
-            self.look.theme.text
-        } else {
-            self.look.theme.secondary
-        };
-        Spot::new(
-            self.look
-                .face_button(self.look.glyph(icon, GLYPH, ink), BUTTON, label, message)
-                .below(),
-            self.header_spot,
-        )
-        .into()
-    }
-
-    /// The buttons after the name, as the Slint client orders them.
-    fn header_buttons(self) -> Vec<Element<'a, Message>> {
-        let header = self.header;
-        let theme = self.look.theme;
-        let shown = self.open.members;
-        let members = if shown {
-            "Hide member list"
-        } else {
-            "Show member list"
-        };
-        let mut buttons: Vec<Element<'a, Message>> = Vec::new();
-        // Add Friend, or Accept Friend Request in the accent, first.
-        if let Some((person, incoming)) = &header.befriend {
-            let (words, kind) = if *incoming {
-                ("Accept Friend Request", controls::Kind::Primary)
-            } else {
-                ("Add Friend", controls::Kind::Plain)
-            };
-            let ink = if *incoming {
-                rgb(theme.on_accent)
-            } else {
-                rgb(theme.faint)
-            };
-            buttons.push(
-                controls::action(
-                    theme,
-                    words,
-                    kind,
-                    Some(Message::Friends(crate::friends::Event::Accept(
-                        person.clone(),
-                    ))),
-                )
-                .small()
-                .icon(self.look.icon(Icon::UserPlus, 16, ink))
-                .into(),
-            );
-        }
-        // A voice channel's chat, or its call again.
-        if let Some(chat) = header.voice_chat {
-            let (icon, label) = if chat {
-                (Icon::Volume, "Show voice channel")
-            } else {
-                (Icon::Forum, "Open chat")
-            };
-            buttons.push(
-                self.look
-                    .face_button(
-                        self.look.glyph(icon, GLYPH, theme.secondary),
-                        BUTTON,
-                        label,
-                        Message::Side(crate::sidebar::Event::VoiceChat(!chat)),
-                    )
-                    .below()
-                    .into(),
-            );
-        }
-        let mut push = |icon, label, message, lit| {
-            buttons.push(self.header_icon_button(icon, label, message, lit));
-        };
-        if header.can_call {
-            let label = if header.call_going {
-                "Join Voice Call"
-            } else {
-                "Start Voice Call"
-            };
-            let call = |video| Message::Call(crate::call::Event::Start(video));
-            push(Icon::Phone, label, call(false), false);
-            if !header.call_going {
-                push(Icon::Video, "Start Video Call", call(true), false);
-            }
-        }
-        if header.can_threads {
-            let open = self.state.thread_list().is_some();
-            push(
-                Icon::Thread,
-                "Threads",
-                Message::Popover(crate::popovers::Event::Threads),
-                open,
-            );
-        }
-        if header.can_notify {
-            if header.muted {
-                push(
-                    Icon::BellOff,
-                    "Notification settings, muted",
-                    Message::Bell,
-                    false,
-                );
-            } else {
-                push(Icon::Bell, "Notification settings", Message::Bell, false);
-            }
-        }
-        if header.can_pin {
-            push(
-                Icon::Pin,
-                "Pinned messages",
-                Message::Popover(crate::popovers::Event::Pins),
-                false,
-            );
-        }
-        if let Some(one_to_one) = header.add_people {
-            let label = if one_to_one {
-                "Add friends to DM"
-            } else {
-                "Add friends to the group"
-            };
-            push(
-                Icon::UserPlus,
-                label,
-                Message::Popover(crate::popovers::Event::AddPeople),
-                false,
-            );
-        }
-        // The call's signal, in the conversation it's in, as in Discord's
-        // voice panel.
-        if let Some(signal) = self.header_signal() {
-            buttons.push(signal);
-        }
-        let mut push = |icon, label, message, lit| {
-            buttons.push(self.header_icon_button(icon, label, message, lit));
-        };
-        if header.members_available && !header.direct {
-            push(Icon::Users, members, Message::ToggleMembers, shown);
-        }
-        // A thread's, after its member list, as in Discord's toolbar.
-        if header.thread {
-            push(
-                Icon::Ellipsis,
-                "More",
-                Message::Popover(crate::popovers::Event::ThreadMore),
-                false,
-            );
-        }
-        if header.profile_available {
-            let open = self.state.profile_panel;
-            let label = if open { "Hide profile" } else { "Show profile" };
-            push(
-                Icon::User,
-                label,
-                Message::Profile(crate::profile::Event::TogglePanel),
-                open,
-            );
-        }
-        if header.members_available && header.direct {
-            buttons.push(self.members_toggle(members, shown));
-        }
-        if let Some(placeholder) = &header.search {
-            buttons.push(crate::search::header_search(
-                self.searching,
-                placeholder,
-                self,
-            ));
-        }
-        if !header.members_available && !header.profile_available && !header.members.is_empty() {
-            buttons.push(
-                row![
-                    self.look.glyph(Icon::Users, 18, theme.muted),
-                    text(header.members.as_str())
-                        .size(14)
-                        .font(MEDIUM)
-                        .color(theme.muted)
-                ]
-                .spacing(6)
-                .align_y(Alignment::Center)
-                .into(),
-            );
-        }
-        buttons
-    }
-
-    /// The call's signal in the conversation it's in, once it's
-    /// connected and measured: its ping under it, the details on a click.
-    fn header_signal(self) -> Option<Element<'a, Message>> {
-        let state = self.state;
-        let voice = &state.voice;
-        let here = voice.room.is_some() && voice.room == state.selected;
-        if !here || !crate::call::voice_ready(voice) || !self.link_measured() {
-            return None;
-        }
-        let face = self.look.glyph(
-            crate::call::signal_icon(voice.link_quality),
-            GLYPH,
-            crate::call::signal_ink(self.look.theme, voice.link_quality),
+pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
+    let header = ctx.header;
+    let theme = ctx.look.theme;
+    let mut head = row![].spacing(10).align_y(Alignment::Center);
+    if header.direct {
+        head = head.push(
+            ctx.face(
+                Face::new(header.avatar.as_deref(), &header.name, AVATAR).dot(
+                    header
+                        .presence
+                        .map(|presence| (presence, rgb(theme.chat), iced::Point::new(14.0, 14.0))),
+                ),
+            ),
         );
-        Some(self.link_touch(face.boxed(BUTTON), true))
     }
-
-    /// A group DM's member list toggle: its icon and count, as Slint's
-    /// `HeaderToggle`.
-    fn members_toggle(self, label: &'static str, open: bool) -> Element<'a, Message> {
-        let theme = self.look.theme;
-        let ink = if open { theme.text } else { theme.secondary };
-        let face = row![
-            self.look.glyph(Icon::Users, GLYPH, ink),
-            text(self.header.members.as_str())
-                .size(14)
-                .font(MEDIUM)
-                .color(ink)
-        ]
-        .spacing(6)
-        .align_y(Alignment::Center);
-        let face = button(
-            container(face)
-                .padding([0, 8])
-                .height(BUTTON)
-                .align_y(Alignment::Center),
+    if let Some((id, name, forum)) = &header.parent {
+        let icon = if *forum { Icon::ForumPost } else { Icon::Hash };
+        head = head
+            .push(ctx.look.glyph(icon, ROOM_ICON, theme.muted))
+            .push(
+                button(text(name.as_str()).size(16).font(BOLD))
+                    .padding(0)
+                    .on_press(Message::Side(crate::sidebar::Event::Select(id.clone())))
+                    .style(controls::ink_style(theme.secondary, theme.text)),
+            )
+            .push(ctx.look.glyph(Icon::ChevronRight, 16, theme.faint));
+    }
+    if let Some(icon) = header.icon {
+        head = head.push(ctx.look.glyph(icon, ROOM_ICON, theme.muted));
+    }
+    let fills = header.topic.is_none() && header.activity.is_empty();
+    let name = container(
+        text(header.name.as_str())
+            .size(16)
+            .font(BOLD)
+            .color(theme.text)
+            .wrapping(text::Wrapping::None),
+    )
+    .clip(true);
+    head = head.push(if fills {
+        name.width(Length::Fill)
+    } else {
+        name
+    });
+    if let Some((_, topic)) = &header.topic {
+        // A click shows it in full under the line, as Discord does;
+        // its links open from there.
+        let line = iced::widget::mouse_area(
+            container(topic_line(ctx, topic))
+                .width(Length::Fill)
+                .clip(true),
         )
-        .padding(0)
-        .on_press(Message::ToggleMembers)
-        .style(lit_style(None, theme.wash(0.1), 6.0));
-        tooltip(face, controls::tip(theme, label), tooltip::Position::Bottom)
-            .gap(6)
-            .into()
+        .on_press(Message::Popover(crate::popovers::Event::Topic))
+        .interaction(iced::mouse::Interaction::Pointer);
+        head = head.push(dot(theme)).push(ctx.spot(line));
+    } else if !header.activity.is_empty() {
+        head = head.push(
+            container(
+                container(
+                    ctx.status_line(&header.activity, StatusInk::under_name(ctx.look.theme, 1.0)),
+                )
+                .padding([0, 10])
+                .height(24)
+                .align_y(Alignment::Center)
+                .style(move |_| rounded(theme.raised, 12)),
+            )
+            .width(Length::Fill),
+        );
     }
+    head = head.extend(header_buttons(ctx));
+    container(head)
+        .padding([0, 16])
+        .width(Length::Fill)
+        .height(HEIGHT)
+        .align_y(Alignment::Center)
+        .into()
+}
+
+/// The topic's one line, in the muted ink.
+fn topic_line<'a>(ctx: crate::ctx::Ctx<'a>, topic: &'a Body) -> Element<'a, Message> {
+    let ink = ctx.look.theme.muted;
+    let spans = topic
+        .parts
+        .iter()
+        .flat_map(|part| &part.runs)
+        .map(|run| ctx.run_span(run, ink))
+        .collect();
+    Piece::new(spans, usize::MAX, 0, Message::Link, Message::Select)
+        .unlined(yapfast_core::emoji::card::LINK)
+        .size(14.0, 18.0)
+        .color(ink)
+        .starts(false)
+        .into()
+}
+
+/// One of the header's buttons: its glyph lit while what it opens is
+/// open, and where it is as it's pressed, which what it opens opens
+/// from.
+fn header_icon_button<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    icon: Icon,
+    label: &'static str,
+    message: Message,
+    lit: bool,
+) -> Element<'a, Message> {
+    let ink = if lit {
+        ctx.look.theme.text
+    } else {
+        ctx.look.theme.secondary
+    };
+    Spot::new(
+        ctx.look
+            .face_button(ctx.look.glyph(icon, GLYPH, ink), BUTTON, label, message)
+            .below(),
+        ctx.header_spot,
+    )
+    .into()
+}
+
+/// The buttons after the name, as the Slint client orders them.
+fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
+    let header = ctx.header;
+    let theme = ctx.look.theme;
+    let shown = ctx.open.members;
+    let members = if shown {
+        "Hide member list"
+    } else {
+        "Show member list"
+    };
+    let mut buttons: Vec<Element<'a, Message>> = Vec::new();
+    // Add Friend, or Accept Friend Request in the accent, first.
+    if let Some((person, incoming)) = &header.befriend {
+        let (words, kind) = if *incoming {
+            ("Accept Friend Request", controls::Kind::Primary)
+        } else {
+            ("Add Friend", controls::Kind::Plain)
+        };
+        let ink = if *incoming {
+            rgb(theme.on_accent)
+        } else {
+            rgb(theme.faint)
+        };
+        buttons.push(
+            controls::action(
+                theme,
+                words,
+                kind,
+                Some(Message::Friends(crate::friends::Event::Accept(
+                    person.clone(),
+                ))),
+            )
+            .small()
+            .icon(ctx.look.icon(Icon::UserPlus, 16, ink))
+            .into(),
+        );
+    }
+    // A voice channel's chat, or its call again.
+    if let Some(chat) = header.voice_chat {
+        let (icon, label) = if chat {
+            (Icon::Volume, "Show voice channel")
+        } else {
+            (Icon::Forum, "Open chat")
+        };
+        buttons.push(
+            ctx.look
+                .face_button(
+                    ctx.look.glyph(icon, GLYPH, theme.secondary),
+                    BUTTON,
+                    label,
+                    Message::Side(crate::sidebar::Event::VoiceChat(!chat)),
+                )
+                .below()
+                .into(),
+        );
+    }
+    let mut push = |icon, label, message, lit| {
+        buttons.push(header_icon_button(ctx, icon, label, message, lit));
+    };
+    if header.can_call {
+        let label = if header.call_going {
+            "Join Voice Call"
+        } else {
+            "Start Voice Call"
+        };
+        let call = |video| Message::Call(crate::call::Event::Start(video));
+        push(Icon::Phone, label, call(false), false);
+        if !header.call_going {
+            push(Icon::Video, "Start Video Call", call(true), false);
+        }
+    }
+    if header.can_threads {
+        let open = ctx.state.thread_list().is_some();
+        push(
+            Icon::Thread,
+            "Threads",
+            Message::Popover(crate::popovers::Event::Threads),
+            open,
+        );
+    }
+    if header.can_notify {
+        if header.muted {
+            push(
+                Icon::BellOff,
+                "Notification settings, muted",
+                Message::Bell,
+                false,
+            );
+        } else {
+            push(Icon::Bell, "Notification settings", Message::Bell, false);
+        }
+    }
+    if header.can_pin {
+        push(
+            Icon::Pin,
+            "Pinned messages",
+            Message::Popover(crate::popovers::Event::Pins),
+            false,
+        );
+    }
+    if let Some(one_to_one) = header.add_people {
+        let label = if one_to_one {
+            "Add friends to DM"
+        } else {
+            "Add friends to the group"
+        };
+        push(
+            Icon::UserPlus,
+            label,
+            Message::Popover(crate::popovers::Event::AddPeople),
+            false,
+        );
+    }
+    // The call's signal, in the conversation it's in, as in Discord's
+    // voice panel.
+    if let Some(signal) = header_signal(ctx) {
+        buttons.push(signal);
+    }
+    let mut push = |icon, label, message, lit| {
+        buttons.push(header_icon_button(ctx, icon, label, message, lit));
+    };
+    if header.members_available && !header.direct {
+        push(Icon::Users, members, Message::ToggleMembers, shown);
+    }
+    // A thread's, after its member list, as in Discord's toolbar.
+    if header.thread {
+        push(
+            Icon::Ellipsis,
+            "More",
+            Message::Popover(crate::popovers::Event::ThreadMore),
+            false,
+        );
+    }
+    if header.profile_available {
+        let open = ctx.state.profile_panel;
+        let label = if open { "Hide profile" } else { "Show profile" };
+        push(
+            Icon::User,
+            label,
+            Message::Profile(crate::profile::Event::TogglePanel),
+            open,
+        );
+    }
+    if header.members_available && header.direct {
+        buttons.push(members_toggle(ctx, members, shown));
+    }
+    if let Some(placeholder) = &header.search {
+        buttons.push(crate::search::header_search(
+            ctx.searching,
+            placeholder,
+            ctx,
+        ));
+    }
+    if !header.members_available && !header.profile_available && !header.members.is_empty() {
+        buttons.push(
+            row![
+                ctx.look.glyph(Icon::Users, 18, theme.muted),
+                text(header.members.as_str())
+                    .size(14)
+                    .font(MEDIUM)
+                    .color(theme.muted)
+            ]
+            .spacing(6)
+            .align_y(Alignment::Center)
+            .into(),
+        );
+    }
+    buttons
+}
+
+/// The call's signal in the conversation it's in, once it's
+/// connected and measured: its ping under it, the details on a click.
+fn header_signal<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
+    let state = ctx.state;
+    let voice = &state.voice;
+    let here = voice.room.is_some() && voice.room == state.selected;
+    if !here || !crate::call::voice_ready(voice) || !crate::call::details::link_measured(ctx) {
+        return None;
+    }
+    let face = ctx.look.glyph(
+        crate::call::signal_icon(voice.link_quality),
+        GLYPH,
+        crate::call::signal_ink(ctx.look.theme, voice.link_quality),
+    );
+    Some(crate::call::details::link_touch(
+        ctx,
+        face.boxed(BUTTON),
+        true,
+    ))
+}
+
+/// A group DM's member list toggle: its icon and count, as Slint's
+/// `HeaderToggle`.
+fn members_toggle<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    label: &'static str,
+    open: bool,
+) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
+    let ink = if open { theme.text } else { theme.secondary };
+    let face = row![
+        ctx.look.glyph(Icon::Users, GLYPH, ink),
+        text(ctx.header.members.as_str())
+            .size(14)
+            .font(MEDIUM)
+            .color(ink)
+    ]
+    .spacing(6)
+    .align_y(Alignment::Center);
+    let face = button(
+        container(face)
+            .padding([0, 8])
+            .height(BUTTON)
+            .align_y(Alignment::Center),
+    )
+    .padding(0)
+    .on_press(Message::ToggleMembers)
+    .style(lit_style(None, theme.wash(0.1), 6.0));
+    tooltip(face, controls::tip(theme, label), tooltip::Position::Bottom)
+        .gap(6)
+        .into()
 }

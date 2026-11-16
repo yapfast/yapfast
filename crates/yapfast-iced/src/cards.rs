@@ -72,291 +72,300 @@ pub fn estimate(card: &Card) -> f32 {
 /// A card's pieces in the selection start after the message's own.
 const _: () = assert!(CARD_PARTS > FIRST_PART);
 
-impl<'a> crate::ctx::Ctx<'a> {
-    /// A menu's box, as the Slint client's `BotSelectBox`: what it picked,
-    /// or its placeholder, and a chevron.
-    pub fn select_box(
-        self,
-        shown: impl text::IntoFragment<'a>,
-        picked: bool,
-        enabled: bool,
-        open: Option<Message>,
-    ) -> Element<'a, Message> {
-        let theme = self.look.theme;
-        let (ground, edge) = (theme.field, theme.edge);
-        let face = row![
-            text(shown)
-                .font(crate::fonts::MEDIUM)
-                .color(if picked { theme.text } else { theme.secondary })
-                .wrapping(text::Wrapping::None)
-                .width(Length::Fill),
-            self.look.glyph(Icon::ChevronDown, 18, theme.secondary),
-        ]
-        .spacing(8)
-        .align_y(Alignment::Center);
-        let opacity = if enabled { 1.0 } else { 0.5 };
-        let lit = theme.secondary;
-        container(
-            iced::widget::button(
-                container(face)
-                    .height(Length::Fill)
-                    .width(Length::Fill)
-                    .align_y(Alignment::Center)
-                    .clip(true),
-            )
-            .padding([0, 12])
-            .height(40)
-            .width(Length::Fill)
-            .on_press_maybe(open)
-            .style(move |_, status| iced::widget::button::Style {
-                background: Some(crate::style::faded(ground, opacity).into()),
-                border: Border {
-                    color: crate::style::faded(
-                        if enabled && controls::lights(status) {
-                            lit
-                        } else {
-                            edge
-                        },
-                        opacity,
-                    ),
-                    width: 1.0,
-                    radius: 8.0.into(),
-                },
-                ..Default::default()
-            }),
+/// A menu's box, as the Slint client's `BotSelectBox`: what it picked,
+/// or its placeholder, and a chevron.
+pub fn select_box<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    shown: impl text::IntoFragment<'a>,
+    picked: bool,
+    enabled: bool,
+    open: Option<Message>,
+) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
+    let (ground, edge) = (theme.field, theme.edge);
+    let face = row![
+        text(shown)
+            .font(crate::fonts::MEDIUM)
+            .color(if picked { theme.text } else { theme.secondary })
+            .wrapping(text::Wrapping::None)
+            .width(Length::Fill),
+        ctx.look.glyph(Icon::ChevronDown, 18, theme.secondary),
+    ]
+    .spacing(8)
+    .align_y(Alignment::Center);
+    let opacity = if enabled { 1.0 } else { 0.5 };
+    let lit = theme.secondary;
+    container(
+        iced::widget::button(
+            container(face)
+                .height(Length::Fill)
+                .width(Length::Fill)
+                .align_y(Alignment::Center)
+                .clip(true),
         )
-        .max_width(SELECT)
-        .into()
-    }
+        .padding([0, 12])
+        .height(40)
+        .width(Length::Fill)
+        .on_press_maybe(open)
+        .style(move |_, status| iced::widget::button::Style {
+            background: Some(crate::style::faded(ground, opacity).into()),
+            border: Border {
+                color: crate::style::faded(
+                    if enabled && controls::lights(status) {
+                        lit
+                    } else {
+                        edge
+                    },
+                    opacity,
+                ),
+                width: 1.0,
+                radius: 8.0.into(),
+            },
+            ..Default::default()
+        }),
+    )
+    .max_width(SELECT)
+    .into()
 }
 
-impl<'a> crate::ctx::Ctx<'a> {
-    /// A message's card at `place`, its text laid out in `bodies`.
-    pub fn app_card(
-        self,
-        index: usize,
-        message: &'a ChatMessage,
-        card: &'a Card,
-        bodies: &'a [Body],
-    ) -> Element<'a, Message> {
-        let theme = self.look.theme;
-        let state = self.state;
-        let busy = state.interactions.newest_busy() == Some(message.item.as_str());
-        let mut rows = column![].spacing(8).width(Length::Fill);
-        let mut texts = bodies.iter().enumerate();
-        for each in &card.rows {
-            let shown: Element<'a, Message> = match each {
-                CardRow::Text { beside, .. } => {
-                    let Some((place, body)) = texts.next() else {
-                        continue;
-                    };
-                    let first = CARD_PARTS.saturating_add(
-                        crate::select::PartNo::try_from(place * 8)
-                            .unwrap_or(crate::select::PartNo::MAX),
-                    );
-                    let look = Look {
-                        size: self.text_size(),
-                        line_height: crate::timeline::LINE_HEIGHT,
-                        ink: theme.text,
-                    };
-                    let mut line = row![
-                        container(self.body_view(body, index, first, look)).width(Length::Fill)
-                    ]
-                    .spacing(12);
-                    match beside {
-                        Some(Beside::Thumbnail(slot)) => {
-                            if let Some(at) = message.attachments.iter().position(|attachment| {
-                                attachment.placement == Placement::Component(*slot)
-                            }) {
-                                let attachment = &message.attachments[at];
-                                line = line.push(
-                                    self.shot(
-                                        Shot::new(
-                                            attachment.preview.as_ref(),
-                                            Size::new(THUMBNAIL, THUMBNAIL),
-                                        )
-                                        .fit(Fit::Cover)
-                                        .radius(PICTURE_RADIUS)
-                                        .covered(
-                                            attachment.spoiler
-                                                && !self
-                                                    .lanes
-                                                    .timeline
-                                                    .revealed
-                                                    .contains(&reveal_key(&message.item, at)),
-                                        ),
+/// A message's card at `place`, its text laid out in `bodies`.
+pub fn app_card<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    index: usize,
+    message: &'a ChatMessage,
+    card: &'a Card,
+    bodies: &'a [Body],
+) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
+    let state = ctx.state;
+    let busy = state.interactions.newest_busy() == Some(message.item.as_str());
+    let mut rows = column![].spacing(8).width(Length::Fill);
+    let mut texts = bodies.iter().enumerate();
+    for each in &card.rows {
+        let shown: Element<'a, Message> = match each {
+            CardRow::Text { beside, .. } => {
+                let Some((place, body)) = texts.next() else {
+                    continue;
+                };
+                let first = CARD_PARTS.saturating_add(
+                    crate::select::PartNo::try_from(place * 8)
+                        .unwrap_or(crate::select::PartNo::MAX),
+                );
+                let look = Look {
+                    size: crate::message::text_size(ctx),
+                    line_height: crate::timeline::LINE_HEIGHT,
+                    ink: theme.text,
+                };
+                let mut line =
+                    row![container(ctx.body_view(body, index, first, look)).width(Length::Fill)]
+                        .spacing(12);
+                match beside {
+                    Some(Beside::Thumbnail(slot)) => {
+                        if let Some(at) = message.attachments.iter().position(|attachment| {
+                            attachment.placement == Placement::Component(*slot)
+                        }) {
+                            let attachment = &message.attachments[at];
+                            line = line.push(
+                                ctx.shot(
+                                    Shot::new(
+                                        attachment.preview.as_ref(),
+                                        Size::new(THUMBNAIL, THUMBNAIL),
+                                    )
+                                    .fit(Fit::Cover)
+                                    .radius(PICTURE_RADIUS)
+                                    .covered(
+                                        attachment.spoiler
+                                            && !ctx
+                                                .lanes
+                                                .timeline
+                                                .revealed
+                                                .contains(&reveal_key(&message.item, at)),
                                     ),
-                                );
-                            }
+                                ),
+                            );
                         }
-                        Some(Beside::Button(button)) => {
-                            line = line.push(self.card_button(message, button, busy));
-                        }
-                        None => {}
                     }
-                    line.into()
+                    Some(Beside::Button(button)) => {
+                        line = line.push(card_button(ctx, message, button, busy));
+                    }
+                    None => {}
                 }
-                CardRow::Media(slot) => {
-                    let placement = Placement::Component(*slot);
-                    let room = GALLERY
-                        .min(self.content_width_of(index) - if card.framed { 32.0 } else { 0.0 });
-                    let gallery = Gallery::of(&message.attachments, placement, room);
-                    let mut media = column![].spacing(4);
-                    if !gallery.is_empty() {
-                        media = media.push(self.gallery(index, message, &gallery));
-                    }
-                    for (at, attachment) in files(message, placement) {
-                        media = media.push(self.file_card(&message.item, at, attachment));
-                    }
-                    media.into()
+                line.into()
+            }
+            CardRow::Media(slot) => {
+                let placement = Placement::Component(*slot);
+                let room = GALLERY.min(
+                    crate::message::content_width_of(ctx, index)
+                        - if card.framed { 32.0 } else { 0.0 },
+                );
+                let gallery = Gallery::of(&message.attachments, placement, room);
+                let mut media = column![].spacing(4);
+                if !gallery.is_empty() {
+                    media = media.push(crate::message::attachments::gallery(
+                        ctx, index, message, &gallery,
+                    ));
                 }
-                // With the spacing either side, a small gap is 16 px and a
-                // large one 32, a divider's line between.
-                CardRow::Separator { divider, large } => {
-                    let gap = if *large { 16.0 } else { 0.0 };
-                    let mut separator = column![Space::new().height(gap / 2.0)];
-                    if *divider {
-                        separator = separator.push(controls::bar(theme.line, Length::Fill, 1));
-                    }
-                    separator.push(Space::new().height(gap / 2.0)).into()
-                }
-                CardRow::Buttons(buttons) => {
-                    let mut line = row![].spacing(8);
-                    for button in buttons {
-                        line = line.push(self.card_button(message, button, busy));
-                    }
-                    line.into()
-                }
-                CardRow::Select {
-                    text: shown,
-                    disabled,
-                    options,
-                    custom_id,
-                    ..
-                } => {
-                    let enabled = !disabled && !busy;
-                    self.select_with_dropdown(
-                        self.select_box(
-                            shown,
-                            options.iter().any(|option| option.default),
-                            enabled,
-                            enabled.then(|| {
-                                Message::BotSelect(crate::bot_select::Event::Open(
-                                    message.item.clone(),
-                                    custom_id.clone(),
-                                ))
-                            }),
-                        ),
+                for (at, attachment) in files(message, placement) {
+                    media = media.push(crate::message::attachments::file_card(
+                        ctx,
                         &message.item,
-                        custom_id,
-                    )
+                        at,
+                        attachment,
+                    ));
                 }
-                // As Discord's client tells of components it doesn't know.
-                CardRow::Unknown => {
-                    let accent = theme.accent;
-                    container(
-                        text("Yapfast can't show this part of the message yet.")
-                            .size(14)
-                            .color(theme.secondary),
-                    )
-                    .padding(16)
-                    .width(Length::Fill)
-                    .style(move |_| container::Style {
-                        border: crate::style::edge(accent, 12.0),
-                        ..container::Style::default()
-                    })
-                    .into()
+                media.into()
+            }
+            // With the spacing either side, a small gap is 16 px and a
+            // large one 32, a divider's line between.
+            CardRow::Separator { divider, large } => {
+                let gap = if *large { 16.0 } else { 0.0 };
+                let mut separator = column![Space::new().height(gap / 2.0)];
+                if *divider {
+                    separator = separator.push(controls::bar(theme.line, Length::Fill, 1));
                 }
-            };
-            rows = rows.push(shown);
-        }
-        let shown: Element<'a, Message> = if card.framed {
-            let (ground, edge) = (theme.sidebar, theme.edge);
-            let inner = container(rows).padding(16).width(Length::Fill);
-            let inner: Element<'a, Message> = match card.color {
-                Some(color) => iced::widget::stack![
-                    inner,
-                    controls::bar(crate::style::hex(color), 4, Length::Fill)
-                ]
-                .into(),
-                None => inner.into(),
-            };
-            container(inner)
-                .max_width(WIDTH)
-                .clip(true)
-                .style(move |_| crate::style::outlined(ground, edge, 8.0))
+                separator.push(Space::new().height(gap / 2.0)).into()
+            }
+            CardRow::Buttons(buttons) => {
+                let mut line = row![].spacing(8);
+                for button in buttons {
+                    line = line.push(card_button(ctx, message, button, busy));
+                }
+                line.into()
+            }
+            CardRow::Select {
+                text: shown,
+                disabled,
+                options,
+                custom_id,
+                ..
+            } => {
+                let enabled = !disabled && !busy;
+                crate::bot_select::select_with_dropdown(
+                    ctx,
+                    select_box(
+                        ctx,
+                        shown,
+                        options.iter().any(|option| option.default),
+                        enabled,
+                        enabled.then(|| {
+                            Message::BotSelect(crate::bot_select::Event::Open(
+                                message.item.clone(),
+                                custom_id.clone(),
+                            ))
+                        }),
+                    ),
+                    &message.item,
+                    custom_id,
+                )
+            }
+            // As Discord's client tells of components it doesn't know.
+            CardRow::Unknown => {
+                let accent = theme.accent;
+                container(
+                    text("Yapfast can't show this part of the message yet.")
+                        .size(14)
+                        .color(theme.secondary),
+                )
+                .padding(16)
+                .width(Length::Fill)
+                .style(move |_| container::Style {
+                    border: crate::style::edge(accent, 12.0),
+                    ..container::Style::default()
+                })
                 .into()
-        } else {
-            rows.into()
+            }
         };
-        container(shown).padding(Padding::ZERO.top(4)).into()
+        rows = rows.push(shown);
     }
-
-    /// An app's button, as the Slint client's `CardButtonView`: a link's
-    /// with its icon opens its page, a store's offers to open in Discord,
-    /// one that asks its app does, unless another of the message's is
-    /// waiting for its app.
-    fn card_button(
-        self,
-        message: &ChatMessage,
-        card_button: &'a CardButton,
-        busy: bool,
-    ) -> Element<'a, Message> {
-        let theme = self.look.theme;
-        let kind = match card_button.style {
-            ButtonStyle::Primary => Kind::Primary,
-            ButtonStyle::Success => Kind::Success,
-            ButtonStyle::Danger => Kind::Danger,
-            ButtonStyle::Secondary | ButtonStyle::Link | ButtonStyle::Premium => Kind::Plain,
-        };
-        let store = match (&card_button.sku_id, &message.application_id) {
-            (Some(sku), Some(app)) => Some(format!(
-                "https://discord.com/application-directory/{app}/store/{sku}"
-            )),
-            _ => None,
-        };
-        let press = if card_button.disabled {
-            None
-        } else if let Some(custom_id) = &card_button.custom_id {
-            (!busy).then(|| Message::UseButton(message.item.clone(), custom_id.clone()))
-        } else if let Some(store) = store {
-            Some(Message::Link(store, Point::ORIGIN))
-        } else {
-            card_button
-                .url
-                .clone()
-                .map(|url| Message::Link(url, Point::ORIGIN))
-        };
-        let label = if card_button.style == ButtonStyle::Premium {
-            "Open in Discord"
-        } else {
-            card_button.label.as_str()
-        };
-        let mut face = action(theme, label, kind, press).small();
-        if card_button.style == ButtonStyle::Link {
-            face = face.icon(self.look.icon(Icon::Link, 16, rgb(theme.text)));
-        }
-        face.into()
-    }
-
-    /// Why the last control of the message's used failed, under its
-    /// controls, as Discord's client says.
-    pub fn bot_failed(self, message: &ChatMessage) -> Option<Element<'a, Message>> {
-        let (item, why) = self.state.interaction_failed.as_ref()?;
-        if *item != message.item {
-            return None;
-        }
-        let theme = self.look.theme;
-        Some(
-            container(
-                row![
-                    self.look.glyph(Icon::TriangleAlert, 16, theme.danger),
-                    crate::form::error(theme, why.as_str()).width(Length::Fill)
-                ]
-                .spacing(6),
-            )
-            .padding(Padding::ZERO.top(4))
+    let shown: Element<'a, Message> = if card.framed {
+        let (ground, edge) = (theme.sidebar, theme.edge);
+        let inner = container(rows).padding(16).width(Length::Fill);
+        let inner: Element<'a, Message> = match card.color {
+            Some(color) => iced::widget::stack![
+                inner,
+                controls::bar(crate::style::hex(color), 4, Length::Fill)
+            ]
             .into(),
-        )
+            None => inner.into(),
+        };
+        container(inner)
+            .max_width(WIDTH)
+            .clip(true)
+            .style(move |_| crate::style::outlined(ground, edge, 8.0))
+            .into()
+    } else {
+        rows.into()
+    };
+    container(shown).padding(Padding::ZERO.top(4)).into()
+}
+
+/// An app's button, as the Slint client's `CardButtonView`: a link's
+/// with its icon opens its page, a store's offers to open in Discord,
+/// one that asks its app does, unless another of the message's is
+/// waiting for its app.
+fn card_button<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    message: &ChatMessage,
+    card_button: &'a CardButton,
+    busy: bool,
+) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
+    let kind = match card_button.style {
+        ButtonStyle::Primary => Kind::Primary,
+        ButtonStyle::Success => Kind::Success,
+        ButtonStyle::Danger => Kind::Danger,
+        ButtonStyle::Secondary | ButtonStyle::Link | ButtonStyle::Premium => Kind::Plain,
+    };
+    let store = match (&card_button.sku_id, &message.application_id) {
+        (Some(sku), Some(app)) => Some(format!(
+            "https://discord.com/application-directory/{app}/store/{sku}"
+        )),
+        _ => None,
+    };
+    let press = if card_button.disabled {
+        None
+    } else if let Some(custom_id) = &card_button.custom_id {
+        (!busy).then(|| Message::UseButton(message.item.clone(), custom_id.clone()))
+    } else if let Some(store) = store {
+        Some(Message::Link(store, Point::ORIGIN))
+    } else {
+        card_button
+            .url
+            .clone()
+            .map(|url| Message::Link(url, Point::ORIGIN))
+    };
+    let label = if card_button.style == ButtonStyle::Premium {
+        "Open in Discord"
+    } else {
+        card_button.label.as_str()
+    };
+    let mut face = action(theme, label, kind, press).small();
+    if card_button.style == ButtonStyle::Link {
+        face = face.icon(ctx.look.icon(Icon::Link, 16, rgb(theme.text)));
     }
+    face.into()
+}
+
+/// Why the last control of the message's used failed, under its
+/// controls, as Discord's client says.
+pub fn bot_failed<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    message: &ChatMessage,
+) -> Option<Element<'a, Message>> {
+    let (item, why) = ctx.state.interaction_failed.as_ref()?;
+    if *item != message.item {
+        return None;
+    }
+    let theme = ctx.look.theme;
+    Some(
+        container(
+            row![
+                ctx.look.glyph(Icon::TriangleAlert, 16, theme.danger),
+                crate::form::error(theme, why.as_str()).width(Length::Fill)
+            ]
+            .spacing(6),
+        )
+        .padding(Padding::ZERO.top(4))
+        .into(),
+    )
 }

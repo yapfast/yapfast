@@ -23,7 +23,7 @@ use yapfast_core::{
 
 use crate::profile::{Event as ProfileEvent, Mode, Shown, look::Tab};
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{lights, placed},
     ctx::{Cx, Focus, Request},
     field::{self, Draft},
@@ -521,11 +521,9 @@ pub fn follow(slot: &mut Slot<Editor>, cx: &mut Cx<'_>) {
     }
 }
 
-impl App {
-    /// Whether the card has room for the tabs beside the middle.
-    fn editor_tabs_shown(card_width: f32, main: bool) -> bool {
-        main && card_width >= 880.0
-    }
+/// Whether the card has room for the tabs beside the middle.
+fn editor_tabs_shown(card_width: f32, main: bool) -> bool {
+    main && card_width >= 880.0
 }
 
 /// A section's heading on the card: the main profile's in its card's
@@ -585,187 +583,195 @@ fn hover_edit<'a>(
         .into()
 }
 
-impl<'a> crate::ctx::Ctx<'a> {
-    /// The pictures the editor's card shows.
-    pub(super) fn editor_pictures(self) -> Vec<String> {
-        let Some(editor) = self.profiles.editor.get() else {
-            return Vec::new();
-        };
-        let profile = editor.shown.look.profile();
-        let cosmetics = self.state.cosmetics;
-        let mut urls: Vec<String> = [
-            profile.avatar.clone(),
-            profile.banner.clone(),
-            profile.banner.as_deref().and_then(chat::moving_banner),
-        ]
-        .into_iter()
-        .flatten()
-        .filter(|url| !url.starts_with("picked:"))
-        .collect();
-        urls.extend(
-            cosmetics
-                .decoration(profile.decoration.as_deref())
-                .map(str::to_owned),
-        );
-        urls.extend(profile.badges.iter().map(|badge| badge.icon.clone()));
-        urls.extend(profile.server_icon.clone());
-        urls.extend(
-            cosmetics
-                .tag(profile.tag.as_ref())
-                .and_then(|tag| tag.badge.as_deref())
-                .map(str::to_owned),
-        );
-        // The effect's still, on its tile.
-        urls.extend(crate::profile::cosmetic::effect_pictures(
-            self.state,
-            &editor.shown,
-            false,
-        ));
-        urls
-    }
+/// The pictures the editor's card shows.
+pub(super) fn editor_pictures(ctx: crate::ctx::Ctx<'_>) -> Vec<String> {
+    let Some(editor) = ctx.profiles.editor.get() else {
+        return Vec::new();
+    };
+    let profile = editor.shown.look.profile();
+    let cosmetics = ctx.state.cosmetics;
+    let mut urls: Vec<String> = [
+        profile.avatar.clone(),
+        profile.banner.clone(),
+        profile.banner.as_deref().and_then(chat::moving_banner),
+    ]
+    .into_iter()
+    .flatten()
+    .filter(|url| !url.starts_with("picked:"))
+    .collect();
+    urls.extend(
+        cosmetics
+            .decoration(profile.decoration.as_deref())
+            .map(str::to_owned),
+    );
+    urls.extend(profile.badges.iter().map(|badge| badge.icon.clone()));
+    urls.extend(profile.server_icon.clone());
+    urls.extend(
+        cosmetics
+            .tag(profile.tag.as_ref())
+            .and_then(|tag| tag.badge.as_deref())
+            .map(str::to_owned),
+    );
+    // The effect's still, on its tile.
+    urls.extend(crate::profile::cosmetic::effect_pictures(
+        ctx.state,
+        &editor.shown,
+        false,
+    ));
+    urls
+}
 
-    /// The editor over the window dimmed by 60%; a click outside the card
-    /// closes it.
-    /// The editor's card's width: the main profile's with the styles
-    /// column or without, a server profile's.
-    fn editor_card_width(self, editor: &Editor, main: bool) -> f32 {
-        let width = self.look.window.width;
-        if main {
-            if editor.side {
-                (width - 8.0).min(1199.0)
-            } else {
-                (width - 96.0).min(958.0)
-            }
+/// The editor over the window dimmed by 60%; a click outside the card
+/// closes it.
+/// The editor's card's width: the main profile's with the styles
+/// column or without, a server profile's.
+fn editor_card_width(ctx: crate::ctx::Ctx<'_>, editor: &Editor, main: bool) -> f32 {
+    let width = ctx.look.window.width;
+    if main {
+        if editor.side {
+            (width - 8.0).min(1199.0)
         } else {
-            (width - 48.0).min(600.0)
+            (width - 96.0).min(958.0)
         }
+    } else {
+        (width - 48.0).min(600.0)
     }
+}
 
-    /// The middle column's width: what the styles column (and its line)
-    /// leave of the card, halved with the tabs, which fill as it does.
-    fn editor_middle_width(self, editor: &Editor, main: bool) -> f32 {
-        let card = self.editor_card_width(editor, main);
-        let rest = card - if main && editor.side { SIDE + 1.0 } else { 0.0 };
-        if App::editor_tabs_shown(card, main) {
-            rest / 2.0
-        } else {
-            rest
-        }
+/// The middle column's width: what the styles column (and its line)
+/// leave of the card, halved with the tabs, which fill as it does.
+fn editor_middle_width(ctx: crate::ctx::Ctx<'_>, editor: &Editor, main: bool) -> f32 {
+    let card = editor_card_width(ctx, editor, main);
+    let rest = card - if main && editor.side { SIDE + 1.0 } else { 0.0 };
+    if editor_tabs_shown(card, main) {
+        rest / 2.0
+    } else {
+        rest
     }
+}
 
-    pub fn profile_editor_view(self) -> Option<Element<'a, Message>> {
-        let editor = self.profiles.editor.get()?;
-        let core = self.state.profile_editor.as_ref()?;
-        let theme = self.look.theme;
-        let main = core.main();
-        let height = self.look.window.height;
-        let inks = self.inks(&editor.shown.look, Mode::Side);
-        let card_width = self.editor_card_width(editor, main);
-        let card_height = (height - 48.0).min(if main { 798.0 } else { 620.0 });
-        let middle = self.editor_middle(editor, core, &inks);
-        let mut parts = row![];
-        if main && editor.side {
-            let line = theme.line;
-            parts = parts.push(self.customize(editor, core)).push(
+pub fn profile_editor_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
+    let editor = ctx.profiles.editor.get()?;
+    let core = ctx.state.profile_editor.as_ref()?;
+    let theme = ctx.look.theme;
+    let main = core.main();
+    let height = ctx.look.window.height;
+    let inks = crate::profile::inks(ctx, &editor.shown.look, Mode::Side);
+    let card_width = editor_card_width(ctx, editor, main);
+    let card_height = (height - 48.0).min(if main { 798.0 } else { 620.0 });
+    let middle = crate::profile::editor::card::editor_middle(ctx, editor, core, &inks);
+    let mut parts = row![];
+    if main && editor.side {
+        let line = theme.line;
+        parts = parts
+            .push(crate::profile::editor::styles::customize(ctx, editor, core))
+            .push(
                 container(Space::new())
                     .width(1)
                     .height(Length::Fill)
                     .style(move |_| rounded(line, 0)),
             );
-        }
-        parts = parts.push(container(middle).width(Length::Fill).height(Length::Fill));
-        if App::editor_tabs_shown(card_width, main) {
-            parts = parts.push(self.editor_tabs(editor, &inks));
-        }
-        let mut card = stack![
-            container(parts)
-                .width(card_width)
-                .height(card_height)
-                .clip(true)
-                .style(crate::profile::frame_style(inks, theme.edge, 12.0, true))
-        ];
-        if main {
-            card = card.push(
-                container(
-                    self.look
-                        .icon_button(Icon::X, "Close", message(Event::Close))
-                        .size(36.0, 18)
-                        .below(),
-                )
-                .width(card_width)
-                .align_x(Alignment::End)
-                .padding(12),
-            );
-            if !editor.side {
-                card = card.push(placed(self.show_styles(), 0.0, 40.0));
-            }
-        }
-        // Over the window dimmed as under a dialog.
-        let mut layers = stack![
-            crate::controls::dimmed(message(Event::Close), crate::controls::DIM),
-            container(crate::widgets::motion::grow(opaque(card))).center(Length::Fill)
-        ];
-        if let Some(window) = &editor.style {
-            layers = layers.push(self.name_style_view(window, &editor.shown));
-        }
-        Some(opaque(layers))
     }
-
-    /// The tabs beside the main profile: its Board, Activity and Wishlist,
-    /// as the full profile shows them.
-    fn editor_tabs(
-        self,
-        editor: &'a Editor,
-        inks: &crate::profile::look::Inks,
-    ) -> Element<'a, Message> {
-        let look = &editor.shown.look;
-        let tab = editor
-            .tab
-            .filter(|tab| look.tabs.contains(tab))
-            .unwrap_or(look.tabs[0]);
-        let mut heads = row![].spacing(24);
-        for entry in &look.tabs {
-            let label = match entry {
-                Tab::Board => "Board",
-                Tab::Activity => "Activity",
-                Tab::Wishlist => "Wishlist",
-                Tab::Friends | Tab::Servers => continue,
-            };
-            heads = heads.push(crate::controls::tab(
-                crate::controls::Tab {
-                    label,
-                    chosen: *entry == tab,
-                    ink: inks.ink,
-                    rest: inks.ink2,
-                    bar: inks.ink,
-                    height: 26.0,
-                    rest_font: SEMIBOLD,
-                },
-                message(Event::Tab(*entry)),
+    parts = parts.push(container(middle).width(Length::Fill).height(Length::Fill));
+    if editor_tabs_shown(card_width, main) {
+        parts = parts.push(editor_tabs(ctx, editor, &inks));
+    }
+    let mut card = stack![
+        container(parts)
+            .width(card_width)
+            .height(card_height)
+            .clip(true)
+            .style(crate::profile::frame_style(inks, theme.edge, 12.0, true))
+    ];
+    if main {
+        card = card.push(
+            container(
+                ctx.look
+                    .icon_button(Icon::X, "Close", message(Event::Close))
+                    .size(36.0, 18)
+                    .below(),
+            )
+            .width(card_width)
+            .align_x(Alignment::End)
+            .padding(12),
+        );
+        if !editor.side {
+            card = card.push(placed(
+                crate::profile::editor::styles::show_styles(ctx),
+                0.0,
+                40.0,
             ));
         }
-        let rule_ink = if inks.themed {
-            faded(inks.ink, 0.12)
-        } else {
-            self.look.theme.line
-        };
-        column![
-            heads,
-            container(Space::new())
-                .width(Length::Fill)
-                .height(1)
-                .style(move |_| rounded(rule_ink, 0)),
-            self.tab_page(&editor.shown, tab, inks),
-        ]
-        .spacing(16)
-        .padding(Padding {
-            top: 58.0,
-            right: 32.0,
-            bottom: 22.0,
-            left: 0.0,
-        })
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .into()
     }
+    // Over the window dimmed as under a dialog.
+    let mut layers = stack![
+        crate::controls::dimmed(message(Event::Close), crate::controls::DIM),
+        container(crate::widgets::motion::grow(opaque(card))).center(Length::Fill)
+    ];
+    if let Some(window) = &editor.style {
+        layers = layers.push(crate::profile::name_style::name_style_view(
+            ctx,
+            window,
+            &editor.shown,
+        ));
+    }
+    Some(opaque(layers))
+}
+
+/// The tabs beside the main profile: its Board, Activity and Wishlist,
+/// as the full profile shows them.
+fn editor_tabs<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    editor: &'a Editor,
+    inks: &crate::profile::look::Inks,
+) -> Element<'a, Message> {
+    let look = &editor.shown.look;
+    let tab = editor
+        .tab
+        .filter(|tab| look.tabs.contains(tab))
+        .unwrap_or(look.tabs[0]);
+    let mut heads = row![].spacing(24);
+    for entry in &look.tabs {
+        let label = match entry {
+            Tab::Board => "Board",
+            Tab::Activity => "Activity",
+            Tab::Wishlist => "Wishlist",
+            Tab::Friends | Tab::Servers => continue,
+        };
+        heads = heads.push(crate::controls::tab(
+            crate::controls::Tab {
+                label,
+                chosen: *entry == tab,
+                ink: inks.ink,
+                rest: inks.ink2,
+                bar: inks.ink,
+                height: 26.0,
+                rest_font: SEMIBOLD,
+            },
+            message(Event::Tab(*entry)),
+        ));
+    }
+    let rule_ink = if inks.themed {
+        faded(inks.ink, 0.12)
+    } else {
+        ctx.look.theme.line
+    };
+    column![
+        heads,
+        container(Space::new())
+            .width(Length::Fill)
+            .height(1)
+            .style(move |_| rounded(rule_ink, 0)),
+        crate::profile::full::tab_page(ctx, &editor.shown, tab, inks),
+    ]
+    .spacing(16)
+    .padding(Padding {
+        top: 58.0,
+        right: 32.0,
+        bottom: 22.0,
+        left: 0.0,
+    })
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .into()
 }

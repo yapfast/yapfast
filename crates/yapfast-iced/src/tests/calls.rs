@@ -42,26 +42,26 @@ fn the_docks_noise_toggle_turns_back_on_the_kind_last_used() {
             .noise_suppression
     };
     // DeepFilterNet, as it comes, goes off and comes back.
-    let _ = app.call_event(Event::Noise);
+    let _ = crate::call::update(&mut app, Event::Noise);
     assert_eq!(app.layout.voice.noise_suppression, Suppressor::Off);
     assert_eq!(stored(), Suppressor::Off, "saved");
-    let _ = app.call_event(Event::Noise);
+    let _ = crate::call::update(&mut app, Event::Noise);
     assert_eq!(
         app.layout.voice.noise_suppression,
         Suppressor::DeepFilterNet
     );
     // RNNoise, picked in the input menu, is the one it brings back.
-    let _ = app.call_event(Event::Suppressor(Suppressor::RNNoise));
-    let _ = app.call_event(Event::Noise);
+    let _ = crate::call::update(&mut app, Event::Suppressor(Suppressor::RNNoise));
+    let _ = crate::call::update(&mut app, Event::Noise);
     assert_eq!(app.layout.voice.noise_suppression, Suppressor::Off);
-    let _ = app.call_event(Event::Noise);
+    let _ = crate::call::update(&mut app, Event::Noise);
     assert_eq!(app.layout.voice.noise_suppression, Suppressor::RNNoise);
     assert_eq!(stored(), Suppressor::RNNoise);
     // Off picked there after RNNoise brings RNNoise back too.
-    let _ = app.call_event(Event::Suppressor(Suppressor::Off));
-    let _ = app.call_event(Event::Noise);
+    let _ = crate::call::update(&mut app, Event::Suppressor(Suppressor::Off));
+    let _ = crate::call::update(&mut app, Event::Noise);
     assert_eq!(app.layout.voice.noise_suppression, Suppressor::RNNoise);
-    let _ = app.call_event(Event::Suppressor(Suppressor::DeepFilterNet));
+    let _ = crate::call::update(&mut app, Event::Suppressor(Suppressor::DeepFilterNet));
 }
 
 #[test]
@@ -100,8 +100,8 @@ fn call_volumes_play_while_dragged_and_are_remembered() {
     // Other tests' windows play their volumes as they open.
     let _volumes = crate::layout::tests::hold_volumes();
     let stored = || crate::layout::Layout::read(folder.path()).voice;
-    let _ = app.call_event(Event::DeviceVolume(true, 200, false));
-    let _ = app.call_event(Event::DeviceVolume(false, 50, false));
+    let _ = crate::call::update(&mut app, Event::DeviceVolume(true, 200, false));
+    let _ = crate::call::update(&mut app, Event::DeviceVolume(false, 50, false));
     assert!((yapfast_core::volume::microphone() - 1.995).abs() < 1e-3);
     assert!((yapfast_core::volume::speakers() - 0.143).abs() < 1e-3);
     assert_eq!(
@@ -109,8 +109,8 @@ fn call_volumes_play_while_dragged_and_are_remembered() {
         None,
         "a drag's steps aren't saved"
     );
-    let _ = app.call_event(Event::DeviceVolume(true, 200, true));
-    let _ = app.call_event(Event::DeviceVolume(false, 50, true));
+    let _ = crate::call::update(&mut app, Event::DeviceVolume(true, 200, true));
+    let _ = crate::call::update(&mut app, Event::DeviceVolume(false, 50, true));
     assert_eq!(stored().microphone_volume, Some(200));
     assert_eq!(stored().speaker_volume, Some(50));
     // A new window plays at the volumes kept, and the defaults at none.
@@ -139,41 +139,41 @@ fn the_share_menu_waits_for_its_own_listing_and_a_cancel_drops_it() {
     use iced::keyboard::{Key, key};
     let (mut app, _folder, _) = in_call();
     // Escape while it's listed cancels it: what's listed after opens nothing.
-    let _ = app.call_event(Event::Open(Popup::Share));
+    let _ = crate::call::update(&mut app, Event::Open(Popup::Share));
     let first = app.call.share_listing.expect("listing");
     let _ = app.update(crate::app::Message::Key(
         Key::Named(key::Named::Escape),
         Default::default(),
     ));
     assert_eq!(app.call.share_listing, None, "Escape cancels it");
-    let _ = app.call_event(listed(first));
+    let _ = crate::call::update(&mut app, listed(first));
     assert_eq!(app.call.popup, None, "nothing opens after the cancel");
     // A second click on Go Live cancels it too, and a third lists anew,
     // which the first listing's late answer doesn't open.
-    let _ = app.call_event(Event::Open(Popup::Share));
-    let _ = app.call_event(Event::Open(Popup::Share));
+    let _ = crate::call::update(&mut app, Event::Open(Popup::Share));
+    let _ = crate::call::update(&mut app, Event::Open(Popup::Share));
     assert_eq!(app.call.share_listing, None);
-    let _ = app.call_event(Event::Open(Popup::Share));
+    let _ = crate::call::update(&mut app, Event::Open(Popup::Share));
     let third = app.call.share_listing.expect("listing again");
-    let _ = app.call_event(listed(first));
+    let _ = crate::call::update(&mut app, listed(first));
     assert_eq!(app.call.popup, None, "an older listing's answer");
     // The input menu opened meanwhile stays.
-    let _ = app.call_event(Event::Open(Popup::Input));
-    let _ = app.call_event(listed(third));
+    let _ = crate::call::update(&mut app, Event::Open(Popup::Input));
+    let _ = crate::call::update(&mut app, listed(third));
     assert_eq!(app.call.popup, Some(Popup::Input));
     // Out of the call, its listing opens nothing.
-    let _ = app.call_event(Event::Open(Popup::Share));
+    let _ = crate::call::update(&mut app, Event::Open(Popup::Share));
     let fourth = app.call.share_listing.expect("listing");
     app.client
         .dispatch(Action::Voice(yapfast_core::voice::Command::Leave));
     let _ = app.sync();
-    let _ = app.call_event(listed(fourth));
+    let _ = crate::call::update(&mut app, listed(fourth));
     assert_eq!(app.call.popup, None, "left the call meanwhile");
     // Its own answer, in the call, opens it.
     let (mut app, _folder, _) = in_call();
-    let _ = app.call_event(Event::Open(Popup::Share));
+    let _ = crate::call::update(&mut app, Event::Open(Popup::Share));
     let count = app.call.share_listing.expect("listing");
-    let _ = app.call_event(listed(count));
+    let _ = crate::call::update(&mut app, listed(count));
     assert_eq!(app.call.popup, Some(Popup::Share));
 }
 
@@ -182,7 +182,7 @@ fn the_share_menu_fits_a_short_window_and_keeps_its_button() {
     use crate::call::{Listing, ShareEvent};
     let (mut app, _folder, _) = in_call();
     app.shell.frame = Size::new(800.0, 560.0);
-    app.fit_window();
+    crate::window_bar::fit_window(&mut app);
     // More than the window is tall: a screen, twelve windows, four cameras.
     let mut listed = vec![Shareable {
         source: Source::Display(1),
@@ -201,12 +201,15 @@ fn the_share_menu_fits_a_short_window_and_keeps_its_button() {
         Point::new(500.0, 500.0),
         Size::new(52.0, 52.0),
     ));
-    let _ = app.call_event(Event::Open(Popup::Share));
+    let _ = crate::call::update(&mut app, Event::Open(Popup::Share));
     let count = app.call.share_listing.expect("listing");
-    let _ = app.call_event(Event::Share(ShareEvent::Listed(
-        count,
-        std::sync::Arc::new(Listing(listed)),
-    )));
+    let _ = crate::call::update(
+        &mut app,
+        Event::Share(ShareEvent::Listed(
+            count,
+            std::sync::Arc::new(Listing(listed)),
+        )),
+    );
     assert_eq!(app.call.popup, Some(Popup::Share));
     let mut go = None;
     interact(&mut app, |ui| {
@@ -222,15 +225,18 @@ fn the_share_menu_fits_a_short_window_and_keeps_its_button() {
 #[test]
 fn the_input_menu_measures_the_microphone_only_while_it_shows() {
     let (mut app, _folder) = preview();
-    assert!(!app.metering());
-    let _ = app.call_event(Event::Open(Popup::Input));
-    assert!(app.metering(), "the level shows");
+    assert!(!crate::call::metering(&app));
+    let _ = crate::call::update(&mut app, Event::Open(Popup::Input));
+    assert!(crate::call::metering(&app), "the level shows");
     assert!(shows(&app, "INPUT LEVEL"));
     assert!(shows(&app, "Input Device"));
-    let _ = app.call_event(Event::Close);
-    assert!(!app.metering());
-    let _ = app.call_event(Event::Open(Popup::Output));
-    assert!(!app.metering(), "the speakers' menu has no level");
+    let _ = crate::call::update(&mut app, Event::Close);
+    assert!(!crate::call::metering(&app));
+    let _ = crate::call::update(&mut app, Event::Open(Popup::Output));
+    assert!(
+        !crate::call::metering(&app),
+        "the speakers' menu has no level"
+    );
     assert!(shows(&app, "Output Volume"));
 }
 
@@ -248,17 +254,20 @@ fn clicking_the_docks_channel_line_opens_the_call() {
         ui.simulate(iced_test::simulator::click());
     });
     assert_eq!(app.client.state().selected.as_deref(), Some(room.as_str()));
-    assert!(shows(&app, &app.voice_description()), "the call shows");
+    assert!(
+        shows(&app, &crate::call::stage::voice_description(&app)),
+        "the call shows"
+    );
 }
 
 #[test]
 fn a_voice_channel_this_account_isnt_in_offers_to_join() {
     let (mut app, _folder, _) = in_call();
-    let _ = app.call_event(Event::Leave);
+    let _ = crate::call::update(&mut app, Event::Leave);
     let _ = app.sync();
     assert!(!app.client.state().voice.active());
     assert!(shows(&app, "Join voice"));
-    let description = app.voice_description();
+    let description = crate::call::stage::voice_description(&app);
     assert!(description.contains("Join and hang out."), "{description}");
     assert!(shows(&app, &description));
 }
@@ -276,24 +285,30 @@ fn someones_tile_right_clicked_sets_their_volume_and_keeps_it() {
     });
     // One's own tile has nothing to set in the preview.
     let you = app.client.state().voice.participants[0].person.clone();
-    let _ = app.call_event(Event::Person(room.clone(), you, Point::new(400.0, 300.0)));
+    let _ = crate::call::update(
+        &mut app,
+        Event::Person(room.clone(), you, Point::new(400.0, 300.0)),
+    );
     assert!(app.win.menu.is_none());
-    let _ = app.call_event(Event::Person(room, "bob".into(), Point::new(400.0, 300.0)));
+    let _ = crate::call::update(
+        &mut app,
+        Event::Person(room, "bob".into(), Point::new(400.0, 300.0)),
+    );
     let volumes = app.win.menu.as_ref().and_then(|menu| menu.volumes.as_ref());
     assert_eq!(volumes.map(|volumes| volumes.name.as_str()), Some("Bob"));
     assert!(shows(&app, "User volume"));
     assert!(!shows(&app, "Stream volume"), "Bob isn't streaming");
     let gain = || yapfast_core::volume::get(yapfast_core::volume::Kind::Voice, "bob");
-    let _ = app.call_event(Event::Volume(false, 50, false));
+    let _ = crate::call::update(&mut app, Event::Volume(false, 50, false));
     let halved = gain();
     assert!(halved < 1.0, "plays quieter while dragged: {halved}");
     let stored = || crate::layout::Layout::read(folder.path()).voice.volumes;
     assert!(stored().is_empty(), "a drag's steps aren't saved");
-    let _ = app.call_event(Event::Volume(false, 50, true));
+    let _ = crate::call::update(&mut app, Event::Volume(false, 50, true));
     assert_eq!(stored().get("bob"), Some(&halved));
     // Back at its default it's forgotten.
     let default = yapfast_core::volume::to_slider(yapfast_core::volume::Kind::Voice.default_gain());
-    let _ = app.call_event(Event::Volume(false, default.round() as u32, true));
+    let _ = crate::call::update(&mut app, Event::Volume(false, default.round() as u32, true));
     assert!(stored().is_empty());
 }
 
@@ -301,7 +316,10 @@ fn someones_tile_right_clicked_sets_their_volume_and_keeps_it() {
 fn the_signal_opens_the_connections_details_with_their_tabs() {
     use crate::call::{LinkEvent, LinkTab};
     let (mut app, _folder, _) = in_call();
-    assert!(!app.ctx().link_measured(), "the preview doesn't measure");
+    assert!(
+        !crate::call::details::link_measured(app.ctx()),
+        "the preview doesn't measure"
+    );
     let stats = voice::LinkStats {
         pings: vec![40, 80],
         loss: Some(1.5),
@@ -320,11 +338,11 @@ fn the_signal_opens_the_connections_details_with_their_tabs() {
     };
     app.client.app.state.voice.link = Some(voice::Link::new(move || stats.clone()));
     let _ = app.sync();
-    assert!(app.ctx().link_measured());
+    assert!(crate::call::details::link_measured(app.ctx()));
     // The pointer on the signal reads the ping for its tooltip.
-    let _ = app.call_event(Event::Link(LinkEvent::Pointed(true)));
+    let _ = crate::call::update(&mut app, Event::Link(LinkEvent::Pointed(true)));
     assert!(app.call.details.stats.is_some());
-    let _ = app.call_event(Event::Open(Popup::Link));
+    let _ = crate::call::update(&mut app, Event::Open(Popup::Link));
     for words in [
         "Average ping:",
         "60 ms",
@@ -351,11 +369,11 @@ fn the_signal_opens_the_connections_details_with_their_tabs() {
     assert_eq!(app.call.details.tab, LinkTab::Privacy);
     assert!(shows(&app, "Voice Privacy Code"));
     assert!(shows(&app, "67890"));
-    let _ = app.call_event(Event::Link(LinkEvent::Copy));
+    let _ = crate::call::update(&mut app, Event::Link(LinkEvent::Copy));
     assert!(shows(&app, "Copied"));
-    let _ = app.call_event(Event::Link(LinkEvent::CopiedDone));
+    let _ = crate::call::update(&mut app, Event::Link(LinkEvent::CopiedDone));
     assert!(shows(&app, "Copy"));
-    let _ = app.call_event(Event::Link(LinkEvent::Tab(LinkTab::Stream)));
+    let _ = crate::call::update(&mut app, Event::Link(LinkEvent::Tab(LinkTab::Stream)));
     for words in [
         "NVENC on the GPU",
         "H264",
@@ -366,8 +384,8 @@ fn the_signal_opens_the_connections_details_with_their_tabs() {
         assert!(shows(&app, words), "{words}");
     }
     // Closed with the pointer gone, nothing is copied out of the call.
-    let _ = app.call_event(Event::Link(LinkEvent::Pointed(false)));
-    let _ = app.call_event(Event::Close);
+    let _ = crate::call::update(&mut app, Event::Link(LinkEvent::Pointed(false)));
+    let _ = crate::call::update(&mut app, Event::Close);
     assert!(app.call.details.stats.is_none());
     assert_eq!(app.call.details.tab, LinkTab::Connection);
 }
@@ -378,7 +396,7 @@ fn the_banners_show_over_a_voice_channels_call_too() {
     super::change(&mut app, |state| {
         state.notice = Some("Discord asked Yapfast to slow down.".into());
     });
-    assert!(app.voice_panel(), "the call's view");
+    assert!(crate::call::stage::voice_panel(&app), "the call's view");
     assert!(shows(&app, "Discord asked Yapfast to slow down."));
 }
 
@@ -415,7 +433,7 @@ fn a_camera_without_a_frame_yet_shows_their_picture_and_name() {
         bob.video = Some(yapfast_core::picture::Feed::new());
         state.voice.participants.push(bob);
     });
-    assert!(app.voice_panel(), "the call's view");
+    assert!(crate::call::stage::voice_panel(&app), "the call's view");
     // As the Slint client's tile: his name at its foot, over his picture,
     // until the first frame.
     assert!(shows(&app, "Bob"), "his tile's name");

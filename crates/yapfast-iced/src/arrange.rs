@@ -156,270 +156,262 @@ pub fn places(rows: &[SideRow], discord: bool, filtered: bool) -> Places {
     places
 }
 
-impl App {
-    pub fn arrange_event(&mut self, event: Event) -> Task<Message> {
-        match event {
-            Event::Start(place, grab) => return self.start_arranging(place, grab),
-            Event::Take(place, user) => self.start_moving(place, user),
-            Event::Onto(room, over) => {
-                if let Some(moving) = &mut self.sidebar.moving_person {
-                    if over {
-                        moving.hovered = Some(room);
-                    } else if moving.hovered.as_ref() == Some(&room) {
-                        moving.hovered = None;
-                    }
+pub fn update(app: &mut App, event: Event) -> Task<Message> {
+    match event {
+        Event::Start(place, grab) => return start_arranging(app, place, grab),
+        Event::Take(place, user) => start_moving(app, place, user),
+        Event::Onto(room, over) => {
+            if let Some(moving) = &mut app.sidebar.moving_person {
+                if over {
+                    moving.hovered = Some(room);
+                } else if moving.hovered.as_ref() == Some(&room) {
+                    moving.hovered = None;
                 }
             }
-            Event::Cancel => self.sidebar.moving_person = None,
-            Event::Over(place, over) => {
-                if let Some(arranging) = &mut self.sidebar.arranging {
-                    if over {
-                        arranging.hovered = Some(place);
-                    } else if arranging.hovered == Some(place) {
-                        arranging.hovered = None;
-                    }
+        }
+        Event::Cancel => app.sidebar.moving_person = None,
+        Event::Over(place, over) => {
+            if let Some(arranging) = &mut app.sidebar.arranging {
+                if over {
+                    arranging.hovered = Some(place);
+                } else if arranging.hovered == Some(place) {
+                    arranging.hovered = None;
                 }
             }
-            Event::At(at) => {
-                if let Some(arranging) = &mut self.sidebar.arranging {
-                    arranging.y = at.y;
-                }
-                if let Some(moving) = &mut self.sidebar.moving_person {
-                    moving.at = at;
-                }
+        }
+        Event::At(at) => {
+            if let Some(arranging) = &mut app.sidebar.arranging {
+                arranging.y = at.y;
             }
-            Event::Drop if self.sidebar.moving_person.is_some() => return self.finish_moving(),
-            Event::Drop => return self.finish_arranging(),
-            Event::Scroll => {
-                let Some(y) = self.drag_y() else {
-                    return Task::none();
-                };
-                let (top, bottom) = self.side_list_span();
-                let by = if y < top + EDGE {
-                    -STEP
-                } else if y > bottom - EDGE {
-                    STEP
-                } else {
-                    return Task::none();
-                };
-                return operation::scroll_by(sidebar::LIST, AbsoluteOffset { x: 0.0, y: by });
+            if let Some(moving) = &mut app.sidebar.moving_person {
+                moving.at = at;
             }
         }
-        Task::none()
-    }
-
-    /// Starts dragging the row at `place`, if this account may move it.
-    fn start_arranging(&mut self, place: usize, grab: f32) -> Task<Message> {
-        let Some(room) = self.sidebar.places.ids.get(place) else {
-            return Task::none();
-        };
-        if self.sidebar.arranging.is_some()
-            || self.sidebar.moving_person.is_some()
-            || !self.client.app.draggable(room)
-        {
-            return Task::none();
-        }
-        let Some(row) = self
-            .sidebar
-            .places
-            .of_row
-            .iter()
-            .position(|known| *known == Some(place))
-            .and_then(|index| self.sidebar.rows.get(index))
-        else {
-            return Task::none();
-        };
-        let (name, icon, collapsed, category, voice, height) = match row {
-            SideRow::Heading {
-                name, collapsed, ..
-            } => (
-                name.clone(),
-                Icon::ChevronDown,
-                *collapsed,
-                true,
-                false,
-                36.0,
-            ),
-            SideRow::Room(room) => (
-                room.name.clone(),
-                room.icon,
-                false,
-                false,
-                room.voice,
-                sidebar::ROW,
-            ),
-            _ => return Task::none(),
-        };
-        let droppable = self.client.app.droppable(&self.sidebar.places.ids, place);
-        self.sidebar.arranging = Some(Arranging {
-            dragged: place,
-            grab,
-            y: self.pressed.get().y,
-            hovered: Some(place),
-            droppable,
-            category,
-            voice,
-            name,
-            icon,
-            collapsed,
-            height,
-        });
-        // A busy voice channel's card would cover the list.
-        self.sidebar.voice_card_off = true;
-        Task::none()
-    }
-
-    /// Drops what's dragged on the place it's over, if it may land there.
-    fn finish_arranging(&mut self) -> Task<Message> {
-        let Some(arranging) = self.sidebar.arranging.take() else {
-            return Task::none();
-        };
-        let Some(onto) = arranging
-            .hovered
-            .filter(|onto| *onto != arranging.dragged && arranging.droppable[*onto])
-        else {
-            return Task::none();
-        };
-        let places = &self.sidebar.places.ids;
-        let landing = self.client.app.landing(places, arranging.dragged, onto);
-        if let Some(landing) = landing {
-            let room = places[arranging.dragged].clone();
-            self.client.dispatch(Action::MoveChannel { room, landing });
-        }
-        self.sync()
-    }
-
-    /// Starts dragging `user` from the voice channel `place`, if their
-    /// menu's Move to offers a channel listed.
-    fn start_moving(&mut self, place: String, user: String) {
-        if self.sidebar.arranging.is_some() || self.sidebar.moving_person.is_some() {
-            return;
-        }
-        let Some(person) = self.voice_person_listed(&place, &user) else {
-            return;
-        };
-        let (name, avatar) = (person.name.clone(), person.avatar.clone());
-        self.sidebar.moving_person = Some(Moving {
-            place,
-            user,
-            targets: HashSet::new(),
-            hovered: None,
-            at: self.pressed.get(),
-            name,
-            avatar,
-        });
-        self.moving_targets();
-        // A busy voice channel's card would cover the list.
-        if self.sidebar.moving_person.is_some() {
-            self.sidebar.voice_card_off = true;
+        Event::Drop if app.sidebar.moving_person.is_some() => return finish_moving(app),
+        Event::Drop => return finish_arranging(app),
+        Event::Scroll => {
+            let Some(y) = drag_y(app) else {
+                return Task::none();
+            };
+            let (top, bottom) = side_list_span(app);
+            let by = if y < top + EDGE {
+                -STEP
+            } else if y > bottom - EDGE {
+                STEP
+            } else {
+                return Task::none();
+            };
+            return operation::scroll_by(sidebar::LIST, AbsoluteOffset { x: 0.0, y: by });
         }
     }
+    Task::none()
+}
 
-    /// Who is listed under the voice channel `place`, by their id.
-    fn voice_person_listed(&self, place: &str, user: &str) -> Option<&VoicePerson> {
-        self.sidebar.rows.iter().find_map(|row| match row {
-            SideRow::Room(room) if room.id == place => {
-                room.people.iter().find(|person| person.id == user)
-            }
-            _ => None,
+/// Starts dragging the row at `place`, if this account may move it.
+fn start_arranging(app: &mut App, place: usize, grab: f32) -> Task<Message> {
+    let Some(room) = app.sidebar.places.ids.get(place) else {
+        return Task::none();
+    };
+    if app.sidebar.arranging.is_some()
+        || app.sidebar.moving_person.is_some()
+        || !app.client.app.draggable(room)
+    {
+        return Task::none();
+    }
+    let Some(row) = app
+        .sidebar
+        .places
+        .of_row
+        .iter()
+        .position(|known| *known == Some(place))
+        .and_then(|index| app.sidebar.rows.get(index))
+    else {
+        return Task::none();
+    };
+    let (name, icon, collapsed, category, voice, height) = match row {
+        SideRow::Heading {
+            name, collapsed, ..
+        } => (
+            name.clone(),
+            Icon::ChevronDown,
+            *collapsed,
+            true,
+            false,
+            36.0,
+        ),
+        SideRow::Room(room) => (
+            room.name.clone(),
+            room.icon,
+            false,
+            false,
+            room.voice,
+            sidebar::ROW,
+        ),
+        _ => return Task::none(),
+    };
+    let droppable = app.client.app.droppable(&app.sidebar.places.ids, place);
+    app.sidebar.arranging = Some(Arranging {
+        dragged: place,
+        grab,
+        y: app.pressed.get().y,
+        hovered: Some(place),
+        droppable,
+        category,
+        voice,
+        name,
+        icon,
+        collapsed,
+        height,
+    });
+    // A busy voice channel's card would cover the list.
+    app.sidebar.voice_card_off = true;
+    Task::none()
+}
+
+/// Drops what's dragged on the place it's over, if it may land there.
+fn finish_arranging(app: &mut App) -> Task<Message> {
+    let Some(arranging) = app.sidebar.arranging.take() else {
+        return Task::none();
+    };
+    let Some(onto) = arranging
+        .hovered
+        .filter(|onto| *onto != arranging.dragged && arranging.droppable[*onto])
+    else {
+        return Task::none();
+    };
+    let places = &app.sidebar.places.ids;
+    let landing = app.client.app.landing(places, arranging.dragged, onto);
+    if let Some(landing) = landing {
+        let room = places[arranging.dragged].clone();
+        app.client.dispatch(Action::MoveChannel { room, landing });
+    }
+    app.sync()
+}
+
+/// Starts dragging `user` from the voice channel `place`, if their
+/// menu's Move to offers a channel listed.
+fn start_moving(app: &mut App, place: String, user: String) {
+    if app.sidebar.arranging.is_some() || app.sidebar.moving_person.is_some() {
+        return;
+    }
+    let Some(person) = voice_person_listed(app, &place, &user) else {
+        return;
+    };
+    let (name, avatar) = (person.name.clone(), person.avatar.clone());
+    app.sidebar.moving_person = Some(Moving {
+        place,
+        user,
+        targets: HashSet::new(),
+        hovered: None,
+        at: app.pressed.get(),
+        name,
+        avatar,
+    });
+    moving_targets(app);
+    // A busy voice channel's card would cover the list.
+    if app.sidebar.moving_person.is_some() {
+        app.sidebar.voice_card_off = true;
+    }
+}
+
+/// Who is listed under the voice channel `place`, by their id.
+fn voice_person_listed<'a>(app: &'a App, place: &str, user: &str) -> Option<&'a VoicePerson> {
+    app.sidebar.rows.iter().find_map(|row| match row {
+        SideRow::Room(room) if room.id == place => {
+            room.people.iter().find(|person| person.id == user)
+        }
+        _ => None,
+    })
+}
+
+/// The voice channels listed that someone dragged may drop on, again
+/// as the list changes; the drag stops once there's none, as when they
+/// left the channel or another list shows.
+pub fn moving_targets(app: &mut App) {
+    let Some(moving) = &app.sidebar.moving_person else {
+        return;
+    };
+    let offered = app.client.app.move_targets(&moving.place, &moving.user);
+    let targets: HashSet<String> = offered
+        .into_iter()
+        .map(|(room, _)| room)
+        .filter(|room| {
+            app.sidebar
+                .rows
+                .iter()
+                .any(|row| matches!(row, SideRow::Room(listed) if listed.id == *room))
         })
+        .collect();
+    let listed = voice_person_listed(app, &moving.place, &moving.user).is_some();
+    match &mut app.sidebar.moving_person {
+        Some(moving) if listed && !targets.is_empty() => moving.targets = targets,
+        _ => app.sidebar.moving_person = None,
     }
+}
 
-    /// The voice channels listed that someone dragged may drop on, again
-    /// as the list changes; the drag stops once there's none, as when they
-    /// left the channel or another list shows.
-    pub fn moving_targets(&mut self) {
-        let Some(moving) = &self.sidebar.moving_person else {
-            return;
-        };
-        let offered = self.client.app.move_targets(&moving.place, &moving.user);
-        let targets: HashSet<String> = offered
-            .into_iter()
-            .map(|(room, _)| room)
-            .filter(|room| {
-                self.sidebar
-                    .rows
-                    .iter()
-                    .any(|row| matches!(row, SideRow::Room(listed) if listed.id == *room))
-            })
-            .collect();
-        let listed = self
-            .voice_person_listed(&moving.place, &moving.user)
-            .is_some();
-        match &mut self.sidebar.moving_person {
-            Some(moving) if listed && !targets.is_empty() => moving.targets = targets,
-            _ => self.sidebar.moving_person = None,
+/// Drops whoever is dragged on the voice channel the pointer is over,
+/// within the list, if they may go there.
+fn finish_moving(app: &mut App) -> Task<Message> {
+    let Some(moving) = app.sidebar.moving_person.take() else {
+        return Task::none();
+    };
+    let (top, bottom) = side_list_span(app);
+    let left = crate::rail::WIDTH;
+    let within = (left..left + sidebar::WIDTH).contains(&moving.at.x)
+        && (top..bottom).contains(&moving.at.y);
+    let action = moving
+        .hovered
+        .filter(|room| within && moving.targets.contains(room))
+        .and_then(|room| app.client.app.move_to(&moving.place, &moving.user, &room));
+    match action {
+        Some(action) => {
+            app.client.dispatch(action);
+            app.sync()
         }
+        None => Task::none(),
     }
+}
 
-    /// Drops whoever is dragged on the voice channel the pointer is over,
-    /// within the list, if they may go there.
-    fn finish_moving(&mut self) -> Task<Message> {
-        let Some(moving) = self.sidebar.moving_person.take() else {
-            return Task::none();
-        };
-        let (top, bottom) = self.side_list_span();
-        let left = crate::rail::WIDTH;
-        let within = (left..left + sidebar::WIDTH).contains(&moving.at.x)
-            && (top..bottom).contains(&moving.at.y);
-        let action = moving
-            .hovered
-            .filter(|room| within && moving.targets.contains(room))
-            .and_then(|room| self.client.app.move_to(&moving.place, &moving.user, &room));
-        match action {
-            Some(action) => {
-                self.client.dispatch(action);
-                self.sync()
-            }
-            None => Task::none(),
+/// The pointer's height in the window while a drag is on.
+fn drag_y(app: &App) -> Option<f32> {
+    app.sidebar
+        .arranging
+        .as_ref()
+        .map(|arranging| arranging.y)
+        .or(app.sidebar.moving_person.as_ref().map(|moving| moving.at.y))
+}
+
+/// The pointer's moves and the button's release while a drag is on,
+/// Escape while someone is dragged, and the list's scrolling while
+/// it's near an end.
+pub fn arrange_subscription(app: &App) -> Option<Subscription<Message>> {
+    let y = drag_y(app)?;
+    let follow = iced::event::listen_with(|event, _, _| match event {
+        iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
+            Some(message(Event::At(position)))
         }
-    }
-
-    /// The pointer's height in the window while a drag is on.
-    fn drag_y(&self) -> Option<f32> {
-        self.sidebar
-            .arranging
-            .as_ref()
-            .map(|arranging| arranging.y)
-            .or(self
-                .sidebar
-                .moving_person
-                .as_ref()
-                .map(|moving| moving.at.y))
-    }
-
-    /// The pointer's moves and the button's release while a drag is on,
-    /// Escape while someone is dragged, and the list's scrolling while
-    /// it's near an end.
-    pub fn arrange_subscription(&self) -> Option<Subscription<Message>> {
-        let y = self.drag_y()?;
-        let follow = iced::event::listen_with(|event, _, _| match event {
-            iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
-                Some(message(Event::At(position)))
-            }
-            iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) => {
-                Some(message(Event::Drop))
-            }
-            iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
-                key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape),
-                ..
-            }) => Some(message(Event::Cancel)),
-            _ => None,
-        });
-        let (top, bottom) = self.side_list_span();
-        if y < top + EDGE || y > bottom - EDGE {
-            let scroll = iced::time::every(EVERY).map(|_| message(Event::Scroll));
-            return Some(Subscription::batch([follow, scroll]));
+        iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) => {
+            Some(message(Event::Drop))
         }
-        Some(follow)
+        iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
+            key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape),
+            ..
+        }) => Some(message(Event::Cancel)),
+        _ => None,
+    });
+    let (top, bottom) = side_list_span(app);
+    if y < top + EDGE || y > bottom - EDGE {
+        let scroll = iced::time::every(EVERY).map(|_| message(Event::Scroll));
+        return Some(Subscription::batch([follow, scroll]));
     }
+    Some(follow)
+}
 
-    /// Where the sidebar's list is in the window, from its top to its
-    /// bottom.
-    fn side_list_span(&self) -> (f32, f32) {
-        self.sidebar
-            .list_span(self.shell.frame.height - self.window.height)
-    }
+/// Where the sidebar's list is in the window, from its top to its
+/// bottom.
+fn side_list_span(app: &App) -> (f32, f32) {
+    app.sidebar
+        .list_span(app.shell.frame.height - app.window.height)
 }
 
 impl<'a> crate::sidebar::View<'a> {

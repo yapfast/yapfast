@@ -28,7 +28,7 @@ impl App {
     pub fn view(&self) -> Element<'_, Message> {
         // Whatever this returns, what it no longer shows goes at its end.
         let _viewing = self.win.pictures.view();
-        if !self.workspace() {
+        if !crate::signin::workspace(self) {
             return self.frame_layers(crate::signin::view(self.ctx())).into();
         }
         // The window's own background is the theme's chat (`window_style`).
@@ -36,7 +36,7 @@ impl App {
         // across the foot of both.
         let rail = self.theme.rail;
         let mut foot = column![];
-        if let Some(dock) = self.ctx().dock_view() {
+        if let Some(dock) = crate::call::dock::view(self.ctx()) {
             foot = foot.push(dock);
         }
         let navigation = container(column![
@@ -45,12 +45,12 @@ impl App {
                 crate::sidebar::view(&self.sidebar, self.ctx())
             ]
             .height(Length::Fill),
-            foot.push(self.ctx().account_view()),
+            foot.push(crate::account::view(self.ctx())),
         ])
         .width(crate::conversation::NAVIGATION)
         .height(Length::Fill)
         .style(move |_| crate::style::fill(rail));
-        let base: Element<'_, Message> = row![navigation, self.conversation()]
+        let base: Element<'_, Message> = row![navigation, crate::conversation::conversation(self)]
             .width(Length::Fill)
             .height(Length::Fill)
             .into();
@@ -66,7 +66,7 @@ impl App {
                     .map(|layer| self.popup(L(Layer::RoleCard), layer)),
             );
         }
-        if let Some(card) = self.ctx().card_view() {
+        if let Some(card) = crate::profile::card_view(self.ctx()) {
             layers = layers
                 .push(outside(Message::CloseProfile, false))
                 .push(self.popup(L(Layer::Card), card));
@@ -79,15 +79,17 @@ impl App {
             let place = match &picker.target {
                 // Over the emoji button, its right edge level with the button's.
                 Target::Composer => {
-                    let right = self.chat_right() - 8.0 - 4.0;
-                    let bottom = self.composer_buttons_top() - 8.0;
+                    let right = crate::conversation::chat_right(self) - 8.0 - 4.0;
+                    let bottom = crate::composer::composer_buttons_top(self) - 8.0;
                     Place::new(shown, Point::new(right - size.width, bottom), 8.0)
                         .anchor(Anchor::Bottom)
                 }
                 // Over the edit's field, at the timeline's right.
                 Target::Edit => {
-                    let right = self.chat_right() - 16.0;
-                    let bottom = self.edit_top().unwrap_or(self.composer_top()) - 8.0;
+                    let right = crate::conversation::chat_right(self) - 16.0;
+                    let bottom = crate::edit::edit_top(self)
+                        .unwrap_or(crate::composer::composer_top(self))
+                        - 8.0;
                     Place::new(shown, Point::new(right - size.width, bottom), 8.0)
                         .anchor(Anchor::Bottom)
                 }
@@ -103,13 +105,13 @@ impl App {
                     .push(place);
             }
         }
-        for layer in self.call_layers() {
+        for layer in crate::call::dm::call_layers(self) {
             layers = layers.push(layer);
         }
-        if let Some(viewer) = self.clip_viewer() {
+        if let Some(viewer) = crate::call::corner::clip_viewer(self) {
             layers = layers.push(viewer);
         }
-        if let Some(popup) = self.ctx().call_popup_view() {
+        if let Some(popup) = crate::call::popups::call_popup_view(self.ctx()) {
             layers = layers
                 .push(outside(Message::Call(crate::call::Event::Close), false))
                 .push(popup);
@@ -136,10 +138,10 @@ impl App {
             layers = layers.push(self.popup(L(Layer::ChannelSettings), settings));
         }
         // Over the settings, as a member's from Members.
-        if let Some(full) = self.ctx().full_profile_view() {
+        if let Some(full) = crate::profile::full_profile_view(self.ctx()) {
             layers = layers.push(self.popup(Popup::FullProfile, full));
         }
-        if let Some(editor) = self.ctx().profile_editor_view() {
+        if let Some(editor) = crate::profile::editor::profile_editor_view(self.ctx()) {
             layers = layers.push(self.popup(L(Layer::ProfileEditor), editor));
         }
         // A mutual server's, over the profile that lists it.
@@ -235,7 +237,7 @@ impl App {
         if let Some(dialog) = crate::person::view(&self.person, self.ctx()) {
             layers = layers.push(self.popup(L(Layer::PersonDialog), dialog));
         }
-        if let Some(dialog) = self.ctx().add_friend_view() {
+        if let Some(dialog) = crate::friends::add_friend_view(self.ctx()) {
             layers = layers.push(self.popup(L(Layer::AddFriend), dialog));
         }
         if let Some(forward) = crate::forward::view(&self.forward, self.ctx()) {
@@ -244,7 +246,7 @@ impl App {
         if let Some(leaving) = crate::dialogs::leaving_view(self.leaving.as_deref(), self.ctx()) {
             layers = layers.push(self.popup(L(Layer::Leaving), leaving));
         }
-        if let Some(drop) = self.ctx().drop_view() {
+        if let Some(drop) = crate::uploads::drop_view(self.ctx()) {
             layers = layers.push(drop);
         }
         if let Some(prompt) = crate::mfa::view(&self.mfa, self.ctx()) {
@@ -281,17 +283,20 @@ impl App {
     /// over it the zoom level's note, the inbox, the bar and the edges that
     /// resize the window.
     fn frame_layers<'a>(&'a self, content: impl Into<Element<'a, Message>>) -> Stack<'a, Message> {
-        let mut layers = stack![crate::widgets::Below::new(content, self.bar_height())];
+        let mut layers = stack![crate::widgets::Below::new(
+            content,
+            crate::window_bar::bar_height(self)
+        )];
         if let Some(note) = self.zoom_note_view() {
             layers = layers.push(note);
         }
-        if let Some(inbox) = self.inbox_view() {
+        if let Some(inbox) = crate::window_bar::inbox_view(self) {
             layers = layers.push(inbox);
         }
-        if let Some(bar) = self.window_bar() {
+        if let Some(bar) = crate::window_bar::window_bar(self) {
             layers = layers.push(column![bar, Space::new().height(Length::Fill)]);
         }
-        if let Some(edges) = self.resize_edges() {
+        if let Some(edges) = crate::window_bar::resize_edges(self) {
             layers = layers.push(edges);
         }
         layers
@@ -317,7 +322,7 @@ impl App {
         });
         Some(
             column![
-                Space::new().height(self.bar_height() + ZOOM_NOTE_TOP),
+                Space::new().height(crate::window_bar::bar_height(self) + ZOOM_NOTE_TOP),
                 container(note).center_x(Length::Fill)
             ]
             .into(),
@@ -361,11 +366,11 @@ impl App {
         self.show_roster(false);
         // Text laid out in the old theme's inks: the rows' again now, the
         // rest as each is next taken in.
-        self.recolour(&old);
+        crate::timeline::recolour(self, &old);
         self.header.topic = None;
         self.popovers.forget_laid();
-        self.forget_found();
-        self.forget_guidelines();
+        crate::search::forget_found(self);
+        crate::forum::forget_guidelines(self);
         self.drafts.starter = None;
     }
 }

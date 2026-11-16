@@ -20,10 +20,10 @@ use crate::{
     widgets::{Anchor, Place},
 };
 
-mod device;
-mod person;
-mod share;
-mod soundboard;
+pub mod device;
+pub mod person;
+pub mod share;
+pub mod soundboard;
 use device::DEVICE_WIDTH;
 pub use device::device_rows;
 pub use person::Volumes;
@@ -33,132 +33,144 @@ use share::{SHARE_NARROW, SHARE_WIDE, list_sources};
 pub use share::{Share, ShareEvent};
 pub(crate) use soundboard::SOUNDBOARD_WIDTH;
 
-impl App {
-    pub(super) fn open_popup(&mut self, popup: Popup) -> Task<Message> {
-        // A second click closes it, or cancels the share menu's listing.
-        let listing = popup == Popup::Share && self.call.share_listing.is_some();
-        if self.call.popup == Some(popup) || listing {
-            self.close_popup();
+pub(super) fn open_popup(app: &mut App, popup: Popup) -> Task<Message> {
+    // A second click closes it, or cancels the share menu's listing.
+    let listing = popup == Popup::Share && app.call.share_listing.is_some();
+    if app.call.popup == Some(popup) || listing {
+        close_popup(app);
+        return Task::none();
+    }
+    close_popup(app);
+    match popup {
+        Popup::Input | Popup::Output => {
+            app.client
+                .dispatch(yapfast_core::application::Action::Voice(Command::Devices));
+            if popup == Popup::Input {
+                let microphone = app.client.state().voice.microphone.clone();
+                app.call.meter = Some(InputMeter::start(microphone.as_deref()));
+            }
+            app.call.popup = Some(popup);
+        }
+        Popup::Soundboard => {
+            let pictures: Vec<String> = app
+                .client
+                .state()
+                .voice
+                .soundboard
+                .iter()
+                .flat_map(|groups| groups.iter())
+                .flat_map(|group| &group.sounds)
+                .filter_map(|sound| sound.picture.clone())
+                .collect();
+            if !pictures.is_empty() {
+                app.client
+                    .dispatch(yapfast_core::application::Action::LoadPictures(pictures));
+            }
+            app.call.popup = Some(popup);
+        }
+        // Shown once its sources are listed, so it opens at its height;
+        // meanwhile it's as good as open (Escape or a click elsewhere
+        // cancels it).
+        Popup::Share => {
+            app.call.listings += 1;
+            app.call.share_listing = Some(app.call.listings);
+            return Task::batch([list_sources(app.call.listings), operation::focus(NOBODY)]);
+        }
+        Popup::Link => {
+            app.call.popup = Some(popup);
+            crate::call::details::read_link(app);
             return Task::none();
         }
-        self.close_popup();
-        match popup {
-            Popup::Input | Popup::Output => {
-                self.client
-                    .dispatch(yapfast_core::application::Action::Voice(Command::Devices));
-                if popup == Popup::Input {
-                    let microphone = self.client.state().voice.microphone.clone();
-                    self.call.meter = Some(InputMeter::start(microphone.as_deref()));
-                }
-                self.call.popup = Some(popup);
-            }
-            Popup::Soundboard => {
-                let pictures: Vec<String> = self
-                    .client
-                    .state()
-                    .voice
-                    .soundboard
-                    .iter()
-                    .flat_map(|groups| groups.iter())
-                    .flat_map(|group| &group.sounds)
-                    .filter_map(|sound| sound.picture.clone())
-                    .collect();
-                if !pictures.is_empty() {
-                    self.client
-                        .dispatch(yapfast_core::application::Action::LoadPictures(pictures));
-                }
-                self.call.popup = Some(popup);
-            }
-            // Shown once its sources are listed, so it opens at its height;
-            // meanwhile it's as good as open (Escape or a click elsewhere
-            // cancels it).
-            Popup::Share => {
-                self.call.listings += 1;
-                self.call.share_listing = Some(self.call.listings);
-                return Task::batch([list_sources(self.call.listings), operation::focus(NOBODY)]);
-            }
-            Popup::Link => {
-                self.call.popup = Some(popup);
-                self.read_link();
-                return Task::none();
-            }
-        }
-        Task::batch([self.sync(), operation::focus(NOBODY)])
     }
-
-    pub fn close_popup(&mut self) {
-        let link = self.call.popup == Some(Popup::Link);
-        self.call.popup = None;
-        if link {
-            self.call.details.tab = super::LinkTab::Connection;
-            self.read_link();
-        }
-        self.call.share = None;
-        self.call.share_listing = None;
-        self.call.listing = false;
-        self.call.meter = None;
-    }
+    Task::batch([app.sync(), operation::focus(NOBODY)])
 }
 
-impl<'a> crate::ctx::Ctx<'a> {
-    /// The popup open from a control, above it.
-    pub fn call_popup_view(self) -> Option<Element<'a, Message>> {
-        let popup = self.call.popup?;
-        let (panel, width) = match popup {
-            Popup::Input => (self.device_menu(true), DEVICE_WIDTH),
-            Popup::Output => (self.device_menu(false), DEVICE_WIDTH),
-            Popup::Share => {
-                let share = self.call.share.as_ref()?;
-                let width = if share.screens.is_empty() {
-                    SHARE_NARROW
-                } else {
-                    SHARE_WIDE
-                };
-                (self.share_menu(share, width), width)
-            }
-            Popup::Soundboard => (self.soundboard(), SOUNDBOARD_WIDTH),
-            // Under its signal, or above it without room, as the Slint
-            // client's `call-link-menu`.
-            Popup::Link => {
-                let spot = self.call.spot.get();
-                return Some(
-                    Place::new(opaque(self.link_card()), spot.position(), 8.0)
-                        .anchor(Anchor::Span(spot.height))
-                        .into(),
-                );
-            }
-        };
-        let spot = self.call.spot.get();
-        let panel = container(panel)
-            .width(width)
-            .style(menu_panel(self.look.theme));
-        Some(
-            Place::new(opaque(panel), Point::new(spot.x - 6.0, spot.y - 6.0), 8.0)
-                .anchor(Anchor::Bottom)
-                .into(),
-        )
+pub fn close_popup(app: &mut App) {
+    let link = app.call.popup == Some(Popup::Link);
+    app.call.popup = None;
+    if link {
+        app.call.details.tab = super::LinkTab::Connection;
+        crate::call::details::read_link(app);
     }
+    app.call.share = None;
+    app.call.share_listing = None;
+    app.call.listing = false;
+    app.call.meter = None;
+}
 
-    /// A row of a popup, as the Slint client's `MenuItem`, lit under the
-    /// pointer.
-    fn popup_row(
-        self,
-        label: impl Into<Cow<'a, str>>,
-        subtitle: Option<Cow<'a, str>>,
-        icon: Option<Icon>,
-        check: Check,
-        press: Option<Message>,
-    ) -> Element<'a, Message> {
-        let item = Item {
-            label: label.into(),
-            icon,
-            danger: false,
-            slot: false,
-            disabled: press.is_none(),
-            subtitle,
-            check,
-        };
-        self.look
-            .menu_item(item, Light::Pointer, press.unwrap_or(Message::Nothing))
-    }
+/// The popup open from a control, above it.
+pub fn call_popup_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
+    let popup = ctx.call.popup?;
+    let (panel, width) = match popup {
+        Popup::Input => (
+            crate::call::popups::device::device_menu(ctx, true),
+            DEVICE_WIDTH,
+        ),
+        Popup::Output => (
+            crate::call::popups::device::device_menu(ctx, false),
+            DEVICE_WIDTH,
+        ),
+        Popup::Share => {
+            let share = ctx.call.share.as_ref()?;
+            let width = if share.screens.is_empty() {
+                SHARE_NARROW
+            } else {
+                SHARE_WIDE
+            };
+            (
+                crate::call::popups::share::share_menu(ctx, share, width),
+                width,
+            )
+        }
+        Popup::Soundboard => (
+            crate::call::popups::soundboard::soundboard(ctx),
+            SOUNDBOARD_WIDTH,
+        ),
+        // Under its signal, or above it without room, as the Slint
+        // client's `call-link-menu`.
+        Popup::Link => {
+            let spot = ctx.call.spot.get();
+            return Some(
+                Place::new(
+                    opaque(crate::call::details::link_card(ctx)),
+                    spot.position(),
+                    8.0,
+                )
+                .anchor(Anchor::Span(spot.height))
+                .into(),
+            );
+        }
+    };
+    let spot = ctx.call.spot.get();
+    let panel = container(panel)
+        .width(width)
+        .style(menu_panel(ctx.look.theme));
+    Some(
+        Place::new(opaque(panel), Point::new(spot.x - 6.0, spot.y - 6.0), 8.0)
+            .anchor(Anchor::Bottom)
+            .into(),
+    )
+}
+
+/// A row of a popup, as the Slint client's `MenuItem`, lit under the
+/// pointer.
+fn popup_row<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    label: impl Into<Cow<'a, str>>,
+    subtitle: Option<Cow<'a, str>>,
+    icon: Option<Icon>,
+    check: Check,
+    press: Option<Message>,
+) -> Element<'a, Message> {
+    let item = Item {
+        label: label.into(),
+        icon,
+        danger: false,
+        slot: false,
+        disabled: press.is_none(),
+        subtitle,
+        check,
+    };
+    ctx.look
+        .menu_item(item, Light::Pointer, press.unwrap_or(Message::Nothing))
 }

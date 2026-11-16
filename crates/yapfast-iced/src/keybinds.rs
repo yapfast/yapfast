@@ -100,94 +100,92 @@ pub enum Told {
     Toggled(Action),
 }
 
-impl App {
-    /// Whether a key, by where it is on the keyboard, ends a push to talk
-    /// keybind watched, so it doesn't also type.
-    pub fn is_talk_key(&self, physical: key::Physical) -> bool {
-        let Some(code) = known_scancode(physical) else {
-            return false;
-        };
-        self.keybinds.watched.iter().any(|watched| {
-            watched.action == Action::PushToTalk
-                && watched
-                    .keys
-                    .keys()
-                    .last()
-                    .is_some_and(|key| key.scancode == code)
-        })
-    }
+/// Whether a key, by where it is on the keyboard, ends a push to talk
+/// keybind watched, so it doesn't also type.
+pub fn is_talk_key(app: &App, physical: key::Physical) -> bool {
+    let Some(code) = known_scancode(physical) else {
+        return false;
+    };
+    app.keybinds.watched.iter().any(|watched| {
+        watched.action == Action::PushToTalk
+            && watched
+                .keys
+                .keys()
+                .last()
+                .is_some_and(|key| key.scancode == code)
+    })
+}
 
-    /// Watches the keybinds as they are now, if they changed: the old
-    /// watcher goes first, ending its portal session. What it tells comes
-    /// as a message (`Message::Keybinds`).
-    pub fn watch_keybinds(&mut self) -> Task<Message> {
-        let wanted = watched(&self.layout);
-        if wanted == self.keybinds.watched {
-            return Task::none();
-        }
-        self.keybinds.watcher = None;
-        self.keybinds.status = None;
-        self.keybinds.count += 1;
-        self.keybinds.watched = wanted.clone();
-        let Some(watch) = crate::keybinds_watcher() else {
-            return Task::none();
-        };
-        let (sender, told) = tokio::sync::mpsc::unbounded_channel();
-        let toggles = sender.clone();
-        let toggled: crate::Toggled = std::sync::Arc::new(move |action| {
-            toggles.send(Told::Toggled(action)).ok();
-        });
-        let tell = Box::new(move |status| {
-            sender.send(Told::Status(status)).ok();
-        });
-        self.keybinds.watcher = watch(wanted, self.client.runtime(), toggled, tell);
-        // Ends as the watcher, which holds the senders, goes.
-        let count = self.keybinds.count;
-        Task::run(
-            iced::futures::stream::unfold(told, |mut receiver| async move {
-                let told = receiver.recv().await?;
-                Some((told, receiver))
-            }),
-            move |told| Message::Keybinds(count, told),
-        )
+/// Watches the keybinds as they are now, if they changed: the old
+/// watcher goes first, ending its portal session. What it tells comes
+/// as a message (`Message::Keybinds`).
+pub fn watch_keybinds(app: &mut App) -> Task<Message> {
+    let wanted = watched(&app.layout);
+    if wanted == app.keybinds.watched {
+        return Task::none();
     }
+    app.keybinds.watcher = None;
+    app.keybinds.status = None;
+    app.keybinds.count += 1;
+    app.keybinds.watched = wanted.clone();
+    let Some(watch) = crate::keybinds_watcher() else {
+        return Task::none();
+    };
+    let (sender, told) = tokio::sync::mpsc::unbounded_channel();
+    let toggles = sender.clone();
+    let toggled: crate::Toggled = std::sync::Arc::new(move |action| {
+        toggles.send(Told::Toggled(action)).ok();
+    });
+    let tell = Box::new(move |status| {
+        sender.send(Told::Status(status)).ok();
+    });
+    app.keybinds.watcher = watch(wanted, app.client.runtime(), toggled, tell);
+    // Ends as the watcher, which holds the senders, goes.
+    let count = app.keybinds.count;
+    Task::run(
+        iced::futures::stream::unfold(told, |mut receiver| async move {
+            let told = receiver.recv().await?;
+            Some((told, receiver))
+        }),
+        move |told| Message::Keybinds(count, told),
+    )
+}
 
-    /// The watcher told something, by the watch's count: an old watch's
-    /// word is let go.
-    pub fn keybinds_told(&mut self, count: u64, told: Told) -> Task<Message> {
-        if count != self.keybinds.count {
-            return Task::none();
-        }
-        match told {
-            Told::Status(status) => {
-                self.keybinds.status = Some(status);
-                Task::none()
-            }
-            Told::Toggled(action) => self.toggled(action),
-        }
+/// The watcher told something, by the watch's count: an old watch's
+/// word is let go.
+pub fn keybinds_told(app: &mut App, count: u64, told: Told) -> Task<Message> {
+    if count != app.keybinds.count {
+        return Task::none();
     }
-
-    /// A toggling keybind went down, as the Slint client's `toggled`.
-    fn toggled(&mut self, action: Action) -> Task<Message> {
-        tracing::debug!(?action, "keybind toggled");
-        match action {
-            // As the account card's buttons: in a call they toggle; out of
-            // one they say how the next starts.
-            Action::ToggleMute => self.account_event(crate::account::Event::Mute),
-            Action::ToggleDeafen => self.account_event(crate::account::Event::Deafen),
-            Action::ToggleVoiceMode => {
-                let voice = &mut self.layout.voice;
-                voice.input_mode = match voice.input_mode {
-                    InputMode::PushToTalk => InputMode::VoiceActivity,
-                    InputMode::VoiceActivity => InputMode::PushToTalk,
-                };
-                yapfast_core::push_to_talk::set_on(voice.input_mode == InputMode::PushToTalk);
-                crate::layout::store(self.client.root(), "input_mode", voice.input_mode);
-                self.requests.push(Request::Changed(Pref::Keybinds));
-                Task::none()
-            }
-            Action::Unassigned | Action::PushToTalk | Action::PushToMute => Task::none(),
+    match told {
+        Told::Status(status) => {
+            app.keybinds.status = Some(status);
+            Task::none()
         }
+        Told::Toggled(action) => toggled(app, action),
+    }
+}
+
+/// A toggling keybind went down, as the Slint client's `toggled`.
+fn toggled(app: &mut App, action: Action) -> Task<Message> {
+    tracing::debug!(?action, "keybind toggled");
+    match action {
+        // As the account card's buttons: in a call they toggle; out of
+        // one they say how the next starts.
+        Action::ToggleMute => crate::account::update(app, crate::account::Event::Mute),
+        Action::ToggleDeafen => crate::account::update(app, crate::account::Event::Deafen),
+        Action::ToggleVoiceMode => {
+            let voice = &mut app.layout.voice;
+            voice.input_mode = match voice.input_mode {
+                InputMode::PushToTalk => InputMode::VoiceActivity,
+                InputMode::VoiceActivity => InputMode::PushToTalk,
+            };
+            yapfast_core::push_to_talk::set_on(voice.input_mode == InputMode::PushToTalk);
+            crate::layout::store(app.client.root(), "input_mode", voice.input_mode);
+            app.requests.push(Request::Changed(Pref::Keybinds));
+            Task::none()
+        }
+        Action::Unassigned | Action::PushToTalk | Action::PushToMute => Task::none(),
     }
 }
 

@@ -57,172 +57,169 @@ pub struct Dialog {
     pub filled: bool,
 }
 
-impl App {
-    /// Opens `user`'s menu at `at`, said to come from `location`.
-    pub fn open_person_menu(
-        &mut self,
-        user: &str,
-        at: Point,
-        location: &'static str,
-    ) -> Task<Message> {
-        let app = &self.client.app;
-        let state = &app.state;
-        let mut choices = app.person_choices(user);
-        choices.sort_by_key(|choice| discord_rank(*choice));
-        let name = state
-            .person(user)
-            .map_or_else(|| "them".to_owned(), |person| person.name);
-        let in_call = state.rooms.iter().any(|room| {
-            room.direct && room.person.as_deref() == Some(user) && !room.people.is_empty()
-        });
-        let developer = self.layout.developer_mode;
-        let mut group = None;
-        let rows: Vec<MenuRow> = choices
-            .into_iter()
-            .filter(|choice| developer || *choice != MenuChoice::CopyId)
-            .map(|choice| {
-                let label: Cow<'static, str> = match choice {
-                    MenuChoice::Timeout => format!("Time out {name}").into(),
-                    MenuChoice::Kick => format!("Kick {name}").into(),
-                    MenuChoice::Ban => format!("Ban {name}").into(),
-                    MenuChoice::Call if in_call => "Join call".into(),
-                    choice => crate::places::label(choice).into(),
-                };
-                let starts = crate::places::group_of(choice);
-                let separated = group.replace(starts).is_some_and(|last| last != starts);
-                let mut row = MenuRow {
-                    icon: (choice == MenuChoice::CopyId).then_some(Icon::Id),
-                    danger: danger(choice),
-                    separated,
-                    ..MenuRow::plain(MenuAct::Person(choice), label)
-                };
-                let selected = state.selected.as_deref();
-                submenu(app, &mut row, choice, Some(user), selected, None);
-                row.disabled = !acts(choice) && row.submenu.is_empty();
-                row
-            })
-            .collect();
-        if rows.is_empty() {
-            return Task::none();
-        }
-        self.win.menu = Some(Menu {
-            place: Some(user.to_owned()),
-            location,
-            ..Menu::new(at, rows).width(crate::menus::FIELD_WIDTH)
-        });
-        // Its Apps follow the permissions as they are now.
-        self.client.dispatch(Action::AskAppCommands);
-        Task::batch([operation::focus(NOBODY), self.sync()])
+/// Opens `user`'s menu at `at`, said to come from `location`.
+pub fn open_person_menu(
+    app: &mut App,
+    user: &str,
+    at: Point,
+    location: &'static str,
+) -> Task<Message> {
+    let core = &app.client.app;
+    let state = &core.state;
+    let mut choices = core.person_choices(user);
+    choices.sort_by_key(|choice| discord_rank(*choice));
+    let name = state
+        .person(user)
+        .map_or_else(|| "them".to_owned(), |person| person.name);
+    let in_call = state
+        .rooms
+        .iter()
+        .any(|room| room.direct && room.person.as_deref() == Some(user) && !room.people.is_empty());
+    let developer = app.layout.developer_mode;
+    let mut group = None;
+    let rows: Vec<MenuRow> = choices
+        .into_iter()
+        .filter(|choice| developer || *choice != MenuChoice::CopyId)
+        .map(|choice| {
+            let label: Cow<'static, str> = match choice {
+                MenuChoice::Timeout => format!("Time out {name}").into(),
+                MenuChoice::Kick => format!("Kick {name}").into(),
+                MenuChoice::Ban => format!("Ban {name}").into(),
+                MenuChoice::Call if in_call => "Join call".into(),
+                choice => crate::places::label(choice).into(),
+            };
+            let starts = crate::places::group_of(choice);
+            let separated = group.replace(starts).is_some_and(|last| last != starts);
+            let mut row = MenuRow {
+                icon: (choice == MenuChoice::CopyId).then_some(Icon::Id),
+                danger: danger(choice),
+                separated,
+                ..MenuRow::plain(MenuAct::Person(choice), label)
+            };
+            let selected = state.selected.as_deref();
+            submenu(core, &mut row, choice, Some(user), selected, None);
+            row.disabled = !acts(choice) && row.submenu.is_empty();
+            row
+        })
+        .collect();
+    if rows.is_empty() {
+        return Task::none();
     }
+    app.win.menu = Some(Menu {
+        place: Some(user.to_owned()),
+        location,
+        ..Menu::new(at, rows).width(crate::menus::FIELD_WIDTH)
+    });
+    // Its Apps follow the permissions as they are now.
+    app.client.dispatch(Action::AskAppCommands);
+    Task::batch([operation::focus(NOBODY), app.sync()])
+}
 
-    /// A row of someone's menu was chosen.
-    pub fn choose_person(
-        &mut self,
-        user: String,
-        location: &'static str,
-        choice: MenuChoice,
-    ) -> Task<Message> {
-        let state = self.client.state();
-        // Their DM, for what acts on the conversation.
-        let room = state
-            .rooms
-            .iter()
-            .find(|room| room.direct && room.person.as_deref() == Some(user.as_str()))
-            .map(|room| room.id.clone());
-        let place = self
-            .client
-            .app
-            .member_place(&user)
-            .map(str::to_owned)
-            .or_else(|| state.selected.clone());
-        let ask = |ask| Action::AskPerson {
+/// A row of someone's menu was chosen.
+pub fn choose_person(
+    app: &mut App,
+    user: String,
+    location: &'static str,
+    choice: MenuChoice,
+) -> Task<Message> {
+    let state = app.client.state();
+    // Their DM, for what acts on the conversation.
+    let room = state
+        .rooms
+        .iter()
+        .find(|room| room.direct && room.person.as_deref() == Some(user.as_str()))
+        .map(|room| room.id.clone());
+    let place = app
+        .client
+        .app
+        .member_place(&user)
+        .map(str::to_owned)
+        .or_else(|| state.selected.clone());
+    let ask = |ask| Action::AskPerson {
+        user: user.clone(),
+        ask,
+        location,
+    };
+    let change = |change| Action::ChangeRelationship {
+        user: user.clone(),
+        change,
+        location,
+    };
+    let ask_member = |ask| {
+        place.clone().map(|place| Action::AskMember {
+            place,
             user: user.clone(),
             ask,
-            location,
-        };
-        let change = |change| Action::ChangeRelationship {
+        })
+    };
+    let action = match choice {
+        MenuChoice::Profile => Some(Action::ShowProfile {
             user: user.clone(),
-            change,
-            location,
-        };
-        let ask_member = |ask| {
-            place.clone().map(|place| Action::AskMember {
-                place,
-                user: user.clone(),
-                ask,
-            })
-        };
-        let action = match choice {
-            MenuChoice::Profile => Some(Action::ShowProfile {
-                user: user.clone(),
-                large: true,
-            }),
-            MenuChoice::Message => Some(Action::MessagePerson(user.clone())),
-            MenuChoice::Call => Some(ask(PersonAsk::Call)),
-            MenuChoice::AddFriend | MenuChoice::AcceptFriend => {
-                Some(Action::Befriend(user.clone()))
-            }
-            MenuChoice::CancelFriendRequest => Some(Action::RemoveFriendRequest(user.clone())),
-            MenuChoice::AddNote => Some(ask(PersonAsk::Note)),
-            MenuChoice::AddNickname | MenuChoice::EditNickname => Some(ask(PersonAsk::Nickname)),
-            MenuChoice::Unfriend => Some(ask(PersonAsk::Unfriend)),
-            MenuChoice::Block => Some(ask(PersonAsk::Block)),
-            MenuChoice::Ignore => Some(change(RelationshipChange::Ignore)),
-            MenuChoice::Unignore => Some(change(RelationshipChange::Unignore)),
-            MenuChoice::Unblock => Some(change(RelationshipChange::Unblock)),
-            MenuChoice::Pin | MenuChoice::Unpin => room.map(|room| Action::Pin {
-                room,
-                pinned: choice == MenuChoice::Pin,
-            }),
-            MenuChoice::CloseDm => room.map(Action::CloseDm),
-            MenuChoice::Unmute => room.map(|room| Action::MuteDm {
-                room,
-                muting: yapfast_core::chat::Muting::Off,
-            }),
-            MenuChoice::ServerNickname => ask_member(PersonAsk::ServerNickname),
-            MenuChoice::Timeout => ask_member(PersonAsk::Timeout),
-            MenuChoice::Kick => ask_member(PersonAsk::Kick),
-            MenuChoice::Ban => ask_member(PersonAsk::Ban),
-            // Offered only on Members, whose settings show the dialog.
-            MenuChoice::TransferOwnership => {
-                Some(Action::Ownership(OwnershipInput::Transfer(user.clone())))
-            }
-            MenuChoice::RemoveTimeout => place.map(|place| Action::ChangeMember {
-                place,
-                user: user.clone(),
-                change: yapfast_core::chat::MemberChange::Timeout {
-                    until_ms: None,
-                    reason: String::new(),
-                },
-            }),
-            MenuChoice::Mention => {
-                self.client.dispatch(Action::MentionPerson(user));
-                let draft = self.client.state().draft().to_owned();
-                self.composer.draft.reset(&draft);
-                self.composer.draft_known = draft;
-                return Task::batch([self.sync(), operation::focus(crate::composer::COMPOSER)]);
-            }
-            MenuChoice::CopyLink => return iced::clipboard::write(network_link(&user)),
-            MenuChoice::CopyId => return iced::clipboard::write(network_id(&user).to_owned()),
-            _ => None,
-        };
-        let Some(action) = action else {
-            return Task::none();
-        };
-        self.client.dispatch(action);
-        self.keep_pins();
-        let focus = self.person.focus(self.client.state());
-        Task::batch([self.sync(), focus])
-    }
-
-    /// DMs pinned to the top are kept in `layout.json`, as the Slint client
-    /// keeps them.
-    pub fn keep_pins(&mut self) {
-        let pinned = &self.client.state().pinned;
-        if *pinned != self.layout.pinned {
-            self.layout.pinned = pinned.clone();
-            crate::layout::store(self.client.root(), "pinned", pinned);
+            large: true,
+        }),
+        MenuChoice::Message => Some(Action::MessagePerson(user.clone())),
+        MenuChoice::Call => Some(ask(PersonAsk::Call)),
+        MenuChoice::AddFriend | MenuChoice::AcceptFriend => Some(Action::Befriend(user.clone())),
+        MenuChoice::CancelFriendRequest => Some(Action::RemoveFriendRequest(user.clone())),
+        MenuChoice::AddNote => Some(ask(PersonAsk::Note)),
+        MenuChoice::AddNickname | MenuChoice::EditNickname => Some(ask(PersonAsk::Nickname)),
+        MenuChoice::Unfriend => Some(ask(PersonAsk::Unfriend)),
+        MenuChoice::Block => Some(ask(PersonAsk::Block)),
+        MenuChoice::Ignore => Some(change(RelationshipChange::Ignore)),
+        MenuChoice::Unignore => Some(change(RelationshipChange::Unignore)),
+        MenuChoice::Unblock => Some(change(RelationshipChange::Unblock)),
+        MenuChoice::Pin | MenuChoice::Unpin => room.map(|room| Action::Pin {
+            room,
+            pinned: choice == MenuChoice::Pin,
+        }),
+        MenuChoice::CloseDm => room.map(Action::CloseDm),
+        MenuChoice::Unmute => room.map(|room| Action::MuteDm {
+            room,
+            muting: yapfast_core::chat::Muting::Off,
+        }),
+        MenuChoice::ServerNickname => ask_member(PersonAsk::ServerNickname),
+        MenuChoice::Timeout => ask_member(PersonAsk::Timeout),
+        MenuChoice::Kick => ask_member(PersonAsk::Kick),
+        MenuChoice::Ban => ask_member(PersonAsk::Ban),
+        // Offered only on Members, whose settings show the dialog.
+        MenuChoice::TransferOwnership => {
+            Some(Action::Ownership(OwnershipInput::Transfer(user.clone())))
         }
+        MenuChoice::RemoveTimeout => place.map(|place| Action::ChangeMember {
+            place,
+            user: user.clone(),
+            change: yapfast_core::chat::MemberChange::Timeout {
+                until_ms: None,
+                reason: String::new(),
+            },
+        }),
+        MenuChoice::Mention => {
+            app.client.dispatch(Action::MentionPerson(user));
+            let draft = app.client.state().draft().to_owned();
+            app.composer.draft.reset(&draft);
+            app.composer.draft_known = draft;
+            return Task::batch([app.sync(), operation::focus(crate::composer::COMPOSER)]);
+        }
+        MenuChoice::CopyLink => return iced::clipboard::write(network_link(&user)),
+        MenuChoice::CopyId => return iced::clipboard::write(network_id(&user).to_owned()),
+        _ => None,
+    };
+    let Some(action) = action else {
+        return Task::none();
+    };
+    app.client.dispatch(action);
+    keep_pins(app);
+    let focus = app.person.focus(app.client.state());
+    Task::batch([app.sync(), focus])
+}
+
+/// DMs pinned to the top are kept in `layout.json`, as the Slint client
+/// keeps them.
+pub fn keep_pins(app: &mut App) {
+    let pinned = &app.client.state().pinned;
+    if *pinned != app.layout.pinned {
+        app.layout.pinned = pinned.clone();
+        crate::layout::store(app.client.root(), "pinned", pinned);
     }
 }
 

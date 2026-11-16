@@ -391,7 +391,10 @@ fn an_at_words_suggestions_follow_the_members_as_they_change() {
             members.push(zoe);
         }
     });
-    assert!(app.ctx().suggesting(crate::composer::Writing::Draft));
+    assert!(crate::suggest::suggesting(
+        app.ctx(),
+        crate::composer::Writing::Draft
+    ));
     assert!(shows(&app, "Zoe"), "suggested once she's a member");
 }
 
@@ -414,7 +417,7 @@ fn push_to_talks_own_key_types_nothing_in_a_call_and_the_others_do() {
             name: "V".into(),
             trigger: None,
         }]);
-    let _ = app.watch_keybinds();
+    let _ = crate::keybinds::watch_keybinds(&mut app);
     let press = |app: &mut crate::app::App, text: &str, code: key::Code| {
         let _ = app.update(Message::Pressed(
             keyboard::Key::Character(text.into()),

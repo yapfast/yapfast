@@ -111,37 +111,35 @@ impl<'a> From<Dots> for Element<'a, Message> {
     }
 }
 
-impl<'a> crate::ctx::Ctx<'a> {
-    /// The typing line, or none while nobody else types.
-    pub fn typing_view(self) -> Option<Element<'a, Message>> {
-        let line = self.state.typing_line();
-        if line.is_empty() {
-            return None;
-        }
-        let theme = self.look.theme;
-        let chat = theme.chat;
-        let words = container(
-            text(line)
-                .size(13)
-                .font(MEDIUM)
-                .color(theme.text)
-                .wrapping(text::Wrapping::None),
-        )
-        .padding([0, 4])
-        .height(LINE)
-        .clip(true)
-        .align_y(Alignment::Center)
-        .style(move |_| crate::style::fill(chat));
-        let dots = container(Dots { ink: theme.muted }).style(move |_| crate::style::fill(chat));
-        // The dots centred under the avatars' 72 px gutter, the words where
-        // the messages' text starts.
-        Some(
-            container(row![dots, words].spacing(68.0 - 20.0 - DOTS))
-                .padding(Padding::ZERO.left(20))
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .align_y(Alignment::End)
-                .into(),
-        )
+/// The typing line, or none while nobody else types.
+pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
+    let line = ctx.state.typing_line();
+    if line.is_empty() {
+        return None;
     }
+    let theme = ctx.look.theme;
+    let chat = theme.chat;
+    let words = container(
+        text(line)
+            .size(13)
+            .font(MEDIUM)
+            .color(theme.text)
+            .wrapping(text::Wrapping::None),
+    )
+    .padding([0, 4])
+    .height(LINE)
+    .clip(true)
+    .align_y(Alignment::Center)
+    .style(move |_| crate::style::fill(chat));
+    let dots = container(Dots { ink: theme.muted }).style(move |_| crate::style::fill(chat));
+    // The dots centred under the avatars' 72 px gutter, the words where
+    // the messages' text starts.
+    Some(
+        container(row![dots, words].spacing(68.0 - 20.0 - DOTS))
+            .padding(Padding::ZERO.left(20))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_y(Alignment::End)
+            .into(),
+    )
 }

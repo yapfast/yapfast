@@ -55,7 +55,7 @@ fn heard(app: &mut App, heard: Heard) {
 /// The window draws its own title bar.
 fn own_bar(app: &mut App) {
     app.shell.own_title_bar = true;
-    app.fit_window();
+    crate::window_bar::fit_window(app);
 }
 
 #[test]
@@ -118,16 +118,16 @@ fn closing_to_the_tray_lets_go_of_the_microphone_settings_and_the_videos() {
     let before = editing_a_theme(&mut app);
     // The input menu over Settings, its level measured.
     let _ = app.update(Message::Call(Call::Open(Popup::Input)));
-    assert!(app.metering());
+    assert!(crate::call::metering(&app));
     let id = app.shell.window.expect("the window");
     let _ = app.update(Message::Shell(Event::CloseRequested(id)));
     assert!(app.shell.window.is_none(), "closed to the tray");
-    assert!(!app.metering(), "the microphone let go");
+    assert!(!crate::call::metering(&app), "the microphone let go");
     assert_eq!(app.call.popup, None);
     assert!(!app.win.settings.is_open());
     assert_eq!(app.theme.chat, before, "the edited theme cancelled");
     assert_eq!(feed.shown_at(), None, "no frames made for nobody");
-    assert!(!app.stage_shown());
+    assert!(!crate::call::stage::stage_shown(&app));
     // Back from the tray, the call's stage shows again.
     heard(&mut app, Heard::Tray(TrayChoice::Open));
     let id = app.shell.window.expect("a new window");
@@ -350,7 +350,7 @@ fn nobody_using_yapfast_holds_pictures_still_until_they_are_back() {
     use crate::away::{Event as Away, LAST_USE, QUIET};
     let (mut app, _folder) = preview();
     app.layout.prefs.animate = crate::layout::Animate::Always;
-    assert!(app.plays());
+    assert!(crate::pictures::plays(&app));
     // Used a moment ago: the check waits on.
     LAST_USE.store(super::now_ms(), Ordering::Relaxed);
     let _ = app.update(Message::Away(Away::Check));
@@ -361,10 +361,10 @@ fn nobody_using_yapfast_holds_pictures_still_until_they_are_back() {
     LAST_USE.store(quiet, Ordering::Relaxed);
     let _ = app.update(Message::Away(Away::Check));
     assert!(app.away.inactive);
-    assert!(!app.plays());
+    assert!(!crate::pictures::plays(&app));
     let _ = app.update(Message::Away(Away::Used));
     assert!(!app.away.inactive);
-    assert!(app.plays());
+    assert!(crate::pictures::plays(&app));
 }
 
 #[test]

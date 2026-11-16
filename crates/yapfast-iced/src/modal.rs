@@ -299,7 +299,8 @@ impl<'a> View<'a> {
                 } else {
                     "Make a selection".to_owned()
                 };
-                let boxed = self.cx.select_box(
+                let boxed = crate::cards::select_box(
+                    self.cx,
                     shown,
                     picked,
                     !saving,
@@ -311,11 +312,15 @@ impl<'a> View<'a> {
                     .select_menu
                     .as_ref()
                     .is_some_and(|select| select.modal_field == Some(index));
-                Popover::new(boxed, open.then(|| self.cx.dropdown()), Side::Below)
-                    .width(Width::Same)
-                    .gap(4.0)
-                    .outside(Message::BotSelect(crate::bot_select::Event::Close))
-                    .into()
+                Popover::new(
+                    boxed,
+                    open.then(|| crate::bot_select::dropdown(self.cx)),
+                    Side::Below,
+                )
+                .width(Width::Same)
+                .gap(4.0)
+                .outside(Message::BotSelect(crate::bot_select::Event::Close))
+                .into()
             }
             TEXT_INPUT if field.paragraph => {
                 match self.s.paragraphs.get(index).and_then(Option::as_ref) {

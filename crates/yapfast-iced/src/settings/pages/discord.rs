@@ -26,7 +26,7 @@ impl<'a> Page<'a> {
                     theme,
                     "Link your Discord account to see its servers and DMs in Yapfast, and join its calls. The login stays on this computer, in the system's credential store.",
                 ),
-                self.cx.link_panel(),
+                crate::signin::link_panel(self.cx),
             ]);
         }
         let state = self.cx.state;

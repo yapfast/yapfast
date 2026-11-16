@@ -94,7 +94,7 @@ pub(super) fn discord_server(
 /// The server's menu, as its name in the sidebar opens it, and Server
 /// settings chosen from it.
 fn open_settings(app: &mut App) {
-    let _ = app.open_place_menu(SERVER, Point::new(80.0, 44.0), true);
+    let _ = crate::places::open_place_menu(app, SERVER, Point::new(80.0, 44.0), true);
     interact(app, |ui| {
         ui.click("Server settings").expect("Server settings");
     });

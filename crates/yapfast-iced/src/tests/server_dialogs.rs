@@ -32,7 +32,7 @@ fn press(app: &mut App, named: key::Named) {
 
 /// The menu of `place`, and `row` chosen from it.
 fn choose(app: &mut App, place: &str, header: bool, row: &str) {
-    let _ = app.open_place_menu(place, Point::new(120.0, 100.0), header);
+    let _ = crate::places::open_place_menu(app, place, Point::new(120.0, 100.0), header);
     interact(app, |ui| {
         ui.click(row).unwrap_or_else(|_| panic!("{row}"));
     });
@@ -237,7 +237,7 @@ fn leaving_a_group_dm_asks_first_and_offers_to_tell_no_one() {
 fn join_a_server_shows_the_invites_server_and_a_link_opens_it() {
     let (mut app, _folder) = discord_server(0, |_, _| {});
     // A clicked invite link opens the dialog rather than the browser.
-    let _ = app.follow_link("https://discord.gg/abc", Point::new(400.0, 300.0));
+    let _ = crate::links::follow_link(&mut app, "https://discord.gg/abc", Point::new(400.0, 300.0));
     let join = app.client.state().join.clone().expect("open");
     assert!(join.from_link && join.resolving);
     assert_eq!(join.code.as_deref(), Some("abc"));

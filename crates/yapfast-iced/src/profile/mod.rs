@@ -10,7 +10,7 @@
 //! [`name_style`] its Display Name Style window.
 
 mod activity;
-mod body;
+pub mod body;
 mod cosmetic;
 pub mod editor;
 mod full;
@@ -374,79 +374,77 @@ impl Profiles {
     }
 }
 
-impl App {
-    /// Takes in the core's profiles: each one's look is made again only
-    /// when its view changed. The full profile tells the core which tab
-    /// shows, once per tab and person.
-    pub fn profile_sync(&mut self) -> Task<Message> {
-        let state = self.client.state();
-        // The card the core closed, or one shown large, goes.
-        if self.profiles.card.is_some() && state.profile.as_ref().is_none_or(|view| view.large) {
-            self.profiles.card = None;
-        }
-        let link = crate::theme::rgb(self.theme.link);
-        let (shown, panel) = (self.profiles.shown.take(), self.profiles.panel.take());
-        let app = &self.client.app;
-        let state = &app.state;
-        let panel_view = state.panel_profile.as_ref().filter(|_| state.profile_panel);
-        self.profiles.shown = make_shown(app, shown, state.profile.as_ref(), None, link);
-        let live = panel_view
-            .and(state.selected_room())
-            .map(|room| look::Live {
-                presence: room.presence,
-                activity: room.activity.clone(),
-                activities: room.activities.clone(),
-            });
-        self.profiles.panel = make_shown(app, panel, panel_view, live, link);
-        {
-            let mut cx = crate::ctx::cx!(self);
-            editor::follow(&mut self.profiles.editor, &mut cx);
-        }
-        self.account_card_sync(link);
-        // The note follows the profile's while it isn't being written.
-        if let Some(profile) = self
-            .profiles
-            .shown
-            .as_ref()
-            .filter(|shown| shown.look.view.large)
-            .map(|shown| shown.look.profile())
-        {
-            if self.profiles.note_of != profile.id {
-                self.profiles.note_of = profile.id.clone();
-                self.profiles.note = profile.note.clone();
-            }
-        } else {
-            self.profiles.note_of.clear();
-        }
-        let mut cx = crate::ctx::cx!(self);
-        self.profiles.tell_tab(&mut cx);
-        Task::none()
+/// Takes in the core's profiles: each one's look is made again only
+/// when its view changed. The full profile tells the core which tab
+/// shows, once per tab and person.
+pub fn profile_sync(app: &mut App) -> Task<Message> {
+    let state = app.client.state();
+    // The card the core closed, or one shown large, goes.
+    if app.profiles.card.is_some() && state.profile.as_ref().is_none_or(|view| view.large) {
+        app.profiles.card = None;
     }
-
-    /// The account's own card while its popover shows: made again only
-    /// when the core's profile of it changes, and let go as it closes.
-    fn account_card_sync(&mut self, link: u32) {
-        let state = self.client.state();
-        let Some(profile) = state
-            .account_profile
-            .as_ref()
-            .filter(|_| self.status.popover.is_some())
-        else {
-            self.profiles.account = None;
-            return;
-        };
-        if let Some((kept, _)) = &self.profiles.account
-            && Arc::ptr_eq(kept, profile)
-        {
-            return;
-        }
-        let view = Arc::new(ProfileView {
-            profile: chat::Profile::clone(profile),
-            ..Default::default()
+    let link = crate::theme::rgb(app.theme.link);
+    let (shown, panel) = (app.profiles.shown.take(), app.profiles.panel.take());
+    let core = &app.client.app;
+    let state = &core.state;
+    let panel_view = state.panel_profile.as_ref().filter(|_| state.profile_panel);
+    app.profiles.shown = make_shown(core, shown, state.profile.as_ref(), None, link);
+    let live = panel_view
+        .and(state.selected_room())
+        .map(|room| look::Live {
+            presence: room.presence,
+            activity: room.activity.clone(),
+            activities: room.activities.clone(),
         });
-        let look = Look::new(state, &view, None, &[], link);
-        self.profiles.account = Some((profile.clone(), Shown::new(look)));
+    app.profiles.panel = make_shown(core, panel, panel_view, live, link);
+    {
+        let mut cx = crate::ctx::cx!(app);
+        editor::follow(&mut app.profiles.editor, &mut cx);
     }
+    account_card_sync(app, link);
+    // The note follows the profile's while it isn't being written.
+    if let Some(profile) = app
+        .profiles
+        .shown
+        .as_ref()
+        .filter(|shown| shown.look.view.large)
+        .map(|shown| shown.look.profile())
+    {
+        if app.profiles.note_of != profile.id {
+            app.profiles.note_of = profile.id.clone();
+            app.profiles.note = profile.note.clone();
+        }
+    } else {
+        app.profiles.note_of.clear();
+    }
+    let mut cx = crate::ctx::cx!(app);
+    app.profiles.tell_tab(&mut cx);
+    Task::none()
+}
+
+/// The account's own card while its popover shows: made again only
+/// when the core's profile of it changes, and let go as it closes.
+fn account_card_sync(app: &mut App, link: u32) {
+    let state = app.client.state();
+    let Some(profile) = state
+        .account_profile
+        .as_ref()
+        .filter(|_| app.status.popover.is_some())
+    else {
+        app.profiles.account = None;
+        return;
+    };
+    if let Some((kept, _)) = &app.profiles.account
+        && Arc::ptr_eq(kept, profile)
+    {
+        return;
+    }
+    let view = Arc::new(ProfileView {
+        profile: chat::Profile::clone(profile),
+        ..Default::default()
+    });
+    let look = Look::new(state, &view, None, &[], link);
+    app.profiles.account = Some((profile.clone(), Shown::new(look)));
 }
 
 /// The card's frame: its ground (a theme's gradient, or plain), corners and
@@ -515,294 +513,293 @@ fn make_shown(
     })
 }
 
-impl<'a> crate::ctx::Ctx<'a> {
-    /// The tab the full profile shows.
-    pub fn profile_tab(self, look: &Look) -> Tab {
-        self.profiles.tab_for(look)
-    }
-
-    /// The floating card, beside its list or message, as far up as the
-    /// window lets it; it scrolls once it's taller than the window.
-    pub fn card_view(self) -> Option<Element<'a, Message>> {
-        let card = self.profiles.card.as_ref()?;
-        let shown = self
-            .profiles
-            .shown
-            .as_ref()
-            .filter(|shown| !shown.look.view.large)?;
-        let body = self.profile_body(shown, Mode::Card, WIDTH, self.profiles.pointed);
-        let limit = self.look.window.height - 16.0;
-        let content = container(scroll_view(body).style(scrollbar(self.look.theme)))
-            .width(WIDTH)
-            .max_height(limit);
-        let content = self.dressed(shown, Mode::Card, WIDTH, content.into());
-        let pointer = mouse_area(content)
-            .on_enter(Message::Profile(Event::Pointed(true)))
-            .on_exit(Message::Profile(Event::Pointed(false)));
-        Some(Place::new(crate::widgets::motion::grow(opaque(pointer)), card.at, 8.0).into())
-    }
-
-    /// The full profile over the window, dimmed under it; a click outside
-    /// closes it.
-    pub fn full_profile_view(self) -> Option<Element<'a, Message>> {
-        let shown = self
-            .profiles
-            .shown
-            .as_ref()
-            .filter(|shown| shown.look.view.large)?;
-        let (window_width, window_height) = (self.look.window.width, self.look.window.height);
-        let width = (window_width * 0.7).max(720.0).min(window_width - 32.0);
-        let height = (window_height * 0.75).max(520.0).min(window_height - 32.0);
-        let modal = self.full_view(shown, width, height);
-        // Over the window dimmed as under a settings card.
-        Some(opaque(stack![
-            crate::controls::dimmed(Message::Profile(Event::Close), crate::sheet::DIM),
-            container(crate::widgets::motion::grow(opaque(modal))).center(Length::Fill),
-        ]))
-    }
-
-    /// The profile docked beside a one-to-one DM, filling its height, with
-    /// View Full Profile at its foot.
-    pub fn profile_panel_view(self) -> Option<Element<'a, Message>> {
-        let shown = self.profiles.panel.as_ref()?;
-        let theme = self.look.theme;
-        let inks = self.inks(&shown.look, Mode::Docked);
-        let body = self.profile_body(
-            shown,
-            Mode::Docked,
-            PANEL_WIDTH - 2.0 * PANEL_INSET,
-            self.profiles.panel_pointed,
-        );
-        let scroll = scroll_view(body)
-            .height(Length::Fill)
-            .style(scrollbar(theme));
-        let foot = container(
-            action(
-                theme,
-                "View Full Profile",
-                Kind::Plain,
-                Some(Message::Profile(Event::Enlarge(None, true))),
-            )
-            .wide(PANEL_BUTTON),
-        )
-        .padding([0.0, 16.0])
-        .height(PANEL_FOOT);
-        let card = container(column![scroll, foot])
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .clip(true)
-            .style(frame_style(inks, theme.edge, 8.0, false));
-        let card = self.dressed(
-            shown,
-            Mode::Docked,
-            PANEL_WIDTH - 2.0 * PANEL_INSET,
-            card.into(),
-        );
-        let card = mouse_area(card)
-            .on_enter(Message::Profile(Event::PanelPointed(true)))
-            .on_exit(Message::Profile(Event::PanelPointed(false)));
-        Some(
-            container(card)
-                .padding(PANEL_INSET)
-                .width(PANEL_WIDTH)
-                .height(Length::Fill)
-                .into(),
-        )
-    }
-
-    /// The colour behind a banner: the accent, else, with no banner and
-    /// no theme, the avatar's dominant colour once it has arrived, as
-    /// Discord tints it.
-    pub(crate) fn banner_ground(self, shown: &Shown) -> Option<u32> {
-        let profile = shown.look.profile();
-        if shown.look.accent.is_some() || profile.banner.is_some() || profile.theme.is_some() {
-            return shown.look.accent;
-        }
-        let url = profile.avatar.as_deref()?;
-        if let Some((known, colour)) = &*shown.avatar_colour.borrow()
-            && known == url
-        {
-            return Some(*colour);
-        }
-        // One picked in the editor and not sent yet is the card's own, as
-        // its avatar shows it.
-        let picked = shown.picked.borrow().get(url).cloned();
-        let picture = match &picked {
-            Some(picture) => picture,
-            None => self.state.pictures.get(url)?,
-        };
-        let order = crate::pictures::byte_order(picture);
-        let colour = yapfast_core::dominant_colour::dominant(&picture.rgba, order)?;
-        *shown.avatar_colour.borrow_mut() = Some((url.to_owned(), colour));
-        Some(colour)
-    }
-
-    /// A picture for a profile at its size, made once while it's shown.
-    pub(crate) fn profile_picture(
-        self,
-        shown: &Shown,
-        url: &str,
-        width: u32,
-        height: u32,
-        cover: bool,
-    ) -> Option<Handle> {
-        if let Some(handle) = shown
-            .pictures
-            .borrow()
-            .get(url)
-            .and_then(|sizes| sizes.get(&(width, height)))
-        {
-            return Some(handle.clone());
-        }
-        let picked = shown.picked.borrow().get(url).cloned();
-        let picture = match &picked {
-            Some(picture) => picture,
-            None => self.state.pictures.get(url)?,
-        };
-        if picture.width == 0 || picture.height == 0 {
-            return None;
-        }
-        let handle = if picture.width == width && picture.height == height {
-            shared(picture)
-        } else {
-            let pixels = paint::fitted(
-                &picture.rgba,
-                (picture.width, picture.height),
-                (width, height),
-                cover,
-            );
-            Handle::from_rgba(width, height, pixels)
-        };
-        shown
-            .pictures
-            .borrow_mut()
-            .entry(url.to_owned())
-            .or_default()
-            .insert((width, height), handle.clone());
-        Some(handle)
-    }
-
-    /// The pictures the profiles on screen show, and the moving ones of
-    /// those under the pointer.
-    pub fn profile_pictures(self) -> Vec<String> {
-        let state = self.state;
-        let cosmetics = state.cosmetics;
-        let mut urls = self.editor_pictures();
-        if let Some((_, shown)) = &self.profiles.account {
-            let profile = shown.look.profile();
-            urls.extend(profile.banner.clone());
-            urls.extend(
-                cosmetics
-                    .tag(profile.tag.as_ref())
-                    .and_then(|tag| tag.badge.as_deref())
-                    .map(str::to_owned),
-            );
-            urls.extend(profile.badges.iter().map(|badge| badge.icon.clone()));
-        }
-        for (shown, pointed) in [
-            (&self.profiles.shown, self.profiles.pointed),
-            (&self.profiles.panel, self.profiles.panel_pointed),
-        ] {
-            let Some(shown) = shown else {
-                continue;
-            };
-            let profile = shown.look.profile();
-            urls.extend(profile.avatar.clone());
-            let decoration = cosmetics.decoration(profile.decoration.as_deref());
-            urls.extend(decoration.map(str::to_owned));
-            if pointed || shown.look.view.large {
-                urls.extend(decoration.map(looks::animated_url));
-            }
-            urls.extend(cosmetic::effect_pictures(state, shown, pointed));
-            urls.extend(cosmetic::frame_pictures(state, shown));
-            urls.extend(profile.banner.clone());
-            urls.extend(profile.banner.as_deref().and_then(chat::moving_banner));
-            urls.extend(
-                cosmetics
-                    .tag(profile.tag.as_ref())
-                    .and_then(|tag| tag.badge.as_deref())
-                    .map(str::to_owned),
-            );
-            urls.extend(shown.look.thought.emoji.clone());
-            urls.extend(profile.badges.iter().map(|badge| badge.icon.clone()));
-            // A levelled badge's large picture, for its tooltip.
-            urls.extend(
-                profile
-                    .badges
-                    .iter()
-                    .filter_map(|badge| badge.level.as_ref())
-                    .map(|level| level.picture.clone())
-                    .filter(|picture| !picture.is_empty()),
-            );
-            urls.extend(profile.server_icon.clone());
-            for activity in &shown.look.activities {
-                urls.extend(activity.large.clone());
-                urls.extend(activity.small.clone());
-                urls.extend(activity.name_emoji.clone());
-            }
-            if let Some(bio) = &shown.look.bio {
-                let emoji = bio.parts.iter().flat_map(|part| &part.runs);
-                urls.extend(emoji.filter_map(|run| run.emoji.as_ref().map(|(url, _)| url.clone())));
-            }
-            let friends = profile.friends.iter();
-            urls.extend(friends.take(3).filter_map(|friend| friend.avatar.clone()));
-            if !shown.look.view.large {
-                continue;
-            }
-            match self.profile_tab(&shown.look) {
-                Tab::Friends => {
-                    urls.extend(
-                        profile
-                            .friends
-                            .iter()
-                            .filter_map(|friend| friend.avatar.clone()),
-                    );
-                }
-                Tab::Servers => {
-                    urls.extend(
-                        profile
-                            .servers
-                            .iter()
-                            .filter_map(|server| server.icon.clone()),
-                    );
-                }
-                Tab::Activity => {
-                    urls.extend(
-                        profile
-                            .recent
-                            .iter()
-                            .filter_map(|recent| recent.picture.clone()),
-                    );
-                }
-                Tab::Board => {
-                    for widget in &profile.widgets {
-                        urls.extend(widget.games.iter().filter_map(|game| game.icon.clone()));
-                    }
-                }
-                Tab::Wishlist => {
-                    if let chat::Wishlist::Loaded(items) = &profile.wishlist {
-                        urls.extend(items.iter().filter_map(|item| item.picture.clone()));
-                    }
-                }
-            }
-        }
-        urls
-    }
-
-    /// The profile's ink, ground and the rest, from its theme or Yapfast's.
-    pub fn inks(self, look: &Look, mode: Mode) -> look::Inks {
-        let plain = if mode == Mode::Docked {
-            self.look.theme.panel
-        } else {
-            self.look.theme.sidebar
-        };
-        look::Inks::new(self.look.theme, look.profile().theme, plain)
-    }
+/// The tab the full profile shows.
+pub fn profile_tab(ctx: crate::ctx::Ctx<'_>, look: &Look) -> Tab {
+    ctx.profiles.tab_for(look)
 }
 
-impl App {
-    /// Whether the profile panel shows beside the open DM.
-    pub fn panel_shown(&self) -> bool {
-        self.header.profile_available && self.profiles.panel.is_some()
+/// The floating card, beside its list or message, as far up as the
+/// window lets it; it scrolls once it's taller than the window.
+pub fn card_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
+    let card = ctx.profiles.card.as_ref()?;
+    let shown = ctx
+        .profiles
+        .shown
+        .as_ref()
+        .filter(|shown| !shown.look.view.large)?;
+    let body =
+        crate::profile::body::profile_body(ctx, shown, Mode::Card, WIDTH, ctx.profiles.pointed);
+    let limit = ctx.look.window.height - 16.0;
+    let content = container(scroll_view(body).style(scrollbar(ctx.look.theme)))
+        .width(WIDTH)
+        .max_height(limit);
+    let content = crate::profile::cosmetic::dressed(ctx, shown, Mode::Card, WIDTH, content.into());
+    let pointer = mouse_area(content)
+        .on_enter(Message::Profile(Event::Pointed(true)))
+        .on_exit(Message::Profile(Event::Pointed(false)));
+    Some(Place::new(crate::widgets::motion::grow(opaque(pointer)), card.at, 8.0).into())
+}
+
+/// The full profile over the window, dimmed under it; a click outside
+/// closes it.
+pub fn full_profile_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
+    let shown = ctx
+        .profiles
+        .shown
+        .as_ref()
+        .filter(|shown| shown.look.view.large)?;
+    let (window_width, window_height) = (ctx.look.window.width, ctx.look.window.height);
+    let width = (window_width * 0.7).max(720.0).min(window_width - 32.0);
+    let height = (window_height * 0.75).max(520.0).min(window_height - 32.0);
+    let modal = crate::profile::full::full_view(ctx, shown, width, height);
+    // Over the window dimmed as under a settings card.
+    Some(opaque(stack![
+        crate::controls::dimmed(Message::Profile(Event::Close), crate::sheet::DIM),
+        container(crate::widgets::motion::grow(opaque(modal))).center(Length::Fill),
+    ]))
+}
+
+/// The profile docked beside a one-to-one DM, filling its height, with
+/// View Full Profile at its foot.
+pub fn profile_panel_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
+    let shown = ctx.profiles.panel.as_ref()?;
+    let theme = ctx.look.theme;
+    let inks = inks(ctx, &shown.look, Mode::Docked);
+    let body = crate::profile::body::profile_body(
+        ctx,
+        shown,
+        Mode::Docked,
+        PANEL_WIDTH - 2.0 * PANEL_INSET,
+        ctx.profiles.panel_pointed,
+    );
+    let scroll = scroll_view(body)
+        .height(Length::Fill)
+        .style(scrollbar(theme));
+    let foot = container(
+        action(
+            theme,
+            "View Full Profile",
+            Kind::Plain,
+            Some(Message::Profile(Event::Enlarge(None, true))),
+        )
+        .wide(PANEL_BUTTON),
+    )
+    .padding([0.0, 16.0])
+    .height(PANEL_FOOT);
+    let card = container(column![scroll, foot])
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .clip(true)
+        .style(frame_style(inks, theme.edge, 8.0, false));
+    let card = crate::profile::cosmetic::dressed(
+        ctx,
+        shown,
+        Mode::Docked,
+        PANEL_WIDTH - 2.0 * PANEL_INSET,
+        card.into(),
+    );
+    let card = mouse_area(card)
+        .on_enter(Message::Profile(Event::PanelPointed(true)))
+        .on_exit(Message::Profile(Event::PanelPointed(false)));
+    Some(
+        container(card)
+            .padding(PANEL_INSET)
+            .width(PANEL_WIDTH)
+            .height(Length::Fill)
+            .into(),
+    )
+}
+
+/// The colour behind a banner: the accent, else, with no banner and
+/// no theme, the avatar's dominant colour once it has arrived, as
+/// Discord tints it.
+pub(crate) fn banner_ground(ctx: crate::ctx::Ctx<'_>, shown: &Shown) -> Option<u32> {
+    let profile = shown.look.profile();
+    if shown.look.accent.is_some() || profile.banner.is_some() || profile.theme.is_some() {
+        return shown.look.accent;
     }
+    let url = profile.avatar.as_deref()?;
+    if let Some((known, colour)) = &*shown.avatar_colour.borrow()
+        && known == url
+    {
+        return Some(*colour);
+    }
+    // One picked in the editor and not sent yet is the card's own, as
+    // its avatar shows it.
+    let picked = shown.picked.borrow().get(url).cloned();
+    let picture = match &picked {
+        Some(picture) => picture,
+        None => ctx.state.pictures.get(url)?,
+    };
+    let order = crate::pictures::byte_order(picture);
+    let colour = yapfast_core::dominant_colour::dominant(&picture.rgba, order)?;
+    *shown.avatar_colour.borrow_mut() = Some((url.to_owned(), colour));
+    Some(colour)
+}
+
+/// A picture for a profile at its size, made once while it's shown.
+pub(crate) fn profile_picture(
+    ctx: crate::ctx::Ctx<'_>,
+    shown: &Shown,
+    url: &str,
+    width: u32,
+    height: u32,
+    cover: bool,
+) -> Option<Handle> {
+    if let Some(handle) = shown
+        .pictures
+        .borrow()
+        .get(url)
+        .and_then(|sizes| sizes.get(&(width, height)))
+    {
+        return Some(handle.clone());
+    }
+    let picked = shown.picked.borrow().get(url).cloned();
+    let picture = match &picked {
+        Some(picture) => picture,
+        None => ctx.state.pictures.get(url)?,
+    };
+    if picture.width == 0 || picture.height == 0 {
+        return None;
+    }
+    let handle = if picture.width == width && picture.height == height {
+        shared(picture)
+    } else {
+        let pixels = paint::fitted(
+            &picture.rgba,
+            (picture.width, picture.height),
+            (width, height),
+            cover,
+        );
+        Handle::from_rgba(width, height, pixels)
+    };
+    shown
+        .pictures
+        .borrow_mut()
+        .entry(url.to_owned())
+        .or_default()
+        .insert((width, height), handle.clone());
+    Some(handle)
+}
+
+/// The pictures the profiles on screen show, and the moving ones of
+/// those under the pointer.
+pub fn profile_pictures(ctx: crate::ctx::Ctx<'_>) -> Vec<String> {
+    let state = ctx.state;
+    let cosmetics = state.cosmetics;
+    let mut urls = crate::profile::editor::editor_pictures(ctx);
+    if let Some((_, shown)) = &ctx.profiles.account {
+        let profile = shown.look.profile();
+        urls.extend(profile.banner.clone());
+        urls.extend(
+            cosmetics
+                .tag(profile.tag.as_ref())
+                .and_then(|tag| tag.badge.as_deref())
+                .map(str::to_owned),
+        );
+        urls.extend(profile.badges.iter().map(|badge| badge.icon.clone()));
+    }
+    for (shown, pointed) in [
+        (&ctx.profiles.shown, ctx.profiles.pointed),
+        (&ctx.profiles.panel, ctx.profiles.panel_pointed),
+    ] {
+        let Some(shown) = shown else {
+            continue;
+        };
+        let profile = shown.look.profile();
+        urls.extend(profile.avatar.clone());
+        let decoration = cosmetics.decoration(profile.decoration.as_deref());
+        urls.extend(decoration.map(str::to_owned));
+        if pointed || shown.look.view.large {
+            urls.extend(decoration.map(looks::animated_url));
+        }
+        urls.extend(cosmetic::effect_pictures(state, shown, pointed));
+        urls.extend(cosmetic::frame_pictures(state, shown));
+        urls.extend(profile.banner.clone());
+        urls.extend(profile.banner.as_deref().and_then(chat::moving_banner));
+        urls.extend(
+            cosmetics
+                .tag(profile.tag.as_ref())
+                .and_then(|tag| tag.badge.as_deref())
+                .map(str::to_owned),
+        );
+        urls.extend(shown.look.thought.emoji.clone());
+        urls.extend(profile.badges.iter().map(|badge| badge.icon.clone()));
+        // A levelled badge's large picture, for its tooltip.
+        urls.extend(
+            profile
+                .badges
+                .iter()
+                .filter_map(|badge| badge.level.as_ref())
+                .map(|level| level.picture.clone())
+                .filter(|picture| !picture.is_empty()),
+        );
+        urls.extend(profile.server_icon.clone());
+        for activity in &shown.look.activities {
+            urls.extend(activity.large.clone());
+            urls.extend(activity.small.clone());
+            urls.extend(activity.name_emoji.clone());
+        }
+        if let Some(bio) = &shown.look.bio {
+            let emoji = bio.parts.iter().flat_map(|part| &part.runs);
+            urls.extend(emoji.filter_map(|run| run.emoji.as_ref().map(|(url, _)| url.clone())));
+        }
+        let friends = profile.friends.iter();
+        urls.extend(friends.take(3).filter_map(|friend| friend.avatar.clone()));
+        if !shown.look.view.large {
+            continue;
+        }
+        match profile_tab(ctx, &shown.look) {
+            Tab::Friends => {
+                urls.extend(
+                    profile
+                        .friends
+                        .iter()
+                        .filter_map(|friend| friend.avatar.clone()),
+                );
+            }
+            Tab::Servers => {
+                urls.extend(
+                    profile
+                        .servers
+                        .iter()
+                        .filter_map(|server| server.icon.clone()),
+                );
+            }
+            Tab::Activity => {
+                urls.extend(
+                    profile
+                        .recent
+                        .iter()
+                        .filter_map(|recent| recent.picture.clone()),
+                );
+            }
+            Tab::Board => {
+                for widget in &profile.widgets {
+                    urls.extend(widget.games.iter().filter_map(|game| game.icon.clone()));
+                }
+            }
+            Tab::Wishlist => {
+                if let chat::Wishlist::Loaded(items) = &profile.wishlist {
+                    urls.extend(items.iter().filter_map(|item| item.picture.clone()));
+                }
+            }
+        }
+    }
+    urls
+}
+
+/// The profile's ink, ground and the rest, from its theme or Yapfast's.
+pub fn inks(ctx: crate::ctx::Ctx<'_>, look: &Look, mode: Mode) -> look::Inks {
+    let plain = if mode == Mode::Docked {
+        ctx.look.theme.panel
+    } else {
+        ctx.look.theme.sidebar
+    };
+    look::Inks::new(ctx.look.theme, look.profile().theme, plain)
+}
+
+/// Whether the profile panel shows beside the open DM.
+pub fn panel_shown(app: &App) -> bool {
+    app.header.profile_available && app.profiles.panel.is_some()
 }

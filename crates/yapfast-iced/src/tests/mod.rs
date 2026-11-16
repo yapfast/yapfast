@@ -309,7 +309,7 @@ fn a_member_clicked_in_the_list_shows_their_card_until_a_click_outside() {
         let mut ui = Simulator::with_size(
             iced::Settings::default(),
             app.window,
-            app.ctx().card_view().expect("the card"),
+            crate::profile::card_view(app.ctx()).expect("the card"),
         );
         assert!(ui.find("Riley").is_ok(), "on the card");
     }
@@ -414,7 +414,7 @@ fn a_layout_key_of_the_wrong_kind_loses_only_itself() {
 fn without_an_account_the_sign_in_screen_shows_and_the_preview_leaves_it() {
     let folder = tempfile::tempdir_in(local()).expect("test folder");
     let mut app = start(&folder, false);
-    assert!(!app.workspace());
+    assert!(!crate::signin::workspace(&app));
     assert!(shows(&app, "Sign in to Yapfast"));
     if signin::MATRIX {
         assert!(shows(&app, "Use your existing Matrix account."));
@@ -437,7 +437,7 @@ fn without_an_account_the_sign_in_screen_shows_and_the_preview_leaves_it() {
     interact(&mut app, |ui| {
         ui.click("Explore local preview").expect("the preview");
     });
-    assert!(app.workspace());
+    assert!(crate::signin::workspace(&app));
     assert!(shows(&app, "general"));
 }
 
@@ -607,7 +607,7 @@ fn the_sign_in_screen_lets_go_of_the_timelines_pictures() {
     let (mut app, _folder) = preview();
     let _picture = a_picture_shown(&mut app);
     change(&mut app, |state| state.preview = false);
-    assert!(!app.workspace());
+    assert!(!crate::signin::workspace(&app));
     drop(app.view());
     assert!(app.win.pictures.fitter.borrow().is_empty(), "the copy went");
 }
@@ -1086,7 +1086,7 @@ fn scroll_up(app: &mut App, pixels: f32) {
 
 /// The message at the view's top, and how far into it the view starts.
 fn at_top(app: &App) -> (String, f32) {
-    app.reading().expect("reading earlier messages")
+    crate::timeline::scroll::reading(app).expect("reading earlier messages")
 }
 
 /// Messages like those of [`long_history`], numbered `from..to`.
@@ -1239,11 +1239,11 @@ fn the_minute_timer_runs_only_while_something_shows_minutes() {
     // Nothing in the preview shows minutes: no timer.
     app.roster.activity_cards.clear();
     app.timeline.clocks = Default::default();
-    let _ = app.arm_clocks();
+    let _ = crate::timeline::clocks::arm_clocks(&mut app);
     assert!(!app.timeline.clocks.minute_armed);
     // A call's length in the sidebar does.
     app.timeline.clocks.calls = true;
-    let _ = app.arm_clocks();
+    let _ = crate::timeline::clocks::arm_clocks(&mut app);
     assert!(app.timeline.clocks.minute_armed);
     // The minute turns; with nothing left to show it, none is armed again.
     app.timeline.clocks.calls = false;

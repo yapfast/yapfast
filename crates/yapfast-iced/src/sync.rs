@@ -177,12 +177,12 @@ impl App {
         }
         // Someone dragged may drop where their menu's Move to offers, of
         // the channels listed now.
-        self.moving_targets();
+        crate::arrange::moving_targets(self);
         self.timeline.clocks.calls = self.sidebar.rows.iter().any(
             |row| matches!(row, crate::sidebar::SideRow::Room(room) if room.started.is_some()),
         );
         // The open inbox follows the rooms' unread marks, as Slint's.
-        self.inbox_sync();
+        crate::window_bar::inbox_sync(self);
     }
 
     /// Takes in what changed in the client's state; returns the work that
@@ -212,11 +212,14 @@ impl App {
         if self.account != account {
             self.account = account;
         }
-        let mut tasks = vec![self.profile_sync(), self.status.sync(self.client.state())];
+        let mut tasks = vec![
+            crate::profile::profile_sync(self),
+            self.status.sync(self.client.state()),
+        ];
         self.cards.sync(&self.client.app, &self.profiles);
-        self.friends_sync();
+        crate::friends::friends_sync(self);
         self.quick.sync(self.client.state());
-        self.active_now_sync();
+        crate::active_now::active_now_sync(self);
         {
             let height = self.window.height;
             let mut cx = crate::ctx::cx!(self);
@@ -277,7 +280,7 @@ impl App {
         };
         if seen != self.uploads.staged_seen {
             self.uploads.staged_seen = seen;
-            tasks.push(self.previews());
+            tasks.push(crate::uploads::previews(self));
         }
         tasks.push(self.roster(switched));
         // The feed came or changed whom it may show.
@@ -288,7 +291,7 @@ impl App {
             || made_from.as_ref().map(Arc::as_ptr) != people.map(Arc::as_ptr)
         {
             self.roster.activity_for = (state.activity_feed.clone(), people.cloned());
-            self.make_activity_cards();
+            crate::members::make_activity_cards(self);
         }
         let state = self.client.state();
         let marks = (state.first_unread.clone(), state.seen.clone());
@@ -298,33 +301,37 @@ impl App {
             self.timeline.marks_for = marks;
             // While someone reads earlier messages, what they read stays
             // put as messages come, go or change around it.
-            let reading = if switched { None } else { self.reading() };
+            let reading = if switched {
+                None
+            } else {
+                crate::timeline::scroll::reading(self)
+            };
             let messages = self.client.state().messages.clone();
             let old = std::mem::replace(&mut self.timeline.messages, messages);
             self.measure(&old, edge_changed);
-            tasks.push(self.keep_reading(reading));
+            tasks.push(crate::timeline::scroll::keep_reading(self, reading));
             // Sent from a window of older messages, or Jump to present: the
             // newest show at the end once they've replaced the window.
             if messages_changed && !self.client.state().detached && self.timeline.latest_due {
                 self.timeline.latest_due = false;
-                tasks.push(self.go_to_end());
+                tasks.push(crate::timeline::scroll::go_to_end(self));
             }
             tasks.push(self.report());
         }
-        tasks.push(self.follow_jumps());
+        tasks.push(crate::timeline::scroll::follow_jumps(self));
         // Images of pictures the core let go of go too.
         self.win.pictures.prune();
-        self.call_sync();
+        crate::call::call_sync(self);
         {
             let mut cx = crate::ctx::cx!(self);
             tasks.push(self.viewer.sync(&mut cx));
         }
-        tasks.push(self.thread_sync());
-        self.popovers_sync();
-        self.search_sync();
-        self.forum_sync();
+        tasks.push(crate::thread::thread_sync(self));
+        crate::popovers::popovers_sync(self);
+        crate::search::search_sync(self);
+        crate::forum::forum_sync(self);
         self.modal.sync(self.client.state(), &self.theme);
-        tasks.push(self.menu_apps_sync());
+        tasks.push(crate::menus::menu_apps_sync(self));
         if self.client.state().browse.is_none() && !self.sidebar.browse_filter.is_empty() {
             self.sidebar.browse_filter.clear();
         }
@@ -334,7 +341,7 @@ impl App {
                 picker.sync(&mut cx);
             }
         }
-        self.mentions_sync();
+        crate::suggest::mentions_sync(self);
         self.person.sync(self.client.state());
         tasks.push(self.server_settings_sync());
         tasks.push(self.server_dialogs.sync(self.client.state()));
@@ -344,7 +351,7 @@ impl App {
         tasks.push(self.shell_sync());
         tasks.push(self.mfa.sync(&self.client.app));
         tasks.push(self.follow_backend());
-        tasks.push(self.arm_clocks());
+        tasks.push(crate::timeline::clocks::arm_clocks(self));
         Task::batch(tasks)
     }
 
@@ -418,7 +425,9 @@ impl App {
     /// cards or pictures, and builds none as the roster churns.
     fn roster_source(&self) -> Option<Arc<Vec<yapfast_core::chat::ChatMember>>> {
         match &self.client.state().members {
-            Some(Ok(members)) if self.server && self.members_shown() => Some(members.clone()),
+            Some(Ok(members)) if self.server && crate::header::members_shown(self) => {
+                Some(members.clone())
+            }
             _ => None,
         }
     }
@@ -451,7 +460,7 @@ impl App {
         self.roster.made = members.is_some().then_some(made);
         self.roster.members = members;
         self.roster.shown = Some(Instant::now());
-        self.make_activity_cards();
+        crate::members::make_activity_cards(self);
     }
 
     /// Works out the rows' looks and heights for the current messages,
@@ -711,7 +720,7 @@ impl App {
                 want(Some(&url));
             }
         }
-        for url in self.suggestion_pictures() {
+        for url in crate::suggest::suggestion_pictures(self) {
             want(Some(&url));
         }
         for url in self
@@ -727,7 +736,7 @@ impl App {
         if self.pointed.message.is_some() || self.win.menu.is_some() {
             for key in self.client.app.frequent_reactions(crate::menus::QUICK) {
                 if let Some((_, id)) = key.split_once(':') {
-                    want(self.ctx().custom_emoji(id).as_deref());
+                    want(crate::suggest::custom_emoji(self.ctx(), id).as_deref());
                 }
             }
         }
@@ -760,7 +769,7 @@ impl App {
             )
         });
         let aside = self.aside.iter().flat_map(|aside| {
-            self.aside_rows_in_view()
+            crate::thread::aside_rows_in_view(self)
                 .map(move |index| (&aside.messages[index], aside.looks.get(index)))
         });
         for (message, look) in main.chain(aside) {
@@ -819,25 +828,24 @@ impl App {
                 }
             }
         }
-        for url in self.activity_pictures() {
+        for url in crate::members::activity_pictures(self) {
             want(Some(url));
         }
-        for url in self
-            .popover_pictures()
+        for url in crate::popovers::popover_pictures(self)
             .into_iter()
-            .chain(self.forum_pictures())
+            .chain(crate::forum::forum_pictures(self))
         {
             want(Some(url));
         }
-        if self.stage_shown() {
+        if crate::call::stage::stage_shown(self) {
             for person in &state.voice.participants {
                 want(person.avatar.as_deref());
             }
         }
-        for url in self.ctx().profile_pictures() {
+        for url in crate::profile::profile_pictures(self.ctx()) {
             want(Some(&url));
         }
-        for url in self.friends_pictures() {
+        for url in crate::friends::friends_pictures(self) {
             want(Some(&url));
         }
         for url in crate::reactions::pictures(self.client.state()) {
@@ -860,7 +868,7 @@ impl App {
         for url in crate::channel_settings::pictures(self.client.state())
             .collect::<Vec<_>>()
             .into_iter()
-            .chain(self.entrance_pictures())
+            .chain(crate::settings::voice::entrance_pictures(self))
         {
             want(Some(&url));
         }

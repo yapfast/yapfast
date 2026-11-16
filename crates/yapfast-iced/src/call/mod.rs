@@ -17,12 +17,12 @@
 //! The tiles are the kit's [`crate::tile`]; a frame is drawn by
 //! [`crate::video`].
 
-mod corner;
-mod details;
-mod dm;
-mod dock;
+pub mod corner;
+pub mod details;
+pub mod dm;
+pub mod dock;
 pub(crate) mod popups;
-mod stage;
+pub mod stage;
 
 use std::{cell::Cell, sync::Arc};
 
@@ -174,301 +174,301 @@ pub enum Event {
     Drop,
 }
 
-impl App {
-    pub fn call_event(&mut self, event: Event) -> Task<Message> {
-        let voice = &self.client.state().voice;
-        let action = match event {
-            Event::Join(room) => Action::RequestJoinVoice(room),
-            Event::Leave => Action::Voice(Command::Leave),
-            Event::Mute => Action::Voice(Command::Mute(!voice.muted)),
-            Event::Deafen => Action::Voice(Command::Deafen(!voice.deafened)),
-            // A click while the camera starts cancels it.
-            Event::Camera => Action::Voice(Command::Video(
-                voice.camera_phase == voice::CameraPhase::Off,
-            )),
-            Event::Noise => {
-                self.toggle_noise();
-                return Task::none();
-            }
-            Event::StopSharing => Action::Voice(Command::StopLive),
-            Event::Watch(user) => Action::Voice(Command::Watch(user)),
-            Event::StopWatching => Action::Voice(Command::StopWatching),
-            Event::Focus(place) => {
-                self.focus_tile(place);
-                return Task::none();
-            }
-            Event::Full(full) => {
-                self.call.full = full && self.call.focus.is_some();
-                self.call.pointed = None;
-                self.place_videos();
-                return Task::none();
-            }
-            Event::Scrolled(scrolled) => {
-                self.call.scrolled = scrolled;
-                self.place_videos();
-                return Task::none();
-            }
-            Event::Point(place, entered) => {
-                if entered {
-                    self.call.pointed = Some(place);
-                } else if self.call.pointed == Some(place) {
-                    self.call.pointed = None;
-                }
-                return Task::none();
-            }
-            Event::Open(popup) => return self.open_popup(popup),
-            Event::Close => {
-                self.close_popup();
-                return Task::none();
-            }
-            Event::Share(event) => return self.share_event(event),
-            Event::List => {
-                self.call.listing = !self.call.listing;
-                return Task::none();
-            }
-            Event::Device(input, index) => {
-                self.call.listing = false;
-                let devices = if input {
-                    &voice.microphones
-                } else {
-                    &voice.speakers
-                };
-                let Some(device) = devices.get(index) else {
-                    return Task::none();
-                };
-                let id = device.id.clone();
-                if input {
-                    // The level follows the microphone chosen.
-                    self.call.meter = Some(InputMeter::start(Some(&id)));
-                }
-                Action::Voice(if input {
-                    Command::Microphone(id)
-                } else {
-                    Command::Speaker(id)
-                })
-            }
-            Event::DeviceVolume(input, value, done) => {
-                self.device_volume(input, value, done);
-                return Task::none();
-            }
-            Event::Suppressor(suppressor) => {
-                self.choose_suppressor(suppressor);
-                return Task::none();
-            }
-            Event::Play(sound) => Action::Voice(Command::Soundboard(sound)),
-            Event::Preview(sound) => Action::Voice(Command::PreviewSound(sound)),
-            Event::Favorite(sound, on) => Action::Voice(Command::FavoriteSound(sound, on)),
-            Event::Volume(stream, value, done) => {
-                self.person_volume(stream, value, done);
-                return Task::none();
-            }
-            Event::Person(room, user, at) => return self.open_voice_menu(room, user, at),
-            Event::ShowPerson(room, user) => Action::ShowVoicePerson { room, user },
-            Event::Profile(user) => {
-                let at = self.pressed.get();
-                return self.open_card(user, at);
-            }
-            Event::OpenCall => {
-                // The corner's tile shows large in the call it returns to.
-                if let Some(place) = self.corner_place() {
-                    self.focus_tile(Some(place));
-                }
-                Action::GoToCall
-            }
-            Event::DetailLit(lit) => {
-                self.call.detail_lit = lit;
-                return Task::none();
-            }
-            Event::Second => {
-                self.read_link();
-                return Task::none();
-            }
-            Event::Link(event) => return self.link_event(event),
-            Event::DismissError => Action::DismissVoiceError,
-            Event::Answer(room, true) => Action::AcceptCall(room),
-            Event::Answer(room, false) => Action::DeclineCall(room),
-            Event::Start(video) => {
-                let Some(room) = self.client.state().selected.clone() else {
-                    return Task::none();
-                };
-                if video {
-                    Action::StartVideoCall(room)
-                } else {
-                    Action::RequestJoinVoice(room)
-                }
-            }
-            Event::Switch(true) => Action::ConfirmVoiceSwitch,
-            Event::Switch(false) => Action::CancelVoiceSwitch,
-            Event::Grab => {
-                self.call.grab = Some(None);
-                return Task::none();
-            }
-            Event::DragTo(at) => {
-                match self.call.grab {
-                    Some(None) => self.call.grab = Some(Some(at)),
-                    Some(Some(from)) => {
-                        let by = at - from;
-                        // A drag starts past 4 px, else it's a click.
-                        if self.call.drag.is_some() || by.x.abs() > 4.0 || by.y.abs() > 4.0 {
-                            self.call.drag = Some(by);
-                        }
-                    }
-                    None => {}
-                }
-                return Task::none();
-            }
-            Event::Drop => {
-                let dragged = self.call.drag.is_some();
-                self.call.grab = None;
-                if !dragged {
-                    return self.call_event(Event::OpenCall);
-                }
-                self.drop_corner();
-                return Task::none();
-            }
-        };
-        self.client.dispatch(action);
-        self.sync()
-    }
-
-    /// After the core's state changed: a new stream starts large, the call
-    /// unmutes or deafens as it connects, as the next one should, a call
-    /// rings while one does, and the frames follow what shows.
-    pub fn call_sync(&mut self) {
-        for sound in self.client.take_sounds() {
-            self.play(sound);
+pub fn update(app: &mut App, event: Event) -> Task<Message> {
+    let voice = &app.client.state().voice;
+    let action = match event {
+        Event::Join(room) => Action::RequestJoinVoice(room),
+        Event::Leave => Action::Voice(Command::Leave),
+        Event::Mute => Action::Voice(Command::Mute(!voice.muted)),
+        Event::Deafen => Action::Voice(Command::Deafen(!voice.deafened)),
+        // A click while the camera starts cancels it.
+        Event::Camera => Action::Voice(Command::Video(
+            voice.camera_phase == voice::CameraPhase::Off,
+        )),
+        Event::Noise => {
+            toggle_noise(app);
+            return Task::none();
         }
-        let voice = &self.client.state().voice;
-        let watching = voice
-            .watching
-            .as_ref()
-            .map(|watching| watching.user.clone());
-        if watching != self.call.watched {
-            if let Some(user) = &watching {
-                self.call.focus = Some(Focus::Stream(user.clone()));
-            } else if matches!(&self.call.focus, Some(Focus::Stream(user)) if self.call.watched.as_ref() == Some(user))
-            {
-                self.call.focus = None;
+        Event::StopSharing => Action::Voice(Command::StopLive),
+        Event::Watch(user) => Action::Voice(Command::Watch(user)),
+        Event::StopWatching => Action::Voice(Command::StopWatching),
+        Event::Focus(place) => {
+            crate::call::stage::focus_tile(app, place);
+            return Task::none();
+        }
+        Event::Full(full) => {
+            app.call.full = full && app.call.focus.is_some();
+            app.call.pointed = None;
+            crate::call::stage::place_videos(app);
+            return Task::none();
+        }
+        Event::Scrolled(scrolled) => {
+            app.call.scrolled = scrolled;
+            crate::call::stage::place_videos(app);
+            return Task::none();
+        }
+        Event::Point(place, entered) => {
+            if entered {
+                app.call.pointed = Some(place);
+            } else if app.call.pointed == Some(place) {
+                app.call.pointed = None;
             }
-            self.call.watched = watching;
+            return Task::none();
         }
-        // Yapfast joins calls muted and hearing; these preferences deafen,
-        // or turn the microphone on, once connected.
-        let ready = voice_ready(voice);
-        if ready && !self.call.ready {
-            if self.layout.deafen_on_join {
-                if !voice.deafened {
-                    self.client.dispatch(Action::DeafenOnJoin);
-                }
-            } else if self.layout.unmute_on_join.unwrap_or(true) && voice.muted {
-                self.client.dispatch(Action::UnmuteOnJoin);
-            }
+        Event::Open(popup) => return crate::call::popups::open_popup(app, popup),
+        Event::Close => {
+            crate::call::popups::close_popup(app);
+            return Task::none();
         }
-        self.call.ready = ready;
-        // The signal goes as the call stops measuring, its touch telling
-        // nothing of the pointer leaving it.
-        if !self.ctx().link_measured() {
-            self.call.details.pointed = false;
+        Event::Share(event) => return crate::call::popups::share::share_event(app, event),
+        Event::List => {
+            app.call.listing = !app.call.listing;
+            return Task::none();
         }
-        let voice = &self.client.state().voice;
-        if !voice.active() {
-            self.call.full = false;
-            if matches!(self.call.popup, Some(Popup::Share | Popup::Soundboard))
-                || self.call.share_listing.is_some()
-            {
-                self.close_popup();
-            }
-        }
-        self.keep_focus();
-        self.time_call();
-        self.ring();
-        self.place_videos();
-    }
-
-    /// One of Yapfast's sounds, as loud as Voice's settings say, unless a
-    /// call is deafened.
-    pub(crate) fn play(&self, sound: Sound) {
-        let voice = &self.client.state().voice;
-        if voice.active() && voice.deafened && !matches!(sound, Sound::Deafen | Sound::Undeafen) {
-            return;
-        }
-        yapfast_core::sounds::play(
-            self.layout.voice.sound_set,
-            sound,
-            self.layout.voice.sound_gain(sound),
-            voice.speaker.as_deref(),
-        );
-    }
-
-    /// Out of a call, the account's toggles mute or deafen the next one, or
-    /// stop doing so, with the sound each makes in a call. Unmuting
-    /// undeafens, as in a call.
-    pub fn toggle_on_join(&mut self, deafen: bool) {
-        let layout = &mut self.layout;
-        let sound = if deafen {
-            layout.deafen_on_join = !layout.deafen_on_join;
-            if layout.deafen_on_join {
-                Sound::Deafen
+        Event::Device(input, index) => {
+            app.call.listing = false;
+            let devices = if input {
+                &voice.microphones
             } else {
-                Sound::Undeafen
+                &voice.speakers
+            };
+            let Some(device) = devices.get(index) else {
+                return Task::none();
+            };
+            let id = device.id.clone();
+            if input {
+                // The level follows the microphone chosen.
+                app.call.meter = Some(InputMeter::start(Some(&id)));
             }
-        } else if layout.deafen_on_join {
-            (layout.deafen_on_join, layout.unmute_on_join) = (false, Some(true));
+            Action::Voice(if input {
+                Command::Microphone(id)
+            } else {
+                Command::Speaker(id)
+            })
+        }
+        Event::DeviceVolume(input, value, done) => {
+            crate::call::popups::device::device_volume(app, input, value, done);
+            return Task::none();
+        }
+        Event::Suppressor(suppressor) => {
+            choose_suppressor(app, suppressor);
+            return Task::none();
+        }
+        Event::Play(sound) => Action::Voice(Command::Soundboard(sound)),
+        Event::Preview(sound) => Action::Voice(Command::PreviewSound(sound)),
+        Event::Favorite(sound, on) => Action::Voice(Command::FavoriteSound(sound, on)),
+        Event::Volume(stream, value, done) => {
+            crate::call::popups::person::person_volume(app, stream, value, done);
+            return Task::none();
+        }
+        Event::Person(room, user, at) => {
+            return crate::call::popups::person::open_voice_menu(app, room, user, at);
+        }
+        Event::ShowPerson(room, user) => Action::ShowVoicePerson { room, user },
+        Event::Profile(user) => {
+            let at = app.pressed.get();
+            return app.open_card(user, at);
+        }
+        Event::OpenCall => {
+            // The corner's tile shows large in the call it returns to.
+            if let Some(place) = crate::call::stage::corner_place(app) {
+                crate::call::stage::focus_tile(app, Some(place));
+            }
+            Action::GoToCall
+        }
+        Event::DetailLit(lit) => {
+            app.call.detail_lit = lit;
+            return Task::none();
+        }
+        Event::Second => {
+            crate::call::details::read_link(app);
+            return Task::none();
+        }
+        Event::Link(event) => return crate::call::details::link_event(app, event),
+        Event::DismissError => Action::DismissVoiceError,
+        Event::Answer(room, true) => Action::AcceptCall(room),
+        Event::Answer(room, false) => Action::DeclineCall(room),
+        Event::Start(video) => {
+            let Some(room) = app.client.state().selected.clone() else {
+                return Task::none();
+            };
+            if video {
+                Action::StartVideoCall(room)
+            } else {
+                Action::RequestJoinVoice(room)
+            }
+        }
+        Event::Switch(true) => Action::ConfirmVoiceSwitch,
+        Event::Switch(false) => Action::CancelVoiceSwitch,
+        Event::Grab => {
+            app.call.grab = Some(None);
+            return Task::none();
+        }
+        Event::DragTo(at) => {
+            match app.call.grab {
+                Some(None) => app.call.grab = Some(Some(at)),
+                Some(Some(from)) => {
+                    let by = at - from;
+                    // A drag starts past 4 px, else it's a click.
+                    if app.call.drag.is_some() || by.x.abs() > 4.0 || by.y.abs() > 4.0 {
+                        app.call.drag = Some(by);
+                    }
+                }
+                None => {}
+            }
+            return Task::none();
+        }
+        Event::Drop => {
+            let dragged = app.call.drag.is_some();
+            app.call.grab = None;
+            if !dragged {
+                return update(app, Event::OpenCall);
+            }
+            crate::call::corner::drop_corner(app);
+            return Task::none();
+        }
+    };
+    app.client.dispatch(action);
+    app.sync()
+}
+
+/// After the core's state changed: a new stream starts large, the call
+/// unmutes or deafens as it connects, as the next one should, a call
+/// rings while one does, and the frames follow what shows.
+pub fn call_sync(app: &mut App) {
+    for sound in app.client.take_sounds() {
+        play(app, sound);
+    }
+    let voice = &app.client.state().voice;
+    let watching = voice
+        .watching
+        .as_ref()
+        .map(|watching| watching.user.clone());
+    if watching != app.call.watched {
+        if let Some(user) = &watching {
+            app.call.focus = Some(Focus::Stream(user.clone()));
+        } else if matches!(&app.call.focus, Some(Focus::Stream(user)) if app.call.watched.as_ref() == Some(user))
+        {
+            app.call.focus = None;
+        }
+        app.call.watched = watching;
+    }
+    // Yapfast joins calls muted and hearing; these preferences deafen,
+    // or turn the microphone on, once connected.
+    let ready = voice_ready(voice);
+    if ready && !app.call.ready {
+        if app.layout.deafen_on_join {
+            if !voice.deafened {
+                app.client.dispatch(Action::DeafenOnJoin);
+            }
+        } else if app.layout.unmute_on_join.unwrap_or(true) && voice.muted {
+            app.client.dispatch(Action::UnmuteOnJoin);
+        }
+    }
+    app.call.ready = ready;
+    // The signal goes as the call stops measuring, its touch telling
+    // nothing of the pointer leaving it.
+    if !crate::call::details::link_measured(app.ctx()) {
+        app.call.details.pointed = false;
+    }
+    let voice = &app.client.state().voice;
+    if !voice.active() {
+        app.call.full = false;
+        if matches!(app.call.popup, Some(Popup::Share | Popup::Soundboard))
+            || app.call.share_listing.is_some()
+        {
+            crate::call::popups::close_popup(app);
+        }
+    }
+    crate::call::stage::keep_focus(app);
+    crate::call::dock::time_call(app);
+    ring(app);
+    crate::call::stage::place_videos(app);
+}
+
+/// One of Yapfast's sounds, as loud as Voice's settings say, unless a
+/// call is deafened.
+pub(crate) fn play(app: &App, sound: Sound) {
+    let voice = &app.client.state().voice;
+    if voice.active() && voice.deafened && !matches!(sound, Sound::Deafen | Sound::Undeafen) {
+        return;
+    }
+    yapfast_core::sounds::play(
+        app.layout.voice.sound_set,
+        sound,
+        app.layout.voice.sound_gain(sound),
+        voice.speaker.as_deref(),
+    );
+}
+
+/// Out of a call, the account's toggles mute or deafen the next one, or
+/// stop doing so, with the sound each makes in a call. Unmuting
+/// undeafens, as in a call.
+pub fn toggle_on_join(app: &mut App, deafen: bool) {
+    let layout = &mut app.layout;
+    let sound = if deafen {
+        layout.deafen_on_join = !layout.deafen_on_join;
+        if layout.deafen_on_join {
+            Sound::Deafen
+        } else {
             Sound::Undeafen
-        } else {
-            let unmute = !layout.unmute_on_join.unwrap_or(true);
-            layout.unmute_on_join = Some(unmute);
-            if unmute { Sound::Unmute } else { Sound::Mute }
-        };
-        let root = self.client.root();
-        crate::layout::store(root, "deafen_on_join", self.layout.deafen_on_join);
-        crate::layout::store(root, "unmute_on_join", self.layout.unmute_on_join);
-        self.play(sound);
-    }
-
-    /// Noise suppression off, or back on to the kind last used before Off
-    /// (DeepFilterNet unless another was), saved, as the dock's toggle.
-    fn toggle_noise(&mut self) {
-        use yapfast_core::noise::Suppressor;
-        let voice = &self.layout.voice;
-        let next = if voice.noise_suppression == Suppressor::Off {
-            self.call.noise_last
-        } else {
-            Suppressor::Off
-        };
-        self.choose_suppressor(next);
-    }
-
-    pub(crate) fn choose_suppressor(&mut self, suppressor: yapfast_core::noise::Suppressor) {
-        if suppressor != yapfast_core::noise::Suppressor::Off {
-            self.call.noise_last = suppressor;
         }
-        self.layout.voice.noise_suppression = suppressor;
-        yapfast_core::noise::set(suppressor);
-        crate::layout::store(self.client.root(), "noise_suppression", suppressor);
-    }
+    } else if layout.deafen_on_join {
+        (layout.deafen_on_join, layout.unmute_on_join) = (false, Some(true));
+        Sound::Undeafen
+    } else {
+        let unmute = !layout.unmute_on_join.unwrap_or(true);
+        layout.unmute_on_join = Some(unmute);
+        if unmute { Sound::Unmute } else { Sound::Mute }
+    };
+    let root = app.client.root();
+    crate::layout::store(root, "deafen_on_join", app.layout.deafen_on_join);
+    crate::layout::store(root, "unmute_on_join", app.layout.unmute_on_join);
+    play(app, sound);
+}
 
-    /// A call ringing this account rings until it's answered or stops, as
-    /// the Slint client's `ring`.
-    fn ring(&mut self) {
-        let state = self.client.state();
-        if ringing(state).next().is_none() || state.do_not_disturb() {
-            self.call.ringer = None;
-        } else if self.call.ringer.is_none() {
-            self.call.ringer = yapfast_core::ring::Ringer::start(
-                yapfast_core::ring::Tone::Incoming,
-                state.voice.speaker.as_deref(),
-            )
-            .inspect_err(|error| tracing::warn!(%error, "could not ring"))
-            .ok();
-        }
-    }
+/// Noise suppression off, or back on to the kind last used before Off
+/// (DeepFilterNet unless another was), saved, as the dock's toggle.
+fn toggle_noise(app: &mut App) {
+    use yapfast_core::noise::Suppressor;
+    let voice = &app.layout.voice;
+    let next = if voice.noise_suppression == Suppressor::Off {
+        app.call.noise_last
+    } else {
+        Suppressor::Off
+    };
+    choose_suppressor(app, next);
+}
 
-    /// The microphone's level is being read.
-    #[cfg(test)]
-    pub fn metering(&self) -> bool {
-        self.call.meter.is_some()
+pub(crate) fn choose_suppressor(app: &mut App, suppressor: yapfast_core::noise::Suppressor) {
+    if suppressor != yapfast_core::noise::Suppressor::Off {
+        app.call.noise_last = suppressor;
     }
+    app.layout.voice.noise_suppression = suppressor;
+    yapfast_core::noise::set(suppressor);
+    crate::layout::store(app.client.root(), "noise_suppression", suppressor);
+}
+
+/// A call ringing this account rings until it's answered or stops, as
+/// the Slint client's `ring`.
+fn ring(app: &mut App) {
+    let state = app.client.state();
+    if ringing(state).next().is_none() || state.do_not_disturb() {
+        app.call.ringer = None;
+    } else if app.call.ringer.is_none() {
+        app.call.ringer = yapfast_core::ring::Ringer::start(
+            yapfast_core::ring::Tone::Incoming,
+            state.voice.speaker.as_deref(),
+        )
+        .inspect_err(|error| tracing::warn!(%error, "could not ring"))
+        .ok();
+    }
+}
+
+/// The microphone's level is being read.
+#[cfg(test)]
+pub fn metering(app: &App) -> bool {
+    app.call.meter.is_some()
 }
 
 /// The call can be spoken in: connected, or getting back to it.

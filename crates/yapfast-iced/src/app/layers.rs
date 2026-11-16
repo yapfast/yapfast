@@ -268,7 +268,7 @@ impl App {
             Layer::ServerDialog => crate::server_dialogs::is_open(state),
             Layer::StatusEditor => state.status_editor.is_some(),
             Layer::AccountPopover => self.status.popover.is_some(),
-            Layer::HeaderPopover => self.popover_open(),
+            Layer::HeaderPopover => crate::popovers::popover_open(self),
             Layer::ProfileEditor => self.editor_open(),
             Layer::Settings => self.win.settings.is_open(),
             Layer::ServerSettings => self.server_screen.is_open(),
@@ -282,7 +282,7 @@ impl App {
             Layer::Menu => self.win.menu.is_some(),
             Layer::CallPopup => self.call.popup.is_some() || self.call.share_listing.is_some(),
             Layer::ClipFull => self.playback.clip_full,
-            Layer::FullCall => self.full_shown(),
+            Layer::FullCall => crate::call::stage::full_shown(self),
             Layer::Picker => self.win.picker.is_open(),
             Layer::ServerCard => self.cards.server.is_some(),
             Layer::ExpressionCard => self.cards.expression.is_some(),
@@ -291,11 +291,13 @@ impl App {
             Layer::RoleCard => state.role.is_some(),
             Layer::Selection => self.timeline.selection.is_some(),
             Layer::TagsMenu => self.forum_post.tags_menu,
-            Layer::Search => self.search_shown(),
+            Layer::Search => crate::search::search_shown(self),
             Layer::Editing => self.composer.editing.is_some(),
             Layer::Compose => state.compose().is_some(),
-            Layer::AsideForm => self.aside_shown() && state.new_thread().is_some(),
-            Layer::AsideReply => self.aside_shown() && state.aside_compose().is_some(),
+            Layer::AsideForm => crate::thread::aside_shown(self) && state.new_thread().is_some(),
+            Layer::AsideReply => {
+                crate::thread::aside_shown(self) && state.aside_compose().is_some()
+            }
         }
     }
 
@@ -445,20 +447,20 @@ impl App {
             return self.layer_key(layer, named, modifiers);
         }
         if self.keyed.is_some()
-            && let Some(task) = self.browse_key(&key, modifiers)
+            && let Some(task) = crate::browse::browse_key(self, &key, modifiers)
         {
             return task;
         }
         if modifiers.command()
             && key.as_ref() == keyboard::Key::Character("c")
-            && let Some(copied) = self.copied()
+            && let Some(copied) = crate::select::copied_selection(self)
         {
             return iced::clipboard::write(copied);
         }
         if named == Some(key::Named::Escape) {
             return self.escape();
         }
-        self.type_anywhere(&key, modifiers)
+        crate::composer::type_anywhere(self, &key, modifiers)
     }
 
     /// A key for a layer that takes them all: those with keys of their own
@@ -471,7 +473,7 @@ impl App {
         modifiers: keyboard::Modifiers,
     ) -> Task<Message> {
         match (layer, named) {
-            (Layer::ConfirmDelete, _) => self.confirm_key(named),
+            (Layer::ConfirmDelete, _) => crate::dialogs::confirm_key(self, named),
             (Layer::Viewer, _) => {
                 let mut cx = crate::ctx::cx!(self);
                 self.viewer.key(named, &mut cx)
@@ -492,11 +494,11 @@ impl App {
                 let mut cx = crate::ctx::cx!(self);
                 self.person.key(named, &mut cx)
             }
-            (Layer::Menu, _) => self.menu_key(named),
+            (Layer::Menu, _) => crate::menus::menu_key(self, named),
             (Layer::SwitchVoice, Some(key::Named::Enter)) => {
-                self.call_event(crate::call::Event::Switch(true))
+                crate::call::update(self, crate::call::Event::Switch(true))
             }
-            (Layer::Leaving, Some(key::Named::Enter)) => self.leave(true),
+            (Layer::Leaving, Some(key::Named::Enter)) => crate::dialogs::leave(self, true),
             (_, Some(key::Named::Escape)) => self.shut(layer),
             _ => Task::none(),
         }
@@ -532,11 +534,15 @@ impl App {
             }
             Layer::NewDm => self.switcher_event(crate::switcher::Event::CloseNewDm),
             // The picker over a poll or the status editor goes first.
-            Layer::Poll | Layer::StatusEditor if self.win.picker.is_open() => self.close_picker(),
+            Layer::Poll | Layer::StatusEditor if self.win.picker.is_open() => {
+                crate::picker::close_picker(self)
+            }
             Layer::Poll => self.switcher_event(crate::switcher::Event::ClosePoll),
             Layer::StatusEditor => self.status_event(crate::status::Event::Cancel),
             Layer::AccountPopover => self.status_event(crate::status::Event::Close),
-            Layer::HeaderPopover => self.popover_event(crate::popovers::Event::Close),
+            Layer::HeaderPopover => {
+                crate::popovers::popover_event(self, crate::popovers::Event::Close)
+            }
             Layer::ProfileEditor => self.editor_escape(),
             Layer::Settings => self.settings_escape(),
             Layer::ServerSettings => self.server_settings_escape(),
@@ -545,25 +551,29 @@ impl App {
                 let mut cx = crate::ctx::cx!(self);
                 self.forward.update(crate::forward::Event::Close, &mut cx)
             }
-            Layer::SwitchVoice => self.call_event(crate::call::Event::Switch(false)),
+            Layer::SwitchVoice => crate::call::update(self, crate::call::Event::Switch(false)),
             Layer::Reactions => {
                 let mut cx = crate::ctx::cx!(self);
                 self.reactions
                     .update(crate::reactions::Event::Close, &mut cx)
             }
-            Layer::AddFriend => self.friends_event(crate::friends::Event::CloseAdd),
-            Layer::Leaving => self.leave(false),
+            Layer::AddFriend => crate::friends::update(self, crate::friends::Event::CloseAdd),
+            Layer::Leaving => crate::dialogs::leave(self, false),
             Layer::Menu => {
                 self.win.menu = None;
-                self.refocus()
+                crate::composer::refocus(self)
             }
             Layer::CallPopup => {
-                self.close_popup();
-                self.refocus()
+                crate::call::popups::close_popup(self);
+                crate::composer::refocus(self)
             }
-            Layer::ClipFull => self.clip_event(crate::playback::Clip::Full(false)),
-            Layer::FullCall => self.call_event(crate::call::Event::Full(false)),
-            Layer::Picker => self.picker_event(picker::Event::Field(field::Event::Escape)),
+            Layer::ClipFull => {
+                crate::playback::clip_event(self, crate::playback::Clip::Full(false))
+            }
+            Layer::FullCall => crate::call::update(self, crate::call::Event::Full(false)),
+            Layer::Picker => {
+                crate::picker::picker_event(self, picker::Event::Field(field::Event::Escape))
+            }
             Layer::ServerCard => self.info_event(crate::info_cards::Event::CloseServer),
             Layer::ExpressionCard => self.info_event(crate::info_cards::Event::CloseExpression),
             Layer::TagCard => self.tag_card_event(crate::tag_card::Event::Close),
@@ -576,7 +586,7 @@ impl App {
                 self.timeline.selection = None;
                 Task::none()
             }
-            Layer::TagsMenu => self.forum_event(crate::forum::Event::TagsMenu(false)),
+            Layer::TagsMenu => crate::forum::update(self, crate::forum::Event::TagsMenu(false)),
             Layer::Search => {
                 let mut cx = crate::ctx::cx!(self);
                 self.searching.update(crate::search::Event::Clear, &mut cx)
@@ -589,8 +599,8 @@ impl App {
                 self.client.dispatch(Action::CancelCompose);
                 self.sync()
             }
-            Layer::AsideForm => self.thread_event(crate::thread::Event::CloseForm),
-            Layer::AsideReply => self.thread_event(crate::thread::Event::CancelReply),
+            Layer::AsideForm => crate::thread::update(self, crate::thread::Event::CloseForm),
+            Layer::AsideReply => crate::thread::update(self, crate::thread::Event::CancelReply),
             // These take Escape in their own key handlers (`layer_key`).
             Layer::ConfirmDelete
             | Layer::Viewer

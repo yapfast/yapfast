@@ -18,7 +18,7 @@ use crate::{
 /// Settings on a section, in a window tall enough to show its whole page.
 fn open(app: &mut App, section: Section) {
     app.shell.frame.height = 2400.0;
-    app.fit_window();
+    crate::window_bar::fit_window(app);
     let _ = app.update(Message::Settings(Event::Open(section)));
 }
 

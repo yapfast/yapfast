@@ -334,21 +334,19 @@ pub enum Mark {
 
 pub use crate::icons::Icon;
 
-impl App {
-    /// Whether moving pictures play, as Messages' Animate choice and the
-    /// window's focus say (the Slint client's `Motion.playing`), and not
-    /// while nobody is using Yapfast, whatever Animate says
-    /// (`crate::away`); while they don't, each shows its first frame and
-    /// nothing asks for frames.
-    pub fn plays(&self) -> bool {
-        if self.away.inactive {
-            return false;
-        }
-        match self.layout.prefs.animate {
-            crate::layout::Animate::Focused => self.shell.focused,
-            crate::layout::Animate::Always => true,
-            crate::layout::Animate::Never => false,
-        }
+/// Whether moving pictures play, as Messages' Animate choice and the
+/// window's focus say (the Slint client's `Motion.playing`), and not
+/// while nobody is using Yapfast, whatever Animate says
+/// (`crate::away`); while they don't, each shows its first frame and
+/// nothing asks for frames.
+pub fn plays(app: &App) -> bool {
+    if app.away.inactive {
+        return false;
+    }
+    match app.layout.prefs.animate {
+        crate::layout::Animate::Focused => app.shell.focused,
+        crate::layout::Animate::Always => true,
+        crate::layout::Animate::Never => false,
     }
 }
 
@@ -626,7 +624,7 @@ impl<'a> crate::ctx::Ctx<'a> {
     }
 
     /// A moving picture at `url`, once it has come and while pictures play
-    /// ([`App::plays`]), as an `Animated` drawn
+    /// ([`pictures::plays`]), as an `Animated` drawn
     /// at `at` within a layout of `size`; it shows nothing until its first
     /// frame unless given a still.
     pub fn moving(self, url: &str, size: Size, at: Rectangle, cover: bool) -> Option<Animated<'a>> {

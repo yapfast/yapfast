@@ -28,7 +28,7 @@ pub struct Ctx<'a> {
     /// The core, and its state.
     pub app: &'a Application,
     pub state: &'a AppState,
-    /// Whether moving pictures play (`App::plays`).
+    /// Whether moving pictures play (`pictures::plays`).
     pub plays: bool,
     /// What `layout.json` keeps, and the themes it offers.
     pub layout: &'a Layout,

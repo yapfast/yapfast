@@ -183,7 +183,8 @@ fn an_activitys_menu_shows_all_activity_or_its_privacy() {
     assert_eq!(rows(&app), ["View All Activity"]);
     let _ = app.update(Message::Profile(crate::profile::Event::ActivityMenu(true)));
     assert_eq!(rows(&app), ["View All Activity", "Manage Privacy"]);
-    let _ = app.act(
+    let _ = crate::menus::act(
+        &mut app,
         crate::menus::MenuAct::AllActivity,
         String::new(),
         Point::ORIGIN,
@@ -192,7 +193,8 @@ fn an_activitys_menu_shows_all_activity_or_its_privacy() {
     let view = app.client.state().profile.as_ref().expect("still open");
     assert!(view.large, "the full profile");
     assert_eq!(app.profiles.tab, Some(crate::profile::look::Tab::Activity));
-    let _ = app.act(
+    let _ = crate::menus::act(
+        &mut app,
         crate::menus::MenuAct::ActivityPrivacy,
         String::new(),
         Point::ORIGIN,
@@ -233,7 +235,7 @@ fn a_profile_without_a_banner_takes_its_avatars_colour() {
     let _ = app.sync();
     let shown = app.profiles.shown.as_ref().expect("shown");
     assert_eq!(
-        app.ctx().banner_ground(shown),
+        crate::profile::banner_ground(app.ctx(), shown),
         None,
         "until the avatar comes"
     );
@@ -248,13 +250,17 @@ fn a_profile_without_a_banner_takes_its_avatars_colour() {
         }),
     );
     let shown = app.profiles.shown.as_ref().expect("shown");
-    assert_eq!(app.ctx().banner_ground(shown), Some(0xC8_14_14));
+    assert_eq!(
+        crate::profile::banner_ground(app.ctx(), shown),
+        Some(0xC8_14_14)
+    );
 }
 
 #[test]
 fn an_emoji_in_a_messages_text_opens_its_card_until_escape() {
     let (mut app, _folder) = preview();
-    let _ = app.follow_link(
+    let _ = crate::links::follow_link(
+        &mut app,
         &yapfast_core::emoji::card::unicode_link("😭"),
         Point::new(400.0, 300.0),
     );
@@ -267,7 +273,8 @@ fn an_emoji_in_a_messages_text_opens_its_card_until_escape() {
     escape(&mut app);
     assert!(app.cards.expression.is_none());
     // One of a server's this account can't reach says so, and nothing else.
-    let _ = app.follow_link(
+    let _ = crate::links::follow_link(
+        &mut app,
         &yapfast_core::emoji::card::custom_link("42"),
         Point::new(400.0, 300.0),
     );

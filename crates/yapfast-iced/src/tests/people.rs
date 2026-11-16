@@ -43,7 +43,7 @@ fn dm_screen(app: &mut App, screen: DmScreen) {
         .dispatch(Action::Navigate(Navigation::DirectMessages));
     app.client.dispatch(Action::OpenDmScreen(screen));
     let _ = app.sync();
-    assert_eq!(app.dm_screen(), Some(screen));
+    assert_eq!(crate::friends::dm_screen(app), Some(screen));
 }
 
 fn friend(id: &str, name: &str, presence: Presence) -> Friend {
@@ -65,7 +65,12 @@ fn a_profiles_more_menu_is_the_persons_own_and_asks_before_a_block() {
     // Alice, "1", has #general open; Dave, "4", is her friend there.
     app.client.app = yapfast_core::application::member_server(&["30"]);
     change(&mut app, |_| {});
-    let _ = app.open_person_menu("4", Point::new(300.0, 200.0), person::CONTEXT_MENU);
+    let _ = crate::person::open_person_menu(
+        &mut app,
+        "4",
+        Point::new(300.0, 200.0),
+        person::CONTEXT_MENU,
+    );
     let from_list = menu_rows(&app);
     assert!(from_list.iter().any(|row| row == "Block"));
     app.win.menu = None;
@@ -278,10 +283,10 @@ fn the_header_shows_and_hides_the_profile_beside_a_dm_and_remembers_it() {
         .dispatch(Action::Navigate(Navigation::DirectMessages));
     let _ = app.update(Message::Side(crate::sidebar::Event::Select("riley".into())));
     assert!(app.header.profile_available, "a one-to-one DM offers it");
-    assert!(app.panel_shown(), "shown until hidden");
+    assert!(crate::profile::panel_shown(&app), "shown until hidden");
     assert!(shows(&app, "View Full Profile"));
     let _ = app.update(Message::Profile(profile::Event::TogglePanel));
-    assert!(!app.panel_shown());
+    assert!(!crate::profile::panel_shown(&app));
     assert!(!shows(&app, "View Full Profile"));
     let layout: serde_json::Value = serde_json::from_slice(&{
         crate::layout::flush(folder.path());
@@ -516,7 +521,11 @@ fn a_cards_effect_plays_only_under_the_pointer_and_its_frame_shows() {
             front: true,
         }]);
     });
-    let wanted = |app: &App, url: &str| app.ctx().profile_pictures().iter().any(|got| got == url);
+    let wanted = |app: &App, url: &str| {
+        crate::profile::profile_pictures(app.ctx())
+            .iter()
+            .any(|got| got == url)
+    };
     assert!(wanted(&app, "effect-still"), "its still at rest");
     assert!(!wanted(&app, "effect-layer"), "no layers at rest");
     assert!(wanted(&app, "frame-staple"));
@@ -783,7 +792,7 @@ fn a_hidden_member_list_keeps_no_lines_and_builds_them_again_when_shown() {
     app.show_roster(false);
     assert!(!app.roster.lines.is_empty(), "the list shows");
     let _ = app.update(Message::ToggleMembers);
-    assert!(!app.members_shown());
+    assert!(!crate::header::members_shown(&app));
     assert!(app.roster.lines.is_empty(), "hidden, its lines go");
     // The roster churns meanwhile: nothing is built.
     change(&mut app, |state| {
@@ -841,7 +850,7 @@ fn active_now_is_made_only_while_the_friends_screen_has_room_for_it() {
     assert!(!app.active_now.is_empty(), "wide, Ann's card is made");
     width(&mut app, 1100.0);
     assert!(app.active_now.is_empty(), "too narrow to show, none is");
-    assert!(!app.active_now_minutes());
+    assert!(!crate::active_now::active_now_minutes(&app));
     width(&mut app, 1500.0);
     assert!(!app.active_now.is_empty(), "wide again");
 }

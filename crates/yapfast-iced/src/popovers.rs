@@ -83,7 +83,7 @@ impl Popovers {
 
     /// What's done in the popovers; one opening opens with its right edge
     /// at `right`, the topic under `under`. A thread's More is the root's
-    /// (`App::popover_event`).
+    /// (`popovers::popover_event`).
     pub fn update(
         &mut self,
         event: Event,
@@ -373,100 +373,98 @@ pub enum Event {
     ThreadMore,
 }
 
-impl App {
-    /// The header's button the last press was on, if it was on one.
-    pub fn header_button(&self) -> Option<iced::Rectangle> {
-        let button = self.header_spot.get();
-        button.contains(self.pressed.get()).then_some(button)
-    }
+/// The header's button the last press was on, if it was on one.
+pub fn header_button(app: &App) -> Option<iced::Rectangle> {
+    let button = app.header_spot.get();
+    button.contains(app.pressed.get()).then_some(button)
+}
 
-    /// The popovers': each opens from the header's button pressed, its
-    /// right edge, as Slint's, or from the press if opened from
-    /// elsewhere; a thread's More opens with the menus.
-    pub fn popover_event(&mut self, event: Event) -> Task<Message> {
-        if let Event::ThreadMore = event {
-            let Some(room) = self.client.state().selected.clone() else {
-                return Task::none();
-            };
-            return self.open_thread_more(&room, self.pressed.get());
-        }
-        let right = self.header_button().map_or(
-            self.pressed.get().x + crate::header::BUTTON / 2.0,
-            |button| button.x + button.width,
-        );
-        let under = self.call.spot.get();
-        let mut cx = crate::ctx::cx!(self);
-        self.popovers.update(event, right, under, &mut cx)
-    }
-
-    /// Whether a popover is open, for Escape.
-    pub fn popover_open(&self) -> bool {
-        self.popovers.is_open(self.client.state())
-    }
-
-    /// Builds the open popover's rows when what they show changed, and lets
-    /// go of a closed one's.
-    pub fn popovers_sync(&mut self) {
-        let pinned: &[yapfast_core::chat::ChatMessage] = match pins_open(self.client.state())
-            .then(|| self.client.state().pins.as_ref())
-            .flatten()
-            .and_then(|pins| pins.messages.as_ref())
-        {
-            Some(Ok(pinned)) => pinned,
-            _ => &[],
+/// The popovers': each opens from the header's button pressed, its
+/// right edge, as Slint's, or from the press if opened from
+/// elsewhere; a thread's More opens with the menus.
+pub fn popover_event(app: &mut App, event: Event) -> Task<Message> {
+    if let Event::ThreadMore = event {
+        let Some(room) = app.client.state().selected.clone() else {
+            return Task::none();
         };
-        let kept = self
-            .popovers
-            .pins
-            .iter()
-            .zip(pinned)
-            // The same message as it reads now: a pin edited since is laid
-            // out again.
-            .take_while(|(found, message)| *found.message == **message)
-            .count();
-        if kept < self.popovers.pins.len() || kept < pinned.len() {
-            let fresh: Vec<_> = pinned[kept..]
-                .iter()
-                .map(|message| std::sync::Arc::new(message.clone()))
-                .collect();
-            self.popovers.pins.truncate(kept);
-            for message in fresh {
-                let found = self.found(message);
-                self.popovers.pins.push(found);
-            }
-        }
-        self.popovers.threads_sync(&self.client.app);
-        self.popovers.people_sync(self.client.state());
-        // The topic goes with its room, or with the topic.
-        let state = self.client.state();
-        if self.popovers.topic.as_ref().is_some_and(|topic| {
-            state.selected.as_deref() != Some(topic.room.as_str()) || state.topic.is_none()
-        }) {
-            self.popovers.topic = None;
-        }
+        return crate::places::open_thread_more(app, &room, app.pressed.get());
     }
+    let right = header_button(app).map_or(
+        app.pressed.get().x + crate::header::BUTTON / 2.0,
+        |button| button.x + button.width,
+    );
+    let under = app.call.spot.get();
+    let mut cx = crate::ctx::cx!(app);
+    app.popovers.update(event, right, under, &mut cx)
+}
 
-    /// The pictures the open popover and the search's results show: found
-    /// messages' authors, threads' people, friends to pick.
-    pub fn popover_pictures(&self) -> Vec<&str> {
-        let found = self.popovers.pins.iter().map(|found| &found.message);
-        let results = self.searching_messages();
-        let mut urls: Vec<&str> = found
-            .chain(results)
-            .filter_map(|message| message.avatar.as_deref())
+/// Whether a popover is open, for Escape.
+pub fn popover_open(app: &App) -> bool {
+    app.popovers.is_open(app.client.state())
+}
+
+/// Builds the open popover's rows when what they show changed, and lets
+/// go of a closed one's.
+pub fn popovers_sync(app: &mut App) {
+    let pinned: &[yapfast_core::chat::ChatMessage] = match pins_open(app.client.state())
+        .then(|| app.client.state().pins.as_ref())
+        .flatten()
+        .and_then(|pins| pins.messages.as_ref())
+    {
+        Some(Ok(pinned)) => pinned,
+        _ => &[],
+    };
+    let kept = app
+        .popovers
+        .pins
+        .iter()
+        .zip(pinned)
+        // The same message as it reads now: a pin edited since is laid
+        // out again.
+        .take_while(|(found, message)| *found.message == **message)
+        .count();
+    if kept < app.popovers.pins.len() || kept < pinned.len() {
+        let fresh: Vec<_> = pinned[kept..]
+            .iter()
+            .map(|message| std::sync::Arc::new(message.clone()))
             .collect();
-        for entry in &self.popovers.threads {
-            urls.extend(entry.person.as_ref().map(|(_, avatar, _)| avatar.as_str()));
-            urls.extend(entry.avatars.iter().map(String::as_str));
+        app.popovers.pins.truncate(kept);
+        for message in fresh {
+            let found = crate::found::found(app, message);
+            app.popovers.pins.push(found);
         }
-        urls.extend(
-            self.popovers
-                .people
-                .iter()
-                .filter_map(|person| person.avatar.as_deref()),
-        );
-        urls
     }
+    app.popovers.threads_sync(&app.client.app);
+    app.popovers.people_sync(app.client.state());
+    // The topic goes with its room, or with the topic.
+    let state = app.client.state();
+    if app.popovers.topic.as_ref().is_some_and(|topic| {
+        state.selected.as_deref() != Some(topic.room.as_str()) || state.topic.is_none()
+    }) {
+        app.popovers.topic = None;
+    }
+}
+
+/// The pictures the open popover and the search's results show: found
+/// messages' authors, threads' people, friends to pick.
+pub fn popover_pictures(app: &App) -> Vec<&str> {
+    let found = app.popovers.pins.iter().map(|found| &found.message);
+    let results = crate::search::searching_messages(app);
+    let mut urls: Vec<&str> = found
+        .chain(results)
+        .filter_map(|message| message.avatar.as_deref())
+        .collect();
+    for entry in &app.popovers.threads {
+        urls.extend(entry.person.as_ref().map(|(_, avatar, _)| avatar.as_str()));
+        urls.extend(entry.avatars.iter().map(String::as_str));
+    }
+    urls.extend(
+        app.popovers
+            .people
+            .iter()
+            .filter_map(|person| person.avatar.as_deref()),
+    );
+    urls
 }
 
 /// The open popover, placed under its button.
@@ -638,7 +636,8 @@ impl<'a> View<'a> {
             Some(note) => self.note(Some(Icon::Pin), note),
             None => {
                 let cards = self.s.pins.iter().map(|found| {
-                    self.cx.found_view(
+                    crate::found::found_view(
+                        self.cx,
                         found,
                         Message::Popover(Event::Jump(found.message.item.clone())),
                     )
@@ -715,7 +714,8 @@ impl<'a> View<'a> {
         if searchable {
             heading = heading
                 .push(bar(theme.line, 1, 24))
-                .push(self.cx.search_field(
+                .push(crate::search::search_field(
+                    self.cx,
                     THREADS_SEARCH,
                     "Search for Thread Name",
                     &self.s.threads_query,

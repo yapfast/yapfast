@@ -16,25 +16,23 @@ use crate::{
     fonts::{BOLD, MEDIUM},
 };
 
-impl App {
-    /// The confirmation's keys: Escape cancels, Enter does what the focused
-    /// button does, Tab and the side arrows go round the two buttons.
-    pub fn confirm_key(&mut self, named: Option<key::Named>) -> Task<Message> {
-        match named {
-            Some(key::Named::Escape) => self.update(Message::CancelDelete),
-            Some(key::Named::Enter) => {
-                if self.confirm_focus {
-                    self.update(Message::ConfirmDelete)
-                } else {
-                    self.update(Message::CancelDelete)
-                }
+/// The confirmation's keys: Escape cancels, Enter does what the focused
+/// button does, Tab and the side arrows go round the two buttons.
+pub fn confirm_key(app: &mut App, named: Option<key::Named>) -> Task<Message> {
+    match named {
+        Some(key::Named::Escape) => app.update(Message::CancelDelete),
+        Some(key::Named::Enter) => {
+            if app.confirm_focus {
+                app.update(Message::ConfirmDelete)
+            } else {
+                app.update(Message::CancelDelete)
             }
-            Some(key::Named::Tab | key::Named::ArrowLeft | key::Named::ArrowRight) => {
-                self.confirm_focus = !self.confirm_focus;
-                Task::none()
-            }
-            _ => Task::none(),
         }
+        Some(key::Named::Tab | key::Named::ArrowLeft | key::Named::ArrowRight) => {
+            app.confirm_focus = !app.confirm_focus;
+            Task::none()
+        }
+        _ => Task::none(),
     }
 }
 
@@ -141,74 +139,70 @@ pub fn leaving_view<'a>(link: Option<&'a str>, cx: Ctx<'a>) -> Option<Element<'a
     ))
 }
 
-impl App {
-    /// The question's answer: the link opens, or not.
-    pub fn leave(&mut self, visit: bool) -> Task<Message> {
-        if let Some(link) = self.leaving.take()
-            && visit
-        {
-            crate::browser::open(&link);
-        }
-        Task::none()
+/// The question's answer: the link opens, or not.
+pub fn leave(app: &mut App, visit: bool) -> Task<Message> {
+    if let Some(link) = app.leaving.take()
+        && visit
+    {
+        crate::browser::open(&link);
     }
+    Task::none()
 }
 
-impl<'a> crate::ctx::Ctx<'a> {
-    /// An emoji to pick in a form, as the Slint client's custom status and
-    /// poll answers have it: 40 px on a sunken ground, the emoji chosen
-    /// (`key`) or a smile with a plus, and with one, a small badge on its
-    /// corner that takes it off.
-    pub fn emoji_slot(
-        self,
-        key: Option<&'a str>,
-        pick: Message,
-        remove: Message,
-    ) -> Element<'a, Message> {
-        let theme = self.look.theme;
-        let face: Element<'a, Message> = match key {
-            Some(key) => self.emoji_face(key, 22),
-            None => self
-                .look
-                .glyph(crate::pictures::Icon::SmilePlus, 20, theme.secondary)
-                .into(),
-        };
-        let pick = iced::widget::button(container(face).center(40))
-            .padding(0)
-            .width(40)
-            .height(40)
-            .on_press(pick)
-            .style(crate::controls::lit_style(
-                Some(theme.sunken),
-                theme.hover,
-                6.0,
-            ));
-        if key.is_none() {
-            return pick.into();
-        }
-        let (faint, danger, raised) = (theme.faint, theme.danger, theme.raised);
-        let remove = iced::widget::button(
-            container(self.look.glyph(crate::pictures::Icon::X, 10, theme.text)).center(14),
-        )
+/// An emoji to pick in a form, as the Slint client's custom status and
+/// poll answers have it: 40 px on a sunken ground, the emoji chosen
+/// (`key`) or a smile with a plus, and with one, a small badge on its
+/// corner that takes it off.
+pub fn emoji_slot<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    key: Option<&'a str>,
+    pick: Message,
+    remove: Message,
+) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
+    let face: Element<'a, Message> = match key {
+        Some(key) => crate::suggest::emoji_face(ctx, key, 22),
+        None => ctx
+            .look
+            .glyph(crate::pictures::Icon::SmilePlus, 20, theme.secondary)
+            .into(),
+    };
+    let pick = iced::widget::button(container(face).center(40))
         .padding(0)
-        .width(18)
-        .height(18)
-        .on_press(remove)
-        .style(move |_, status| iced::widget::button::Style {
-            background: Some(
-                if crate::controls::lights(status) {
-                    danger
-                } else {
-                    faint
-                }
-                .into(),
-            ),
-            border: iced::Border {
-                color: raised,
-                width: 2.0,
-                radius: 9.0.into(),
-            },
-            ..Default::default()
-        });
-        iced::widget::stack![pick, crate::controls::placed(remove, 28.0, 0.0)].into()
+        .width(40)
+        .height(40)
+        .on_press(pick)
+        .style(crate::controls::lit_style(
+            Some(theme.sunken),
+            theme.hover,
+            6.0,
+        ));
+    if key.is_none() {
+        return pick.into();
     }
+    let (faint, danger, raised) = (theme.faint, theme.danger, theme.raised);
+    let remove = iced::widget::button(
+        container(ctx.look.glyph(crate::pictures::Icon::X, 10, theme.text)).center(14),
+    )
+    .padding(0)
+    .width(18)
+    .height(18)
+    .on_press(remove)
+    .style(move |_, status| iced::widget::button::Style {
+        background: Some(
+            if crate::controls::lights(status) {
+                danger
+            } else {
+                faint
+            }
+            .into(),
+        ),
+        border: iced::Border {
+            color: raised,
+            width: 2.0,
+            radius: 9.0.into(),
+        },
+        ..Default::default()
+    });
+    iced::widget::stack![pick, crate::controls::placed(remove, 28.0, 0.0)].into()
 }

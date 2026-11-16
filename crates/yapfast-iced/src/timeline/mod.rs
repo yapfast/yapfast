@@ -27,10 +27,10 @@ use crate::{
 
 use rows::top_space;
 
-mod clocks;
+pub mod clocks;
 mod rows;
-mod scroll;
-mod view;
+pub mod scroll;
+pub mod view;
 
 pub use clocks::{Clock, Clocks};
 pub use rows::{
@@ -253,87 +253,85 @@ impl<'a> Lanes<'a> {
     }
 }
 
-impl App {
-    /// The channel's timeline and the thread's, for what reads rows.
-    pub fn lanes(&self) -> Lanes<'_> {
-        Lanes {
-            timeline: &self.timeline,
-            aside: self.aside.as_deref(),
-        }
+/// The channel's timeline and the thread's, for what reads rows.
+pub fn lanes(app: &App) -> Lanes<'_> {
+    Lanes {
+        timeline: &app.timeline,
+        aside: app.aside.as_deref(),
     }
+}
 
-    pub fn row_message(&self, row: usize) -> Option<&Arc<ChatMessage>> {
-        self.lanes().row_message(row)
+pub fn row_message(app: &App, row: usize) -> Option<&Arc<ChatMessage>> {
+    lanes(app).row_message(row)
+}
+
+pub fn row_of(app: &App, item: &str) -> Option<usize> {
+    lanes(app).row_of(item)
+}
+
+pub fn row_item(app: &App, row: usize) -> Arc<str> {
+    lanes(app).row_item(row)
+}
+
+/// A theme switch: the text laid out in the old theme's inks (its
+/// mentions', a notice's) is laid out again in the new one's, in the
+/// channel's timeline and the thread beside, the rows keeping their
+/// heights. A switch that keeps those inks costs nothing.
+pub fn recolour(app: &mut App, old: &crate::theme::Theme) {
+    let theme = &app.theme;
+    if (theme.mention, theme.text, theme.muted) == (old.mention, old.text, old.muted) {
+        return;
     }
-
-    pub fn row_of(&self, item: &str) -> Option<usize> {
-        self.lanes().row_of(item)
+    let (mention, ink, muted) = (rgb(theme.mention), rgb(theme.text), rgb(theme.muted));
+    let revealed = &app.timeline.revealed;
+    let lay = |message: &ChatMessage| {
+        Arc::new(body_of(message, mention, ink, muted, |spoiler| {
+            revealed.contains(&format!("{}/{spoiler}", message.item))
+        }))
+    };
+    for (look, message) in app
+        .timeline
+        .looks
+        .iter_mut()
+        .zip(app.timeline.messages.iter())
+    {
+        look.body = lay(message);
     }
-
-    pub fn row_item(&self, row: usize) -> Arc<str> {
-        self.lanes().row_item(row)
-    }
-
-    /// A theme switch: the text laid out in the old theme's inks (its
-    /// mentions', a notice's) is laid out again in the new one's, in the
-    /// channel's timeline and the thread beside, the rows keeping their
-    /// heights. A switch that keeps those inks costs nothing.
-    pub fn recolour(&mut self, old: &crate::theme::Theme) {
-        let theme = &self.theme;
-        if (theme.mention, theme.text, theme.muted) == (old.mention, old.text, old.muted) {
-            return;
-        }
-        let (mention, ink, muted) = (rgb(theme.mention), rgb(theme.text), rgb(theme.muted));
-        let revealed = &self.timeline.revealed;
-        let lay = |message: &ChatMessage| {
-            Arc::new(body_of(message, mention, ink, muted, |spoiler| {
-                revealed.contains(&format!("{}/{spoiler}", message.item))
-            }))
-        };
-        for (look, message) in self
-            .timeline
-            .looks
-            .iter_mut()
-            .zip(self.timeline.messages.iter())
-        {
+    if let Some(aside) = &mut app.aside {
+        for (look, message) in aside.looks.iter_mut().zip(aside.messages.iter()) {
             look.body = lay(message);
         }
-        if let Some(aside) = &mut self.aside {
-            for (look, message) in aside.looks.iter_mut().zip(aside.messages.iter()) {
-                look.body = lay(message);
-            }
-        }
     }
+}
 
-    /// A spoiler over a message's attachment was clicked: it shows.
-    pub fn reveal(&mut self, item: &str, attachment: usize) -> Task<Message> {
-        self.timeline
-            .revealed
-            .insert(crate::message::reveal_key(item, attachment));
-        Task::none()
-    }
+/// A spoiler over a message's attachment was clicked: it shows.
+pub fn reveal(app: &mut App, item: &str, attachment: usize) -> Task<Message> {
+    app.timeline
+        .revealed
+        .insert(crate::message::reveal_key(item, attachment));
+    Task::none()
+}
 
-    /// A long message shows whole, or folds again.
-    pub fn unfold(&mut self, item: &str) -> Task<Message> {
-        let key = crate::message::fold_key(item);
-        if !self.timeline.revealed.remove(&key) {
-            self.timeline.revealed.insert(key);
-        }
-        Task::none()
+/// A long message shows whole, or folds again.
+pub fn unfold(app: &mut App, item: &str) -> Task<Message> {
+    let key = crate::message::fold_key(item);
+    if !app.timeline.revealed.remove(&key) {
+        app.timeline.revealed.insert(key);
     }
+    Task::none()
+}
 
-    /// Row `index`'s text laid out, as it shows now.
-    pub fn body_for(&self, index: usize) -> Option<Laid> {
-        let message = self.row_message(index)?;
-        let revealed = &self.timeline.revealed;
-        Some(body_of(
-            message,
-            rgb(self.theme.mention),
-            rgb(self.theme.text),
-            rgb(self.theme.muted),
-            |spoiler| revealed.contains(&format!("{}/{spoiler}", message.item)),
-        ))
-    }
+/// Row `index`'s text laid out, as it shows now.
+pub fn body_for(app: &App, index: usize) -> Option<Laid> {
+    let message = row_message(app, index)?;
+    let revealed = &app.timeline.revealed;
+    Some(body_of(
+        message,
+        rgb(app.theme.mention),
+        rgb(app.theme.text),
+        rgb(app.theme.muted),
+        |spoiler| revealed.contains(&format!("{}/{spoiler}", message.item)),
+    ))
 }
 
 impl<'a> crate::ctx::Ctx<'a> {

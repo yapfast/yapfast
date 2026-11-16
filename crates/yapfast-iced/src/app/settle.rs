@@ -24,7 +24,7 @@ impl App {
             pictures: &self.win.pictures,
             app: &self.client.app,
             state: self.client.state(),
-            plays: self.plays(),
+            plays: crate::pictures::plays(self),
             layout: &self.layout,
             themes: &self.themes,
             account: &self.account,
@@ -40,7 +40,7 @@ impl App {
                 .as_ref()
                 .is_some_and(|tray| tray.available()),
             sign_in: &self.sign_in,
-            lanes: self.lanes(),
+            lanes: crate::timeline::lanes(self),
             link_spot: &self.link_spot,
             profiles: &self.profiles,
             minute: self.minute,
@@ -64,10 +64,10 @@ impl App {
             active_now: &self.active_now,
             account_pointed: self.account_pointed,
             browse_filter: &self.sidebar.browse_filter,
-            aside_width: self.aside_width(),
+            aside_width: crate::thread::aside_width(self),
             open: crate::ctx::Open {
-                members: self.members_shown(),
-                aside: self.aside_shown(),
+                members: crate::header::members_shown(self),
+                aside: crate::thread::aside_shown(self),
             },
         }
     }
@@ -151,7 +151,7 @@ impl App {
             .unwrap_or_default();
         if videos != self.videos_for {
             self.videos_for = videos;
-            self.place_videos();
+            crate::call::stage::place_videos(self);
         }
         // Keybinds rest while one is recorded, so pressing a toggle's keys
         // to record them doesn't toggle it.
@@ -177,7 +177,7 @@ impl App {
                     Request::Close(screen) => self.close_screen(screen, Why::User),
                     Request::CloseMenus => self.win.menu = None,
                     Request::ClosePopups => {
-                        self.close_popup();
+                        crate::call::popups::close_popup(self);
                         // They cover the signal, whose touch says nothing
                         // as it's covered.
                         self.call.details.pointed = false;
@@ -191,19 +191,23 @@ impl App {
                             heard.push(pref);
                         }
                     }
-                    Request::TitleBar(system) => tasks.push(self.choose_title_bar(system)),
-                    Request::LookForUpdates(announce) => self.look_for_updates(announce),
+                    Request::TitleBar(system) => {
+                        tasks.push(crate::window_bar::choose_title_bar(self, system))
+                    }
+                    Request::LookForUpdates(announce) => {
+                        crate::updates::look_for_updates(self, announce)
+                    }
                     Request::Ask => tasks.push(self.ask()),
                     Request::Restart => {
                         crate::exit_for(crate::Exit::Restart);
                         tasks.push(self.quit());
                     }
                     Request::PlaceEmoji { target, key } => {
-                        tasks.push(self.place_emoji(target, key));
+                        tasks.push(crate::picker::place_emoji(self, target, key));
                     }
                     Request::PersonMenu { user, location } => {
                         let at = self.pressed.get();
-                        tasks.push(self.open_person_menu(&user, at, location));
+                        tasks.push(crate::person::open_person_menu(self, &user, at, location));
                     }
                 }
             }
@@ -215,7 +219,7 @@ impl App {
         // that what the sync opens focuses (the status editor's, as My
         // Account's Custom Status closes Settings) takes them after.
         match focus {
-            Some(Focus::Default) => tasks.push(self.refocus()),
+            Some(Focus::Default) => tasks.push(crate::composer::refocus(self)),
             Some(Focus::Nobody) => tasks.push(iced::widget::operation::focus(super::NOBODY)),
             Some(Focus::Id(id)) => tasks.push(iced::widget::operation::focus(id)),
             None => {}
@@ -268,8 +272,8 @@ impl App {
                 self.dirty = true;
             }
             Pref::Roster => self.show_roster(false),
-            Pref::Keybinds => task = self.watch_keybinds(),
-            Pref::Idle => self.idle_setting_changed(),
+            Pref::Keybinds => task = crate::keybinds::watch_keybinds(self),
+            Pref::Idle => crate::away::idle_setting_changed(self),
             Pref::Theme => {
                 let shown = self
                     .win
