@@ -516,6 +516,9 @@ export struct ProfileData {
     note-editable: bool,
     /// Whether messaging them is offered.
     can-message: bool,
+    /// Whether this account may moderate them in the open server: Discord's
+    /// card then has a moderator view button.
+    can-moderate: bool,
     /// "5 Mutual Friends" and "2 Mutual Servers", as the card's line says
     /// them.
     mutual-friends-text: string, mutual-servers-text: string,
@@ -1398,6 +1401,7 @@ export component ProfileCard inherits Rectangle {
             // long one scrolls to its end.
             ScrollView {
                 y: 0px; height: parent.height - (root.docked && ClientStyle.enabled ? 56px : 0px);
+                hide-at-rest: ClientStyle.enabled;
                 content-height: body.preferred-height;
                 horizontal-scrollbar-policy: root.docked && ClientStyle.enabled ? ScrollBarPolicy.always-off : ScrollBarPolicy.as-needed;
                 body := VerticalLayout {
@@ -1850,6 +1854,16 @@ export component ProfileCard inherits Rectangle {
             if !root.preview && !root.large && (root.data.friend > 0 || root.data.id != ""): HorizontalLayout {
                 x: parent.width - self.preferred-width - (root.large && !root.side ? 54px : 10px); y: 10px;
                 height: 32px; spacing: 8px;
+                // Discord's moderator view button; the view itself isn't built yet,
+                // so the button only shows.
+                if ClientStyle.enabled && root.data.can-moderate: Rectangle {
+                    width: 32px; height: 32px; border-radius: 16px;
+                    background: moderate-touch.has-hover ? #000000b3 : #00000080;
+                    accessible-role: button;
+                    accessible-label: "Open in moderator view";
+                    Image { source: @image-url("icons/shield.svg"); width: 18px; height: 18px; x: 7px; y: 7px; colorize: #ffffff; }
+                    moderate-touch := TouchArea { mouse-cursor: MouseCursor.pointer; }
+                }
                 if root.data.friend > 0: Rectangle {
                     width: 32px; height: 32px; border-radius: 16px;
                     background: friend-touch.has-hover && root.data.friend != 2 ? #000000b3 : #00000080;

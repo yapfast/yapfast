@@ -54,6 +54,8 @@ component ScrollBar inherits Rectangle {
     in-out property <length> value;
     in property <ScrollBarPolicy> policy: ScrollBarPolicy.as-needed;
     in property <bool> enabled;
+    /// Discord's profile card shows no thumb until the pointer is on the bar.
+    in property <bool> hide-at-rest;
 
     callback scrolled();
 
@@ -95,7 +97,7 @@ component ScrollBar inherits Rectangle {
         x: !root.horizontal ? parent.width - 4px - self.width : root.offset + root.travel * root.share;
         y: root.horizontal ? parent.height - 4px - self.height : root.offset + root.travel * root.share;
         border-radius: (root.horizontal ? self.height : self.width) / 2;
-        background: ClientStyle.enabled && Theme.dark && (touch-area.has-hover || touch-area.pressed) ? #666770 : Theme.dark ? #FFFFFF14 : #00000073;
+        background: ClientStyle.enabled && Theme.dark && (touch-area.has-hover || touch-area.pressed) ? #666770 : root.hide-at-rest && ClientStyle.enabled ? transparent : Theme.dark ? #FFFFFF14 : #00000073;
 
         animate width, height { duration: 150ms; easing: ease-out; }
     }
@@ -172,6 +174,7 @@ export component ScrollView {
     in-out property <length> content-x <=> flickable.content-x;
     in-out property <length> content-y <=> flickable.content-y;
     in property <ScrollBarPolicy> vertical-scrollbar-policy <=> vertical-bar.policy;
+    in property <bool> hide-at-rest <=> vertical-bar.hide-at-rest;
     in property <ScrollBarPolicy> horizontal-scrollbar-policy <=> horizontal-bar.policy;
     in property <bool> mouse-drag-pan-enabled <=> flickable.mouse-drag-pan-enabled;
 

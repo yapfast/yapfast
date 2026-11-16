@@ -878,6 +878,13 @@ pub(super) fn profile_data(
         can_message: state
             .person_choices(&profile.id)
             .contains(&MenuChoice::Message),
+        // Discord's card offers its moderator view to those who may moderate them.
+        can_moderate: state.person_choices(&profile.id).iter().any(|choice| {
+            matches!(
+                choice,
+                MenuChoice::Kick | MenuChoice::Ban | MenuChoice::Timeout | MenuChoice::RemoveTimeout
+            )
+        }),
         // Discord's card names them as the profile does.
         message_hint: if state
             .person_choices(&profile.id)
