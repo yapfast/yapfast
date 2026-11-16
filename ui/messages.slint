@@ -3189,13 +3189,18 @@ export component MessageContent inherits VerticalLayout {
             }
             if message.edited && !message.deleted && !root.editing: Text { text: "(edited)"; color: Theme.muted; font-size: 12px; }
             // Fixed-size children sit beside a spacer, so they do not cap the column's width.
-            if message.images.length > 0: MessageGallery {
-                images: message.images; gallery-width: message.gallery-width; gallery-height: message.gallery-height;
-                item: message.item; delivery: message.delivery; active-item: root.active-item; preview: root.preview;
-                reveal-attachment(id, index) => { root.reveal-attachment(id, index); }
-                view-image(id, index) => { root.view-image(id, index); }
-                save-attachment(id, index) => { root.save-attachment(id, index); }
-                media-menu(id, index, video, x, y) => { root.media-menu(id, index, video, x, y); }
+            // Discord leaves 3px under a picture or an embed, measured against its
+            // next message.
+            if message.images.length > 0: VerticalLayout {
+                padding-bottom: ClientStyle.enabled ? 3px : 0px;
+                MessageGallery {
+                    images: message.images; gallery-width: message.gallery-width; gallery-height: message.gallery-height;
+                    item: message.item; delivery: message.delivery; active-item: root.active-item; preview: root.preview;
+                    reveal-attachment(id, index) => { root.reveal-attachment(id, index); }
+                    view-image(id, index) => { root.view-image(id, index); }
+                    save-attachment(id, index) => { root.save-attachment(id, index); }
+                    media-menu(id, index, video, x, y) => { root.media-menu(id, index, video, x, y); }
+                }
             }
             if message.stickers.length > 0: MessageStickers {
                 stickers: message.stickers;
@@ -3209,12 +3214,15 @@ export component MessageContent inherits VerticalLayout {
                 text: message.hidden-card; color: Theme.muted; font-size: root.message-font-size * 0.875; font-italic: true; wrap: word-wrap;
             }
             if message.has-poll: PollView { poll: message.poll; item: message.item; emoji-font: root.emoji-font; }
-            for embed in message.embeds: EmbedView {
-                embed: embed; item: message.item;
-                open-link(link) => { root.open-link(link); }
-                reveal-attachment(id, index) => { root.reveal-attachment(id, index); }
-                view-image(id, index) => { root.view-image(id, index); }
-                media-menu(id, index, video, x, y) => { root.media-menu(id, index, video, x, y); }
+            for embed in message.embeds: VerticalLayout {
+                padding-bottom: ClientStyle.enabled ? 3px : 0px;
+                EmbedView {
+                    embed: embed; item: message.item;
+                    open-link(link) => { root.open-link(link); }
+                    reveal-attachment(id, index) => { root.reveal-attachment(id, index); }
+                    view-image(id, index) => { root.view-image(id, index); }
+                    media-menu(id, index, video, x, y) => { root.media-menu(id, index, video, x, y); }
+                }
             }
             for card in message.cards: CardView {
                 card: card; item: message.item; app-id: message.app-id; busy: root.bot-busy-item == message.item; delivery: message.delivery; active-item: root.active-item; preview: root.preview;
