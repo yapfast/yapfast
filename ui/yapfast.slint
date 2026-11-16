@@ -3113,14 +3113,14 @@ export component YapfastWindow inherits Window {
                             IconButton {
                                 icon: root.voice-chat ? @image-url("icons/volume-2.svg") : @image-url("icons/message-square-text.svg");
                                 label: root.voice-chat ? "Show voice channel" : "Open chat";
-                                tip-side: 2;
+                                size: ClientStyle.enabled ? 30px : 32px; tip-side: 2;
                                 clicked => { root.show-voice-chat(!root.voice-chat); }
                             }
                         }
                         if root.can-call: Middle {
                             IconButton {
                                 icon: @image-url("icons/phone.svg"); label: root.call-going ? "Join Voice Call" : "Start Voice Call";
-                                size: 32px; glyph: 20px; enabled: root.can-join; tip-side: 2;
+                                size: ClientStyle.enabled ? 30px : 32px; glyph: 20px; enabled: root.can-join; tip-side: 2;
                                 tint: ClientStyle.enabled ? Theme.nav-read : Theme.secondary;
                                 clicked => { root.start-call(); }
                             }
@@ -3128,7 +3128,7 @@ export component YapfastWindow inherits Window {
                         if root.can-call && !root.call-going: Middle {
                             IconButton {
                                 icon: @image-url("icons/video.svg"); label: "Start Video Call";
-                                size: 32px; glyph: 20px; enabled: root.can-join; tip-side: 2;
+                                size: ClientStyle.enabled ? 30px : 32px; glyph: 20px; enabled: root.can-join; tip-side: 2;
                                 tint: ClientStyle.enabled ? Theme.nav-read : Theme.secondary;
                                 clicked => { root.start-video-call(); }
                             }
@@ -3136,7 +3136,7 @@ export component YapfastWindow inherits Window {
                         if root.can-list-threads: Middle {
                             IconButton {
                                 icon: @image-url("icons/thread.svg"); label: "Threads";
-                                size: 32px; glyph: 20px; tip-side: 2;
+                                size: ClientStyle.enabled ? 30px : 32px; glyph: 20px; tip-side: 2;
                                 tint: root.threads-open ? (ClientStyle.enabled ? Theme.channel-white : Theme.text) : (ClientStyle.enabled ? Theme.nav-read : Theme.secondary);
                                 clicked => {
                                     root.popover-x = self.absolute-position.x + self.width;
@@ -3149,7 +3149,7 @@ export component YapfastWindow inherits Window {
                             IconButton {
                                 icon: root.room-muted ? @image-url("icons/bell-off.svg") : @image-url("icons/bell.svg");
                                 label: root.room-muted ? "Notification settings, muted" : "Notification settings";
-                                size: 32px; glyph: 20px; tip-side: 2;
+                                size: ClientStyle.enabled ? 30px : 32px; glyph: 20px; tip-side: 2;
                                 tint: ClientStyle.enabled ? Theme.nav-read : Theme.secondary;
                                 clicked => {
                                     root.open-context-menu("notifications:" + root.room-id, false,
@@ -3160,7 +3160,7 @@ export component YapfastWindow inherits Window {
                         if root.can-pin: Middle {
                             IconButton {
                                 icon: @image-url("icons/pin.svg"); label: "Pinned messages";
-                                size: 32px; glyph: 20px; tip-side: 2;
+                                size: ClientStyle.enabled ? 30px : 32px; glyph: 20px; tip-side: 2;
                                 tint: root.pins-open ? (ClientStyle.enabled ? Theme.channel-white : Theme.text) : (ClientStyle.enabled ? Theme.nav-read : Theme.secondary);
                                 // Where the pins open from elsewhere, such as a pin's notice.
                                 property <length> anchor-x: self.absolute-position.x + self.width;
@@ -3179,7 +3179,7 @@ export component YapfastWindow inherits Window {
                             IconButton {
                                 icon: @image-url("icons/user-plus.svg");
                                 label: root.add-people-one-to-one ? "Add friends to DM" : "Add friends to the group";
-                                size: 32px; glyph: 20px; tip-side: 2;
+                                size: ClientStyle.enabled ? 30px : 32px; glyph: 20px; tip-side: 2;
                                 tint: root.add-people-open ? (ClientStyle.enabled ? Theme.channel-white : Theme.text) : (ClientStyle.enabled ? Theme.nav-read : Theme.secondary);
                                 clicked => {
                                     root.popover-x = self.absolute-position.x + self.width;
@@ -3192,7 +3192,7 @@ export component YapfastWindow inherits Window {
                         // Discord's voice panel.
                         if root.voice-here && root.voice-ready && CallLink.measured: Middle {
                             Rectangle {
-                                width: 32px; height: 32px;
+                                width: ClientStyle.enabled ? 30px : 32px; height: self.width;
                                 accessible-role: button; accessible-label: "Voice details";
                                 SignalIcon { width: 20px; height: 20px; quality: CallLink.quality; }
                                 LinkTouch {
@@ -3214,7 +3214,7 @@ export component YapfastWindow inherits Window {
                             IconButton {
                                 icon: @image-url("icons/users.svg");
                                 label: root.member-list ? "Hide member list" : "Show member list";
-                                size: 32px; glyph: 20px; tip-side: 2;
+                                size: ClientStyle.enabled ? 30px : 32px; glyph: 20px; tip-side: 2;
                                 tint: root.member-list ? (ClientStyle.enabled ? Theme.channel-white : Theme.text) : (ClientStyle.enabled ? Theme.nav-read : Theme.secondary);
                                 clicked => { root.toggle-members(); }
                             }
@@ -3223,7 +3223,7 @@ export component YapfastWindow inherits Window {
                         if root.room-parent != "" && root.room-selected: Middle {
                             IconButton {
                                 icon: @image-url("icons/ellipsis.svg"); label: "More";
-                                size: 32px; glyph: 20px; tip-side: 2;
+                                size: ClientStyle.enabled ? 30px : 32px; glyph: 20px; tip-side: 2;
                                 tint: ClientStyle.enabled ? Theme.nav-read : Theme.secondary;
                                 clicked => {
                                     root.open-context-menu("thread-toolbar:" + root.room-id, false,
@@ -3234,17 +3234,25 @@ export component YapfastWindow inherits Window {
                         if root.profile-available: Middle {
                             IconButton {
                                 icon: @image-url("icons/user.svg"); label: root.profile-panel ? "Hide profile" : "Show profile";
-                                size: 32px; glyph: 20px; tip-side: 2;
+                                size: ClientStyle.enabled ? 30px : 32px; glyph: 20px; tip-side: 2;
                                 tint: root.profile-panel ? (ClientStyle.enabled ? Theme.channel-white : Theme.text) : (ClientStyle.enabled ? Theme.nav-read : Theme.secondary);
                                 clicked => { root.toggle-profile-panel(); }
                             }
                         }
+                        // Discord's toolbar icons sit 40px apart, the last one 12px
+                        // before the box: the 30px icons plus the layout's 10px, and
+                        // 3px more beside the box.
                         if root.can-search: Middle {
-                            HeaderSearch {
-                                text <=> root.search-text;
-                                placeholder: root.search-placeholder;
-                                search(text) => { root.search(text); }
-                                clear => { root.search-text = ""; root.search(""); }
+                            Rectangle {
+                                width: search-box.width + (ClientStyle.enabled ? 3px : 0px);
+                                height: search-box.height;
+                                search-box := HeaderSearch {
+                                    x: ClientStyle.enabled ? 3px : 0px;
+                                    text <=> root.search-text;
+                                    placeholder: root.search-placeholder;
+                                    search(text) => { root.search(text); }
+                                    clear => { root.search-text = ""; root.search(""); }
+                                }
                             }
                         }
                         if !root.members-available && !root.profile-available && root.members != "": HorizontalLayout {
@@ -3583,7 +3591,7 @@ export component YapfastWindow inherits Window {
                                             // Where the message itself starts: its tint, hover bar and edge
                                             // leave out the history notice and the dividers above it.
                                             property <length> head: (index == 0 && root.room-ready ? (ClientStyle.enabled && root.history-start && root.intro-kind != "" ? (root.intro-kind == "server" ? ClientStyle.intro-server-height : ClientStyle.intro-channel-height) : 42px) : 0px)
-                                                + (message.day != "" || message.unread-start ? 26px : 0px);
+                                                + (message.day != "" || message.unread-start ? (ClientStyle.enabled && message.day != "" && !message.unread-start ? 30px : 26px) : 0px);
                                             // Discord's tint starts under the gap that sets a group apart from the one above it.
                                             property <length> body: self.top + (self.head > 0px ? col.padding-top + self.head : ClientStyle.enabled && message.first ? col.padding-top : 0px);
                                             Rectangle {
@@ -3638,7 +3646,9 @@ export component YapfastWindow inherits Window {
                                                     }
                                                 }
                                                 col := VerticalLayout {
-                                                    padding-top: message.day != "" || message.unread-start ? 12px : message.first ? ClientStyle.message-group-gap : 1px;
+                                                    // Discord's date divider, measured: its line 30px under the text above
+                                                    // and 24px over the next author's name.
+                                                    padding-top: message.day != "" || message.unread-start ? (ClientStyle.enabled && message.day != "" && !message.unread-start ? 13px : 12px) : message.first ? ClientStyle.message-group-gap : 1px;
                                                     // The last row leaves room for the bar over a window's end.
                                                     padding-bottom: index == root.messages.length - 1 ? (root.detached ? 52px : ClientStyle.enabled ? 26px : 20px) : 1px;
                                                     spacing: 0px;
@@ -3658,7 +3668,7 @@ export component YapfastWindow inherits Window {
                                                     // right edge, pill 13px tall with 10px bold capitals.
                                                     if message.day != "" || message.unread-start: HorizontalLayout {
                                                         padding-left: message.unread-start ? 15px : 16px; padding-right: message.unread-start ? 30px : 16px;
-                                                        padding-bottom: 6px; spacing: 0px; height: 26px;
+                                                        padding-bottom: 6px; spacing: 0px; height: ClientStyle.enabled && message.day != "" && !message.unread-start ? 30px : 26px;
                                                         Rectangle { horizontal-stretch: 1; Rectangle { height: 1px; background: message.unread-start ? Theme.new-marker : ClientStyle.enabled && Theme.dark ? #28282d : Theme.line; } }
                                                         if message.day != "": Rectangle {
                                                             width: day-text.preferred-width + (ClientStyle.enabled ? 8px : 20px);
