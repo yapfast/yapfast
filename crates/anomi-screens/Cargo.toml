@@ -1,0 +1,28 @@
+[package]
+name = "anomi-screens"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+license = "GPL-3.0-or-later"
+description = "The iced interface's screens: one folder per area, a view of the view-model that asks with intents"
+
+[lib]
+doctest = false
+
+[features]
+# Each area's sample screens, which anomi-shots renders.
+shots = ["anomi-vm/fixtures"]
+
+[dependencies]
+iced.workspace = true
+anomi-theme.workspace = true
+anomi-widgets.workspace = true
+anomi-vm.workspace = true
+yapfast-lang = { path = "../yapfast-lang" }
+
+[dev-dependencies]
+anomi-vm = { workspace = true, features = ["fixtures"] }
+iced_test.workspace = true
+# For the pictures pattern in tests/patterns.rs.
+bytes = "1"

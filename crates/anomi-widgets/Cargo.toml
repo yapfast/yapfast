@@ -1,0 +1,20 @@
+[package]
+name = "anomi-widgets"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+license = "GPL-3.0-or-later"
+description = "The iced interface's own widgets, one module each, styled from anomi-theme"
+
+[lib]
+doctest = false
+
+[dependencies]
+iced.workspace = true
+anomi-theme.workspace = true
+# The vocabulary types widgets take, such as Avatar and Presence.
+anomi-vm.workspace = true
+# Gives iced's image decoding PNG, for the logo; pure Rust, and the core
+# enables it in the app's build anyway.
+image = { version = "0.25", default-features = false, features = ["png"] }

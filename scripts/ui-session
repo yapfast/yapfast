@@ -4,7 +4,7 @@
   scripts/ui-session start [--discord [--fake-args '--servers 3 --dms 50']] [--live]
                            [--size 1120x760] [--renderer software|gpu] [--tray]
                            [--zoom 1.2] [--cursor [SIZE]] [--desktop] [--profile fast|measure]
-                           [--bin PATH | --no-build]
+                           [--bin PATH | --no-build | --anomi]
                            [-- YAPFAST_ARGS...]
   scripts/ui-session do 'click X Y' 'type Hello' 'key enter' 'shot NAME' ...
   scripts/ui-session relaunch [-- YAPFAST_ARGS...]   rebuild, then restart Yapfast
@@ -37,6 +37,11 @@ for Weston's panel and room around the window, and coordinates are the display's
 --cursor shows the pointer, 24 pixels tall unless SIZE says; without it
 screenshots and videos have none.
 start also builds testing/record_host.rs, which `record` runs.
+--anomi builds and runs the iced interface (crates/anomi-app, the `anomi`
+binary) in place of the Slint one, with the same flags, environment and
+commands; relaunch rebuilds it. It doesn't build record_host, which compiles
+the Slint app: `record` uses the copy an earlier start left. See
+docs/iced/README.md.
 
 do commands, run in order; the first error stops the rest:
   click X Y [MODIFIERS] [glide [SECONDS]] | rightclick X Y | middleclick X Y | move X Y |
@@ -66,6 +71,8 @@ do commands, run in order; the first error stops the rest:
   stage-aside PATH   adds the file to the next message of the thread beside
       the channel, as stage does to the channel's
   theme ID   chooses a theme, such as yap, sakura or custom:1, as Appearance does
+  language CODE   chooses the interface's language, ru or en (the iced
+      interface; the Slint app ignores it)
   window close|open|destroy|create|hide|show|minimize|trim|stats   acts on the
       window: close as its close button does (to the tray, or quit without
       one), open as the tray's Open Yapfast, minimize as its Minimize button
@@ -119,7 +126,23 @@ def tail(path, lines=20):
         print('\n'.join(path.read_text(errors='replace').splitlines()[-lines:]), file=sys.stderr)
 
 
-def build(discord, profile, live=False, yapfast=True, tray=False, record=False):
+def build(discord, profile, live=False, yapfast=True, tray=False, record=False, anomi=False):
+    if anomi and yapfast:
+        # The iced interface alone; its crate has Discord by default.
+        command = ['nix', 'develop', 'path:./nix', '--command', 'cargo', 'build', '--locked', '--profile', profile,
+                   '-p', 'anomi-app', '--bin', 'anomi']
+        print('Building:', shlex.join(command[4:]), flush=True)
+        log = STATE / 'build.log'
+        result = subprocess.run(command, cwd=ROOT, stdout=log.open('wb'), stderr=subprocess.STDOUT)
+        if result.returncode != 0:
+            tail(log, 40)
+            raise SystemExit(f'The build failed; see {log.relative_to(ROOT)}')
+        copy = STATE / 'yapfast.new'
+        shutil.copy2(ROOT / f'target/{profile}/anomi', copy)
+        os.replace(copy, STATE / 'yapfast')
+        yapfast = False
+        if not (tray or record):
+            return
     features = ['--no-default-features', '--features', 'desktop,discord'] if discord else []
     features += ['--features', 'live-preview'] if live else []
     targets = [*(['--bin', 'yapfast'] if yapfast else []), *(['--example', 'tray_host'] if tray else []),
@@ -199,7 +222,9 @@ def start(args):
         (STATE / 'data/layout.json').write_text(json.dumps({'zoom': args.zoom}))
     if args.bin:
         shutil.copy2(args.bin, STATE / 'yapfast')
-    if not (args.bin or args.no_build):
+    if args.anomi:
+        build(args.discord, args.profile, tray=args.tray, anomi=True)
+    elif not (args.bin or args.no_build):
         build(args.discord, args.profile, args.live, tray=args.tray, record=True)
     else:
         tray = args.tray and not (args.no_build and (STATE / 'tray-host').exists())
@@ -212,7 +237,7 @@ def start(args):
     if not args.discord and '--preview' not in yapfast_args:
         yapfast_args = ['--preview', *yapfast_args]
     SETTINGS.write_text(json.dumps({'discord': args.discord, 'live': args.live, 'profile': args.profile,
-                                    'build': not (args.bin or args.no_build)}))
+                                    'build': not (args.bin or args.no_build), 'anomi': args.anomi}))
     driver = ['python3', 'testing/ui_session.py', '--state', str(STATE), '--bin', str(STATE / 'yapfast'),
               '--size', args.size, '--renderer', args.renderer,
               *(['--discord', '--fake-args', args.fake_args] if args.discord else []),
@@ -244,7 +269,8 @@ def relaunch():
         raise SystemExit('No UI session is running.')
     settings = json.loads(SETTINGS.read_text())
     if settings['build']:
-        build(settings['discord'], settings.get('profile', 'fast'), settings.get('live', False))
+        build(settings['discord'], settings.get('profile', 'fast'), settings.get('live', False),
+              anomi=settings.get('anomi', False))
     extra = args.yapfast_args[1:] if args.yapfast_args[:1] == ['--'] else args.yapfast_args
     send([' '.join(['relaunch', *extra])])
 
@@ -285,6 +311,7 @@ starting.add_argument('--cursor', type=int, nargs='?', const=24, metavar='SIZE',
 binary = starting.add_mutually_exclusive_group()
 binary.add_argument('--bin', type=Path, help='run this Yapfast binary instead of building')
 binary.add_argument('--no-build', action='store_true', help='run the copy from the last start')
+binary.add_argument('--anomi', action='store_true', help='build and run the iced interface instead')
 starting.add_argument('yapfast_args', nargs=argparse.REMAINDER, help='after --, arguments for Yapfast')
 doing = actions.add_parser('do')
 doing.add_argument('commands', nargs='*')

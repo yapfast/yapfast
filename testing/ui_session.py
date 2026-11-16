@@ -458,9 +458,9 @@ def perform(command):
             window.write(f'{verb} {path}\n')
         # Yapfast reads the file every half second.
         time.sleep(.8)
-    elif verb == 'theme':
+    elif verb in ('theme', 'language'):
         with window_control.open('a') as window:
-            window.write(f'theme {rest}\n')
+            window.write(f'{verb} {rest}\n')
         time.sleep(.8)
     elif verb == 'window':
         if rest not in ('close', 'open', 'destroy', 'create', 'hide', 'show', 'minimize', 'trim', 'stats'):

@@ -1,0 +1,22 @@
+[package]
+name = "anomi-vm"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+license = "GPL-3.0-or-later"
+description = "What the iced interface's screens show and what they ask for: view-model types and intents, without the core"
+
+[lib]
+doctest = false
+
+[features]
+# Sample view-models for snapshot tests and anomi-shots, after the fake
+# Discord's account (testing/fake_discord.ts). They translate what the
+# projection would, so shots show the chosen language.
+fixtures = ["dep:yapfast-lang"]
+
+[dependencies]
+# Only for image::Handle, the pictures rows carry.
+iced.workspace = true
+yapfast-lang = { path = "../yapfast-lang", optional = true }

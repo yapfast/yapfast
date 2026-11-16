@@ -7,7 +7,10 @@ publish = false
 license = "GPL-3.0-or-later"
 
 [workspace]
-members = ["crates/feature-union", "crates/yapfast-core", "crates/yapfast-discord", "crates/yapfast-lang"]
+# The anomi-* crates are the iced interface, beside the Slint one; see
+# docs/iced/README.md. A new one joins by its folder's name, and
+# scripts/check leaves them all to scripts/check-iced.
+members = ["crates/feature-union", "crates/yapfast-core", "crates/yapfast-discord", "crates/yapfast-lang", "crates/anomi-*"]
 default-members = ["."]
 # crates/yapfast-ui is a path dependency outside the workspace: Clippy lints
 # every workspace member it compiles, even one --exclude leaves out, and
@@ -148,6 +151,16 @@ wayland-scanner = "0.31.11"
 
 [workspace.dependencies]
 anyhow = "1"
+# The iced interface's crates and iced itself, pinned to one commit of its
+# master; every anomi-* crate takes iced from here, so the graph builds once.
+# Bump it as a task of its own: docs/iced/iced-notes.md.
+iced = { git = "https://github.com/iced-rs/iced", rev = "e5c350f271a8046f875c6662d452fde9e462d486", default-features = false, features = ["tiny-skia", "x11", "wayland", "wayland-dlopen", "image-without-codecs", "svg", "advanced", "crisp", "tokio"] }
+iced_runtime = { git = "https://github.com/iced-rs/iced", rev = "e5c350f271a8046f875c6662d452fde9e462d486" }
+iced_test = { git = "https://github.com/iced-rs/iced", rev = "e5c350f271a8046f875c6662d452fde9e462d486" }
+anomi-theme = { path = "crates/anomi-theme" }
+anomi-widgets = { path = "crates/anomi-widgets" }
+anomi-vm = { path = "crates/anomi-vm" }
+anomi-screens = { path = "crates/anomi-screens" }
 # Message times in the local time zone.
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
 directories = "6"

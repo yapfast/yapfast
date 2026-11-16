@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+# Checks of the iced interface (crates/anomi-*), each step timed.
+#
+# Usage: scripts/check-iced [--review] [--shots DIR] [--only STEP]
+#
+# Without flags, the writers' checks: rustfmt, the size limit (400 lines a
+# file), translations, then `cargo check` and Clippy over the crates that
+# don't know the core: every crates/anomi-* but anomi-app, found by folder,
+# so a new area crate is checked once it exists. They build no native code:
+# about a second once warm, 8 s and 3.3 GiB in an empty target (measured on
+# 32 threads). In a new worktree the first run copies the main checkout's
+# target/debug with reflinks, as scripts/warm-worktree copies target/fast,
+# so writers starting together don't each build iced.
+#
+# --review adds what a reviewer runs: whether every Slint component has its
+# task (scripts/iced-coverage), the light crates' tests, Clippy and the
+# tests of anomi-app (the one crate on yapfast-core, with Discord, as the
+# product builds it), the `anomi` binary with the `fast` profile, and every
+# screen rendered headless from its sample view-model to DIR
+# (target/anomi-shots unless --shots says), to hold beside the reference
+# screenshots. A first app build in a fresh target costs minutes and several
+# GiB: run one at a time. See docs/iced/README.md.
+#
+# Each step prints `=== step` and `rc=N (T s)`; its output is in
+# target/check-iced/. The script exits non-zero when any step failed, after
+# running them all.
+set -uo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+if [[ -z "${IN_NIX_SHELL:-}" ]] && command -v nix >/dev/null; then
+  exec nix develop path:./nix --command "$0" "$@"
+fi
+
+review=
+shots=target/anomi-shots
+only=
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --review) review=1 ;;
+    --shots) shots=$2; shift ;;
+    --only) only=$2; shift ;;
+    *) echo "usage: scripts/check-iced [--review] [--shots DIR] [--only STEP]" >&2; exit 2 ;;
+  esac
+  shift
+done
+
+light=()
+for manifest in crates/anomi-*/Cargo.toml; do
+  name=$(basename "$(dirname "$manifest")")
+  [[ $name == anomi-app ]] || light+=(-p "$name")
+done
+
+# A worktree's first check starts from the main checkout's dev build: a
+# reflinked copy takes no space until the two differ. Without reflinks it
+# builds from scratch.
+main=$(git worktree list --porcelain | sed -n '1s/^worktree //p')
+if [[ -z ${CARGO_TARGET_DIR:-} && -n $main && $main != "$PWD" && -d $main/target/debug && ! -e target/debug ]]; then
+  mkdir -p target
+  if cp -a --reflink=always "$main/target/debug" target/debug.partial 2>/dev/null; then
+    mv target/debug.partial target/debug
+    echo "target/debug: copied from $main"
+  else
+    rm -rf target/debug.partial
+  fi
+fi
+logs=target/check-iced
+mkdir -p "$logs"
+rm -f "$logs"/*.log "$logs"/*.rc
+steps=()
+
+run() {
+  local name=$1
+  shift
+  [[ -n $only && $only != "$name" ]] && return
+  steps+=("$name")
+  local start=$SECONDS
+  "$@" >"$logs/$name.log" 2>&1
+  local rc=$?
+  echo "$rc" >"$logs/$name.rc"
+  printf '=== %s: %s\nrc=%s (%s s)\n' "$name" "$*" "$rc" "$((SECONDS - start))"
+  if [[ $rc -ne 0 ]]; then
+    grep -E -A12 '^(error|warning)(\[|:)|^test .* FAILED|panicked at|^too long' "$logs/$name.log" | head -60 ||
+      tail -20 "$logs/$name.log"
+    echo "(full output: $logs/$name.log)"
+  fi
+}
+
+# Every Rust file of the new crates stays under 400 lines.
+sizes() {
+  local status=0 lines file
+  while IFS= read -r file; do
+    lines=$(wc -l <"$file")
+    if [[ $lines -gt 400 ]]; then
+      echo "too long: $file has $lines lines (at most 400)"
+      status=1
+    fi
+  done < <(find crates/anomi-* -name '*.rs' | sort)
+  return $status
+}
+
+run fmt cargo fmt "${light[@]}" -p anomi-app -- --check
+run size sizes
+run translations scripts/check-translations
+run check cargo check --locked "${light[@]}" --all-targets
+run clippy cargo clippy --locked "${light[@]}" --all-targets -- -D warnings
+
+if [[ $review ]]; then
+  run coverage scripts/iced-coverage
+  run test cargo test --locked "${light[@]}"
+  # anomi-app alone: with the light crates' dev-dependencies (iced_test) it
+  # would resolve iced, and the core under it, apart from the binary.
+  run clippy-app cargo clippy --locked --profile fast -p anomi-app --all-targets -- -D warnings
+  run test-app cargo test --locked --profile fast -p anomi-app
+  run build-app cargo build --locked --profile fast -p anomi-app --bin anomi
+  run shots cargo run --locked --profile fast -p anomi-shots -- "$shots"
+fi
+
+failed=()
+for name in "${steps[@]}"; do
+  [[ "$(cat "$logs/$name.rc")" == 0 ]] || failed+=("$name")
+done
+if [[ ${#failed[@]} -gt 0 ]]; then
+  echo "FAILED: ${failed[*]}"
+  exit 1
+fi
+[[ $review ]] && echo "Shots: $shots"
+echo "All checks passed."

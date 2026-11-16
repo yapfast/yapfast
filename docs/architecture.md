@@ -1,6 +1,6 @@
 # Application core and client UI
 
-Yapfast's Cargo workspace has six packages, all in one process. The root `yapfast`
+Yapfast's Cargo workspace has the packages below, all in one process. The root `yapfast`
 package is the executable: the Slint adapter and the command-line entry point.
 [`crates/yapfast-core`](../crates/yapfast-core) holds application behavior and the
 native Matrix, Discord and voice backend.
@@ -13,6 +13,12 @@ any `.slint` file rebuilds only that crate, and in a
 and gives the others its text in the chosen one; see [translations](translations.md).
 [`crates/feature-union`](../crates/feature-union) holds no code; `scripts/check`
 uses it (see [building](building.md#checks)).
+
+The `crates/anomi-*` packages are a second interface on the same core,
+written with iced, which is to replace the Slint one screen by screen: the
+`anomi` binary of `crates/anomi-app`, and below it crates that don't know
+the core. They have their own checks, `scripts/check-iced`, and their own
+[architecture](iced/README.md).
 
 ```mermaid
 flowchart LR

@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+"""Checks that the iced interface's task list ports every Slint component,
+and that no two tasks own the same files.
+
+Usage: scripts/iced-coverage [--list]
+
+Reads each `component Name` of ui/*.slint and ui/yapfast/*.slint and looks
+for `Name` (in backticks) in docs/iced/tasks.md and docs/iced/tasks/*.md.
+Prints the count, and each component no task names; with --list, also which
+task names each. Then reads each task's **Owns:** paths (`{a,b}` expanded)
+and prints each path two tasks own, or one owns inside another's folder.
+Exits non-zero when a component is missing (a component upstream adds needs
+a task) or a path is owned twice.
+"""
+
+import re
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+COMPONENT = re.compile(r"^\s*(?:export\s+)?component\s+([A-Za-z0-9_-]+)", re.M)
+TASK = re.compile(r"^### ([A-Z]\d+) ", re.M)
+
+
+def components():
+    found = []
+    for path in sorted([*(ROOT / "ui").glob("*.slint"), *(ROOT / "ui/yapfast").glob("*.slint")]):
+        source = path.read_text(encoding="utf-8")
+        for match in COMPONENT.finditer(source):
+            line = source.count("\n", 0, match.start()) + 1
+            found.append((match[1], f"{path.relative_to(ROOT)}:{line}"))
+    return found
+
+
+def tasks():
+    """Each task's id and text, from every task file."""
+    texts = {}
+    for path in [ROOT / "docs/iced/tasks.md", *sorted((ROOT / "docs/iced/tasks").glob("*.md"))]:
+        source = path.read_text(encoding="utf-8")
+        starts = list(TASK.finditer(source))
+        for index, start in enumerate(starts):
+            end = starts[index + 1].start() if index + 1 < len(starts) else len(source)
+            texts[start[1]] = source[start.start():end]
+    return texts
+
+
+def owned_paths(text):
+    """The paths a task's **Owns:** line names, with `{a,b}` expanded."""
+    found = re.search(r"\*\*Owns:\*\* (.*)", text)
+    paths = []
+    for code in re.findall(r"`([^`]+)`", found[1] if found else ""):
+        if "/" not in code:
+            continue
+        braces = re.match(r"(.*)\{(.*?)\}(.*)", code)
+        parts = braces[2].split(",") if braces else [None]
+        for part in parts:
+            path = code if part is None else braces[1] + part.strip() + braces[3]
+            paths.append(path)
+    return paths
+
+
+def overlaps(listed):
+    """Each path two tasks own, or one owns inside another's folder."""
+    owners = {}
+    for task, text in listed.items():
+        for path in owned_paths(text):
+            owners.setdefault(path, set()).add(task)
+    clashes = []
+    for path, tasks_owning in sorted(owners.items()):
+        if len(tasks_owning) > 1:
+            clashes.append(f"{path} is owned by {', '.join(sorted(tasks_owning))}")
+        for folder, folder_owners in owners.items():
+            inside = folder.endswith("/") and path != folder and path.startswith(folder)
+            if inside and not tasks_owning <= folder_owners:
+                clashes.append(f"{path} ({', '.join(sorted(tasks_owning))}) is inside {folder} "
+                               f"({', '.join(sorted(folder_owners))})")
+    return clashes
+
+
+def main():
+    listed = tasks()
+    missing = []
+    for name, place in components():
+        owners = [task for task, text in listed.items() if f"`{name}`" in text]
+        if not owners:
+            missing.append((name, place))
+        elif "--list" in sys.argv:
+            print(f"{name} ({place}): {', '.join(owners)}")
+    total = len(components())
+    print(f"{total - len(missing)} of {total} Slint components are in a task; {len(listed)} tasks.")
+    for name, place in missing:
+        print(f"no task ports {name} ({place})")
+    clashes = overlaps(listed)
+    for clash in clashes:
+        print(f"owned twice: {clash}")
+    return 1 if missing or clashes else 0
+
+
+sys.exit(main())

@@ -1,0 +1,18 @@
+[package]
+name = "anomi-shots"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+license = "GPL-3.0-or-later"
+description = "Renders each screen of the iced interface from its sample view-model to PNG, headless, for reviewers"
+
+[dependencies]
+iced.workspace = true
+# UserInterface, which iced keeps to itself; no features, so iced's own graph
+# stays as the other crates build it.
+iced_runtime.workspace = true
+anomi-theme.workspace = true
+anomi-screens = { workspace = true, features = ["shots"] }
+yapfast-lang = { path = "../yapfast-lang" }
+png = "0.18"

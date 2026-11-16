@@ -51,8 +51,12 @@ run() {
 
 clippy=(cargo clippy --locked "${profile[@]}" --all-targets)
 # feature-union is for the Matrix steps below; with it, the default build would
-# resolve as the full one and compile Slint apart from `cargo build`.
-workspace=(--workspace --exclude feature-union)
+# resolve as the full one and compile Slint apart from `cargo build`. The
+# iced interface's crates have their own script, scripts/check-iced: beside
+# the Slint app they would resolve its dependencies apart from `cargo build`
+# too.
+iced=(--exclude 'anomi-*')
+workspace=(--workspace --exclude feature-union "${iced[@]}")
 steps=(fmt doc-links clippy test build smoke)
 
 run fmt cargo fmt --all -- --check
@@ -82,8 +86,8 @@ fi
 # machine out of memory.
 if [[ $matrix ]]; then
   full=(--features yapfast/matrix,yapfast-core/matrix)
-  run clippy-matrix "${clippy[@]}" --workspace "${full[@]}" -- -D warnings
-  run test-matrix cargo test --locked "${profile[@]}" --workspace "${full[@]}"
+  run clippy-matrix "${clippy[@]}" --workspace "${iced[@]}" "${full[@]}" -- -D warnings
+  run test-matrix cargo test --locked "${profile[@]}" --workspace "${iced[@]}" "${full[@]}"
   run clippy-matrix-only "${clippy[@]}" -p yapfast -p yapfast-core -p feature-union \
     --no-default-features --features yapfast/desktop,yapfast/matrix,yapfast-core/matrix -- -D warnings
   # The headless build, in a target directory of its own, so its binary stays
