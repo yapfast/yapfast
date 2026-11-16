@@ -785,6 +785,12 @@ thread_local! {
     static OPEN: RefCell<Option<OpenRoom>> = const { RefCell::new(None) };
 }
 
+/// A thread's member list: everyone, a hash of the authors, and those listed.
+type ThreadRoster = (
+    Arc<Vec<yapfast_core::chat::ChatMember>>,
+    u64,
+    Arc<Vec<yapfast_core::chat::ChatMember>>,
+);
 type OpenRoom = Box<dyn Fn(String)>;
 type TakeDrag = Box<dyn Fn(Drag)>;
 
@@ -2084,11 +2090,7 @@ struct Adapter {
     roster_shown: Option<RosterShown>,
     /// A thread's members: the channel's list they were picked from, the
     /// authors that picked them, and the list.
-    thread_roster: Option<(
-        Arc<Vec<yapfast_core::chat::ChatMember>>,
-        u64,
-        Arc<Vec<yapfast_core::chat::ChatMember>>,
-    )>,
+    thread_roster: Option<ThreadRoster>,
     /// Runs for [`ROSTER_PAUSE`] after the member list was built; see
     /// `show_members`.
     roster_due: slint::Timer,
