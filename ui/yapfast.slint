@@ -3115,6 +3115,7 @@ export component YapfastWindow inherits Window {
                             IconButton {
                                 icon: @image-url("icons/phone.svg"); label: root.call-going ? "Join Voice Call" : "Start Voice Call";
                                 size: 32px; glyph: 20px; enabled: root.can-join; tip-side: 2;
+                                tint: ClientStyle.enabled ? Theme.nav-read : Theme.secondary;
                                 clicked => { root.start-call(); }
                             }
                         }
@@ -3122,6 +3123,7 @@ export component YapfastWindow inherits Window {
                             IconButton {
                                 icon: @image-url("icons/video.svg"); label: "Start Video Call";
                                 size: 32px; glyph: 20px; enabled: root.can-join; tip-side: 2;
+                                tint: ClientStyle.enabled ? Theme.nav-read : Theme.secondary;
                                 clicked => { root.start-video-call(); }
                             }
                         }
@@ -3129,7 +3131,7 @@ export component YapfastWindow inherits Window {
                             IconButton {
                                 icon: @image-url("icons/thread.svg"); label: "Threads";
                                 size: 32px; glyph: 20px; tip-side: 2;
-                                tint: root.threads-open ? Theme.text : Theme.secondary;
+                                tint: root.threads-open ? (ClientStyle.enabled ? Theme.channel-white : Theme.text) : (ClientStyle.enabled ? Theme.nav-read : Theme.secondary);
                                 clicked => {
                                     root.popover-x = self.absolute-position.x + self.width;
                                     root.popover-y = self.absolute-position.y + self.height;
@@ -3142,6 +3144,7 @@ export component YapfastWindow inherits Window {
                                 icon: root.room-muted ? @image-url("icons/bell-off.svg") : @image-url("icons/bell.svg");
                                 label: root.room-muted ? "Notification settings, muted" : "Notification settings";
                                 size: 32px; glyph: 20px; tip-side: 2;
+                                tint: ClientStyle.enabled ? Theme.nav-read : Theme.secondary;
                                 clicked => {
                                     root.open-context-menu("notifications:" + root.room-id, false,
                                         self.absolute-position.x, self.absolute-position.y + self.height + 6px);
@@ -3152,7 +3155,7 @@ export component YapfastWindow inherits Window {
                             IconButton {
                                 icon: @image-url("icons/pin.svg"); label: "Pinned messages";
                                 size: 32px; glyph: 20px; tip-side: 2;
-                                tint: root.pins-open ? Theme.text : Theme.secondary;
+                                tint: root.pins-open ? (ClientStyle.enabled ? Theme.channel-white : Theme.text) : (ClientStyle.enabled ? Theme.nav-read : Theme.secondary);
                                 // Where the pins open from elsewhere, such as a pin's notice.
                                 property <length> anchor-x: self.absolute-position.x + self.width;
                                 property <length> anchor-y: self.absolute-position.y + self.height;
@@ -3171,7 +3174,7 @@ export component YapfastWindow inherits Window {
                                 icon: @image-url("icons/user-plus.svg");
                                 label: root.add-people-one-to-one ? "Add friends to DM" : "Add friends to the group";
                                 size: 32px; glyph: 20px; tip-side: 2;
-                                tint: root.add-people-open ? Theme.text : Theme.secondary;
+                                tint: root.add-people-open ? (ClientStyle.enabled ? Theme.channel-white : Theme.text) : (ClientStyle.enabled ? Theme.nav-read : Theme.secondary);
                                 clicked => {
                                     root.popover-x = self.absolute-position.x + self.width;
                                     root.popover-y = self.absolute-position.y + self.height;
@@ -3206,7 +3209,7 @@ export component YapfastWindow inherits Window {
                                 icon: @image-url("icons/users.svg");
                                 label: root.member-list ? "Hide member list" : "Show member list";
                                 size: 32px; glyph: 20px; tip-side: 2;
-                                tint: root.member-list ? Theme.text : Theme.secondary;
+                                tint: root.member-list ? (ClientStyle.enabled ? Theme.channel-white : Theme.text) : (ClientStyle.enabled ? Theme.nav-read : Theme.secondary);
                                 clicked => { root.toggle-members(); }
                             }
                         }
@@ -3215,6 +3218,7 @@ export component YapfastWindow inherits Window {
                             IconButton {
                                 icon: @image-url("icons/ellipsis.svg"); label: "More";
                                 size: 32px; glyph: 20px; tip-side: 2;
+                                tint: ClientStyle.enabled ? Theme.nav-read : Theme.secondary;
                                 clicked => {
                                     root.open-context-menu("thread-toolbar:" + root.room-id, false,
                                         self.absolute-position.x, self.absolute-position.y + self.height + 6px);
@@ -3225,7 +3229,7 @@ export component YapfastWindow inherits Window {
                             IconButton {
                                 icon: @image-url("icons/user.svg"); label: root.profile-panel ? "Hide profile" : "Show profile";
                                 size: 32px; glyph: 20px; tip-side: 2;
-                                tint: root.profile-panel ? Theme.text : Theme.secondary;
+                                tint: root.profile-panel ? (ClientStyle.enabled ? Theme.channel-white : Theme.text) : (ClientStyle.enabled ? Theme.nav-read : Theme.secondary);
                                 clicked => { root.toggle-profile-panel(); }
                             }
                         }
