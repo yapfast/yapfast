@@ -602,23 +602,15 @@ mod tests {
     use super::*;
     use crate::own_activity::merge;
 
-    struct Directory(PathBuf);
-    impl Directory {
-        fn new() -> Self {
-            static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-            let path = std::env::temp_dir().join(format!(
-                "yapfast-rpc-{}-{}",
-                std::process::id(),
-                NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-            ));
-            std::fs::create_dir(&path).unwrap();
-            Self(path)
-        }
-    }
-    impl Drop for Directory {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
+    /// A socket file that no one serves, as an ended server leaves it. mknod
+    /// makes it without a descriptor, which a child that another test is
+    /// spawning would inherit and keep listening until it execs.
+    fn stale_socket(path: &Path) {
+        use std::os::unix::ffi::OsStrExt;
+        let path = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+        // SAFETY: `path` is a NUL-terminated string that outlives the call.
+        let made = unsafe { libc::mknod(path.as_ptr(), libc::S_IFSOCK | 0o600, 0) };
+        assert_eq!(made, 0, "{}", io::Error::last_os_error());
     }
 
     #[test]
@@ -713,31 +705,41 @@ mod tests {
 
     #[tokio::test]
     async fn leaves_live_sockets_alone_and_reclaims_stale_ones() {
-        let directory = Directory::new();
-        let existing = UnixListener::bind(directory.0.join("discord-ipc-0")).unwrap();
-        let first = Socket::bind(&directory.0).await.unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let existing = UnixListener::bind(directory.path().join("discord-ipc-0")).unwrap();
+        let first = Socket::bind(directory.path()).await.unwrap();
         assert!(first.path.ends_with("discord-ipc-1"));
-        let second = Socket::bind(&directory.0).await.unwrap();
+        let second = Socket::bind(directory.path()).await.unwrap();
         assert!(second.path.ends_with("discord-ipc-2"));
         assert_eq!(
             std::fs::metadata(&first.path).unwrap().permissions().mode() & 0o777,
             0o600
         );
         drop(first);
-        assert!(!directory.0.join("discord-ipc-1").exists());
-        drop(existing);
-        let reclaimed = Socket::bind(&directory.0).await.unwrap();
+        assert!(!directory.path().join("discord-ipc-1").exists());
+        drop((existing, second));
+
+        // An ended Yapfast leaves its lock, unlocked, and its socket, served
+        // by no one. Dropping `existing` and the locks above wouldn't make
+        // them: a child that another test is spawning holds this process's
+        // descriptors until it execs, keeping a closed listener listening
+        // and a closed lock locked meanwhile.
+        let ended = tempfile::tempdir().unwrap();
+        File::create(ended.path().join("yapfast-discord-ipc-0.lock")).unwrap();
+        stale_socket(&ended.path().join("discord-ipc-0"));
+        let reclaimed = Socket::bind(ended.path()).await.unwrap();
         assert!(reclaimed.path.ends_with("discord-ipc-0"));
+        UnixStream::connect(&reclaimed.path).await.unwrap();
     }
 
     #[tokio::test]
     async fn does_not_remove_a_replacement_or_follow_a_lock_symlink() {
-        let directory = Directory::new();
-        let target = directory.0.join("keep");
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("keep");
         std::fs::write(&target, b"keep me").unwrap();
-        std::os::unix::fs::symlink(&target, directory.0.join("yapfast-discord-ipc-0.lock"))
+        std::os::unix::fs::symlink(&target, directory.path().join("yapfast-discord-ipc-0.lock"))
             .unwrap();
-        let socket = Socket::bind(&directory.0).await.unwrap();
+        let socket = Socket::bind(directory.path()).await.unwrap();
         assert!(socket.path.ends_with("discord-ipc-1"));
         std::fs::remove_file(&socket.path).unwrap();
         std::fs::write(&socket.path, b"replacement").unwrap();
