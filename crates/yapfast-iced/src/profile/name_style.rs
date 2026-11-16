@@ -515,7 +515,11 @@ impl App {
         .height(height)
         .clip(true)
         .style(move |_| rounded(ground, 16).shadow(crate::style::window_shadow()));
-        let close = self.icon_button(Icon::X, "Close", 32.0, 20, message(Event::Close), true);
+        let close = self
+            .look()
+            .icon_button(Icon::X, "Close", message(Event::Close))
+            .size(32.0, 20)
+            .below();
         let card = stack![card, placed(close, width - 32.0 - 12.0, 12.0)];
         let dim = Color {
             a: 0.5,

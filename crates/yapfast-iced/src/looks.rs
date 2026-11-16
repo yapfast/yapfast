@@ -335,6 +335,16 @@ pub struct NameLook {
     pub letters: Vec<(char, u32)>,
 }
 
+impl NameLook {
+    /// The name's own font, if its style sets one.
+    pub fn font(&self) -> Option<crate::fonts::NameFont> {
+        self.family.map(|family| crate::fonts::NameFont {
+            family,
+            weight: self.weight,
+        })
+    }
+}
+
 /// The style a name is drawn in, or none. In a server only its font counts
 /// (`font_only_in` in the Slint client); profiles show it whole, its
 /// colours made readable on the theme's ground, dark or light.

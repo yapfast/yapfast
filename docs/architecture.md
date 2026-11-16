@@ -14,6 +14,9 @@ uses it (see [building](building.md#checks)).
 [`crates/yapfast-iced`](../crates/yapfast-iced) is the [iced client](iced-client.md),
 a second front end that is to replace Slint's; the root package's `iced` feature
 builds it into the executable in place of the Slint client.
+[`crates/yapfast-iced-kit`](../crates/yapfast-iced-kit) is what its screens are
+built from (the theme, controls, forms, dialog frames and its own widgets),
+knowing nothing of the core.
 
 ```mermaid
 flowchart LR

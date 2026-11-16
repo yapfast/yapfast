@@ -14,7 +14,7 @@ use super::{expressions::answers, message, moderation::face};
 use crate::{
     app::{App, Message},
     controls::{Kind, ink_style},
-    dialogs,
+    dialog,
     fonts::BOLD,
     form,
     pictures::Icon,
@@ -103,7 +103,7 @@ impl App {
         } else {
             answer(OwnershipInput::Cancel)
         };
-        dialogs::panel(
+        dialog::panel(
             theme,
             column(body).spacing(14).padding(16).into(),
             WIDTH,

@@ -46,12 +46,11 @@ impl App {
         // game it offers its privacy too.
         if let Some(own) = menu {
             let face = self.glyph(crate::pictures::Icon::Ellipsis, 14, inks.ink2);
-            head = head.push(self.icon_face_button(
+            head = head.push(self.look().face_button(
                 face,
-                "More",
                 20.0,
+                "More",
                 Message::Profile(super::Event::ActivityMenu(own && activity.game)),
-                false,
             ));
         }
         let mut card = column![head].spacing(8);

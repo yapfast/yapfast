@@ -193,7 +193,11 @@ impl App {
         let end: Element<'_, Message> = if value.is_empty() {
             self.glyph(Icon::Search, 20, theme.secondary).into()
         } else {
-            self.icon_button(Icon::X, "Clear search", 24.0, 14, clear, true)
+            self.look()
+                .icon_button(Icon::X, "Clear search", clear)
+                .size(24.0, 14)
+                .below()
+                .into()
         };
         let field = row![input, end].spacing(4).align_y(Alignment::Center);
         let (line, ground) = (theme.line, theme.sunken);
@@ -232,14 +236,9 @@ impl App {
                 row![
                     container(elide(heading).size(15).font(BOLD).color(theme.text))
                         .width(Length::Fill),
-                    self.icon_button(
-                        Icon::X,
-                        "Close search",
-                        28.0,
-                        18,
-                        Message::Search(Event::Clear),
-                        true
-                    ),
+                    self.look()
+                        .icon_button(Icon::X, "Close search", Message::Search(Event::Clear))
+                        .below(),
                 ]
                 .spacing(10)
                 .align_y(Alignment::Center),

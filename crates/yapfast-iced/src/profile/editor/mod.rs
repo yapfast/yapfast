@@ -610,14 +610,12 @@ impl App {
         ];
         if main {
             card = card.push(
-                container(self.icon_button(
-                    Icon::X,
-                    "Close",
-                    36.0,
-                    18,
-                    message(Event::Close),
-                    true,
-                ))
+                container(
+                    self.look()
+                        .icon_button(Icon::X, "Close", message(Event::Close))
+                        .size(36.0, 18)
+                        .below(),
+                )
                 .width(card_width)
                 .align_x(Alignment::End)
                 .padding(12),

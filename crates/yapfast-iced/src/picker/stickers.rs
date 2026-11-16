@@ -359,7 +359,13 @@ impl App {
                     let mut layers = stack![tile];
                     if picker.hover == Some(index) {
                         layers = layers.push(kit::pinned(
-                            self.star(*favorite, 24.0, 16, Message::Picker(Event::Star(index))),
+                            kit::star(
+                                self.look(),
+                                *favorite,
+                                24.0,
+                                16,
+                                Message::Picker(Event::Star(index)),
+                            ),
                             Alignment::End,
                             Alignment::Start,
                             4.0,

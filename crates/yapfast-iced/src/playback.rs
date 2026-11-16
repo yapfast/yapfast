@@ -261,7 +261,7 @@ impl App {
                 border: iced::Border::default().rounded(11),
                 ..button::Style::default()
             });
-            let mute = self.icon_button(
+            let mute = self.look().icon_button(
                 if tuning.muted {
                     Icon::VolumeOff
                 } else {
@@ -272,10 +272,7 @@ impl App {
                     (false, true) => "Unmute",
                     (false, false) => "Mute",
                 },
-                28.0,
-                18,
                 Message::Voice(Event::Mute(!tuning.muted)),
-                false,
             );
             // The pointer on the mute opens the volume over it, upright as
             // Discord's desktop player has it, centred on the button.
@@ -541,12 +538,11 @@ impl App {
         let show_time =
             width >= fixed + if show_mute { 34.0 } else { 0.0 } + time.len() as f32 * 7.0 + 6.0;
         let button = |icon, label, message| {
-            self.icon_face_button(
+            self.look().face_button(
                 self.glyph(icon, 16, Color::WHITE),
-                label,
                 CLIP_BUTTON,
+                label,
                 message,
-                false,
             )
         };
         let mut bar = row![if video.playing {
@@ -610,7 +606,7 @@ impl App {
                 ]
                 .into()
             } else {
-                mute
+                mute.into()
             };
             bar = bar.push(
                 mouse_area(container(mute).width(CLIP_BUTTON))

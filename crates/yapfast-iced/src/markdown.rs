@@ -662,9 +662,7 @@ pub struct Look {
     pub ink: Color,
 }
 
-/// Where a body's parts are in the timeline's selection: its row, and the
-/// piece its first part is (0 and 1 are the author and time).
-pub const FIRST_PART: crate::select::PartNo = 2;
+pub use crate::piece::FIRST_PART;
 
 impl App {
     /// A run as a span: its weight and slant, code in monospace on its
@@ -776,7 +774,8 @@ impl App {
                     }
                 })
                 .collect();
-            let piece = Piece::new(spans, row, number)
+            let piece = Piece::new(spans, row, number, Message::Link, Message::Select)
+                .unlined(yapfast_core::emoji::card::LINK)
                 .item(self.row_look(row).map(|look| look.item.clone()))
                 .pictures(pictures)
                 .size(size, (size * ratio).round())

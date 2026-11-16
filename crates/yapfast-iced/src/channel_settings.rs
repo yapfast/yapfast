@@ -287,7 +287,7 @@ impl App {
         let frame = sheet(nav, page, input(ChannelInput::Close), "Channel settings")
             .bar(bar)
             .fill(permissions)
-            .view(self);
+            .view(self.look());
         let mut layers = iced::widget::stack![frame];
         if let Some(confirm) = &core.permissions.confirm {
             layers = layers.push(self.overwrite_confirm(core, confirm, label));
@@ -344,30 +344,14 @@ impl App {
                 form::group([
                     form::heading(theme, "SLOWMODE"),
                     row![
-                        self.filled_icon_button(
-                            Icon::ChevronLeft,
-                            "Shorter slowmode",
-                            STEP,
-                            STEP_GLYPH,
-                            iced::Color::TRANSPARENT,
-                            6.0,
-                            Some(to(step.saturating_sub(1))),
-                        ),
+                        self.look().icon_button(Icon::ChevronLeft, "Shorter slowmode", Some(to(step.saturating_sub(1)))).size(STEP, STEP_GLYPH).fill(iced::Color::TRANSPARENT),
                         container(
                             text(SLOWMODE_NAMES[step.min(SLOWMODE_NAMES.len() - 1)])
                                 .size(15)
                                 .color(theme.text)
                         )
                         .center_x(SLOWMODE_SHOWN),
-                        self.filled_icon_button(
-                            Icon::ChevronRight,
-                            "Longer slowmode",
-                            STEP,
-                            STEP_GLYPH,
-                            iced::Color::TRANSPARENT,
-                            6.0,
-                            Some(to((step + 1).min(SLOWMODES.len() - 1))),
-                        ),
+                        self.look().icon_button(Icon::ChevronRight, "Longer slowmode", Some(to((step + 1).min(SLOWMODES.len() - 1)))).size(STEP, STEP_GLYPH).fill(iced::Color::TRANSPARENT),
                     ]
                     .spacing(form::TIGHT)
                     .align_y(Alignment::Center)
@@ -385,7 +369,7 @@ impl App {
                 .description(
                     "Users will need to confirm they are of over legal age to view the content in this channel. Age-restricted channels are exempt from the explicit content filter.",
                 )
-                .view(self),
+                .view(self.look()),
             ]);
         }
         column(parts)
@@ -496,7 +480,7 @@ impl App {
         let raised = theme.raised;
         parts = parts
             .push(
-                container(switch.view(self))
+                container(switch.view(self.look()))
                     .padding(14)
                     .width(Length::Fill)
                     .style(move |_| rounded(raised, 8)),
@@ -521,7 +505,7 @@ impl App {
                 let on: Option<&dyn Fn(Tri) -> Message> = ready.then_some(&chose);
                 list = list.push(
                     container(form::tri_line(
-                        self,
+                        self.look(),
                         title,
                         description,
                         tri(Overwrites::state(&shown, bit)),
@@ -576,15 +560,14 @@ impl App {
                 .font(BOLD)
                 .color(theme.muted)
                 .width(Length::Fill),
-            self.filled_icon_button(
-                Icon::CirclePlus,
-                "Add a role or member",
-                ADD_BUTTON,
-                ADD_GLYPH,
-                iced::Color::TRANSPARENT,
-                6.0,
-                ready.then(|| input(ChannelInput::Adding(true))),
-            )
+            self.look()
+                .icon_button(
+                    Icon::CirclePlus,
+                    "Add a role or member",
+                    ready.then(|| input(ChannelInput::Adding(true)))
+                )
+                .size(ADD_BUTTON, ADD_GLYPH)
+                .fill(iced::Color::TRANSPARENT)
         ]
         .height(OVERWRITE_HEAD)
         .align_y(Alignment::Center);
@@ -736,7 +719,7 @@ impl App {
         ]
         .spacing(12)
         .padding(16);
-        crate::dialogs::panel(theme, body.into(), CONFIRM, None, cancel)
+        crate::dialog::panel(theme, body.into(), CONFIRM, None, cancel)
     }
 
     /// Add's picker: the roles without an overwrite, then the members
@@ -851,7 +834,7 @@ impl App {
         .padding(16)
         .height(Length::Fill);
         let height = ADD_HEIGHT.min(self.window.height - ADD_ROOM);
-        crate::dialogs::panel(theme, body.into(), ADD_WIDTH, Some(height), close)
+        crate::dialog::panel(theme, body.into(), ADD_WIDTH, Some(height), close)
     }
 
     /// A row of Add's picker, lit under the pointer.

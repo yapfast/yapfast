@@ -23,7 +23,7 @@ use yapfast_core::chat::RelationshipChange;
 use crate::{
     app::{App, Message, NOBODY},
     controls::{Item, Kind, Light, action, field},
-    dialogs::{CONFIRM_WIDTH, dialog},
+    dialog::{CONFIRM_WIDTH, dialog},
     fonts::BOLD,
     menus::{Menu, MenuAct, MenuRow},
     pictures::Icon,
@@ -297,7 +297,9 @@ impl App {
                     .color(theme.text)
                     .wrapping(text::Wrapping::None)
                     .width(Length::Fill),
-                self.icon_button(Icon::X, "Close", 28.0, 18, close.clone(), true),
+                self.look()
+                    .icon_button(Icon::X, "Close", close.clone())
+                    .below(),
             ]
             .align_y(Alignment::Center),
         ]

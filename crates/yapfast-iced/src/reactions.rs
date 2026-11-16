@@ -14,7 +14,7 @@ use yapfast_core::application::Action;
 use crate::{
     app::{App, Message},
     controls::{self, bar, lit_style},
-    dialogs::dialog,
+    dialog::dialog,
     fonts::{BOLD, MEDIUM},
     message::emoji_shortcode,
     pictures::Icon,

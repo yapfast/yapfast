@@ -405,7 +405,7 @@ impl App {
                 Message::Settings(SettingsEvent::Drop(drop)),
                 move |index| voice_message(Event::Device(drop, index)),
             )
-            .view(self)
+            .view(self.look())
         };
         let mic_volume = u32::from(voice.microphone_volume.unwrap_or(100));
         let speaker_volume = u32::from(voice.speaker_volume.unwrap_or(100));
@@ -485,7 +485,7 @@ impl App {
                 Some(voice_message(Event::UnmuteOnJoin(!unmute))),
             )
             .description("Otherwise you join muted, and unmute when you're ready.")
-            .view(self),
+            .view(self.look()),
         );
         let level = voice.level_voice.unwrap_or(true);
         parts.push(
@@ -495,7 +495,7 @@ impl App {
                 Some(voice_message(Event::LevelVoice(!level))),
             )
             .description("Keeps your voice steady as you lean towards the microphone or away from it. Whispers and shouts still come through as they are.")
-            .view(self),
+            .view(self.look()),
         );
         if linked {
             parts.extend(self.discord_voice(settings));
@@ -633,7 +633,7 @@ impl App {
                 Some(voice_message(Event::Dereverb(!dereverb))),
             )
             .description("For a bare or echoey room that makes your voice sound far away. Uses a little more processing, and your voice goes out 10 ms later.")
-            .view(self),
+            .view(self.look()),
         );
         if cfg!(windows) {
             let effects = voice.windows_microphone_effects;
@@ -644,7 +644,7 @@ impl App {
                     Some(voice_message(Event::WindowsEffects(!effects))),
                 )
                 .description("Runs the effects Windows and your sound driver add to the microphone, such as their own noise suppression. Off, Yapfast skips them, as they can muffle your voice on top of Yapfast's. Turn it on if your microphone sounds worse without them, as some laptop microphones can.")
-                .view(self),
+                .view(self.look()),
             );
         }
         parts
@@ -691,7 +691,7 @@ impl App {
                     Message::Settings(SettingsEvent::Drop(Drop::Entrance)),
                     |index| voice_message(Event::EntranceServer(index)),
                 )
-                .view(self),
+                .view(self.look()),
             )
             .width(200)
             .into(),

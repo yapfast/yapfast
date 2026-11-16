@@ -325,7 +325,7 @@ impl App {
     ) -> Element<'a, Message> {
         switch(label, on, Some(pref(make(!on))))
             .description(description)
-            .view(self)
+            .view(self.look())
     }
 }
 

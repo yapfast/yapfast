@@ -138,7 +138,7 @@ impl App {
         let state = self.client.state();
         let rows = request_rows(state);
         if rows.incoming.is_empty() && rows.sent.is_empty() && rows.spam.is_empty() {
-            return self.empty_screen(
+            return self.look().empty_screen(
                 Icon::Inbox,
                 "No requests",
                 "Friend requests and messages from people you don't know show up here.",

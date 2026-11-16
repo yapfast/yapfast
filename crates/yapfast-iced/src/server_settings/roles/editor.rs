@@ -216,7 +216,7 @@ impl App {
                 draft.hoist,
                 editable.then(|| input(RoleInput::Hoist)),
             )
-            .view(self),
+            .view(self.look()),
             form::switch(
                 "Allow anyone to @mention this role",
                 draft.mentionable,
@@ -225,7 +225,7 @@ impl App {
             .description(
                 "Note: Members with the \"Mention @everyone, @here, and All Roles\" permission will always be able to ping this role.",
             )
-            .view(self),
+            .view(self.look()),
         ]
         .spacing(20)
         .into()
@@ -518,7 +518,7 @@ impl App {
                 )
                 .description(info.description)
                 .locked(if locked { notice } else { why });
-                let mut entry = column![switch.view(self)].spacing(4);
+                let mut entry = column![switch.view(self.look())].spacing(4);
                 if let Some(warning) = info.warning {
                     entry = entry.push(text(warning).size(14).font(BOLD).color(theme.text));
                 }

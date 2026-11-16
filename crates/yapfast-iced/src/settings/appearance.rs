@@ -21,7 +21,7 @@ use crate::{
     fonts::{BOLD, MEDIUM},
     form::{self, switch},
     pictures::Icon,
-    theme::{Theme, color},
+    themes::color,
 };
 
 /// A theme's tile: at least this wide, this tall, this far apart.
@@ -254,7 +254,7 @@ impl App {
             .editing
             .clone()
             .unwrap_or_else(|| "editing".to_owned());
-        let theme = Theme::new(&id, &editor.theme);
+        let theme = crate::themes::theme(&id, &editor.theme);
         self.show_theme(theme);
     }
 
@@ -366,7 +366,7 @@ impl App {
         let profile = |label, description, on: bool, which| {
             switch(label, on, Some(theme_message(Event::Profile(which, !on))))
                 .description(description)
-                .view(self)
+                .view(self.look())
         };
         form::page([
             form::title(theme, "Appearance"),
@@ -527,14 +527,14 @@ impl App {
         if !custom {
             return face.into();
         }
-        let pencil = self.icon_button(
-            Icon::Pencil,
-            "Edit",
-            24.0,
-            14,
-            theme_message(Event::Edit(id.to_owned())),
-            false,
-        );
+        let pencil = self
+            .look()
+            .icon_button(
+                Icon::Pencil,
+                "Edit",
+                theme_message(Event::Edit(id.to_owned())),
+            )
+            .size(24.0, 14);
         stack![face, placed(pencil, width - 8.0 - 24.0, 8.0 + 78.0 + 6.0)].into()
     }
 
@@ -588,7 +588,7 @@ impl App {
                     Message::Settings(SettingsEvent::Drop(Drop::Start)),
                     |index| theme_message(Event::Start(index)),
                 )
-                .view(self),
+                .view(self.look()),
             ]));
         }
         parts.push(
@@ -598,7 +598,7 @@ impl App {
                 Some(theme_message(Event::Dark(!editor.theme.dark))),
             )
             .description("Drop-down lists and scroll bars draw dark to match.")
-            .view(self),
+            .view(self.look()),
         );
         let colours = iced::widget::responsive(move |size| {
             let columns = if size.width >= TWO_COLUMNS { 2 } else { 1 };
@@ -762,6 +762,6 @@ impl App {
             ))),
         )
         .description("Your desktop draws the window's title bar and buttons, as on its other windows. Off, Yapfast draws its own.")
-        .view(self)
+        .view(self.look())
     }
 }

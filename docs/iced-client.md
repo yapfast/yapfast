@@ -180,9 +180,9 @@ build.
 ## Theme
 
 `theme.rs` holds the theme every widget paints with: one struct of the
-colours of the Slint global `Theme`, taken from the core's palettes
-(`yapfast_core::theme`, see [themes](themes.md)) and turned into iced's
-colour type once, plus the colours `ui/theme.slint` works out from them
+colours of the Slint global `Theme`, which `themes.rs` fills from the
+core's palettes (`yapfast_core::theme`, see [themes](themes.md)), turned
+into iced's colour type once (`themes::theme`), plus the colours `ui/theme.slint` works out from them
 (the menu's ground and outline, the composer's ground and placeholder, a
 destructive row's text, the selection, a mention's colour) and iced's own
 theme for the few styles iced draws itself. Views take it by reference;
@@ -288,7 +288,7 @@ community server or one with events, the "N Events" row, whose menu lists
 each event with "Happening now" or when it starts and where, or "No
 upcoming events" greyed; an event's row does nothing, as in the Slint
 client. A verified server's name has Discord's green badge before it
-(`App::drawn`, an icon in its own colours), a Community server's the
+(`Look::drawn`, an icon in its own colours), a Community server's the
 Community badge.
 
 The account's card (`account.rs`) spans the foot of both: the avatar with
@@ -1163,10 +1163,10 @@ size is copied one to one.
 
 ## Dialogs
 
-Over the dimmed window, in the frame `dialogs::dialog` draws, each as the
+Over the dimmed window, in the frame `dialog::dialog` draws, each as the
 Slint client's in `ui/dialogs.slint`; Escape or a click outside closes
 each, and what each lists or makes is the core's. The frame stays 24 px
-inside the window each way, and a dialog built of parts (`App::framed`)
+inside the window each way, and a dialog built of parts (`Look::framed`)
 scrolls them when the window is shorter than they are.
 
 - The account's popover (`status.rs`, the Slint client's
@@ -1263,7 +1263,7 @@ what costs is kept out of the view:
   BGRA (`pictures.rs`, `chat::set_pixel_buffers`), handed to iced without a
   copy. Copies at other sizes are made once and go when the core lets go of
   the picture (`Converted`).
-- Moving pictures (`widgets::Animated`) advance inside their widget on the
+- Moving pictures (`animated::Animated`) advance inside their widget on the
   window's redraws, all on one clock, so a frame costs no message and no
   rebuild of the view; decoders of pictures no longer shown go after each
   view. They play as Messages' Animate setting says (`App::plays`):
@@ -1316,8 +1316,9 @@ the colours and `layout` what's kept in `layout.json`.
 messages in `app::message`, what it listens to in `app::subscription`, the
 layers the view stacks in `app::view`); `sync.rs` takes in what changed
 in the core's state after each message.
-`widgets/`, `field.rs` (the composer's text field), `select.rs`
-(selectable text) and `video.rs` are the client's own widgets. Overlays
+`widgets/`, `field.rs` (the composer's text field), `piece.rs`
+(selectable text, whose selection across the timeline `select.rs` keeps),
+`animated.rs` and `video.rs` are the client's own widgets. Overlays
 (the card, suggestions, the picker, menus, a dialog) are layers of one
 stack, each over a layer that takes a click outside; a menu or a dialog
 takes the keys by moving focus to an id nothing has (`app::NOBODY`).
@@ -1330,11 +1331,30 @@ that keeps Escape is open, the window takes a captured Escape too.
 
 Screens build from shared pieces rather than styling their own, and take
 every colour from the theme and every repeated size from a named constant.
-When a second screen needs what a first one built, it moves here:
+When a second screen needs what a first one built, it moves here. The
+kit is a crate of its own, `crates/yapfast-iced-kit`, which knows nothing
+of the core or of the app: the theme (`theme`, which the app fills in
+`themes.rs`), `style`, `fonts`, `icons` and `canvas`, `controls`, `form`,
+`sheet`, `dialog`, `tile`, `viewer`, `field`, `piece`, `popover`,
+`reorder`, `elide`, `timer`, `frames` and `widgets`. The client uses each
+module under its own name (`crate::widgets::Rows`), and what the kit
+can't know it's handed: the messages to send, the palette, a zoom wheel's
+steps. A piece
+that draws with the theme and the icons alone takes a `look::Look`, the two
+borrowed (`App::look`), not the window's whole state. One that draws the
+core's pictures (avatars, faces, shots, emoji, someone's status) takes a
+`ctx::Ctx`: the look, the pictures made to draw, the core and its state,
+and whether moving pictures play, borrowed and passed by value
+(`App::ctx`). The kit's pieces name no message of the app's: each is
+generic over the message it sends (`controls::action`,
+`Look::icon_button`, `form::Switch`, `sheet::Sheet`, `dialog::dialog`),
+and the app uses them with its one `Message`, so nothing is mapped:
 
 - `controls::action`: the button of dialogs and forms (the Slint client's
   `ActionButton`), by kind: primary, plain, ghost, danger.
-- `controls::field`: the single-line field (`TextField`).
+- `controls::field`: the single-line field (`TextField`), by any id;
+  `controls::field_style` its look on a ground of the caller's (a colour
+  code's field gone red, a name that shows its ground only when lit).
 - `controls::edged`: an edge drawn over what it holds, so a card whose
   parts round their own grounds to its corners keeps its outline.
 - `controls::outside` and `controls::dimmed`: the layer under an overlay
@@ -1345,7 +1365,7 @@ When a second screen needs what a first one built, it moves here:
   a card that's a button, in a 1 px edge that may light too;
   `controls::ink_style` a button that is only its text, brightening under
   the pointer.
-- `App::menu_item` with `controls::Item`: a row of a menu or a list of
+- `Look::menu_item` with `controls::Item`: a row of a menu or a list of
   choices (`MenuItem`), lit under the pointer or, in a context menu, where
   the keys put the light (`menu_item_sized` at a height of its own); `controls::menu_panel` and `separator` are the
   menu's ground and the line between its groups.
@@ -1371,8 +1391,8 @@ When a second screen needs what a first one built, it moves here:
 - `menus.rs`: a menu taller than the window scrolls, at most the window's
   height less a margin each side, and `Place` keeps one below the pointer,
   above it, or else pinned to the window's foot.
-- `dialogs::dialog`: the frame of every dialog over the dimmed window;
-  `dialogs::panel` a dialog of a width (and height) of its own on the
+- `dialog::dialog`: the frame of every dialog over the dimmed window;
+  `dialog::panel` a dialog of a width (and height) of its own on the
   chat's ground, as Roles' questions and Add members are, a click on the
   dimmed window sending its own message.
 - `reorder::Reorder`: a list of rows that dragging reorders: a row taken
@@ -1391,7 +1411,8 @@ When a second screen needs what a first one built, it moves here:
 - `widgets::Autoscroll`: round the whole window, a middle click's
   autoscroll of the list under it (see the shell's Autoscroll).
 - `widgets::CtrlWheel`: round the whole window, the wheel with Ctrl held
-  zooms and scrolls nothing under it.
+  zooms and scrolls nothing under it; what a turn comes to is the app's
+  (`zoom::Wheel`, kept in the widget's state).
 - `widgets::Drags`: a row that a press moved 4 px drags and a press let
   go sooner clicks; while a drag is on it says when the pointer comes onto
   it and leaves, a release on it clicks nothing, and it hides the cards of
@@ -1402,11 +1423,15 @@ When a second screen needs what a first one built, it moves here:
   the pointer and while held, with the resize pointer; it sends the
   distance dragged, the release and a double click (the thread beside's
   width).
-- `App::filled_icon_button`: an icon button on a round ground of its own
-  (the Slint client's `IconButton` with a `fill`), greyed without a
-  message, its tip above; an empty label shows no tip.
-  `App::danger_icon_button` is one with `danger`: red on a red wash under
-  the pointer, on a `fill` or none.
+- `Look::icon_button`: every icon button, the Slint client's
+  `IconButton`, built up from an icon, its label and its message: 28 px
+  with an 18 px glyph in the secondary ink unless `size` says otherwise,
+  lit by the overlay's wash under the pointer, its tip above it or
+  `below`, no tip for an empty label, greyed and faint without a message.
+  `fill` puts it on a ground of its own (`IconButton`'s `fill`, a tenth of
+  the overlay lighter under the pointer) and `radius` rounds it; `danger`
+  makes it red on a red wash under the pointer, on a ground or none;
+  `Look::face_button` shows a face of its own instead of an icon.
 - `elide::elide`: one line of text cut to its room with "…", as Slint's
   `overflow: elide` (iced's text only wraps or clips): as wide as its text
   up to the room its row leaves, so what follows it follows the text, or
@@ -1423,19 +1448,22 @@ When a second screen needs what a first one built, it moves here:
   point.
 - `controls::count_pill`: a count in a red pill, on a ring or not, with
   the metrics of the rail's or a row's (`Count`).
-- `looks::Status` and `App::status_line`: what someone is up to on one
+- `looks::Status` and `Ctx::status_line`: what someone is up to on one
   line, cut with "…" where its row ends, as `people::StatusInk` writes it:
   `under_name` (12 px with the activity's icon, under a name in the member
   list, DMs, the account's card) or `words` (an emoji and words at a size
   of their own: friends, the profile's activity).
-- `App::glyph`: one of `ui/icons` at a size, in a colour; `Pic::boxed`
+- `Look::glyph`: one of `ui/icons` at a size, in a colour, drawn once
+  (by resvg onto a `canvas::Canvas`, in the renderer's own format) and
+  kept in `icons::Icons` until the window goes or the theme changes;
+  `Pic::boxed`
   centres it (or any picture) in a square, for a button's face or a badge;
-  `App::icon_button` is the header's and composer's icon button.
-- `App::avatar` and `App::face`: an avatar, with its decoration and
+  `Look::icon_button` is the icon button.
+- `Ctx::avatar` and `Ctx::face`: an avatar, with its decoration and
   presence dot (`paint::status_dot`, offline's and invisible's a faint
   dot with a hole; lists that leave it off for offline people leave it
   out themselves, as Slint's).
-- `people::Person` and `App::person`: a person's row, their face, then
+- `people::Person` and `Ctx::person`: a person's row, their face, then
   their name over its line; `App::person_name` draws a name in its style
   (`NameInk`), `App::voice_spot` the voice channel someone is in, and
   `App::list_heading` a list's heading.
@@ -1448,14 +1476,17 @@ When a second screen needs what a first one built, it moves here:
   Style window's tiles and previews.
 - `markdown.rs`: text laid out as Discord's client does (`parse`,
   `plain`, `notice`), and drawn (`App::body_view`, `App::run_span`) as
-  selectable pieces (`select::Piece`), which follow their links.
+  selectable pieces (`piece::Piece`), which send the link and
+  selection messages they're made with.
 - `style.rs`: container grounds (`fill`, `rounded`, `corners`, and
-  `outlined` in a 1 px `edge`), the shadows (cards, raised panels and the
+  `outlined` in a 1 px `edge`), a raised panel (`panel`: a ground in its
+  edge over the raised shadow, as menus, suggestions and the picker are),
+  the shadows (cards, raised panels and the
   settings' cards, the Display Name Style window, the timeline's floating
   bars, the hover bar), the scrollbar.
 - `pictures::Face::new(url, name, size)` with `key`, `opacity`,
-  `decoration` and `dot`: an avatar as `App::face` draws it.
-- `widgets/`: `Pic`, `Animated`, `Framed` (a profile frame's layers
+  `decoration` and `dot`: an avatar as `Ctx::face` draws it.
+- `widgets/`: `Pic`, `Framed` (a profile frame's layers
   under and over a child, past its sides), `ColourPad` (a colour's
   saturation, brightness and hue, kept as `Hsv`), the virtualized `Rows` (rows across
   the list, or with `Rows::place` boxes of their own), the anchored
@@ -1477,6 +1508,9 @@ When a second screen needs what a first one built, it moves here:
   drawing round the child's, a shift of the child's space, an operation
   passed on); the child gets
   everything else, its overlay included, so its tooltips show through.
+  The widgets name no message of the app's: each is generic over the
+  message it carries (`Rows<'a, M>`, `Hooks<M>`), and the app uses them
+  with its one `Message`.
   `widgets::moved_to` reads where a move took the pointer, from the
   cursor as the widget sees it. `gradient_quad` fills a quad with a
   linear gradient.
@@ -1490,7 +1524,7 @@ When a second screen needs what a first one built, it moves here:
 - `picker::kit`: what a picker is built of: the tabs, the search field,
   the rail of sections, `Grid` (tiles placed at their own boxes, which
   `Rows::place` builds only near the viewport, with the sections the rail
-  jumps to), a section's heading, `App::star` (a favourite's star),
+  jumps to), a section's heading, `Look::star` (a favourite's star),
   `pinned` (a small thing at a tile's corner), the foot and the frame,
   and `Masonry`, the GIFs' columns.
 - `tile::Tile`: a video tile, the one piece of the stage, the corner
@@ -1504,7 +1538,7 @@ When a second screen needs what a first one built, it moves here:
   round controls, the DM call's answer buttons and the dock's buttons;
   `controls::live_pill` LIVE; `controls::Slider` a volume slider;
   `controls::heading` a popup's heading; `controls::choices` a row of
-  choices, one picked; `controls::Check` and `App::checkbox` a menu row's
+  choices, one picked; `controls::Check` and `Look::checkbox` a menu row's
   tick or checkbox, and `Item::subtitle` a second line under its label.
 - `widgets::Hover`: a layer shown over its child only under the pointer.
 - `found::Found` and `App::found_view`: a message found (pinned, a
@@ -1554,7 +1588,7 @@ When a second screen needs what a first one built, it moves here:
   the bar over the page's foot, a page that fills its height for a list
   of its own); `backdrop`, the card over the dimmed window that Settings
   shares, and `nav_row`, a section's row in either.
-- `App::emoji_button`: an emoji on a lit square, for quick reactions in
+- `Ctx::emoji_button`: an emoji on a lit square, for quick reactions in
   menus and the hover bar. `controls::action(..).small()` and `.icon()`
   make an app's button; `Kind::Success` is the green one.
 
@@ -1589,7 +1623,9 @@ match a family's face at the weight nearest the text's.
 
 ## Tests
 
-`cargo test -p yapfast-iced` runs the crate's tests, among them `tests/`,
+`cargo test -p yapfast-iced-kit` runs the kit's own tests, with a message
+of their own (`testing::Message`) and without the core.
+`cargo test -p yapfast-iced` runs the client's tests, among them `tests/`,
 which drives the window through `iced_test`'s headless simulator on the
 core's preview: it builds the view, clicks and types into it, and hands the
 messages that come out to `App::update`. They find widgets by their text or

@@ -26,7 +26,7 @@ use crate::{
     controls::lit_style,
     fonts::{BOLD, SEMIBOLD},
     pictures::Icon,
-    style::{faded, hex, raised_shadow},
+    style::{faded, hex},
     widgets::Pic,
 };
 
@@ -405,12 +405,7 @@ impl App {
         Some(
             container(list)
                 .width(Length::Fill)
-                .style(move |_| container::Style {
-                    background: Some(ground.into()),
-                    border: crate::style::edge(edge, 8.0),
-                    shadow: raised_shadow(),
-                    ..Default::default()
-                })
+                .style(move |_| crate::style::panel(ground, edge, 8.0))
                 .into(),
         )
     }
@@ -493,20 +488,9 @@ impl App {
             .into()
     }
 
-    /// An emoji's picture by its key: Twemoji's, or a custom emoji's once
-    /// it has come (a quiet square until then).
+    /// [`Ctx::emoji_face`](crate::ctx::Ctx::emoji_face).
     pub fn emoji_face(&self, key: &str, size: u32) -> Element<'_, Message> {
-        let side = size as f32;
-        let handle = match key.split_once(':') {
-            Some((_, id)) => self
-                .custom_emoji(id)
-                .and_then(|url| self.picture(&url, size, size, false)),
-            None => emojis::get(key).and_then(|emoji| self.emoji_picture(emoji.as_str(), size)),
-        };
-        match handle {
-            Some(handle) => Pic::square(handle, side).into(),
-            None => Space::new().width(side).height(side).into(),
-        }
+        self.ctx().emoji_face(key, size)
     }
 
     /// A picture by its address, `size` square once it has come (a quiet
@@ -519,16 +503,9 @@ impl App {
         }
     }
 
-    /// A custom emoji's picture's address, by its id, among those this
-    /// account has.
+    /// [`Ctx::custom_emoji`](crate::ctx::Ctx::custom_emoji).
     pub fn custom_emoji(&self, id: &str) -> Option<String> {
-        let ids = std::collections::HashSet::from([id]);
-        self.client
-            .app
-            .emoji_by_id(&ids)
-            .into_iter()
-            .next()
-            .map(|emoji| emoji.picture)
+        self.ctx().custom_emoji(id)
     }
 
     /// The pictures the suggestions show, to ask for.
@@ -559,4 +536,53 @@ fn heading<'a>(theme: &crate::theme::Theme, label: String) -> Element<'a, Messag
         .height(HEADING)
         .align_y(Alignment::Center)
         .into()
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
+    /// An emoji as a button `side` across, its picture `glyph` across (its
+    /// text where there's no picture), on `rest` and `lit` under the
+    /// pointer: the menu's quick reactions, the hover bar's.
+    pub fn emoji_button(
+        self,
+        key: &str,
+        glyph: u32,
+        side: f32,
+        (rest, lit): (Option<iced::Color>, iced::Color),
+        press: Message,
+    ) -> Element<'a, Message> {
+        button(container(self.emoji_face(key, glyph)).center(side))
+            .padding(0)
+            .width(side)
+            .height(side)
+            .style(lit_style(rest, lit, 6.0))
+            .on_press(press)
+            .into()
+    }
+
+    /// An emoji's picture by its key: Twemoji's, or a custom emoji's once
+    /// it has come (a quiet square until then).
+    pub fn emoji_face(self, key: &str, size: u32) -> Element<'a, Message> {
+        let side = size as f32;
+        let handle = match key.split_once(':') {
+            Some((_, id)) => self
+                .custom_emoji(id)
+                .and_then(|url| self.picture(&url, size, size, false)),
+            None => emojis::get(key).and_then(|emoji| self.emoji_picture(emoji.as_str(), size)),
+        };
+        match handle {
+            Some(handle) => Pic::square(handle, side).into(),
+            None => Space::new().width(side).height(side).into(),
+        }
+    }
+
+    /// A custom emoji's picture's address, by its id, among those this
+    /// account has.
+    pub fn custom_emoji(self, id: &str) -> Option<String> {
+        let ids = std::collections::HashSet::from([id]);
+        self.app
+            .emoji_by_id(&ids)
+            .into_iter()
+            .next()
+            .map(|emoji| emoji.picture)
+    }
 }

@@ -26,7 +26,7 @@ use super::{Drop, Event as Settings, Screen, message, moderation, roles::role_co
 use crate::{
     app::{App, Message},
     controls::{self, Kind, action},
-    dialogs,
+    dialog,
     elide::elide,
     fonts::{BOLD, SEMIBOLD},
     form,
@@ -377,7 +377,7 @@ impl App {
         )
         .width(SORT)
         .height(HEAD_HEIGHT)
-        .view(self);
+        .view(self.look());
         let head = row![
             container(
                 text(if page.searched() {
@@ -568,14 +568,15 @@ impl App {
                 .width(Length::FillPortion(MEMBER_COLUMNS[5].1))
                 .into(),
         );
-        let more = self.icon_button(
-            Icon::Ellipsis,
-            "More Options",
-            BUTTON,
-            BUTTON_GLYPH,
-            local(Event::Menu(person.id.clone())),
-            false,
-        );
+        let more: Element<'_, Message> = self
+            .look()
+            .icon_button(
+                Icon::Ellipsis,
+                "More Options",
+                local(Event::Menu(person.id.clone())),
+            )
+            .size(BUTTON, BUTTON_GLYPH)
+            .into();
         let id = person.id.as_str();
         let face = button(container(columns(cells, more)).center_y(Length::Fill))
             .padding(0)
@@ -613,7 +614,7 @@ impl App {
                 |index| member(MemberInput::PageSize(MEMBER_PAGE_SIZES[index])),
             )
             .width(PAGE_SIZE)
-            .view(self);
+            .view(self.look());
             footer = footer
                 .push(text("Showing").size(14).color(theme.secondary))
                 .push(size);
@@ -799,12 +800,11 @@ impl App {
         let base = container(columns(cells, Space::new().width(BUTTON).into()))
             .center_y(ROW)
             .width(Length::Fill);
-        let remove = self.icon_face_button(
+        let remove = self.look().face_button(
             self.glyph(Icon::X, BUTTON_GLYPH, theme.danger),
-            "Remove",
             BUTTON,
+            "Remove",
             invite(InviteInput::Revoke(listed.code.clone())),
-            false,
         );
         let wash = theme.wash(0.06);
         let over = container(remove)
@@ -838,7 +838,7 @@ impl App {
             |index| invite(InviteInput::Hours(PAUSE_HOURS[index])),
         )
         .enabled(ready)
-        .view(self);
+        .view(self.look());
         let mut body = column![
             text("Security Actions")
                 .size(20)
@@ -853,7 +853,7 @@ impl App {
             .description(
                 "Temporarily stop new members from joining this server via invite or vanity links."
             )
-            .view(self),
+            .view(self.look()),
             form::switch(
                 "Pause DMs",
                 draft.dms,
@@ -862,7 +862,7 @@ impl App {
             .description(
                 "Temporarily stop new direct messages from being sent between members in your server. Friends can still DM each other, moderators can still DM members, and your Apps can still DM members."
             )
-            .view(self),
+            .view(self.look()),
         ]
         .spacing(14)
         .padding(16);
@@ -887,7 +887,7 @@ impl App {
             ]
             .spacing(form::TIGHT),
         );
-        Some(dialogs::panel(
+        Some(dialog::panel(
             theme,
             body.into(),
             SECURITY,

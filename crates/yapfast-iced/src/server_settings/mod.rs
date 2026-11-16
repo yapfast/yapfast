@@ -439,7 +439,7 @@ impl App {
         )
         .bar(bar)
         .fill(fill)
-        .view(self);
+        .view(self.look());
         let mut layers = iced::widget::stack![frame];
         for dialog in self.server_dialogs(core, screen) {
             layers = layers.push(dialog);
@@ -473,7 +473,7 @@ impl App {
     /// Delete Server after a line for its owner. A heading with nothing
     /// under it goes, as the server's name does for someone who may only
     /// manage roles.
-    fn server_nav<'a>(&'a self, core: &'a ServerSettings) -> Vec<Nav<'a>> {
+    fn server_nav<'a>(&'a self, core: &'a ServerSettings) -> Vec<Nav<'a, Message>> {
         let app = &self.client.app;
         let name = app
             .state
@@ -518,7 +518,7 @@ impl App {
                 press: message(Event::DeleteServer),
             });
         }
-        let mut kept: Vec<Nav<'a>> = Vec::with_capacity(rows.len());
+        let mut kept: Vec<Nav<'a, Message>> = Vec::with_capacity(rows.len());
         for row in rows {
             let heading = matches!(row, Nav::Heading(_) | Nav::Line);
             if heading

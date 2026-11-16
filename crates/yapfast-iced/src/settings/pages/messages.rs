@@ -89,7 +89,7 @@ impl App {
                     Some(pref(Pref::Seconds(!prefs.clock_seconds))),
                 )
                 .description("Message times show them, as 21:41:05.")
-                .view(self),
+                .view(self.look()),
                 form::heading(theme, "DATE FORMAT"),
                 choices(theme, &DATE_FORMATS, date, |index| {
                     pref(Pref::DateFormat(index))
@@ -131,7 +131,7 @@ impl App {
             .description(format!(
                 "{networks} \"typing...\" while you write. Others still show here when they type."
             ))
-            .view(self),
+            .view(self.look()),
             self.flip(
                 "Mention people you reply to",
                 "They get notified of your reply. Switch it for one reply with @ On on the reply bar.",

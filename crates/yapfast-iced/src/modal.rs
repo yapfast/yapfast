@@ -20,7 +20,7 @@ use yapfast_core::application::{Action, ModalField};
 use crate::{
     app::{App, Message},
     controls::{self, Kind},
-    dialogs::dialog,
+    dialog::dialog,
     elide::elide,
     fonts::{BOLD, MEDIUM},
     markdown::{Body, FIRST_PART, Look},
@@ -173,7 +173,8 @@ impl App {
             )
             .width(Length::Fill),
             match close.clone() {
-                Some(close) => self.icon_button(Icon::X, "Close", 28.0, 18, close, true),
+                Some(close) =>
+                    Element::from(self.look().icon_button(Icon::X, "Close", close).below()),
                 None => Space::new().width(28).into(),
             },
         ]
@@ -403,14 +404,15 @@ impl App {
             let remove: Element<'_, Message> = if saving {
                 Space::new().width(28).into()
             } else {
-                self.icon_button(
-                    Icon::X,
-                    "Remove",
-                    28.0,
-                    16,
-                    Message::Modal(Event::RemoveFile(index, place)),
-                    true,
-                )
+                self.look()
+                    .icon_button(
+                        Icon::X,
+                        "Remove",
+                        Message::Modal(Event::RemoveFile(index, place)),
+                    )
+                    .size(28.0, 16)
+                    .below()
+                    .into()
             };
             files = files.push(
                 container(

@@ -18,7 +18,7 @@ use yapfast_core::application::Action;
 use crate::{
     app::{App, Message},
     controls::{Kind, action},
-    dialogs::buttons,
+    dialog::buttons,
     fonts::BOLD,
     form,
     style::rounded,
@@ -227,10 +227,15 @@ impl App {
             .state()
             .event_prompt(self.layout.prefs.twelve_hour_clock)?;
         let theme = &self.theme;
-        let mut body =
-            vec![self.dialog_head(prompt.title.to_owned(), message(Event::CloseScheduled))];
+        let mut body = vec![
+            self.look()
+                .dialog_head(prompt.title.to_owned(), message(Event::CloseScheduled)),
+        ];
         if prompt.found {
-            body.push(self.found_card(None, prompt.name, [prompt.when, prompt.detail]));
+            body.push(
+                self.look()
+                    .found_card(None, prompt.name, [prompt.when, prompt.detail]),
+            );
         }
         if !prompt.description.is_empty() {
             body.push(
@@ -252,16 +257,22 @@ impl App {
             Event::CloseScheduled,
             Event::ToggleInterest,
         );
-        Some(self.framed(body, WIDTH, message(Event::CloseScheduled)))
+        Some(
+            self.look()
+                .framed(body, WIDTH, message(Event::CloseScheduled)),
+        )
     }
 
     /// A gift: what it grants and from whom, and Redeem Gift, or Open in
     /// Browser for one only Discord redeems.
     fn gift_view(&self) -> Option<Element<'_, Message>> {
         let prompt = self.client.state().gift_prompt()?;
-        let mut body = vec![self.dialog_head(prompt.title.to_owned(), message(Event::CloseGift))];
+        let mut body = vec![
+            self.look()
+                .dialog_head(prompt.title.to_owned(), message(Event::CloseGift)),
+        ];
         if prompt.found {
-            body.push(self.found_card(None, prompt.name, [prompt.detail]));
+            body.push(self.look().found_card(None, prompt.name, [prompt.detail]));
         }
         self.link_dialog_foot(
             &mut body,
@@ -274,7 +285,7 @@ impl App {
             Event::CloseGift,
             Event::Redeem,
         );
-        Some(self.framed(body, WIDTH, message(Event::CloseGift)))
+        Some(self.look().framed(body, WIDTH, message(Event::CloseGift)))
     }
 
     /// An application's authorization: the application, what of it can
@@ -283,10 +294,16 @@ impl App {
     fn oauth_view(&self) -> Option<Element<'_, Message>> {
         let prompt = self.client.state().oauth_prompt()?;
         let theme = &self.theme;
-        let mut body = vec![self.dialog_head(prompt.title.clone(), message(Event::CloseOAuth))];
+        let mut body = vec![
+            self.look()
+                .dialog_head(prompt.title.clone(), message(Event::CloseOAuth)),
+        ];
         if prompt.found {
             let avatar = self.avatar(prompt.icon.as_deref(), &prompt.name, 48.0, 24.0, 1.0);
-            body.push(self.found_card(Some(avatar), prompt.name.clone(), [prompt.detail]));
+            body.push(
+                self.look()
+                    .found_card(Some(avatar), prompt.name.clone(), [prompt.detail]),
+            );
         }
         if !prompt.warning.is_empty() {
             body.push(
@@ -335,7 +352,7 @@ impl App {
             if prompt.busy {
                 menu = menu.enabled(false);
             }
-            body.push(menu.view(self));
+            body.push(menu.view(self.look()));
         } else if !prompt.guild_name.is_empty() {
             body.push(
                 boxed(
@@ -393,6 +410,6 @@ impl App {
             Event::CloseOAuth,
             Event::Authorize,
         );
-        Some(self.framed(body, WIDTH, message(Event::CloseOAuth)))
+        Some(self.look().framed(body, WIDTH, message(Event::CloseOAuth)))
     }
 }

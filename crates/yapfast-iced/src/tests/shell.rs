@@ -67,6 +67,7 @@ fn closing_with_a_tray_drops_the_window_and_the_tray_brings_it_back() {
     let _ = app.update(Message::Shell(Event::CloseRequested(first)));
     assert!(app.shell.window.is_none(), "closed to the tray");
     assert!(app.pictures.is_empty(), "every picture made for it went");
+    assert!(app.icons.is_empty(), "and every icon");
     assert!(app.shell.tray.is_some(), "still running");
     assert_eq!(app.shell.size, Some(app.shell.frame), "its size kept");
     heard(&mut app, Heard::Tray(TrayChoice::Open));

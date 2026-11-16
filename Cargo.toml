@@ -7,7 +7,7 @@ publish = false
 license = "GPL-3.0-or-later"
 
 [workspace]
-members = ["crates/feature-union", "crates/yapfast-core", "crates/yapfast-discord", "crates/yapfast-iced"]
+members = ["crates/feature-union", "crates/yapfast-core", "crates/yapfast-discord", "crates/yapfast-iced", "crates/yapfast-iced-kit"]
 default-members = ["."]
 # crates/yapfast-ui is a path dependency outside the workspace: Clippy lints
 # every workspace member it compiles, even one --exclude leaves out, and
@@ -263,4 +263,11 @@ incremental = true
 inherits = "measure"
 
 [profile.fast.package.yapfast-ui]
+opt-level = 0
+
+# The iced client unoptimized too, while its screens are methods of one type:
+# rustc builds them as one unit, so an edit to any rebuilt it in 9.3 s at
+# opt-level 3 and 3.4 s at 0. Its crowd scene takes about 40% of a core
+# rather than 23%; measurements use `measure`.
+[profile.fast.package.yapfast-iced]
 opt-level = 0

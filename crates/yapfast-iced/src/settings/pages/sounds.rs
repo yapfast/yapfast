@@ -86,14 +86,9 @@ impl App {
                             .view(theme)
                         )
                         .width(Length::Fill),
-                        self.icon_button(
-                            Icon::Play,
-                            "Play",
-                            32.0,
-                            18,
-                            pref(Pref::PlaySound(index)),
-                            false
-                        )
+                        self.look()
+                            .icon_button(Icon::Play, "Play", pref(Pref::PlaySound(index)))
+                            .size(32.0, 18)
                     ]
                     .spacing(12)
                     .align_y(Alignment::Center),

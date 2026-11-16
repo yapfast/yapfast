@@ -139,7 +139,7 @@ impl App {
                 !category.followed,
             ))),
         )
-        .view(self);
+        .view(self.look());
         row![
             container(
                 elide(category.name.as_str())

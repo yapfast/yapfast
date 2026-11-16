@@ -12563,19 +12563,31 @@ dependencies = [
  "iced_tiny_skia",
  "pulldown-cmark",
  "qrcode",
- "resvg",
  "rfd",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
  "tracing",
- "ttf-parser",
- "unicode-script",
  "webbrowser",
  "winit",
  "xkeysym",
  "yapfast-core",
+ "yapfast-iced-kit",
+]
+
+[[package]]
+name = "yapfast-iced-kit"
+version = "0.1.0"
+dependencies = [
+ "iced",
+ "iced_test",
+ "iced_tiny_skia",
+ "resvg",
+ "tokio",
+ "tracing",
+ "ttf-parser",
+ "unicode-script",
 ]
 
 [[package]]

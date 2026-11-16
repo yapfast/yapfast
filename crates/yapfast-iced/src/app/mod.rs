@@ -25,7 +25,8 @@ use crate::{
     sidebar::SideRow,
     signin::{self, SignIn},
     sync::Scroll,
-    theme::{Theme, Themes},
+    theme::Theme,
+    themes::Themes,
     video,
 };
 
@@ -74,6 +75,8 @@ pub struct App {
     pub announce_updates: bool,
     /// The pictures made to draw, and the moving ones playing.
     pub pictures: crate::pictures::Pictures,
+    /// The icons drawn, which [`App::look`] draws from.
+    pub icons: crate::icons::Icons,
     /// What's under the pointer, part by part.
     pub pointed: Pointed,
     /// The rail's DM home and rows, and its viewport.
@@ -309,6 +312,52 @@ pub struct App {
 }
 
 impl App {
+    /// What views read besides their own state.
+    pub fn ctx(&self) -> crate::ctx::Ctx<'_> {
+        crate::ctx::Ctx {
+            look: self.look(),
+            pictures: &self.pictures,
+            app: &self.client.app,
+            state: self.client.state(),
+            plays: self.plays(),
+        }
+    }
+
+    /// The theme, icons and room the kit draws with.
+    pub fn look(&self) -> crate::look::Look<'_> {
+        crate::look::Look {
+            theme: &self.theme,
+            icons: &self.icons,
+            window: self.window,
+        }
+    }
+
+    /// [`Look::menu_item`](crate::look::Look::menu_item).
+    pub fn menu_item<'a>(
+        &self,
+        item: crate::controls::Item<'a>,
+        light: crate::controls::Light,
+        press: Message,
+    ) -> iced::Element<'a, Message> {
+        self.look().menu_item(item, light, press)
+    }
+
+    /// [`Look::menu_item_sized`](crate::look::Look::menu_item_sized).
+    pub fn menu_item_sized<'a>(
+        &self,
+        item: crate::controls::Item<'a>,
+        light: crate::controls::Light,
+        press: Message,
+        height: f32,
+    ) -> iced::Element<'a, Message> {
+        self.look().menu_item_sized(item, light, press, height)
+    }
+
+    /// [`Look::checkbox`](crate::look::Look::checkbox).
+    pub fn checkbox<'a>(&self, ticked: bool, lit: bool) -> iced::Element<'a, Message> {
+        self.look().checkbox(ticked, lit)
+    }
+
     pub fn new(client: Client, size: (u32, u32)) -> (Self, Task<Message>) {
         // No test reaches the speakers or the microphone.
         #[cfg(test)]
@@ -346,6 +395,7 @@ impl App {
             announce_updates: false,
             pointed: Pointed::default(),
             pictures: crate::pictures::Pictures::new(fitter),
+            icons: Default::default(),
             rail_home: Default::default(),
             rail: Vec::new(),
             rail_scroll: Scroll::new(height),
@@ -474,7 +524,7 @@ impl App {
         // Started on a saved account: see `SignIn::starting`.
         app.sign_in.starting = !app.workspace() && app.client.state().busy;
         let frames = Task::batch([
-            video::follow(app.video.clone()),
+            video::follow(app.video.clone(), Message::Frames),
             Task::run(fitted, Message::Fitted),
         ]);
         let sync = app.sync();

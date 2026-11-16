@@ -57,22 +57,22 @@ impl App {
                     .font(SEMIBOLD)
                     .color(theme.muted)
                     .width(Length::Fill),
-                self.icon_button(
-                    Icon::UserPlus,
-                    "Add a friend",
-                    24.0,
-                    16,
-                    Message::Friends(crate::friends::Event::OpenAdd),
-                    true
-                ),
-                self.icon_button(
-                    Icon::SquarePen,
-                    "New message",
-                    24.0,
-                    16,
-                    Message::Switcher(crate::switcher::Event::OpenNewDm),
-                    true
-                ),
+                self.look()
+                    .icon_button(
+                        Icon::UserPlus,
+                        "Add a friend",
+                        Message::Friends(crate::friends::Event::OpenAdd)
+                    )
+                    .size(24.0, 16)
+                    .below(),
+                self.look()
+                    .icon_button(
+                        Icon::SquarePen,
+                        "New message",
+                        Message::Switcher(crate::switcher::Event::OpenNewDm)
+                    )
+                    .size(24.0, 16)
+                    .below(),
             ]
             .spacing(4)
             .padding(Padding {
@@ -279,14 +279,15 @@ impl App {
         // Discord's "+", while the pointer is over a category this account
         // may make channels in.
         if pointed && self.client.app.may_create_channel(fold) {
-            face = face.push(self.icon_button(
-                Icon::Add,
-                "Create Channel",
-                CHAT_BUTTON,
-                16,
-                Message::Side(Event::CreateIn(fold.to_owned())),
-                false,
-            ));
+            face = face.push(
+                self.look()
+                    .icon_button(
+                        Icon::Add,
+                        "Create Channel",
+                        Message::Side(Event::CreateIn(fold.to_owned())),
+                    )
+                    .size(CHAT_BUTTON, 16),
+            );
         }
         let area = mouse_area(
             container(face)
@@ -520,14 +521,15 @@ impl App {
         // A voice channel's chat opens without joining it, from a button
         // shown under the pointer or while it's selected, as in Discord.
         if room.chat && (pointed || room.selected) {
-            face = face.push(self.icon_button(
-                Icon::Forum,
-                "Open chat",
-                CHAT_BUTTON,
-                16,
-                Message::Side(Event::OpenChat(room.id.clone())),
-                false,
-            ));
+            face = face.push(
+                self.look()
+                    .icon_button(
+                        Icon::Forum,
+                        "Open chat",
+                        Message::Side(Event::OpenChat(room.id.clone())),
+                    )
+                    .size(CHAT_BUTTON, 16),
+            );
         }
         let message = if room.voice {
             Message::Side(Event::Voice(room.id.clone()))

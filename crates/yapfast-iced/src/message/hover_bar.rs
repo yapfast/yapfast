@@ -65,7 +65,9 @@ impl App {
         let deletes = quick && message.can_delete && writes;
         let act = |act: MenuAct| Message::Act(act, item.clone(), at);
         let button = |icon: Icon, label: &'static str, message: Message| {
-            self.icon_button(icon, label, BAR_BUTTON, 20, message, false)
+            self.look()
+                .icon_button(icon, label, message)
+                .size(BAR_BUTTON, 20)
         };
         let mut buttons = row![].align_y(Alignment::Center);
         if quick && message.can_pin {
@@ -81,7 +83,7 @@ impl App {
         if message.can_react {
             if !quick {
                 for key in self.client.app.frequent_reactions(quick_reactions) {
-                    buttons = buttons.push(self.emoji_button(
+                    buttons = buttons.push(self.ctx().emoji_button(
                         &key,
                         20,
                         BAR_BUTTON,
@@ -111,12 +113,11 @@ impl App {
             buttons = buttons.push(button(Icon::Forward, "Forward", act(MenuAct::Forward)));
         }
         buttons = buttons.push(if deletes {
-            self.icon_face_button(
+            self.look().face_button(
                 self.glyph(Icon::Trash, 20, theme.danger),
-                "Delete",
                 BAR_BUTTON,
+                "Delete",
                 act(MenuAct::DeleteNow),
-                false,
             )
         } else {
             button(Icon::Ellipsis, "More", Message::RowMenu(shared.clone(), at))

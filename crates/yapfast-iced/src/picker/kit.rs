@@ -14,12 +14,12 @@ use iced::{
 
 use super::{Event, Tab};
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::lit_style,
     field::{self, Draft, Field},
     fonts::{BOLD, SEMIBOLD},
     pictures::Icon,
-    style::{raised_shadow, scrollbar},
+    style::scrollbar,
     sync::MARGIN,
     theme::Theme,
     widgets::Rows,
@@ -110,7 +110,7 @@ impl<T, S> Grid<T, S> {
         scroll: Scroll,
         build: u64,
         tile: impl Fn(usize, &'a T, Size) -> Element<'a, Message>,
-    ) -> Rows<'a> {
+    ) -> Rows<'a, Message> {
         let mut rows = Rows::new(self.height);
         for (index, placed) in self.in_sight(scroll) {
             let key = build.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ index as u64;
@@ -271,7 +271,7 @@ pub fn pinned<'a>(
 }
 
 /// The grid's scrollable, reporting where it's scrolled to.
-pub fn grid<'a>(rows: Rows<'a>, theme: &Theme) -> Element<'a, Message> {
+pub fn grid<'a>(rows: Rows<'a, Message>, theme: &Theme) -> Element<'a, Message> {
     scroll_view(rows)
         .id(Id::new(GRID))
         .on_scroll(|viewport| Message::Picker(Event::Scrolled(viewport)))
@@ -334,38 +334,37 @@ pub fn frame<'a>(
         .width(size.width)
         .height(size.height)
         .clip(true)
-        .style(move |_| container::Style {
-            background: Some(raised.into()),
-            border: crate::style::edge(edge, 10.0),
-            shadow: raised_shadow(),
-            ..Default::default()
-        })
+        .style(move |_| crate::style::panel(raised, edge, 10.0))
         .into()
 }
 
-impl App {
-    /// A favourite's star, `side` across with its `glyph` in it, on the
-    /// panel's ground: gold while it's a favourite.
-    pub fn star(&self, on: bool, side: f32, glyph: u32, message: Message) -> Element<'_, Message> {
-        let theme = &self.theme;
-        let (icon, tint) = if on {
-            (Icon::StarFilled, GOLD)
-        } else {
-            (Icon::Star, theme.text)
-        };
-        let panel = theme.panel;
-        button(container(self.glyph(icon, glyph, tint)).center(side))
-            .padding(0)
-            .width(side)
-            .height(side)
-            .on_press(message)
-            .style(move |_, _| button::Style {
-                background: Some(panel.into()),
-                border: Border::default().rounded(side / 6.0),
-                ..Default::default()
-            })
-            .into()
-    }
+/// A favourite's star, `side` across with its `glyph` in it, on the
+/// panel's ground: gold while it's a favourite.
+pub fn star<'a>(
+    look: crate::look::Look<'_>,
+    on: bool,
+    side: f32,
+    glyph: u32,
+    message: Message,
+) -> Element<'a, Message> {
+    let theme = look.theme;
+    let (icon, tint) = if on {
+        (Icon::StarFilled, GOLD)
+    } else {
+        (Icon::Star, theme.text)
+    };
+    let panel = theme.panel;
+    button(container(look.glyph(icon, glyph, tint)).center(side))
+        .padding(0)
+        .width(side)
+        .height(side)
+        .on_press(message)
+        .style(move |_, _| button::Style {
+            background: Some(panel.into()),
+            border: Border::default().rounded(side / 6.0),
+            ..Default::default()
+        })
+        .into()
 }
 
 /// Places tiles in the shortest of its columns, leftmost on ties, as

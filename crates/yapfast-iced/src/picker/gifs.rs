@@ -499,7 +499,13 @@ impl App {
             && hovered
         {
             layers = layers.push(kit::pinned(
-                self.star(*favorite, 32.0, 20, Message::Picker(Event::Star(index))),
+                kit::star(
+                    self.look(),
+                    *favorite,
+                    32.0,
+                    20,
+                    Message::Picker(Event::Star(index)),
+                ),
                 Alignment::End,
                 Alignment::Start,
                 4.0,

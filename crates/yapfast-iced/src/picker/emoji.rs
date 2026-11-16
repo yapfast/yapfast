@@ -561,7 +561,13 @@ impl App {
                     let mut layers = stack![cell];
                     if *favorite || picker.hover == Some(index) {
                         layers = layers.push(kit::pinned(
-                            self.star(*favorite, 18.0, 12, Message::Picker(Event::Star(index))),
+                            kit::star(
+                                self.look(),
+                                *favorite,
+                                18.0,
+                                12,
+                                Message::Picker(Event::Star(index)),
+                            ),
                             Alignment::End,
                             Alignment::Start,
                             0.0,

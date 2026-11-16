@@ -30,7 +30,7 @@ use crate::{
     sidebar::room_icon,
     style::rounded,
     theme::rgb,
-    widgets::{Pic, Spot},
+    widgets::Spot,
 };
 
 /// The header's height; the line under it is one more pixel.
@@ -269,7 +269,8 @@ impl App {
             .flat_map(|part| &part.runs)
             .map(|run| self.run_span(run, ink))
             .collect();
-        Piece::new(spans, usize::MAX, 0)
+        Piece::new(spans, usize::MAX, 0, Message::Link, Message::Select)
+            .unlined(yapfast_core::emoji::card::LINK)
             .size(14.0, 18.0)
             .color(ink)
             .starts(false)
@@ -292,7 +293,9 @@ impl App {
             self.theme.secondary
         };
         Spot::new(
-            self.icon_face_button(self.glyph(icon, GLYPH, ink), label, BUTTON, message, true),
+            self.look()
+                .face_button(self.glyph(icon, GLYPH, ink), BUTTON, label, message)
+                .below(),
             &self.header_spot,
         )
         .into()
@@ -308,7 +311,7 @@ impl App {
         } else {
             "Show member list"
         };
-        let mut buttons = Vec::new();
+        let mut buttons: Vec<Element<'_, Message>> = Vec::new();
         // Add Friend, or Accept Friend Request in the accent, first.
         if let Some((person, incoming)) = &header.befriend {
             let (words, kind) = if *incoming {
@@ -342,13 +345,17 @@ impl App {
             } else {
                 (Icon::Forum, "Open chat")
             };
-            buttons.push(self.icon_face_button(
-                self.glyph(icon, GLYPH, theme.secondary),
-                label,
-                BUTTON,
-                Message::Side(crate::sidebar::Event::VoiceChat(!chat)),
-                true,
-            ));
+            buttons.push(
+                self.look()
+                    .face_button(
+                        self.glyph(icon, GLYPH, theme.secondary),
+                        BUTTON,
+                        label,
+                        Message::Side(crate::sidebar::Event::VoiceChat(!chat)),
+                    )
+                    .below()
+                    .into(),
+            );
         }
         let mut push = |icon, label, message, lit| {
             buttons.push(self.header_icon_button(icon, label, message, lit));
@@ -511,152 +518,6 @@ impl App {
             && !self.hide_members
             && !self.aside_shown()
             && !self.search_shown()
-    }
-
-    /// An icon button as the Slint client's `IconButton`: a square face lit
-    /// under the pointer, its glyph in the secondary ink, its label in the
-    /// window's tooltip, below it for the header's (`tip-side: 2`), at once,
-    /// as Slint shows it.
-    pub fn icon_button(
-        &self,
-        icon: Icon,
-        label: &'static str,
-        size: f32,
-        glyph: u32,
-        message: Message,
-        below: bool,
-    ) -> Element<'_, Message> {
-        let face = self.glyph(icon, glyph, self.theme.secondary);
-        self.icon_face_button(face, label, size, message, below)
-    }
-
-    /// An icon button on a ground of its own, as the Slint client's
-    /// `IconButton` with a `fill`: `size` across, round to `radius`, the
-    /// ground a tenth of the overlay lighter under the pointer, its tip
-    /// above (none for an empty label); greyed and faint without a message.
-    #[allow(clippy::too_many_arguments)]
-    pub fn filled_icon_button<'a>(
-        &self,
-        icon: Icon,
-        label: impl Into<std::borrow::Cow<'a, str>>,
-        size: f32,
-        glyph: u32,
-        fill: iced::Color,
-        radius: f32,
-        message: Option<Message>,
-    ) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let enabled = message.is_some();
-        let ink = if enabled {
-            theme.secondary
-        } else {
-            theme.faint
-        };
-        let lit = crate::theme::mix(fill, theme.overlay, 0.9);
-        let face = button(self.glyph(icon, glyph, ink).boxed(size))
-            .padding(0)
-            .width(size)
-            .height(size)
-            .on_press_maybe(message)
-            .style(lit_style(
-                Some(fill),
-                if enabled { lit } else { fill },
-                radius,
-            ));
-        let label: std::borrow::Cow<'a, str> = label.into();
-        // No label, no tip: as while the menu the button opens is showing.
-        if label.is_empty() {
-            return face.into();
-        }
-        tooltip(
-            face,
-            controls::tip(theme, label.into_owned()),
-            tooltip::Position::Top,
-        )
-        .gap(6)
-        .into()
-    }
-
-    /// An icon button with a face of its own.
-    pub fn icon_face_button(
-        &self,
-        face: Pic,
-        label: &'static str,
-        size: f32,
-        message: Message,
-        below: bool,
-    ) -> Element<'_, Message> {
-        let lit = self.theme.wash(0.1);
-        let face = button(face.boxed(size))
-            .padding(0)
-            .width(size)
-            .height(size)
-            .on_press(message)
-            .style(lit_style(None, lit, 6.0));
-        // An empty label shows no tip, as over a slider the button opened.
-        if label.is_empty() {
-            return face.into();
-        }
-        let side = if below {
-            tooltip::Position::Bottom
-        } else {
-            tooltip::Position::Top
-        };
-        tooltip(face, controls::tip(&self.theme, label), side)
-            .gap(6)
-            .into()
-    }
-}
-
-impl App {
-    /// A destructive icon button, as the Slint client's `IconButton` with
-    /// `danger`: its glyph in the secondary ink on `fill` (or no ground),
-    /// red on a red wash under the pointer, its label in a tooltip above;
-    /// greyed and faint without a message.
-    #[allow(clippy::too_many_arguments)]
-    pub fn danger_icon_button<'a>(
-        &self,
-        icon: Icon,
-        label: &'a str,
-        size: f32,
-        glyph: u32,
-        fill: Option<iced::Color>,
-        radius: f32,
-        message: Option<Message>,
-    ) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let enabled = message.is_some();
-        let face = |ink, ground: Option<iced::Color>| {
-            button(self.glyph(icon, glyph, ink).boxed(size))
-                .padding(0)
-                .width(size)
-                .height(size)
-                .on_press_maybe(message.clone())
-                .style(lit_style(ground, ground.unwrap_or_default(), radius))
-        };
-        let rest = face(
-            if enabled {
-                theme.secondary
-            } else {
-                theme.faint
-            },
-            fill,
-        );
-        if !enabled {
-            return rest.into();
-        }
-        let red = iced::Color {
-            a: 0.16,
-            ..theme.danger
-        };
-        let lit = face(theme.danger, Some(red));
-        tooltip(
-            crate::widgets::Hover::new(rest, lit),
-            controls::tip(theme, label),
-            tooltip::Position::Top,
-        )
-        .gap(6)
-        .into()
     }
 }
 

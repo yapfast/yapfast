@@ -200,10 +200,17 @@ pub fn coming_size(attachment: &Attachment) -> Size {
 }
 
 impl App {
+    /// [`Ctx::shot`](crate::ctx::Ctx::shot).
+    pub fn shot(&self, shot: Shot<'_>) -> Element<'_, Message> {
+        self.ctx().shot(shot)
+    }
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
     /// A picture in its box: the core's own pixels when it fills the box
     /// at its own size, else a copy at the box's size (made off the window's
     /// thread, its ground showing until then); a moving one plays.
-    pub fn shot(&self, shot: Shot<'_>) -> Element<'_, Message> {
+    pub fn shot(self, shot: Shot<'_>) -> Element<'a, Message> {
         let Shot {
             picture,
             size,
@@ -260,7 +267,7 @@ impl App {
                     None => Space::new().width(size.width).height(size.height).into(),
                 }
             }
-            Some(picture) if picture.animation.is_some() && self.plays() => self
+            Some(picture) if picture.animation.is_some() && self.plays => self
                 .pictures
                 .animated(picture, size, at, fit == Fit::Cover)
                 .radius(radius)
@@ -298,13 +305,13 @@ impl App {
         if !ground || hidden {
             return boxed.into();
         }
-        let raised = self.theme.raised;
+        let raised = self.look.theme.raised;
         boxed.style(move |_| rounded(raised, radius)).into()
     }
 
     /// A spoiler's cover over a picture, as the Slint client's
     /// `SpoilerCover`: the picture dimmed, "SPOILER" on a pill.
-    fn spoiler_cover(&self, radius: f32) -> Element<'_, Message> {
+    fn spoiler_cover(self, radius: f32) -> Element<'a, Message> {
         container(
             container(text("SPOILER").size(13).font(BOLD).color(Color::WHITE))
                 .padding([0, 12])

@@ -18,7 +18,7 @@ use yapfast_core::{
 use crate::{
     app::{App, Message},
     controls::{self, Kind, action, lights, placed},
-    dialogs::dialog,
+    dialog::dialog,
     fonts::{BOLD, MEDIUM},
     form,
     picker::{Tab, Target},
@@ -402,7 +402,9 @@ impl App {
         let state = self.client.state();
         let new_dm = state.new_dm.as_ref()?;
         let theme = &self.theme;
-        let head = self.dialog_head("New message", message(Event::CloseNewDm));
+        let head = self
+            .look()
+            .dialog_head("New message", message(Event::CloseNewDm));
         let placeholder = if cfg!(feature = "matrix") {
             "Find a friend, or type a Matrix id"
         } else {
@@ -520,7 +522,9 @@ impl App {
         let theme = &self.theme;
         let edit = |edit: PollEdit| message(Event::Poll(edit));
         let caps = |words: &'static str| text(words).size(12).font(BOLD).color(theme.muted);
-        let head = self.dialog_head("Create a Poll", message(Event::ClosePoll));
+        let head = self
+            .look()
+            .dialog_head("Create a Poll", message(Event::ClosePoll));
         let mut form = column![
             row![
                 caps("QUESTION").width(Length::Fill),
@@ -650,7 +654,7 @@ impl App {
         several: bool,
     ) -> Element<'a, Message> {
         let theme = &self.theme;
-        let emoji = self.emoji_slot(
+        let emoji = self.ctx().emoji_slot(
             answer.emoji.as_deref(),
             message(Event::PollEmoji(index)),
             message(Event::Poll(PollEdit::Emoji { index, emoji: None })),
@@ -669,14 +673,16 @@ impl App {
         .on_input(move |text| message(Event::Poll(PollEdit::Answer { index, text })));
         let mut line = row![emoji, field].spacing(8).align_y(Alignment::Center);
         if several {
-            line = line.push(self.icon_button(
-                Icon::Trash,
-                "Remove answer",
-                32.0,
-                18,
-                message(Event::Poll(PollEdit::RemoveAnswer(index))),
-                true,
-            ));
+            line = line.push(
+                self.look()
+                    .icon_button(
+                        Icon::Trash,
+                        "Remove answer",
+                        message(Event::Poll(PollEdit::RemoveAnswer(index))),
+                    )
+                    .size(32.0, 18)
+                    .below(),
+            );
         }
         line.into()
     }

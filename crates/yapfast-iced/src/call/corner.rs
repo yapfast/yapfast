@@ -151,12 +151,17 @@ impl App {
         .height(CORNER.height);
         if let Some((icon, label, event)) = stop {
             over = over.push(
-                container(tile::glass_button(self, icon, label, Message::Call(event)))
-                    .padding(8)
-                    .width(Length::Fill)
-                    .height(Length::Fill)
-                    .align_x(Alignment::End)
-                    .align_y(Alignment::End),
+                container(tile::glass_button(
+                    self.look(),
+                    icon,
+                    label,
+                    Message::Call(event),
+                ))
+                .padding(8)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(Alignment::End)
+                .align_y(Alignment::End),
             );
         }
         let dragging = self.call.drag.is_some();
@@ -204,7 +209,7 @@ impl App {
                 self.window,
                 Message::Nothing,
             )
-            .view(self),
+            .view(self.look()),
         )
     }
 
@@ -260,13 +265,16 @@ impl App {
             .and_then(|message| message.attachments.get(video.index))
             .map(|attachment| attachment.name.clone())
             .unwrap_or_default();
-        let close = self.icon_face_button(
-            self.glyph(Icon::X, 20, Color::WHITE),
-            "Exit full screen",
-            32.0,
-            Message::Clip(crate::playback::Clip::Full(false)),
-            true,
-        );
+        let close: Element<'_, Message> = self
+            .look()
+            .face_button(
+                self.glyph(Icon::X, 20, Color::WHITE),
+                32.0,
+                "Exit full screen",
+                Message::Clip(crate::playback::Clip::Full(false)),
+            )
+            .below()
+            .into();
         let width = size.width.max(360.0);
         Some(
             Viewer::new(
@@ -277,7 +285,7 @@ impl App {
             )
             .title(name, vec![close])
             .foot(column![self.clip_controls(video, width, true)].padding(Padding::ZERO))
-            .view(self),
+            .view(self.look()),
         )
     }
 }

@@ -50,14 +50,16 @@ impl App {
             Some(_) => {
                 let mut line = row![self.server_name_button()].spacing(INSET);
                 if head.invite {
-                    line = line.push(self.icon_button(
-                        Icon::UserPlus,
-                        "Invite people",
-                        INVITE,
-                        20,
-                        Message::Side(Event::Invite),
-                        true,
-                    ));
+                    line = line.push(
+                        self.look()
+                            .icon_button(
+                                Icon::UserPlus,
+                                "Invite people",
+                                Message::Side(Event::Invite),
+                            )
+                            .size(INVITE, 20)
+                            .below(),
+                    );
                 }
                 line.into()
             }

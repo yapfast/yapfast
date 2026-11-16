@@ -49,7 +49,7 @@ use yapfast_core::{
     picture::{self, Feed, FrameBuffer},
 };
 
-use crate::{app::Message, paint};
+use crate::paint;
 
 type Renderer = iced::Renderer;
 
@@ -536,13 +536,14 @@ pub fn frames(shared: Arc<Shared>) -> impl Stream<Item = Found> + Send + 'static
 }
 
 /// The window's frames, as [`frames`] finds them: a redraw for each, and a
-/// message only where the view must change ([`Found::View`]).
-pub fn follow(shared: Arc<Shared>) -> iced::Task<Message> {
-    iced::Task::run(frames(shared), |found| found).then(|found| match found {
+/// message, made by `view`, only where the view must change
+/// ([`Found::View`]).
+pub fn follow<M: Send + 'static>(shared: Arc<Shared>, view: fn(Option<u64>) -> M) -> iced::Task<M> {
+    iced::Task::run(frames(shared), |found| found).then(move |found| match found {
         Found::Redraw => iced_runtime::task::effect(iced_runtime::Action::Window(
             iced_runtime::window::Action::RedrawAll,
         )),
-        Found::View(time) => iced::Task::done(Message::Frames(time)),
+        Found::View(time) => iced::Task::done(view(time)),
     })
 }
 
@@ -637,7 +638,7 @@ fn corner(radius: u32, behind: u32, which: u8) -> Handle {
     })
 }
 
-impl Widget<Message, Theme, Renderer> for Video {
+impl<M> Widget<M, Theme, Renderer> for Video {
     fn size(&self) -> Size<Length> {
         Size::new(Length::Fill, Length::Fill)
     }
@@ -770,7 +771,7 @@ impl Widget<Message, Theme, Renderer> for Video {
     }
 }
 
-impl<'a> From<Video> for Element<'a, Message> {
+impl<'a, M: 'a> From<Video> for Element<'a, M> {
     fn from(video: Video) -> Self {
         Element::new(video)
     }

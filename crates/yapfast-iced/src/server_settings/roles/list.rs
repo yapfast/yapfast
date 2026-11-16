@@ -209,34 +209,37 @@ impl App {
         }
         let may_copy = lock.is_none() && role.managed.is_none();
         let open = input(RoleInput::Open(Some(role.id.clone())));
-        let edit = self.filled_icon_button(
-            if lock.is_some() {
-                Icon::Eye
-            } else {
-                Icon::Pencil
-            },
-            if lock.is_some() { "View" } else { "Edit" },
-            BUTTON,
-            GLYPH,
-            theme.raised,
-            BUTTON / 2.0,
-            Some(open.clone()),
-        );
-        let more = self.filled_icon_button(
-            Icon::Ellipsis,
-            // Its tip would cover the menu it opens.
-            if more_open { "" } else { "More" },
-            BUTTON,
-            GLYPH,
-            // Greyed as the Slint client's, which fades the whole button.
-            if may_copy {
-                theme.raised
-            } else {
-                faded(theme.raised, DISABLED)
-            },
-            BUTTON / 2.0,
-            may_copy.then(|| local(Event::More(Some(role.id.clone())))),
-        );
+        let edit = self
+            .look()
+            .icon_button(
+                if lock.is_some() {
+                    Icon::Eye
+                } else {
+                    Icon::Pencil
+                },
+                if lock.is_some() { "View" } else { "Edit" },
+                Some(open.clone()),
+            )
+            .size(BUTTON, GLYPH)
+            .fill(theme.raised)
+            .radius(BUTTON / 2.0);
+        let more = self
+            .look()
+            .icon_button(
+                Icon::Ellipsis, // Its tip would cover the menu it opens.
+                if more_open { "" } else { "More" },
+                may_copy.then(|| local(Event::More(Some(role.id.clone())))),
+            )
+            .size(BUTTON, GLYPH)
+            .fill(
+                // Greyed as the Slint client's, which fades the whole button.
+                if may_copy {
+                    theme.raised
+                } else {
+                    faded(theme.raised, DISABLED)
+                },
+            )
+            .radius(BUTTON / 2.0);
         let menu = more_open.then(|| self.role_menu(role, place, movable));
         let more = Popover::new(more, menu, Side::Below)
             .width(Width::Own(MORE))

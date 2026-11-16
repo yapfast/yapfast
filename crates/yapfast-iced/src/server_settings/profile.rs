@@ -185,7 +185,7 @@ impl App {
             },
         )
         .enabled(ready)
-        .view(self);
+        .view(self.look());
         let mut parts = vec![
             form::title(theme, "Engagement"),
             form::group([
@@ -206,7 +206,7 @@ impl App {
                     (ready && sends)
                         .then(|| message(Event::Toggle(SettingsToggle::SystemMessage(bit)))),
                 )
-                .view(self),
+                .view(self.look()),
             );
         }
         let voice = voice_channels.clone();
@@ -224,7 +224,7 @@ impl App {
             },
         )
         .enabled(ready)
-        .view(self);
+        .view(self.look());
         // Discord's default, five minutes, for a timeout it doesn't offer.
         let timeout = AFK_TIMEOUTS
             .iter()
@@ -242,7 +242,7 @@ impl App {
             },
         )
         .enabled(ready && page.afk_channel.is_some())
-        .view(self);
+        .view(self.look());
         parts.extend([
             form::group([
                 form::heading(theme, "DEFAULT NOTIFICATION SETTINGS"),
@@ -303,7 +303,7 @@ impl App {
             .description(
                 "This progress bar will display in your channel list, attached to your server name (or server banner if you have one set).",
             )
-            .view(self),
+            .view(self.look()),
             self.boost_background(
                 page,
                 ServerPicture::Banner,

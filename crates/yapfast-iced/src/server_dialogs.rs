@@ -7,7 +7,7 @@
 //! is the core's (`state.invite`, `state.join`, `state.channel_dialog`,
 //! `state.leave`, `state.move_sync`); the dialogs keep only what's being chosen or typed in
 //! them ([`Dialogs`]), from when the core opens one to when it closes it.
-//! Each is drawn in `dialogs::dialog`'s frame; Escape or a click outside
+//! Each is drawn in `dialog::dialog`'s frame; Escape or a click outside
 //! closes it.
 
 use iced::{
@@ -23,7 +23,7 @@ use yapfast_core::{
 use crate::{
     app::{App, Message, NOBODY},
     controls::{self, Kind, action},
-    dialogs::buttons,
+    dialog::buttons,
     form,
     style::rounded,
 };
@@ -377,7 +377,7 @@ impl App {
         .align_y(Alignment::Center)
         .style(move |_| rounded(sunken, 8));
         let mut body = vec![
-            self.dialog_head(
+            self.look().dialog_head(
                 format!("Invite friends to {}", invite.server),
                 message(Event::CloseInvite),
             ),
@@ -424,7 +424,7 @@ impl App {
                 .into(),
             ]),
         ]);
-        Some(self.framed(body, WIDE, message(Event::CloseInvite)))
+        Some(self.look().framed(body, WIDE, message(Event::CloseInvite)))
     }
 
     /// Join a Server, or the dialog a clicked invite link opens: the field
@@ -441,7 +441,10 @@ impl App {
         } else {
             "Join a Server"
         };
-        let mut body = vec![self.dialog_head(title.to_owned(), message(Event::CloseJoin))];
+        let mut body = vec![
+            self.look()
+                .dialog_head(title.to_owned(), message(Event::CloseJoin)),
+        ];
         if !join.from_link {
             body.extend([
                 form::note(
@@ -464,7 +467,7 @@ impl App {
                 _ if preview.voice => preview.channel.clone(),
                 _ => format!("#{}", preview.channel),
             };
-            body.push(self.found_card(
+            body.push(self.look().found_card(
                 Some(self.avatar(preview.icon.as_deref(), &preview.name, 48.0, 24.0, 1.0)),
                 preview.name.clone(),
                 [detail],
@@ -536,7 +539,7 @@ impl App {
             );
         }
         body.push(buttons(row_));
-        Some(self.framed(body, NARROW, message(Event::CloseJoin)))
+        Some(self.look().framed(body, NARROW, message(Event::CloseJoin)))
     }
 
     /// Making, copying or deleting a channel or category: where it goes or
@@ -584,7 +587,7 @@ impl App {
         let deleting = matches!(asked.ask, ChannelAsk::Delete(_));
         let ready = !asked.saving;
         let mut body = vec![
-            self.dialog_head(title, message(Event::CloseChannel)),
+            self.look().dialog_head(title, message(Event::CloseChannel)),
             form::note(theme, detail),
         ];
         if matches!(asked.ask, ChannelAsk::Create { .. }) && !category {
@@ -636,7 +639,7 @@ impl App {
             )
             .into(),
         ]));
-        Some(self.framed(body, WIDE, message(Event::CloseChannel)))
+        Some(self.look().framed(body, WIDE, message(Event::CloseChannel)))
     }
 
     /// Asks before leaving a server or group DM, in red; a group's offers
@@ -647,7 +650,7 @@ impl App {
         let what = if leave.group { "group" } else { "server" };
         let ready = !leave.leaving;
         let mut body = vec![
-            self.dialog_head(
+            self.look().dialog_head(
                 format!("Leave '{}'", leave.name),
                 message(Event::CloseLeave),
             ),
@@ -700,7 +703,7 @@ impl App {
             )
             .into(),
         ]));
-        Some(self.framed(body, WIDE, message(Event::CloseLeave)))
+        Some(self.look().framed(body, WIDE, message(Event::CloseLeave)))
     }
 }
 
@@ -713,7 +716,7 @@ impl App {
         let asked = self.client.state().move_sync.as_ref()?;
         let theme = &self.theme;
         let body = vec![
-            self.dialog_head(
+            self.look().dialog_head(
                 "Sync permissions?".to_owned(),
                 message(Event::MoveSync(None)),
             ),
@@ -741,7 +744,10 @@ impl App {
                 .into(),
             ]),
         ];
-        Some(self.framed(body, WIDE, message(Event::MoveSync(None))))
+        Some(
+            self.look()
+                .framed(body, WIDE, message(Event::MoveSync(None))),
+        )
     }
 }
 

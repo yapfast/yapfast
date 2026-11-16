@@ -78,7 +78,7 @@ impl App {
             )
             .description("Checks for new versions every 6 hours.")
             .fresh(self.fresh("check-updates"))
-            .view(self),
+            .view(self.look()),
         );
         parts.push(
             switch(
@@ -90,12 +90,12 @@ impl App {
             )
             .description("Get the newest features before release. Expect some bugs.")
             .fresh(self.fresh("update-nightlies"))
-            .view(self),
+            .view(self.look()),
         );
         parts.push(
             switch("Install updates automatically", false, None)
                 .description("Not available yet.")
-                .view(self),
+                .view(self.look()),
         );
         parts.push(form::heading(theme, "LINKS"));
         let ink = crate::theme::rgb(theme.text);

@@ -31,6 +31,7 @@ compile_error!("yapfast-iced needs a renderer: `cpu` or `gpu`");
 
 mod account;
 mod active_now;
+mod animated;
 mod app;
 mod arrange;
 mod away;
@@ -40,32 +41,37 @@ mod browse;
 mod browse_channels;
 mod browser;
 mod call;
+use yapfast_iced_kit::canvas;
 mod cards;
 mod channel_settings;
 mod client;
 mod commands;
 mod composer;
 mod control;
-mod controls;
+use yapfast_iced_kit::controls;
 mod conversation;
+mod ctx;
 mod desktop;
+use yapfast_iced_kit::dialog;
 mod dialogs;
 mod edit;
-mod elide;
-mod field;
-mod fonts;
-mod form;
+use yapfast_iced_kit::elide;
+use yapfast_iced_kit::field;
+use yapfast_iced_kit::fonts;
+use yapfast_iced_kit::form;
 mod forum;
 mod forward;
 mod found;
-mod frames;
+use yapfast_iced_kit::frames;
 mod friends;
 mod header;
+use yapfast_iced_kit::icons;
 mod image_viewer;
 mod info_cards;
 mod layout;
 mod link_dialogs;
 mod links;
+use yapfast_iced_kit::look;
 mod looks;
 mod markdown;
 mod media;
@@ -79,38 +85,40 @@ mod people;
 mod person;
 mod picker;
 mod pictures;
+use yapfast_iced_kit::piece;
 mod places;
 mod playback;
 mod polls;
-mod popover;
+use yapfast_iced_kit::popover;
 mod popovers;
 mod profile;
 mod rail;
 mod reactions;
-mod reorder;
+use yapfast_iced_kit::reorder;
 mod search;
 mod select;
 mod server_dialogs;
 mod server_settings;
 mod settings;
-mod sheet;
+use yapfast_iced_kit::sheet;
 mod shell;
 mod sidebar;
 mod signin;
 mod status;
-mod style;
+use yapfast_iced_kit::style;
 mod suggest;
 mod switcher;
 mod sync;
-mod theme;
+use yapfast_iced_kit::theme;
+mod themes;
 mod thread;
-mod tile;
+use yapfast_iced_kit::tile;
 mod timeline;
 mod typing;
 mod uploads;
 mod video;
-mod viewer;
-mod widgets;
+use yapfast_iced_kit::viewer;
+use yapfast_iced_kit::widgets;
 mod window_bar;
 
 #[cfg(test)]
@@ -120,7 +128,6 @@ use std::{
     cell::RefCell,
     path::PathBuf,
     sync::{Arc, OnceLock},
-    time::Duration,
 };
 
 use iced::Task;
@@ -342,10 +349,4 @@ impl iced::Executor for Exec {
     }
 }
 
-/// `message` after `delay`, as a task on the backend's runtime.
-pub(crate) fn after<Message: Send + 'static>(delay: Duration, message: Message) -> Task<Message> {
-    // Made when first polled, so it needs the runtime only then.
-    Task::perform(async move { tokio::time::sleep(delay).await }, move |()| {
-        message
-    })
-}
+pub(crate) use yapfast_iced_kit::timer::after;

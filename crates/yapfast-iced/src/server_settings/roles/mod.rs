@@ -310,6 +310,6 @@ impl App {
         ]
         .spacing(12)
         .padding(16);
-        crate::dialogs::panel(theme, body.into(), DIALOG, None, input(RoleInput::Cancel))
+        crate::dialog::panel(theme, body.into(), DIALOG, None, input(RoleInput::Cancel))
     }
 }

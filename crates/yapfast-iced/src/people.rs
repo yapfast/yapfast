@@ -20,7 +20,7 @@ use crate::{
     elide::elide,
     fonts::{BOLD, REGULAR, shown_name, style_font},
     looks::{NameLook, Status},
-    pictures::{Face, Icon, Mark},
+    pictures::{Face, Icon},
     style::faded,
     theme::rgb,
     widgets::Pic,
@@ -122,60 +122,18 @@ impl<'a> NameInk<'a> {
 }
 
 impl App {
-    /// What someone is up to on one line, as the Slint client's
-    /// `StatusText`: the activity's icon (the game controller in the online
-    /// green) and a bullet, a custom emoji's picture, then the words, cut
-    /// with "…" where the row ends.
+    /// [`Ctx::status_line`](crate::ctx::Ctx::status_line).
     pub fn status_line<'a>(
         &'a self,
         status: impl Into<Cow<'a, Status>>,
         look: StatusInk,
     ) -> Element<'a, Message> {
-        let status = status.into();
-        let theme = &self.theme;
-        let mut line = row![].spacing(4).align_y(Alignment::Center);
-        let side = (look.size + 3.0).round();
-        let ink = faded(look.ink, look.opacity);
-        if look.icon
-            && let Some(icon) = Icon::activity(status.icon)
-        {
-            let color = rgb(if icon == Icon::Gamepad {
-                theme.live
-            } else {
-                theme.muted
-            });
-            if let Some(icon) = self.mark(Mark::Icon(icon, side as u32, color)) {
-                line = line.push(Pic::square(icon, side).opacity(look.opacity));
-            }
-            if status.bullet {
-                line = line.push(text("\u{2022}").size(look.size).color(ink));
-            }
-        }
-        if let Some(emoji) = &status.emoji {
-            line = line.push(match self.picture(emoji, side as u32, side as u32, false) {
-                Some(picture) => Element::from(Pic::square(picture, side).opacity(look.opacity)),
-                None => Space::new().width(side).height(side).into(),
-            });
-        }
-        if !status.words.is_empty() {
-            let words: Cow<'a, str> = match status {
-                Cow::Borrowed(status) => Cow::Borrowed(status.words.as_str()),
-                Cow::Owned(status) => Cow::Owned(status.words),
-            };
-            line = line.push(elide(words).size(look.size).font(look.font).color(ink));
-        }
-        line.into()
+        self.ctx().status_line(status, look)
     }
 
-    /// A person's row: the face, then the name over its line.
+    /// [`Ctx::person`](crate::ctx::Ctx::person).
     pub fn person<'a>(&'a self, person: Person<'a>) -> iced::widget::Row<'a, Message> {
-        let mut lines = column![person.name].width(Length::Fill);
-        if let Some(sub) = person.sub {
-            lines = lines.push(sub);
-        }
-        row![self.face(person.face), lines]
-            .spacing(person.gap)
-            .align_y(Alignment::Center)
+        self.ctx().person(person)
     }
 
     /// A name on one line, in its style's font and, outside a server, its
@@ -187,9 +145,9 @@ impl App {
             }
             _ => ink.color,
         };
-        crate::elide::elide(shown_name(name, ink.style))
+        crate::elide::elide(shown_name(name, ink.style.and_then(NameLook::font)))
             .size(ink.size)
-            .font(style_font(ink.style, ink.weight))
+            .font(style_font(ink.style.and_then(NameLook::font), ink.weight))
             .color(color)
             .into()
     }
@@ -267,4 +225,61 @@ pub fn voice_spots(state: &AppState) -> HashMap<&str, (&str, &str, &str)> {
         }
     }
     spots
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
+    /// What someone is up to on one line, as the Slint client's
+    /// `StatusText`: the activity's icon (the game controller in the online
+    /// green) and a bullet, a custom emoji's picture, then the words, cut
+    /// with "…" where the row ends.
+    pub fn status_line(
+        self,
+        status: impl Into<Cow<'a, Status>>,
+        look: StatusInk,
+    ) -> Element<'a, Message> {
+        let status = status.into();
+        let theme = &self.look.theme;
+        let mut line = row![].spacing(4).align_y(Alignment::Center);
+        let side = (look.size + 3.0).round();
+        let ink = faded(look.ink, look.opacity);
+        if look.icon
+            && let Some(icon) = Icon::activity(status.icon)
+        {
+            let color = rgb(if icon == Icon::Gamepad {
+                theme.live
+            } else {
+                theme.muted
+            });
+            let icon = self.look.icons.coloured(icon, side as u32, color);
+            line = line.push(Pic::square(icon, side).opacity(look.opacity));
+            if status.bullet {
+                line = line.push(text("\u{2022}").size(look.size).color(ink));
+            }
+        }
+        if let Some(emoji) = &status.emoji {
+            line = line.push(match self.picture(emoji, side as u32, side as u32, false) {
+                Some(picture) => Element::from(Pic::square(picture, side).opacity(look.opacity)),
+                None => Space::new().width(side).height(side).into(),
+            });
+        }
+        if !status.words.is_empty() {
+            let words: Cow<'a, str> = match status {
+                Cow::Borrowed(status) => Cow::Borrowed(status.words.as_str()),
+                Cow::Owned(status) => Cow::Owned(status.words),
+            };
+            line = line.push(elide(words).size(look.size).font(look.font).color(ink));
+        }
+        line.into()
+    }
+
+    /// A person's row: the face, then the name over its line.
+    pub fn person(self, person: Person<'a>) -> iced::widget::Row<'a, Message> {
+        let mut lines = column![person.name].width(Length::Fill);
+        if let Some(sub) = person.sub {
+            lines = lines.push(sub);
+        }
+        row![self.face(person.face), lines]
+            .spacing(person.gap)
+            .align_y(Alignment::Center)
+    }
 }

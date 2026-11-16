@@ -481,10 +481,10 @@ impl App {
                 let framed = self.frame(OWN_SCREEN, corners);
                 let note = (!live && framed.is_some()).then_some(status);
                 viewers = sharing.and_then(|sharing| self.viewers(&sharing.viewers, None));
-                let content =
-                    framed.unwrap_or_else(|| tile::note(self, Some(Icon::ScreenShare), status));
+                let content = framed
+                    .unwrap_or_else(|| tile::note(self.look(), Some(Icon::ScreenShare), status));
                 Tile::new(size, content, Some(Color::BLACK)).chip(tile::chip(
-                    self,
+                    self.look(),
                     Vec::new(),
                     "Your screen",
                     live,
@@ -499,7 +499,7 @@ impl App {
                     viewers = watch_viewers();
                     stop = Some("Stop watching");
                     self.frame(&format!("stream:{}", person.id), corners)
-                        .unwrap_or_else(|| tile::note(self, None, self.watch_status()))
+                        .unwrap_or_else(|| tile::note(self.look(), None, self.watch_status()))
                 } else {
                     on_press = Message::Call(Event::Watch(person.id.clone()));
                     let column = column![
@@ -511,7 +511,7 @@ impl App {
                     container(column).center(Length::Fill).into()
                 };
                 Tile::new(size, content, Some(Color::BLACK)).chip(tile::chip(
-                    self,
+                    self.look(),
                     vec![(Icon::ScreenShare, Color::WHITE)],
                     &person.user,
                     true,
@@ -537,7 +537,7 @@ impl App {
                     stop = Some("Stop watching");
                     let content = self
                         .frame(&format!("stream:{}", person.id), corners)
-                        .unwrap_or_else(|| tile::note(self, None, self.watch_status()));
+                        .unwrap_or_else(|| tile::note(self.look(), None, self.watch_status()));
                     (content, Color::BLACK)
                 } else {
                     // Their picture until their camera's first frame, as
@@ -575,7 +575,7 @@ impl App {
                 let live = person.streaming && (person.local || person.video.is_none());
                 let mut tile = Tile::new(size, content, Some(ground))
                     .ring(speaking(person).then_some(theme.live))
-                    .chip(tile::chip(self, marks, &person.user, live, note));
+                    .chip(tile::chip(self.look(), marks, &person.user, live, note));
                 if person.local && voice.camera_phase == voice::CameraPhase::Starting {
                     tile = tile.top_left(tile::pill("Starting camera...", GLASS, Color::WHITE));
                 }
@@ -598,7 +598,7 @@ impl App {
             && (pointed || large)
         {
             tile = tile.top_right(tile::glass_button(
-                self,
+                self.look(),
                 Icon::X,
                 label,
                 Message::Call(Event::StopWatching),
@@ -611,7 +611,7 @@ impl App {
                 (Icon::Maximize, "Full screen")
             };
             tile = tile.bottom_right(tile::glass_button(
-                self,
+                self.look(),
                 icon,
                 label,
                 Message::Call(Event::Full(!full)),
@@ -657,7 +657,7 @@ impl App {
             .collect();
         let names: Vec<&str> = people.iter().map(|(name, _)| *name).collect();
         let names = format!("Watching: {}", names.join(", "));
-        tile::viewers(self, &people, names)
+        viewers(self.ctx(), &people, names)
     }
 
     /// The call's controls under the stage, as the Slint client's
@@ -813,3 +813,62 @@ impl App {
 
 /// The frames of the screen this account shares, by their key.
 pub const OWN_SCREEN: &str = "share:own";
+
+/// Who watches a stream, over its top right, as the Slint client's
+/// `ViewerStack`: an eye and how many, the first three's avatars
+/// overlapping and how many more; their names in a tooltip.
+pub fn viewers<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    people: &[(&'a str, Option<&'a str>)],
+    names: String,
+) -> Option<Element<'a, Message>> {
+    if people.is_empty() {
+        return None;
+    }
+    let mut faces = stack![];
+    let shown = people.len().min(3);
+    for (index, (name, avatar)) in people.iter().take(shown).enumerate() {
+        let ring = container(ctx.avatar(*avatar, name, 22.0, 11.0, 1.0))
+            .padding(2)
+            .style(|_| rounded(Color::BLACK, 13));
+        faces = faces.push(pin(ring).x(index as f32 * 15.0));
+    }
+    let faces = faces.width(26.0 + (shown as f32 - 1.0) * 15.0).height(26);
+    let mut face = row![
+        ctx.look.glyph(Icon::Eye, 16, Color::WHITE),
+        text(people.len().to_string())
+            .size(13)
+            .font(crate::fonts::BOLD)
+            .color(Color::WHITE),
+        Space::new().width(2),
+        faces,
+    ]
+    .spacing(4)
+    .align_y(Alignment::Center);
+    if people.len() > 3 {
+        face = face.push(
+            text(format!("+{}", people.len() - 3))
+                .size(13)
+                .font(crate::fonts::BOLD)
+                .color(Color::WHITE),
+        );
+    }
+    let stack = container(face)
+        .padding(iced::Padding {
+            left: 8.0,
+            right: 4.0,
+            ..iced::Padding::ZERO
+        })
+        .height(30)
+        .align_y(Alignment::Center)
+        .style(|_| rounded(GLASS, 15));
+    Some(
+        iced::widget::tooltip(
+            stack,
+            controls::tip(ctx.look.theme, names),
+            iced::widget::tooltip::Position::Bottom,
+        )
+        .gap(6)
+        .into(),
+    )
+}

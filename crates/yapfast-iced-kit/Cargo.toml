@@ -1,0 +1,38 @@
+[package]
+name = "yapfast-iced-kit"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+license = "GPL-3.0-or-later"
+description = "The pieces Yapfast's iced client builds its screens from; see docs/iced-client.md"
+
+[lib]
+doctest = false
+
+[features]
+default = ["cpu"]
+# The renderer, as yapfast-iced's features name it; that crate picks one.
+cpu = ["iced/tiny-skia", "dep:iced_tiny_skia"]
+gpu = ["iced/wgpu", "iced/web-colors"]
+
+[dependencies]
+tokio.workspace = true
+tracing.workspace = true
+# As yapfast-iced builds it, so the two share one build of iced.
+iced = { version = "=0.14.0", default-features = false, features = ["x11", "wayland", "image-without-codecs", "advanced", "crisp", "tokio"] }
+# The frame trace's hook in the patched renderer (`frames::install`).
+iced_tiny_skia = { version = "=0.14.1", optional = true }
+# The type of cosmic-text's `Fallback::script_fallback` argument.
+unicode-script = "0.5.5"
+# A fallback font's character map, read where fontdb maps the file; the
+# version fontdb already builds.
+ttf-parser = { version = "0.25", default-features = false, features = ["std"] }
+# The Slint client's icons from ui/icons, drawn once per size and colour.
+# Without its default features it has no text, so it makes no font
+# database.
+resvg = { version = "0.49", default-features = false }
+
+[dev-dependencies]
+# The headless simulator for the widgets' tests.
+iced_test = "=0.14.0"

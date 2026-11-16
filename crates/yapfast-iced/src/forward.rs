@@ -18,7 +18,7 @@ use yapfast_core::{
 use crate::{
     app::{App, Message},
     controls::{Kind, action, field},
-    dialogs::dialog,
+    dialog::dialog,
     fonts::{BOLD, MEDIUM},
     pictures::Icon,
     style::{rounded, scrollbar},

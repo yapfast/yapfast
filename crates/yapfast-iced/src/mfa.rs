@@ -18,7 +18,7 @@ use crate::{
     after,
     app::{App, Message},
     controls::{Item, Kind, Light, action, field},
-    dialogs::dialog,
+    dialog::dialog,
     fonts::BOLD,
     pictures::Icon,
 };
@@ -140,14 +140,9 @@ impl App {
             ),
         };
         let note = |words: String| text(words).size(13).color(theme.muted).width(Length::Fill);
-        let close = self.icon_button(
-            Icon::X,
-            "Cancel",
-            28.0,
-            18,
-            Message::Mfa(Event::Cancel),
-            false,
-        );
+        let close = self
+            .look()
+            .icon_button(Icon::X, "Cancel", Message::Mfa(Event::Cancel));
         let mut body = column![
             row![
                 text("Multi-Factor Authentication")

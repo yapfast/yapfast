@@ -179,14 +179,13 @@ impl App {
         let card = row![
             self.glyph(Icon::File, FILE_ICON, theme.accent),
             container(words).width(Length::Fill).clip(true),
-            self.icon_button(
-                Icon::Download,
-                "Save",
-                32.0,
-                20,
-                Message::Image(crate::image_viewer::Event::Save(item.to_owned(), index)),
-                false,
-            ),
+            self.look()
+                .icon_button(
+                    Icon::Download,
+                    "Save",
+                    Message::Image(crate::image_viewer::Event::Save(item.to_owned(), index))
+                )
+                .size(32.0, 20),
         ]
         .spacing(12)
         .align_y(Alignment::Center);

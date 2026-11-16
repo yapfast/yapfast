@@ -244,23 +244,31 @@ impl App {
             .map(|(index, _)| index)
             .collect();
         let place = images.iter().position(|index| *index == viewer.index);
-        let mut buttons = Vec::new();
+        let mut buttons: Vec<Element<'_, Message>> = Vec::new();
         if !state.preview {
-            buttons.push(self.icon_face_button(
-                self.glyph(Icon::Download, 20, Color::WHITE),
-                "Save",
-                32.0,
-                Message::Image(Event::Save(viewer.item.clone(), viewer.index)),
-                true,
-            ));
+            buttons.push(
+                self.look()
+                    .face_button(
+                        self.glyph(Icon::Download, 20, Color::WHITE),
+                        32.0,
+                        "Save",
+                        Message::Image(Event::Save(viewer.item.clone(), viewer.index)),
+                    )
+                    .below()
+                    .into(),
+            );
         }
-        buttons.push(self.icon_face_button(
-            self.glyph(Icon::X, 20, Color::WHITE),
-            "Close",
-            32.0,
-            Message::Image(Event::Close),
-            true,
-        ));
+        buttons.push(
+            self.look()
+                .face_button(
+                    self.glyph(Icon::X, 20, Color::WHITE),
+                    32.0,
+                    "Close",
+                    Message::Image(Event::Close),
+                )
+                .below()
+                .into(),
+        );
         let mut shown = Viewer::new(GROUND, picture, size, Message::Image(Event::Close))
             .title(attachment.name.clone(), buttons);
         if images.len() > 1
@@ -286,7 +294,7 @@ impl App {
                 .align_y(Alignment::End),
             );
         }
-        Some(shown.view(self))
+        Some(shown.view(self.look()))
     }
 
     /// The round buttons either side that step to the previous and next

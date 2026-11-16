@@ -169,14 +169,14 @@ impl App {
                 .font(SEMIBOLD)
                 .color(theme.text)
                 .width(Length::Fill),
-            self.icon_button(
-                Icon::ChevronsRight,
-                "Hide Styles",
-                30.0,
-                16,
-                message(Event::Side(false)),
-                true,
-            ),
+            self.look()
+                .icon_button(
+                    Icon::ChevronsRight,
+                    "Hide Styles",
+                    message(Event::Side(false))
+                )
+                .size(30.0, 16)
+                .below(),
         ]
         .padding(Padding {
             left: 16.0,

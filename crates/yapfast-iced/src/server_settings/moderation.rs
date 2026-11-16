@@ -25,7 +25,7 @@ use super::{Drop, Event, Screen, message};
 use crate::{
     app::{App, Message},
     controls::{Kind, action, lights},
-    dialogs,
+    dialog,
     fonts::{BOLD, MEDIUM, SEMIBOLD},
     form,
     pictures::Icon,
@@ -226,7 +226,7 @@ impl App {
         if let Some(lock) = lock {
             switch = switch.locked(lock);
         }
-        let mut mfa = vec![switch.view(self)];
+        let mut mfa = vec![switch.view(self.look())];
         if !mfa_note.is_empty() {
             let sunken = theme.sunken;
             mfa.push(
@@ -428,7 +428,7 @@ impl App {
                 .spacing(form::TIGHT),
             );
         }
-        Some(dialogs::panel(
+        Some(dialog::panel(
             theme,
             body.into(),
             BAN_DIALOG,
@@ -469,7 +469,7 @@ impl App {
             },
         )
         .enabled(!fetching)
-        .view(self);
+        .view(self.look());
         let actions: Vec<String> = std::iter::once("All Actions".to_owned())
             .chain(AUDIT_ACTIONS.iter().map(|(_, name)| (*name).to_owned()))
             .collect();
@@ -496,7 +496,7 @@ impl App {
             },
         )
         .enabled(!fetching)
-        .view(self);
+        .view(self.look());
         let filter = |label: &'a str, dropdown: Element<'a, Message>| -> Element<'a, Message> {
             column![
                 text(label).size(12).font(BOLD).color(theme.secondary),

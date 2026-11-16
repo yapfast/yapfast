@@ -19,7 +19,7 @@ use yapfast_core::{
 use crate::{
     app::{App, Message},
     controls::{self, Check, Item, Kind, Light, action, lights, placed},
-    dialogs::dialog,
+    dialog::dialog,
     fonts::BOLD,
     form,
     people::StatusInk,
@@ -550,8 +550,10 @@ impl App {
         let editor = self.client.state().status_editor.as_ref()?;
         let draft = self.status_draft.as_ref()?;
         let theme = &self.theme;
-        let head = self.dialog_head("Set a custom status", message(Event::Cancel));
-        let emoji = self.emoji_slot(
+        let head = self
+            .look()
+            .dialog_head("Set a custom status", message(Event::Cancel));
+        let emoji = self.ctx().emoji_slot(
             draft.emoji.as_deref(),
             message(Event::Emoji),
             message(Event::RemoveEmoji),

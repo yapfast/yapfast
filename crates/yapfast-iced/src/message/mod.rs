@@ -449,11 +449,22 @@ impl App {
         };
         let name = Piece::new(
             vec![
-                span(shown_name(&message.author, style.as_ref()).into_owned())
-                    .font(style_font(style.as_ref(), 500)),
+                span(
+                    shown_name(
+                        &message.author,
+                        style.as_ref().and_then(crate::looks::NameLook::font),
+                    )
+                    .into_owned(),
+                )
+                .font(style_font(
+                    style.as_ref().and_then(crate::looks::NameLook::font),
+                    500,
+                )),
             ],
             index,
             0,
+            Message::Link,
+            Message::Select,
         )
         .item(Some(self.row_item(index)))
         .size(self.text_size(), AUTHOR_LINE)
@@ -483,11 +494,17 @@ impl App {
         if message.bot {
             line = line.push(self.bot_tag(1.0));
         }
-        let time = Piece::new(vec![span(self.sent_time(index, message))], index, 1)
-            .item(Some(self.row_item(index)))
-            .size(self.text_size() - 4.0, 16.0)
-            .color(theme.muted)
-            .selection(self.selected(index, 1), self.selecting, theme.selection);
+        let time = Piece::new(
+            vec![span(self.sent_time(index, message))],
+            index,
+            1,
+            Message::Link,
+            Message::Select,
+        )
+        .item(Some(self.row_item(index)))
+        .size(self.text_size() - 4.0, 16.0)
+        .color(theme.muted)
+        .selection(self.selected(index, 1), self.selecting, theme.selection);
         line.push(time).height(AUTHOR_LINE).into()
     }
 

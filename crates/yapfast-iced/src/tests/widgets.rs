@@ -65,7 +65,7 @@ fn every_wrapper_shows_its_childs_tooltip() {
         ),
         (
             "CtrlWheel",
-            CtrlWheel::new(tipped(), |_| Message::CloseMenu).into(),
+            CtrlWheel::new(tipped(), |_: &mut (), _| Some(Message::CloseMenu), |_| {}).into(),
         ),
         ("Autoscroll", Autoscroll::new(tipped(), &[], look).into()),
         ("Framed", Framed::new(tipped(), Vec::new(), 0.0, 0.0).into()),
@@ -127,7 +127,7 @@ fn a_card_at_the_pointer_opens_below_it_while_it_fits() {
     use crate::widgets::{Anchor, Place};
     // 100 px tall at y 90: its foot at 190, inside the 8 px margin of a
     // 200 px window.
-    let card = container(text("card")).width(100).height(100);
+    let card: iced::widget::Container<'_, Message> = container(text("card")).width(100).height(100);
     let place = Place::new(card, Point::new(10.0, 90.0), 8.0).anchor(Anchor::Pointer);
     let mut ui = Simulator::with_size(Settings::default(), Size::new(300.0, 200.0), place);
     let card = ui.find("card").expect("the card");

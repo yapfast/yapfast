@@ -612,30 +612,19 @@ impl App {
                     .color(theme.text)
             )
             .width(Length::Fill),
-            self.icon_button(
-                Icon::Ellipsis,
-                "More",
-                28.0,
-                18,
-                Message::Thread(Event::More),
-                true
-            ),
-            self.icon_button(
-                Icon::Maximize,
-                "Open in full view",
-                28.0,
-                18,
-                Message::Thread(Event::Expand),
-                true
-            ),
-            self.icon_button(
-                Icon::X,
-                "Close thread",
-                28.0,
-                18,
-                Message::Thread(Event::Close),
-                true
-            ),
+            self.look()
+                .icon_button(Icon::Ellipsis, "More", Message::Thread(Event::More))
+                .below(),
+            self.look()
+                .icon_button(
+                    Icon::Maximize,
+                    "Open in full view",
+                    Message::Thread(Event::Expand)
+                )
+                .below(),
+            self.look()
+                .icon_button(Icon::X, "Close thread", Message::Thread(Event::Close))
+                .below(),
         ];
         let body = column![
             self.panel_head(head),
@@ -779,14 +768,9 @@ impl App {
             self.glyph(Icon::Thread, 18, theme.muted),
             container(elide("New Thread").size(15).font(BOLD).color(theme.text))
                 .width(Length::Fill),
-            self.icon_button(
-                Icon::X,
-                "Close",
-                28.0,
-                18,
-                Message::Thread(Event::CloseForm),
-                true
-            ),
+            self.look()
+                .icon_button(Icon::X, "Close", Message::Thread(Event::CloseForm))
+                .below(),
         ];
         let mut fields = column![].spacing(16).padding(16).width(Length::Fill);
         if let Some(starter) = &self.drafts.starter {
@@ -834,7 +818,7 @@ impl App {
                         .then_some(Message::Thread(Event::Private(!form.private))),
                 )
                 .description(words)
-                .view(self),
+                .view(self.look()),
             );
         }
         if let Some(error) = &form.error {

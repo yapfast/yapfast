@@ -14,17 +14,19 @@ doctest = false
 default = ["cpu"]
 # iced's tiny-skia renderer into a softbuffer window, with the patches in
 # vendor/iced_tiny_skia: the build measured and used.
-cpu = ["iced/tiny-skia", "dep:iced_tiny_skia"]
+cpu = ["iced/tiny-skia", "dep:iced_tiny_skia", "yapfast-iced-kit/cpu"]
 # iced's wgpu renderer alone, blending as tiny-skia does (`web-colors`: sRGB
 # values, not linear light), so both builds look the same. One of the two:
 # iced would otherwise build a fallback renderer of both.
-gpu = ["iced/wgpu", "iced/web-colors"]
+gpu = ["iced/wgpu", "iced/web-colors", "yapfast-iced-kit/gpu"]
 # Matrix beside Discord: its sign-in in place of linking Discord, and the
 # banner that asks to verify the device.
 matrix = ["yapfast-core/matrix"]
 
 [dependencies]
 anyhow.workspace = true
+# The pieces the screens are built from; its renderer is this crate's.
+yapfast-iced-kit = { path = "../yapfast-iced-kit", default-features = false }
 # Discord's names, activities and stream worker, which the window shows.
 yapfast-core = { path = "../yapfast-core", default-features = false, features = ["discord"] }
 tokio.workspace = true
@@ -40,15 +42,6 @@ iced_runtime = "=0.14.0"
 iced_tiny_skia = { version = "=0.14.1", optional = true }
 # Pictures' handles over the core's own bytes, without a copy.
 bytes = "1.10"
-# The type of cosmic-text's `Fallback::script_fallback` argument.
-unicode-script = "0.5.5"
-# A fallback font's character map, read where fontdb maps the file; the
-# version fontdb already builds.
-ttf-parser = { version = "0.25", default-features = false, features = ["std"] }
-# The Slint client's icons from ui/icons, drawn once per size and colour;
-# the version yapfast-core already builds. Without its default features it
-# has no text, so it makes no font database.
-resvg = { version = "0.49", default-features = false }
 # Messages' local dates, as the core works them out.
 chrono.workspace = true
 # Message Markdown's inline styles, as the core already builds it.

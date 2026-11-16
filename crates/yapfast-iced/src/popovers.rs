@@ -517,14 +517,11 @@ impl App {
         if let Some(end) = end {
             head = head.push(end);
         }
-        head = head.push(self.icon_button(
-            Icon::X,
-            "Close",
-            28.0,
-            18,
-            Message::Popover(Event::Close),
-            true,
-        ));
+        head = head.push(
+            self.look()
+                .icon_button(Icon::X, "Close", Message::Popover(Event::Close))
+                .below(),
+        );
         let panel_ground = theme.panel;
         let head = column![
             container(head)

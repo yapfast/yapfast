@@ -432,7 +432,9 @@ impl App {
                     .wrapping(text::Wrapping::None)
                     .width(Length::Fill),
                 toggle,
-                self.icon_button(Icon::X, "Cancel reply", 28.0, 16, cancel, false),
+                self.look()
+                    .icon_button(Icon::X, "Cancel reply", cancel)
+                    .size(28.0, 16),
             ]
             .spacing(8)
             .align_y(Alignment::Center),

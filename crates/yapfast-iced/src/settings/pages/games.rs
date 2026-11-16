@@ -136,7 +136,7 @@ impl App {
             )
             .description("Yapfast looks for games among the programs running, and on Linux takes the Rich Presence games send. Your Discord account keeps this setting, so it's the same in Discord's apps.")
             .locked("Link a Discord account first.")
-            .view(self),
+            .view(self.look()),
             form::heading(theme, "CUSTOM GAMES"),
             form::note(
                 theme,

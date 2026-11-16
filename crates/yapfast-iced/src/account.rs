@@ -279,14 +279,15 @@ impl App {
         // Each device's toggle with the caret of its menu, as the Slint
         // client's `DeviceToggle`; the menu opens above it.
         let caret = |label, popup| {
-            self.spot(self.icon_button(
-                Icon::ChevronDown,
-                label,
-                20.0,
-                16,
-                Message::Call(crate::call::Event::Open(popup)),
-                false,
-            ))
+            self.spot(
+                self.look()
+                    .icon_button(
+                        Icon::ChevronDown,
+                        label,
+                        Message::Call(crate::call::Event::Open(popup)),
+                    )
+                    .size(20.0, 16),
+            )
         };
         let alert = |on: bool| if on { theme.danger } else { theme.text };
         let controls = row![
@@ -391,6 +392,6 @@ impl App {
         message: Message,
     ) -> Element<'_, Message> {
         let face = Pic::square(self.icon(icon, glyph, rgb(ink)), glyph as f32);
-        self.icon_face_button(face, label, 32.0, message, false)
+        self.look().face_button(face, 32.0, label, message).into()
     }
 }

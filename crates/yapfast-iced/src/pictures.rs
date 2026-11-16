@@ -9,7 +9,7 @@
 //! drawn at another size than it came at is fitted once per size and let go
 //! of with the core's picture ([`Converted`]). Moving pictures play through
 //! [`Player`], a frame decoded only as it falls due, on the window's one
-//! redraw clock (`widgets::Animated`).
+//! redraw clock (`animated::Animated`).
 
 use std::{
     cell::RefCell,
@@ -26,11 +26,12 @@ use iced::{
 use yapfast_core::chat::{Picture, Presence};
 
 use crate::{
+    animated::{Animated, PlayKey, Playing},
     app::{App, Message},
     looks,
     paint::{self, fitted},
     style::{faded, hex, rounded},
-    widgets::{Animated, Pic, PlayKey, Playing},
+    widgets::Pic,
 };
 
 /// A picture's pixels as tiny-skia draws them, premultiplied BGRA.
@@ -85,11 +86,7 @@ pub fn shared(picture: &Arc<Picture>) -> Handle {
     )
 }
 
-/// A handle on pixels the client made, in the renderer's format.
-pub fn handle(mut canvas: paint::Canvas) -> Handle {
-    paint::finish(&mut canvas.pixels);
-    Handle::from_rgba(canvas.width, canvas.height, canvas.pixels)
-}
+pub use crate::canvas::handle;
 
 /// Images the client holds for the core's pictures, by the picture they
 /// show: one each, let go of once the core lets go of the picture, so the
@@ -145,7 +142,7 @@ pub struct Pictures {
     /// Copies of other pictures, at each size they're drawn at (width,
     /// height, cut to cover).
     pub scaled: RefCell<HashMap<(u32, u32, bool), Converted<Handle>>>,
-    /// Dots and icons, by what they are, their size and colour.
+    /// Presence dots, by what they are and their ring's colour.
     pub marks: RefCell<HashMap<Mark, Handle>>,
     /// Emoji for the menu's quick reactions and the reactions' tooltips.
     pub emoji: RefCell<HashMap<(&'static str, u32), Option<Handle>>>,
@@ -327,338 +324,23 @@ impl Player {
     }
 }
 
-/// Small pictures the client draws for marks: presence dots and icons.
+/// Small pictures the client draws for marks: presence dots, in the
+/// theme's colours. Icons are [`crate::icons::Icons`]'.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Mark {
     /// A presence dot on a ring of the ground colour.
     Dot(Presence, u32),
-    /// An icon at its size, in its colour.
-    Icon(Icon, u32, u32),
-    /// An icon at its size in its own colours, such as the verified
-    /// badge's green and white, as Slint draws one it doesn't colorize.
-    Drawn(Icon, u32),
 }
 
-/// The Slint client's icons the client draws, from `ui/icons`.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub enum Icon {
-    SmilePlus,
-    Smile,
-    Pencil,
-    Reply,
-    Copy,
-    TextSelect,
-    Trash,
-    Thread,
-    Bell,
-    Pin,
-    Users,
-    X,
-    Scissors,
-    Paste,
-    Plus,
-    Crown,
-    Gamepad,
-    Music,
-    Tv,
-    Video,
-    Trophy,
-    Logo,
-    TriangleAlert,
-    Check,
-    Lock,
-    Folder,
-    Speaker,
-    ChevronDown,
-    /// The chevron turned over, as an open menu's.
-    ChevronUp,
-    ChevronRight,
-    UserPlus,
-    Calendar,
-    SquarePen,
-    Inbox,
-    Hash,
-    HashLock,
-    HashWarning,
-    Voice,
-    VoiceLock,
-    VoiceWarning,
-    Forum,
-    ForumLock,
-    ForumWarning,
-    Announcement,
-    AnnouncementLock,
-    AnnouncementWarning,
-    Media,
-    MediaLock,
-    MediaWarning,
-    Stage,
-    StageLock,
-    Rules,
-    Dm,
-    Phone,
-    Mic,
-    MicOff,
-    Headphones,
-    HeadphoneOff,
-    Settings,
-    Community,
-    Verified,
-    Id,
-    History,
-    Forward,
-    BellOff,
-    User,
-    Ellipsis,
-    ChartBar,
-    Search,
-    ForumPost,
-    /// The curve from a reply's line down to its avatar, in the top 13
-    /// of its 33 px square.
-    ReplySpine,
-    File,
-    Download,
-    /// A filled triangle, the mark over a video's poster.
-    PlayMark,
-    Play,
-    Pause,
-    Volume,
-    VolumeOff,
-    Link,
-    Chain,
-    Eye,
-    EyeOff,
-    Gif,
-    Sticker,
-    Star,
-    StarFilled,
-    Clock,
-    MessageCircle,
-    PinOff,
-    CircleStop,
-    CirclePlus,
-    TrendingUp,
-    /// Discord's plain plus, the composer's.
-    Add,
-    ChevronLeft,
-    /// An empty box, an unticked choice's.
-    Square,
-    Gem,
-    Hand,
-    Discord,
-    PhoneOff,
-    ScreenShare,
-    ScreenShareOff,
-    Soundboard,
-    VideoOff,
-    Maximize,
-    Minimize,
-    SignalHigh,
-    SignalMedium,
-    SignalLow,
-    NoiseBars,
-    NoiseBarsOff,
-    Palette,
-    Help,
-    /// The window's own title bar: back and forward, minimize, restore.
-    ArrowLeft,
-    ArrowRight,
-    Minus,
-    Restore,
-    Refresh,
-    LogOut,
-    UserPen,
-    Ban,
-    GitHub,
-    Image,
-    Shop,
-    Brush,
-    Pen,
-    ChevronsRight,
-    Shield,
-    Gavel,
-    StickyNote,
-    Slash,
-    Send,
-    Eyedropper,
-    Moon,
-    Sun,
-}
-
-impl Icon {
-    fn svg(self) -> &'static str {
-        macro_rules! icon {
-            ($file:literal) => {
-                include_str!(concat!("../../../ui/icons/", $file))
-            };
-        }
-        match self {
-            Icon::History => icon!("history.svg"),
-            Icon::File => icon!("file.svg"),
-            Icon::Download => icon!("download.svg"),
-            Icon::PlayMark => {
-                r#"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><path d="M2 0 L20 10 L2 20 Z" fill="currentColor" /></svg>"#
-            }
-            Icon::Play => icon!("play.svg"),
-            Icon::Pause => icon!("pause.svg"),
-            Icon::Volume => icon!("volume-2.svg"),
-            Icon::VolumeOff => icon!("volume-x.svg"),
-            Icon::Link => icon!("external-link.svg"),
-            Icon::Chain => icon!("link.svg"),
-            Icon::Eye => icon!("eye.svg"),
-            Icon::EyeOff => icon!("eye-off.svg"),
-            Icon::Gif => icon!("gif.svg"),
-            Icon::Sticker => icon!("sticker.svg"),
-            Icon::Star => icon!("star.svg"),
-            Icon::StarFilled => icon!("star-filled.svg"),
-            Icon::Clock => icon!("clock.svg"),
-            Icon::MessageCircle => icon!("message-circle.svg"),
-            Icon::PinOff => icon!("pin-off.svg"),
-            Icon::CircleStop => icon!("circle-stop.svg"),
-            Icon::CirclePlus => icon!("circle-plus.svg"),
-            Icon::TrendingUp => icon!("trending-up.svg"),
-            Icon::Add => icon!("plus.svg"),
-            Icon::ChevronLeft => icon!("chevron-left.svg"),
-            Icon::Forward => icon!("forward.svg"),
-            Icon::BellOff => icon!("bell-off.svg"),
-            Icon::User => icon!("user.svg"),
-            Icon::Ellipsis => icon!("ellipsis.svg"),
-            Icon::ChartBar => icon!("chart-bar.svg"),
-            Icon::Search => icon!("search.svg"),
-            Icon::ForumPost => icon!("message-square-text.svg"),
-            Icon::SmilePlus => icon!("smile-plus.svg"),
-            Icon::Smile => icon!("smile.svg"),
-            Icon::Pencil => icon!("pencil.svg"),
-            Icon::Reply => icon!("reply.svg"),
-            Icon::Copy => icon!("copy.svg"),
-            Icon::TextSelect => icon!("text-select.svg"),
-            Icon::Trash => icon!("trash-2.svg"),
-            Icon::Thread => icon!("thread.svg"),
-            Icon::Bell => icon!("bell.svg"),
-            Icon::Pin => icon!("pin.svg"),
-            Icon::Users => icon!("users.svg"),
-            Icon::X => icon!("x.svg"),
-            Icon::Scissors => icon!("scissors.svg"),
-            Icon::Paste => icon!("clipboard-paste.svg"),
-            Icon::Plus => icon!("circle-plus.svg"),
-            Icon::Crown => icon!("crown.svg"),
-            Icon::Gamepad => icon!("gamepad.svg"),
-            Icon::Music => icon!("music.svg"),
-            Icon::Tv => icon!("tv.svg"),
-            Icon::Video => icon!("video.svg"),
-            Icon::Trophy => icon!("trophy.svg"),
-            Icon::Logo => icon!("logo.svg"),
-            Icon::TriangleAlert => icon!("triangle-alert.svg"),
-            Icon::Check => icon!("check.svg"),
-            Icon::Square => icon!("square.svg"),
-            Icon::Gem => icon!("gem.svg"),
-            Icon::Hand => icon!("hand.svg"),
-            Icon::Discord => icon!("discord.svg"),
-            Icon::Lock => icon!("lock.svg"),
-            Icon::Folder => icon!("folder.svg"),
-            Icon::Speaker => icon!("volume-2-bold.svg"),
-            Icon::ChevronDown => icon!("chevron-down.svg"),
-            Icon::ChevronUp => {
-                r#"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 15 6-6 6 6" /></svg>"#
-            }
-            Icon::ChevronRight => icon!("chevron-right.svg"),
-            Icon::ReplySpine => {
-                r#"<svg xmlns="http://www.w3.org/2000/svg" width="33" height="33" viewBox="0 0 33 33" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 14 V7 A6 6 0 0 1 7 1 H33" /></svg>"#
-            }
-            Icon::UserPlus => icon!("user-plus.svg"),
-            Icon::Calendar => icon!("calendar.svg"),
-            Icon::SquarePen => icon!("square-pen.svg"),
-            Icon::Inbox => icon!("inbox.svg"),
-            Icon::Hash => icon!("hash.svg"),
-            Icon::HashLock => icon!("hash-lock.svg"),
-            Icon::HashWarning => icon!("hash-warning.svg"),
-            Icon::Voice => icon!("volume-2.svg"),
-            Icon::VoiceLock => icon!("volume-2-lock.svg"),
-            Icon::VoiceWarning => icon!("volume-2-warning.svg"),
-            Icon::Forum => icon!("message-square-text.svg"),
-            Icon::ForumLock => icon!("message-square-text-lock.svg"),
-            Icon::ForumWarning => icon!("message-square-text-warning.svg"),
-            Icon::Announcement => icon!("megaphone.svg"),
-            Icon::AnnouncementLock => icon!("megaphone-lock.svg"),
-            Icon::AnnouncementWarning => icon!("megaphone-warning.svg"),
-            Icon::Media => icon!("image.svg"),
-            Icon::MediaLock => icon!("image-lock.svg"),
-            Icon::MediaWarning => icon!("image-warning.svg"),
-            Icon::Stage => icon!("stage.svg"),
-            Icon::StageLock => icon!("stage-lock.svg"),
-            Icon::Rules => icon!("rules.svg"),
-            Icon::Dm => icon!("message-circle.svg"),
-            Icon::Phone => icon!("phone.svg"),
-            Icon::Mic => icon!("mic.svg"),
-            Icon::MicOff => icon!("mic-off.svg"),
-            Icon::Headphones => icon!("headphones.svg"),
-            Icon::HeadphoneOff => icon!("headphone-off.svg"),
-            Icon::Settings => icon!("settings.svg"),
-            Icon::Community => icon!("community.svg"),
-            Icon::Verified => icon!("verified.svg"),
-            Icon::Id => icon!("id-filled.svg"),
-            Icon::PhoneOff => icon!("phone-off.svg"),
-            Icon::ScreenShare => icon!("screen-share.svg"),
-            Icon::ScreenShareOff => icon!("screen-share-off.svg"),
-            Icon::Soundboard => icon!("soundboard.svg"),
-            Icon::Palette => icon!("palette.svg"),
-            Icon::Help => icon!("help-circle.svg"),
-            Icon::ArrowLeft => icon!("arrow-left.svg"),
-            Icon::ArrowRight => icon!("arrow-right.svg"),
-            Icon::Minus => icon!("minus.svg"),
-            Icon::Restore => icon!("restore.svg"),
-            Icon::Refresh => icon!("refresh-cw.svg"),
-            Icon::LogOut => icon!("log-out.svg"),
-            Icon::UserPen => icon!("user-pen.svg"),
-            Icon::Ban => icon!("ban.svg"),
-            Icon::GitHub => icon!("github.svg"),
-            Icon::Image => icon!("image.svg"),
-            Icon::Shop => icon!("shop.svg"),
-            Icon::Brush => icon!("brush.svg"),
-            Icon::Pen => icon!("pen.svg"),
-            Icon::ChevronsRight => icon!("chevrons-right.svg"),
-            Icon::Shield => icon!("shield.svg"),
-            Icon::Gavel => icon!("gavel.svg"),
-            Icon::StickyNote => icon!("sticky-note.svg"),
-            Icon::Slash => icon!("slash.svg"),
-            Icon::Send => icon!("send-horizontal.svg"),
-            Icon::Eyedropper => icon!("eyedropper.svg"),
-            Icon::Moon => icon!("moon.svg"),
-            Icon::Sun => icon!("sun.svg"),
-            Icon::VideoOff => icon!("video-off.svg"),
-            Icon::Maximize => icon!("maximize.svg"),
-            Icon::Minimize => icon!("minimize.svg"),
-            Icon::SignalHigh => icon!("signal-high.svg"),
-            Icon::SignalMedium => icon!("signal-medium.svg"),
-            Icon::SignalLow => icon!("signal-low.svg"),
-            Icon::NoiseBars => icon!("noise-bars.svg"),
-            Icon::NoiseBarsOff => icon!("noise-bars-off.svg"),
-        }
-    }
-
-    /// The icon of an activity line's kind (1 playing, 2 listening,
-    /// 3 watching, 4 streaming, 5 competing).
-    pub fn activity(kind: u8) -> Option<Self> {
-        Some(match kind {
-            1 => Icon::Gamepad,
-            2 => Icon::Music,
-            3 => Icon::Tv,
-            4 => Icon::Video,
-            5 => Icon::Trophy,
-            _ => return None,
-        })
-    }
-}
+pub use crate::icons::Icon;
 
 impl App {
-    /// The picture at `url` at `width` by `height`: the core's own pixels
-    /// when it came at that size, else a copy made once (cut to cover the
-    /// size, or stretched to it).
+    /// [`Ctx::picture`](crate::ctx::Ctx::picture).
     pub fn picture(&self, url: &str, width: u32, height: u32, cover: bool) -> Option<Handle> {
-        let picture = self.client.state().pictures.get(url)?;
-        self.fit(picture, width, height, cover)
+        self.ctx().picture(url, width, height, cover)
     }
 
+    /// [`Ctx::fit`](crate::ctx::Ctx::fit).
     pub fn fit(
         &self,
         picture: &Arc<Picture>,
@@ -666,28 +348,7 @@ impl App {
         height: u32,
         cover: bool,
     ) -> Option<Handle> {
-        if picture.width == 0 || picture.height == 0 || width == 0 || height == 0 {
-            return None;
-        }
-        if picture.width == width && picture.height == height {
-            return Some(self.pictures.previews.borrow_mut().get(picture, shared));
-        }
-        Some(
-            self.pictures
-                .scaled
-                .borrow_mut()
-                .entry((width, height, cover))
-                .or_default()
-                .get(picture, |picture| {
-                    let pixels = fitted(
-                        &picture.rgba,
-                        (picture.width, picture.height),
-                        (width, height),
-                        cover,
-                    );
-                    Handle::from_rgba(width, height, pixels)
-                }),
-        )
+        self.ctx().fit(picture, width, height, cover)
     }
 
     /// Whether moving pictures play, as Messages' Animate choice and the
@@ -706,10 +367,7 @@ impl App {
         }
     }
 
-    /// A moving picture at `url`, once it has come and while pictures play
-    /// ([`App::plays`]), as an `Animated` drawn
-    /// at `at` within a layout of `size`; it shows nothing until its first
-    /// frame unless given a still.
+    /// [`Ctx::moving`](crate::ctx::Ctx::moving).
     pub fn moving(
         &self,
         url: &str,
@@ -717,85 +375,35 @@ impl App {
         at: Rectangle,
         cover: bool,
     ) -> Option<Animated<'_>> {
-        if !self.plays() {
-            return None;
-        }
-        let picture = self.client.state().pictures.get(url)?;
-        picture.animation.as_ref()?;
-        Some(self.pictures.animated(picture, size, at, cover))
+        self.ctx().moving(url, size, at, cover)
     }
 
-    /// A presence dot or an icon, drawn once.
+    /// [`Ctx::mark`](crate::ctx::Ctx::mark).
     pub fn mark(&self, mark: Mark) -> Option<Handle> {
-        if let Some(handle) = self.pictures.marks.borrow().get(&mark) {
-            return Some(handle.clone());
-        }
-        let canvas = match mark {
-            // The theme's live green for online and faint for offline; the
-            // marks go when the theme changes.
-            Mark::Dot(presence, ring) => paint::status_dot(
-                presence,
-                ring,
-                crate::theme::rgb(self.theme.live),
-                crate::theme::rgb(self.theme.faint),
-            )?,
-            Mark::Icon(icon, size, color) => paint::svg_icon(icon.svg(), size, color),
-            Mark::Drawn(icon, size) => paint::svg_drawn(icon.svg(), size),
-        };
-        let handle = handle(canvas);
-        self.pictures
-            .marks
-            .borrow_mut()
-            .insert(mark, handle.clone());
-        Some(handle)
+        self.ctx().mark(mark)
     }
 
-    /// One of `ui/icons` at `size` in `color`, drawn once.
+    /// [`Look::icon`](crate::look::Look::icon).
     pub fn icon(&self, icon: Icon, size: u32, color: u32) -> Handle {
-        self.mark(Mark::Icon(icon, size, color))
-            .expect("icons are always drawn")
+        self.look().icon(icon, size, color)
     }
 
-    /// One of `ui/icons` as a picture, `size` square, in `color`.
+    /// [`Look::glyph`](crate::look::Look::glyph).
     pub fn glyph(&self, icon: Icon, size: u32, color: Color) -> Pic {
-        let glyph = Pic::square(self.icon(icon, size, crate::theme::rgb(color)), size as f32);
-        // Drawn once in the colour's own; its alpha fades the picture, as
-        // Slint's `colorize` with a faint colour does.
-        if color.a < 1.0 {
-            glyph.opacity(color.a)
-        } else {
-            glyph
-        }
+        self.look().glyph(icon, size, color)
     }
 
-    /// One of `ui/icons` in its own colours, `size` square, drawn once.
+    /// [`Look::drawn`](crate::look::Look::drawn).
     pub fn drawn(&self, icon: Icon, size: u32) -> Pic {
-        let handle = self
-            .mark(Mark::Drawn(icon, size))
-            .expect("icons are always drawn");
-        Pic::square(handle, size as f32)
+        self.look().drawn(icon, size)
     }
 
-    /// An emoji's picture at `size`, for the menu's quick reactions and
-    /// tooltips: made once, kept with the client's marks.
+    /// [`Ctx::emoji_picture`](crate::ctx::Ctx::emoji_picture).
     pub fn emoji_picture(&self, key: &'static str, size: u32) -> Option<Handle> {
-        if let Some(handle) = self.pictures.emoji.borrow().get(&(key, size)) {
-            return handle.clone();
-        }
-        let canvas = {
-            let mut system = font_system().write().expect("font system");
-            paint::emoji(system.raw(), key, size)
-        };
-        let handle = canvas.map(handle);
-        self.pictures
-            .emoji
-            .borrow_mut()
-            .insert((key, size), handle.clone());
-        handle
+        self.ctx().emoji_picture(key, size)
     }
 
-    /// An avatar or icon: the picture once it has come, else initials on a
-    /// tint; `opacity` fades both.
+    /// [`Ctx::avatar`](crate::ctx::Ctx::avatar).
     pub fn avatar(
         &self,
         url: Option<&str>,
@@ -804,11 +412,10 @@ impl App {
         radius: f32,
         opacity: f32,
     ) -> Element<'_, Message> {
-        self.avatar_tinted(url, name, name, size, radius, opacity)
+        self.ctx().avatar(url, name, size, radius, opacity)
     }
 
-    /// [`App::avatar`], its tint picked by `key` rather than the name, as
-    /// the Slint client's inbox tints a room's by its id.
+    /// [`Ctx::avatar_tinted`](crate::ctx::Ctx::avatar_tinted).
     pub fn avatar_tinted(
         &self,
         url: Option<&str>,
@@ -818,67 +425,13 @@ impl App {
         radius: f32,
         opacity: f32,
     ) -> Element<'_, Message> {
-        let pixels = size as u32;
-        if let Some(handle) = url.and_then(|url| self.picture(url, pixels, pixels, true)) {
-            return Pic::square(handle, size)
-                .radius(radius)
-                .opacity(opacity)
-                .into();
-        }
-        let tint = faded(hex(tint(key)), opacity);
-        container(
-            text(initials(name))
-                .size(size * 0.4)
-                .color(faded(Color::WHITE, opacity)),
-        )
-        .center(size)
-        .style(move |_| rounded(tint, radius))
-        .into()
+        self.ctx()
+            .avatar_tinted(url, name, key, size, radius, opacity)
     }
 
-    /// An avatar of `size` with the decoration round it (a fifth larger,
-    /// centred over its edge, as Discord draws it), playing while `play`,
-    /// and a presence dot ringed in `ring` at `dot`.
+    /// [`Ctx::face`](crate::ctx::Ctx::face).
     pub fn face(&self, face: Face<'_>) -> Element<'_, Message> {
-        let Face {
-            url,
-            name,
-            key,
-            size,
-            opacity,
-            decoration,
-            play,
-            dot,
-        } = face;
-        let mut layers =
-            stack![self.avatar_tinted(url, name, key.unwrap_or(name), size, size / 2.0, opacity)];
-        let square = Size::new(size, size);
-        if let Some(decoration) = decoration {
-            let side = (size * 1.2).round();
-            let inset = -(side - size) / 2.0;
-            let at = Rectangle::new(Point::new(inset, inset), Size::new(side, side));
-            let moving = play
-                .then(|| self.moving(&looks::animated_url(decoration), square, at, false))
-                .flatten();
-            if let Some(moving) = moving {
-                layers = layers.push(moving.opacity(opacity));
-            } else if let Some(still) = self.picture(decoration, side as u32, side as u32, false) {
-                layers = layers.push(Pic::new(still, square).at(at).opacity(opacity));
-            }
-        }
-        if let Some((presence, ring, at)) = dot
-            && let Some(dot) = self.mark(Mark::Dot(presence, ring))
-        {
-            // The phone stands 5 px taller than the dot.
-            let tall = if presence == Presence::Mobile {
-                5.0
-            } else {
-                0.0
-            };
-            let at = Rectangle::new(Point::new(at.x, at.y - tall), Size::new(16.0, 16.0 + tall));
-            layers = layers.push(Pic::new(dot, square).at(at));
-        }
-        layers.width(size).height(size).into()
+        self.ctx().face(face)
     }
 }
 
@@ -1112,6 +665,188 @@ impl Fitter {
         let shown = &self.shown;
         self.done
             .retain(|key, (picture, _)| shown.contains(key) && picture.strong_count() > 0);
+    }
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
+    /// The picture at `url` at `width` by `height`: the core's own pixels
+    /// when it came at that size, else a copy made once (cut to cover the
+    /// size, or stretched to it).
+    pub fn picture(self, url: &str, width: u32, height: u32, cover: bool) -> Option<Handle> {
+        let picture = self.state.pictures.get(url)?;
+        self.fit(picture, width, height, cover)
+    }
+
+    pub fn fit(
+        self,
+        picture: &Arc<Picture>,
+        width: u32,
+        height: u32,
+        cover: bool,
+    ) -> Option<Handle> {
+        if picture.width == 0 || picture.height == 0 || width == 0 || height == 0 {
+            return None;
+        }
+        if picture.width == width && picture.height == height {
+            return Some(self.pictures.previews.borrow_mut().get(picture, shared));
+        }
+        Some(
+            self.pictures
+                .scaled
+                .borrow_mut()
+                .entry((width, height, cover))
+                .or_default()
+                .get(picture, |picture| {
+                    let pixels = fitted(
+                        &picture.rgba,
+                        (picture.width, picture.height),
+                        (width, height),
+                        cover,
+                    );
+                    Handle::from_rgba(width, height, pixels)
+                }),
+        )
+    }
+
+    /// A moving picture at `url`, once it has come and while pictures play
+    /// ([`App::plays`]), as an `Animated` drawn
+    /// at `at` within a layout of `size`; it shows nothing until its first
+    /// frame unless given a still.
+    pub fn moving(self, url: &str, size: Size, at: Rectangle, cover: bool) -> Option<Animated<'a>> {
+        if !self.plays {
+            return None;
+        }
+        let picture = self.state.pictures.get(url)?;
+        picture.animation.as_ref()?;
+        Some(self.pictures.animated(picture, size, at, cover))
+    }
+
+    /// A presence dot, drawn once.
+    pub fn mark(self, mark: Mark) -> Option<Handle> {
+        if let Some(handle) = self.pictures.marks.borrow().get(&mark) {
+            return Some(handle.clone());
+        }
+        let canvas = match mark {
+            // The theme's live green for online and faint for offline; the
+            // marks go when the theme changes.
+            Mark::Dot(presence, ring) => paint::status_dot(
+                presence,
+                ring,
+                crate::theme::rgb(self.look.theme.live),
+                crate::theme::rgb(self.look.theme.faint),
+            )?,
+        };
+        let handle = handle(canvas);
+        self.pictures
+            .marks
+            .borrow_mut()
+            .insert(mark, handle.clone());
+        Some(handle)
+    }
+
+    /// An emoji's picture at `size`, for the menu's quick reactions and
+    /// tooltips: made once, kept with the client's marks.
+    pub fn emoji_picture(self, key: &'static str, size: u32) -> Option<Handle> {
+        if let Some(handle) = self.pictures.emoji.borrow().get(&(key, size)) {
+            return handle.clone();
+        }
+        let canvas = {
+            let mut system = font_system().write().expect("font system");
+            paint::emoji(system.raw(), key, size)
+        };
+        let handle = canvas.map(handle);
+        self.pictures
+            .emoji
+            .borrow_mut()
+            .insert((key, size), handle.clone());
+        handle
+    }
+
+    /// An avatar or icon: the picture once it has come, else initials on a
+    /// tint; `opacity` fades both.
+    pub fn avatar(
+        self,
+        url: Option<&str>,
+        name: &str,
+        size: f32,
+        radius: f32,
+        opacity: f32,
+    ) -> Element<'a, Message> {
+        self.avatar_tinted(url, name, name, size, radius, opacity)
+    }
+
+    /// [`App::avatar`], its tint picked by `key` rather than the name, as
+    /// the Slint client's inbox tints a room's by its id.
+    pub fn avatar_tinted(
+        self,
+        url: Option<&str>,
+        name: &str,
+        key: &str,
+        size: f32,
+        radius: f32,
+        opacity: f32,
+    ) -> Element<'a, Message> {
+        let pixels = size as u32;
+        if let Some(handle) = url.and_then(|url| self.picture(url, pixels, pixels, true)) {
+            return Pic::square(handle, size)
+                .radius(radius)
+                .opacity(opacity)
+                .into();
+        }
+        let tint = faded(hex(tint(key)), opacity);
+        container(
+            text(initials(name))
+                .size(size * 0.4)
+                .color(faded(Color::WHITE, opacity)),
+        )
+        .center(size)
+        .style(move |_| rounded(tint, radius))
+        .into()
+    }
+
+    /// An avatar of `size` with the decoration round it (a fifth larger,
+    /// centred over its edge, as Discord draws it), playing while `play`,
+    /// and a presence dot ringed in `ring` at `dot`.
+    pub fn face(self, face: Face<'_>) -> Element<'a, Message> {
+        let Face {
+            url,
+            name,
+            key,
+            size,
+            opacity,
+            decoration,
+            play,
+            dot,
+        } = face;
+        let mut layers =
+            stack![self.avatar_tinted(url, name, key.unwrap_or(name), size, size / 2.0, opacity)];
+        let square = Size::new(size, size);
+        if let Some(decoration) = decoration {
+            let side = (size * 1.2).round();
+            let inset = -(side - size) / 2.0;
+            let at = Rectangle::new(Point::new(inset, inset), Size::new(side, side));
+            let moving = play
+                .then(|| self.moving(&looks::animated_url(decoration), square, at, false))
+                .flatten();
+            if let Some(moving) = moving {
+                layers = layers.push(moving.opacity(opacity));
+            } else if let Some(still) = self.picture(decoration, side as u32, side as u32, false) {
+                layers = layers.push(Pic::new(still, square).at(at).opacity(opacity));
+            }
+        }
+        if let Some((presence, ring, at)) = dot
+            && let Some(dot) = self.mark(Mark::Dot(presence, ring))
+        {
+            // The phone stands 5 px taller than the dot.
+            let tall = if presence == Presence::Mobile {
+                5.0
+            } else {
+                0.0
+            };
+            let at = Rectangle::new(Point::new(at.x, at.y - tall), Size::new(16.0, 16.0 + tall));
+            layers = layers.push(Pic::new(dot, square).at(at));
+        }
+        layers.width(size).height(size).into()
     }
 }
 

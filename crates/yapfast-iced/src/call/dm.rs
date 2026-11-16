@@ -18,7 +18,7 @@ use super::{Event, ringing, who_is_here};
 use crate::{
     app::{App, Message},
     controls::{self, Kind, call_button},
-    dialogs::dialog,
+    dialog::dialog,
     fonts::BOLD,
     pictures::Icon,
     style::{card_shadow, fill, rounded},
@@ -354,7 +354,7 @@ impl Pulse {
         child: impl Into<Element<'a, Message>>,
         color: Color,
         width: f32,
-    ) -> Wrap<'a, Self> {
+    ) -> Wrap<'a, Self, Message> {
         Wrap::new(child, Self { color, width })
     }
 }
@@ -376,7 +376,7 @@ pub fn pulse_opacity(elapsed: Duration) -> f32 {
     0.45 + 0.4 * degrees.to_radians().sin()
 }
 
-impl Hooks for Pulse {
+impl Hooks<Message> for Pulse {
     type State = PulseState;
 
     fn update(
@@ -385,7 +385,7 @@ impl Hooks for Pulse {
         event: &iced::Event,
         _: At,
         shell: &mut Shell<'_, Message>,
-        child: &mut Inner<'_, '_>,
+        child: &mut Inner<'_, '_, Message>,
     ) {
         if let iced::Event::Window(window::Event::RedrawRequested(now)) = event {
             state.began.get_or_insert(*now);

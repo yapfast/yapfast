@@ -11,73 +11,10 @@
 //! [`finish`].
 
 use iced::advanced::graphics::text::cosmic_text;
-use resvg::{tiny_skia, usvg};
 use yapfast_core::chat::Presence;
 
+pub use crate::canvas::{Canvas, Ink, finish, to_native};
 use crate::{fonts::TWEMOJI, looks::NameLook};
-
-/// A colour as 0xRRGGBB and an alpha from 0 to 1.
-#[derive(Clone, Copy)]
-pub struct Ink(pub u32, pub f32);
-
-/// A premultiplied BGRA picture being made.
-pub struct Canvas {
-    pub width: u32,
-    pub height: u32,
-    pub pixels: Vec<u8>,
-}
-
-impl Canvas {
-    pub fn new(width: u32, height: u32) -> Self {
-        Self {
-            width,
-            height,
-            pixels: vec![0; (width * height * 4) as usize],
-        }
-    }
-
-    /// Lays `ink` over the pixel at `coverage` (0 to 1), source over.
-    fn over(&mut self, x: u32, y: u32, Ink(rgb, alpha): Ink, coverage: f32) {
-        let alpha = (alpha * coverage).clamp(0.0, 1.0);
-        if alpha <= 0.0 {
-            return;
-        }
-        let at = ((y * self.width + x) * 4) as usize;
-        let [r, g, b] =
-            [(rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8].map(|c| f32::from(c) * alpha);
-        let pixel = &mut self.pixels[at..at + 4];
-        let keep = 1.0 - alpha;
-        for (channel, value) in pixel.iter_mut().zip([b, g, r, alpha * 255.0]) {
-            *channel = (value + f32::from(*channel) * keep).round().min(255.0) as u8;
-        }
-    }
-
-    /// A rectangle with round corners, edges smoothed.
-    pub fn rounded(&mut self, x: f32, y: f32, width: f32, height: f32, radius: f32, ink: Ink) {
-        let radius = radius.min(width / 2.0).min(height / 2.0);
-        let (x0, y0) = (x.floor().max(0.0) as u32, y.floor().max(0.0) as u32);
-        let x1 = ((x + width).ceil() as u32).min(self.width);
-        let y1 = ((y + height).ceil() as u32).min(self.height);
-        let (cx, cy) = (x + width / 2.0, y + height / 2.0);
-        let (hw, hh) = (width / 2.0 - radius, height / 2.0 - radius);
-        for py in y0..y1 {
-            for px in x0..x1 {
-                // Signed distance from the rounded rectangle's edge.
-                let dx = ((px as f32 + 0.5 - cx).abs() - hw).max(0.0);
-                let dy = ((py as f32 + 0.5 - cy).abs() - hh).max(0.0);
-                let inside_x = (px as f32 + 0.5 - cx).abs() - hw;
-                let inside_y = (py as f32 + 0.5 - cy).abs() - hh;
-                let distance =
-                    (dx * dx + dy * dy).sqrt() + inside_x.max(inside_y).min(0.0) - radius;
-                self.over(px, py, ink, (0.5 - distance).clamp(0.0, 1.0));
-            }
-        }
-    }
-
-    pub fn circle(&mut self, x: f32, y: f32, size: f32, ink: Ink) {
-        self.rounded(x, y, size, size, size / 2.0, ink);
-    }
-}
 
 /// Discord's presence dot, as the Slint client's `StatusDot` draws it at 16
 /// px, on a ring of `ring`: online, idle's moon, do not disturb's bar, and
@@ -114,42 +51,6 @@ pub fn status_dot(presence: Presence, ring: u32, live: u32, faint: u32) -> Optio
         Presence::Mobile => return None,
     }
     Some(canvas)
-}
-
-/// Decoded pixels (straight RGBA) to the renderer's format, in place: on the
-/// GPU build they already are.
-#[cfg(feature = "gpu")]
-pub fn to_native(_pixels: &mut [u8]) {}
-
-/// A canvas's premultiplied BGRA to the renderer's format, in place: on the
-/// GPU build, straight RGBA.
-pub fn finish(pixels: &mut [u8]) {
-    #[cfg(feature = "gpu")]
-    for pixel in pixels.chunks_exact_mut(4) {
-        let [b, g, r, a] = [pixel[0], pixel[1], pixel[2], pixel[3]];
-        let straight = |c: u8| match a {
-            0 => 0,
-            255 => c,
-            _ => ((u16::from(c) * 255 + u16::from(a) / 2) / u16::from(a)).min(255) as u8,
-        };
-        pixel.copy_from_slice(&[straight(r), straight(g), straight(b), a]);
-    }
-    #[cfg(feature = "cpu")]
-    let _ = pixels;
-}
-
-/// Straight RGBA to premultiplied BGRA, in place.
-#[cfg(feature = "cpu")]
-pub fn to_native(pixels: &mut [u8]) {
-    for pixel in pixels.chunks_exact_mut(4) {
-        let [r, g, b, a] = [pixel[0], pixel[1], pixel[2], pixel[3]];
-        if a == 255 {
-            pixel.copy_from_slice(&[b, g, r, a]);
-        } else {
-            let scale = |c: u8| ((u16::from(c) * u16::from(a) + 127) / 255) as u8;
-            pixel.copy_from_slice(&[scale(b), scale(g), scale(r), a]);
-        }
-    }
 }
 
 /// A picture in the renderer's format fitted to `width` by `height` by area
@@ -470,61 +371,6 @@ fn gradient(stops: &[(f32, u32)], t: f32) -> u32 {
     stops.last().map_or(0, |stop| stop.1)
 }
 
-/// One of the Slint client's icons (`ui/icons`, a 24 by 24 view box) drawn
-/// whole by resvg, strokes, circles, groups and transforms included, in
-/// `rgb` at `size` pixels: premultiplied BGRA, as a `Canvas` is. resvg here
-/// has no text, so it makes no font database.
-/// An SVG `size` square in its own colours, premultiplied BGRA.
-pub fn svg_drawn(svg: &str, size: u32) -> Canvas {
-    let mut canvas = Canvas::new(size, size);
-    let Ok(tree) = usvg::Tree::from_str(svg, &usvg::Options::default()) else {
-        return canvas;
-    };
-    let Some(mut pixmap) = tiny_skia::Pixmap::new(size, size) else {
-        return canvas;
-    };
-    let scale = size as f32 / tree.size().width().max(1.0);
-    resvg::render(
-        &tree,
-        tiny_skia::Transform::from_scale(scale, scale),
-        &mut pixmap.as_mut(),
-    );
-    canvas.pixels = pixmap.take();
-    for pixel in canvas.pixels.chunks_exact_mut(4) {
-        pixel.swap(0, 2);
-    }
-    canvas
-}
-
-pub fn svg_icon(svg: &str, size: u32, rgb: u32) -> Canvas {
-    let mut canvas = Canvas::new(size, size);
-    let color = format!("#{rgb:06x}");
-    let svg = svg.replace("currentColor", &color);
-    let Ok(tree) = usvg::Tree::from_str(&svg, &usvg::Options::default()) else {
-        return canvas;
-    };
-    let Some(mut pixmap) = tiny_skia::Pixmap::new(size, size) else {
-        return canvas;
-    };
-    let scale = size as f32 / tree.size().width().max(1.0);
-    resvg::render(
-        &tree,
-        tiny_skia::Transform::from_scale(scale, scale),
-        &mut pixmap.as_mut(),
-    );
-    canvas.pixels = pixmap.take();
-    // Every pixel in the one colour, by its coverage, as Slint's `colorize`
-    // draws an icon: one drawn in white (the logo's mask) comes out the
-    // same as one in `currentColor`.
-    let [r, g, b] = [(rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8];
-    let scale = |c: u8, a: u8| ((u16::from(c) * u16::from(a) + 127) / 255) as u8;
-    for pixel in canvas.pixels.chunks_exact_mut(4) {
-        let a = pixel[3];
-        pixel.copy_from_slice(&[scale(b, a), scale(g, a), scale(r, a), a]);
-    }
-    canvas
-}
-
 /// Twemoji's picture of `emoji` at `size` pixels square, as the Slint
 /// client's picker draws it (`src/twemoji.rs`): shaped with the port's font
 /// system so a sequence takes Twemoji's one glyph for it, and drawn by
@@ -633,9 +479,9 @@ impl NamePicture {
     pub fn new(look: &NameLook, text: &str, size: f32, weight: u16) -> Self {
         use iced::advanced::graphics::text::font_system;
         // Its font first, so the font system has it.
-        let _ = crate::fonts::style_font(Some(look), weight);
+        let _ = crate::fonts::style_font(look.font(), weight);
         let mut system = font_system().write().expect("font system");
-        let shown = crate::fonts::shown_name(text, Some(look));
+        let shown = crate::fonts::shown_name(text, look.font());
         let mut picture = styled_name(system.raw(), &shown, look, size, weight);
         let mut pixels = std::mem::take(&mut picture.canvas.pixels);
         finish(&mut pixels);
@@ -663,21 +509,6 @@ impl NamePicture {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_drawn_icon_keeps_its_own_colours() {
-        let svg = include_str!("../../../ui/icons/verified.svg");
-        let canvas = svg_drawn(svg, 16);
-        let at = |x: usize, y: usize| {
-            let i = (y * 16 + x) * 4;
-            let [b, g, r, a]: [u8; 4] = canvas.pixels[i..i + 4].try_into().unwrap();
-            (r, g, b, a)
-        };
-        // Discord's green round the edge, the white tick through the middle.
-        assert_eq!(at(8, 2), (0x23, 0xa5, 0x5a, 255));
-        let (r, g, b, _) = at(7, 10);
-        assert!(r > 200 && g > 200 && b > 200, "{:?}", at(7, 10));
-    }
 
     #[test]
     fn a_picture_cut_to_cover_keeps_its_middle() {

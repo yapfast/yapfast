@@ -411,14 +411,10 @@ impl App {
                     .font(BOLD)
                     .color(theme.text)
                     .width(Length::Fill),
-                self.icon_button(
-                    Icon::X,
-                    "Close Settings",
-                    32.0,
-                    18,
-                    Message::Settings(Event::Close),
-                    true
-                )
+                self.look()
+                    .icon_button(Icon::X, "Close Settings", Message::Settings(Event::Close))
+                    .size(32.0, 18)
+                    .below()
             ]
             .padding(iced::Padding {
                 left: 16.0,
@@ -584,7 +580,7 @@ impl App {
             )
         });
         crate::sheet::nav_row(
-            self,
+            self.look(),
             section.icon(),
             section.title(),
             crate::sheet::NavState {

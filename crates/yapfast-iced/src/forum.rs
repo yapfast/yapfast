@@ -574,14 +574,9 @@ impl App {
         let head = self.panel_head(row![
             self.glyph(Icon::Thread, 18, theme.muted),
             container(text("New Post").size(15).font(BOLD).color(theme.text)).width(Length::Fill),
-            self.icon_button(
-                Icon::X,
-                "Close",
-                28.0,
-                18,
-                Message::Forum(Event::Close),
-                true
-            ),
+            self.look()
+                .icon_button(Icon::X, "Close", Message::Forum(Event::Close))
+                .below(),
         ]);
         let heading = |words: &'static str| text(words).size(12).font(BOLD).color(theme.muted);
         let title = controls::field(theme, TITLE, "Title", &post.title, false, !posting);
@@ -696,14 +691,10 @@ impl App {
                         .color(theme.text)
                 )
                 .width(Length::Fill),
-                self.icon_button(
-                    icon,
-                    label,
-                    24.0,
-                    16,
-                    Message::Forum(Event::Guidelines),
-                    true
-                ),
+                self.look()
+                    .icon_button(icon, label, Message::Forum(Event::Guidelines))
+                    .size(24.0, 16)
+                    .below(),
             ]
             .align_y(Alignment::Center)
         ]

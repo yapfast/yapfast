@@ -23,7 +23,7 @@ use super::{Event as Settings, Screen, message, moderation::face};
 use crate::{
     app::{App, Message},
     controls::{Kind, action, lights},
-    dialogs,
+    dialog,
     fonts::{BOLD, SEMIBOLD},
     form,
     media::{Fit, Shot},
@@ -388,33 +388,26 @@ impl App {
                 _ => listed.name.as_str(),
             };
             let id = listed.id.clone();
-            let (sunken, ink, accent, selection, hint) = (
-                theme.sunken,
-                theme.text,
-                theme.accent,
-                theme.selection,
-                theme.muted,
-            );
+            let field = crate::controls::field_style(theme, theme.sunken, true);
             text_input("", shown)
                 .id(iced::widget::Id::from(format!("emoji-name-{}", listed.id)))
                 .on_input(move |name| local_event(Event::Rename(id.clone(), name)))
                 .on_submit(local_event(Event::Renamed))
                 .size(14)
                 .padding(8)
-                .style(move |_, status| {
-                    let focused = matches!(status, text_input::Status::Focused { .. });
-                    let lit = focused || matches!(status, text_input::Status::Hovered);
-                    text_input::Style {
-                        background: if lit { sunken } else { Color::TRANSPARENT }.into(),
-                        border: Border {
-                            color: Color { a: 0.8, ..accent },
-                            width: if focused { 1.0 } else { 0.0 },
-                            radius: 6.0.into(),
-                        },
-                        icon: ink,
-                        placeholder: hint,
-                        value: ink,
-                        selection,
+                .style(move |look, status| {
+                    let lit = matches!(
+                        status,
+                        text_input::Status::Focused { .. } | text_input::Status::Hovered
+                    );
+                    let style = field(look, status);
+                    if lit {
+                        style
+                    } else {
+                        text_input::Style {
+                            background: Color::TRANSPARENT.into(),
+                            ..style
+                        }
                     }
                 })
                 .into()
@@ -454,15 +447,15 @@ impl App {
         .height(EMOJI_ROW)
         .align_y(Alignment::Center);
         let delete: Element<'a, Message> = if may_change {
-            self.danger_icon_button(
-                Icon::X,
-                "Delete",
-                BUTTON,
-                BUTTON_GLYPH,
-                None,
-                6.0,
-                Some(emoji(EmojiInput::Delete(listed.id.clone()))),
-            )
+            self.look()
+                .icon_button(
+                    Icon::X,
+                    "Delete",
+                    Some(emoji(EmojiInput::Delete(listed.id.clone()))),
+                )
+                .size(BUTTON, BUTTON_GLYPH)
+                .danger(None)
+                .into()
         } else {
             Space::new().into()
         };
@@ -529,7 +522,7 @@ impl App {
         } else {
             emoji(EmojiInput::Cancel)
         };
-        Some(dialogs::panel(
+        Some(dialog::panel(
             theme,
             body.into(),
             EMOJI_DIALOG,
@@ -683,24 +676,26 @@ impl App {
         let mut buttons = row![].spacing(2);
         if rules.may_change(listed.user_id.as_deref()) {
             buttons = buttons
-                .push(self.filled_icon_button(
-                    Icon::Pencil,
-                    "Edit",
-                    TILE_BUTTON,
-                    TILE_GLYPH,
-                    theme.raised,
-                    6.0,
-                    Some(sticker(StickerInput::Edit(listed.id.clone()))),
-                ))
-                .push(self.danger_icon_button(
-                    Icon::X,
-                    "Delete",
-                    TILE_BUTTON,
-                    TILE_GLYPH,
-                    Some(theme.raised),
-                    6.0,
-                    Some(sticker(StickerInput::Delete(listed.id.clone()))),
-                ));
+                .push(
+                    self.look()
+                        .icon_button(
+                            Icon::Pencil,
+                            "Edit",
+                            Some(sticker(StickerInput::Edit(listed.id.clone()))),
+                        )
+                        .size(TILE_BUTTON, TILE_GLYPH)
+                        .fill(theme.raised),
+                )
+                .push(
+                    self.look()
+                        .icon_button(
+                            Icon::X,
+                            "Delete",
+                            Some(sticker(StickerInput::Delete(listed.id.clone()))),
+                        )
+                        .size(TILE_BUTTON, TILE_GLYPH)
+                        .danger(Some(theme.raised)),
+                );
         }
         // Under the pointer the tile lightens, as Discord's does.
         let lit = theme.wash(0.05);
@@ -889,7 +884,7 @@ impl App {
         } else {
             sticker(StickerInput::Cancel)
         };
-        Some(dialogs::panel(
+        Some(dialog::panel(
             theme,
             scroll_view(body).style(scrollbar(theme)).into(),
             STICKER_DIALOG,

@@ -19,7 +19,7 @@ use yapfast_core::{
 use crate::{
     app::{App, Message},
     controls::{self, Kind, action, field, lit_style},
-    dialogs::dialog,
+    dialog::dialog,
     fonts::{BOLD, MEDIUM},
     looks::Status,
     people::StatusInk,
@@ -264,7 +264,7 @@ impl App {
         let theme = &self.theme;
         let state = self.client.state();
         if state.friends.is_empty() {
-            return self.empty_screen(
+            return self.look().empty_screen(
                 Icon::Users,
                 "No friends yet",
                 "Add someone with their Discord username.",

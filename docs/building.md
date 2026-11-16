@@ -219,7 +219,9 @@ measured speed. Use them for builds people run. The `measure` profile
 optimizes like release, keeps symbols and builds incrementally. Use it for
 [measurements](measurements/README.md) and profiling: `cargo build --profile
 measure`. The `fast` profile is `measure` with the Slint interface
-unoptimized. A `.slint` edit that changes a value rebuilds in about 35 seconds
+and the iced client (`yapfast-iced`) unoptimized. An edit to most of the
+iced client rebuilds in about 3.5 seconds rather than 9, and it draws a
+busy channel with about twice the CPU, so measure with `measure`. A `.slint` edit that changes a value rebuilds in about 35 seconds
 either way, and one that adds an element in 80 seconds rather than 100. Use it for tests, local runs and checks: `cargo build
 --profile fast` or `cargo test --profile fast`.
 
@@ -340,9 +342,9 @@ the desktop build, from that build. These build the default features, the
 release's: Discord on the desktop (see [Networks](#networks)). Before the
 default build come the [iced client](iced-client.md)'s steps: Clippy on its
 CPU and GPU builds (`--no-default-features --features iced` and `iced-gpu`),
-its tests, its CPU build and that build's smoke test. The default steps leave
-`yapfast-iced` out, so its dependencies don't change the default build's
-features, and the default build comes last, so `target/<profile>/yapfast` is
+its tests and its kit's (`yapfast-iced-kit`), its CPU build and that
+build's smoke test. The default steps leave `yapfast-iced` and its kit out,
+so their dependencies don't change the default build's features, and the default build comes last, so `target/<profile>/yapfast` is
 the Slint client after a check.
 
 `scripts/check --matrix` adds the builds with Matrix, after those and one at

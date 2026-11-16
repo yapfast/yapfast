@@ -106,19 +106,18 @@ impl App {
                 1.0
             ),
             self.member_names(member),
-            self.filled_icon_button(
-                Icon::X,
-                if removable {
-                    "Remove member"
-                } else {
-                    "Members cannot be manually added or removed from this role"
-                },
-                BUTTON,
-                GLYPH,
-                Color::TRANSPARENT,
-                6.0,
-                removable.then(|| input(RoleInput::RemoveMember(member.id.clone()))),
-            ),
+            self.look()
+                .icon_button(
+                    Icon::X,
+                    if removable {
+                        "Remove member"
+                    } else {
+                        "Members cannot be manually added or removed from this role"
+                    },
+                    removable.then(|| input(RoleInput::RemoveMember(member.id.clone())))
+                )
+                .size(BUTTON, GLYPH)
+                .fill(Color::TRANSPARENT),
         ]
         .spacing(10)
         .padding(Padding {
@@ -211,7 +210,7 @@ impl App {
         .spacing(12)
         .padding(16)
         .height(Length::Fill);
-        crate::dialogs::panel(
+        crate::dialog::panel(
             theme,
             body.into(),
             DIALOG,

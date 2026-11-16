@@ -420,6 +420,7 @@ impl App {
         let settings = self.close_settings();
         self.place_videos();
         self.pictures.forget();
+        self.icons.forget();
         settings
     }
 

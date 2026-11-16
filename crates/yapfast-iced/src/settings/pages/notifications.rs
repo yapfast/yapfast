@@ -32,14 +32,14 @@ impl App {
             .description(format!(
                 "For new messages while Yapfast isn't in front. {rules} which: usually DMs and mentions. Clicking one opens the conversation."
             ))
-            .view(self),
+            .view(self.look()),
             switch(
                 "Show what messages say",
                 words,
                 on.then(|| pref(Pref::NotificationText(!words))),
             )
             .description("Off shows only who wrote and where, for a screen others can see.")
-            .view(self),
+            .view(self.look()),
             self.flip(
                 "Flash the taskbar",
                 "For a message that notifies while Yapfast isn't in front. The window's title counts mentions and DMs waiting either way.",

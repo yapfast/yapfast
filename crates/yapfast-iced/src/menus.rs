@@ -787,7 +787,7 @@ impl App {
             // lifted under the pointer.
             let (ground, lifted) = (theme.field, blend(theme.field, theme.wash(0.12)));
             for key in &menu.reactions {
-                quick = quick.push(self.emoji_button(
+                quick = quick.push(self.ctx().emoji_button(
                     key,
                     24,
                     44.0,

@@ -407,14 +407,11 @@ impl App {
         } else {
             (Icon::Eye, "Hide Activity Cards")
         };
-        head = head.push(self.icon_button(
-            eye,
-            eye_label,
-            20.0,
-            16,
-            Message::MemberActivity(Event::Hide),
-            false,
-        ));
+        head = head.push(
+            self.look()
+                .icon_button(eye, eye_label, Message::MemberActivity(Event::Hide))
+                .size(20.0, 16),
+        );
         if opens {
             let icon = if self.activity_open && !hidden {
                 Icon::ChevronDown

@@ -192,7 +192,8 @@ impl App {
             layers.width(Length::Fill).height(Length::Fill),
             &self.pressed,
         );
-        let content = crate::widgets::CtrlWheel::new(content, Message::ZoomStep);
+        let content =
+            crate::widgets::CtrlWheel::new(content, zoom_turn, yapfast_core::zoom::Wheel::reset);
         // A middle click scrolls the list under it towards the pointer.
         let theme = &self.theme;
         let arrow = |icon| self.icon(icon, 10, crate::theme::rgb(theme.secondary));
@@ -291,6 +292,7 @@ impl App {
         }
         let old = std::mem::replace(&mut self.theme, theme);
         self.pictures.marks.borrow_mut().clear();
+        self.icons.forget();
         self.show_roster(false);
         // Text laid out in the old theme's inks: the rows' again now, the
         // rest as each is next taken in.
@@ -301,4 +303,17 @@ impl App {
         self.forget_guidelines();
         self.drafts.starter = None;
     }
+}
+
+/// What a turn of the wheel with Ctrl held comes to: the zoom's step,
+/// as `zoom::Wheel` makes it of a notch or 60 px of a touchpad.
+fn zoom_turn(
+    wheel: &mut yapfast_core::zoom::Wheel,
+    delta: iced::mouse::ScrollDelta,
+) -> Option<Message> {
+    let step = match delta {
+        iced::mouse::ScrollDelta::Lines { y, .. } => wheel.lines(f64::from(y)),
+        iced::mouse::ScrollDelta::Pixels { y, .. } => wheel.pixels(f64::from(y)),
+    };
+    step.map(Message::ZoomStep)
 }

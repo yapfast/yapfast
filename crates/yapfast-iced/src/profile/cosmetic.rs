@@ -7,7 +7,7 @@
 //! ([`Framed`]). Neither costs anything where the profile has none, and
 //! the effect asks for no frame while it doesn't play: a tick falls due
 //! only when a layer shows or goes, and the layers' own frames are their
-//! pictures' ([`crate::widgets::Animated`]).
+//! pictures' ([`crate::animated::Animated`]).
 
 use std::time::{Duration, Instant};
 
