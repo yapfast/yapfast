@@ -643,6 +643,7 @@ pub(super) fn profile_data(
         theme_primary: role_color(profile.theme.map(|theme| theme[0])),
         theme_secondary: role_color(profile.theme.map(|theme| theme[1])),
         has_theme: profile.theme.is_some(),
+        private: profile.private,
         id: profile.id.clone().into(),
         name: profile.name.clone().into(),
         initial: initial(&profile.name),

@@ -2082,6 +2082,13 @@ struct Adapter {
     sidebar: Option<SidebarShown>,
     /// What the member list showed last, so it's built again only once that changes.
     roster_shown: Option<RosterShown>,
+    /// A thread's members: the channel's list they were picked from, the
+    /// authors that picked them, and the list.
+    thread_roster: Option<(
+        Arc<Vec<yapfast_core::chat::ChatMember>>,
+        u64,
+        Arc<Vec<yapfast_core::chat::ChatMember>>,
+    )>,
     /// Runs for [`ROSTER_PAUSE`] after the member list was built; see
     /// `show_members`.
     roster_due: slint::Timer,
@@ -2476,6 +2483,7 @@ impl Adapter {
                 rows: Vec::new(),
                 sidebar: None,
                 roster_shown: None,
+                thread_roster: None,
                 roster_due: slint::Timer::default(),
                 roster_held: false,
                 account_profile_shown: None,

@@ -41,7 +41,7 @@ component BarButton inherits Rectangle {
     forward-focus: focus;
     Image {
         source: root.icon; width: 16px; height: 16px;
-        colorize: !root.enabled ? Theme.faint : root.active || pointer.has-hover ? Theme.text : Theme.secondary;
+        colorize: !root.enabled ? Theme.secondary.with-alpha(0.3) : root.active || pointer.has-hover ? Theme.text : Theme.secondary;
     }
     focus := FocusScope {
         enabled: root.enabled;

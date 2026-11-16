@@ -2535,6 +2535,8 @@ fn a_servers_icon_draws_on_its_heading_and_rail_button() {
             verified: false,
             events: Vec::new(),
             boosts: None,
+            premium_tier: None,
+            member_count: None,
             tag: None,
         })];
         state.stickers.open = true;

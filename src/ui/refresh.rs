@@ -1099,6 +1099,11 @@ impl Adapter {
                 .and_then(|server| server.boosts)
                 .map_or(-1, |boosts| i32::try_from(boosts).unwrap_or(i32::MAX)),
         );
+        window.set_header_tier(
+            header_server
+                .and_then(|server| server.premium_tier)
+                .map_or(-1, i32::from),
+        );
         window.set_header_events_row(
             header_server.is_some_and(|server| server.community || !server.events.is_empty()),
         );
@@ -2419,6 +2424,41 @@ impl Adapter {
             Some(shown) => shown.members.clone(),
             None => state.members.clone(),
         };
+        // A thread's list holds those who took part in it, as Discord's does,
+        // in place of its channel's members.
+        let in_thread = state
+            .selected_room()
+            .is_some_and(|room| room.network == Network::Discord && room.parent.is_some());
+        let shown_members = match (in_thread, shown_members) {
+            (true, Some(Ok(everyone))) => {
+                let mut authors: Vec<&str> = state
+                    .messages
+                    .iter()
+                    .filter_map(|message| discord::sender_user(&message.sender))
+                    .collect();
+                authors.sort_unstable();
+                authors.dedup();
+                let key = {
+                    use std::hash::{Hash, Hasher};
+                    let mut hasher = std::hash::DefaultHasher::new();
+                    authors.hash(&mut hasher);
+                    hasher.finish()
+                };
+                match &self.thread_roster {
+                    Some((kept, kept_key, listed))
+                        if Arc::ptr_eq(kept, &everyone) && *kept_key == key =>
+                    {
+                        Some(Ok(listed.clone()))
+                    }
+                    _ => {
+                        let listed = Arc::new(participants(&everyone, &authors));
+                        self.thread_roster = Some((everyone, key, listed.clone()));
+                        Some(Ok(listed))
+                    }
+                }
+            }
+            (_, others) => others,
+        };
         let list = !shown.is_some_and(|shown| shown.shows_list(state, &shown_members, &owner, now));
         let panel = !shown.is_some_and(|shown| shown.shows_panel(state, &shown_members, now));
         let members = match &shown_members {
@@ -2487,7 +2527,20 @@ impl Adapter {
         let cosmetics = state.cosmetics;
         // In a server, names show their style's font alone.
         let in_server = name_style::in_server(state.selected.as_deref());
-        let (online, total) = member_counts(members);
+        let (online, mut total) = member_counts(members);
+        // Discord lists only the online members' groups, so the server's own
+        // count is the total when it's the larger.
+        let known = state
+            .selected
+            .as_deref()
+            .and_then(|room| state.servers.iter().find(|server| server.channels.iter().any(|id| id == room)))
+            .and_then(|server| server.member_count);
+        if let Some(known) = known
+            && !online.is_empty()
+            && total.parse::<u64>().ok().is_none_or(|listed| listed < known)
+        {
+            total = known.to_string().into();
+        }
         window.set_members_online(online);
         window.set_members_total(total);
         window.set_roster_note(
@@ -5720,6 +5773,36 @@ fn show_hits(
             ..found_row(&hit.message, twelve_hour)
         });
     }
+}
+
+/// `members` who are among `authors`, their groups' headings counting only
+/// them, as Discord's list of a thread's members does.
+fn participants(
+    members: &[yapfast_core::chat::ChatMember],
+    authors: &[&str],
+) -> Vec<yapfast_core::chat::ChatMember> {
+    let mut kept: Vec<yapfast_core::chat::ChatMember> = members
+        .iter()
+        .filter(|member| authors.binary_search(&member.id.as_str()).is_ok())
+        .cloned()
+        .collect();
+    let mut at = 0;
+    while at < kept.len() {
+        let group = kept[at].group.clone();
+        let size = kept[at..]
+            .iter()
+            .take_while(|member| member.group == group)
+            .count();
+        if let Some(group) = group {
+            let name = group.rsplit_once(" \u{2014} ").map_or(group.as_str(), |(name, _)| name);
+            let heading = format!("{name} \u{2014} {size}");
+            for member in &mut kept[at..at + size] {
+                member.group = Some(heading.clone());
+            }
+        }
+        at += size;
+    }
+    kept
 }
 
 /// Discord's counter above the member list: how many members are online and how

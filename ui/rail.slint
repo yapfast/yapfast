@@ -410,6 +410,8 @@ export component ChannelRow inherits Rectangle {
     /// Marks a Discord DM, as the rail marks Discord servers.
     in property <bool> discord;
     in property <bool> selected;
+    /// A taller row, as Discord's Friends and Requests rows are.
+    in property <bool> tall;
     /// Red, as a settings sidebar's Delete Channel or Delete Server.
     in property <bool> danger;
     in property <bool> unread;
@@ -496,13 +498,17 @@ export component ChannelRow inherits Rectangle {
     /// Their person's voice channel was clicked, to go to it.
     callback open-voice;
     callback open-chat;
+    /// Discord shows an invite button on a server channel's row while it's
+    /// selected or pointed at, when this account may invite.
+    in property <bool> invitable;
+    callback open-invite;
     /// A right click, or the Menu key or Shift+F10 when focused: where to open
     /// a menu in the window.
     callback context-menu(length, length);
     property <bool> in-voice: root.voice-channel != "";
     property <bool> has-detail: root.detail != "" || root.detail-emoji != "";
     property <bool> offers-wave: root.wave != "" && (pointer.has-hover || root.selected);
-    height: root.person ? ClientStyle.dm-row-height : ClientStyle.channel-row-height;
+    height: root.tall ? 38px : root.person ? ClientStyle.dm-row-height : ClientStyle.channel-row-height;
     border-radius: 6px;
     background: root.selected ? Theme.active : pointer.has-hover ? Theme.hover : transparent;
     animate background { duration: 90ms; }
@@ -686,6 +692,32 @@ export component ChannelRow inherits Rectangle {
                     Rectangle {
                         width: max(18px, badge-text.preferred-width + 10px); height: 18px; border-radius: 9px; background: Theme.danger;
                         badge-text := Text { text: root.badge; color: Theme.on-danger; font-size: 11px; font-weight: 700; }
+                    }
+                }
+                if root.invitable && (pointer.has-hover || root.selected): Middle {
+                    Rectangle {
+                        width: 24px; height: 24px; border-radius: 6px;
+                        accessible-role: button;
+                        accessible-label: "Create invite";
+                        accessible-action-default => { root.open-invite(); }
+                        invite-icon := Image {
+                            source: @image-url("icons/user-plus.svg"); width: 16px; height: 16px;
+                            colorize: invite-pointer.has-hover ? Theme.text : Theme.secondary;
+                        }
+                        invite-pointer := TouchArea {
+                            mouse-cursor: MouseCursor.pointer;
+                            clicked => { Tip.text = ""; root.open-invite(); }
+                            changed has-hover => {
+                                if self.has-hover {
+                                    Tip.text = "Create invite";
+                                    Tip.side = 0;
+                                    Tip.x = invite-icon.absolute-position.x + invite-icon.width / 2;
+                                    Tip.y = invite-icon.absolute-position.y;
+                                } else if Tip.text == "Create invite" {
+                                    Tip.text = "";
+                                }
+                            }
+                        }
                     }
                 }
                 // A voice channel's chat opens without joining it, from a
@@ -934,6 +966,9 @@ export component ServerHeader inherits Rectangle {
     /// Verified or partnered, which Discord marks with a green badge before
     /// the name.
     in property <bool> verified;
+    /// The boost level, 0 to 3, which Discord shows as a grey scalloped badge
+    /// carrying the number; -1 shows none.
+    in property <int> tier: -1;
     /// The name sits over the server's banner, in white.
     in property <bool> on-banner;
     callback clicked;
@@ -952,7 +987,7 @@ export component ServerHeader inherits Rectangle {
         }
     }
     HorizontalLayout {
-        padding-left: ClientStyle.enabled && (root.verified || root.community) ? 10px : 8px; padding-right: 8px;
+        padding-left: ClientStyle.enabled && (root.verified || root.community || root.tier >= 0) ? 10px : 8px; padding-right: 8px;
         spacing: ClientStyle.enabled ? 10px : 6px; alignment: start;
         // Discord marks a verified server with its green badge, and one that is
         // only a Community server with the Community badge.
@@ -964,12 +999,25 @@ export component ServerHeader inherits Rectangle {
             alignment: center;
             Image { source: @image-url("icons/verified.svg"); width: 16px; height: 16px; accessible-role: none; }
         }
+        if ClientStyle.enabled && root.tier >= 0: VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 18px; height: 18px;
+                Image { source: @image-url("icons/scallop.svg"); width: 18px; height: 18px; colorize: #96979e; accessible-role: none; }
+                Text {
+                    text: root.tier; font-size: 11px; font-weight: 700; color: #ededef;
+                    horizontal-alignment: center; vertical-alignment: center;
+                    accessible-role: none;
+                }
+                accessible-role: text; accessible-label: "Boost level " + root.tier;
+            }
+        }
         // Discord's chevron follows the name closely, small and light.
         HorizontalLayout {
             spacing: ClientStyle.enabled ? 0px : 6px;
             Text {
                 text: root.name; font-size: ClientStyle.text-size;
-                font-weight: ClientStyle.enabled ? 600 : 700;
+                font-weight: 700;
                 color: root.on-banner ? #ffffff : Theme.text;
                 vertical-alignment: center; overflow: elide;
             }
@@ -1098,10 +1146,11 @@ component DmScreenLinks inherits VerticalLayout {
     in property <string> requests-badge;
     callback open-friends;
     callback open-requests;
-    padding-top: 6px; padding-bottom: 6px; spacing: 2px;
+    padding-top: ClientStyle.enabled ? 9px : 6px; padding-bottom: 6px; spacing: 2px;
     ChannelRow {
         text: "Friends";
         icon: @image-url("icons/users.svg");
+        tall: ClientStyle.enabled;
         selected: root.friends-open;
         clicked => { root.open-friends(); }
     }
@@ -1109,6 +1158,7 @@ component DmScreenLinks inherits VerticalLayout {
         text: "Requests";
         label: "Requests" + (root.requests-badge != "" ? ", " + root.requests-badge + " waiting" : "");
         icon: @image-url("icons/inbox.svg");
+        tall: ClientStyle.enabled;
         selected: root.requests-current; badge: root.requests-badge;
         clicked => { root.open-requests(); }
     }
@@ -1150,6 +1200,10 @@ export component RoomList inherits Rectangle {
     callback wave(string);
     /// A voice channel's chat button was clicked: its room id.
     callback open-chat(string);
+    /// Whether this account may invite to the server, and a channel row's
+    /// invite button was clicked: its room id.
+    in property <bool> invitable;
+    callback open-invite(string);
     callback open-add-friend;
     callback open-new-dm;
     callback open-friends;
@@ -1417,6 +1471,8 @@ export component RoomList inherits Rectangle {
                     voice-people: room.voice && !room.direct ? room.people : [];
                     voice-summary: room.voice-summary;
                     open-chat => { root.open-chat(room.id); }
+                    invitable: root.invitable && !room.direct && !room.thread;
+                    open-invite => { root.open-invite(room.id); }
                     picture: room.picture; picture-url: room.picture-url; discord: room.discord;
                     decoration-url: room.decoration-url; nameplate-url: room.nameplate-url;
                     nameplate-color: room.nameplate-color; nameplate-light: room.nameplate-light; name-style: room.name-style;

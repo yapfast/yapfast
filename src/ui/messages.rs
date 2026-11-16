@@ -757,6 +757,7 @@ pub(super) fn message_row_within(
         edited: message.edited,
         deleted: message.deleted,
         forwarded: message.forwarded,
+        new_member: message.new_member,
         has_reply: message.reply.is_some(),
         reply_author: reply_author.into(),
         reply_initial: initial(reply_author),
@@ -766,6 +767,9 @@ pub(super) fn message_row_within(
             .reply
             .as_ref()
             .is_some_and(|reply| reply.color.is_some()),
+        reply_tag: tag_text(message.reply.as_ref().and_then(|reply| reply.tag.as_ref())),
+        reply_tag_badge: tag_badge(message.reply.as_ref().and_then(|reply| reply.tag.as_ref())),
+        reply_tag_server: tag_server(message.reply.as_ref().and_then(|reply| reply.tag.as_ref())),
         // Virtualized avatars resolve their URLs when their components are built.
         reply_picture: slint::Image::default(),
         reply_body: message

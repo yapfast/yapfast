@@ -3785,6 +3785,11 @@ impl Discord {
         self.read_names().avatar(guild.and_then(server), user)
     }
 
+    /// When a user joined a server, in Unix milliseconds, if Discord has said.
+    pub fn joined_at(&self, guild: &str, user: &str) -> Option<u64> {
+        self.read_names().joined_at(guild, user)
+    }
+
     /// The server tag a user wears beside their name, if they do.
     pub fn server_tag(&self, user: &str) -> Option<crate::message::Tag> {
         self.read_names().server_tag(user).cloned()

@@ -964,10 +964,16 @@ fn server_rooms(
         channels.push(id);
         // Each thread's channel is the room listed before the first of them.
         let parent = rooms.len() - 1;
+        let mut thread_mentions = 0;
         for thread in threads.remove(channel.id.as_str()).into_iter().flatten() {
             let room = thread_room(server, thread, &rooms[parent], me, premium);
+            thread_mentions += room.mentions;
             channels.push(room.id.clone());
             rooms.push(room);
+        }
+        // Discord's badge on a forum counts the mentions in its posts.
+        if channel.forum.is_some() {
+            rooms[parent].mentions += thread_mentions;
         }
     }
     let server = ChatServer {
@@ -987,6 +993,8 @@ fn server_rooms(
         banner: server.banner.clone(),
         verified: server.verified,
         boosts: server.boost_bar.then_some(server.boosts),
+        premium_tier: Some(server.premium_tier),
+        member_count: server.member_count,
         events: server
             .events
             .iter()

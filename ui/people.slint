@@ -75,7 +75,7 @@ component ActivityPicture inherits Rectangle {
     changed url => { root.request(); }
     changed picture => { root.request(); }
     width: root.size; height: root.size;
-    border-radius: root.size / 6; clip: true;
+    border-radius: ClientStyle.enabled && root.size >= 40px ? 3px : root.size / 6; clip: true;
     background: Theme.raised;
     accessible-role: image;
     accessible-label: root.label;
@@ -176,11 +176,34 @@ export component MemberPanel inherits Rectangle {
                 HorizontalLayout {
                     padding-left: 8px; padding-right: 8px; spacing: 4px;
                     Text { text: "Activity \u{2014} " + root.activity-rows.length; color: Theme.muted; font-size: 14px; font-weight: 500; vertical-alignment: center; }
+                    if ClientStyle.enabled: Middle {
+                        Rectangle {
+                            width: 18px; height: 18px; border-radius: 4px;
+                            background: hide-touch-g.has-hover ? Theme.overlay.with-alpha(0.12) : transparent;
+                            accessible-role: button;
+                            accessible-label: root.activity-hidden ? "Show Activity Cards" : "Hide Activity Cards";
+                            accessible-action-default => {
+                                root.activity-hidden = !root.activity-hidden;
+                                root.activity-hidden-toggled(root.activity-hidden);
+                            }
+                            Image {
+                                source: @image-url("icons/settings.svg");
+                                width: 14px; height: 14px; colorize: hide-touch-g.has-hover ? Theme.text : Theme.muted;
+                            }
+                            hide-touch-g := TouchArea {
+                                mouse-cursor: MouseCursor.pointer;
+                                clicked => {
+                                    root.activity-hidden = !root.activity-hidden;
+                                    root.activity-hidden-toggled(root.activity-hidden);
+                                }
+                            }
+                        }
+                    }
                     Rectangle { horizontal-stretch: 1; }
-                    Middle {
+                    if !ClientStyle.enabled: Middle {
                         Rectangle {
                             width: 20px; height: 20px; border-radius: 4px;
-                            background: hide-touch.has-hover ? Theme.overlay.with-alpha(0.12) : transparent;
+                            background: hide-touch-e.has-hover ? Theme.overlay.with-alpha(0.12) : transparent;
                             accessible-role: button;
                             accessible-label: root.activity-hidden ? "Show Activity Cards" : "Hide Activity Cards";
                             accessible-action-default => {
@@ -189,9 +212,9 @@ export component MemberPanel inherits Rectangle {
                             }
                             Image {
                                 source: root.activity-hidden ? @image-url("icons/eye-off.svg") : @image-url("icons/eye.svg");
-                                width: 16px; height: 16px; colorize: hide-touch.has-hover ? Theme.text : Theme.muted;
+                                width: 16px; height: 16px; colorize: hide-touch-e.has-hover ? Theme.text : Theme.muted;
                             }
-                            hide-touch := TouchArea {
+                            hide-touch-e := TouchArea {
                                 mouse-cursor: MouseCursor.pointer;
                                 clicked => {
                                     root.activity-hidden = !root.activity-hidden;
@@ -208,14 +231,15 @@ export component MemberPanel inherits Rectangle {
                     }
                 }
             }
+            if ClientStyle.enabled: Rectangle { height: 5px; }
             // Discord's cards: 8px radius and padding, a 1px border, the name,
             // the title in bold, the kind's icon with the time, and a 48px picture.
             for row[index] in root.activity-rows: Rectangle {
                 // Each card keeps 8px beneath it; the rest stay unmade, and their
                 // pictures unasked for, until the panel opens.
-                height: !root.activity-hidden && (root.activity-open || index < 3) ? 76px : 0px;
+                height: !root.activity-hidden && (root.activity-open || index < 3) ? (ClientStyle.enabled ? 78px : 76px) : 0px;
                 if !root.activity-hidden && (root.activity-open || index < 3): Rectangle {
-                    y: 0px; height: 68px;
+                    y: 0px; height: ClientStyle.enabled ? 70px : 68px;
                     border-radius: 8px; border-width: 1px;
                     border-color: Theme.line;
                     background: activity-touch.has-hover ? Theme.overlay.with-alpha(0.12) : Theme.overlay.with-alpha(0.06);
@@ -236,7 +260,7 @@ export component MemberPanel inherits Rectangle {
                                 spacing: 4px; alignment: start;
                                 Middle {
                                     Image {
-                                        source: row.icon == 2 ? @image-url("icons/music.svg") : row.icon == 3 ? @image-url("icons/tv.svg") : row.icon == 4 ? @image-url("icons/video.svg") : row.icon == 5 ? @image-url("icons/trophy.svg") : @image-url("icons/gamepad.svg");
+                                        source: row.icon == 2 ? @image-url("icons/music.svg") : row.icon == 3 ? @image-url("icons/tv.svg") : row.icon == 4 ? @image-url("icons/video.svg") : row.icon == 5 ? @image-url("icons/trophy.svg") : (ClientStyle.enabled && !row.live) ? @image-url("icons/dots-grid.svg") : @image-url("icons/gamepad.svg");
                                         width: 16px; height: 16px; image-fit: contain; colorize: row.live ? Theme.live : Theme.muted;
                                     }
                                 }
@@ -455,7 +479,7 @@ export struct ProfileData {
     effect-layers: [EffectLayer], effect-still: string, effect-end: int, effect-loops: bool,
     /// The colours of the profile's theme, a Nitro setting, which tint the
     /// card's gradient and border; the card is plain without them.
-    theme-primary: color, theme-secondary: color, has-theme: bool,
+    theme-primary: color, theme-secondary: color, has-theme: bool, private: bool,
     /// A Discord username or Matrix ID, and the pronouns they give.
     handle: string, pronouns: string,
     /// The server tag they wear by their name, its badge's address, and the
@@ -626,11 +650,13 @@ export component MemberSince inherits HorizontalLayout {
     in property <image> server-icon;
     in property <color> ink: Theme.secondary;
     in property <length> font-size: 14px;
+    /// Discord's DM panel shows the account's date as plain text.
+    in property <bool> plain;
     spacing: 8px; alignment: start;
     if root.created != "": HorizontalLayout {
         spacing: 8px;
         accessible-role: text; accessible-label: "On Discord since " + root.created;
-        Middle { Image { source: @image-url("icons/discord.svg"); width: 16px; height: 16px; colorize: root.ink; } }
+        if !root.plain: Middle { Image { source: @image-url("icons/discord.svg"); width: 16px; height: 16px; colorize: root.ink; } }
         Text { text: root.created; color: root.ink; font-size: root.font-size; vertical-alignment: center; }
     }
     if root.created != "" && root.joined != "": Text { text: "\u{2022}"; color: root.ink; font-size: root.font-size; vertical-alignment: center; }
@@ -1264,17 +1290,28 @@ export component ProfileCard inherits Rectangle {
     /// offers Manage Privacy: one's own game.
     callback activity-more(length, length, bool);
     property <length> banner-height: root.side ? 140px : root.large ? 210px : root.docked ? (ClientStyle.enabled ? 105px : 120px) : 105px;
+    /// Discord's DM panel names a private profile in a bar above the banner.
+    property <bool> badges-beside: ClientStyle.enabled && !root.large && root.data.badges.length > 0 && root.data.badges.length <= 6 && root.data.handle != "";
+    property <bool> private-bar: root.docked && ClientStyle.enabled && root.data.private && !root.data.own;
+    property <length> top-bar: root.private-bar ? 32px : 0px;
     property <length> avatar-size: root.side ? 96px : root.large ? 120px : 80px;
     property <length> pad: root.side ? 20px : root.large ? 24px : 16px;
     // A profile theme, as Discord draws it: the card's gradient runs from
     // the first colour to the second under a wash, white on a light theme and
     // black on a dark one, flat down to the banner's end, inside a 2px border
     // that is the same two colours at full strength.
-    property <bool> themed: root.data.has-theme;
-    property <bool> light: root.themed && ProfileTheme.light(root.data.theme-primary);
+    // Discord's DM panel tints a card that has no theme from the avatar: the
+    // banner colour, the card's gradient running to a near white of the same
+    // hue (measured: 96,72,56 to 241,235,230); Discord's own picks from the
+    // avatar's palette, which Yapfast only approximates.
+    property <bool> auto-theme: (root.docked || (!root.large && !root.preview)) && ClientStyle.enabled && !root.data.has-theme && root.data.has-accent && root.data.banner.width == 0 && root.data.banner-moving == "";
+    property <bool> themed: root.data.has-theme || root.auto-theme;
+    property <color> primary: root.data.has-theme ? root.data.theme-primary : root.data.accent;
+    property <color> secondary: root.data.has-theme ? root.data.theme-secondary : root.primary.mix(#ffffff, 0.1);
+    property <bool> light: root.themed && ProfileTheme.light(root.primary);
     property <color> plain-ground: root.docked && ClientStyle.enabled ? Theme.panel : Theme.sidebar;
-    property <color> theme-start: ProfileTheme.wash(root.data.theme-primary, root.light);
-    property <color> theme-end: ProfileTheme.wash(root.data.theme-secondary, root.light);
+    property <color> theme-start: ProfileTheme.wash(root.primary, root.light);
+    property <color> theme-end: ProfileTheme.wash(root.secondary, root.light);
     /// The text, which a theme sets whatever Yapfast's own theme is.
     property <color> ink: root.themed ? ProfileTheme.ink(root.light) : Theme.text;
     property <color> ink2: root.themed ? ProfileTheme.ink2(root.light) : Theme.secondary;
@@ -1291,7 +1328,7 @@ export component ProfileCard inherits Rectangle {
     property <color> bubble: !root.themed ? Theme.raised : root.light ? #ffffff : #232427;
     property <color> bubble-edge: !root.themed ? Theme.edge : root.light ? #00000026 : #404044;
     height: min(body.preferred-height, root.limit);
-    background: root.themed ? @linear-gradient(180deg, root.data.theme-primary 0%, root.data.theme-secondary 100%) : root.plain-ground;
+    background: root.themed ? @linear-gradient(180deg, root.primary 0%, root.secondary 100%) : root.plain-ground;
     border-radius: root.docked ? (ClientStyle.enabled ? 8px : 0px) : 12px; border-width: root.themed ? 0px : root.docked && !ClientStyle.enabled ? 0px : 1px; border-color: Theme.edge;
     drop-shadow-blur: root.docked ? 0px : 24px; drop-shadow-color: root.docked ? transparent : #00000080; drop-shadow-offset-y: root.docked ? 0px : 8px;
     accessible-role: groupbox;
@@ -1335,21 +1372,33 @@ export component ProfileCard inherits Rectangle {
             width: parent.width - (root.themed ? 4px : 0px); height: parent.height - (root.themed ? 4px : 0px);
             border-radius: (root.docked ? (ClientStyle.enabled ? 8px : 0px) : 12px) - (root.themed ? 2px : 0px); clip: true;
             if root.themed: Rectangle {
-                background: @linear-gradient(180deg, root.theme-start 0%, root.theme-start root.banner-height / parent.height * 100%, root.theme-end 100%);
+                property <float> stop: (root.banner-height + root.top-bar) / self.height;
+                background: @linear-gradient(180deg, root.theme-start 0%, root.theme-start self.stop * 100%, root.theme-end 100%);
             }
             // Sized by what the card wants rather than the least it can take, so a
             // long one scrolls to its end.
             ScrollView {
-                y: 0px; height: parent.height - (root.docked && ClientStyle.enabled ? 52px : 0px);
+                y: 0px; height: parent.height - (root.docked && ClientStyle.enabled ? 56px : 0px);
                 content-height: body.preferred-height;
+                horizontal-scrollbar-policy: root.docked && ClientStyle.enabled ? ScrollBarPolicy.always-off : ScrollBarPolicy.as-needed;
                 body := VerticalLayout {
                     padding-bottom: root.pad; spacing: 0px;
+                    if root.private-bar: Rectangle {
+                        height: root.top-bar;
+                        background: root.primary.mix(#1a1a1e, 0.15);
+                        accessible-role: text; accessible-label: "Private Profile";
+                        HorizontalLayout {
+                            alignment: center; spacing: 6px;
+                            Middle { Image { source: @image-url("icons/lock.svg"); width: 14px; height: 14px; colorize: #ffffff; } }
+                            Text { text: "Private Profile"; color: #ffffff; font-size: 14px; font-weight: 700; vertical-alignment: center; }
+                        }
+                    }
                     // The banner, with the avatar hanging over its lower edge.
                     Rectangle {
                         height: root.banner-height + root.avatar-size / 2 + 8px;
                         Rectangle {
                             y: 0px; height: root.banner-height;
-                            background: root.data.has-accent ? root.data.accent : root.themed ? root.data.theme-primary : Theme.raised;
+                            background: root.auto-theme ? root.primary : root.data.has-accent ? root.data.accent : root.themed ? root.data.theme-primary : Theme.raised;
                             if root.data.banner.width > 0: Picture {
                                 width: parent.width; height: parent.height; image-fit: cover;
                                 still: root.data.banner; frames: root.banner-frames; delays: root.banner-delays;
@@ -1438,7 +1487,8 @@ export component ProfileCard inherits Rectangle {
                             // Discord; the picture opens the full profile.
                             if root.data.name-style.length == 0: TextInput {
                                 text: root.data.name; color: root.ink; font-size: root.large ? 26px : 20px; font-weight: 700;
-                                read-only: true; single-line: true;
+                                read-only: true; single-line: !(root.docked && ClientStyle.enabled);
+                                wrap: root.docked && ClientStyle.enabled ? char-wrap : no-wrap;
                                 selection-background-color: Theme.accent.with-alpha(0.35);
                                 selection-foreground-color: root.ink;
                                 accessible-label: "Name";
@@ -1457,6 +1507,8 @@ export component ProfileCard inherits Rectangle {
                                     selection-foreground-color: root.ink;
                                     accessible-label: "Username";
                                 }
+                                // Discord's card has the badges beside the username.
+                                if root.badges-beside: Middle { BadgeRows { badges: root.data.badges; open-link(url) => { root.open-link(url); } } }
                                 if root.data.tag != "": Middle { ServerTagChip { text: root.data.tag; badge: root.data.tag-badge; server: root.preview ? "" : root.data.tag-server; keyboard: true; font-weight: 400; chip-height: 24px; pad: 8px; radius: 8px; fill: root.light ? #ffffff3d : #97979f1f; outline: #97979f0a; outline-width: 1px; text-color: root.themed ? root.ink : Theme.text; } }
                             }
                         }
@@ -1509,7 +1561,7 @@ export component ProfileCard inherits Rectangle {
                                 action-more := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.more(self.absolute-position.x, self.absolute-position.y + self.height); } }
                             }
                         }
-                        if root.data.badges.length > 0: BadgeRows {
+                        if root.data.badges.length > 0 && !root.badges-beside: BadgeRows {
                             badges: root.data.badges;
                             open-link(url) => { root.open-link(url); }
                         }
@@ -1560,9 +1612,38 @@ export component ProfileCard inherits Rectangle {
                                 accessible-label: root.data.mutual-servers-text;
                                 accessible-action-default => { root.enlarge-on(2); }
                                 HorizontalLayout {
+                                    spacing: 4px;
+                                    // Discord's DM panel shows the servers' icons first.
+                                    if root.docked && ClientStyle.enabled: Middle {
+                                        Rectangle {
+                                            width: min(3, root.data.servers.length) * 12px + 6px; height: 16px;
+                                            for server[index] in root.data.servers: Rectangle {
+                                                x: index * 12px; width: 16px; height: 16px; visible: index < 3;
+                                                border-radius: 4px; clip: true; background: server.picture.width > 0 ? transparent : root.hover;
+                                                if server.picture.width == 0: Text {
+                                                    text: server.initial; color: root.ink2; font-size: 8px; font-weight: 700;
+                                                    horizontal-alignment: center; vertical-alignment: center;
+                                                }
+                                                if server.picture.width > 0: Image { source: server.picture; width: 16px; height: 16px; image-fit: cover; }
+                                            }
+                                        }
+                                    }
                                     Text { text: root.data.mutual-servers-text; color: root.ink2; font-size: 12px; font-weight: 500; vertical-alignment: center; }
                                 }
                                 TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.enlarge-on(2); } }
+                            }
+                        }
+                        // Discord's DM panel says why a private profile is bare.
+                        if root.private-bar: Rectangle {
+                            border-radius: 8px; background: #ffffff14;
+                            accessible-role: text;
+                            accessible-label: private-note.text;
+                            VerticalLayout {
+                                padding: 12px;
+                                private-note := Text {
+                                    text: (root.data.handle != "" ? root.data.handle : root.data.name) + "'s profile is private, so some information is hidden. Add them as a friend to see more.";
+                                    color: root.ink; font-size: 14px; wrap: word-wrap;
+                                }
                             }
                         }
                         if root.data.has-bio: VerticalLayout {
@@ -1610,7 +1691,7 @@ export component ProfileCard inherits Rectangle {
                             MemberSince {
                                 created: root.data.created; joined: root.data.joined;
                                 server-name: root.data.server-name; server-initial: root.data.server-initial; server-icon: root.data.server-icon;
-                                ink: root.ink2;
+                                ink: root.ink2; plain: root.docked && ClientStyle.enabled;
                             }
                         }
                         // For a friend, as Discord's full profile shows, and its DM
@@ -1790,8 +1871,9 @@ export component ProfileCard inherits Rectangle {
         IconButton { icon: @image-url("icons/x.svg"); label: "Close profile"; tint: #ffffff; clicked => { root.close(); } }
     }
     if root.docked && ClientStyle.enabled: Rectangle {
-        x: 16px; y: parent.height - 48px; width: parent.width - 32px; height: 36px;
-        ActionButton { width: parent.width; text: "View Full Profile"; clicked => { root.enlarge(); } }
+        // 16px in from the card's edge, inside a theme's 2px outline.
+        x: root.themed ? 18px : 16px; y: parent.height - (root.themed ? 58px : 56px); width: parent.width - (root.themed ? 36px : 32px); height: 40px;
+        ActionButton { width: parent.width; min-size: 40px; fill: root.themed ? #ffffff14 : #00000000; text: "View Full Profile"; clicked => { root.enlarge(); } }
     }
     // What of the frame goes over the card.
     if root.has-frame: Rectangle {

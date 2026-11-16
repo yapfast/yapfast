@@ -2850,6 +2850,29 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     });
     let state = adapter.clone();
     let weak = window.as_weak();
+    window.on_insert_timestamp(move || {
+        let Some(window) = weak.upgrade() else { return };
+        let caret = {
+            let mut adapter = state.borrow_mut();
+            let text = adapter.app.state.draft().to_owned();
+            let at = adapter
+                .caret
+                .as_ref()
+                .filter(|(room, _)| adapter.app.state.selected.as_ref() == Some(room))
+                .map(|&(_, at)| at)
+                .filter(|&at| text.is_char_boundary(at))
+                .unwrap_or(text.len());
+            // Discord's markup for a time, which it shows in each reader's own zone.
+            let inserted = format!("<t:{}:f>", yapfast_core::clock::now_ms() / 1000);
+            let text = format!("{}{inserted}{}", &text[..at], &text[at..]);
+            adapter.action(&window, Action::SetDraft(text));
+            at + inserted.len()
+        };
+        window.invoke_place_composer_caret(i32::try_from(caret).unwrap_or(i32::MAX));
+        window.invoke_focus_composer();
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
     window.on_mention_dismissed(move || {
         let Some(window) = weak.upgrade() else { return };
         let mut adapter = state.borrow_mut();

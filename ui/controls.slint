@@ -14,9 +14,13 @@ export component ActionButton inherits Rectangle {
     /// Green, as a Discord app's button for a positive action.
     in property <bool> success;
     in property <bool> small;
+    /// A taller button than the usual 36px, and a ground of its own, for
+    /// Discord's DM panel on a profile theme.
+    in property <length> min-size: 0px;
+    in property <color> fill: #00000000;
     callback clicked;
     min-width: max(root.small ? 28px : 36px, content.preferred-width);
-    min-height: root.small ? 28px : 36px;
+    min-height: max(root.min-size, root.small ? 28px : 36px);
     max-height: self.min-height;
     vertical-stretch: 0;
     border-radius: 6px;
@@ -25,6 +29,7 @@ export component ActionButton inherits Rectangle {
         : root.success ? (pointer.has-hover ? Theme.live.brighter(0.1) : Theme.live)
         : root.danger ? (pointer.has-hover ? Theme.danger-hover : Theme.danger)
         : root.ghost ? (pointer.has-hover ? Theme.overlay.with-alpha(0.08) : transparent)
+        : root.fill != #00000000 ? (pointer.has-hover ? root.fill.brighter(0.15) : root.fill)
         : (pointer.has-hover ? Theme.button-default-hover : Theme.button-default);
     animate background { duration: Theme.quick; }
     border-width: focus.has-focus ? 2px : 0px;
@@ -1221,11 +1226,12 @@ component MenuRows inherits VerticalLayout {
     /// A row became the current one: which, how far down the window, and
     /// how tall it is.
     callback lit(int, length, length);
-    padding: 6px; spacing: 2px;
+    padding: 6px; spacing: ClientStyle.enabled ? 3px : 2px;
     for row[index] in root.rows: VerticalLayout {
-        spacing: 2px;
+        spacing: ClientStyle.enabled ? 3px : 2px;
+        // Discord's rows are 35px apart and a divider takes 17px.
         if row.separated && index > 0: Rectangle {
-            height: 9px;
+            height: ClientStyle.enabled ? 14px : 9px;
             Rectangle { height: 1px; background: Theme.line; }
         }
         MenuItem {

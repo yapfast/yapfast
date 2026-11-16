@@ -804,7 +804,9 @@ export struct MessageRow {
     notice: string,
     /// Forwarded on Discord: the body, files and embeds are the original's.
     forwarded: bool,
-    reply-author: string, reply-body: string, reply-initial: string, reply-tint: color, reply-color: color, reply-has-color: bool, reply-picture: image, has-reply: bool,
+    /// Joined the server in the last week: Discord marks the name.
+    new-member: bool,
+    reply-author: string, reply-body: string, reply-initial: string, reply-tint: color, reply-color: color, reply-has-color: bool, reply-tag: string, reply-tag-badge: string, reply-tag-server: string, reply-picture: image, has-reply: bool,
     /// The original message's item; clicking the reply jumps to it.
     reply-item: string,
     /// An app's answer, without a reply: the line above it says who used
@@ -1592,12 +1594,19 @@ export component MessageGallery inherits HorizontalLayout {
         for cell in root.images: Rectangle {
             x: cell.x * 1px * parent.scale; y: cell.y * 1px * parent.scale;
             width: cell.width * 1px * parent.scale; height: cell.height * 1px * parent.scale;
-            border-radius: 8px; clip: true;
+            border-radius: ClientStyle.enabled ? 4px : 8px; clip: true;
             // Discord draws a transparent picture straight on the message background.
             background: ClientStyle.enabled && !cell.loading ? transparent : Theme.sunken;
             if cell.loading: Skeleton { width: parent.width; height: parent.height; }
             if !cell.loading: Picture { still: cell.image; frames: cell.frames; delays: cell.delays; width: parent.width; height: parent.height; image-fit: cover; accessible-role: image; accessible-label: cell.spoiler ? "Spoiler" : cell.description != "" ? cell.description : cell.name; }
             if cell.spoiler: SpoilerCover {}
+            // Discord marks an animated picture's corner with GIF, until the pointer is
+            // on it, when the favourite star takes the place.
+            if ClientStyle.enabled && !cell.spoiler && !cell.loading && !cell.video && (cell.gif != "" || cell.frames.length > 1) && !cell-touch.has-hover: Rectangle {
+                x: 6px; y: 6px; width: 29px; height: 22px; border-radius: 4px; background: #000205b3;
+                Text { text: "GIF"; color: #ffffff; font-size: 13px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                accessible-role: none;
+            }
             cell-touch := TouchArea {
                 mouse-cursor: MouseCursor.pointer;
                 clicked => {
@@ -3001,9 +3010,10 @@ export component MessageContent inherits VerticalLayout {
                         color: ClientStyle.enabled && message.reply-has-color ? message.reply-color : Theme.secondary;
                         font-size: 14px; font-weight: ClientStyle.enabled ? 400 : 700; vertical-alignment: center;
                     }
+                    if message.reply-author != "" && message.reply-tag != "": Middle { ServerTagChip { text: message.reply-tag; badge: message.reply-tag-badge; server: message.reply-tag-server; font-size: 12px * 0.9; } }
                     Text {
                         text: message.reply-body; font-size: ClientStyle.enabled ? 13px : 14px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
-                        color: reply-touch.has-hover ? Theme.text : ClientStyle.enabled ? Theme.secondary : Theme.muted;
+                        color: reply-touch.has-hover || ClientStyle.enabled ? Theme.text : Theme.muted;
                     }
                 }
                 reply-touch := TouchArea {
@@ -3086,6 +3096,9 @@ export component MessageContent inherits VerticalLayout {
                             }
                         }
                     }
+                }
+                if message.new-member && ClientStyle.enabled: Middle {
+                    Image { source: @image-url("icons/star-filled.svg"); width: 14px; height: 14px; colorize: #23a559; accessible-role: text; accessible-label: "New member"; }
                 }
                 if message.tag != "": Middle { ServerTagChip { text: message.tag; badge: message.tag-badge; server: message.tag-server; font-size: root.message-font-size * 0.72; } }
                 if message.bot: Middle { BotTag { } }

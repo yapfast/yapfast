@@ -1,7 +1,9 @@
+import { ClientStyle } from "yapfast/style.slint";
 import { ScrollView } from "scrollview.slint";
 import { Theme, Middle } from "theme.slint";
 import { Avatar, PictureStore } from "controls.slint";
 import { ActivityClock } from "controls.slint";
+import { StatusDot } from "rail.slint";
 
 /// Someone in an Active Now row's stack of avatars.
 export struct ActiveFace { initial: string, tint: color, picture-url: string }
@@ -155,7 +157,12 @@ component ActiveCard inherits Rectangle {
             HorizontalLayout {
                 padding-left: 16px; padding-right: 16px; spacing: 12px;
                 Middle {
-                    Avatar { size: 36px; initial: root.card.face.initial; tint: root.card.face.tint; picture-url: root.card.face.picture-url; }
+                    Rectangle {
+                        width: 36px; height: 36px;
+                        Avatar { size: 36px; initial: root.card.face.initial; tint: root.card.face.tint; picture-url: root.card.face.picture-url; }
+                        // Discord's friends page marks the avatar with their status.
+                        if ClientStyle.enabled && root.card.presence != "": StatusDot { x: 24px; y: 24px; presence: root.card.presence; ring: head-touch.has-hover ? Theme.hover : Theme.raised; }
+                    }
                 }
                 VerticalLayout {
                     alignment: center; horizontal-stretch: 1;
@@ -188,7 +195,7 @@ export component ActiveNowColumn inherits Rectangle {
     clip: true;
     Rectangle { x: 0px; width: 1px; background: Theme.line; }
     VerticalLayout {
-        padding: 16px; padding-right: 12px; spacing: 16px;
+        padding: 16px; padding-right: 12px; spacing: 16px; padding-left: ClientStyle.enabled ? 18px : 16px;
         Text { text: "Active Now"; color: Theme.text; font-size: 20px; font-weight: 800; }
         if root.cards.length == 0: VerticalLayout {
             spacing: 6px; padding-top: 8px;
