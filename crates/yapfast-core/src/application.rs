@@ -2280,6 +2280,8 @@ pub enum Action {
     },
     DismissVoiceError,
     Voice(voice::Command),
+    /// Watch every stream in the call that isn't being watched.
+    WatchAllStreams,
     /// Turn the microphone on as a call connects, as a preference asks; quietly,
     /// since joining already made a sound.
     UnmuteOnJoin,
@@ -4092,6 +4094,7 @@ impl Application {
             Action::AnswerRequest(accept) => self.answer_request(accept),
             Action::Voice(voice::Command::Join(id)) => self.dispatch(Action::RequestJoinVoice(id)),
             Action::Voice(command) => self.voice_command(command),
+            Action::WatchAllStreams => self.watch_all_streams(),
             Action::UnmuteOnJoin => self.voice_command_quietly(voice::Command::Mute(false)),
             Action::DeafenOnJoin => self.voice_command_quietly(voice::Command::Deafen(true)),
         }

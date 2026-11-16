@@ -25,7 +25,9 @@ pub(super) struct Tiles {
 impl Tiles {
     /// The size in pixels the tile at `index` shows at, if any of it is in
     /// sight. `index` counts the tiles before it, such as a shared screen.
-    pub(super) fn shown_at(&self, index: usize, scale: f32) -> Option<(u32, u32)> {
+    /// `wall` lists the tiles sharing the room, which leave the rows; only
+    /// streams do, which a camera's tile never is.
+    pub(super) fn shown_at(&self, index: usize, scale: f32, wall: &[usize]) -> Option<(u32, u32)> {
         let pixels = |side: f32| ((side * scale).round() as u32).max(2);
         let index = match self.focused {
             Some(focused) if index == focused => {
@@ -33,7 +35,7 @@ impl Tiles {
                     .then(|| (pixels(self.focus_width), pixels(self.focus_height)));
             }
             Some(focused) if index > focused => index - 1,
-            _ => index,
+            _ => index - wall.iter().filter(|tile| **tile < index).count(),
         };
         if self.columns == 0 || self.width <= 0.0 || self.height <= 0.0 {
             return None;
@@ -67,6 +69,35 @@ pub(super) enum Pip {
     Camera(usize),
 }
 
+/// What shows large as the streams showing in the call change from `before`
+/// to `after`, by whose they are: a stream alone does, and one joining others
+/// leaves them all side by side.
+pub(super) fn follow_streams(focus: &mut Option<Focus>, before: &[String], after: &[String]) {
+    if let [alone] = after {
+        *focus = Some(Focus::Stream(alone.clone()));
+    } else if after.iter().any(|user| !before.contains(user))
+        || matches!(focus, Some(Focus::Stream(user)) if !after.contains(user))
+    {
+        *focus = None;
+    }
+}
+
+/// Each tile's place, among those of `tiles` tiles: on `wall`, or -1, and in
+/// the rows beneath it, or -1.
+pub(super) fn places(tiles: usize, wall: &[usize]) -> (Vec<i32>, Vec<i32>) {
+    let (mut on_wall, mut in_rows) = (0..0, 0..);
+    (0..tiles)
+        .map(|tile| {
+            if wall.contains(&tile) {
+                on_wall.end += 1;
+                (on_wall.end - 1, -1)
+            } else {
+                (-1, in_rows.next().unwrap_or_default())
+            }
+        })
+        .unzip()
+}
+
 /// The call's tiles in order: this account's shared screen leads, then the
 /// streams of those who film as well, in tiles of their own, then everyone.
 #[derive(Clone, Copy)]
@@ -86,9 +117,28 @@ impl Stage<'_> {
             .map(|(index, _)| index)
     }
 
+    /// How many tiles there are.
+    pub(super) fn tiles(&self) -> usize {
+        self.before() + self.participants.len()
+    }
+
     /// How many tiles come before the participants' own.
     pub(super) fn before(&self) -> usize {
         usize::from(self.sharing) + self.streams().count()
+    }
+
+    /// The tiles of the streams `showing`, by whose they are, in order, which
+    /// share the room when there are two or more.
+    pub(super) fn wall(&self, showing: &[String]) -> Vec<usize> {
+        let mut wall: Vec<usize> = showing
+            .iter()
+            .filter_map(|user| self.slot(&Focus::Stream(user.clone())))
+            .collect();
+        wall.sort_unstable();
+        if wall.len() < 2 {
+            wall.clear();
+        }
+        wall
     }
 
     fn index(&self, id: &str) -> Option<usize> {
@@ -193,16 +243,38 @@ mod tests {
             shown: 380.0,
             ..Tiles::default()
         };
-        assert_eq!(tiles.shown_at(0, 2.0), Some((600, 338)));
-        assert!(tiles.shown_at(3, 1.0).is_some(), "the second row shows");
-        assert_eq!(tiles.shown_at(4, 1.0), None, "the third starts below");
+        assert_eq!(tiles.shown_at(0, 2.0, &[]), Some((600, 338)));
+        assert!(
+            tiles.shown_at(3, 1.0, &[]).is_some(),
+            "the second row shows"
+        );
+        assert_eq!(tiles.shown_at(4, 1.0, &[]), None, "the third starts below");
         let scrolled = Tiles {
             scrolled: 220.0,
             ..tiles
         };
-        assert_eq!(scrolled.shown_at(0, 1.0), None, "scrolled away");
-        assert!(scrolled.shown_at(4, 1.0).is_some());
-        assert_eq!(Tiles::default().shown_at(0, 1.0), None);
+        assert_eq!(scrolled.shown_at(0, 1.0, &[]), None, "scrolled away");
+        assert!(scrolled.shown_at(4, 1.0, &[]).is_some());
+        assert_eq!(Tiles::default().shown_at(0, 1.0, &[]), None);
+    }
+
+    #[test]
+    fn streams_on_the_wall_leave_the_rows() {
+        let tiles = Tiles {
+            columns: 2,
+            width: 200.0,
+            height: 112.5,
+            gap: 10.0,
+            top: 400.0,
+            scrolled: 0.0,
+            shown: 500.0,
+            ..Tiles::default()
+        };
+        // Tiles 0 and 2 are on the wall: 1 and 3 fill the first row, and 4
+        // and 5 start the second, below what shows.
+        assert!(tiles.shown_at(3, 1.0, &[0, 2]).is_some());
+        assert_eq!(tiles.shown_at(4, 1.0, &[0, 2]), None);
+        assert_eq!(tiles.shown_at(3, 1.0, &[]), None, "without the wall, row 2");
     }
 
     #[test]
@@ -219,16 +291,78 @@ mod tests {
             focus_width: 800.0,
             focus_height: 450.0,
         };
-        assert_eq!(tiles.shown_at(1, 1.0), Some((800, 450)));
-        assert_eq!(tiles.shown_at(0, 1.0), Some((192, 108)));
-        assert_eq!(tiles.shown_at(3, 1.0), Some((192, 108)), "third in the row");
-        assert_eq!(tiles.shown_at(4, 1.0), None, "the second row is below");
+        assert_eq!(tiles.shown_at(1, 1.0, &[]), Some((800, 450)));
+        assert_eq!(tiles.shown_at(0, 1.0, &[]), Some((192, 108)));
+        assert_eq!(
+            tiles.shown_at(3, 1.0, &[]),
+            Some((192, 108)),
+            "third in the row"
+        );
+        assert_eq!(tiles.shown_at(4, 1.0, &[]), None, "the second row is below");
         let alone = Tiles {
             columns: 0,
             ..tiles
         };
-        assert_eq!(alone.shown_at(1, 1.0), Some((800, 450)));
-        assert_eq!(alone.shown_at(0, 1.0), None, "full screen shows one");
+        assert_eq!(alone.shown_at(1, 1.0, &[]), Some((800, 450)));
+        assert_eq!(alone.shown_at(0, 1.0, &[]), None, "full screen shows one");
+    }
+
+    #[test]
+    fn a_stream_alone_shows_large_and_one_joining_shows_beside_it() {
+        let names = |users: &[&str]| -> Vec<String> {
+            users.iter().map(|user| (*user).to_owned()).collect()
+        };
+        let (none, ana, both) = (names(&[]), names(&["ana"]), names(&["ana", "bo"]));
+        let ana_large = Some(Focus::Stream("ana".into()));
+        let mut focus = None;
+        follow_streams(&mut focus, &none, &ana);
+        assert_eq!(focus, ana_large);
+        follow_streams(&mut focus, &ana, &both);
+        assert_eq!(focus, None, "side by side");
+        // The one left alone shows large, as when the other pops out.
+        follow_streams(&mut focus, &both, &ana);
+        assert_eq!(focus, ana_large);
+        follow_streams(&mut focus, &ana, &none);
+        assert_eq!(focus, None, "it stopped");
+        // One leaving others keeps what the person chose to show large,
+        let mut focus = Some(Focus::Person("cy".into()));
+        let three = names(&["ana", "bo", "cy"]);
+        follow_streams(&mut focus, &three, &both);
+        assert_eq!(focus, Some(Focus::Person("cy".into())));
+        // unless that was it.
+        let mut focus = Some(Focus::Stream("cy".into()));
+        follow_streams(&mut focus, &three, &both);
+        assert_eq!(focus, None);
+    }
+
+    #[test]
+    fn two_streams_or_more_share_the_room() {
+        let people = [
+            person("me", true, false, false),
+            person("ana", false, true, false),
+            person("bo", false, true, true),
+            person("cy", false, true, false),
+        ];
+        let stage = Stage {
+            participants: &people,
+            sharing: false,
+        };
+        let names = |users: &[&str]| -> Vec<String> {
+            users.iter().map(|user| (*user).to_owned()).collect()
+        };
+        assert_eq!(stage.tiles(), 5, "Bo's stream has a tile of its own");
+        assert_eq!(stage.wall(&names(&["cy", "bo", "ana"])), [0, 2, 4]);
+        assert_eq!(stage.wall(&names(&["ana"])), [] as [usize; 0]);
+        assert_eq!(
+            stage.wall(&names(&["ana", "gone"])),
+            [] as [usize; 0],
+            "one stream left has no one to share with"
+        );
+        assert_eq!(
+            places(5, &[0, 2, 4]),
+            (vec![0, -1, 1, -1, 2], vec![-1, 0, -1, 1, -1])
+        );
+        assert_eq!(places(2, &[]), (vec![-1, -1], vec![0, 1]));
     }
 
     fn person(id: &str, local: bool, streaming: bool, filming: bool) -> Participant {

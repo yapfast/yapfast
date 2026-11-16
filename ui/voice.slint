@@ -33,6 +33,19 @@ export global VoiceCard {
     in-out property <length> y;
 }
 
+/// Someone's stream in the call, as `ParticipantGrid` shows it. A row for each
+/// participant, in their order; `watched` says whether it means anything.
+export struct StreamRow {
+    watched: bool,
+    /// Showing in a window of its own, with `status` saying so here.
+    popped: bool,
+    /// What shows until its first picture.
+    status: string,
+    /// Who watches it.
+    viewers: [PersonRow],
+    viewer-names: string,
+}
+
 // Marks someone sharing their screen, as Discord's red LIVE tag does.
 // Clickable when it opens the stream.
 export component LivePill inherits Rectangle {
@@ -663,9 +676,15 @@ export component StreamPip inherits Rectangle {
     }
 }
 
+// A round button over a stream's picture.
+component StreamButton inherits IconButton {
+    height: self.size; tint: #ffffff; fill: #000000a6; radius: 16px;
+}
+
 // A tile on the call's stage: what it shows comes in as children. A click
 // shows it large; the large one goes full screen from a button or a double
-// click, and a stream it shows stops from its top right.
+// click, and a stream it shows stops from its top right, beside the button
+// that pops it out.
 component StageTile inherits Rectangle {
     in property <bool> focused;
     in property <bool> full;
@@ -675,9 +694,12 @@ component StageTile inherits Rectangle {
     in property <string> viewer-names;
     /// Stops the stream it shows; none when empty.
     in property <string> stop-label;
+    /// Moves the stream it shows to a window of its own, or back; none when empty.
+    in property <string> pop-label;
     callback clicked;
     callback right-clicked(length, length);
     callback stop;
+    callback pop;
     callback full-screen(bool);
     border-radius: root.full ? 0px : 12px; clip: true;
     accessible-role: button; accessible-label: root.label;
@@ -696,20 +718,23 @@ component StageTile inherits Rectangle {
         }
         // Inside the touch area, so the pointer on a button still hovers the tile.
         ViewerStack {
-            x: parent.width - self.width - (root.stop-shown ? 50px : 10px); y: 11px;
+            x: parent.width - self.width - (root.stop-shown ? (root.pop-label != "" ? 90px : 50px) : 10px); y: 11px;
             viewers: root.viewers; names: root.viewer-names;
         }
-        if root.stop-shown: IconButton {
-            x: parent.width - self.width - 10px; y: 10px; height: self.size;
-            icon: @image-url("icons/x.svg"); label: root.stop-label; tint: #ffffff;
-            fill: #000000a6; radius: 16px;
+        if root.stop-shown: StreamButton {
+            x: parent.width - self.width - 10px; y: 10px;
+            icon: @image-url("icons/x.svg"); label: root.stop-label;
             clicked => { root.stop(); }
         }
-        if root.focused && self.has-hover: IconButton {
-            x: parent.width - self.width - 10px; y: parent.height - self.size - 10px; height: self.size;
+        if root.stop-shown && root.pop-label != "": StreamButton {
+            x: parent.width - 2 * self.width - 18px; y: 10px;
+            icon: @image-url("icons/external-link.svg"); label: root.pop-label;
+            clicked => { root.pop(); }
+        }
+        if root.focused && self.has-hover: StreamButton {
+            x: parent.width - self.width - 10px; y: parent.height - self.size - 10px;
             icon: root.full ? @image-url("icons/minimize.svg") : @image-url("icons/maximize.svg");
-            label: root.full ? "Exit full screen" : "Full screen"; tint: #ffffff;
-            fill: #000000a6; radius: 16px;
+            label: root.full ? "Exit full screen" : "Full screen";
             clicked => { root.full-screen(!root.full); }
         }
     }
@@ -741,11 +766,14 @@ component StreamPicture inherits Rectangle {
     in property <image> frame;
     in property <string> status;
     Image { width: parent.width; height: parent.height; source: root.frame; image-fit: contain; }
-    // The stage is black in every theme, so its note is a fixed grey.
+    // The stage is black in every theme, so its note is a fixed grey. It
+    // keeps between the tile's buttons and its name, and a tile too small for
+    // a line of it shows none.
     if root.frame.width == 0: Text {
-        x: 16px; width: parent.width - 32px; height: parent.height;
+        x: 16px; y: 44px; width: parent.width - 32px; height: max(0px, parent.height - 88px);
+        visible: self.height >= 18px;
         text: root.status; color: #b5b8c1; font-size: 14px;
-        horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap;
+        horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap; overflow: elide;
     }
 }
 
@@ -766,13 +794,15 @@ export component ParticipantGrid inherits Flickable {
     /// The streams of those who film too, in tiles of their own, as indexes
     /// of `participants`. Others' streams show in their own tiles.
     in property <[int]> stream-tiles;
-    /// The stream being watched: whose, its newest picture, what shows until
-    /// it, and who watches.
-    in property <string> watch-user;
-    in property <image> watch-frame;
-    in property <string> watch-status;
-    in property <[PersonRow]> watch-viewers;
-    in property <string> watch-viewer-names;
+    /// Each participant's stream, and its newest picture, in their order.
+    in property <[StreamRow]> streams;
+    in property <[image]> stream-frames;
+    /// Two streams or more share the room while no tile is large: for each
+    /// tile, by its place, its place among them or -1 (`wall`), and its place
+    /// in the rows beneath them (`strip`). `wall-count` of them; 0 for no wall.
+    in property <int> wall-count;
+    in property <[int]> wall;
+    in property <[int]> strip;
     /// The tile shown large, by its place: this account's shared screen
     /// first, then the streams' tiles, then the participants'; -1 for none.
     in property <int> focused: -1;
@@ -782,7 +812,9 @@ export component ParticipantGrid inherits Flickable {
     callback focus-tile(int);
     callback full-screen(bool);
     callback watch-stream(string);
-    callback stop-watching;
+    callback stop-watching(string);
+    /// Moves this person's stream to a window of its own, or back.
+    callback toggle-pop-out(string);
     /// A right click on someone, with where it was in the window.
     callback open-volume(PersonRow, length, length);
     /// Where the tiles are, so cameras are decoded only for tiles in sight,
@@ -803,6 +835,7 @@ export component ParticipantGrid inherits Flickable {
     changed focused => { self.report(); }
     changed focusing => { self.report(); }
     changed focus-width => { self.report(); }
+    changed walling => { self.report(); }
     vertical-stretch: 1;
     property <length> gap: root.full ? 0px : 12px;
     property <length> inset: root.full ? 0px : 24px;
@@ -826,43 +859,82 @@ export component ParticipantGrid inherits Flickable {
         ? (self.count >= 3 && self.fitted(3) * 1.1 > self.fitted(2)
             ? (self.count >= 4 && self.fitted(4) * 1.1 > self.fitted(3) ? 4 : 3) : 2)
         : 1;
+    // Streams side by side: as large as fits above the rows of the others.
+    property <bool> walling: !self.focusing && root.wall-count >= 2;
     // With a tile large, the others are small, 120 to 192px wide, in rows
     // beneath it; full screen shows it alone.
-    property <int> others: self.count - 1;
+    property <int> others: self.count - (self.walling ? root.wall-count : 1);
     property <length> strip-width: self.others <= 0 ? 0px
         : max(120px, min(192px, (self.span - (self.others - 1) * self.gap) / self.others));
     property <int> strip-columns: max(1, min(self.others, floor((self.span + self.gap) / (self.strip-width + self.gap))));
     property <int> strip-rows: root.full || self.others <= 0 ? 0 : ceil(self.others / self.strip-columns);
     property <length> strip-height: self.strip-rows * self.strip-width * 0.5625 + max(0, self.strip-rows - 1) * self.gap;
     property <length> under-focus: self.strip-rows > 0 ? self.gap + self.strip-height : 0px;
+    pure function wall-fit(columns: int) -> length {
+        let rows = ceil(root.wall-count / columns);
+        min((root.span - (columns - 1) * root.gap) / columns,
+            (root.height - 2 * root.inset - root.under-focus - (rows - 1) * root.gap) / rows / 0.5625)
+    }
+    property <int> wall-columns: self.wall-count >= 4 && self.wall-fit(4) > max(self.wall-fit(1), self.wall-fit(2), self.wall-fit(3)) ? 4
+        : self.wall-count >= 3 && self.wall-fit(3) > max(self.wall-fit(1), self.wall-fit(2)) ? 3
+        : self.wall-fit(2) > self.wall-fit(1) ? 2 : 1;
+    property <int> wall-rows: ceil(root.wall-count / max(1, self.wall-columns));
+    property <length> wall-width: max(160px, self.wall-fit(self.wall-columns));
+    property <length> wall-height: self.wall-width * 0.5625;
+    property <length> wall-block: self.wall-rows * self.wall-height + (self.wall-rows - 1) * self.gap;
+    property <length> wall-top: max(self.inset, (self.height - self.wall-block - self.under-focus) / 2);
     property <length> focus-width: root.full ? self.width
         : min(self.span, max(160px, self.height - 2 * self.inset - self.under-focus) / 0.5625);
     property <length> focus-height: root.full ? self.height : self.focus-width * 0.5625;
     property <length> focus-top: root.full ? 0px : max(self.inset, (self.height - self.focus-height - self.under-focus) / 2);
     property <int> columns: self.focusing ? (root.full ? 0 : self.strip-columns)
+        : self.walling ? self.strip-columns
         : self.count <= 4 ? self.best-fit : self.fewest;
-    property <length> tile-width: self.focusing ? self.strip-width
+    property <length> tile-width: self.focusing || self.walling ? self.strip-width
         : self.count <= 4 ? max(160px, self.fitted(self.columns))
         : min(420px, (self.span - (self.columns - 1) * self.gap) / self.columns);
     property <length> tile-height: self.tile-width * 0.5625;
-    // The tiles in rows: all of them, or all but the large one.
-    property <int> placed: self.focusing ? self.others : self.count;
+    // The tiles in rows: all of them, or all but the large ones.
+    property <int> placed: self.focusing || self.walling ? self.others : self.count;
     property <int> rows: ceil(self.placed / max(1, self.columns));
     property <length> grid-height: self.rows * self.tile-height + max(0, self.rows - 1) * self.gap;
     property <length> grid-width: self.columns * self.tile-width + max(0, self.columns - 1) * self.gap;
     property <length> first-row: self.focusing ? self.focus-top + self.focus-height + self.gap
+        : self.walling ? self.wall-top + self.wall-block + self.gap
         : max(self.inset, (self.height - self.grid-height) / 2);
     content-height: self.focusing ? max(self.height, self.focus-top + self.focus-height + self.under-focus + self.inset)
+        : self.walling ? max(self.height, self.wall-top + self.wall-block + self.under-focus + self.inset)
         : max(self.height, self.grid-height + 2 * self.inset);
     pure function large(slot: int) -> bool { root.focusing && slot == root.focused }
-    // The place in the rows of the tile at `slot`, which skip the large one.
-    pure function place(slot: int) -> int { root.focusing && slot > root.focused ? slot - 1 : slot }
+    pure function pop-label(watched: bool, popped: bool) -> string {
+        !watched ? "" : popped ? "Back to the call" : "Pop out"
+    }
+    pure function on-wall(slot: int) -> bool { root.walling && root.wall[slot] >= 0 }
+    // The place in the rows of the tile at `slot`, which skip the large ones.
+    pure function place(slot: int) -> int {
+        root.walling ? root.strip[slot] : root.focusing && slot > root.focused ? slot - 1 : slot
+    }
+    pure function shown-width(slot: int) -> length {
+        root.large(slot) ? root.focus-width : root.on-wall(slot) ? root.wall-width : root.tile-width
+    }
+    pure function shown-height(slot: int) -> length {
+        root.large(slot) ? root.focus-height : root.on-wall(slot) ? root.wall-height : root.tile-height
+    }
+    // A last row with fewer streams sits in the middle.
+    pure function wall-x(position: int) -> length {
+        let row = floor(position / root.wall-columns);
+        let across = row == root.wall-rows - 1 ? root.wall-count - row * root.wall-columns : root.wall-columns;
+        (root.width - across * root.wall-width - (across - 1) * root.gap) / 2
+            + mod(position, root.wall-columns) * (root.wall-width + root.gap)
+    }
     pure function tile-x(slot: int) -> length {
         root.large(slot) ? (root.width - root.focus-width) / 2
+            : root.on-wall(slot) ? root.wall-x(root.wall[slot])
             : (root.width - root.grid-width) / 2 + mod(root.place(slot), max(1, root.columns)) * (root.tile-width + root.gap)
     }
     pure function tile-y(slot: int) -> length {
         root.large(slot) ? root.focus-top
+            : root.on-wall(slot) ? root.wall-top + floor(root.wall[slot] / root.wall-columns) * (root.wall-height + root.gap)
             : root.first-row + floor(root.place(slot) / max(1, root.columns)) * (root.tile-height + root.gap)
     }
     // A click beside the large tile shows the grid again.
@@ -872,8 +944,8 @@ export component ParticipantGrid inherits Flickable {
     }
     if root.sharing: StageTile {
         x: root.tile-x(0); y: root.tile-y(0);
-        width: root.large(0) ? root.focus-width : root.tile-width;
-        height: root.large(0) ? root.focus-height : root.tile-height;
+        width: root.shown-width(0);
+        height: root.shown-height(0);
         visible: !root.full || root.large(0);
         focused: root.large(0); full: root.full;
         background: #000000;
@@ -893,28 +965,33 @@ export component ParticipantGrid inherits Flickable {
     for index[position] in root.stream-tiles: stream := StageTile {
         property <int> slot: position + (root.sharing ? 1 : 0);
         property <PersonRow> person: root.participants[index];
-        property <bool> watched: self.person.id == root.watch-user;
+        property <StreamRow> feed: root.streams[index];
+        property <bool> watched: self.feed.watched;
         x: root.tile-x(self.slot); y: root.tile-y(self.slot);
-        width: root.large(self.slot) ? root.focus-width : root.tile-width;
-        height: root.large(self.slot) ? root.focus-height : root.tile-height;
+        width: root.shown-width(self.slot);
+        height: root.shown-height(self.slot);
         visible: !root.full || root.large(self.slot);
         focused: root.large(self.slot); full: root.full;
         background: #000000;
         label: self.watched ? self.person.name + "'s screen" : "Watch " + self.person.name + "'s stream";
-        viewers: self.watched ? root.watch-viewers : [];
-        viewer-names: self.watched ? root.watch-viewer-names : "";
+        viewers: self.watched ? self.feed.viewers : [];
+        viewer-names: self.watched ? self.feed.viewer-names : "";
         stop-label: self.watched ? "Stop watching" : "";
+        pop-label: root.pop-label(self.watched, self.feed.popped);
         clicked => {
             if !self.watched {
                 root.watch-stream(self.person.id);
+            } else if self.feed.popped {
+                root.toggle-pop-out(self.person.id);
             } else if !self.focused {
                 root.focus-tile(self.slot);
             }
         }
         right-clicked(x, y) => { root.open-volume(self.person, x, y); }
-        stop => { root.stop-watching(); }
+        stop => { root.stop-watching(self.person.id); }
+        pop => { root.toggle-pop-out(self.person.id); }
         full-screen(on) => { root.full-screen(on); }
-        if stream.watched: StreamPicture { frame: root.watch-frame; status: root.watch-status; }
+        if stream.watched: StreamPicture { frame: root.stream-frames[index]; status: stream.feed.status; }
         if !stream.watched: VerticalLayout {
             alignment: center; spacing: 10px;
             Image { height: 30px; source: @image-url("icons/screen-share.svg"); image-fit: contain; colorize: #b5b8c1; }
@@ -935,8 +1012,8 @@ export component ParticipantGrid inherits Flickable {
     for person[position] in root.participants: tile := StageTile {
         property <int> slot: position + root.extra;
         x: root.tile-x(self.slot); y: root.tile-y(self.slot);
-        width: root.large(self.slot) ? root.focus-width : root.tile-width;
-        height: root.large(self.slot) ? root.focus-height : root.tile-height;
+        width: root.shown-width(self.slot);
+        height: root.shown-height(self.slot);
         visible: !root.full || root.large(self.slot);
         focused: root.large(self.slot); full: root.full;
         property <image> frame: person.video ? root.frames[position] : @image-url("");
@@ -944,24 +1021,29 @@ export component ParticipantGrid inherits Flickable {
         // Someone who shares without a camera shows the stream in their tile,
         // once it's watched; until then a click watches it.
         property <bool> streams-here: person.live && !person.local && !person.video;
-        property <bool> watched: self.streams-here && person.id == root.watch-user;
+        property <StreamRow> feed: root.streams[position];
+        property <bool> watched: self.streams-here && self.feed.watched;
         background: self.filmed || self.watched ? #000000 : Theme.raised;
         label: person.name + ", " + person.status + (person.video ? ", camera on" : "");
-        viewers: self.watched ? root.watch-viewers : [];
-        viewer-names: self.watched ? root.watch-viewer-names : "";
+        viewers: self.watched ? self.feed.viewers : [];
+        viewer-names: self.watched ? self.feed.viewer-names : "";
         stop-label: self.watched ? "Stop watching" : "";
+        pop-label: root.pop-label(self.watched, self.feed.popped);
         clicked => {
             if self.streams-here && !self.watched {
                 root.watch-stream(person.id);
+            } else if self.watched && self.feed.popped {
+                root.toggle-pop-out(person.id);
             } else if !self.focused {
                 root.focus-tile(self.slot);
             }
         }
         right-clicked(x, y) => { root.open-volume(person, x, y); }
-        stop => { root.stop-watching(); }
+        stop => { root.stop-watching(person.id); }
+        pop => { root.toggle-pop-out(person.id); }
         full-screen(on) => { root.full-screen(on); }
         if tile.filmed: Image { width: tile.width; height: tile.height; source: tile.frame; image-fit: contain; }
-        if tile.watched: StreamPicture { frame: root.watch-frame; status: root.watch-status; }
+        if tile.watched: StreamPicture { frame: root.stream-frames[position]; status: tile.feed.status; }
         if !tile.filmed && !tile.watched: Avatar {
             size: min(80px, parent.height * 0.45); initial: person.initial; tint: person.tint; picture: person.picture;
             x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2 - 8px;
@@ -1547,6 +1629,46 @@ export component Soundboard inherits Rectangle {
                         favorite(on) => { root.favorite(sound.id, on); }
                     }
                 }
+            }
+        }
+    }
+}
+
+// A stream in a window of its own, which can go to another screen. Closing it
+// brings the stream back to the call. A window has its own copy of `Theme`,
+// which stays at its dark defaults: right over a stage that's black in every
+// theme.
+export component StreamWindow inherits Window {
+    in property <string> window-title;
+    in property <image> frame;
+    in property <string> status;
+    callback stop;
+    property <bool> full;
+    title: root.window-title;
+    full-screen: root.full;
+    default-font-family: "Atkinson Hyperlegible Next";
+    preferred-width: 960px; preferred-height: 540px;
+    min-width: 240px; min-height: 135px;
+    background: #000000;
+    forward-focus: keys;
+    keys := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Escape && root.full { root.full = false; return accept; }
+            return reject;
+        }
+        touch := TouchArea {
+            double-clicked => { root.full = !root.full; }
+            StreamPicture { width: parent.width; height: parent.height; frame: root.frame; status: root.status; }
+            if touch.has-hover: StreamButton {
+                x: parent.width - self.width - 10px; y: 10px;
+                icon: @image-url("icons/x.svg"); label: "Stop watching";
+                clicked => { root.stop(); }
+            }
+            if touch.has-hover: StreamButton {
+                x: parent.width - self.width - 10px; y: parent.height - self.size - 10px;
+                icon: root.full ? @image-url("icons/minimize.svg") : @image-url("icons/maximize.svg");
+                label: root.full ? "Exit full screen" : "Full screen";
+                clicked => { root.full = !root.full; }
             }
         }
     }

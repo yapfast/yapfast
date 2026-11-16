@@ -20,6 +20,9 @@ use slint::winit_030::winit::window::{ResizeDirection, WindowAttributes};
 thread_local! {
     /// Windows are made without the desktop's frame, for Yapfast's title bar.
     static OWN: Cell<bool> = const { Cell::new(false) };
+    /// The next window made has the desktop's frame whatever `OWN` says: it
+    /// has no title bar of Yapfast's to go without one for.
+    static FRAMED_NEXT: Cell<bool> = const { Cell::new(false) };
 }
 
 use super::*;
@@ -92,7 +95,15 @@ pub(super) fn choose(system: Option<bool>) -> bool {
 /// Each window as Slint makes it: with the desktop's frame unless Yapfast
 /// draws its own title bar.
 pub(super) fn attributes(attributes: WindowAttributes) -> WindowAttributes {
-    attributes.with_decorations(!OWN.get())
+    // Taken whatever `OWN` says, or it would wait for a later window.
+    let framed = FRAMED_NEXT.take();
+    attributes.with_decorations(!OWN.get() || framed)
+}
+
+/// Gives the next window made, which Slint does as its component is, the
+/// desktop's frame.
+pub(super) fn frame_next_window() {
+    FRAMED_NEXT.set(true);
 }
 
 /// Shows the title bar as the layout has it: the desktop's, or Yapfast's. A
@@ -183,6 +194,23 @@ fn winit(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_next_window_gets_the_frame_asked_for() {
+        let decorated = || attributes(WindowAttributes::default()).decorations;
+        OWN.set(true);
+        assert!(!decorated());
+        frame_next_window();
+        assert!(decorated());
+        assert!(!decorated(), "the one after has Yapfast's title bar");
+        // A frame asked for where windows have one anyway isn't kept for later.
+        OWN.set(false);
+        frame_next_window();
+        assert!(decorated());
+        OWN.set(true);
+        assert!(!decorated());
+        OWN.set(false);
+    }
 
     #[test]
     fn framed_desktops_by_name() {

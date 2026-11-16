@@ -59,6 +59,7 @@ mod new_tags;
 mod pictures;
 mod placement;
 mod polls;
+mod pop_out;
 mod profile;
 mod refresh;
 mod server_settings;
@@ -75,8 +76,8 @@ use messages::*;
 pub(crate) use pictures::picture as slint_image;
 use pictures::*;
 use profile::*;
-use refresh::{AccountCardShown, Reach, RosterShown, SidebarShown, SwitcherShown};
-use tiles::{Focus, Pip, Stage, Tiles};
+use refresh::{AccountCardShown, Reach, RosterShown, SidebarShown, SwitcherShown, watch_status};
+use tiles::{Focus, Pip, Stage, Tiles, follow_streams, places};
 use yapfast_ui::*;
 
 /// How the desktop window ended.
@@ -1856,6 +1857,13 @@ struct Models {
     participant_frames: Rc<VecModel<slint::Image>>,
     /// The streams in tiles of their own, as indexes of their participants.
     stream_tiles: Rc<VecModel<i32>>,
+    /// Each participant's stream and its newest picture, in their order, and
+    /// who watches it, which a row's model keeps so the row stays the same.
+    streams: Rc<VecModel<StreamRow>>,
+    stream_frames: Rc<VecModel<slint::Image>>,
+    stream_viewers: RefCell<Vec<Rc<VecModel<PersonRow>>>>,
+    wall: Rc<VecModel<i32>>,
+    strip: Rc<VecModel<i32>>,
     /// Who is in the open DM's call, shown above its messages.
     call_people: Rc<VecModel<PersonRow>>,
     /// The call's soundboard: headings and rows of sounds.
@@ -1926,6 +1934,10 @@ impl Models {
         window.set_watch_viewers(ModelRc::from(self.watch_viewers.clone()));
         window.set_participant_frames(ModelRc::from(self.participant_frames.clone()));
         window.set_stream_tiles(ModelRc::from(self.stream_tiles.clone()));
+        window.set_streams(ModelRc::from(self.streams.clone()));
+        window.set_stream_frames(ModelRc::from(self.stream_frames.clone()));
+        window.set_wall(ModelRc::from(self.wall.clone()));
+        window.set_strip(ModelRc::from(self.strip.clone()));
         window.set_call_people(ModelRc::from(self.call_people.clone()));
         window.set_soundboard_rows(ModelRc::from(self.soundboard_rows.clone()));
         window.set_entrance_rows(ModelRc::from(self.entrance_rows.clone()));
@@ -2230,7 +2242,12 @@ struct Adapter {
     /// The call's tile shown large, and whose stream was watched when the
     /// call last showed, so a stream starts large.
     call_focus: Option<tiles::Focus>,
-    watched: Option<String>,
+    /// The streams showing in the call, by whose they are.
+    streams_shown: Vec<String>,
+    /// The tiles sharing the room, by their place.
+    wall: Vec<usize>,
+    /// Streams in windows of their own, by whose they are.
+    pop_outs: HashMap<String, pop_out::PopOut>,
     /// Runs the microphone through Discord's processing while voice settings
     /// show the voice gate's sensitivity.
     #[cfg(feature = "discord")]
@@ -2541,7 +2558,9 @@ impl Adapter {
                 soundboard_volume_shown: None,
                 tiles: None,
                 call_focus: None,
-                watched: None,
+                streams_shown: Vec::new(),
+                wall: Vec::new(),
+                pop_outs: HashMap::new(),
                 #[cfg(feature = "discord")]
                 gate_meter: None,
                 keybinds: None,
@@ -2853,6 +2872,7 @@ impl Adapter {
                                 }
                                 None => adapter.ring(),
                             }
+                            adapter.show_pop_outs();
                             adapter.show_tray();
                         }
                         if let Some(adapter) = weak.upgrade() {

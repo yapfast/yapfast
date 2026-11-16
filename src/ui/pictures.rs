@@ -269,6 +269,13 @@ pub(crate) fn frame(buffer: &dyn yapfast_core::picture::FrameBuffer) -> slint::I
     }
 }
 
+/// A stream's picture for Slint.
+pub(super) fn stream_image(width: u32, height: u32, pixels: &[u8]) -> slint::Image {
+    slint::Image::from_rgba8(slint::SharedPixelBuffer::clone_from_slice(
+        pixels, width, height,
+    ))
+}
+
 pub(crate) fn picture(picture: &Picture) -> slint::Image {
     let buffer = match picture.rgba.buffer::<SlintPixels>() {
         Some(pixels) => pixels.0.clone(),
