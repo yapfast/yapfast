@@ -802,6 +802,7 @@ pub(super) fn profile_data(
                 .iter()
                 .map(|connection| ProfileConnectionRow {
                     kind: connection.kind.as_str().into(),
+                    icon: connection_glyph(&connection.kind),
                     name: connection.name.as_str().into(),
                     url: connection.url.as_deref().unwrap_or_default().into(),
                 })
@@ -1118,4 +1119,90 @@ pub(super) fn role_color(rgb: Option<u32>) -> slint::Color {
     rgb.map_or_else(slint::Color::default, |rgb| {
         slint::Color::from_rgb_u8((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8)
     })
+}
+
+/// The marks a connection's tile can show, in the order of `connection-glyphs`
+/// in ui/people.slint: the link first, for a service without a mark, then
+/// the globe of a website. The brands' marks are from Simple Icons.
+const CONNECTION_GLYPHS: &[&str] = &[
+    "link",
+    "globe",
+    "battledotnet",
+    "bluesky",
+    "bungie",
+    "crunchyroll",
+    "ebay",
+    "epicgames",
+    "facebook",
+    "github",
+    "instagram",
+    "leagueoflegends",
+    "mastodon",
+    "paypal",
+    "playstation",
+    "reddit",
+    "riotgames",
+    "roblox",
+    "samsung",
+    "soundcloud",
+    "spotify",
+    "steam",
+    "tiktok",
+    "twitch",
+    "x-logo",
+    "youtube",
+];
+
+/// Where a connection of Discord's `kind` finds its mark in
+/// [`CONNECTION_GLYPHS`]: the link when there is none.
+fn connection_glyph(kind: &str) -> i32 {
+    let file = match kind {
+        "domain" => "globe",
+        "battlenet" => "battledotnet",
+        "twitter" | "x" => "x-logo",
+        "playstation" | "playstation-stg" => "playstation",
+        kind => kind,
+    };
+    CONNECTION_GLYPHS
+        .iter()
+        .position(|glyph| *glyph == file)
+        .unwrap_or(0) as i32
+}
+
+#[cfg(test)]
+mod connection_glyph_tests {
+    use super::*;
+
+    #[test]
+    fn a_service_gets_its_own_mark_and_the_rest_the_link() {
+        let glyph = |kind| CONNECTION_GLYPHS[connection_glyph(kind) as usize];
+        assert_eq!(glyph("steam"), "steam");
+        assert_eq!(glyph("github"), "github");
+        assert_eq!(glyph("battlenet"), "battledotnet");
+        assert_eq!(glyph("twitter"), "x-logo");
+        assert_eq!(glyph("playstation-stg"), "playstation");
+        assert_eq!(glyph("domain"), "globe");
+        assert_eq!(glyph("skype"), "link");
+        assert_eq!(glyph("not-a-service"), "link");
+    }
+
+    #[test]
+    fn the_list_matches_the_interface_and_the_files() {
+        let slint = include_str!("../../ui/people.slint");
+        let listed = slint
+            .split("connection-glyphs: [")
+            .nth(1)
+            .and_then(|rest| rest.split(']').next())
+            .expect("people.slint lists connection-glyphs");
+        let files: Vec<&str> = listed
+            .split("@image-url(\"icons/")
+            .skip(1)
+            .map(|part| part.split(".svg").next().unwrap())
+            .collect();
+        assert_eq!(files, CONNECTION_GLYPHS);
+        for file in files {
+            let path = format!("{}/ui/icons/{file}.svg", env!("CARGO_MANIFEST_DIR"));
+            assert!(std::path::Path::new(&path).exists(), "{path}");
+        }
+    }
 }

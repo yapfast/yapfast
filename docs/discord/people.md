@@ -353,9 +353,12 @@ check for a friend, whose menu it opens) and the person's menu, each 32
 pixels square. Message shows in their own DM too, as Discord's does, and
 goes to it. Sections keep 24 pixels between them, each titled in 13 pixels,
 medium, in the card's text. Connections are rows of the service's mark on
-a tile, the name, and an arrow when Discord gives an address; Yapfast has
-only GitHub's mark, so the others show a link, and a connection's age isn't
-shown, as Discord's card doesn't show it. The note's placeholder is in
+a tile, the name, and an arrow when Discord gives an address. Yapfast has
+the marks of 23 services (Simple Icons, listed in `CONNECTION_GLYPHS` in
+`src/ui/profile.rs`) and a globe for a website, which opens
+`https://<domain>`; Amazon Music, Skype, Xbox, Contact Sync and the rest
+show a link. A connection's age isn't shown, as Discord's card doesn't show
+it. The note's placeholder is in
 italics. On the tabs, an activity, a past one and a board's widget are each
 a card the column's width.
 

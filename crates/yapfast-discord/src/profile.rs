@@ -214,6 +214,15 @@ fn connection_url(kind: &str, id: &str, name: &str) -> Option<String> {
         "spotify" => format!("https://open.spotify.com/user/{id}"),
         "tiktok" => format!("https://tiktok.com/@{name}"),
         "bluesky" => format!("https://bsky.app/profile/{name}"),
+        // A website's name is its domain; anything else in it is no host.
+        "domain"
+            if !name.is_empty()
+                && name
+                    .chars()
+                    .all(|c| c.is_alphanumeric() || c == '.' || c == '-') =>
+        {
+            format!("https://{name}")
+        }
         _ => return None,
     })
 }
@@ -525,6 +534,21 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn a_website_connection_opens_its_domain() {
+        assert_eq!(
+            connection_url("domain", "example.com", "example.com").as_deref(),
+            Some("https://example.com")
+        );
+        assert_eq!(connection_url("domain", "", "a.com/x?y@evil.com"), None);
+        assert_eq!(connection_url("domain", "", ""), None);
+        assert_eq!(
+            connection_url("github", "1", "octocat").as_deref(),
+            Some("https://github.com/octocat")
+        );
+        assert_eq!(connection_url("battlenet", "1", "a#1"), None);
+    }
 
     #[test]
     fn a_frame_comes_from_its_collectible_with_the_back_layers_first() {

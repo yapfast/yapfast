@@ -60,6 +60,17 @@ github.svg is GitHub's mark from Simple Icons 16.34.0 (CC0 1.0), filled
 white. It marks the GitHub link in About, and GitHub's logo guidelines apply to
 it rather than the ISC licence.
 
+The marks of the services a profile lists as connections (battledotnet,
+bluesky, bungie, crunchyroll, ebay, epicgames, facebook, instagram,
+leagueoflegends, mastodon, paypal, playstation, reddit, riotgames, roblox,
+samsung, soundcloud, spotify, steam, tiktok, twitch, x-logo, youtube) are from
+Simple Icons 16.34.0 (CC0 1.0), as GitHub's is, each a single path filled
+white; x-logo is Simple Icons' x, renamed because x.svg is Lucide's close.
+They are the trademarks of their owners and their brand guidelines apply
+rather than the ISC licence; they only say which service an account is on.
+Simple Icons 16.34.0 has no Amazon Music, Skype or Xbox. globe is Solar's
+global (Bold), for a website connection.
+
 anomi-small.png is this fork's own picture, Anomi's, by its owner, made
 brighter to read small, 64 pixels: the tray icon is drawn from it.
 Where the window shows the app's picture, it shows the app icon itself,

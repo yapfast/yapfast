@@ -411,8 +411,8 @@ export global ProfileTheme {
 export struct ProfileBadgeRow { icon: string, description: string, link: string, kind: string, title: string, progress: string, picture: string }
 
 /// An account on another service on a profile, such as Steam: the service,
-/// its name for the account, and where it opens ("" when it doesn't).
-export struct ProfileConnectionRow { kind: string, name: string, url: string }
+/// its mark (an index into `connection-glyphs`), its name for the account, and where it opens ("" when it doesn't).
+export struct ProfileConnectionRow { kind: string, icon: int, name: string, url: string }
 
 /// A game on a widget, with the address of its picture.
 export struct ProfileGameRow { name: string, initial: string, icon: string, comment: string }
@@ -1404,6 +1404,35 @@ export component ProfileCard inherits Rectangle {
     changed person => { root.badges-open = false; }
     // The full profile's buttons other than Message, on tiles of white over a
     // light theme, as Discord's, and of the text's colour elsewhere.
+    /// The marks a connection's tile can show; src/ui/profile.rs has the same list.
+    property <[image]> connection-glyphs: [
+        @image-url("icons/link.svg"),
+        @image-url("icons/globe.svg"),
+        @image-url("icons/battledotnet.svg"),
+        @image-url("icons/bluesky.svg"),
+        @image-url("icons/bungie.svg"),
+        @image-url("icons/crunchyroll.svg"),
+        @image-url("icons/ebay.svg"),
+        @image-url("icons/epicgames.svg"),
+        @image-url("icons/facebook.svg"),
+        @image-url("icons/github.svg"),
+        @image-url("icons/instagram.svg"),
+        @image-url("icons/leagueoflegends.svg"),
+        @image-url("icons/mastodon.svg"),
+        @image-url("icons/paypal.svg"),
+        @image-url("icons/playstation.svg"),
+        @image-url("icons/reddit.svg"),
+        @image-url("icons/riotgames.svg"),
+        @image-url("icons/roblox.svg"),
+        @image-url("icons/samsung.svg"),
+        @image-url("icons/soundcloud.svg"),
+        @image-url("icons/spotify.svg"),
+        @image-url("icons/steam.svg"),
+        @image-url("icons/tiktok.svg"),
+        @image-url("icons/twitch.svg"),
+        @image-url("icons/x-logo.svg"),
+        @image-url("icons/youtube.svg"),
+    ];
     property <color> action-tile: root.themed ? ProfileTheme.tile(root.light) : root.ink.transparentize(0.88);
     property <color> action-tile-hover: root.themed ? ProfileTheme.tile-hover(root.light) : root.ink.transparentize(0.8);
     // The full profile's thought hangs wholly under the banner's edge, 14px
@@ -1810,7 +1839,8 @@ export component ProfileCard inherits Rectangle {
                         }
                         // Each account as Discord's card lists it: the service's
                         // mark on a tile, the name, and an arrow when it opens.
-                        // Yapfast has GitHub's mark alone, so the rest show a link.
+                        // The marks are listed in src/ui/profile.rs's order; a
+                        // service without one shows a link.
                         if root.large && root.data.connections.length > 0: VerticalLayout {
                             spacing: root.side ? 8px : 6px;
                             ProfileTitle { text: @tr("Connections"); color: root.ink; }
@@ -1826,7 +1856,7 @@ export component ProfileCard inherits Rectangle {
                                         Rectangle {
                                             width: 24px; height: 24px; border-radius: 6px; background: root.action-tile;
                                             Image {
-                                                source: connection.kind == "github" ? @image-url("icons/github.svg") : @image-url("icons/link.svg");
+                                                source: root.connection-glyphs[connection.icon];
                                                 width: 16px; height: 16px; colorize: root.ink;
                                             }
                                         }

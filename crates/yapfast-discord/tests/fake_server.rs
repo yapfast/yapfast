@@ -2722,6 +2722,23 @@ async fn shows_profiles() {
         ["HypeSquad Bravery", "Active Developer", "Spielzeit"]
     );
     assert!(in_server.badges[0].link.is_some() && in_server.badges[1].link.is_none());
+    let accounts: Vec<_> = in_server
+        .connections
+        .iter()
+        .map(|account| (account.kind.as_str(), account.url.as_deref()))
+        .collect();
+    assert_eq!(
+        accounts,
+        [
+            ("domain", Some("https://bob.example")),
+            (
+                "steam",
+                Some("https://steamcommunity.com/profiles/76561198000000000")
+            ),
+            ("battlenet", None),
+            ("skype", None),
+        ]
+    );
     // The levels come after the profile, from /users/{id}/badges, and only the
     // badge that levels up has one.
     assert!(in_server.badges.iter().all(|badge| badge.level.is_none()));

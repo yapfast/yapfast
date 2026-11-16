@@ -1089,6 +1089,16 @@ function wireProfile(user: User, guild: string | null, origin: string) {
           { id: "game_time", description: "Spielzeit", icon: "208e1bb66e311286cae364bc6f19277a", simple_icon_url: origin + IRONCLAD_ICON },
         ]
       : [],
+    // Bob links a few services: a website, one with a mark of its own, one
+    // without, and one whose page Discord's client doesn't link.
+    connected_accounts: bob
+      ? [
+          { type: "domain", id: "bob.example", name: "bob.example", verified: true },
+          { type: "steam", id: "76561198000000000", name: "bobplays", verified: true },
+          { type: "battlenet", id: "bob#1234", name: "bob#1234", verified: false },
+          { type: "skype", id: "live:bob", name: "bob.on.skype", verified: false },
+        ]
+      : [],
     premium_type: null,
   };
 }
