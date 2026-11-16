@@ -180,24 +180,26 @@ impl Grants {
     /// session the request is denied without a dialog, because a plugin that
     /// keeps asking is asking a person who has already said no.
     pub fn ask(&self, plugin: &PluginId, host: &HostPattern) -> Ask {
-        let mut state = self.state.write().unwrap_or_else(PoisonError::into_inner);
-        let stored = state
-            .stored
-            .plugins
-            .get(plugin)
-            .cloned()
-            .unwrap_or_default();
+        let mut guard = self.state.write().unwrap_or_else(PoisonError::into_inner);
+        // Borrowed field by field, so the stored answers are read in place
+        // rather than copied for every request a plugin makes.
+        let state = &mut *guard;
+        let stored = state.stored.plugins.get(plugin);
         let runtime = state.runtime.entry(plugin.clone()).or_default();
 
         // A refusal outlives everything else about a host: an allow that was
         // added after it wins, because the mutators remove one when adding the
         // other.
-        if stored.denied.contains(host) || runtime.session.denied.contains(host) {
+        if stored.is_some_and(|held| held.denied.contains(host))
+            || runtime.session.denied.contains(host)
+        {
             return Ask::Denied {
                 reason: format!("you refused {host} for this plugin"),
             };
         }
-        if stored.allowed.contains(host) || runtime.session.allowed.contains(host) {
+        if stored.is_some_and(|held| held.allowed.contains(host))
+            || runtime.session.allowed.contains(host)
+        {
             return Ask::Allowed;
         }
         if runtime.denials >= limits::MAX_DENIALS_BEFORE_SILENCE {
@@ -228,6 +230,22 @@ impl Grants {
                 Ask::Asked
             }
         }
+    }
+
+    /// Whether `host` is refused for `plugin` now: what a body already arriving
+    /// checks as it streams, so taking a host back stops an answer midway
+    /// rather than at the next request.
+    pub fn refused(&self, plugin: &PluginId, host: &HostPattern) -> bool {
+        let state = self.state.read().unwrap_or_else(PoisonError::into_inner);
+        state
+            .stored
+            .plugins
+            .get(plugin)
+            .is_some_and(|held| held.denied.contains(host))
+            || state
+                .runtime
+                .get(plugin)
+                .is_some_and(|runtime| runtime.session.denied.contains(host))
     }
 
     /// Records the person's answer to a dialog and closes it.

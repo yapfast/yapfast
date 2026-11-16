@@ -105,6 +105,9 @@ struct Recorder {
     replies: Arc<Mutex<VecDeque<Reply>>>,
     started: Arc<AtomicUsize>,
     gate: Arc<Semaphore>,
+    /// Run once, as the second piece of a body is handed over: what happens
+    /// in the world while an answer is still arriving.
+    midway: Arc<Mutex<Option<Box<dyn FnOnce() + Send>>>>,
 }
 
 impl Default for Recorder {
@@ -116,6 +119,7 @@ impl Default for Recorder {
             // No permits: a request waits in the transport until a test lets it
             // through, which is what makes the concurrency limits testable.
             gate: Arc::new(Semaphore::new(0)),
+            midway: Arc::default(),
         }
     }
 }
@@ -175,6 +179,7 @@ impl Transport for Recorder {
         let replies = Arc::clone(&self.replies);
         let started = Arc::clone(&self.started);
         let gate = Arc::clone(&self.gate);
+        let midway = Arc::clone(&self.midway);
         Box::pin(async move {
             started.fetch_add(1, Ordering::SeqCst);
             plans
@@ -197,7 +202,19 @@ impl Transport for Recorder {
                     _ => queue.pop_front().unwrap_or_else(|| Reply::ok(&[])),
                 }
             };
-            let chunks: Vec<anyhow::Result<Vec<u8>>> = reply.chunks.into_iter().map(Ok).collect();
+            let chunks = reply
+                .chunks
+                .into_iter()
+                .enumerate()
+                .map(move |(index, chunk)| {
+                    if index == 1
+                        && let Some(happen) =
+                            midway.lock().unwrap_or_else(PoisonError::into_inner).take()
+                    {
+                        happen();
+                    }
+                    Ok(chunk)
+                });
             Ok(Served {
                 status: reply.status,
                 headers: reply.headers,
@@ -576,6 +593,45 @@ fn a_host_nobody_has_answered_about_is_pending_until_it_is() {
     let answer = fixture.done(url);
     assert_eq!(answer.response.status, 200);
     assert_eq!(fixture.recorder.plans().len(), 1);
+}
+
+/// Taking a host back stops an answer that is still arriving, not only the
+/// next request.
+#[test]
+fn revoking_a_host_stops_an_answer_midway() {
+    let recorder = Recorder::new(vec![Reply::ok(&[
+        b"first".as_slice(),
+        b"second".as_slice(),
+        b"third".as_slice(),
+    ])]);
+    let fixture = Fixture::build(
+        policy(&[Capability::Network], &[], None),
+        Table::fixed("api.example.com", &["93.184.216.34"]),
+        recorder,
+    );
+    let plugin = fixture.plugin.clone();
+    let api = host("api.example.com");
+    fixture
+        .grants
+        .answer(&plugin, &api, true, Lasts::Session)
+        .expect("an answer");
+    let grants = Arc::clone(&fixture.grants);
+    let (taken, from) = (api.clone(), plugin.clone());
+    *fixture
+        .recorder
+        .midway
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner) = Some(Box::new(move || {
+        grants.revoke(&from, &taken).expect("a revocation");
+    }));
+    let error = fixture
+        .fetch("https://api.example.com/x")
+        .expect_err("the answer stops once the host is taken back");
+    assert!(
+        refusal(&error).contains("took api.example.com back"),
+        "{}",
+        refusal(&error)
+    );
 }
 
 #[test]

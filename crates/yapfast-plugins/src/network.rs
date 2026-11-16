@@ -713,7 +713,21 @@ impl NetworkGate {
             let slot = self.slots.acquire(plugin)?;
             let served = self.transport.send(plan).await?;
             if !is_redirect(served.status) {
-                let answer = self.read_answer(&target, served, cap).await?;
+                // A host the person allowed from a dialog can be taken back
+                // while its answer is still arriving, and that stops it there.
+                // One the manifest declares was agreed to at install and is
+                // taken back by turning the plugin off.
+                let host = target.host();
+                let revocable = (!is_loopback_host(host)
+                    && !permissions
+                        .network
+                        .iter()
+                        .any(|pattern| pattern.matches(host)))
+                .then(|| HostPattern::parse(host).ok())
+                .flatten();
+                let answer = self
+                    .read_answer(&target, served, cap, plugin, revocable.as_ref())
+                    .await?;
                 drop(slot);
                 return Ok(Outcome::Done(answer));
             }
@@ -873,7 +887,14 @@ impl NetworkGate {
 
     /// Reads a body as it arrives, inside `cap`, keeping only what an answer can
     /// carry and streaming the rest to a file.
-    async fn read_answer(&self, target: &Target, served: Served, cap: u64) -> Result<Answer> {
+    async fn read_answer(
+        &self,
+        target: &Target,
+        served: Served,
+        cap: u64,
+        plugin: &PluginId,
+        revocable: Option<&HostPattern>,
+    ) -> Result<Answer> {
         let status = served.status;
         let headers = served.headers;
         let mut body = served.body;
@@ -882,6 +903,15 @@ impl NetworkGate {
         let mut spilled: Option<(std::fs::File, PathBuf)> = None;
         while let Some(chunk) = body.next().await {
             let chunk = chunk?;
+            if let Some(host) = revocable
+                && self.grants.refused(plugin, host)
+            {
+                drop(body);
+                if let Some((_, path)) = spilled.take() {
+                    let _ = std::fs::remove_file(path);
+                }
+                bail!("you took {host} back from this plugin while its answer was arriving");
+            }
             total = total.saturating_add(chunk.len() as u64);
             if total > cap {
                 // The stream is dropped here rather than read to the end: the
@@ -906,13 +936,10 @@ impl NetworkGate {
                 inline.extend_from_slice(&chunk);
             }
         }
-        let body_file = match spilled {
-            Some((file, path)) => {
-                file.sync_all()?;
-                Some(path)
-            }
-            None => None,
-        };
+        // No fsync: the file is scratch, read back once and removed, and a
+        // crash loses the request it belonged to either way. Syncing it held a
+        // runtime thread on the disk for every large answer.
+        let body_file = spilled.map(|(_, path)| path);
         let response = HttpResponse {
             status,
             headers,

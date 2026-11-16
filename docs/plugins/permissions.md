@@ -280,8 +280,8 @@ revoked there. Revoking removes the grant from the file and from this session,
 and refuses the host for the rest of the session, so it takes effect on the next
 request and not on the next start: the gate asks on every request rather than
 remembering an answer, a request already in flight finds nothing that would let
-it through, and a request waiting on a dialog about that host is refused at
-once. Turning a plugin off forgets its session answers and closes its dialog.
+it through, an answer still arriving from that host stops at its next piece,
+and a request waiting on a dialog about that host is refused at once. Turning a plugin off forgets its session answers and closes its dialog.
 Removing a plugin forgets its stored answers too, so whatever is installed under
 that id next is asked again.
 
