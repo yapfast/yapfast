@@ -1366,6 +1366,12 @@ export component AppearanceSettings inherits VerticalLayout {
     in property <[string]> starts;
     in property <int> start-index;
     in property <bool> can-save;
+    /// How the last import or export of a theme file went, under the
+    /// theme's heading or the editor's name; `note-wrong` when it didn't.
+    in property <string> note;
+    in property <bool> note-wrong;
+    callback import-theme();
+    callback export-theme();
     callback choose-theme(string);
     callback new-theme();
     callback edit-theme(string);
@@ -1398,11 +1404,20 @@ export component AppearanceSettings inherits VerticalLayout {
     if !root.editor: VerticalLayout {
         spacing: 8px;
         HorizontalLayout {
+            spacing: 8px;
             SettingsHeading { text: @tr("THEME"); vertical-alignment: center; horizontal-stretch: 1; }
+            ActionButton {
+                text: @tr("Import"); label: @tr("Import a theme file"); small: true; icon: @image-url("icons/folder.svg");
+                clicked => { root.import-theme(); }
+            }
             ActionButton {
                 text: @tr("New theme"); small: true; icon: @image-url("icons/circle-plus.svg");
                 clicked => { root.new-theme(); }
             }
+        }
+        if root.note != "": Text {
+            text: root.note; color: root.note-wrong ? Theme.danger-text : Theme.secondary;
+            font-size: 13px; wrap: word-wrap;
         }
         // As many 150px or wider cards across as fit, in rows.
         Rectangle {
@@ -1539,6 +1554,14 @@ export component AppearanceSettings inherits VerticalLayout {
                 }
                 ActionButton { text: @tr("Save"); primary: true; enabled: root.can-save; clicked => { root.save-theme(); } }
                 ActionButton { text: @tr("Cancel"); clicked => { root.cancel-theme(); } }
+                ActionButton {
+                    text: @tr("Export"); label: @tr("Export to a file"); icon: @image-url("icons/download.svg"); enabled: root.can-save;
+                    clicked => { root.export-theme(); }
+                }
+            }
+            if root.note != "": Text {
+                text: root.note; color: root.note-wrong ? Theme.danger-text : Theme.secondary;
+                font-size: 13px; wrap: word-wrap;
             }
         }
         if !root.editing-saved: VerticalLayout {

@@ -444,7 +444,7 @@ def perform(command):
     elif verb == 'pick':
         kind, _, rest = rest.partition(' ')
         path = (ROOT / rest).resolve()
-        kinds = ('avatar', 'banner', 'icon', 'server-banner', 'splash', 'role-icon', 'emoji', 'sticker', 'font')
+        kinds = ('avatar', 'banner', 'icon', 'server-banner', 'splash', 'role-icon', 'emoji', 'sticker', 'font', 'theme')
         if kind not in kinds or not path.is_file():
             raise ValueError(f'pick {"|".join(kinds)} PATH, with a file at {path}')
         with window_control.open('a') as window:

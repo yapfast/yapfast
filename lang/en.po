@@ -392,3 +392,15 @@ msgstr "Anomi doesn't share a Discord app's sound, which carries its call."
 
 msgid "Yapfast can't tell which application this window belongs to."
 msgstr "Anomi can't tell which application this window belongs to."
+
+msgid "Yapfast theme"
+msgstr "Anomi theme"
+
+msgid "That file is not a theme for Yapfast."
+msgstr "That file is not a theme for Anomi."
+
+msgid "That theme was made by a newer Yapfast. Update to use it."
+msgstr "That theme was made by a newer Anomi. Update to use it."
+
+msgid "That theme names no colours Yapfast knows."
+msgstr "That theme names no colours Anomi knows."

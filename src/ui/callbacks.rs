@@ -2196,6 +2196,15 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         }
     });
     let state = adapter.clone();
+    window.on_import_theme(move || state.borrow_mut().choose_theme_file());
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_export_theme(move || {
+        if let Some(window) = weak.upgrade() {
+            state.borrow_mut().export_theme(&window);
+        }
+    });
+    let state = adapter.clone();
     let weak = window.as_weak();
     window.on_new_theme(move || {
         if let Some(window) = weak.upgrade() {

@@ -1273,6 +1273,8 @@ export component YapfastWindow inherits Window {
         if !self.settings-open && self.link-phase != 0 { self.cancel-discord-link(); }
         if !self.settings-open { self.camera-testing = false; }
         if !self.settings-open && self.theme-editor { self.cancel-theme(); }
+        // A theme file's note is for the visit it was made in.
+        self.theme-note = "";
         // Which font files weren't added is said until the settings close.
         if !self.settings-open && self.font-note != "" { self.forget-font-note(); }
     }
@@ -1425,6 +1427,12 @@ export component YapfastWindow inherits Window {
     in property <[string]> theme-starts;
     in property <int> theme-start;
     in property <bool> theme-can-save;
+    /// How the last theme file's import or export went; see
+    /// AppearanceSettings. Said until Appearance or the settings close.
+    in-out property <string> theme-note;
+    in property <bool> theme-note-wrong;
+    callback import-theme();
+    callback export-theme();
     callback new-theme();
     /// Appearance's font files; see AppearanceSettings.
     in property <[FontFile]> font-files;
@@ -1444,6 +1452,7 @@ export component YapfastWindow inherits Window {
     changed settings-section => {
         root.track-new();
         if root.theme-editor && root.settings-section != 7 { root.cancel-theme(); }
+        root.theme-note = "";
     }
     out property <length> message-font-size: root.text-size == 0 ? 14px : root.text-size == 2 ? 18px : ClientStyle.text-size;
     // The sidebar keeps 180 to 380px. Dragging also leaves the conversation 420px;
@@ -4598,6 +4607,7 @@ export component YapfastWindow inherits Window {
             theme-name <=> root.theme-name; theme-dark <=> root.theme-dark;
             editing-saved: root.theme-editing-saved; starts: root.theme-starts; start-index: root.theme-start;
             can-save: root.theme-can-save;
+            note: root.theme-note; note-wrong: root.theme-note-wrong;
             system-title-bar <=> root.system-title-bar; title-bar-choice: root.title-bar-choice;
             title-bar-toggled => { root.title-bar-toggled(); }
             languages: root.languages; language: root.language;
@@ -4609,6 +4619,8 @@ export component YapfastWindow inherits Window {
             show-nameplates <=> root.show-nameplates;
             preferences-changed => { root.preferences-changed(); }
             choose-theme(id) => { root.choose-theme(id); }
+            import-theme => { root.import-theme(); }
+            export-theme => { root.export-theme(); }
             new-theme => { root.new-theme(); }
             edit-theme(id) => { root.edit-theme(id); }
             start-chosen(index) => { root.theme-start-chosen(index); }

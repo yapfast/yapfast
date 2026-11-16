@@ -1044,6 +1044,12 @@ fn control(path: PathBuf, shell: Rc<shell::Shell>) -> slint::Timer {
                         }
                         Ok(())
                     }
+                    // `pick theme PATH` imports a theme file in Appearance.
+                    command if command.starts_with("pick theme ") => {
+                        let path = PathBuf::from(&command["pick theme ".len()..]);
+                        adapter.borrow_mut().read_theme_file(path);
+                        Ok(())
+                    }
                     // `pick avatar PATH` or `pick banner PATH` chooses a
                     // picture in the server profile editor, `pick icon PATH`
                     // a server's icon in its settings, and `pick emoji` and

@@ -4,6 +4,7 @@
 use std::{cell::Cell, rc::Rc};
 
 use slint::{Color, ComponentHandle, Model, ModelRc, VecModel};
+use yapfast_lang::tr;
 use yapfast_ui::YapfastWindow;
 
 /// Opaque `#rrggbb`.
@@ -773,23 +774,47 @@ struct Stored {
     colours: std::collections::BTreeMap<String, String>,
 }
 
+/// A theme's base and colours as a stored or shared file names them: the
+/// base's colours with `dark` and each colour that is one laid over them.
+/// Also counts the colours Yapfast knows whose text isn't a colour, which
+/// keep the base's.
+fn assemble(
+    base: &str,
+    dark: Option<bool>,
+    colours: &std::collections::BTreeMap<String, String>,
+) -> (&'static str, Theme, usize) {
+    let base = find(base).unwrap_or(&BUILT_IN[0]);
+    let mut theme = base.theme;
+    theme.dark = dark.unwrap_or(theme.dark);
+    let mut skipped = 0;
+    for (token, text) in colours {
+        let Some(index) = token_index(token) else {
+            continue;
+        };
+        match (parse(text), theme.colour_mut(index)) {
+            (Some(colour), Some(slot)) => *slot = colour,
+            _ => skipped += 1,
+        }
+    }
+    (base.id, theme, skipped)
+}
+
+/// Every colour of a theme as text, by its name in `ui/theme.slint`.
+fn written(theme: &Theme) -> std::collections::BTreeMap<String, String> {
+    Theme::NAMES
+        .iter()
+        .enumerate()
+        .filter_map(|(index, name)| Some((token(name), hex(theme.colour(index)?))))
+        .collect()
+}
+
 impl From<Stored> for Custom {
     fn from(stored: Stored) -> Self {
-        let base = find(&stored.base).unwrap_or(&BUILT_IN[0]);
-        let mut theme = base.theme;
-        theme.dark = stored.dark.unwrap_or(theme.dark);
-        for (token, text) in &stored.colours {
-            if let (Some(slot), Some(colour)) = (
-                token_index(token).and_then(|index| theme.colour_mut(index)),
-                parse(text),
-            ) {
-                *slot = colour;
-            }
-        }
+        let (base, theme, _) = assemble(&stored.base, stored.dark, &stored.colours);
         Self {
             id: stored.id,
             name: stored.name,
-            base: base.id,
+            base,
             theme,
         }
     }
@@ -797,17 +822,12 @@ impl From<Stored> for Custom {
 
 impl From<&Custom> for Stored {
     fn from(custom: &Custom) -> Self {
-        let colours = Theme::NAMES
-            .iter()
-            .enumerate()
-            .filter_map(|(index, name)| Some((token(name), hex(custom.theme.colour(index)?))))
-            .collect();
         Self {
             id: custom.id.clone(),
             name: custom.name.clone(),
             base: custom.base.to_owned(),
             dark: Some(custom.theme.dark),
-            colours,
+            colours: written(&custom.theme),
         }
     }
 }
@@ -821,6 +841,173 @@ impl serde::Serialize for Custom {
 impl<'de> serde::Deserialize<'de> for Custom {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         Stored::deserialize(deserializer).map(Self::from)
+    }
+}
+
+/// What a theme file says in its `format`, so that a file of anything else
+/// is turned away.
+const FILE_FORMAT: &str = "yapfast-theme";
+
+/// The version of the file, which grows only for a change an older Yapfast
+/// would read wrongly; a colour added later needs none, as a missing one
+/// takes the base's.
+const FILE_VERSION: u32 = 1;
+
+/// The most a theme file may hold. One holds about 2 KiB.
+pub const FILE_LIMIT: u64 = 64 * 1024;
+
+/// The longest name a theme taken from a file keeps, in characters.
+const NAME_LIMIT: usize = 48;
+
+/// A theme as shared in a file: the same fields as `layout.json` keeps, but
+/// no id, which is the reader's to give, and the format and version first.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Shared {
+    format: String,
+    version: u32,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    base: String,
+    #[serde(default)]
+    dark: Option<bool>,
+    #[serde(default)]
+    colours: std::collections::BTreeMap<String, String>,
+}
+
+/// A theme read from a file, ready to be kept among the person's own.
+#[derive(Debug, PartialEq)]
+pub struct Imported {
+    pub name: String,
+    pub base: &'static str,
+    pub theme: Theme,
+    /// Colours of the file whose text wasn't a colour, which keep the base's.
+    pub skipped: usize,
+}
+
+/// Why a file isn't taken as a theme.
+#[derive(Debug, PartialEq, Eq)]
+pub enum ImportError {
+    /// The file couldn't be read, and why, as the system says.
+    Unreadable(String),
+    TooLarge,
+    NotATheme,
+    Newer,
+    Empty,
+}
+
+impl ImportError {
+    /// What Appearance says of it, in the interface's language.
+    pub fn text(&self) -> String {
+        match self {
+            Self::Unreadable(error) => tr!("Couldn't read the file: {}", error),
+            Self::TooLarge => tr!("That file is too large to be a theme.").to_owned(),
+            Self::NotATheme => tr!("That file is not a theme for Yapfast.").to_owned(),
+            Self::Newer => {
+                tr!("That theme was made by a newer Yapfast. Update to use it.").to_owned()
+            }
+            Self::Empty => tr!("That theme names no colours Yapfast knows.").to_owned(),
+        }
+    }
+}
+
+/// A theme as the text of a file to share, indented so that people can read
+/// and edit it.
+pub fn export(name: &str, base: &str, theme: &Theme) -> String {
+    let shared = Shared {
+        format: FILE_FORMAT.into(),
+        version: FILE_VERSION,
+        name: name.into(),
+        base: base.into(),
+        dark: Some(theme.dark),
+        colours: written(theme),
+    };
+    let mut text = serde_json::to_string_pretty(&shared).expect("a theme serializes");
+    text.push('\n');
+    text
+}
+
+/// Reads the theme file at `path`, no more of it than a theme file may
+/// hold. It waits on the disk, so it runs off the window's thread.
+pub fn read(path: &std::path::Path) -> Result<Imported, ImportError> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)
+        .and_then(|file| file.take(FILE_LIMIT + 1).read_to_end(&mut bytes))
+        .map_err(|error| {
+            tracing::warn!(%error, "could not read a theme file");
+            ImportError::Unreadable(error.to_string())
+        })?;
+    import(&bytes)
+}
+
+/// Reads a theme file's text. A name or colour it doesn't know is left out,
+/// and a colour it lacks takes the base's, as in `layout.json`, so that a
+/// file from another version of Yapfast, or edited by hand, loads.
+pub fn import(bytes: &[u8]) -> Result<Imported, ImportError> {
+    if bytes.len() as u64 > FILE_LIMIT {
+        return Err(ImportError::TooLarge);
+    }
+    // A text editor, such as Windows' Notepad, can start the file with a
+    // byte order mark, which JSON doesn't allow.
+    let bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes);
+    let shared: Shared = serde_json::from_slice(bytes).map_err(|_| ImportError::NotATheme)?;
+    if shared.format != FILE_FORMAT {
+        return Err(ImportError::NotATheme);
+    }
+    if shared.version > FILE_VERSION {
+        return Err(ImportError::Newer);
+    }
+    if !shared
+        .colours
+        .keys()
+        .any(|token| token_index(token).is_some())
+    {
+        return Err(ImportError::Empty);
+    }
+    let (base, theme, skipped) = assemble(&shared.base, shared.dark, &shared.colours);
+    Ok(Imported {
+        name: clean_name(&shared.name),
+        base,
+        theme,
+        skipped,
+    })
+}
+
+/// A name from a file, without control characters, those that would turn
+/// the text on a card around or hide in it, or more than a card can show;
+/// "Imported theme" when nothing is left. The joiner of emoji sequences
+/// stays.
+fn clean_name(name: &str) -> String {
+    let name: String = name
+        .chars()
+        .filter(|&c| !c.is_control() && (c == '\u{200d}' || !yapfast_core::links::hidden(c)))
+        .take(NAME_LIMIT)
+        .collect();
+    match name.trim() {
+        "" => tr!("Imported theme").into(),
+        name => name.into(),
+    }
+}
+
+/// A name for a theme file to save as: the theme's name, as long as one
+/// from a file may be, with what a file name shouldn't hold swapped for
+/// `-`, then `.yapfast-theme.json`.
+pub fn file_name(name: &str) -> String {
+    let stem: String = name
+        .chars()
+        .take(NAME_LIMIT)
+        .map(|c| {
+            if c.is_alphanumeric() || matches!(c, ' ' | '_' | '-') {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    match stem.trim().trim_matches('-') {
+        "" => "theme.yapfast-theme.json".into(),
+        stem => format!("{stem}.yapfast-theme.json"),
     }
 }
 
