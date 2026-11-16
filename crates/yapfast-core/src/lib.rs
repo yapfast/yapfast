@@ -13,7 +13,7 @@ pub use yapfast_discord;
 
 pub mod application;
 mod audio_io;
-pub use audio_io::set_windows_effects;
+pub use audio_io::{set_windows_effects, silence_audio};
 pub mod backend;
 pub mod blocks;
 pub mod call_details;

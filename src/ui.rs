@@ -2360,6 +2360,9 @@ impl Adapter {
         root: PathBuf,
         window: &YapfastWindow,
     ) -> Result<Rc<RefCell<Self>>> {
+        // No test reaches the speakers or the microphone.
+        #[cfg(test)]
+        yapfast_core::silence_audio();
         let icons = Icons {
             dm: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/message-circle.svg"))?,
             chat: slint::Image::load_from_svg_data(include_bytes!(

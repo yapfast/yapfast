@@ -310,6 +310,9 @@ pub struct App {
 
 impl App {
     pub fn new(client: Client, size: (u32, u32)) -> (Self, Task<Message>) {
+        // No test reaches the speakers or the microphone.
+        #[cfg(test)]
+        yapfast_core::silence_audio();
         let (width, height) = (size.0 as f32, size.1 as f32);
         let layout = crate::layout::Layout::open(client.root(), &crate::build().version);
         let themes = Themes::read(&layout);

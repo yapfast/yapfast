@@ -261,7 +261,8 @@ place of its fixture, for demos and screenshots; see
 `testing/envs/example.json`. It counts the audio a call sends, which the
 ignored `discord_audio` test `a_call_sends_what_the_microphone_hears` checks:
 Yapfast joins the Lounge, unmutes and beeps into a microphone that hears its
-speakers, as a private PulseAudio of null sinks does. What the fake can't show,
+speakers, as a private PulseAudio of null sinks does, named by `PULSE_SERVER`
+with `YAPFAST_TEST_AUDIO=1` set. What the fake can't show,
 such as media and DAVE with Discord's servers, needs real Discord. Use a
 separate test account, which the owner provides, in a private test server. Run
 these tests by hand, never in CI: repeated automated logins are what gets
