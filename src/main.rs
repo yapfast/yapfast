@@ -35,13 +35,13 @@ mod icon;
 #[cfg(feature = "desktop")]
 mod instance;
 #[cfg(feature = "desktop")]
+mod keybinds;
+#[cfg(feature = "desktop")]
 mod notify;
 #[cfg(feature = "desktop")]
 mod paste;
 #[cfg(feature = "desktop")]
 mod protocol;
-#[cfg(feature = "desktop")]
-mod push_to_talk;
 #[cfg(feature = "desktop")]
 mod tray;
 #[cfg(feature = "desktop")]
@@ -335,8 +335,10 @@ fn relaunch_program(
     }
     #[cfg(not(unix))]
     {
-        let status = command.status().context("could not restart Yapfast")?;
-        std::process::exit(status.code().unwrap_or(1));
+        // Waiting for the replacement would keep this process and its stopped
+        // window alive until the new client closes.
+        command.spawn().context("could not restart Yapfast")?;
+        std::process::exit(0);
     }
 }
 
