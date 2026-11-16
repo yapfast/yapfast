@@ -292,11 +292,12 @@ export component MemberPanel inherits Rectangle {
             for member[index] in root.rows: VerticalLayout {
                 padding-left: 8px; padding-right: 8px;
                 padding-top: index == 0 && !(ClientStyle.enabled && root.activity-rows.length > 0) ? 8px : 0px;
-                padding-bottom: index == root.rows.length - 1 ? 12px : 2px;
+                // Discord's rows with a line under the name sit 44px apart, plain ones 42px.
+                padding-bottom: index == root.rows.length - 1 ? 12px : ClientStyle.enabled && member.activity == "" && member.activity-emoji == "" ? 0px : 2px;
                 spacing: 2px;
                 // Discord's group heading: 14px medium in the channel grey, 20px above and 4px below.
                 if member.heading != "": HorizontalLayout {
-                    padding-left: 8px; padding-top: 20px; padding-bottom: 4px; height: 42px; spacing: 8px;
+                    padding-left: 8px; padding-top: 20px; padding-bottom: 4px; height: ClientStyle.enabled ? 39px : 42px; spacing: 8px;
                     if member.group-icon != "": Middle { RoleIcon { url: member.group-icon; size: 20px; } }
                     Text { text: member.heading; color: #81828a; font-size: 14px; font-weight: 500; vertical-alignment: center; }
                 }
@@ -1488,12 +1489,13 @@ export component ProfileCard inherits Rectangle {
                             }
                         }
                         Rectangle {
-                            x: root.pad - 6px; y: root.banner-height - root.avatar-size / 2 - 6px - (root.docked && ClientStyle.enabled ? 7px : 0px);
+                            x: root.pad - 6px; y: root.banner-height - root.avatar-size / 2 - 6px - (root.docked && ClientStyle.enabled ? 10px : 0px);
                             width: root.avatar-size + 12px; height: self.width; border-radius: self.width / 2;
                             background: root.ground;
                             Avatar { size: root.avatar-size; initial: root.data.initial; tint: root.data.tint; picture: root.data.picture; decoration-url: root.data.decoration-url; animate: card-pointer.has-hover; }
                             if root.data.presence != "" && (root.data.presence != "offline" || (root.docked && ClientStyle.enabled)): StatusDot {
-                                x: parent.width - self.width - (root.large ? 14px : 10px); y: parent.height - self.height - (root.large ? 14px : 10px);
+                                width: root.docked && ClientStyle.enabled ? 26px : 16px; height: self.width;
+                                x: parent.width - self.width - (root.docked && ClientStyle.enabled ? 6px : root.large ? 14px : 10px); y: parent.height - self.height - (root.docked && ClientStyle.enabled ? 5px : root.large ? 14px : 10px);
                                 presence: root.data.presence; ring: root.ground;
                             }
                             // The picture opens the full profile.
@@ -1509,7 +1511,7 @@ export component ProfileCard inherits Rectangle {
                     VerticalLayout {
                         padding-left: root.pad; padding-right: root.pad; spacing: 12px;
                         VerticalLayout {
-                            spacing: root.docked && ClientStyle.enabled ? -3px : 2px;
+                            spacing: root.docked && ClientStyle.enabled ? -2px : 2px;
                             // The name and username select, to copy, as in
                             // Discord; the picture opens the full profile.
                             if root.data.name-style.length == 0: TextInput {
@@ -1674,8 +1676,8 @@ export component ProfileCard inherits Rectangle {
                             }
                         }
                         if root.data.has-bio: VerticalLayout {
-                            spacing: root.docked && ClientStyle.enabled ? 10px : 6px;
-                            padding-top: root.docked && ClientStyle.enabled ? 12px : 0px;
+                            spacing: root.docked && ClientStyle.enabled ? 7px : 6px;
+                            padding-top: root.docked && ClientStyle.enabled ? 11px : 0px;
                             // The card shows three lines and an ellipsis; the full profile
                             // shows it all. A fixed height, since the text would otherwise
                             // stretch the card past its limit.
@@ -1714,7 +1716,7 @@ export component ProfileCard inherits Rectangle {
                         // "Member Since", then the Discord logo and the account's date, and
                         // the server's icon and the date of joining it.
                         if root.full && (root.data.created != "" || root.data.joined != ""): VerticalLayout {
-                            spacing: root.docked && ClientStyle.enabled ? 8px : 6px;
+                            spacing: root.docked && ClientStyle.enabled ? 7px : 6px;
                             padding-top: root.docked && ClientStyle.enabled ? 7px : 0px;
                             ProfileTitle { text: "Member Since"; color: root.ink; }
                             MemberSince {
