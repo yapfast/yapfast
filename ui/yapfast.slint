@@ -3571,7 +3571,7 @@ export component YapfastWindow inherits Window {
                                             height: col.preferred-height + self.top;
                                             // The last row's tints stop above the space it leaves at the end,
                                             // where the typing line sits on the chat's own colour.
-                                            property <length> tail: index == root.messages.length - 1 ? (root.detached ? 74px : 20px) : 0px;
+                                            property <length> tail: index == root.messages.length - 1 ? (root.detached ? 74px : ClientStyle.enabled ? 26px : 20px) : 0px;
                                             // Where the message itself starts: its tint, hover bar and edge
                                             // leave out the history notice and the dividers above it.
                                             property <length> head: (index == 0 && root.room-ready ? (ClientStyle.enabled && root.history-start && root.intro-kind != "" ? (root.intro-kind == "server" ? ClientStyle.intro-server-height : ClientStyle.intro-channel-height) : 42px) : 0px)
@@ -3632,7 +3632,7 @@ export component YapfastWindow inherits Window {
                                                 col := VerticalLayout {
                                                     padding-top: message.day != "" || message.unread-start ? 12px : message.first ? ClientStyle.message-group-gap : 1px;
                                                     // The last row leaves room for the bar over a window's end.
-                                                    padding-bottom: index == root.messages.length - 1 ? (root.detached ? 52px : 20px) : 1px;
+                                                    padding-bottom: index == root.messages.length - 1 ? (root.detached ? 52px : ClientStyle.enabled ? 26px : 20px) : 1px;
                                                     spacing: 0px;
                                                     // History starts with what's before it: earlier messages
                                                     // loading, or the conversation's start.
@@ -3651,12 +3651,14 @@ export component YapfastWindow inherits Window {
                                                     if message.day != "" || message.unread-start: HorizontalLayout {
                                                         padding-left: message.unread-start ? 15px : 16px; padding-right: message.unread-start ? 30px : 16px;
                                                         padding-bottom: 6px; spacing: 0px; height: 26px;
-                                                        Rectangle { horizontal-stretch: 1; Rectangle { height: 1px; background: message.unread-start ? Theme.new-marker : Theme.line; } }
+                                                        Rectangle { horizontal-stretch: 1; Rectangle { height: 1px; background: message.unread-start ? Theme.new-marker : ClientStyle.enabled && Theme.dark ? #28282d : Theme.line; } }
                                                         if message.day != "": Rectangle {
-                                                            width: day-text.preferred-width + 20px;
+                                                            width: day-text.preferred-width + (ClientStyle.enabled ? 8px : 20px);
                                                             day-text := Text { text: message.day; color: message.unread-start ? Theme.new-marker : Theme.muted; font-size: ClientStyle.enabled ? 12px : 13px; font-weight: ClientStyle.enabled ? 600 : 700; vertical-alignment: center; horizontal-alignment: center; }
                                                         }
                                                         if message.day != "" && message.unread-start: Rectangle { horizontal-stretch: 1; Rectangle { height: 1px; background: Theme.new-marker; } }
+                                                        // Discord's date sits in the middle of its line.
+                                                        if ClientStyle.enabled && message.day != "" && !message.unread-start: Rectangle { horizontal-stretch: 1; Rectangle { height: 1px; background: Theme.dark ? #28282d : Theme.line; } }
                                                         if message.unread-start: Rectangle {
                                                             width: new-text.preferred-width + 14px;
                                                             accessible-role: text; accessible-label: "New messages start here";

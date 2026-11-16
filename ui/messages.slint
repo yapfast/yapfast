@@ -2075,24 +2075,32 @@ export component EmbedView inherits HorizontalLayout {
     // preferred height measured it at another width and cut off the end.
     Rectangle {
         max-width: 432px; horizontal-stretch: 100;
-        background: Theme.sidebar; border-radius: 4px; clip: true;
+        background: ClientStyle.enabled && Theme.dark ? #242429 : Theme.sidebar; border-radius: 4px; clip: true;
         Rectangle { x: 0px; width: 4px; background: root.embed.has-color ? root.embed.color : Theme.edge; }
         embed-body := HorizontalLayout {
             padding: 12px; padding-left: 16px; padding-right: 16px; spacing: 16px;
+            // Discord's card: its text starts 2px higher and ends 4px lower.
+            padding-top: ClientStyle.enabled ? 10px : 12px; padding-bottom: ClientStyle.enabled ? 16px : 12px;
             VerticalLayout {
                 spacing: 8px; horizontal-stretch: 1; alignment: start;
-                if root.embed.has-provider: StyledText { text: root.embed.provider; link-color: Theme.link; default-color: Theme.muted; default-font-size: 12px; max-lines: 1; }
+                if root.embed.has-provider: VerticalLayout {
+                    padding-bottom: ClientStyle.enabled ? 1px : 0px;
+                    StyledText { text: root.embed.provider; link-color: Theme.link; default-color: ClientStyle.enabled ? Theme.text : Theme.muted; default-font-size: 12px; max-lines: 1; }
+                }
                 if root.embed.has-author: StyledText { text: root.embed.author; link-color: Theme.link; default-color: Theme.text; default-font-size: 14px; }
-                if root.embed.has-title: StyledText {
-                    text: root.embed.title; default-color: Theme.text; link-color: Theme.link; default-font-size: 16px;
-                    link-clicked(link) => { root.open-link(link); }
+                if root.embed.has-title: VerticalLayout {
+                    padding-bottom: ClientStyle.enabled ? 2px : 0px;
+                    StyledText {
+                        text: root.embed.title; default-color: Theme.text; link-color: Theme.link; default-font-size: 16px;
+                        link-clicked(link) => { root.open-link(link); }
+                    }
                 }
                 if root.embed.has-description && root.embed.description-blocks.length == 0: StyledText {
-                    text: root.embed.description; default-color: Theme.secondary; link-color: Theme.link; default-font-size: 14px;
+                    text: root.embed.description; default-color: ClientStyle.enabled ? Theme.text : Theme.secondary; link-color: Theme.link; default-font-size: 14px;
                     link-clicked(link) => { root.open-link(link); }
                 }
                 if root.embed.description-blocks.length > 0: TextBlocks {
-                    blocks: root.embed.description-blocks; font-size: 14px; color: Theme.secondary; heading-color: Theme.text;
+                    blocks: root.embed.description-blocks; font-size: 14px; color: ClientStyle.enabled ? Theme.text : Theme.secondary; heading-color: Theme.text;
                     open-link(link) => { root.open-link(link); }
                 }
                 for row in root.embed.field-rows: HorizontalLayout {
@@ -2150,7 +2158,8 @@ export component EmbedView inherits HorizontalLayout {
                             }
                         }
                     }
-                    Rectangle { horizontal-stretch: 1; }
+                    // Discord's picture fills the card's width, with nothing beside it.
+                    if !ClientStyle.enabled: Rectangle { horizontal-stretch: 1; }
                 }
                 if root.embed.has-footer: StyledText { text: root.embed.footer; link-color: Theme.link; default-color: Theme.muted; default-font-size: 12px; }
             }
@@ -3099,10 +3108,11 @@ export component MessageContent inherits VerticalLayout {
                         }
                     }
                 }
+                if message.tag != "": Middle { ServerTagChip { text: message.tag; badge: message.tag-badge; server: message.tag-server; font-size: root.message-font-size * 0.72; } }
+                // After the server tag, as Discord's client puts it.
                 if message.new-member && ClientStyle.enabled: Middle {
                     Image { source: @image-url("icons/star-filled.svg"); width: 14px; height: 14px; colorize: #23a559; accessible-role: text; accessible-label: "New member"; }
                 }
-                if message.tag != "": Middle { ServerTagChip { text: message.tag; badge: message.tag-badge; server: message.tag-server; font-size: root.message-font-size * 0.72; } }
                 if message.bot: Middle { BotTag { } }
                 StyledText { text: message.time-styled; link-color: Theme.link; default-color: ClientStyle.enabled && Theme.dark ? Theme.channel-read : Theme.muted; default-font-size: root.message-font-size - (ClientStyle.enabled ? 4px : 3px); max-lines: 1; vertical-alignment: center; }
                 Rectangle { horizontal-stretch: 1; }
