@@ -445,3 +445,24 @@ fn the_pointer_passing_over_the_title_bar_sends_nothing_until_pressed() {
     let _ = app.update(Message::Bar(crate::window_bar::Event::Press));
     assert_eq!(moves(&app), 3, "pressed, its moves may drag the window");
 }
+
+#[test]
+fn the_monitors_scale_is_the_base_where_it_differs_from_the_windows() {
+    let (mut app, _folder) = preview();
+    let id = iced::window::Id::unique();
+    app.shell.window = Some(id);
+    app.shell.zoom = 1.25;
+    app.shell.display_scale = Some(1.5);
+    assert_eq!(app.window_factor(), 1.25, "the window's scale alone");
+    assert_eq!(app.device_scale(), 1.875);
+    // Held to the primary display's 150% on a 100% one, as Windows'
+    // HIGHDPIAWARE setting holds it.
+    let _ = app.update(Message::Shell(crate::shell::Event::MonitorScaled(
+        id,
+        Some(1.0),
+    )));
+    assert!((app.window_factor() - 1.25 / 1.5).abs() < 1e-6);
+    assert_eq!(app.device_scale(), 1.25);
+    let _ = app.update(Message::Shell(crate::shell::Event::MonitorScaled(id, None)));
+    assert_eq!(app.device_scale(), 1.875, "none names the window's again");
+}

@@ -132,7 +132,12 @@ build.
   scales the whole window by it. The window opens at its size in the
   desktop's pixels whatever the level, and a level kept on a larger screen
   starts no further in than the first window's room allows, as the Slint
-  client's, the kept level staying for the larger screen.
+  client's, the kept level staying for the larger screen. The level
+  multiplies the display's own scale: on Windows the scale of the monitor
+  the window is on, read as it opens, moves and changes size
+  (`Desktop::monitor_scale`), since a window held to the primary display's
+  density (Windows' HIGHDPIAWARE setting) names that density on every
+  display and is told no change; elsewhere the window's own.
 - Scrolling (`widgets::scroll_view`, every list that scrolls), as the
   Slint client's lists, with Slint's constants: a wheel's notch moves 60
   px over 180 ms, fast at first and slowing on Flutter's power curve; a

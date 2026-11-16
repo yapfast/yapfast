@@ -181,6 +181,15 @@ pub trait Desktop: Send + Sync {
     ) -> Option<Box<dyn PointerAt>> {
         None
     }
+    /// The scale of the display `window` is on, where the window's own may
+    /// not be it: Windows, where a compatibility setting, HIGHDPIAWARE,
+    /// holds the window to the primary display's density on every display
+    /// and sends no change of scale, while each monitor still names its
+    /// own. None elsewhere, as a Wayland monitor names only a whole scale
+    /// and the window has its fractional one.
+    fn monitor_scale(&self, _window: &dyn iced::window::Window) -> Option<f32> {
+        None
+    }
     /// The window's icon where the window carries one (X11), as RGBA.
     fn window_icon(&self) -> Option<(Vec<u8>, u32, u32)> {
         None

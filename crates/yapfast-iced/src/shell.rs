@@ -68,6 +68,9 @@ pub struct Shell {
     /// The display's own scale factor, as the window last said, which
     /// the zoom multiplies.
     pub display_scale: Option<f32>,
+    /// The scale of the monitor the window is on, where the desktop says
+    /// and it may differ from the window's (`Desktop::monitor_scale`).
+    pub monitor_scale: Option<f32>,
     /// The window's own title bar is drawn (`window_bar.rs`), its frame left
     /// out.
     pub own_title_bar: bool,
@@ -90,6 +93,11 @@ pub enum Event {
     /// The display's scale factor, as the window opened or moved to
     /// another display.
     Scaled(window::Id, f32),
+    /// The window moved or changed size, so it may be on another monitor;
+    /// asked on Windows only, where the monitor's scale is read.
+    Placed(window::Id),
+    /// The scale of the monitor the window is on, as the desktop read it.
+    MonitorScaled(window::Id, Option<f32>),
 }
 
 impl App {
@@ -174,13 +182,37 @@ impl App {
                 }
                 Task::none()
             }
+            Event::Placed(id) => Self::read_monitor_scale(id),
+            Event::MonitorScaled(id, scale) => {
+                if self.shell.window == Some(id) && self.shell.monitor_scale != scale {
+                    tracing::info!(?scale, window = ?self.shell.display_scale, "the monitor's scale");
+                    self.shell.monitor_scale = scale;
+                    self.place_videos();
+                }
+                Task::none()
+            }
         }
+    }
+
+    /// Reads the scale of the monitor window `id` is on.
+    fn read_monitor_scale(id: window::Id) -> Task<Message> {
+        window::run(id, |window| desktop::desktop().monitor_scale(window))
+            .map(move |scale| Message::Shell(Event::MonitorScaled(id, scale)))
+    }
+
+    /// The display's own scale: the monitor's where the desktop names it,
+    /// else the window's (`zoom::display_scale`).
+    fn base_scale(&self) -> f32 {
+        zoom::display_scale(
+            self.shell.monitor_scale,
+            self.shell.display_scale.unwrap_or(1.0),
+        )
     }
 
     /// The window's pixels to the app's units: the display's scale times
     /// the zoom, which iced draws at.
     pub fn device_scale(&self) -> f32 {
-        self.shell.display_scale.unwrap_or(1.0) * self.shell.zoom
+        self.base_scale() * self.shell.zoom
     }
 
     fn heard(&mut self, heard: Heard) -> Task<Message> {
@@ -296,6 +328,7 @@ impl App {
             self.open_pending_link(),
             self.read_window_state(),
             window::scale_factor(id).map(move |scale| Message::Shell(Event::Scaled(id, scale))),
+            Self::read_monitor_scale(id),
         ];
         if self.shell.maximized {
             tasks.push(window::maximize(id, true));
@@ -526,12 +559,20 @@ impl App {
         }
     }
 
-    /// The zoom, which iced multiplies the display's own scale by.
+    /// The zoom, which iced multiplies the window's own scale by, and the
+    /// monitor's scale over the window's where they differ.
     pub fn scale_factor(&self, _: window::Id) -> f32 {
         // iced hands a touchpad's moves on in the window's pixels; asked
         // for as each view is laid out, so this follows both scales.
         crate::widgets::set_pixel_scale(self.device_scale());
-        self.shell.zoom
+        self.window_factor()
+    }
+
+    /// What iced multiplies the window's own scale by: the zoom, and the
+    /// monitor's scale over the window's.
+    pub fn window_factor(&self) -> f32 {
+        let window = self.shell.display_scale.unwrap_or(1.0);
+        self.shell.zoom * self.base_scale() / window
     }
 
     /// Ctrl with + or - steps the zoom, Ctrl+0 returns to 100%, as the
@@ -615,6 +656,14 @@ impl App {
             iced::Event::Window(window::Event::Closed) => Some(Message::Shell(Event::Closed(id))),
             iced::Event::Window(window::Event::Rescaled(scale)) => {
                 Some(Message::Shell(Event::Scaled(id, scale)))
+            }
+            // A window held to one display's density, as by Windows'
+            // HIGHDPIAWARE setting, is told no change of scale on the others,
+            // so a move or a resize may already mean another monitor.
+            iced::Event::Window(window::Event::Moved(_) | window::Event::Resized(_))
+                if cfg!(windows) =>
+            {
+                Some(Message::Shell(Event::Placed(id)))
             }
             _ => None,
         })

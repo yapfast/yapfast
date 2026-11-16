@@ -177,6 +177,35 @@ impl yapfast_iced::Desktop for Shell {
         let _ = window;
     }
 
+    fn monitor_scale(&self, window: &dyn yapfast_iced::Window) -> Option<f32> {
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::{
+                Graphics::Gdi::{MONITOR_DEFAULTTONEAREST, MonitorFromWindow},
+                UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI},
+            };
+            let handle = window.window_handle().ok()?;
+            let raw_window_handle::RawWindowHandle::Win32(handle) = handle.as_raw() else {
+                return None;
+            };
+            let (mut x, mut y) = (0, 0);
+            // SAFETY: the handle is the window's, alive while iced runs this;
+            // these only read which monitor it's on and that monitor's DPI,
+            // as winit's MonitorHandle::scale_factor does for the Slint
+            // client.
+            let read = unsafe {
+                let monitor = MonitorFromWindow(handle.hwnd.get() as _, MONITOR_DEFAULTTONEAREST);
+                GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut x, &mut y)
+            };
+            (read == 0 && x > 0).then(|| x as f32 / 96.)
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = window;
+            None
+        }
+    }
+
     fn window_icon(&self) -> Option<(Vec<u8>, u32, u32)> {
         #[cfg(target_os = "linux")]
         {
