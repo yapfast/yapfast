@@ -2982,12 +2982,18 @@ export component YapfastWindow inherits Window {
                     height: ClientStyle.header-height;
                     HorizontalLayout {
                         padding-left: 16px; padding-right: ClientStyle.enabled ? 8px : 16px; spacing: 10px;
+                        // Discord's header avatar is 22px, its name 6px after it: the
+                        // layout's 10px less 4, taken from the room the avatar claims.
                         if root.room-direct: Middle {
+                            width: ClientStyle.enabled ? 18px : 26px;
                             Rectangle {
-                                width: 26px; height: 26px;
-                                Avatar { size: 26px; initial: root.room-initial; tint: root.room-tint; picture: root.room-picture; }
-                                if root.room-presence != "": StatusDot {
-                                    x: 14px; y: 14px; width: 14px; height: 14px; presence: root.room-presence; ring: Theme.chat;
+                                height: ClientStyle.enabled ? 22px : 26px;
+                                Rectangle {
+                                    x: 0px; y: 0px; width: parent.height; height: parent.height;
+                                    Avatar { size: parent.width; initial: root.room-initial; tint: root.room-tint; picture: root.room-picture; }
+                                    if root.room-presence != "": StatusDot {
+                                        x: ClientStyle.enabled ? 10px : 14px; y: ClientStyle.enabled ? 10px : 14px; width: 14px; height: 14px; presence: root.room-presence; ring: Theme.chat;
+                                    }
                                 }
                             }
                         }
@@ -3983,7 +3989,7 @@ export component YapfastWindow inherits Window {
                                         }
                                     }
                                     HorizontalLayout {
-                                        padding-left: 10px; padding-right: 8px; spacing: 6px;
+                                        padding-left: 10px; padding-right: 8px; spacing: ClientStyle.enabled ? 16px : 6px;
                                         // The buttons stay on the last line as the composer grows.
                                         VerticalLayout {
                                             alignment: end; padding-bottom: ClientStyle.composer-button-inset;
@@ -3993,7 +3999,8 @@ export component YapfastWindow inherits Window {
                                                 // Discord's is a plain 18px plus, not a circled one.
                                                 icon: ClientStyle.enabled ? @image-url("icons/plus.svg") : @image-url("icons/circle-plus.svg");
                                                 label: root.can-start-threads || root.can-create-polls ? "More options" : "Attach files";
-                                                glyph: ClientStyle.enabled ? 27px : 22px;
+                                                glyph: ClientStyle.enabled ? 25.5px : 22px;
+                                                tint: ClientStyle.enabled && Theme.dark ? #a5a6ac : Theme.secondary;
                                                 enabled: root.can-attach || root.can-start-threads || root.can-create-polls;
                                                 clicked => {
                                                     if root.can-start-threads || root.can-create-polls {
