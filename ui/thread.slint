@@ -260,6 +260,7 @@ export component ThreadPanel inherits Rectangle {
                                 open-thread(room) => { root.open-thread(room); }
                                 open-sticker(item, index, x, y, width, height) => { root.open-sticker(item, index, x, y, width, height); }
                                 react(item, key) => { root.react(item, key); }
+                                add-reaction(item, x, y, width, height) => { root.open-picker(item, x, y, width, height); }
                                 retry(item) => { root.retry(item); }
                                 cancel-send(item) => { root.cancel-send(item); }
                                 dismiss-ephemeral(item) => { root.dismiss-ephemeral(item); }

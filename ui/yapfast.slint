@@ -3711,6 +3711,7 @@ export component YapfastWindow inherits Window {
                                                         open-select(item, id) => { root.open-select(item, id); }
                                                         open-thread(room) => { root.open-aside(room); }
                                                         react(item, key) => { root.react(item, key); }
+                                                        add-reaction(item, x, y, width, height) => { root.anchor(x, y, width, height, false); root.open-picker(item); }
                                                         retry(item) => { root.retry(item); }
                                                         cancel-send(item) => { root.cancel-send(item); }
                                                         dismiss-ephemeral(item) => { root.dismiss-ephemeral(item); }

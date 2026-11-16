@@ -263,7 +263,7 @@ export component ReactionToggle inherits Rectangle {
     in property <bool> enabled;
     in property <string> emoji-font;
     callback clicked;
-    min-width: chip.preferred-width; height: 28px; border-radius: 8px;
+    min-width: chip.preferred-width; height: ClientStyle.enabled ? 30px : 28px; border-radius: 8px;
     background: root.mine ? Theme.accent-soft : Theme.raised;
     border-width: 1px;
     border-color: root.mine ? Theme.accent.with-alpha(0.7) : pointer.has-hover && root.enabled ? Theme.overlay.with-alpha(0.15) : transparent;
@@ -2923,6 +2923,8 @@ export component MessageContent inherits VerticalLayout {
     callback open-select(string, string);
     callback open-thread(string);
     callback react(string, string);
+    /// The button after the reactions: the picker opens at its place.
+    callback add-reaction(string, length, length, length, length);
     callback retry(string);
     callback cancel-send(string);
     /// "Dismiss message" under an answer only this account sees.
@@ -3067,7 +3069,7 @@ export component MessageContent inherits VerticalLayout {
                     // Discord's names are medium weight, a step under bold.
                     author-plain := Text {
                         width: parent.width; height: parent.height; visible: ClientStyle.enabled && message.name-style.length == 0;
-                        text: message.author; color: message.has-color ? message.color : Theme.text;
+                        text: message.author; color: message.has-color ? message.color : Theme.channel-white;
                         font-size: root.message-font-size; vertical-alignment: center; overflow: elide;
                         // A styled name measures in its own font.
                         font-family: message.name-style[0].family;
@@ -3079,12 +3081,12 @@ export component MessageContent inherits VerticalLayout {
                     }
                     if message.name-style.length > 0: StyledName {
                         width: parent.width; height: parent.height;
-                        text: message.author; styles: message.name-style; ink: message.has-color ? message.color : Theme.text; font-size: root.message-font-size; font-weight: 500;
+                        text: message.author; styles: message.name-style; ink: message.has-color ? message.color : (ClientStyle.enabled ? Theme.channel-white : Theme.text); font-size: root.message-font-size; font-weight: 500;
                     }
                     // Underlined while pointed at, as a link is.
                     if author-touch.has-hover: Rectangle {
                         y: (parent.height + root.message-font-size) / 2 + 1px; height: 1px;
-                        background: message.has-color ? message.color : Theme.text;
+                        background: message.has-color ? message.color : (ClientStyle.enabled ? Theme.channel-white : Theme.text);
                     }
                     author-touch := TouchArea {
                         enabled: message.sender != "";
@@ -3102,7 +3104,7 @@ export component MessageContent inherits VerticalLayout {
                 }
                 if message.tag != "": Middle { ServerTagChip { text: message.tag; badge: message.tag-badge; server: message.tag-server; font-size: root.message-font-size * 0.72; } }
                 if message.bot: Middle { BotTag { } }
-                StyledText { text: message.time-styled; link-color: Theme.link; default-color: ClientStyle.enabled && Theme.dark ? #86878f : Theme.muted; default-font-size: root.message-font-size - (ClientStyle.enabled ? 4px : 3px); max-lines: 1; vertical-alignment: center; }
+                StyledText { text: message.time-styled; link-color: Theme.link; default-color: ClientStyle.enabled && Theme.dark ? Theme.channel-read : Theme.muted; default-font-size: root.message-font-size - (ClientStyle.enabled ? 4px : 3px); max-lines: 1; vertical-alignment: center; }
                 Rectangle { horizontal-stretch: 1; }
             }
             // As Discord's client marks a forward, above what it carries.
@@ -3224,11 +3226,28 @@ export component MessageContent inherits VerticalLayout {
             // The reactions wrap onto more lines, as Discord's do: a row would
             // make the message as wide as all of them, past the timeline's edge.
             if message.reactions.length > 0: FlexboxLayout {
-                spacing: 6px; alignment: start; cross-axis-line-alignment: start; padding-top: 4px;
+                spacing: ClientStyle.enabled ? 4px : 6px; alignment: start; cross-axis-line-alignment: start; padding-top: 4px;
                 for reaction in message.reactions: ReactionToggle {
                     item: message.item; key: reaction.key; label: reaction.label; count: reaction.count; mine: reaction.mine; emoji-font: root.emoji-font;
                     enabled: message.can-react && root.reactions-enabled;
                     clicked => { root.react(message.item, reaction.key); }
+                }
+                // Discord's button after the last reaction, which adds another.
+                if ClientStyle.enabled && message.can-react && root.reactions-enabled: add-chip := Rectangle {
+                    width: 34px; height: 30px; border-radius: 8px;
+                    background: Theme.raised;
+                    border-width: 1px;
+                    border-color: add-touch.has-hover ? Theme.overlay.with-alpha(0.15) : transparent;
+                    accessible-role: button; accessible-label: "Add reaction";
+                    accessible-action-default => { root.add-reaction(message.item, add-chip.absolute-position.x, add-chip.absolute-position.y, add-chip.width, add-chip.height); }
+                    Image {
+                        source: @image-url("icons/smile-plus.svg"); width: 16px; height: 16px; image-fit: contain;
+                        colorize: add-touch.has-hover ? Theme.text : Theme.secondary;
+                    }
+                    add-touch := TouchArea {
+                        mouse-cursor: MouseCursor.pointer;
+                        clicked => { root.add-reaction(message.item, add-chip.absolute-position.x, add-chip.absolute-position.y, add-chip.width, add-chip.height); }
+                    }
                 }
             }
             if message.delivery != "" && !message.sending: HorizontalLayout {

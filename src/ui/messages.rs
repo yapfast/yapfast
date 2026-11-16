@@ -505,12 +505,30 @@ pub(super) fn message_row_within(
     } else {
         None
     };
+    // Discord ends an edited message's text with its "(edited)"; a message of
+    // blocks keeps the label under it.
+    let edited_inline = message.edited
+        && !message.deleted
+        && message.formatted
+        && message.notice.is_none()
+        && blocks.is_none()
+        && yapfast::enabled();
     let styled = if blocks.is_some() {
         slint::StyledText::default()
     } else if let Some(notice) = &message.notice {
         notice_text(message, notice, &message.time)
     } else if message.formatted {
         let carded = emoji_text::linked(&custom_emoji::linked(&mentioned, &message.emoji));
+        let carded = if edited_inline {
+            // Discord's "(edited)" ends the text, as the text does.
+            format!(
+                "{} <font color=\"#{:06x}\">(edited)</font>",
+                carded.trim_end(),
+                theme::muted_color() & 0xff_ffff
+            )
+        } else {
+            carded
+        };
         if message.spoilers {
             styled(&spoiler::mark(&carded, &message.item, 0, |index| {
                 revealed.contains(&format!("{}/{index}", message.item))
@@ -754,7 +772,7 @@ pub(super) fn message_row_within(
         notice: notice_icon(message.notice.as_ref()).into(),
         author_styled: bold(&message.author),
         time_styled: slint::StyledText::from_plain_text(&message.time),
-        edited: message.edited,
+        edited: message.edited && !edited_inline,
         deleted: message.deleted,
         forwarded: message.forwarded,
         new_member: message.new_member,
