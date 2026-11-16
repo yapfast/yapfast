@@ -291,13 +291,13 @@ export component MemberPanel inherits Rectangle {
             vertical-stretch: 1;
             for member[index] in root.rows: VerticalLayout {
                 padding-left: 8px; padding-right: 8px;
-                padding-top: index == 0 && !(ClientStyle.enabled && root.activity-rows.length > 0) ? 8px : 0px;
+                padding-top: index == 0 ? (ClientStyle.enabled && root.activity-rows.length > 0 ? 1px : 8px) : 0px;
                 // Discord's rows with a line under the name sit 44px apart, plain ones 42px.
                 padding-bottom: index == root.rows.length - 1 ? 12px : ClientStyle.enabled && member.activity == "" && member.activity-emoji == "" ? 0px : 2px;
                 spacing: 2px;
                 // Discord's group heading: 14px medium in the channel grey, 20px above and 4px below.
                 if member.heading != "": HorizontalLayout {
-                    padding-left: 8px; padding-top: 20px; padding-bottom: 4px; height: ClientStyle.enabled ? 39px : 42px; spacing: 8px;
+                    padding-left: 8px; padding-top: 20px; padding-bottom: ClientStyle.enabled ? 6px : 4px; height: ClientStyle.enabled ? 41px : 42px; spacing: 8px;
                     if member.group-icon != "": Middle { RoleIcon { url: member.group-icon; size: 20px; } }
                     Text { text: member.heading; color: #81828a; font-size: 14px; font-weight: 500; vertical-alignment: center; }
                 }
@@ -1720,7 +1720,8 @@ export component ProfileCard inherits Rectangle {
                             // its presence, follows that, so the layout's width does not.
                             Text {
                                 property <bool> cut: !root.bio-full && !root.preview && bio-whole.preferred-height > bio-text.preferred-height + 2px;
-                                height: self.cut ? 16px : 0px; visible: self.cut;
+                                height: self.cut ? (root.docked && ClientStyle.enabled ? 18px : 16px) : 0px; visible: self.cut;
+                                vertical-alignment: root.docked && ClientStyle.enabled ? TextVerticalAlignment.bottom : TextVerticalAlignment.top;
                                 text: ClientStyle.enabled ? "Show full bio" : "View full bio"; color: root.ink; font-size: 12px; font-weight: ClientStyle.enabled ? 400 : 700;
                                 TouchArea { enabled: parent.cut; mouse-cursor: MouseCursor.pointer; clicked => { root.enlarge(); } }
                             }
@@ -1730,7 +1731,7 @@ export component ProfileCard inherits Rectangle {
                         // the server's icon and the date of joining it.
                         if root.full && (root.data.created != "" || root.data.joined != ""): VerticalLayout {
                             spacing: root.docked && ClientStyle.enabled ? 7px : 6px;
-                            padding-top: root.docked && ClientStyle.enabled ? 7px : 0px;
+                            padding-top: root.docked && ClientStyle.enabled ? 8px : 0px;
                             ProfileTitle { text: "Member Since"; color: root.ink; }
                             MemberSince {
                                 created: root.data.created; joined: root.data.joined;
