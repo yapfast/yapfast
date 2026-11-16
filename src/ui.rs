@@ -1275,6 +1275,7 @@ struct Layout {
     profile_effects: Option<bool>,
     decorations: Option<bool>,
     moving_cosmetics: Option<bool>,
+    moving_avatars: Option<bool>,
     name_styles: Option<bool>,
     server_tags: Option<bool>,
     profile_frames: Option<bool>,
@@ -1547,6 +1548,7 @@ impl Layout {
             effects: self.profile_effects.unwrap_or(default.effects),
             decorations: self.decorations.unwrap_or(default.decorations),
             moving: self.moving_cosmetics.unwrap_or(default.moving),
+            avatars: self.moving_avatars.unwrap_or(default.avatars),
             name_styles: self.name_styles.unwrap_or(default.name_styles),
             server_tags: self.server_tags.unwrap_or(default.server_tags),
             frames: self.profile_frames.unwrap_or(default.frames),
@@ -1561,10 +1563,12 @@ impl Layout {
         looks.set_profile_effects(cosmetics.effects);
         looks.set_decorations(cosmetics.decorations);
         looks.set_moving(cosmetics.moving);
+        looks.set_moving_avatars(cosmetics.avatars);
         looks.set_name_styles(cosmetics.name_styles);
         looks.set_server_tags(cosmetics.server_tags);
         looks.set_profile_frames(cosmetics.frames);
         pictures::set_moving_collectibles(cosmetics.moving);
+        pictures::set_moving_avatars(cosmetics.avatars);
     }
 
     /// Reads Settings' profile switches.
@@ -1573,10 +1577,12 @@ impl Layout {
         self.profile_effects = Some(looks.get_profile_effects());
         self.decorations = Some(looks.get_decorations());
         self.moving_cosmetics = Some(looks.get_moving());
+        self.moving_avatars = Some(looks.get_moving_avatars());
         self.name_styles = Some(looks.get_name_styles());
         self.server_tags = Some(looks.get_server_tags());
         self.profile_frames = Some(looks.get_profile_frames());
         pictures::set_moving_collectibles(self.cosmetics().moving);
+        pictures::set_moving_avatars(self.cosmetics().avatars);
     }
 
     /// Shows the custom games, and has detection use them.

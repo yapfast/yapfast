@@ -542,6 +542,11 @@ export component Avatar inherits Rectangle {
     /// Discord's client animates a decoration while the pointer is on its row
     /// or message.
     in property <bool> animate;
+    /// A Nitro avatar plays while `animate` is set and the setting allows it;
+    /// its GIF is asked for only then, so a list holds and downloads stills.
+    property <string> moving-url: root.animate && !Motion.never && root.picture-url != "" ? PictureStore.animated(root.picture-url) : "";
+    property <[image]> moving-frames: root.moving-url != "" ? PictureStore.frames(root.moving-url, PictureStore.revision(root.moving-url)) : [];
+    property <[int]> moving-delays: root.moving-url != "" ? PictureStore.delays(root.moving-url, PictureStore.revision(root.moving-url)) : [];
     property <image> decoration: root.decoration-url != "" ? PictureStore.picture(root.decoration-url, PictureStore.revision(root.decoration-url)) : @image-url("");
     property <string> animated-url: root.animate && root.decoration-url != "" ? PictureStore.animated(root.decoration-url) : "";
     function request-decoration() {
@@ -551,7 +556,11 @@ export component Avatar inherits Rectangle {
         if root.animated-url != "" {
             PictureStore.request(root.animated-url);
         }
+        if root.moving-url != "" && root.moving-frames.length == 0 {
+            PictureStore.request(root.moving-url);
+        }
     }
+    changed moving-url => { root.request-decoration(); }
     changed decoration-url => { root.request-decoration(); }
     changed decoration => { root.request-decoration(); }
     changed animated-url => { root.request-decoration(); }
@@ -572,7 +581,7 @@ export component Avatar inherits Rectangle {
         border-bottom-left-radius: root.corner-bl >= 0px ? root.corner-bl : root.shape;
         border-bottom-right-radius: root.corner-br >= 0px ? root.corner-br : root.shape;
         clip: true;
-        Image { source: root.shown-picture; width: root.size; height: root.size; image-fit: cover; }
+        Picture { still: root.shown-picture; frames: root.moving-frames; delays: root.moving-delays; width: root.size; height: root.size; image-fit: cover; accessible-role: none; }
     }
     if root.decoration.width > 0: Picture {
         x: -root.size / 10; y: -root.size / 10; width: root.size * 1.2; height: root.size * 1.2;

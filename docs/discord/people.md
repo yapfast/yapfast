@@ -776,11 +776,15 @@ window draws carry no address for it, so Slint asks for nothing either.
 | Show avatar decorations (`decorations`) | No decoration on messages, member lists, DM rows, profile cards or the account | On |
 | Show nameplates (`nameplates`) | No nameplate in member lists or on the account's card (`AppState::hide_nameplates`) | On |
 | Animate decorations and nameplates (`moving_cosmetics`) | Their `/animated` APNG is never asked for (`animated_url` gives none), so only the still is fetched and decoded | On |
+| Animate avatars (`moving_avatars`) | A Nitro avatar's GIF (`a_` hash) is never asked for (`animated_url` gives none), so only the still is fetched and decoded | Off |
 | Show name styles (`name_styles`) | Names in the UI's typeface and the theme's colour | On |
 | Show server tags (`server_tags`) | No tag chip, and no badge picture | On |
 | Show profile frames (`profile_frames`) | No `/collectibles-products/` request for a profile's frame (`DiscordCommand::Profile`'s `frame`), and none of its layers | On |
 
-Every switch starts on, so profiles look as in Discord's client. The
+Every switch starts on but Animate avatars, so profiles look as in Discord's
+client but for moving avatars. A Nitro avatar (a hash that starts with `a_`) plays
+its GIF while the pointer is on its card or member row, and is fetched only
+then; it's kept in the picture cache with other avatars, and goes with them. The
 switches are there for the cheaper side: an effect's layers are APNGs up
 to 450 by 880 decoded frame by frame, and an animated decoration or
 nameplate decodes each frame it shows, CPU and memory for looks alone,

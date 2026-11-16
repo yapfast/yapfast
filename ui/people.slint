@@ -505,6 +505,8 @@ export struct ProfileData {
     /// The address of their banner's moving version, a GIF, which their
     /// card plays; empty when it doesn't move.
     banner-moving: string,
+    /// The address of their avatar, whose moving version the card plays.
+    picture-url: string,
     /// When they became friends, for a friend; never on one's own.
     friends-since: string,
 }
@@ -1393,7 +1395,7 @@ export component ProfileCard inherits Rectangle {
                             x: root.pad - 6px; y: root.banner-height - root.avatar-size / 2 - 6px;
                             width: root.avatar-size + 12px; height: self.width; border-radius: self.width / 2;
                             background: root.ground;
-                            Avatar { size: root.avatar-size; initial: root.data.initial; tint: root.data.tint; picture: root.data.picture; decoration-url: root.data.decoration-url; animate: card-pointer.has-hover; }
+                            Avatar { size: root.avatar-size; initial: root.data.initial; tint: root.data.tint; picture: root.data.picture; picture-url: root.data.picture-url; decoration-url: root.data.decoration-url; animate: card-pointer.has-hover; }
                             if root.data.presence != "" && root.data.presence != "offline": StatusDot {
                                 x: parent.width - self.width - (root.large ? 14px : 10px); y: parent.height - self.height - (root.large ? 14px : 10px);
                                 presence: root.data.presence; ring: root.ground;

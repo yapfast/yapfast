@@ -16,6 +16,9 @@ pub struct Cosmetics {
     /// Decorations and nameplates play their animated pictures. Off, only
     /// their stills are fetched.
     pub moving: bool,
+    /// Animated avatars (Nitro's GIFs) play when pointed at. Off, only the
+    /// still is fetched.
+    pub avatars: bool,
     /// Display names show in the font and colours their person picked.
     pub name_styles: bool,
     /// Server tags show beside names, with their badges.
@@ -26,13 +29,15 @@ pub struct Cosmetics {
 }
 
 impl Default for Cosmetics {
-    /// Everything on, as Discord's client draws a profile; each switch turns
-    /// its cosmetic off.
+    /// Everything on, as Discord's client draws a profile, but avatars hold
+    /// still: each switch turns its cosmetic off, and moving avatars cost
+    /// the most, so they're opt-in.
     fn default() -> Self {
         Self {
             effects: true,
             decorations: true,
             moving: true,
+            avatars: false,
             name_styles: true,
             server_tags: true,
             frames: true,
@@ -77,6 +82,7 @@ mod tests {
             effects: false,
             decorations: false,
             moving: false,
+            avatars: false,
             name_styles: false,
             server_tags: false,
             frames: false,
@@ -94,6 +100,7 @@ mod tests {
             effects: true,
             decorations: true,
             moving: true,
+            avatars: true,
             name_styles: true,
             server_tags: true,
             frames: true,
@@ -102,7 +109,13 @@ mod tests {
         assert_eq!(on.tag(Some(&"TAG")), Some(&"TAG"));
         assert_eq!(on.style(Some(1)), Some(1));
         assert_eq!(on.effect(Some("sku")), Some("sku"));
-        // Every switch starts on.
-        assert_eq!(Cosmetics::default(), on);
+        // Every switch starts on, but moving avatars.
+        assert_eq!(
+            Cosmetics::default(),
+            Cosmetics {
+                avatars: false,
+                ..on
+            }
+        );
     }
 }

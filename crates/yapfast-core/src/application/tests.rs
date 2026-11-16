@@ -4722,6 +4722,7 @@ fn profile_switches_that_are_off_ask_for_nothing() {
         effects: false,
         decorations: false,
         moving: false,
+        avatars: false,
         name_styles: false,
         server_tags: false,
         frames: false,
