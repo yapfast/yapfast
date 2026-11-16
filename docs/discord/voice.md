@@ -627,9 +627,21 @@ its speech probability is at least 0.6. A 0 dB threshold let typing open the
 gate in pauses, and 10 dB missed quiet speech. RNNoise's probability beside
 DeepFilterNet's output did no better, so Yapfast doesn't run both. The gate
 keeps the last 100 ms while shut and sends them when it opens, so a soft start
-such as an "h" isn't cut off; speech goes out that much later until the gate
-closes. It stays shut for the first 200 ms after the microphone opens, while
-the suppressor learns the noise.
+such as an "h" isn't cut off. They wait to be sent all at once, and the call
+takes 20 ms a tick, so speech goes out that much later until a pause drains
+them (`Drain` in `discord_audio.rs`). Past a pause's first 50 ms, which keep
+a word dying away and the silence before a "t" whole, blocks quieter than
+-50 dBFS and than the sensitivity go unsent, as long as what waits to be sent,
+at its lowest since the gate opened, keeps 20 ms without them: from then about
+40 ms waits as a tick takes a frame, rather than 110 to 120. That lowest takes
+in a microphone that delivers in bursts. The microphone's thread held up past
+it leaves a tick with nothing to send, as in push to talk, and the queue then
+keeps what the stall left until the gate shuts. A quiet block goes only when
+the next is one too, so the block just before speech starts again is always
+sent, and what follows fades in from the dropped block over 5 ms, so the drop
+doesn't click. With no suppression, over a fan or hiss, pauses are seldom
+quiet enough, and the delay stays. The gate stays shut for the first 200 ms
+after the microphone opens, while the suppressor learns the noise.
 
 The declicker (`crates/yapfast-core/src/declick.rs`, on unless
 `noise::set_declick` turns it off) takes out what DeepFilterNet leaves of mouse
@@ -678,7 +690,8 @@ speech.
 
 DeepFilterNet is 21 ms later than RNNoise. Both lag by half their 20 ms window,
 10 ms, DeepFilterNet also looks two blocks ahead, and the declicker adds 1 ms.
-With the gate's 100 ms, speech goes out 131 ms late. The speech it doesn't send
+With the gate's 100 ms, speech goes out 131 ms late until a pause drains all
+but 20 ms of that. The speech it doesn't send
 is mostly the first second after the microphone opens, while its normalization
 and WebRTC's gain control settle, and 10-50 ms at the quiet ends of words.
 
@@ -690,6 +703,8 @@ To hear the processing, run a recording through it: raw mono 16-bit 48 kHz in
 out and `YAPFAST_LEVELING=off` turns leveling off. `YAPFAST_AUDIO_FAR`, in the same
 format and as long, is what the speakers played, for echo cancellation;
 `YAPFAST_AUDIO_ECHOED` then gets the microphone with only echo cancelled.
+It also prints how long what the gate sends would wait for a call's tick on
+average, with pauses drained and without.
 
 ## Push to talk
 
@@ -751,7 +766,8 @@ sums up its audio every 5 s in one line, "the call's audio over the last
 5 s", counted as it goes without logging anything else: `ticks`;
 `mic_frames`, ticks that played the microphone, of which `mic_underfilled`
 had less than 20 ms of it waiting and `mic_empty` none, and sent nothing; `mic_fewest`, the fewest samples
-waiting as a frame was taken, and `mic_dropped`, samples the microphone's
+waiting as a frame was taken (with the voice gate, about 1920, 40 ms, once a
+pause has drained what it kept from before opening), and `mic_dropped`, samples the microphone's
 buffer dropped as too old (more than 250 ms waiting); `late_p99_us` and
 `late_most_us`, how late ticks came; `batch_most` and `batch_longest_us`, the
 most datagrams a tick read before playing and the longest that took;

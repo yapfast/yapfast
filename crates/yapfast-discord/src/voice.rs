@@ -309,6 +309,11 @@ impl Microphone {
     pub fn clear(&self) {
         lock(&self.buffer).clear();
     }
+
+    /// How many samples wait to be sent.
+    pub fn waiting(&self) -> usize {
+        lock(&self.buffer).len()
+    }
 }
 
 /// A live microphone input for [`Call::play`], and its writer. The call
@@ -336,6 +341,7 @@ mod tests {
         let (microphone, input) = live_microphone();
         microphone.push(&vec![0.0; MICROPHONE_BACKLOG]);
         microphone.push(&[1.0]);
+        assert_eq!(microphone.waiting(), MICROPHONE_BACKLOG);
         let buffer = lock(&input.buffer);
         assert_eq!(buffer.len(), MICROPHONE_BACKLOG);
         assert_eq!(buffer.back(), Some(&1.0));

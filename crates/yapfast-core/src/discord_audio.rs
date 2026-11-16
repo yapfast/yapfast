@@ -256,8 +256,12 @@ const OPEN_AFTER: u32 = 3;
 const GATE_HOLD: u32 = 40;
 /// Blocks kept from before the gate opens and sent when it does: a word's
 /// quiet start, such as an "h", comes before it's loud or clear enough to open
-/// it. Speech goes out this much later while the gate stays open.
+/// it. Speech goes out this much later until a pause drains it ([`Drain`]).
 const BEFORE_OPENING: usize = 10;
+/// The first blocks of a pause the gate holds open through are always sent,
+/// 50 ms: a word dying away, and a short silence inside a word, such as
+/// before a "t", go out as they are.
+const PAUSE_KEPT: u32 = 5;
 /// The suppressor takes a few blocks to learn the noise, which passes
 /// meanwhile, so the gate stays shut for this many after the microphone opens.
 const WARM_UP: u32 = 20;
@@ -274,6 +278,11 @@ struct Gate {
     before: VecDeque<[f32; BLOCK]>,
     /// What the last block sends.
     sent: Vec<[f32; BLOCK]>,
+    /// Whether the last block can go unsent, to cut the delay
+    /// [`BEFORE_OPENING`] adds: it came while the gate held open through a
+    /// pause, after the pause's first [`PAUSE_KEPT`] blocks, and quieter
+    /// than speech counts and than the sensitivity.
+    spare: bool,
 }
 
 impl Default for Gate {
@@ -285,6 +294,7 @@ impl Default for Gate {
             opening: 0,
             before: VecDeque::with_capacity(BEFORE_OPENING),
             sent: Vec::with_capacity(BEFORE_OPENING + 1),
+            spare: false,
         }
     }
 }
@@ -316,6 +326,10 @@ impl Gate {
         } else {
             self.hold = self.hold.saturating_sub(1);
         }
+        // Open, the hold counts the pause since the last block that held it.
+        self.spare = self.is_open()
+            && GATE_HOLD - self.hold > PAUSE_KEPT
+            && level < SPEAKING_FLOOR.min(self.sensitivity);
         self.sent.clear();
         if !self.is_open() {
             if self.before.len() == BEFORE_OPENING {
@@ -338,12 +352,104 @@ impl Gate {
         self.opening = 0;
         // Back in voice activation, the next block decides.
         self.hold = u32::from(open);
+        // Held, the key sends pauses as they are.
+        self.spare = false;
         self.before.clear();
         self.sent.clear();
         if open {
             self.sent.push(*samples);
         }
         &self.sent
+    }
+}
+
+/// The least that [`Drain`] leaves waiting to be sent as a block comes: 20 ms,
+/// so about 40 ms waits as each tick of the call takes a frame, and the
+/// microphone's blocks can come 20 ms late before a tick finds less than a
+/// frame.
+const DRAIN_TO: usize = 2 * BLOCK;
+/// What follows dropped blocks fades in from the first of them over this
+/// many samples, 5 ms, so the drop doesn't click.
+const SPLICE: usize = BLOCK / 2;
+
+/// Cuts the delay the gate's [`BEFORE_OPENING`] adds. What the gate kept
+/// waits to be sent all at once as it opens, and the call takes 20 ms every
+/// 20 ms, so speech would go out that much later until the gate shuts.
+/// Instead, spare blocks of a pause ([`Gate::spare`]) go unsent as long as
+/// the queue, at its lowest since the gate opened, still holds [`DRAIN_TO`]
+/// without them. That lowest, just before a block is queued, takes in how
+/// unevenly the microphone and the ticks run, so draining doesn't leave a
+/// tick without a frame. A spare block waits for the next one: it goes only
+/// between spare blocks, so the block just before speech starts again is
+/// always sent, and a drop fades into a quiet block, never into speech.
+#[derive(Default)]
+struct Drain {
+    /// The fewest samples that waited to be sent as a block came, since the
+    /// gate opened, less those dropped since.
+    fewest: Option<usize>,
+    /// A spare block held back until the next shows whether it can go.
+    held: Option<[f32; BLOCK]>,
+    /// The start of the first block dropped since one was queued.
+    dropped: Option<[f32; SPLICE]>,
+}
+
+impl Drain {
+    /// Queues what the gate sent for its last block: everything as it opens,
+    /// into a queue just cleared, and while it stays open, the block unless
+    /// it can go. `was_open` is whether the gate was open before that block,
+    /// and `waiting` says how many samples wait to be sent.
+    fn queue(
+        &mut self,
+        gate: &Gate,
+        was_open: bool,
+        waiting: impl FnOnce() -> usize,
+        mut queue: impl FnMut(&[f32]),
+    ) {
+        if !was_open {
+            if !gate.sent.is_empty() {
+                *self = Self::default();
+            }
+            for samples in &gate.sent {
+                queue(samples);
+            }
+            return;
+        }
+        // Shut, it sends nothing more, nor what was held.
+        let [samples] = gate.sent.as_slice() else {
+            return;
+        };
+        let waiting = waiting() + usize::from(self.held.is_some()) * BLOCK;
+        let mut fewest = self.fewest.map_or(waiting, |fewest| fewest.min(waiting));
+        let goes = |fewest: usize| gate.spare && fewest >= DRAIN_TO + BLOCK;
+        if let Some(held) = self.held.take() {
+            if goes(fewest) {
+                fewest -= BLOCK;
+                self.dropped
+                    .get_or_insert_with(|| std::array::from_fn(|at| held[at]));
+            } else {
+                self.send(&held, &mut queue);
+            }
+        }
+        if goes(fewest) {
+            self.held = Some(*samples);
+        } else {
+            self.send(samples, &mut queue);
+        }
+        self.fewest = Some(fewest);
+    }
+
+    /// Queues a block, faded in from the blocks dropped just before it.
+    fn send(&mut self, samples: &[f32; BLOCK], queue: &mut impl FnMut(&[f32])) {
+        let Some(dropped) = self.dropped.take() else {
+            queue(samples);
+            return;
+        };
+        let mut samples = *samples;
+        for (at, (sample, old)) in samples.iter_mut().zip(dropped).enumerate() {
+            let weight = at as f32 / SPLICE as f32;
+            *sample = old * (1.0 - weight) + *sample * weight;
+        }
+        queue(&samples);
     }
 }
 
@@ -954,6 +1060,7 @@ impl CaptureRequest {
         let mut block = [0i16; BLOCK];
         let mut pace = Pace::default();
         let mut lightly = false;
+        let mut drain = Drain::default();
         while !self.stop.load(Ordering::Relaxed) {
             let reading = Instant::now();
             stream.read(&mut block);
@@ -963,9 +1070,8 @@ impl CaptureRequest {
                 recycle(played);
             }
             let was_open = processing.gate.is_open();
-            let sent = processing.block(&mut block, lightly);
             // The gate sends while it's open.
-            let open = !sent.is_empty();
+            let open = !processing.block(&mut block, lightly).is_empty();
             if open != was_open {
                 self.talking.store(open, Ordering::Relaxed);
                 let _ = if open {
@@ -975,9 +1081,12 @@ impl CaptureRequest {
                     self.track.pause()
                 };
             }
-            for samples in sent {
-                self.out.push(samples);
-            }
+            drain.queue(
+                &processing.gate,
+                was_open,
+                || self.out.waiting(),
+                |samples| self.out.push(samples),
+            );
             lightly = pace.note(read - reading, read.elapsed());
         }
         self.talking.store(false, Ordering::Relaxed);
@@ -1037,6 +1146,12 @@ fn processes_a_recording() {
     let (mut processed, mut sent) = (Vec::new(), Vec::new());
     let (mut opened, mut blocks) = (0, 0);
     let mut took = std::time::Duration::ZERO;
+    // What waits to be sent as a call's ticks take 20 ms every other block
+    // while the gate is open, drained and not: samples waiting, and the ms
+    // that waited at each tick, summed.
+    let mut drain = Drain::default();
+    let (mut drained, mut whole) = ((0, 0.0), (0, 0.0));
+    let (mut ticks, mut short, mut unsent) = (0, 0, 0);
     for bytes in input.chunks_exact(BLOCK * 2) {
         let mut block: Vec<i16> = bytes
             .chunks_exact(2)
@@ -1079,6 +1194,31 @@ fn processes_a_recording() {
         if !processing.gate.is_open() && was_open {
             println!("closed at {:.2} s", blocks as f32 / 100.0);
         }
+        if processing.gate.is_open() && !was_open {
+            (drained.0, whole.0) = (0, 0);
+        }
+        let mut queued = 0;
+        drain.queue(
+            &processing.gate,
+            was_open,
+            || drained.0,
+            |samples| queued += samples.len(),
+        );
+        drained.0 += queued;
+        whole.0 += out.len() * BLOCK;
+        // A block held back to decide with the next counts as unsent until
+        // it goes.
+        unsent = unsent + out.len() * BLOCK - queued;
+        if processing.gate.is_open() && blocks % 2 == 1 {
+            ticks += 1;
+            short += u32::from(drained.0 < FRAME);
+            for (waiting, waited) in [&mut drained, &mut whole] {
+                *waited += *waiting as f32 / 48.0;
+                if *waiting >= FRAME {
+                    *waiting -= FRAME;
+                }
+            }
+        }
         blocks += 1;
         processed.extend(block.iter().flat_map(|sample| sample.to_le_bytes()));
         if out.is_empty() {
@@ -1093,6 +1233,13 @@ fn processes_a_recording() {
     println!(
         "{blocks} blocks, the gate opened {opened} times, {:?} a block",
         took / blocks
+    );
+    println!(
+        "as a call takes it, {:.0} ms waits for a tick on average, {:.0} without draining \
+         pauses; {} blocks of pauses went unsent, and {short} ticks found less than a frame",
+        drained.1 / ticks.max(1) as f32,
+        whole.1 / ticks.max(1) as f32,
+        unsent / BLOCK
     );
     std::fs::write(std::env::var("YAPFAST_AUDIO_OUT").unwrap(), processed).unwrap();
     if let Ok(path) = std::env::var("YAPFAST_AUDIO_SENT") {
@@ -1263,6 +1410,286 @@ mod tests {
             gate.block(&block, -100.0, false);
         }
         assert!(opens(&mut gate, -10.0, false));
+    }
+
+    #[test]
+    fn only_quiet_blocks_well_into_a_pause_are_spare() {
+        let mut gate = Gate::default();
+        let block = [0.0; BLOCK];
+        for _ in 0..WARM_UP {
+            gate.block(&block, -100.0, false);
+        }
+        for _ in 0..OPEN_AFTER {
+            gate.block(&block, -30.0, true);
+            assert!(!gate.spare, "speech");
+        }
+        assert!(gate.is_open());
+        // A pause's first blocks always go.
+        for _ in 0..PAUSE_KEPT {
+            gate.block(&block, -80.0, false);
+            assert!(!gate.spare);
+        }
+        gate.block(&block, -80.0, false);
+        assert!(gate.spare);
+        // Quieter than speech counts, but not than the sensitivity.
+        gate.block(&block, -55.0, false);
+        assert!(!gate.spare);
+        // Speech holds the gate, and the next pause starts over.
+        gate.block(&block, -40.0, true);
+        for _ in 0..PAUSE_KEPT {
+            gate.block(&block, -80.0, false);
+            assert!(!gate.spare);
+        }
+        // Less sensitive than speech counts, the gate keeps what speech is.
+        gate.sensitivity = -40.0;
+        gate.block(&block, -45.0, false);
+        assert!(!gate.spare);
+        gate.block(&block, -55.0, false);
+        assert!(gate.spare);
+        // Push to talk sends pauses as they are.
+        gate.pass(&block, true);
+        assert!(!gate.spare);
+    }
+
+    #[test]
+    fn a_dropped_block_fades_into_the_next_and_never_into_speech() {
+        let mut gate = Gate::default();
+        let block = [0.0; BLOCK];
+        for _ in 0..WARM_UP {
+            gate.block(&block, -100.0, false);
+        }
+        for _ in 0..OPEN_AFTER {
+            gate.block(&block, -30.0, true);
+        }
+        for _ in 0..PAUSE_KEPT {
+            gate.block(&block, -80.0, false);
+        }
+        let mut drain = Drain::default();
+        let mut queued: Vec<[f32; BLOCK]> = Vec::new();
+        // Two spare blocks, then speech, with 100 ms waiting to be sent.
+        for (value, level, speech) in [(1.0, -80.0, false), (2.0, -80.0, false), (3.0, -30.0, true)]
+        {
+            let was_open = gate.is_open();
+            gate.block(&[value; BLOCK], level, speech);
+            drain.queue(
+                &gate,
+                was_open,
+                || 10 * BLOCK,
+                |samples| queued.push(samples.try_into().unwrap()),
+            );
+        }
+        // The first went; the second, just before speech, starts where the
+        // first did; the speech is as it came.
+        assert_eq!(queued.len(), 2);
+        assert_eq!(queued[0][0], 1.0);
+        assert!(
+            queued[0].windows(2).all(|pair| pair[1] >= pair[0]),
+            "no jump"
+        );
+        assert!(queued[0][SPLICE..].iter().all(|sample| *sample == 2.0));
+        assert_eq!(queued[1], [3.0; BLOCK]);
+    }
+
+    /// What a simulated call did with its microphone's blocks.
+    #[derive(Default)]
+    struct Simulated {
+        /// The blocks the ticks sent, in order.
+        sent: Vec<[f32; BLOCK]>,
+        /// The index of each block queued to be sent.
+        queued: Vec<usize>,
+        /// For each tick that sent the microphone, when it came, in ms, and
+        /// how many ms of it waited as it took a frame.
+        ticks: Vec<(u64, f32)>,
+        /// Ticks that found less than a frame waiting while the gate was open.
+        short: u32,
+    }
+
+    impl Simulated {
+        /// Whether block `index` was sent, all of it as it came.
+        fn sent_whole(&self, index: usize) -> bool {
+            self.sent
+                .iter()
+                .any(|block| block.iter().all(|sample| *sample == (index + 1) as f32))
+        }
+
+        /// The fewest and the most ms that waited as a tick took a frame,
+        /// from `from` ms to `to`.
+        fn waited(&self, from: u64, to: u64) -> (f32, f32) {
+            self.ticks
+                .iter()
+                .filter(|(at, _)| (from..to).contains(at))
+                .fold((f32::INFINITY, 0.0), |(fewest, most), (_, waited)| {
+                    (fewest.min(*waited), most.max(*waited))
+                })
+        }
+    }
+
+    /// Runs `blocks`, each a level in RMS dBFS and whether the suppressor
+    /// takes it for speech, through the gate into the call's queue as the
+    /// microphone's thread does, block `index` coming at `arrives(index)`
+    /// ms, with samples of `index + 1`. A tick takes 20 ms of the queue every
+    /// 20 ms while the gate is open, as the call's do. Not `draining`,
+    /// everything the gate sends is queued, as before [`Drain`].
+    fn simulate(
+        blocks: &[(f32, bool)],
+        arrives: impl Fn(usize) -> u64,
+        draining: bool,
+    ) -> Simulated {
+        let mut gate = Gate::default();
+        let mut drain = Drain::default();
+        let mut queue = VecDeque::new();
+        let mut simulated = Simulated::default();
+        let mut next = 0;
+        for now in 0..arrives(blocks.len() - 1) + 100 {
+            while next < blocks.len() && arrives(next) <= now {
+                let (level, speech) = blocks[next];
+                let was_open = gate.is_open();
+                gate.block(&[(next + 1) as f32; BLOCK], level, speech);
+                if gate.is_open() && !was_open {
+                    queue.clear();
+                }
+                let waiting = queue.len();
+                let mut push = |samples: &[f32]| {
+                    simulated.queued.push(samples[BLOCK - 1] as usize - 1);
+                    queue.extend(samples);
+                };
+                if draining {
+                    drain.queue(&gate, was_open, || waiting, push);
+                } else {
+                    gate.sent.iter().for_each(|samples| push(samples));
+                }
+                next += 1;
+            }
+            if now % 20 == 5 && gate.is_open() {
+                let waited = queue.len();
+                if waited < FRAME {
+                    simulated.short += 1;
+                    continue;
+                }
+                simulated.ticks.push((now, waited as f32 / 48.0));
+                let frame: Vec<f32> = queue.drain(..FRAME).collect();
+                for block in frame.chunks_exact(BLOCK) {
+                    simulated.sent.push(block.try_into().unwrap());
+                }
+            }
+        }
+        simulated
+    }
+
+    const SPEECH: (f32, bool) = (-30.0, true);
+    const SILENCE: (f32, bool) = (-90.0, false);
+
+    /// Silence, two words with a 40 ms stop inside, a 250 ms pause, a soft
+    /// start quieter than the sensitivity, a second of speech, and silence
+    /// till the gate shuts. Returns the blocks, the stop's, and the soft
+    /// start's, which the second speech follows.
+    fn speech_pause_speech() -> (Vec<(f32, bool)>, std::ops::Range<usize>, usize) {
+        let mut blocks = vec![SILENCE; WARM_UP as usize + 30];
+        blocks.extend([SPEECH; 40]);
+        let stop = blocks.len()..blocks.len() + 4;
+        blocks.extend([SILENCE; 4]);
+        blocks.extend([SPEECH; 40]);
+        blocks.extend([(-80.0, false); 25]);
+        let soft = blocks.len();
+        blocks.push((-65.0, false));
+        blocks.extend([SPEECH; 100]);
+        blocks.extend(vec![SILENCE; GATE_HOLD as usize + 10]);
+        (blocks, stop, soft)
+    }
+
+    /// Asserts that every block of speech, and those `kept`, went out whole.
+    fn sends_all_speech(blocks: &[(f32, bool)], simulated: &Simulated, kept: &[usize]) {
+        for (index, block) in blocks.iter().enumerate() {
+            if *block == SPEECH || kept.contains(&index) {
+                assert!(
+                    simulated.sent_whole(index),
+                    "block {index} wasn't sent whole"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_pause_drains_the_delay_the_gate_adds_without_dropping_speech() {
+        let (blocks, stop, soft) = speech_pause_speech();
+        let every_10_ms = |index: usize| index as u64 * 10;
+        let before = simulate(&blocks, every_10_ms, false);
+        let after = simulate(&blocks, every_10_ms, true);
+        let kept: Vec<usize> = stop.clone().chain([soft]).collect();
+        sends_all_speech(&blocks, &before, &kept);
+        sends_all_speech(&blocks, &after, &kept);
+        assert!(after.queued.is_sorted());
+        assert_eq!((before.short, after.short), (0, 0));
+        let speaking = (every_10_ms(soft + 1), every_10_ms(soft + 100));
+        let (before_fewest, _) = before.waited(speaking.0, speaking.1);
+        let (after_fewest, after_most) = after.waited(speaking.0, speaking.1);
+        eprintln!(
+            "after the pause, {before_fewest} ms or more waited as a tick took a frame; \
+             draining, {after_fewest} to {after_most} ms"
+        );
+        assert!(before_fewest >= 100.0);
+        assert!(after_most <= 40.0);
+        // The first word goes out as late as before: there's no pause in it.
+        let first_word = (every_10_ms(WARM_UP as usize + 30), every_10_ms(stop.start));
+        assert_eq!(
+            before.waited(first_word.0, first_word.1),
+            after.waited(first_word.0, first_word.1)
+        );
+    }
+
+    #[test]
+    fn draining_leaves_what_a_microphone_in_bursts_needs() {
+        // A device that delivers 30 ms at once.
+        let (blocks, stop, soft) = speech_pause_speech();
+        let in_threes = |index: usize| (index / 3) as u64 * 30;
+        let before = simulate(&blocks, in_threes, false);
+        let after = simulate(&blocks, in_threes, true);
+        let kept: Vec<usize> = stop.chain([soft]).collect();
+        sends_all_speech(&blocks, &after, &kept);
+        assert_eq!((before.short, after.short), (0, 0));
+        let speaking = (in_threes(soft + 1), in_threes(soft + 100));
+        let (before_fewest, _) = before.waited(speaking.0, speaking.1);
+        let (after_fewest, after_most) = after.waited(speaking.0, speaking.1);
+        eprintln!(
+            "in bursts, {before_fewest} ms or more waited after the pause; \
+             draining, {after_fewest} to {after_most} ms"
+        );
+        assert!(before_fewest >= 100.0);
+        assert!(after_most <= 60.0);
+    }
+
+    #[test]
+    fn a_microphone_held_up_past_what_draining_left_keeps_the_queue_it_needed() {
+        // The microphone's thread held up 50 ms in the second speech, then a
+        // second pause and more speech.
+        let (mut blocks, _, soft) = speech_pause_speech();
+        let held_up = soft + 50;
+        let pause = soft + 101;
+        blocks.truncate(pause);
+        blocks.extend([(-80.0, false); 25]);
+        blocks.extend([SPEECH; 50]);
+        blocks.extend(vec![SILENCE; GATE_HOLD as usize + 10]);
+        let arrives = |index: usize| {
+            let on_time = index as u64 * 10;
+            if (held_up..held_up + 5).contains(&index) {
+                (held_up + 5) as u64 * 10
+            } else {
+                on_time
+            }
+        };
+        let before = simulate(&blocks, arrives, false);
+        let after = simulate(&blocks, arrives, true);
+        sends_all_speech(&blocks, &after, &[]);
+        // The 100 ms before covered it; 40 ms doesn't, and one tick sends
+        // nothing, as in push to talk.
+        assert_eq!((before.short, after.short), (0, 1));
+        // Then the queue keeps what the stall left: the next pause drops
+        // nothing.
+        let in_pause = pause..pause + 25;
+        assert!(in_pause.clone().all(|index| after.queued.contains(&index)));
+        let late = after.waited(arrives(pause + 25), arrives(pause + 74));
+        eprintln!("after the stall, {late:?} ms waited");
+        assert!(late.0 >= 60.0);
     }
 
     /// Joins the fake Discord's Lounge, unmutes, and beeps where the
