@@ -980,8 +980,10 @@ export component TextField inherits Rectangle {
     in property <length> leading-space: 22px;
     /// The field's corners.
     in property <length> radius: 6px;
+    /// How much further from the field's end the trailing picture sits.
+    in property <length> trailing-extra: 0px;
     property <length> leading: root.leading-icon.width > 0 ? root.leading-space : 0px;
-    property <length> trailing: root.trailing-icon.width > 0 ? 28px : 0px;
+    property <length> trailing: root.trailing-icon.width > 0 ? 28px + root.trailing-extra : 0px;
     /// The field has the keys.
     out property <bool> focused: input.has-focus;
     callback edited(string);
@@ -1034,7 +1036,7 @@ export component TextField inherits Rectangle {
         }
     }
     if root.trailing-icon.width > 0: Image {
-        x: root.width - root.pad - 20px + 4px; y: (root.height - 20px) / 2; width: 20px; height: 20px;
+        x: root.width - root.pad - 20px + 4px - root.trailing-extra; y: (root.height - 20px) / 2; width: 20px; height: 20px;
         source: root.trailing-icon; colorize: root.trailing-tint;
     }
 }

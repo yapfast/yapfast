@@ -4818,11 +4818,11 @@ export component YapfastWindow inherits Window {
         }
         ProfileCard {
             opacity: Popup.opacity(profile-motion.amount); transform-scale: Popup.scale(profile-motion.amount);
-            width: 300px; limit: root.height - root.title-height - 16px;
+            width: ClientStyle.enabled ? 304px : 300px; limit: root.height - root.title-height - 16px;
             x: root.profile-at-pointer
                 ? root.beside(root.anchor-x, root.anchor-width, self.width)
                 : root.width - root.members-shown - 8px - self.width;
-            y: max(root.title-height + 8px, min(root.height - self.height - 8px, (root.profile-at-pointer ? root.anchor-y - 8px : root.profile-y - 16px)));
+            y: max(root.title-height + 8px, min(root.height - self.height - 8px, (root.profile-at-pointer ? root.anchor-y - 8px : ClientStyle.enabled ? root.profile-y + 2px : root.profile-y - 16px)));
             data: root.profile;
             enlarge => { root.profile-start-tab = -1; root.enlarge-profile(); }
             enlarge-on(tab) => { root.profile-start-tab = tab; root.enlarge-profile(); }

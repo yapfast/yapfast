@@ -1318,6 +1318,12 @@ export component ProfileCard inherits Rectangle {
     /// Discord's DM panel names a private profile in a bar above the banner.
     property <bool> badges-beside: ClientStyle.enabled && !root.large && (root.docked || root.data.badges.length <= 6) && root.data.badges.length > 0 && root.data.handle != "";
     property <bool> private-bar: root.docked && ClientStyle.enabled && root.data.private && !root.data.own;
+    /// Discord's popout, as measured: a 304px box with 8px corners, its avatar
+    /// 16px in and 61px down, and 14px between its parts.
+    property <bool> card-d: ClientStyle.enabled && !root.large && !root.docked && !root.preview;
+    property <length> avatar-x: root.card-d ? root.pad - 2px : root.pad;
+    property <length> avatar-y: root.banner-height - root.avatar-size / 2 - 6px - (root.docked && ClientStyle.enabled ? 10px : root.card-d ? 6px : 0px);
+    property <length> radius: root.docked ? (ClientStyle.enabled ? 8px : 0px) : root.card-d ? 8px : 12px;
     property <length> top-bar: root.private-bar ? 32px : 0px;
     property <length> avatar-size: root.side ? 96px : root.large ? 120px : 80px;
     property <length> pad: root.side ? 20px : root.large ? 24px : 16px;
@@ -1354,9 +1360,9 @@ export component ProfileCard inherits Rectangle {
     // themed card, the colours measured off Discord's, white on a light theme.
     property <color> bubble: !root.themed ? Theme.raised : root.light ? #ffffff : #232427;
     property <color> bubble-edge: !root.themed ? Theme.edge : root.light ? #00000026 : #404044;
-    height: min(body.preferred-height, root.limit);
+    height: min(body.preferred-height + (root.themed && root.card-d ? 4px : 0px), root.limit);
     background: root.themed ? @linear-gradient(180deg, root.primary 0%, root.secondary 100%) : root.plain-ground;
-    border-radius: root.docked ? (ClientStyle.enabled ? 8px : 0px) : 12px; border-width: root.themed ? 0px : root.docked && !ClientStyle.enabled ? 0px : 1px; border-color: Theme.edge;
+    border-radius: root.radius; border-width: root.themed ? 0px : root.docked && !ClientStyle.enabled ? 0px : 1px; border-color: Theme.edge;
     drop-shadow-blur: root.docked ? 0px : 24px; drop-shadow-color: root.docked ? transparent : #00000080; drop-shadow-offset-y: root.docked ? 0px : 8px;
     accessible-role: groupbox;
     accessible-label: root.data.name + "'s profile";
@@ -1397,7 +1403,7 @@ export component ProfileCard inherits Rectangle {
         Rectangle {
             x: root.themed ? 2px : 0px; y: root.themed ? 2px : 0px;
             width: parent.width - (root.themed ? 4px : 0px); height: parent.height - (root.themed ? 4px : 0px);
-            border-radius: (root.docked ? (ClientStyle.enabled ? 8px : 0px) : 12px) - (root.themed ? 2px : 0px); clip: true;
+            border-radius: root.radius - (root.themed ? 2px : 0px); clip: true;
             if root.themed: Rectangle {
                 property <float> stop: (root.banner-height + root.top-bar) / self.height;
                 background: @linear-gradient(180deg, root.theme-start 0%, root.theme-start self.stop * 100%, root.theme-end 100%);
@@ -1423,7 +1429,7 @@ export component ProfileCard inherits Rectangle {
                     }
                     // The banner, with the avatar hanging over its lower edge.
                     Rectangle {
-                        height: root.banner-height + root.avatar-size / 2 + (root.docked && ClientStyle.enabled ? 6px : 8px);
+                        height: root.banner-height + root.avatar-size / 2 + (root.docked && ClientStyle.enabled ? 6px : root.card-d ? 15px : 8px);
                         Rectangle {
                             y: 0px; height: root.banner-height;
                             background: root.auto-theme ? root.primary : root.data.has-accent ? root.data.accent : root.themed ? root.data.theme-primary : Theme.raised;
@@ -1464,15 +1470,15 @@ export component ProfileCard inherits Rectangle {
                         }
                         // The card's.
                         if root.has-thought && !root.large: Rectangle {
-                            x: root.pad + root.avatar-size + 2px; y: root.banner-height - 16px; width: 7px; height: 7px; border-radius: 3.5px;
+                            x: root.card-d ? root.avatar-x + root.avatar-size + 10px : root.pad + root.avatar-size + 2px; y: root.banner-height - (root.card-d ? 21px : 16px); width: 7px; height: 7px; border-radius: 3.5px;
                             background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
                         }
                         if root.has-thought && !root.large: Rectangle {
-                            x: root.pad + root.avatar-size + 11px; y: root.banner-height - 9px; width: 11px; height: 11px; border-radius: 5.5px;
+                            x: root.card-d ? root.avatar-x + root.avatar-size + 23px : root.pad + root.avatar-size + 11px; y: root.banner-height - (root.card-d ? 16px : 9px); width: root.card-d ? 13px : 11px; height: self.width; border-radius: self.width / 2;
                             background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
                         }
                         if root.has-thought && !root.large: Rectangle {
-                            x: root.pad + root.avatar-size + 12px; y: root.banner-height + 4px;
+                            x: root.card-d ? root.avatar-x + root.avatar-size + 12px : root.pad + root.avatar-size + 12px; y: root.banner-height + (root.card-d ? -7px : 4px);
                             width: min(root.width - self.x - 12px, thought.preferred-width + 24px);
                             height: (small-bubble.has-hover ? thought.preferred-height : min(thought.preferred-height, 38px)) + 14px;
                             animate height { duration: 180ms; easing: ease-out; }
@@ -1484,18 +1490,18 @@ export component ProfileCard inherits Rectangle {
                                 thought := StatusText {
                                     width: parent.width; height: parent.height;
                                     text: root.data.activity; emoji-url: root.data.activity-emoji;
-                                    color: root.ink; font-size: 13px; wrap: word-wrap;
+                                    color: root.ink; font-size: root.card-d && root.data.activity == "" ? 26px : 13px; wrap: word-wrap;
                                 }
                             }
                         }
                         Rectangle {
-                            x: root.pad - 6px; y: root.banner-height - root.avatar-size / 2 - 6px - (root.docked && ClientStyle.enabled ? 10px : 0px);
+                            x: root.avatar-x - 6px; y: root.avatar-y;
                             width: root.avatar-size + 12px; height: self.width; border-radius: self.width / 2;
                             background: root.ground;
                             Avatar { size: root.avatar-size; initial: root.data.initial; tint: root.data.tint; picture: root.data.picture; decoration-url: root.data.decoration-url; animate: card-pointer.has-hover; }
                             if root.data.presence != "" && (root.data.presence != "offline" || (root.docked && ClientStyle.enabled)): StatusDot {
-                                width: root.docked && ClientStyle.enabled ? 26px : 16px; height: self.width;
-                                x: parent.width - self.width - (root.docked && ClientStyle.enabled ? 6px : root.large ? 14px : 10px); y: parent.height - self.height - (root.docked && ClientStyle.enabled ? 5px : root.large ? 14px : 10px);
+                                width: root.card-d || (root.docked && ClientStyle.enabled) ? 26px : 16px; height: self.width;
+                                x: parent.width - self.width - (root.docked && ClientStyle.enabled ? 6px : root.large ? 14px : root.card-d ? 6px : 10px); y: parent.height - self.height - (root.docked && ClientStyle.enabled ? 5px : root.large ? 14px : root.card-d ? 6px : 10px);
                                 presence: root.data.presence; ring: root.ground;
                             }
                             // The picture opens the full profile.
@@ -1509,9 +1515,9 @@ export component ProfileCard inherits Rectangle {
                         }
                     }
                     VerticalLayout {
-                        padding-left: root.pad; padding-right: root.pad; spacing: 12px;
+                        padding-left: root.pad; padding-right: root.pad; spacing: root.card-d ? 14px : 12px;
                         VerticalLayout {
-                            spacing: root.docked && ClientStyle.enabled ? -2px : 2px;
+                            spacing: root.docked && ClientStyle.enabled ? -2px : root.card-d ? -3px : 2px;
                             // The name and username select, to copy, as in
                             // Discord; the picture opens the full profile.
                             if root.data.name-style.length == 0: TextInput {
@@ -1539,6 +1545,13 @@ export component ProfileCard inherits Rectangle {
                                 // Discord's card has the badges beside the username.
                                 if root.badges-beside: Middle { BadgeRows { badges: root.data.badges; ink: root.ink; open-link(url) => { root.open-link(url); } } }
                                 if root.data.tag != "": Middle { ServerTagChip { text: root.data.tag; badge: root.data.tag-badge; server: root.preview ? "" : root.data.tag-server; keyboard: true; font-weight: 400; chip-height: 24px; pad: 8px; radius: 8px; fill: root.light ? #ffffff3d : #97979f1f; outline: #97979f0a; outline-width: 1px; text-color: root.themed ? root.ink : Theme.text; } }
+                            }
+                            // Discord's popout keeps the badges in the name's block,
+                            // 2px under the username row (the column's -3px spacing
+                            // plus 5px).
+                            if root.card-d && root.data.badges.length > 0 && !root.badges-beside: VerticalLayout {
+                                padding-top: 5px;
+                                BadgeRows { badges: root.data.badges; ink: root.ink; open-link(url) => { root.open-link(url); } }
                             }
                         }
                         // The full profile's actions: the friend button, the message
@@ -1590,13 +1603,13 @@ export component ProfileCard inherits Rectangle {
                                 action-more := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.more(self.absolute-position.x, self.absolute-position.y + self.height); } }
                             }
                         }
-                        if root.data.badges.length > 0 && !root.badges-beside: BadgeRows {
+                        if root.data.badges.length > 0 && !root.badges-beside && !root.card-d: BadgeRows {
                             badges: root.data.badges; ink: root.ink;
                             open-link(url) => { root.open-link(url); }
                         }
                         // The full profile has its Activity tab for them, as
                         // Discord's does; the card leaves them out.
-                        if !root.large && (root.data.activities.length > 0 || !(root.docked && ClientStyle.enabled)): VerticalLayout {
+                        if !root.large && (root.data.activities.length > 0 || (!(root.docked && ClientStyle.enabled) && !root.card-d)): VerticalLayout {
                             spacing: 12px;
                             for activity in root.data.activities: ActivityCard {
                                 // Discord's card has it on anyone's but a bot's.
@@ -1676,7 +1689,7 @@ export component ProfileCard inherits Rectangle {
                             }
                         }
                         if root.data.has-bio: VerticalLayout {
-                            spacing: root.docked && ClientStyle.enabled ? 7px : 6px;
+                            spacing: root.docked && ClientStyle.enabled ? 7px : root.card-d ? 0px : 6px;
                             padding-top: root.docked && ClientStyle.enabled ? 11px : 0px;
                             // The card shows three lines and an ellipsis; the full profile
                             // shows it all. A fixed height, since the text would otherwise
@@ -1687,7 +1700,7 @@ export component ProfileCard inherits Rectangle {
                                 VerticalLayout {
                                     bio-text := StyledText {
                                         text: root.data.bio; default-color: root.ink; link-color: Theme.link;
-                                        default-font-size: root.full ? 14px : 13px;
+                                        default-font-size: root.full || root.card-d ? 14px : 13px;
                                         max-lines: root.bio-full ? 0 : 3;
                                         link-clicked(link) => { root.open-link(link); }
                                     }
@@ -1700,7 +1713,7 @@ export component ProfileCard inherits Rectangle {
                                 bio-whole := StyledText {
                                     y: 0px; width: parent.width; visible: false;
                                     text: root.data.bio; default-color: root.ink;
-                                    default-font-size: root.full ? 14px : 13px;
+                                    default-font-size: root.full || root.card-d ? 14px : 13px;
                                 }
                             }
                             // Only where the card cut the text short; its height, not
@@ -1835,6 +1848,8 @@ export component ProfileCard inherits Rectangle {
                         }
                         // Escape in the box closes the card, as it does elsewhere.
                         if !root.large && !root.preview && root.data.message-hint != "": FocusScope {
+                            // Discord's field is 44px, 16px under what is above it.
+                            height: root.card-d ? 46px : 40px;
                             // It empties for someone else's profile.
                             property <string> person: root.data.id;
                             changed person => { message-field.text = ""; }
@@ -1843,6 +1858,8 @@ export component ProfileCard inherits Rectangle {
                                 return reject;
                             }
                             message-field := TextField {
+                                y: root.card-d ? 2px : 0px; width: parent.width; height: root.card-d ? 44px : 40px;
+                                pad: root.card-d ? 15px : 12px; trailing-extra: root.card-d ? 7px : 0px;
                                 placeholder: root.data.message-hint; label: root.data.message-hint;
                                 placeholder-color: root.ink2; trailing-icon: @image-url("icons/smile.svg");
                                 text-size: 14px; border-radius: 8px; fill: !root.themed ? Theme.text.transparentize(0.92) : root.light ? #ffffff3d : #ffffff1f; ink: root.ink; trailing-tint: root.ink2;
@@ -1860,7 +1877,7 @@ export component ProfileCard inherits Rectangle {
             // The friend request and the person's menu sit over the banner's
             // top right corner, as in Discord.
             if !root.preview && !root.large && (root.data.friend > 0 || root.data.id != ""): HorizontalLayout {
-                x: parent.width - self.preferred-width - (root.large && !root.side ? 54px : root.docked && ClientStyle.enabled ? 8px : 10px); y: root.docked && ClientStyle.enabled && root.themed ? 8px : 10px;
+                x: parent.width - self.preferred-width - (root.large && !root.side ? 54px : root.docked && ClientStyle.enabled ? 8px : 10px); y: root.docked && ClientStyle.enabled && root.themed ? 8px : root.card-d ? 7px : 10px;
                 height: 32px; spacing: 8px;
                 // Discord's moderator view button; the view itself isn't built yet,
                 // so the button only shows.

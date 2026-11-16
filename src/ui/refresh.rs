@@ -5170,7 +5170,8 @@ impl Adapter {
         } else {
             view.profile.id.clone().into()
         });
-        let data = profile_data(&mut self.pictures, state, view);
+        let mut data = profile_data(&mut self.pictures, state, view);
+        data.can_moderate = self.app.offers_moderator_view(&view.profile.id);
         if let Some(data) = changed_profile(&window.get_profile(), data) {
             window.set_profile(data);
         }

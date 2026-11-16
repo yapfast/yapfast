@@ -121,6 +121,22 @@ impl Application {
             .then(|| page.members.iter().find(|member| member.person.id == user))?
     }
 
+    /// Whether someone's card offers the moderator view: they are another
+    /// member of the Discord server the menu would act in, and this account
+    /// may kick, ban or time out members there. Discord's card shows it on
+    /// those rights alone, whoever outranks whom.
+    pub fn offers_moderator_view(&self, user: &str) -> bool {
+        #[cfg(feature = "discord")]
+        if let Some(place) = self.member_place(user) {
+            return self.state.relation(user) != Relation::Me
+                && [Permission::Kick, Permission::Ban, Permission::Moderate]
+                    .into_iter()
+                    .any(|permission| self.may(place, permission));
+        }
+        let _ = user;
+        false
+    }
+
     /// Whether someone's menu in `place` is a Discord server member's.
     #[cfg(feature = "discord")]
     fn is_member_place(&self, place: &str, user: &str) -> bool {
