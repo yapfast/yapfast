@@ -702,12 +702,17 @@ impl Processing {
         } else {
             self.dereverb = None;
         }
-        let talking = crate::push_to_talk::on().then(|| {
-            self.talk.block(
+        // A push-to-mute key held sends nothing in either mode.
+        let muting = crate::push_to_talk::muting();
+        let talking = if crate::push_to_talk::on() {
+            let held = self.talk.block(
                 crate::push_to_talk::held(),
                 crate::push_to_talk::release_delay_ms(),
-            )
-        });
+            );
+            Some(held && !muting)
+        } else {
+            muting.then_some(false)
+        };
         let sent = match talking {
             None => Sent::Gated,
             Some(true) => Sent::Always,

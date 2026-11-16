@@ -91,8 +91,9 @@ and `scripts/package-arch`, and another `scripts/build-windows` in the Windows s
 build, cargo-xwin's MSVC files and the compiled Rust dependencies
 (`Swatinem/rust-cache`) cached between runs. The Linux build has no cache: it
 compiles in the Nix sandbox, which can't reach one. The last job publishes the
-AppImage, its `.zsync` file, the Arch package, the Windows ZIP, the source snapshot and
-`SHA256SUMS.txt` as a prerelease on that commit. Wine doesn't start on the
+AppImage, its `.zsync` file, the Arch package, the Windows ZIP, the source snapshot,
+`SHA256SUMS.txt` and its signature by the nightly key ([Signing
+releases](#signing-releases)) as a prerelease on that commit. Wine doesn't start on the
 runner, so there's no installer. The release's notes list the commits since the
 previous nightly, or the latest release, each with its author's GitHub account:
 features and fixes by their Conventional Commit type, the rest folded away
@@ -193,7 +194,8 @@ About's "Install updates automatically" switch stays greyed out and off.
 
 - **A Linux AppImage** that the person can write to. The release's AppImage
   streams to `.yapfast-update.part` beside the old one, hashed as it arrives.
-  Unless its SHA-256 matches the release's `SHA256SUMS.txt` it is deleted. It
+  Unless its SHA-256 matches the release's signed `SHA256SUMS.txt` it is
+  deleted. It
   then runs once with `--smoke-test` (a minute at most), so a build that
   can't start on this computer never replaces one that can. It is renamed
   over the old file, which is atomic on one filesystem, and Yapfast
@@ -214,12 +216,13 @@ Everything else is left alone, with the reason on the page: a package manager's
 or Flatpak's copy (it updates it), a portable ZIP or a build of one's own, a
 release without the file for this install (nightlies carry no Windows
 installer, so a Windows install is offered View release for them), a release
-without `SHA256SUMS.txt`, and a folder that can't be written to. Any failure
-(no network, a sum that doesn't match, a failed start-up check) is shown on the
-page with the old Yapfast still running and the downloaded file removed.
-Cancel stops a download that is still going. The files come from GitHub over
-HTTPS, and the sums from the same release: they protect against a broken
-or cut-off download, not against GitHub itself.
+without `SHA256SUMS.txt` or its signature, and a folder that can't be written
+to. Any failure (no network, a signature or sum that doesn't match, a failed
+start-up check) is shown on the page with the old Yapfast still running and
+the downloaded file removed. Cancel stops a download that is still going.
+Before anything is downloaded, `src/update/signature.rs` checks the sums'
+signature, so a release someone changed on GitHub isn't installed; the sums
+then catch a broken or cut-off download.
 
 The window ends with `ui::Exit::Update`, and `main::finish_update` finishes
 it once the window, the tray icon and the session are gone. Test it with
@@ -242,6 +245,45 @@ releases without opening Settings shows what each one added.
 To tag the next new setting, add its key, section and release to the list and
 give its row `new-key: "<key>"`; a test fails if the list and the `.slint` files
 disagree. Remove an entry once its release is old.
+
+## Signing releases
+
+Every release publishes `SHA256SUMS.txt.minisig`, a
+[minisign](https://jedisct1.github.io/minisign/) signature of its sums, and
+Update and restart installs nothing without it. The app carries the public
+keys, `packaging/keys/*.pub`, and checks with the `minisign-verify` crate. Two
+kinds of key sign, and the app takes each only for its own releases:
+
+- **Stable**, `stable.pub`, for every version that isn't a nightly. Its secret
+  key is in `~/.minisign/yapfast-stable.key` on the maintainer's machine,
+  behind a password, and never on GitHub. `stable-backup.pub` is a second key,
+  kept offline apart from the first, for when that one is lost or has to be
+  retired: without it, installs would have to be updated by hand.
+- **Nightly**, `nightly.pub`, for nightlies only. Its secret key, without a
+  password, is the `NIGHTLY_SIGNING_KEY` secret of the repository's `nightly`
+  environment, which only runs from `main` may use. Whoever gets it can sign
+  nightlies, which reach only the people who turned nightlies on.
+
+The trusted comment, which the signature covers, is `yapfast TAG
+SHA256SUMS.txt`, and the app requires the tag of the release it is
+installing, so one release's signed sums can't stand in for another's.
+
+The Nightly workflow signs its own sums. A stable release is signed on the
+maintainer's machine once its sums are final, with `scripts/sign-release DIR
+TAG`, which asks for the key's password and checks the signature against the
+keys in `packaging/keys`. Built elsewhere, say by a workflow that leaves a
+draft release, the release is signed the same way: download its
+`SHA256SUMS.txt`, sign it, upload the signature and publish.
+
+A new key is made with `minisign -G -p packaging/keys/NAME.pub -s
+~/.minisign/yapfast-NAME.key`. A build trusts the keys it was built with, so
+a key added now signs releases only once the builds that carry it are what
+people run; a key retired from the list stops releases it signed from
+installing in builds made after.
+
+The tests sign with their own keys in `src/update/testdata`, without a
+password; `src/update/testdata/sign` remakes their signatures after a test
+changes what it serves.
 
 ## The app icon
 

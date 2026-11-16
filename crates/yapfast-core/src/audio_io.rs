@@ -9,12 +9,9 @@
 //! Linux goes through PulseAudio, or PipeWire's PulseAudio server, and
 //! Windows through WASAPI. Other systems have no sound here yet.
 
-use std::{marker::PhantomData, time::Duration};
+use std::{marker::PhantomData, sync::atomic::AtomicBool, time::Duration};
 #[cfg(feature = "discord")]
-use std::{
-    sync::{Arc, atomic::AtomicBool},
-    thread::JoinHandle,
-};
+use std::{sync::Arc, thread::JoinHandle};
 
 use anyhow::Result;
 
@@ -47,6 +44,7 @@ pub use lasting::{LastingInput, LastingOutput};
 ///
 /// `thread` names it for the log, which says at info level whether it was
 /// raised, and for [`NO_PRIORITY`], which leaves it at normal priority.
+#[cfg_attr(not(feature = "discord"), allow(dead_code))]
 pub fn raise_thread_priority(thread: &str) {
     raise(thread, Priority::Playback);
 }
@@ -61,6 +59,7 @@ pub fn raise_capture_priority() {
     raise("microphone", Priority::Capture);
 }
 
+#[cfg_attr(not(feature = "discord"), allow(dead_code))]
 fn raise(thread: &str, priority: Priority) {
     if priority_off(std::env::var(NO_PRIORITY).ok().as_deref(), thread) {
         tracing::info!(
@@ -88,9 +87,11 @@ enum Priority {
 /// Leaves audio threads at normal priority, to tell whether raising them is
 /// what goes wrong on a machine: `1` or `all` for every one, or a list of
 /// them, such as `call,speakers,microphone`.
+#[cfg_attr(not(feature = "discord"), allow(dead_code))]
 pub const NO_PRIORITY: &str = "YAPFAST_VOICE_NO_PRIORITY";
 
 /// Whether [`NO_PRIORITY`]'s value leaves `thread` at normal priority.
+#[cfg_attr(not(feature = "discord"), allow(dead_code))]
 fn priority_off(value: Option<&str>, thread: &str) -> bool {
     match value.map(str::trim) {
         None | Some("" | "0") => false,

@@ -19,9 +19,11 @@ use crate::voice::NAMED;
 /// Real-time priority for Yapfast's audio threads: above every ordinary
 /// thread, and below PipeWire's own, which run at 88 or more. A
 /// microphone's thread runs a step below those that play.
+#[cfg_attr(not(feature = "discord"), allow(dead_code))]
 const REALTIME: i32 = 10;
 
 /// Says how it raised the calling thread, or why it couldn't.
+#[cfg_attr(not(feature = "discord"), allow(dead_code))]
 pub fn raise_priority(priority: super::Priority) -> Result<&'static str, String> {
     let (sched_priority, how) = match priority {
         super::Priority::Playback => (REALTIME, "SCHED_FIFO 10"),

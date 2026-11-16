@@ -550,6 +550,7 @@ fn show_emoji(adapter: &Rc<RefCell<Adapter>>, window: &YapfastWindow, query: &st
 pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
     super::app_commands::bind(window, adapter);
     super::games::bind(window, adapter);
+    super::keybinds::bind(window, adapter);
     super::gifs::bind(window, adapter);
     super::updates::bind(window, adapter);
     super::new_tags::bind(window, adapter);
@@ -613,6 +614,40 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     super::server_settings::bind(window, adapter);
     super::channel_settings::bind(window, adapter);
     super::title_bar::bind(window, adapter);
+    // A server tag opens its server's card beside it, showing what's known
+    // at once, and asks Discord for the rest.
+    window.global::<ServerTags>().on_open({
+        let state = adapter.clone();
+        let weak = window.as_weak();
+        move |server, text, badge, x, y, width, height| {
+            let Some(window) = weak.upgrade() else { return };
+            window.invoke_anchor_link(x, y, width, height);
+            let tag = ShownTag {
+                server: server.to_string(),
+                text,
+                badge,
+            };
+            let mut adapter = state.borrow_mut();
+            // Asked first, so a card that failed before loads afresh.
+            adapter.action(&window, Action::OpenServerTag(server.into()));
+            window.set_tag_card(tag_card(&tag, &adapter.app.state));
+            window.set_tag_card_open(true);
+            adapter.tag_card = Some(tag);
+        }
+    });
+    // A click on "Unable to load server profile" asks again.
+    window.global::<ServerTags>().on_retry({
+        let state = adapter.clone();
+        let weak = window.as_weak();
+        move |server| {
+            let Some(window) = weak.upgrade() else { return };
+            let mut adapter = state.borrow_mut();
+            adapter.action(&window, Action::OpenServerTag(server.into()));
+            if let Some(tag) = &adapter.tag_card {
+                window.set_tag_card(tag_card(tag, &adapter.app.state));
+            }
+        }
+    });
     // UI bindings can request images while refresh borrows the adapter.
     // Deliver their requests in one batch after the current UI work.
     let pending = Rc::new(RefCell::new(HashSet::new()));
@@ -2226,12 +2261,6 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             play_call_volumes(&window);
         }
     });
-    let weak = window.as_weak();
-    window.on_record_talk_key(move |on| {
-        if let Some(window) = weak.upgrade() {
-            window.set_talk_recording(on);
-        }
-    });
     let state = adapter.clone();
     let weak = window.as_weak();
     window.on_preferences_changed(move || {
@@ -2290,7 +2319,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.multiple_windows = window.get_multiple_windows();
         layout.developer_mode = window.get_developer_mode();
         adapter.layout.write(&adapter.root);
-        adapter.watch_talk_key(&window);
+        adapter.watch_keybinds(&window);
         let start = window.get_start_on_sign_in();
         if AUTOSTART.get() && start != autostart::enabled() {
             match autostart::set(start) {
@@ -3904,9 +3933,7 @@ fn composer_caret(
         adapter.emoji_dismissed = None;
         window.set_suggesting_aside(field == Field::Aside);
         window.set_suggesting_edit(field == Field::Edit);
-        window
-            .global::<InlineEdit>()
-            .set_suggesting(field == Field::Edit);
+        adapter.show_edit_suggesting(window);
     }
     // The `:name` word, unless its suggestions were closed.
     let word = offset.and_then(|offset| emoji::query(text, offset));

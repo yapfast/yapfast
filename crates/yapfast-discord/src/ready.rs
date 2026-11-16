@@ -1693,6 +1693,7 @@ fn offered_tag(guild: &Value) -> Option<crate::message::Tag> {
     let id = guild["id"]
         .as_str()
         .or_else(|| guild["properties"]["id"].as_str())?;
+    let guild_id = id.parse().ok()?;
     let profile = match &guild["properties"]["profile"] {
         Value::Null => &guild["profile"],
         profile => profile,
@@ -1707,6 +1708,7 @@ fn offered_tag(guild: &Value) -> Option<crate::message::Tag> {
             .as_str()
             .filter(|badge| !badge.is_empty())
             .map(|badge| guild_tag_badge(id, badge).into()),
+        guild: Some(guild_id),
     })
 }
 

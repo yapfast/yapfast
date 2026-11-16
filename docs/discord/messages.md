@@ -86,7 +86,9 @@ but only while it's new: after the last message read when the channel or
 thread opened, by snowflake. A ping reply puts the account in `mentions`,
 so it's a mention only when its `content` names it, `<@id>` or `<@!id>`.
 Each server in the rail shows its mentions as a count, and the DM button
-counts DM mentions and the friend requests waiting for an answer.
+counts DM mentions and the friend requests waiting for an answer. A voice
+channel's unread chat marks its server in the rail only by mentions, as
+Discord's client does.
 Reading an unread channel marks it read, as Discord's client does: once its
 newest message is in view, with the window in front and the "New" divider
 placed, so opening a channel at its divider and leaving it doesn't. A
@@ -320,7 +322,16 @@ Yapfast is back, rather than showing an error.
   BlockAdditional, whose brightness is the picture's alpha, which
   `native/video.c` decodes with a second libvpx decoder when a packet has one.
   The file downloads into `discord-videos/` beside the account file, and
-  plays as it arrives: the worker's reads wait for the download. It goes
+  plays as it arrives. It downloads in parts, with HTTP Range requests, as
+  a browser plays a video (`playback.rs`): from its start, and from any byte
+  the worker waits for more than 4 MB past the part arriving, which the
+  worker reports (`Report::Needs`) and is told of as bytes arrive
+  (`Control::Arrived`). An MP4 whose index comes after its pictures, as OBS
+  and many recorders write them, so opens once its last bytes arrive rather
+  than the whole file, and moving ahead plays from there; the gaps fill in
+  after. A part asked for where the worker waited runs at least 1 MB before
+  another wait moves the download. A server that ignores ranges sends the
+  whole file, which then downloads from its start as it comes. It goes
   when the video stops, as when its channel, or its thread beside the
   channel, closes. Sound plays on the
   call's speakers through `audio_io.rs`, on Linux and Windows. Over the

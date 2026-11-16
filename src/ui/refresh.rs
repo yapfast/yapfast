@@ -556,6 +556,7 @@ impl Adapter {
         self.show_reactions(window);
         self.show_gifs(window);
         self.show_emoji_card(window);
+        self.show_tag_card(window);
         self.show_sticker_card(window);
         self.show_emoji_animations(window);
         self.show_stickers(window);
@@ -745,6 +746,18 @@ impl Adapter {
         let Adapter { app, pictures, .. } = self;
         let card = messages::emoji_card_for(app, target, pictures);
         window.set_emoji_card(card);
+    }
+
+    /// The open server tag's card, built again while it is open, so it shows
+    /// what Discord said of the tag's server once that arrives.
+    fn show_tag_card(&mut self, window: &YapfastWindow) {
+        let Some(tag) = self.tag_card.as_ref() else {
+            return;
+        };
+        if !window.get_tag_card_open() {
+            return;
+        }
+        window.set_tag_card(profile::tag_card(tag, &self.app.state));
     }
 
     /// Bots' controls waiting for Discord, and the select menu and form
@@ -4060,7 +4073,6 @@ impl Adapter {
             self.mention_at = None;
             self.emoji_word = None;
             window.set_suggesting_edit(false);
-            shown.set_suggesting(false);
             window.set_mention_index(0);
             if self.app.state.mention_query.is_some() {
                 self.action(window, Action::MentionQuery(None));
@@ -4168,6 +4180,7 @@ impl Adapter {
             window.set_mention_index(0);
         }
         update_model(&self.models.mentions, mentions);
+        self.show_edit_suggesting(window);
         window.set_loading_history(state.loading_history);
         window.set_history_start(state.history_start);
         window.set_history_failed(state.history_failed);
@@ -4258,6 +4271,20 @@ impl Adapter {
             &self.models.emoji_suggestions,
             emoji::with_pictures(cells, window.window().scale_factor()),
         );
+        self.show_edit_suggesting(window);
+    }
+
+    /// Whether mentions or emoji show for the field of the message being
+    /// edited. Its Enter and Escape choose and close them while they do, and
+    /// save and cancel the edit otherwise, as the composers' send and cancel.
+    pub(super) fn show_edit_suggesting(&self, window: &YapfastWindow) {
+        let showing = self.suggesting == Field::Edit
+            && (self.models.mentions.row_count() > 0
+                || self.models.emoji_suggestions.row_count() > 0);
+        let edit = window.global::<InlineEdit>();
+        if edit.get_suggesting() != showing {
+            edit.set_suggesting(showing);
+        }
     }
 
     /// The messages, built again only where they changed, and where the list
@@ -5293,7 +5320,8 @@ pub(super) fn rail_rows(
     open_folders: &std::collections::BTreeSet<String>,
 ) -> Vec<ServerRow> {
     // A server's channels: whether any is unread, and its mentions. One its
-    // channel list leaves out marks it only by mentions, as in Discord.
+    // channel list leaves out, or a Discord voice channel's chat, marks it
+    // only by mentions, as in Discord's client (GuildReadStateStore).
     let marks = |server: &yapfast_core::chat::ChatServer| {
         let rooms = || {
             server
@@ -5304,7 +5332,11 @@ pub(super) fn rail_rows(
         };
         (
             rooms().any(|room| {
-                room.mentions > 0 || (room.unread > 0 && !server.muted && !room.unlisted)
+                room.mentions > 0
+                    || (room.unread > 0
+                        && !server.muted
+                        && !room.unlisted
+                        && !(server.discord && room.voice))
             }),
             rooms().map(|room| room.mentions).sum::<u64>(),
         )
