@@ -11,17 +11,17 @@ use iced::{
     widget::{Space, button, column, container, operation, row, scrollable, stack, text},
 };
 use yapfast_core::{
-    application::{Action, POLL_HOURS, Place, PollEdit, QUESTION_LIMIT},
+    application::{Action, AppState, POLL_HOURS, Place, PollEdit, QUESTION_LIMIT},
     chat::Contact,
 };
 
 use crate::{
     app::{App, Message},
     controls::{self, Kind, action, lights, placed},
+    ctx::{Ctx, Cx, Focus, Request},
     dialog::dialog,
     fonts::{BOLD, MEDIUM},
     form,
-    picker::{Tab, Target},
     pictures::Icon,
     style::{rounded, scrollbar},
 };
@@ -104,110 +104,107 @@ pub enum Face {
     Icon(Icon),
 }
 
-impl App {
-    pub fn switcher_event(&mut self, event: Event) -> Task<Message> {
+impl Quick {
+    /// What's done in the three dialogs; Toggle with Settings open and an
+    /// answer's emoji are the root's (`App::switcher_event`).
+    pub fn update(&mut self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
         match event {
             Event::Toggle => {
-                if self.settings.is_open() {
-                    return Task::none();
+                *self = Quick::default();
+                cx.dispatch(Action::ToggleSwitcher);
+                if cx.state().switcher.is_some() {
+                    return operation::focus(SWITCHER);
                 }
-                self.quick = Quick::default();
-                self.client.dispatch(Action::ToggleSwitcher);
-                if self.client.state().switcher.is_some() {
-                    return Task::batch([self.sync(), operation::focus(SWITCHER)]);
-                }
-                return Task::batch([self.sync(), self.refocus()]);
+                cx.request(Request::Focus(Focus::Default));
             }
             Event::Search(query) => {
-                self.quick.chosen = 0;
-                self.client.dispatch(Action::SearchSwitcher(query));
+                self.chosen = 0;
+                cx.dispatch(Action::SearchSwitcher(query));
             }
             Event::Step(by) => {
-                let count = self.quick.places.len();
+                let count = self.places.len();
                 if count > 0 {
-                    let at = self.quick.chosen.min(count - 1) as i32 + by;
-                    self.quick.chosen = at.rem_euclid(count as i32) as usize;
+                    let at = self.chosen.min(count - 1) as i32 + by;
+                    self.chosen = at.rem_euclid(count as i32) as usize;
                 }
-                return self.keep_chosen_in_view();
+                return self.keep_chosen_in_view(cx.window.height);
             }
             Event::Scrolled(offset) => {
-                self.quick.offset = offset;
+                self.offset = offset;
                 return Task::none();
             }
             Event::Go => {
-                let places = &self.quick.places;
-                let Some(place) = places.get(self.quick.chosen.min(places.len().max(1) - 1)) else {
+                let places = &self.places;
+                let Some(place) = places.get(self.chosen.min(places.len().max(1) - 1)) else {
                     return Task::none();
                 };
                 let id = place.id.clone();
-                return self.switcher_event(Event::GoTo(id));
+                return self.update(Event::GoTo(id), cx);
             }
             Event::GoTo(id) => {
-                self.client.dispatch(Action::SwitchTo(id));
-                return Task::batch([self.sync(), self.refocus()]);
+                cx.dispatch(Action::SwitchTo(id));
+                cx.request(Request::Focus(Focus::Default));
             }
             Event::Close => {
-                self.client.dispatch(Action::CloseSwitcher);
-                return Task::batch([self.sync(), self.refocus()]);
+                cx.dispatch(Action::CloseSwitcher);
+                cx.request(Request::Focus(Focus::Default));
             }
             Event::OpenNewDm => {
-                self.client.dispatch(Action::OpenNewDm);
-                return Task::batch([self.sync(), operation::focus(NEW_DM)]);
+                cx.dispatch(Action::OpenNewDm);
+                return operation::focus(NEW_DM);
             }
-            Event::NewDmQuery(query) => self.client.dispatch(Action::NewDmQuery(query)),
-            Event::Start(contact) => self.client.dispatch(Action::StartDm(contact)),
+            Event::NewDmQuery(query) => cx.dispatch(Action::NewDmQuery(query)),
+            Event::Start(contact) => cx.dispatch(Action::StartDm(contact)),
             Event::CloseNewDm => {
-                self.client.dispatch(Action::CloseNewDm);
-                return Task::batch([self.sync(), self.refocus()]);
+                cx.dispatch(Action::CloseNewDm);
+                cx.request(Request::Focus(Focus::Default));
             }
             Event::OpenPoll => {
-                self.client.dispatch(Action::OpenPollDraft);
-                return Task::batch([self.sync(), operation::focus(QUESTION)]);
+                cx.dispatch(Action::OpenPollDraft);
+                return operation::focus(QUESTION);
             }
-            Event::Poll(edit) => self.client.dispatch(Action::EditPoll(edit)),
-            Event::PollEmoji(index) => {
-                let at = self.pressed.get();
-                return self.open_picker(Target::Poll(index, at), Tab::Emoji);
-            }
-            Event::Post => self.client.dispatch(Action::PostPoll),
+            Event::Poll(edit) => cx.dispatch(Action::EditPoll(edit)),
+            // The root opens the picker for it.
+            Event::PollEmoji(_) => {}
+            Event::Post => cx.dispatch(Action::PostPoll),
             Event::ClosePoll => {
-                self.client.dispatch(Action::ClosePollDraft);
-                return Task::batch([self.sync(), self.refocus()]);
+                cx.dispatch(Action::ClosePollDraft);
+                cx.request(Request::Focus(Focus::Default));
             }
         }
-        self.sync()
+        Task::none()
     }
 
     /// The switcher's keys: Escape closes it, the arrows and Tab move
     /// through its places.
-    pub fn switcher_key(
+    pub fn key(
         &mut self,
         named: Option<iced::keyboard::key::Named>,
         shift: bool,
+        cx: &mut Cx<'_>,
     ) -> Task<Message> {
         use iced::keyboard::key::Named;
         match named {
-            Some(Named::Escape) => self.switcher_event(Event::Close),
-            Some(Named::ArrowDown) => self.switcher_event(Event::Step(1)),
-            Some(Named::ArrowUp) => self.switcher_event(Event::Step(-1)),
-            Some(Named::Tab) => self.switcher_event(Event::Step(if shift { -1 } else { 1 })),
-            Some(Named::Enter) => self.switcher_event(Event::Go),
+            Some(Named::Escape) => self.update(Event::Close, cx),
+            Some(Named::ArrowDown) => self.update(Event::Step(1), cx),
+            Some(Named::ArrowUp) => self.update(Event::Step(-1), cx),
+            Some(Named::Tab) => self.update(Event::Step(if shift { -1 } else { 1 }), cx),
+            Some(Named::Enter) => self.update(Event::Go, cx),
             _ => Task::none(),
         }
     }
 
     /// Takes in the core's places for the switcher's search, when the
     /// search or the room lists changed.
-    pub fn switcher_sync(&mut self) {
-        let state = self.client.state();
+    pub fn sync(&mut self, state: &AppState) {
         let Some(query) = state.switcher.as_ref() else {
-            if self.quick.made_for.is_some() {
-                self.quick = Quick::default();
+            if self.made_for.is_some() {
+                *self = Quick::default();
             }
             return;
         };
         let made_for = (query.clone(), state.list_changes);
-        if self.quick.made_for.as_ref() == Some(&made_for) {
+        if self.made_for.as_ref() == Some(&made_for) {
             return;
         }
         // Each channel's server, found once.
@@ -221,7 +218,7 @@ impl App {
                     .map(|channel| (channel.as_str(), server.name.as_str()))
             })
             .collect();
-        self.quick.places = state
+        self.places = state
             .switcher_places()
             .iter()
             .map(|place| match place {
@@ -253,28 +250,22 @@ impl App {
                 },
             })
             .collect();
-        self.quick.made_for = Some(made_for);
-    }
-
-    /// The list's height: the dialog at most 440 px, less its padding, the
-    /// search and the hint under the list.
-    fn switcher_list_height(&self) -> f32 {
-        ((self.window.height - 48.0).min(440.0) - 2.0 * 16.0 - 52.0 - 60.0).max(PITCH)
+        self.made_for = Some(made_for);
     }
 
     /// The list scrolled so the row the keys light shows, as the Slint
     /// client's `QuickSwitcher` moves its list.
-    fn keep_chosen_in_view(&mut self) -> Task<Message> {
-        let height = self.switcher_list_height();
-        let top = self.quick.chosen as f32 * PITCH;
-        let offset = if top < self.quick.offset {
+    fn keep_chosen_in_view(&mut self, window: f32) -> Task<Message> {
+        let height = list_height(window);
+        let top = self.chosen as f32 * PITCH;
+        let offset = if top < self.offset {
             top
-        } else if top + PITCH > self.quick.offset + height {
+        } else if top + PITCH > self.offset + height {
             top + PITCH - height
         } else {
             return Task::none();
         };
-        self.quick.offset = offset;
+        self.offset = offset;
         operation::scroll_to(
             LIST,
             scrollable::AbsoluteOffset {
@@ -283,15 +274,48 @@ impl App {
             },
         )
     }
+}
 
+/// The list's height in a window `window` tall: the dialog at most
+/// 440 px, less its padding, the search and the hint under the list.
+fn list_height(window: f32) -> f32 {
+    ((window - 48.0).min(440.0) - 2.0 * 16.0 - 52.0 - 60.0).max(PITCH)
+}
+
+/// The quick switcher: a large search, PREVIOUS CHANNELS while it's
+/// empty, the places found, and how a search can be narrowed.
+pub fn switcher_view<'a>(quick: &'a Quick, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
+    View { s: quick, cx }.switcher()
+}
+
+/// New message: a search over friends and DMs, and the people found.
+pub fn new_dm_view<'a>(quick: &'a Quick, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
+    View { s: quick, cx }.new_dm()
+}
+
+/// Create a Poll: the question, the answers, how long it lasts and
+/// whether several may be chosen.
+pub fn poll_view<'a>(quick: &'a Quick, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
+    View { s: quick, cx }.poll_draft()
+}
+
+/// The switcher's places and what the dialogs read, as their parts draw
+/// them.
+#[derive(Clone, Copy)]
+struct View<'a> {
+    s: &'a Quick,
+    cx: Ctx<'a>,
+}
+
+impl<'a> View<'a> {
     /// The quick switcher: a large search, PREVIOUS CHANNELS while it's
     /// empty, the places found, and how a search can be narrowed.
-    pub fn switcher_view(&self) -> Option<Element<'_, Message>> {
-        let state = self.client.state();
+    fn switcher(self) -> Option<Element<'a, Message>> {
+        let state = self.cx.state;
         let query = state.switcher.as_ref()?;
-        let theme = &self.theme;
-        let places = &self.quick.places;
-        let current = self.quick.chosen.min(places.len().saturating_sub(1));
+        let theme = self.cx.look.theme;
+        let places = &self.s.places;
+        let current = self.s.chosen.min(places.len().saturating_sub(1));
         let field = form::field(theme, SWITCHER, "Where would you like to go?", query)
             .size(20)
             .padding(14)
@@ -324,7 +348,7 @@ impl App {
             scroll_view(list)
                 .id(LIST)
                 .on_scroll(|viewport| message(Event::Scrolled(viewport.absolute_offset().y)))
-                .height(self.switcher_list_height())
+                .height(list_height(self.cx.look.window.height))
                 .style(scrollbar(theme)),
         );
         body = body.push(
@@ -332,17 +356,20 @@ impl App {
                 .size(12)
                 .color(theme.muted),
         );
-        let width = 570.0_f32.min(self.window.width - 48.0);
+        let width = 570.0_f32.min(self.cx.look.window.width - 48.0);
         Some(dialog(theme, body.into(), width, message(Event::Close)))
     }
 
     /// A place the switcher found: its picture or icon, its name (bold
     /// while unread), where it is, and its mentions.
-    fn switcher_row<'a>(&'a self, found: &'a Found, current: bool) -> Element<'a, Message> {
-        let theme = &self.theme;
+    fn switcher_row(self, found: &'a Found, current: bool) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         let face: Element<'a, Message> = match &found.face {
-            Face::Avatar(picture) => self.avatar(picture.as_deref(), &found.name, 24.0, 12.0, 1.0),
-            Face::Icon(icon) => self.glyph(*icon, 20, theme.faint).into(),
+            Face::Avatar(picture) => {
+                self.cx
+                    .avatar(picture.as_deref(), &found.name, 24.0, 12.0, 1.0)
+            }
+            Face::Icon(icon) => self.cx.look.glyph(*icon, 20, theme.faint).into(),
         };
         let (name, where_, unread, mentions) = (
             found.name.as_str(),
@@ -398,12 +425,13 @@ impl App {
 
     /// New message: a search for people on Discord, each found with
     /// Message, and what the search came to.
-    pub fn new_dm_view(&self) -> Option<Element<'_, Message>> {
-        let state = self.client.state();
+    fn new_dm(self) -> Option<Element<'a, Message>> {
+        let state = self.cx.state;
         let new_dm = state.new_dm.as_ref()?;
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let head = self
-            .look()
+            .cx
+            .look
             .dialog_head("New message", message(Event::CloseNewDm));
         let placeholder = if cfg!(feature = "matrix") {
             "Find a friend, or type a Matrix id"
@@ -441,7 +469,7 @@ impl App {
         if !note.is_empty() {
             list = list.push(container(form::note(theme, note)).padding(8));
         }
-        let height = (self.window.height - 48.0).min(520.0) - 40.0 - 28.0 - 36.0 - 24.0;
+        let height = (self.cx.look.window.height - 48.0).min(520.0) - 40.0 - 28.0 - 36.0 - 24.0;
         let body = column![
             head,
             field,
@@ -449,7 +477,7 @@ impl App {
         ]
         .spacing(12)
         .padding(20);
-        let width = 440.0_f32.min(self.window.width - 48.0);
+        let width = 440.0_f32.min(self.cx.look.window.width - 48.0);
         Some(dialog(
             theme,
             body.into(),
@@ -460,13 +488,17 @@ impl App {
 
     /// Someone New message found: their picture (with Discord's badge),
     /// name and who they are, and Message.
-    fn new_dm_row<'a>(&'a self, person: &'a Contact, starting: bool) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let mut face = stack![self.avatar(person.avatar.as_deref(), &person.name, 32.0, 16.0, 1.0)];
+    fn new_dm_row(self, person: &'a Contact, starting: bool) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let mut face =
+            stack![
+                self.cx
+                    .avatar(person.avatar.as_deref(), &person.name, 32.0, 16.0, 1.0)
+            ];
         if person.discord {
             let (accent, raised) = (theme.accent, theme.raised);
             face = face.push(placed(
-                container(self.glyph(Icon::Discord, 9, iced::Color::WHITE))
+                container(self.cx.look.glyph(Icon::Discord, 9, iced::Color::WHITE))
                     .center(14)
                     .style(move |_| container::Style {
                         border: Border {
@@ -516,14 +548,15 @@ impl App {
 
     /// Create a Poll: the question, the answers each with an emoji, how long
     /// it lasts, whether several answers may be chosen, and Post.
-    pub fn poll_draft_view(&self) -> Option<Element<'_, Message>> {
-        let state = self.client.state();
+    fn poll_draft(self) -> Option<Element<'a, Message>> {
+        let state = self.cx.state;
         let draft = state.poll_draft.as_ref()?;
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let edit = |edit: PollEdit| message(Event::Poll(edit));
         let caps = |words: &'static str| text(words).size(12).font(BOLD).color(theme.muted);
         let head = self
-            .look()
+            .cx
+            .look
             .dialog_head("Create a Poll", message(Event::ClosePoll));
         let mut form = column![
             row![
@@ -558,7 +591,11 @@ impl App {
                     Kind::Ghost,
                     Some(edit(PollEdit::AddAnswer)),
                 )
-                .icon(self.icon(Icon::Plus, 16, crate::theme::rgb(theme.secondary)))
+                .icon(
+                    self.cx
+                        .look
+                        .icon(Icon::Plus, 16, crate::theme::rgb(theme.secondary)),
+                )
                 .small(),
             );
         }
@@ -572,7 +609,7 @@ impl App {
         let ticked = draft.multiselect;
         let (accent, faint) = (theme.accent, theme.faint);
         let tick = container(if ticked {
-            Element::from(self.glyph(Icon::Check, 14, theme.on_accent))
+            Element::from(self.cx.look.glyph(Icon::Check, 14, theme.on_accent))
         } else {
             Space::new().into()
         })
@@ -627,7 +664,7 @@ impl App {
             ]
             .spacing(8),
         );
-        let room = (self.window.height - 48.0 - 40.0 - 40.0 - 60.0).max(120.0);
+        let room = (self.cx.look.window.height - 48.0 - 40.0 - 40.0 - 60.0).max(120.0);
         let body = column![
             head,
             scroll_view(form.padding(Padding {
@@ -641,20 +678,20 @@ impl App {
         ]
         .padding(20);
         let body = container(body).max_height(room + 140.0);
-        let width = 500.0_f32.min(self.window.width - 48.0);
+        let width = 500.0_f32.min(self.cx.look.window.width - 48.0);
         Some(dialog(theme, body.into(), width, message(Event::ClosePoll)))
     }
 
     /// An answer: its emoji's button, its text, and the bin while there's
     /// more than one.
-    fn poll_answer<'a>(
-        &'a self,
+    fn poll_answer(
+        self,
         index: usize,
         answer: &'a yapfast_core::application::DraftAnswer,
         several: bool,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let emoji = self.ctx().emoji_slot(
+        let theme = self.cx.look.theme;
+        let emoji = self.cx.emoji_slot(
             answer.emoji.as_deref(),
             message(Event::PollEmoji(index)),
             message(Event::Poll(PollEdit::Emoji { index, emoji: None })),
@@ -674,7 +711,8 @@ impl App {
         let mut line = row![emoji, field].spacing(8).align_y(Alignment::Center);
         if several {
             line = line.push(
-                self.look()
+                self.cx
+                    .look
                     .icon_button(
                         Icon::Trash,
                         "Remove answer",
@@ -686,7 +724,9 @@ impl App {
         }
         line.into()
     }
+}
 
+impl App {
     /// The emoji the picker gave, for a poll's answer.
     pub fn poll_draft_emoji(&mut self, index: usize, key: String) {
         self.client.dispatch(Action::EditPoll(PollEdit::Emoji {

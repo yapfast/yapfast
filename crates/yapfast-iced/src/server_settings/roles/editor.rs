@@ -18,9 +18,10 @@ use super::{
     CUSTOM, DEFAULT_SWATCH, EMOJI, Event, HEX, ICON_BOX, ICON_SHOWN, NAME, PERMISSION_SEARCH,
     SMALL_FIELD, SWATCH, SWATCH_GAP, TAB, UNDERLINE, input, local, lock_text, role_colour, search,
 };
+use crate::server_settings::View;
 use crate::server_settings::{Event as SettingsEvent, Screen, message};
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{self, Kind, action, lights},
     fonts::{BOLD, SEMIBOLD},
     form,
@@ -39,18 +40,18 @@ pub(super) fn hex_colour(text: &str) -> Option<u32> {
     u32::from_str_radix(hex, 16).ok()
 }
 
-impl App {
+impl<'a> View<'a> {
     /// The editor: Back, its title, why it's locked or what manages it,
     /// the tabs and the open tab.
-    pub(super) fn role_editor<'a>(
-        &'a self,
+    pub(super) fn role_editor(
+        self,
         core: &'a ServerSettings,
         page: &'a RolesPage,
         role: &'a RoleDetail,
         rules: &RoleRules,
         screen: &'a Screen,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let Some(draft) = &page.open else {
             return Space::new().into();
         };
@@ -62,7 +63,7 @@ impl App {
         let back = button(
             container(
                 row![
-                    self.glyph(Icon::ChevronLeft, 16, theme.secondary),
+                    self.cx.look.glyph(Icon::ChevronLeft, 16, theme.secondary),
                     text("Back").size(14).font(SEMIBOLD)
                 ]
                 .spacing(4)
@@ -140,13 +141,13 @@ impl App {
 
     /// A tab of the editor: its name, with the accent's line under it while
     /// it's open; greyed without a message.
-    pub(super) fn role_tab<'a>(
-        &self,
+    pub(super) fn role_tab(
+        self,
         label: String,
         open: bool,
         press: Option<Message>,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let enabled = press.is_some();
         let (faint, ink, rest, accent) = (theme.faint, theme.text, theme.secondary, theme.accent);
         // The line takes the tab's width: a stack is as wide as its first
@@ -185,8 +186,8 @@ impl App {
     }
 
     /// Display: the name, the colour, the icon and the two switches.
-    pub(super) fn role_display<'a>(
-        &'a self,
+    pub(super) fn role_display(
+        self,
         core: &'a ServerSettings,
         page: &'a RolesPage,
         role: &'a RoleDetail,
@@ -194,7 +195,7 @@ impl App {
         editable: bool,
         screen: &'a Screen,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let Some(draft) = &page.open else {
             return Space::new().into();
         };
@@ -216,7 +217,7 @@ impl App {
                 draft.hoist,
                 editable.then(|| input(RoleInput::Hoist)),
             )
-            .view(self.look()),
+            .view(self.cx.look),
             form::switch(
                 "Allow anyone to @mention this role",
                 draft.mentionable,
@@ -225,7 +226,7 @@ impl App {
             .description(
                 "Note: Members with the \"Mention @everyone, @here, and All Roles\" permission will always be able to ping this role.",
             )
-            .view(self.look()),
+            .view(self.cx.look),
         ]
         .spacing(20)
         .into()
@@ -233,14 +234,14 @@ impl App {
 
     /// The colours: Discord's default, its colours in a bright row and a
     /// dark one, and any other as hex, applied on Enter.
-    pub(super) fn role_colours<'a>(
-        &'a self,
+    pub(super) fn role_colours(
+        self,
         colour: u32,
         role: &str,
         editable: bool,
         screen: &'a Screen,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let is_default = colour == 0 || colour == DEFAULT_ROLE_COLOR;
         let swatch = |ground: Color,
                       (width, height): (f32, f32),
@@ -249,7 +250,7 @@ impl App {
                       press: Option<Message>|
          -> Element<'a, Message> {
             let face: Element<'a, Message> = if chosen {
-                self.glyph(Icon::Check, tick, Color::WHITE).into()
+                self.cx.look.glyph(Icon::Check, tick, Color::WHITE).into()
             } else {
                 Space::new().into()
             };
@@ -326,8 +327,8 @@ impl App {
 
     /// The icon: the picture, the emoji or a placeholder in its box, what
     /// unlocks it, Choose Image and Remove Icon, and an emoji typed in.
-    pub(super) fn role_icon<'a>(
-        &'a self,
+    pub(super) fn role_icon(
+        self,
         core: &'a ServerSettings,
         page: &'a RolesPage,
         role: &'a RoleDetail,
@@ -335,7 +336,7 @@ impl App {
         editable: bool,
         screen: &'a Screen,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let Some(draft) = &page.open else {
             return Space::new().into();
         };
@@ -347,9 +348,9 @@ impl App {
             PictureEdit::Keep => role
                 .icon
                 .as_deref()
-                .and_then(|url| self.picture(url, side_px, side_px, true)),
+                .and_then(|url| self.cx.picture(url, side_px, side_px, true)),
             PictureEdit::Reset => None,
-            PictureEdit::New(picked) => self.fit(&picked.preview, side_px, side_px, true),
+            PictureEdit::New(picked) => self.cx.fit(&picked.preview, side_px, side_px, true),
         };
         let emoji = draft.emoji.as_deref().or(match draft.icon {
             PictureEdit::Keep => role.unicode_emoji.as_deref(),
@@ -359,7 +360,7 @@ impl App {
         let shown: Element<'a, Message> = match (handle, emoji) {
             (Some(handle), _) => Pic::square(handle, ICON_SHOWN).into(),
             (None, Some(emoji)) => text(emoji.to_owned()).size(36).into(),
-            (None, None) => self.glyph(Icon::Image, 24, theme.muted).into(),
+            (None, None) => self.cx.look.glyph(Icon::Image, 24, theme.muted).into(),
         };
         let sunken = theme.sunken;
         let mut side = column![].spacing(form::TIGHT);
@@ -433,8 +434,8 @@ impl App {
 
     /// Permissions: the search, Clear permissions, and each group's
     /// switches the search finds, in a list of their own.
-    pub(super) fn role_permissions<'a>(
-        &'a self,
+    pub(super) fn role_permissions(
+        self,
         page: &'a RolesPage,
         role: &'a RoleDetail,
         rules: &RoleRules,
@@ -442,7 +443,7 @@ impl App {
         locked: bool,
         notice: &'static str,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let Some(draft) = &page.open else {
             return Space::new().into();
         };
@@ -518,7 +519,7 @@ impl App {
                 )
                 .description(info.description)
                 .locked(if locked { notice } else { why });
-                let mut entry = column![switch.view(self.look())].spacing(4);
+                let mut entry = column![switch.view(self.cx.look)].spacing(4);
                 if let Some(warning) = info.warning {
                     entry = entry.push(text(warning).size(14).font(BOLD).color(theme.text));
                 }

@@ -17,6 +17,7 @@ use yapfast_core::{application::Action, discord};
 use crate::{
     app::{App, Message},
     controls::{self, Kind, bar},
+    ctx::{Ctx, Cx},
     elide::elide,
     fonts::BOLD,
     found::Found,
@@ -56,30 +57,51 @@ pub enum Event {
     Jump(String, String),
 }
 
-impl App {
-    pub fn search_event(&mut self, event: Event) -> Task<Message> {
+impl Searching {
+    pub fn update(&mut self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
         match event {
             Event::Text(text) => {
-                let cleared = text.is_empty() && !self.searching.text.is_empty();
-                self.searching.text = text;
+                let cleared = text.is_empty() && !self.text.is_empty();
+                self.text = text;
                 if cleared {
-                    self.client.dispatch(Action::Search(String::new()));
+                    cx.dispatch(Action::Search(String::new()));
                 }
             }
             Event::Search => {
-                let query = self.searching.text.trim().to_owned();
-                self.client.dispatch(Action::Search(query));
+                let query = self.text.trim().to_owned();
+                cx.dispatch(Action::Search(query));
             }
             Event::Clear => {
-                self.searching.text.clear();
-                self.client.dispatch(Action::Search(String::new()));
+                self.text.clear();
+                cx.dispatch(Action::Search(String::new()));
             }
-            Event::More => self.client.dispatch(Action::MoreResults),
-            Event::Jump(room, item) => self.client.dispatch(Action::JumpInRoom { room, item }),
+            Event::More => cx.dispatch(Action::MoreResults),
+            Event::Jump(room, item) => cx.dispatch(Action::JumpInRoom { room, item }),
         }
-        self.sync()
+        cx.touch();
+        Task::none()
     }
+}
 
+/// The header's box: its placeholder, the search typed, Enter searching;
+/// the search icon, or Clear once something's typed.
+pub fn header_search<'a>(
+    searching: &'a Searching,
+    placeholder: &str,
+    cx: Ctx<'a>,
+) -> Element<'a, Message> {
+    cx.search_field(
+        FIELD,
+        placeholder,
+        &searching.text,
+        |text| Message::Search(Event::Text(text)),
+        Message::Search(Event::Search),
+        Message::Search(Event::Clear),
+    )
+    .into()
+}
+
+impl App {
     /// The messages the results show.
     pub fn searching_messages(
         &self,
@@ -146,68 +168,6 @@ impl App {
                 heading,
             });
         }
-    }
-
-    /// The header's box: its placeholder, the search typed, Enter
-    /// searching; the search icon, or Clear once something's typed.
-    pub fn header_search(&self, placeholder: &str) -> Element<'_, Message> {
-        self.search_field(
-            FIELD,
-            placeholder,
-            &self.searching.text,
-            |text| Message::Search(Event::Text(text)),
-            Message::Search(Event::Search),
-            Message::Search(Event::Clear),
-        )
-        .into()
-    }
-
-    /// A search box as the Slint client's `HeaderSearch`: a sunken field,
-    /// wider while it holds something, its icon or Clear at its end. Its
-    /// width and height are the header's, which another place may set.
-    pub fn search_field<'a>(
-        &'a self,
-        id: &'static str,
-        placeholder: &str,
-        value: &str,
-        on_input: impl Fn(String) -> Message + 'a,
-        submit: Message,
-        clear: Message,
-    ) -> container::Container<'a, Message> {
-        let theme = &self.theme;
-        let (ink, hint, selection) = (theme.text, theme.muted, theme.selection);
-        let input = text_input(placeholder, value)
-            .id(iced::widget::Id::new(id))
-            .size(14)
-            .padding(0)
-            .on_input(on_input)
-            .on_submit(submit)
-            .style(move |_, _| text_input::Style {
-                background: Color::TRANSPARENT.into(),
-                border: Border::default(),
-                icon: ink,
-                placeholder: hint,
-                value: ink,
-                selection,
-            });
-        let end: Element<'_, Message> = if value.is_empty() {
-            self.glyph(Icon::Search, 20, theme.secondary).into()
-        } else {
-            self.look()
-                .icon_button(Icon::X, "Clear search", clear)
-                .size(24.0, 14)
-                .below()
-                .into()
-        };
-        let field = row![input, end].spacing(4).align_y(Alignment::Center);
-        let (line, ground) = (theme.line, theme.sunken);
-        container(field)
-            .padding(Padding::ZERO.left(8).right(4))
-            .width(if value.is_empty() { BOX } else { BOX_USED })
-            .height(BOX_HEIGHT)
-            .align_y(Alignment::Center)
-            .clip(true)
-            .style(move |_| crate::style::outlined(ground, line, 8.0))
     }
 
     /// What the search found, beside the conversation.
@@ -306,5 +266,55 @@ impl App {
             .height(Length::Fill)
             .into(),
         )
+    }
+}
+
+impl<'a> Ctx<'a> {
+    /// A search box as the Slint client's `HeaderSearch`: a sunken field,
+    /// wider while it holds something, its icon or Clear at its end. Its
+    /// width and height are the header's, which another place may set.
+    pub fn search_field(
+        self,
+        id: &'static str,
+        placeholder: &str,
+        value: &str,
+        on_input: impl Fn(String) -> Message + 'a,
+        submit: Message,
+        clear: Message,
+    ) -> container::Container<'a, Message> {
+        let theme = self.look.theme;
+        let (ink, hint, selection) = (theme.text, theme.muted, theme.selection);
+        let input = text_input(placeholder, value)
+            .id(iced::widget::Id::new(id))
+            .size(14)
+            .padding(0)
+            .on_input(on_input)
+            .on_submit(submit)
+            .style(move |_, _| text_input::Style {
+                background: Color::TRANSPARENT.into(),
+                border: Border::default(),
+                icon: ink,
+                placeholder: hint,
+                value: ink,
+                selection,
+            });
+        let end: Element<'a, Message> = if value.is_empty() {
+            self.look.glyph(Icon::Search, 20, theme.secondary).into()
+        } else {
+            self.look
+                .icon_button(Icon::X, "Clear search", clear)
+                .size(24.0, 14)
+                .below()
+                .into()
+        };
+        let field = row![input, end].spacing(4).align_y(Alignment::Center);
+        let (line, ground) = (theme.line, theme.sunken);
+        container(field)
+            .padding(Padding::ZERO.left(8).right(4))
+            .width(if value.is_empty() { BOX } else { BOX_USED })
+            .height(BOX_HEIGHT)
+            .align_y(Alignment::Center)
+            .clip(true)
+            .style(move |_| crate::style::outlined(ground, line, 8.0))
     }
 }

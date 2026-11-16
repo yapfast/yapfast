@@ -15,8 +15,9 @@ use super::{
     ROW, SEARCH, input, local, lock_text, role_colour, search,
 };
 use crate::server_settings::Screen;
+use crate::server_settings::View;
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{self, Check, Item, Kind, Light, action},
     fonts::{BOLD, SEMIBOLD},
     form,
@@ -27,17 +28,17 @@ use crate::{
     widgets::{Hover, Pic},
 };
 
-impl App {
+impl<'a> View<'a> {
     /// The list: @everyone's card, the search and Create Role, and the
     /// roles in their order.
-    pub(super) fn roles_list<'a>(
-        &'a self,
+    pub(super) fn roles_list(
+        self,
         core: &'a ServerSettings,
         page: &'a RolesPage,
         rules: &RoleRules,
         screen: &'a Screen,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let ready = !core.saving;
         let listed = page.listed();
         let may_drag = page.search.is_empty() && ready;
@@ -117,11 +118,8 @@ impl App {
     }
 
     /// @everyone's card, which opens its permissions.
-    pub(super) fn everyone_card<'a>(
-        &'a self,
-        everyone: Option<&'a RoleDetail>,
-    ) -> Element<'a, Message> {
-        let theme = &self.theme;
+    pub(super) fn everyone_card(self, everyone: Option<&'a RoleDetail>) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         let name = everyone.map_or("@everyone", |role| role.name.as_str());
         let field = theme.field;
         let (raised, lit) = (
@@ -129,7 +127,7 @@ impl App {
             crate::theme::mix(theme.raised, theme.overlay, 0.9),
         );
         let face = row![
-            container(self.glyph(Icon::Users, 20, theme.secondary))
+            container(self.cx.look.glyph(Icon::Users, 20, theme.secondary))
                 .center(CARD_ICON)
                 .style(move |_| rounded(field, CARD_ICON / 2.0)),
             column![
@@ -143,7 +141,7 @@ impl App {
             ]
             .spacing(2)
             .width(Length::Fill),
-            self.glyph(Icon::ChevronRight, 18, theme.secondary),
+            self.cx.look.glyph(Icon::ChevronRight, 18, theme.secondary),
         ]
         .spacing(12)
         .align_y(Alignment::Center);
@@ -163,21 +161,21 @@ impl App {
     /// A role in the list: its handle, mark, lock, name and badge, how many
     /// hold it, and Edit (or View) and More. `place` is its place, how many
     /// there are, and the first that may move.
-    pub(super) fn role_row<'a>(
-        &'a self,
+    pub(super) fn role_row(
+        self,
         role: &'a RoleDetail,
         lock: Option<RoleLock>,
         place: (usize, usize, usize),
         movable: bool,
         more_open: bool,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let mut line = row![self.handle(movable), self.role_mark(role)]
             .spacing(10)
             .align_y(Alignment::Center);
         if lock.is_some() {
             line = line.push(tooltip(
-                self.glyph(Icon::Lock, 14, theme.muted),
+                self.cx.look.glyph(Icon::Lock, 14, theme.muted),
                 controls::tip(theme, lock_text(lock)),
                 tooltip::Position::Top,
             ));
@@ -210,7 +208,8 @@ impl App {
         let may_copy = lock.is_none() && role.managed.is_none();
         let open = input(RoleInput::Open(Some(role.id.clone())));
         let edit = self
-            .look()
+            .cx
+            .look
             .icon_button(
                 if lock.is_some() {
                     Icon::Eye
@@ -224,7 +223,8 @@ impl App {
             .fill(theme.raised)
             .radius(BUTTON / 2.0);
         let more = self
-            .look()
+            .cx
+            .look
             .icon_button(
                 Icon::Ellipsis, // Its tip would cover the menu it opens.
                 if more_open { "" } else { "More" },
@@ -253,7 +253,7 @@ impl App {
                     text(role.members.to_string())
                         .size(14)
                         .color(theme.secondary),
-                    self.glyph(Icon::User, 16, theme.secondary)
+                    self.cx.look.glyph(Icon::User, 16, theme.secondary)
                 ]
                 .spacing(4)
                 .align_y(Alignment::Center),
@@ -281,7 +281,7 @@ impl App {
 
     /// A row's handle to drag it by: two columns of three dots, brighter
     /// under the pointer; nothing for a role that can't move.
-    pub(super) fn handle(&self, movable: bool) -> Element<'_, Message> {
+    pub(super) fn handle(self, movable: bool) -> Element<'a, Message> {
         if !movable {
             return Space::new().width(HANDLE).into();
         }
@@ -302,16 +302,16 @@ impl App {
                 .height(ROW)
                 .align_y(Alignment::Center)
         };
-        let muted = self.theme.muted;
+        let muted = self.cx.look.theme.muted;
         Hover::new(dots(faded(muted, 0.5)), dots(muted)).into()
     }
 
     /// A role's mark: its icon, its emoji, or its colour's dot.
-    pub(super) fn role_mark(&self, role: &RoleDetail) -> Element<'_, Message> {
+    pub(super) fn role_mark(self, role: &RoleDetail) -> Element<'a, Message> {
         if let Some(handle) = role
             .icon
             .as_deref()
-            .and_then(|url| self.picture(url, MARK as u32, MARK as u32, true))
+            .and_then(|url| self.cx.picture(url, MARK as u32, MARK as u32, true))
         {
             return Pic::square(handle, MARK).into();
         }
@@ -330,8 +330,8 @@ impl App {
     }
 
     /// A role's More menu: Move Up, Move Down, Duplicate Role, Delete.
-    pub(super) fn role_menu<'a>(
-        &'a self,
+    pub(super) fn role_menu(
+        self,
         role: &'a RoleDetail,
         (index, count, first_movable): (usize, usize, usize),
         movable: bool,
@@ -347,22 +347,22 @@ impl App {
         };
         let id = || role.id.clone();
         let rows = column![
-            self.menu_item(
+            self.cx.look.menu_item(
                 item("Move Up", false, movable && index > first_movable),
                 Light::Pointer,
                 local(Event::Moved(index, index.saturating_sub(1))),
             ),
-            self.menu_item(
+            self.cx.look.menu_item(
                 item("Move Down", false, movable && index + 1 < count),
                 Light::Pointer,
                 local(Event::Moved(index, index + 1)),
             ),
-            self.menu_item(
+            self.cx.look.menu_item(
                 item("Duplicate Role", false, true),
                 Light::Pointer,
                 input(RoleInput::Duplicate(id())),
             ),
-            self.menu_item(
+            self.cx.look.menu_item(
                 item("Delete", true, true),
                 Light::Pointer,
                 input(RoleInput::Delete(id())),
@@ -373,7 +373,7 @@ impl App {
             container(rows)
                 .padding(6)
                 .width(MORE)
-                .style(controls::menu_panel(&self.theme)),
+                .style(controls::menu_panel(self.cx.look.theme)),
         )
     }
 }

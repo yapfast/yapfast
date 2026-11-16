@@ -185,15 +185,15 @@ impl App {
             Layer::Switcher => state.switcher.is_some(),
             Layer::NewDm => state.new_dm.is_some(),
             Layer::Poll => state.poll_draft.is_some(),
-            Layer::LinkDialog => self.link_dialog_open(),
-            Layer::ServerDialog => self.server_dialog_open(),
+            Layer::LinkDialog => crate::link_dialogs::is_open(state),
+            Layer::ServerDialog => crate::server_dialogs::is_open(state),
             Layer::StatusEditor => state.status_editor.is_some(),
-            Layer::AccountPopover => self.account_popover.is_some(),
+            Layer::AccountPopover => self.status.popover.is_some(),
             Layer::HeaderPopover => self.popover_open(),
             Layer::ProfileEditor => self.editor_open(),
             Layer::Settings => self.settings.is_open(),
-            Layer::ServerSettings => self.server_screen.is_some(),
-            Layer::ChannelSettings => self.channel_screen.is_some(),
+            Layer::ServerSettings => self.server_screen.is_open(),
+            Layer::ChannelSettings => self.channel_screen.is_open(),
             Layer::Forwarding => state.forwarding.is_some(),
             Layer::SwitchVoice => state.switch_voice.is_some(),
             Layer::PersonDialog => state.person_dialog.is_some(),
@@ -204,10 +204,10 @@ impl App {
             Layer::CallPopup => self.call.popup.is_some() || self.call.share_listing.is_some(),
             Layer::ClipFull => self.clip_full,
             Layer::FullCall => self.full_shown(),
-            Layer::Picker => self.picker.is_some(),
+            Layer::Picker => self.picker.is_open(),
             Layer::ServerCard => self.cards.server.is_some(),
             Layer::ExpressionCard => self.cards.expression.is_some(),
-            Layer::Card => self.card.is_some() || self.profiles.shown.is_some(),
+            Layer::Card => self.profiles.card.is_some() || self.profiles.shown.is_some(),
             Layer::RoleCard => state.role.is_some(),
             Layer::Selection => self.selection.is_some(),
             Layer::TagsMenu => self.forum_post.tags_menu,
@@ -271,11 +271,26 @@ impl App {
     ) -> Task<Message> {
         match (layer, named) {
             (Layer::ConfirmDelete, _) => self.confirm_key(named),
-            (Layer::Viewer, _) => self.viewer_key(named),
-            (Layer::Switcher, _) => self.switcher_key(named, modifiers.shift()),
-            (Layer::LinkDialog, _) => self.link_dialog_key(named),
-            (Layer::ServerDialog, _) => self.server_dialog_key(named),
-            (Layer::PersonDialog, _) => self.person_key(named),
+            (Layer::Viewer, _) => {
+                let mut cx = crate::ctx::cx!(self);
+                self.viewer.key(named, &mut cx)
+            }
+            (Layer::Switcher, _) => {
+                let mut cx = crate::ctx::cx!(self);
+                self.quick.key(named, modifiers.shift(), &mut cx)
+            }
+            (Layer::LinkDialog, _) => {
+                let mut cx = crate::ctx::cx!(self);
+                self.link_dialogs.key(named, &mut cx)
+            }
+            (Layer::ServerDialog, _) => {
+                let mut cx = crate::ctx::cx!(self);
+                self.server_dialogs.key(named, &mut cx)
+            }
+            (Layer::PersonDialog, _) => {
+                let mut cx = crate::ctx::cx!(self);
+                self.person.key(named, &mut cx)
+            }
             (Layer::Menu, _) => self.menu_key(named),
             (Layer::SwitchVoice, Some(key::Named::Enter)) => {
                 self.call_event(crate::call::Event::Switch(true))
@@ -302,12 +317,21 @@ impl App {
                 self.inbox = None;
                 Task::none()
             }
-            Layer::Mfa => self.mfa_event(mfa::Event::Cancel),
-            Layer::SelectMenu => self.select_event(crate::bot_select::Event::Close),
-            Layer::Modal => self.modal_event(crate::modal::Event::Close),
+            Layer::Mfa => {
+                let mut cx = crate::ctx::cx!(self);
+                self.mfa.update(mfa::Event::Cancel, &mut cx)
+            }
+            Layer::SelectMenu => {
+                let mut cx = crate::ctx::cx!(self);
+                crate::bot_select::update(crate::bot_select::Event::Close, &mut cx)
+            }
+            Layer::Modal => {
+                let mut cx = crate::ctx::cx!(self);
+                self.modal.update(crate::modal::Event::Close, &mut cx)
+            }
             Layer::NewDm => self.switcher_event(crate::switcher::Event::CloseNewDm),
             // The picker over a poll or the status editor goes first.
-            Layer::Poll | Layer::StatusEditor if self.picker.is_some() => self.close_picker(),
+            Layer::Poll | Layer::StatusEditor if self.picker.is_open() => self.close_picker(),
             Layer::Poll => self.switcher_event(crate::switcher::Event::ClosePoll),
             Layer::StatusEditor => self.status_event(crate::status::Event::Cancel),
             Layer::AccountPopover => self.status_event(crate::status::Event::Close),
@@ -316,9 +340,16 @@ impl App {
             Layer::Settings => self.settings_escape(),
             Layer::ServerSettings => self.server_settings_escape(),
             Layer::ChannelSettings => self.channel_settings_escape(),
-            Layer::Forwarding => self.forward_event(crate::forward::Event::Close),
+            Layer::Forwarding => {
+                let mut cx = crate::ctx::cx!(self);
+                self.forward.update(crate::forward::Event::Close, &mut cx)
+            }
             Layer::SwitchVoice => self.call_event(crate::call::Event::Switch(false)),
-            Layer::Reactions => self.reactions_event(crate::reactions::Event::Close),
+            Layer::Reactions => {
+                let mut cx = crate::ctx::cx!(self);
+                self.reactions
+                    .update(crate::reactions::Event::Close, &mut cx)
+            }
             Layer::AddFriend => self.friends_event(crate::friends::Event::CloseAdd),
             Layer::Leaving => self.leave(false),
             Layer::Menu => {
@@ -335,7 +366,7 @@ impl App {
             Layer::ServerCard => self.info_event(crate::info_cards::Event::CloseServer),
             Layer::ExpressionCard => self.info_event(crate::info_cards::Event::CloseExpression),
             Layer::Card => {
-                self.revert_note();
+                self.profiles.revert_note();
                 self.update(Message::CloseProfile)
             }
             Layer::RoleCard => self.info_event(crate::info_cards::Event::CloseRole),
@@ -344,7 +375,10 @@ impl App {
                 Task::none()
             }
             Layer::TagsMenu => self.forum_event(crate::forum::Event::TagsMenu(false)),
-            Layer::Search => self.search_event(crate::search::Event::Clear),
+            Layer::Search => {
+                let mut cx = crate::ctx::cx!(self);
+                self.searching.update(crate::search::Event::Clear, &mut cx)
+            }
             Layer::Editing => {
                 self.client.dispatch(Action::CancelEdit);
                 Task::batch([self.sync(), operation::focus(crate::composer::COMPOSER)])

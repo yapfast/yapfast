@@ -118,7 +118,7 @@ fn channel_settings_cover_the_window_with_overview_and_permissions() {
         Default::default(),
     ));
     assert!(app.client.state().channel_settings.is_none());
-    assert!(app.channel_screen.is_none(), "let go of with the core's");
+    assert!(!app.channel_screen.is_open(), "let go of with the core's");
 
     // Delete Channel, last in the sidebar, closes them and asks.
     open(&mut app);

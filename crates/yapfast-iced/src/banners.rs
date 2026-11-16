@@ -22,7 +22,7 @@ impl App {
     pub fn banners(&self) -> impl Iterator<Item = Element<'_, Message>> {
         [
             self.preview_banner(),
-            self.verify_banner(),
+            crate::signin::verify_banner(self.ctx()),
             self.notice_banner(),
         ]
         .into_iter()

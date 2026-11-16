@@ -248,7 +248,7 @@ fn the_name_style_tile_opens_its_window_which_applies_the_style_chosen() {
     let window = app
         .profiles
         .editor
-        .as_ref()
+        .get()
         .and_then(|editor| editor.style.as_ref());
     assert_eq!(
         window.map(|window| (window.ends.clone(), window.changed())),

@@ -262,7 +262,7 @@ impl App {
         // the emoji picker alone is open over the composer.
         let shown = self
             .picker
-            .as_ref()
+            .get()
             .filter(|picker| picker.target == Target::Composer)
             .map(|picker| picker.tab);
         let tint = |tab: Tab| {
@@ -622,10 +622,10 @@ impl App {
     /// settings cover it, as after a member's profile from Members.
     pub fn refocus(&self) -> Task<Message> {
         // A screen or dialog over the window keeps the keys itself.
-        if self.server_screen.is_some()
-            || self.channel_screen.is_some()
-            || self.server_dialog_open()
-            || self.link_dialog_open()
+        if self.server_screen.is_open()
+            || self.channel_screen.is_open()
+            || crate::server_dialogs::is_open(self.client.state())
+            || crate::link_dialogs::is_open(self.client.state())
         {
             return Task::none();
         }
@@ -712,12 +712,12 @@ impl App {
     /// aren't for: a card, a popup, the picker or a full view.
     fn composer_covered(&self) -> bool {
         let state = self.client.state();
-        self.card.is_some()
+        self.profiles.card.is_some()
             || self.profiles.shown.is_some()
             || self.cards.server.is_some()
             || self.cards.expression.is_some()
             || state.role.is_some()
-            || self.picker.is_some()
+            || self.picker.is_open()
             || self.call.popup.is_some()
             || self.clip_full
             || self.full_shown()
@@ -768,7 +768,7 @@ impl App {
                 }
                 // Under a server's or a channel's settings, Escape is
                 // theirs: it comes to them as a key.
-                if self.server_screen.is_some() || self.channel_screen.is_some() {
+                if self.server_screen.is_open() || self.channel_screen.is_open() {
                     return Task::none();
                 }
                 // Escape in the thread's composer cancels its reply first.

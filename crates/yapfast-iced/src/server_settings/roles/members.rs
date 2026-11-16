@@ -14,8 +14,9 @@ use super::{
     ADD_HEIGHT, ADD_ROOM, BUTTON, CANDIDATE_AVATAR, CANDIDATES, DIALOG, GLYPH, MEMBER,
     MEMBER_AVATAR, MEMBER_SEARCH, input, search,
 };
+use crate::server_settings::View;
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{self, Kind, action},
     fonts::{BOLD, SEMIBOLD},
     form,
@@ -28,18 +29,18 @@ pub fn focus_candidates() -> Task<Message> {
     operation::focus(iced::widget::Id::new(CANDIDATES))
 }
 
-impl App {
+impl<'a> View<'a> {
     /// Manage Members: the search, Add Members, and those who hold it,
     /// each with the button that takes it from them.
-    pub(super) fn role_members<'a>(
-        &'a self,
+    pub(super) fn role_members(
+        self,
         page: &'a RolesPage,
         role: &'a RoleDetail,
         lock: Option<RoleLock>,
         everyone: bool,
         ready: bool,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let Some(draft) = &page.open else {
             return Space::new().into();
         };
@@ -92,13 +93,13 @@ impl App {
 
     /// A member on Manage Members: avatar, names, and the X that takes the
     /// role from them.
-    pub(super) fn role_member<'a>(
-        &'a self,
+    pub(super) fn role_member(
+        self,
         member: &'a RoleMember,
         removable: bool,
     ) -> Element<'a, Message> {
         row![
-            self.avatar(
+            self.cx.avatar(
                 Some(member.avatar.as_str()).filter(|url| !url.is_empty()),
                 &member.name,
                 MEMBER_AVATAR,
@@ -106,7 +107,8 @@ impl App {
                 1.0
             ),
             self.member_names(member),
-            self.look()
+            self.cx
+                .look
                 .icon_button(
                     Icon::X,
                     if removable {
@@ -130,8 +132,8 @@ impl App {
     }
 
     /// A member's name and username on one line.
-    pub(super) fn member_names<'a>(&self, member: &'a RoleMember) -> Element<'a, Message> {
-        let theme = &self.theme;
+    pub(super) fn member_names(self, member: &'a RoleMember) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         let mut names = row![
             text(member.name.as_str())
                 .size(15)
@@ -154,8 +156,8 @@ impl App {
 
     /// Add members: a search of the server's members, each with a box to
     /// pick them, up to thirty, then Add.
-    pub(super) fn add_members<'a>(&'a self, page: &'a RolesPage) -> Element<'a, Message> {
-        let theme = &self.theme;
+    pub(super) fn add_members(self, page: &'a RolesPage) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         let Some(adding) = &page.adding else {
             return Space::new().into();
         };
@@ -173,7 +175,7 @@ impl App {
                 .map(|member| self.candidate(member, chosen(&member.id))),
         );
         let picked = adding.chosen.len();
-        let height = ADD_HEIGHT.min(self.window.height - ADD_ROOM);
+        let height = ADD_HEIGHT.min(self.cx.look.window.height - ADD_ROOM);
         let body = column![
             text("Add members").size(20).font(BOLD).color(theme.text),
             text(format!("Select up to 30 members to add to role {role}"))
@@ -221,15 +223,11 @@ impl App {
 
     /// Someone in Add members: their box, avatar and names; a click picks
     /// them or puts them back.
-    pub(super) fn candidate<'a>(
-        &'a self,
-        member: &'a RoleMember,
-        chosen: bool,
-    ) -> Element<'a, Message> {
-        let lit = self.theme.wash(0.06);
+    pub(super) fn candidate(self, member: &'a RoleMember, chosen: bool) -> Element<'a, Message> {
+        let lit = self.cx.look.theme.wash(0.06);
         let face = row![
-            self.checkbox(chosen, false),
-            self.avatar(
+            self.cx.look.checkbox(chosen, false),
+            self.cx.avatar(
                 Some(member.avatar.as_str()).filter(|url| !url.is_empty()),
                 &member.name,
                 CANDIDATE_AVATAR,

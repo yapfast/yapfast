@@ -16,10 +16,15 @@ use iced::{
     Alignment, Color, Element, Length, Padding, Size, Task,
     widget::{Space, button, container, row, text},
 };
-use yapfast_core::{application::Action, chat::Attachment, links};
+use yapfast_core::{
+    application::{Action, AppState},
+    chat::Attachment,
+    links,
+};
 
 use crate::{
     app::{App, Message},
+    ctx::{Ctx, Cx, Focus, Request},
     media::{Fit, Shot},
     menus::{Menu, MenuAct, MenuRow},
     pictures::Icon,
@@ -58,68 +63,288 @@ pub enum Event {
     Saved(String, usize, Option<std::path::PathBuf>),
 }
 
-impl App {
-    pub fn image_event(&mut self, event: Event) -> Task<Message> {
+/// What the window keeps of the viewer: the size it opened at, for its
+/// message's item and attachment, which the full picture coming keeps.
+#[derive(Default)]
+pub struct Viewed {
+    pub size: Option<(String, usize, Size)>,
+}
+
+impl Viewed {
+    /// What's done in the viewer; Save and a picture's menu are the
+    /// root's (`App::image_event`).
+    pub fn update(&mut self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
         match event {
             Event::Open(item, index) => {
-                self.client.dispatch(Action::ViewImage { item, index });
-                Task::batch([
-                    self.sync(),
-                    iced::widget::operation::focus(crate::app::NOBODY),
-                ])
+                cx.dispatch(Action::ViewImage { item, index });
+                return iced::widget::operation::focus(crate::app::NOBODY);
             }
             Event::Close => {
-                self.client.dispatch(Action::CloseImage);
-                self.viewer_size = None;
-                Task::batch([self.sync(), self.refocus()])
+                cx.dispatch(Action::CloseImage);
+                self.size = None;
+                cx.request(Request::Focus(Focus::Default));
             }
-            Event::Step(step) => {
-                self.client.dispatch(Action::StepImage(step));
-                self.sync()
-            }
-            Event::Save(item, index) => self.save_attachment(item, index),
+            Event::Step(step) => cx.dispatch(Action::StepImage(step)),
             Event::Saved(item, index, path) => {
                 if let Some(path) = path {
-                    self.client
-                        .dispatch(Action::SaveAttachment { item, index, path });
+                    cx.dispatch(Action::SaveAttachment { item, index, path });
                 }
-                self.sync()
             }
-            Event::Copy(item, index) => {
-                self.client.dispatch(Action::CopyAttachment { item, index });
-                self.sync()
-            }
-            Event::Menu(item, index, video) => self.media_menu(item, index, video),
+            Event::Copy(item, index) => cx.dispatch(Action::CopyAttachment { item, index }),
+            Event::Save(..) | Event::Menu(..) => {}
         }
+        Task::none()
     }
 
-    /// Asks where to save a message's attachment, suggesting its own name.
-    pub fn save_attachment(&mut self, item: String, index: usize) -> Task<Message> {
-        let state = self.client.state();
-        if state.preview {
+    /// Keeps the size the viewer opened at, once its picture is known, so
+    /// the full picture coming doesn't move it. A viewer whose message the
+    /// core let go of (a busy channel lets the oldest go) closes, its full
+    /// picture with it, and gives the keys back.
+    pub fn sync(&mut self, cx: &mut Cx<'_>) -> Task<Message> {
+        let state = cx.state();
+        let Some(viewer) = state.viewer.as_ref() else {
+            self.size = None;
+            return Task::none();
+        };
+        if state.message(&viewer.item).is_none() {
+            cx.dispatch(Action::CloseImage);
+            self.size = None;
+            cx.request(Request::Focus(Focus::Default));
             return Task::none();
         }
-        let name = state
-            .message(&item)
-            .and_then(|message| message.attachments.get(index))
-            .map(|attachment| suggested_name(&attachment.name))
-            .unwrap_or_else(|| "attachment".into());
-        Task::perform(
-            async move {
-                rfd::AsyncFileDialog::new()
-                    .set_title("Save attachment")
-                    .set_file_name(name)
-                    .save_file()
-                    .await
-                    .map(|file| file.path().to_owned())
-            },
-            move |path| Message::Image(Event::Saved(item.clone(), index, path)),
-        )
+        if self
+            .size
+            .as_ref()
+            .is_some_and(|(item, index, _)| *item == viewer.item && *index == viewer.index)
+        {
+            return Task::none();
+        }
+        let Some(attachment) = state
+            .message(&viewer.item)
+            .and_then(|message| message.attachments.get(viewer.index))
+        else {
+            return Task::none();
+        };
+        let full = match viewer.pictures.get(&viewer.index) {
+            Some(Some(Ok(picture))) => Some((picture.width, picture.height)),
+            _ => None,
+        };
+        if full.is_none() && attachment.dimensions.is_none() && attachment.preview.is_none() {
+            return Task::none();
+        }
+        self.size = Some((
+            viewer.item.clone(),
+            viewer.index,
+            natural_size(full, attachment),
+        ));
+        Task::none()
     }
 
+    /// The viewer's keys: Escape closes it, the arrows step.
+    pub fn key(
+        &mut self,
+        named: Option<iced::keyboard::key::Named>,
+        cx: &mut Cx<'_>,
+    ) -> Task<Message> {
+        use iced::keyboard::key::Named;
+        match named {
+            Some(Named::Escape) => self.update(Event::Close, cx),
+            Some(Named::ArrowLeft) => self.update(Event::Step(-1), cx),
+            Some(Named::ArrowRight) => self.update(Event::Step(1), cx),
+            _ => Task::none(),
+        }
+    }
+}
+
+/// Asks where to save a message's attachment, suggesting its own name.
+pub fn save(item: String, index: usize, state: &AppState) -> Task<Message> {
+    if state.preview {
+        return Task::none();
+    }
+    let name = state
+        .message(&item)
+        .and_then(|message| message.attachments.get(index))
+        .map(|attachment| suggested_name(&attachment.name))
+        .unwrap_or_else(|| "attachment".into());
+    Task::perform(
+        async move {
+            rfd::AsyncFileDialog::new()
+                .set_title("Save attachment")
+                .set_file_name(name)
+                .save_file()
+                .await
+                .map(|file| file.path().to_owned())
+        },
+        move |path| Message::Image(Event::Saved(item.clone(), index, path)),
+    )
+}
+
+/// The picture being viewed, over everything.
+pub fn view<'a>(viewed: &'a Viewed, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
+    View {
+        s: &viewed.size,
+        cx,
+    }
+    .view()
+}
+
+/// The size kept and what the viewer reads, as its parts draw them.
+#[derive(Clone, Copy)]
+struct View<'a> {
+    s: &'a Option<(String, usize, Size)>,
+    cx: Ctx<'a>,
+}
+
+impl<'a> View<'a> {
+    /// The picture being viewed, over everything.
+    fn view(self) -> Option<Element<'a, Message>> {
+        let state = self.cx.state;
+        let viewer = state.viewer.as_ref()?;
+        let message = state.message(&viewer.item)?;
+        let attachment = message.attachments.get(viewer.index)?;
+        let loaded = viewer.pictures.get(&viewer.index);
+        let full = match loaded {
+            Some(Some(Ok(picture))) => Some(picture),
+            _ => None,
+        };
+        let note = match loaded {
+            Some(Some(Err(error))) => *error,
+            Some(None) => "Loading the full image...",
+            _ => "",
+        };
+        let natural = self
+            .s
+            .as_ref()
+            .filter(|(item, index, _)| *item == viewer.item && *index == viewer.index)
+            .map(|(_, _, size)| *size)
+            .unwrap_or_else(|| {
+                natural_size(full.map(|full| (full.width, full.height)), attachment)
+            });
+        let room = Size::new(
+            (self.cx.look.window.width - SIDES).max(1.0),
+            (self.cx.look.window.height - ENDS).max(1.0),
+        );
+        let scale = 1f32
+            .min(room.width / natural.width)
+            .min(room.height / natural.height);
+        let size = Size::new(
+            (natural.width * scale).round().max(1.0),
+            (natural.height * scale).round().max(1.0),
+        );
+        let shown = full.or(attachment.preview.as_ref());
+        let picture = self.cx.shot(Shot {
+            fit: Fit::Contain,
+            ground: false,
+            ..Shot::new(shown, size)
+        });
+        let (item, index) = (viewer.item.clone(), viewer.index);
+        let picture = RightPress::new(picture, move |_| {
+            Message::Image(Event::Menu(item.clone(), index, false))
+        });
+        let images: Vec<usize> = message
+            .attachments
+            .iter()
+            .enumerate()
+            .filter(|(_, attachment)| attachment.image)
+            .map(|(index, _)| index)
+            .collect();
+        let place = images.iter().position(|index| *index == viewer.index);
+        let mut buttons: Vec<Element<'a, Message>> = Vec::new();
+        if !state.preview {
+            buttons.push(
+                self.cx
+                    .look
+                    .face_button(
+                        self.cx.look.glyph(Icon::Download, 20, Color::WHITE),
+                        32.0,
+                        "Save",
+                        Message::Image(Event::Save(viewer.item.clone(), viewer.index)),
+                    )
+                    .below()
+                    .into(),
+            );
+        }
+        buttons.push(
+            self.cx
+                .look
+                .face_button(
+                    self.cx.look.glyph(Icon::X, 20, Color::WHITE),
+                    32.0,
+                    "Close",
+                    Message::Image(Event::Close),
+                )
+                .below()
+                .into(),
+        );
+        let mut shown = Viewer::new(GROUND, picture, size, Message::Image(Event::Close))
+            .title(attachment.name.clone(), buttons);
+        if images.len() > 1
+            && let Some(place) = place
+        {
+            shown = shown
+                .subtitle(format!("{} / {}", place + 1, images.len()))
+                .over(self.step_buttons());
+        }
+        if !note.is_empty() {
+            shown = shown.over(
+                container(
+                    container(text(note).size(13).color(NOTE_INK))
+                        .padding([0, 12])
+                        .height(32)
+                        .align_y(Alignment::Center)
+                        .style(|_| rounded(NOTE_GROUND, 6)),
+                )
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .padding(Padding::ZERO.bottom(20))
+                .align_x(Alignment::Center)
+                .align_y(Alignment::End),
+            );
+        }
+        Some(shown.view(self.cx.look))
+    }
+
+    /// The round buttons either side that step to the previous and next
+    /// picture.
+    fn step_buttons(self) -> Element<'a, Message> {
+        let step = |icon: Icon, by: isize| {
+            button(self.cx.look.glyph(icon, 28, Color::WHITE).boxed(STEP))
+                .padding(0)
+                .width(STEP)
+                .height(STEP)
+                .on_press(Message::Image(Event::Step(by)))
+                .style(move |_, status| {
+                    let ground = match status {
+                        button::Status::Hovered | button::Status::Pressed => STEP_LIT,
+                        _ => STEP_GROUND,
+                    };
+                    button::Style {
+                        background: Some(ground.into()),
+                        border: iced::Border::default().rounded(STEP / 2.0),
+                        ..button::Style::default()
+                    }
+                })
+        };
+        container(
+            row![
+                step(Icon::ChevronLeft, -1),
+                Space::new().width(Length::Fill),
+                step(Icon::ChevronRight, 1)
+            ]
+            .align_y(Alignment::Center),
+        )
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .padding([0.0, STEP_GAP])
+        .align_y(Alignment::Center)
+        .into()
+    }
+}
+
+impl App {
     /// A message's menu for one of its pictures or videos, at the pointer:
     /// in the timeline, its rows and then these; in the viewer, these.
-    fn media_menu(&mut self, item: String, index: usize, video: bool) -> Task<Message> {
+    pub(crate) fn media_menu(&mut self, item: String, index: usize, video: bool) -> Task<Message> {
         let at = self.pressed.get();
         let preview = self.client.state().preview;
         let link = self
@@ -179,7 +404,7 @@ impl App {
         let focus = self.refocus();
         match act {
             MenuAct::CopyImage => Task::batch([focus, self.image_event(Event::Copy(item, index))]),
-            MenuAct::SaveMedia => Task::batch([focus, self.save_attachment(item, index)]),
+            MenuAct::SaveMedia => Task::batch([focus, save(item, index, self.client.state())]),
             MenuAct::CopyMediaLink => {
                 Task::batch([focus, iced::clipboard::write(link.to_string())])
             }
@@ -188,202 +413,6 @@ impl App {
                 focus
             }
             _ => focus,
-        }
-    }
-
-    /// The picture being viewed, over everything.
-    pub fn image_viewer(&self) -> Option<Element<'_, Message>> {
-        let state = self.client.state();
-        let viewer = state.viewer.as_ref()?;
-        let message = state.message(&viewer.item)?;
-        let attachment = message.attachments.get(viewer.index)?;
-        let loaded = viewer.pictures.get(&viewer.index);
-        let full = match loaded {
-            Some(Some(Ok(picture))) => Some(picture),
-            _ => None,
-        };
-        let note = match loaded {
-            Some(Some(Err(error))) => *error,
-            Some(None) => "Loading the full image...",
-            _ => "",
-        };
-        let natural = self
-            .viewer_size
-            .as_ref()
-            .filter(|(item, index, _)| *item == viewer.item && *index == viewer.index)
-            .map(|(_, _, size)| *size)
-            .unwrap_or_else(|| {
-                natural_size(full.map(|full| (full.width, full.height)), attachment)
-            });
-        let room = Size::new(
-            (self.window.width - SIDES).max(1.0),
-            (self.window.height - ENDS).max(1.0),
-        );
-        let scale = 1f32
-            .min(room.width / natural.width)
-            .min(room.height / natural.height);
-        let size = Size::new(
-            (natural.width * scale).round().max(1.0),
-            (natural.height * scale).round().max(1.0),
-        );
-        let shown = full.or(attachment.preview.as_ref());
-        let picture = self.shot(Shot {
-            fit: Fit::Contain,
-            ground: false,
-            ..Shot::new(shown, size)
-        });
-        let (item, index) = (viewer.item.clone(), viewer.index);
-        let picture = RightPress::new(picture, move |_| {
-            Message::Image(Event::Menu(item.clone(), index, false))
-        });
-        let images: Vec<usize> = message
-            .attachments
-            .iter()
-            .enumerate()
-            .filter(|(_, attachment)| attachment.image)
-            .map(|(index, _)| index)
-            .collect();
-        let place = images.iter().position(|index| *index == viewer.index);
-        let mut buttons: Vec<Element<'_, Message>> = Vec::new();
-        if !state.preview {
-            buttons.push(
-                self.look()
-                    .face_button(
-                        self.glyph(Icon::Download, 20, Color::WHITE),
-                        32.0,
-                        "Save",
-                        Message::Image(Event::Save(viewer.item.clone(), viewer.index)),
-                    )
-                    .below()
-                    .into(),
-            );
-        }
-        buttons.push(
-            self.look()
-                .face_button(
-                    self.glyph(Icon::X, 20, Color::WHITE),
-                    32.0,
-                    "Close",
-                    Message::Image(Event::Close),
-                )
-                .below()
-                .into(),
-        );
-        let mut shown = Viewer::new(GROUND, picture, size, Message::Image(Event::Close))
-            .title(attachment.name.clone(), buttons);
-        if images.len() > 1
-            && let Some(place) = place
-        {
-            shown = shown
-                .subtitle(format!("{} / {}", place + 1, images.len()))
-                .over(self.step_buttons());
-        }
-        if !note.is_empty() {
-            shown = shown.over(
-                container(
-                    container(text(note).size(13).color(NOTE_INK))
-                        .padding([0, 12])
-                        .height(32)
-                        .align_y(Alignment::Center)
-                        .style(|_| rounded(NOTE_GROUND, 6)),
-                )
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .padding(Padding::ZERO.bottom(20))
-                .align_x(Alignment::Center)
-                .align_y(Alignment::End),
-            );
-        }
-        Some(shown.view(self.look()))
-    }
-
-    /// The round buttons either side that step to the previous and next
-    /// picture.
-    fn step_buttons(&self) -> Element<'_, Message> {
-        let step = |icon: Icon, by: isize| {
-            button(self.glyph(icon, 28, Color::WHITE).boxed(STEP))
-                .padding(0)
-                .width(STEP)
-                .height(STEP)
-                .on_press(Message::Image(Event::Step(by)))
-                .style(move |_, status| {
-                    let ground = match status {
-                        button::Status::Hovered | button::Status::Pressed => STEP_LIT,
-                        _ => STEP_GROUND,
-                    };
-                    button::Style {
-                        background: Some(ground.into()),
-                        border: iced::Border::default().rounded(STEP / 2.0),
-                        ..button::Style::default()
-                    }
-                })
-        };
-        container(
-            row![
-                step(Icon::ChevronLeft, -1),
-                Space::new().width(Length::Fill),
-                step(Icon::ChevronRight, 1)
-            ]
-            .align_y(Alignment::Center),
-        )
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .padding([0.0, STEP_GAP])
-        .align_y(Alignment::Center)
-        .into()
-    }
-
-    /// Keeps the size the viewer opened at, once its picture is known, so
-    /// the full picture coming doesn't move it. A viewer whose message the
-    /// core let go of (a busy channel lets the oldest go) closes, its full
-    /// picture with it, and gives the keys back.
-    pub fn viewer_sync(&mut self) -> Task<Message> {
-        let state = self.client.state();
-        let Some(viewer) = state.viewer.as_ref() else {
-            self.viewer_size = None;
-            return Task::none();
-        };
-        if state.message(&viewer.item).is_none() {
-            self.client.dispatch(Action::CloseImage);
-            self.viewer_size = None;
-            return self.refocus();
-        }
-        if self
-            .viewer_size
-            .as_ref()
-            .is_some_and(|(item, index, _)| *item == viewer.item && *index == viewer.index)
-        {
-            return Task::none();
-        }
-        let Some(attachment) = state
-            .message(&viewer.item)
-            .and_then(|message| message.attachments.get(viewer.index))
-        else {
-            return Task::none();
-        };
-        let full = match viewer.pictures.get(&viewer.index) {
-            Some(Some(Ok(picture))) => Some((picture.width, picture.height)),
-            _ => None,
-        };
-        if full.is_none() && attachment.dimensions.is_none() && attachment.preview.is_none() {
-            return Task::none();
-        }
-        self.viewer_size = Some((
-            viewer.item.clone(),
-            viewer.index,
-            natural_size(full, attachment),
-        ));
-        Task::none()
-    }
-
-    /// The viewer's keys: Escape closes it, the arrows step.
-    pub fn viewer_key(&mut self, named: Option<iced::keyboard::key::Named>) -> Task<Message> {
-        use iced::keyboard::key::Named;
-        match named {
-            Some(Named::Escape) => self.image_event(Event::Close),
-            Some(Named::ArrowLeft) => self.image_event(Event::Step(-1)),
-            Some(Named::ArrowRight) => self.image_event(Event::Step(1)),
-            _ => Task::none(),
         }
     }
 }

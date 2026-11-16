@@ -15,11 +15,12 @@ use iced::{
     Alignment, Border, Color, Element, Length, Padding, Task,
     widget::{Space, button, column, container, row, text, text_editor},
 };
-use yapfast_core::application::{Action, ModalField};
+use yapfast_core::application::{Action, AppState, ModalField};
 
 use crate::{
     app::{App, Message},
     controls::{self, Kind},
+    ctx::Cx,
     dialog::dialog,
     elide::elide,
     fonts::{BOLD, MEDIUM},
@@ -67,26 +68,24 @@ pub enum Event {
     Close,
 }
 
-impl App {
-    pub fn modal_event(&mut self, event: Event) -> Task<Message> {
+impl Shown {
+    pub fn update(&mut self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
         match event {
-            Event::Edited(index, value) => {
-                self.client.dispatch(Action::SetModalField { index, value })
-            }
+            Event::Edited(index, value) => cx.dispatch(Action::SetModalField { index, value }),
             Event::Paragraph(index, action) => {
-                let Some(Some(content)) = self.modal.paragraphs.get_mut(index) else {
+                let Some(Some(content)) = self.paragraphs.get_mut(index) else {
                     return Task::none();
                 };
                 let edits = action.is_edit();
                 content.perform(action);
                 if edits {
                     let value = content.text();
-                    self.client.dispatch(Action::SetModalField { index, value });
+                    cx.dispatch(Action::SetModalField { index, value });
                 } else {
                     return Task::none();
                 }
             }
-            Event::OpenSelect(index) => self.client.dispatch(Action::OpenModalSelect(index)),
+            Event::OpenSelect(index) => cx.dispatch(Action::OpenModalSelect(index)),
             Event::ChooseFiles(index) => {
                 return Task::perform(
                     async {
@@ -107,34 +106,30 @@ impl App {
                     },
                 );
             }
-            Event::Chosen(index, files) => {
-                self.client.dispatch(Action::AddModalFiles { index, files })
-            }
-            Event::RemoveFile(index, file) => self
-                .client
-                .dispatch(Action::RemoveModalFile { index, file }),
-            Event::Submit => self.client.dispatch(Action::SubmitModal),
-            Event::Close => self.client.dispatch(Action::CloseModal),
+            Event::Chosen(index, files) => cx.dispatch(Action::AddModalFiles { index, files }),
+            Event::RemoveFile(index, file) => cx.dispatch(Action::RemoveModalFile { index, file }),
+            Event::Submit => cx.dispatch(Action::SubmitModal),
+            Event::Close => cx.dispatch(Action::CloseModal),
         }
-        self.sync()
+        Task::none()
     }
 
     /// Keeps a paragraph's editor and text to read in step with the core's
     /// fields, laying text out again only when it changed; lets go of them
     /// as the form closes.
-    pub fn modal_sync(&mut self) {
-        let Some(modal) = self.client.state().interaction_modal.as_ref() else {
-            if !self.modal.paragraphs.is_empty() || !self.modal.texts.is_empty() {
-                self.modal = Shown::default();
+    pub fn sync(&mut self, state: &AppState, theme: &crate::theme::Theme) {
+        let Some(modal) = state.interaction_modal.as_ref() else {
+            if !self.paragraphs.is_empty() || !self.texts.is_empty() {
+                *self = Shown::default();
             }
             return;
         };
         let fields = &modal.fields;
-        self.modal.paragraphs.resize_with(fields.len(), || None);
-        self.modal.texts.resize_with(fields.len(), || None);
-        let link = rgb(self.theme.mention);
+        self.paragraphs.resize_with(fields.len(), || None);
+        self.texts.resize_with(fields.len(), || None);
+        let link = rgb(theme.mention);
         for (index, field) in fields.iter().enumerate() {
-            let paragraph = &mut self.modal.paragraphs[index];
+            let paragraph = &mut self.paragraphs[index];
             if field.kind == TEXT_INPUT && field.paragraph {
                 match paragraph {
                     Some(content) if content.text() == field.value => {}
@@ -143,7 +138,7 @@ impl App {
             } else {
                 *paragraph = None;
             }
-            let shown = &mut self.modal.texts[index];
+            let shown = &mut self.texts[index];
             if field.kind == TEXT_DISPLAY {
                 if shown
                     .as_ref()
@@ -157,7 +152,9 @@ impl App {
             }
         }
     }
+}
 
+impl App {
     /// The form over the dimmed window, while one is open.
     pub fn modal_view(&self) -> Option<Element<'_, Message>> {
         let modal = self.client.state().interaction_modal.as_ref()?;
@@ -303,7 +300,7 @@ impl App {
                     .select_menu
                     .as_ref()
                     .is_some_and(|select| select.modal_field == Some(index));
-                Popover::new(boxed, open.then(|| self.dropdown()), Side::Below)
+                Popover::new(boxed, open.then(|| self.ctx().dropdown()), Side::Below)
                     .width(Width::Same)
                     .gap(4.0)
                     .outside(Message::BotSelect(crate::bot_select::Event::Close))

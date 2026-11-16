@@ -33,6 +33,7 @@ use yapfast_core::{
 use crate::{
     app::{App, Message},
     controls::{Kind, action},
+    ctx::{Cx, Focus, Request},
     looks, paint,
     pictures::shared,
     style::{card_shadow, scrollbar},
@@ -118,7 +119,7 @@ pub enum Event {
 }
 
 /// An activity's more menu's width, as the Slint client's.
-const ACTIVITY_MENU: f32 = 170.0;
+pub(crate) const ACTIVITY_MENU: f32 = 170.0;
 
 /// The floating card: whose, where.
 pub struct Card {
@@ -187,31 +188,201 @@ pub struct Profiles {
     /// When the cards' effects began to play.
     effect: cosmetic::EffectClock,
     /// The profile editor, while the core has one open.
-    pub editor: Option<editor::Editor>,
+    pub editor: crate::slot::Slot<editor::Editor>,
     /// The account's own profile as its popover shows it, while it's open.
     pub account: Option<(Arc<chat::Profile>, Shown)>,
+    /// The floating card, while it shows.
+    pub card: Option<Card>,
 }
 
-impl App {
-    pub fn open_card(&mut self, user: String, at: Point) -> Task<Message> {
-        self.client.dispatch(Action::ShowProfile {
+impl Profiles {
+    /// Opens `user`'s card at `at`.
+    pub fn open_card(&mut self, user: String, at: Point, cx: &mut Cx<'_>) {
+        cx.dispatch(Action::ShowProfile {
             user: user.clone(),
             large: false,
         });
         self.card = Some(Card { user, at });
-        self.profiles.field.clear();
+        self.field.clear();
         self.unpoint_card();
-        self.sync()
     }
 
+    /// The full profile's tab, once per tab and person: Board, Activity and
+    /// Wishlist ask Discord for what they show.
+    fn tell_tab(&mut self, cx: &mut Cx<'_>) {
+        let Some(shown) = self.shown.as_ref().filter(|shown| shown.look.view.large) else {
+            self.told = None;
+            return;
+        };
+        let tab = self.tab_for(&shown.look);
+        let told = (shown.look.profile().id.clone(), tab);
+        if self.told.as_ref() == Some(&told) {
+            return;
+        }
+        self.told = Some(told);
+        let tab = match tab {
+            Tab::Activity => ProfileTab::Activity,
+            Tab::Board => ProfileTab::Board,
+            Tab::Wishlist => ProfileTab::Wishlist,
+            Tab::Friends | Tab::Servers => return,
+        };
+        cx.dispatch(Action::OpenProfileTab(tab));
+    }
+
+    /// The tab the full profile shows: the one chosen while it's there,
+    /// else the first.
+    pub fn tab_for(&self, look: &Look) -> Tab {
+        self.tab
+            .filter(|tab| look.tabs.contains(tab))
+            .unwrap_or(look.tabs[0])
+    }
+
+    /// The note typed on the shown profile goes to the core, if it
+    /// changed: as Enter does, and as the Slint client's does when the
+    /// field loses the keys, before the profile closes or changes.
+    fn save_note(&self, cx: &mut Cx<'_>) {
+        let Some(shown) = &self.shown else {
+            return;
+        };
+        let profile = shown.look.profile();
+        if self.note != profile.note {
+            let (user, note) = (profile.id.clone(), self.note.clone());
+            cx.dispatch(Action::SaveNote { user, note });
+        }
+    }
+
+    /// Escape: what was typed in the note goes back to what's kept.
+    pub fn revert_note(&mut self) {
+        if let Some(shown) = &self.shown {
+            self.note = shown.look.profile().note.clone();
+        }
+    }
+
+    /// What's done on a profile. Its More, an activity's menu, Manage
+    /// Privacy, a server's card and the editor are the root's
+    /// (`App::profile_event`).
+    pub fn update(&mut self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
+        match event {
+            Event::Enlarge(tab, panel) => {
+                self.save_note(cx);
+                self.tab = tab;
+                if panel {
+                    let Some(room) = cx.state().selected.clone() else {
+                        return Task::none();
+                    };
+                    cx.dispatch(Action::ShowDmProfile(room));
+                } else {
+                    cx.dispatch(Action::EnlargeProfile);
+                }
+                self.card = None;
+                self.unpoint_card();
+            }
+            Event::Close => {
+                self.save_note(cx);
+                cx.dispatch(Action::CloseProfile);
+                self.card = None;
+                cx.request(Request::Focus(Focus::Default));
+            }
+            Event::Befriend(user) => cx.dispatch(Action::Befriend(user)),
+            Event::Message(user) => {
+                self.save_note(cx);
+                cx.dispatch(Action::CloseProfile);
+                cx.dispatch(Action::MessagePerson(user));
+            }
+            Event::More(user) => cx.request(Request::PersonMenu {
+                user,
+                location: crate::person::PROFILE_OVERFLOW,
+            }),
+            Event::Field(text) => {
+                self.field = text;
+                return Task::none();
+            }
+            Event::Send => {
+                let user = self
+                    .card
+                    .as_ref()
+                    .map(|card| card.user.clone())
+                    .or_else(|| {
+                        self.panel
+                            .as_ref()
+                            .map(|shown| shown.look.profile().id.clone())
+                    });
+                let Some(user) = user else {
+                    return Task::none();
+                };
+                if self.field.trim().is_empty() {
+                    return Task::none();
+                }
+                let text = std::mem::take(&mut self.field);
+                self.card = None;
+                cx.dispatch(Action::MessageFromProfile { user, text });
+            }
+            Event::Note(text) => {
+                self.note = text;
+                return Task::none();
+            }
+            Event::SaveNote => self.save_note(cx),
+            Event::Tab(tab) => {
+                self.tab = Some(tab);
+                self.tell_tab(cx);
+            }
+            Event::Friend(user) => {
+                self.save_note(cx);
+                let large = self
+                    .shown
+                    .as_ref()
+                    .is_some_and(|shown| shown.look.view.large);
+                self.tab = None;
+                cx.dispatch(Action::ShowFriendProfile { user, large });
+            }
+            // The card's person's full profile, on its Activity tab.
+            Event::AllActivity => {
+                return self.update(Event::Enlarge(Some(Tab::Activity), false), cx);
+            }
+            Event::Pointed(pointed) => {
+                self.pointed = pointed;
+                cx.request(Request::Ask);
+                return self.point_effect(false, pointed, cx.state());
+            }
+            Event::PanelPointed(pointed) => {
+                self.panel_pointed = pointed;
+                cx.request(Request::Ask);
+                return self.point_effect(true, pointed, cx.state());
+            }
+            Event::EffectTick(generation) => return self.effect_tick(generation, cx.state()),
+            Event::Bubble(pointed) => {
+                self.bubble = pointed;
+                return Task::none();
+            }
+            Event::EditProfile => {
+                cx.dispatch(Action::CloseProfile);
+                self.card = None;
+                cx.dispatch(Action::EditProfile);
+            }
+            Event::TogglePanel => {
+                let shown = !cx.state().profile_panel;
+                cx.keep("profile_panel_hidden", !shown);
+                cx.dispatch(Action::ShowProfilePanel(shown));
+            }
+            Event::ActivityMenu(_)
+            | Event::ActivityPrivacy
+            | Event::Server(_)
+            | Event::Editor(_) => {}
+        }
+        cx.touch();
+        Task::none()
+    }
+}
+
+impl App {
     /// Takes in the core's profiles: each one's look is made again only
     /// when its view changed. The full profile tells the core which tab
     /// shows, once per tab and person.
     pub fn profile_sync(&mut self) -> Task<Message> {
         let state = self.client.state();
         // The card the core closed, or one shown large, goes.
-        if self.card.is_some() && state.profile.as_ref().is_none_or(|view| view.large) {
-            self.card = None;
+        if self.profiles.card.is_some() && state.profile.as_ref().is_none_or(|view| view.large) {
+            self.profiles.card = None;
         }
         let link = crate::theme::rgb(self.theme.link);
         let (shown, panel) = (self.profiles.shown.take(), self.profiles.panel.take());
@@ -227,7 +398,10 @@ impl App {
                 activities: room.activities.clone(),
             });
         self.profiles.panel = make_shown(app, panel, panel_view, live, link);
-        self.editor_sync();
+        {
+            let mut cx = crate::ctx::cx!(self);
+            editor::follow(&mut self.profiles.editor, &mut cx);
+        }
         self.account_card_sync(link);
         // The note follows the profile's while it isn't being written.
         if let Some(profile) = self
@@ -244,209 +418,20 @@ impl App {
         } else {
             self.profiles.note_of.clear();
         }
-        self.tell_tab()
-    }
-
-    /// The full profile's tab, once per tab and person: Board, Activity and
-    /// Wishlist ask Discord for what they show.
-    fn tell_tab(&mut self) -> Task<Message> {
-        let Some(shown) = self
-            .profiles
-            .shown
-            .as_ref()
-            .filter(|shown| shown.look.view.large)
-        else {
-            self.profiles.told = None;
-            return Task::none();
-        };
-        let tab = self.profile_tab(&shown.look);
-        let told = (shown.look.profile().id.clone(), tab);
-        if self.profiles.told.as_ref() == Some(&told) {
-            return Task::none();
-        }
-        self.profiles.told = Some(told);
-        let tab = match tab {
-            Tab::Activity => ProfileTab::Activity,
-            Tab::Board => ProfileTab::Board,
-            Tab::Wishlist => ProfileTab::Wishlist,
-            Tab::Friends | Tab::Servers => return Task::none(),
-        };
-        self.client.dispatch(Action::OpenProfileTab(tab));
+        let mut cx = crate::ctx::cx!(self);
+        self.profiles.tell_tab(&mut cx);
         Task::none()
     }
 
-    /// The tab the full profile shows: the one chosen while it's there,
-    /// else the first.
+    /// The tab the full profile shows.
     pub fn profile_tab(&self, look: &Look) -> Tab {
-        self.profiles
-            .tab
-            .filter(|tab| look.tabs.contains(tab))
-            .unwrap_or(look.tabs[0])
-    }
-
-    /// What's done on a profile.
-    /// The note typed on the shown profile goes to the core, if it
-    /// changed: as Enter does, and as the Slint client's does when the
-    /// field loses the keys, before the profile closes or changes.
-    fn save_note(&mut self) {
-        let Some(shown) = &self.profiles.shown else {
-            return;
-        };
-        let profile = shown.look.profile();
-        if self.profiles.note != profile.note {
-            let (user, note) = (profile.id.clone(), self.profiles.note.clone());
-            self.client.dispatch(Action::SaveNote { user, note });
-        }
-    }
-
-    /// Escape: what was typed in the note goes back to what's kept.
-    pub fn revert_note(&mut self) {
-        if let Some(shown) = &self.profiles.shown {
-            self.profiles.note = shown.look.profile().note.clone();
-        }
-    }
-
-    pub fn profile_event(&mut self, event: Event) -> Task<Message> {
-        match event {
-            Event::Enlarge(tab, panel) => {
-                self.save_note();
-                self.profiles.tab = tab;
-                if panel {
-                    let Some(room) = self.client.state().selected.clone() else {
-                        return Task::none();
-                    };
-                    self.client.dispatch(Action::ShowDmProfile(room));
-                } else {
-                    self.client.dispatch(Action::EnlargeProfile);
-                }
-                self.card = None;
-                self.unpoint_card();
-            }
-            Event::Close => {
-                self.save_note();
-                self.client.dispatch(Action::CloseProfile);
-                self.card = None;
-                return Task::batch([self.sync(), self.refocus()]);
-            }
-            Event::Befriend(user) => self.client.dispatch(Action::Befriend(user)),
-            Event::Message(user) => {
-                self.save_note();
-                self.client.dispatch(Action::CloseProfile);
-                self.client.dispatch(Action::MessagePerson(user));
-            }
-            Event::More(user) => {
-                let at = self.pressed.get();
-                return self.open_person_menu(&user, at, crate::person::PROFILE_OVERFLOW);
-            }
-            Event::Field(text) => {
-                self.profiles.field = text;
-                return Task::none();
-            }
-            Event::Send => {
-                let user = self
-                    .card
-                    .as_ref()
-                    .map(|card| card.user.clone())
-                    .or_else(|| {
-                        self.profiles
-                            .panel
-                            .as_ref()
-                            .map(|shown| shown.look.profile().id.clone())
-                    });
-                let Some(user) = user else {
-                    return Task::none();
-                };
-                if self.profiles.field.trim().is_empty() {
-                    return Task::none();
-                }
-                let text = std::mem::take(&mut self.profiles.field);
-                self.card = None;
-                self.client
-                    .dispatch(Action::MessageFromProfile { user, text });
-            }
-            Event::Note(text) => {
-                self.profiles.note = text;
-                return Task::none();
-            }
-            Event::SaveNote => self.save_note(),
-            Event::Tab(tab) => {
-                self.profiles.tab = Some(tab);
-                return Task::batch([self.tell_tab(), self.sync()]);
-            }
-            Event::Friend(user) => {
-                self.save_note();
-                let large = self
-                    .profiles
-                    .shown
-                    .as_ref()
-                    .is_some_and(|shown| shown.look.view.large);
-                self.profiles.tab = None;
-                self.client
-                    .dispatch(Action::ShowFriendProfile { user, large });
-            }
-            Event::ActivityMenu(privacy) => {
-                let mut rows = vec![crate::menus::MenuRow::plain(
-                    crate::menus::MenuAct::AllActivity,
-                    "View All Activity",
-                )];
-                if privacy {
-                    rows.push(crate::menus::MenuRow::plain(
-                        crate::menus::MenuAct::ActivityPrivacy,
-                        "Manage Privacy",
-                    ));
-                }
-                let at = self.pressed.get();
-                self.menu = Some(
-                    crate::menus::Menu::new(Point::new(at.x + 4.0, at.y - 8.0), rows)
-                        .width(ACTIVITY_MENU),
-                );
-                return iced::widget::operation::focus(crate::app::NOBODY);
-            }
-            // The card's person's full profile, on its Activity tab.
-            Event::AllActivity => {
-                return self.profile_event(Event::Enlarge(Some(Tab::Activity), false));
-            }
-            Event::ActivityPrivacy => {
-                self.client.dispatch(Action::CloseProfile);
-                self.card = None;
-                return self.open_settings(crate::settings::Section::Games);
-            }
-            // Its card over the profile, which goes there.
-            Event::Server(server) => {
-                return self.info_event(crate::info_cards::Event::Server(server));
-            }
-            Event::Pointed(pointed) => {
-                self.profiles.pointed = pointed;
-                return Task::batch([self.point_effect(false, pointed), self.ask()]);
-            }
-            Event::PanelPointed(pointed) => {
-                self.profiles.panel_pointed = pointed;
-                return Task::batch([self.point_effect(true, pointed), self.ask()]);
-            }
-            Event::EffectTick(generation) => return self.effect_tick(generation),
-            Event::Bubble(pointed) => {
-                self.profiles.bubble = pointed;
-                return Task::none();
-            }
-            Event::EditProfile => {
-                self.client.dispatch(Action::CloseProfile);
-                self.card = None;
-                self.client.dispatch(Action::EditProfile);
-            }
-            Event::Editor(event) => return self.editor_event(event),
-            Event::TogglePanel => {
-                let shown = !self.client.state().profile_panel;
-                crate::layout::store(self.client.root(), "profile_panel_hidden", !shown);
-                self.client.dispatch(Action::ShowProfilePanel(shown));
-            }
-        }
-        self.sync()
+        self.profiles.tab_for(look)
     }
 
     /// The floating card, beside its list or message, as far up as the
     /// window lets it; it scrolls once it's taller than the window.
     pub fn card_view(&self) -> Option<Element<'_, Message>> {
-        let card = self.card.as_ref()?;
+        let card = self.profiles.card.as_ref()?;
         let shown = self
             .profiles
             .shown
@@ -539,7 +524,7 @@ impl App {
         let Some(profile) = state
             .account_profile
             .as_ref()
-            .filter(|_| self.account_popover.is_some())
+            .filter(|_| self.status.popover.is_some())
         else {
             self.profiles.account = None;
             return;
@@ -665,8 +650,8 @@ impl App {
             if pointed || shown.look.view.large {
                 urls.extend(decoration.map(looks::animated_url));
             }
-            urls.extend(self.effect_pictures(shown, pointed));
-            urls.extend(self.frame_pictures(shown));
+            urls.extend(cosmetic::effect_pictures(state, shown, pointed));
+            urls.extend(cosmetic::frame_pictures(state, shown));
             urls.extend(profile.banner.clone());
             urls.extend(profile.banner.as_deref().and_then(chat::moving_banner));
             urls.extend(

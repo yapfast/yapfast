@@ -49,9 +49,9 @@ fn a_role_mentions_card_lists_its_people_who_open_their_own() {
         ui.point_at(at);
         ui.simulate(iced_test::simulator::click());
     });
-    assert!(app.card.is_some(), "their card, over the role's");
+    assert!(app.profiles.card.is_some(), "their card, over the role's");
     escape(&mut app);
-    assert!(app.card.is_none(), "Escape closes theirs first");
+    assert!(app.profiles.card.is_none(), "Escape closes theirs first");
     assert!(app.client.state().role.is_some());
     escape(&mut app);
     assert!(app.client.state().role.is_none(), "then the role's");

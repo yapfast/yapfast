@@ -24,6 +24,7 @@ use super::{Event as ProfileEvent, Shown, editor::Event as EditorEvent};
 use crate::{
     app::{App, Message},
     controls::{self, Kind, action, lights, placed},
+    ctx::Cx,
     fonts::{BOLD, SEMIBOLD, name_font},
     form,
     looks::{self, family},
@@ -413,66 +414,63 @@ impl Window {
 /// An effect's name on its tile.
 const TILE_NAME: f32 = 15.0;
 
+/// What's done in the window, which opens over `editor`.
+pub(super) fn update(
+    editor: &mut super::editor::Editor,
+    event: Event,
+    cx: &mut Cx<'_>,
+) -> Task<Message> {
+    let start = cx.state().profile_editor.as_ref().map(|core| {
+        let key = core
+            .name_colours
+            .iter()
+            .map(|colour| format!("{colour:06x}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        (core.name_font.unwrap_or(11), core.name_effect, key)
+    });
+    match event {
+        Event::Open => {
+            let Some((font, effect, key)) = start else {
+                return Task::none();
+            };
+            editor.stop_editing();
+            editor.style = Some(Window::new(font, effect, key));
+            return iced::widget::operation::focus(crate::app::NOBODY);
+        }
+        Event::Close => editor.style = None,
+        Event::Apply => {
+            if let Some(window) = editor.style.take() {
+                cx.dispatch(Action::ChooseNameStyle {
+                    font: window.font,
+                    effect: window.effect,
+                    colours: window.paint.key,
+                });
+            }
+        }
+        event => {
+            if let Some(window) = &mut editor.style {
+                window.update(event);
+            }
+        }
+    }
+    Task::none()
+}
+
+/// Escape: the pad first, then the window. Whether it took the key.
+pub(super) fn escape(editor: &mut super::editor::Editor) -> bool {
+    let Some(window) = &mut editor.style else {
+        return false;
+    };
+    if window.picker.is_some() {
+        window.picker = None;
+    } else {
+        editor.style = None;
+    }
+    true
+}
+
 impl App {
-    /// What's done in the window.
-    pub(super) fn name_style_event(&mut self, event: Event) -> Task<Message> {
-        let start = self.client.state().profile_editor.as_ref().map(|core| {
-            let key = core
-                .name_colours
-                .iter()
-                .map(|colour| format!("{colour:06x}"))
-                .collect::<Vec<_>>()
-                .join(",");
-            (core.name_font.unwrap_or(11), core.name_effect, key)
-        });
-        let Some(editor) = self.profiles.editor.as_mut() else {
-            return Task::none();
-        };
-        match event {
-            Event::Open => {
-                let Some((font, effect, key)) = start else {
-                    return Task::none();
-                };
-                editor.stop_editing();
-                editor.style = Some(Window::new(font, effect, key));
-                return iced::widget::operation::focus(crate::app::NOBODY);
-            }
-            Event::Close => editor.style = None,
-            Event::Apply => {
-                if let Some(window) = editor.style.take() {
-                    self.client.dispatch(Action::ChooseNameStyle {
-                        font: window.font,
-                        effect: window.effect,
-                        colours: window.paint.key,
-                    });
-                    return self.sync();
-                }
-            }
-            event => {
-                if let Some(window) = &mut editor.style {
-                    window.update(event);
-                }
-            }
-        }
-        Task::none()
-    }
-
-    /// Escape: the pad first, then the window. Whether it took the key.
-    pub(super) fn name_style_escape(&mut self) -> bool {
-        let Some(editor) = self.profiles.editor.as_mut() else {
-            return false;
-        };
-        let Some(window) = &mut editor.style else {
-            return false;
-        };
-        if window.picker.is_some() {
-            window.picker = None;
-        } else {
-            editor.style = None;
-        }
-        true
-    }
-
     /// The window over the editor dimmed by half; a click on the dim
     /// closes it.
     pub(super) fn name_style_view<'a>(

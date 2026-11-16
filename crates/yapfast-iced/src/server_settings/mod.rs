@@ -28,19 +28,21 @@ use iced::{
 };
 use yapfast_core::{
     application::{
-        Action, AuditInput, BanInput, EmojiInput, InviteInput, MemberInput, OwnershipInput,
-        RoleInput, ServerSettings, SettingsChoice, SettingsPage, SettingsText, SettingsToggle,
-        StickerInput,
+        Action, AppState, AuditInput, BanInput, EmojiInput, InviteInput, MemberInput,
+        OwnershipInput, RoleInput, ServerSettings, SettingsChoice, SettingsPage, SettingsText,
+        SettingsToggle, StickerInput,
     },
     chat::{ServerPicture, SettingsSection},
 };
 
 use crate::{
-    app::{App, Message},
+    app::Message,
+    ctx::{Ctx, Cx, Focus, Request},
     field::{self, Draft},
     form,
     pictures::Icon,
     sheet::{Nav, sheet},
+    slot::{Closes, Slot, Why},
 };
 
 /// The description's field on Server Profile.
@@ -118,34 +120,25 @@ fn message(event: Event) -> Message {
     Message::ServerSettings(event)
 }
 
-impl App {
-    /// The core's settings, while they're open.
-    fn server_settings(&self) -> Option<&ServerSettings> {
-        self.client.state().server_settings.as_ref()
+impl Screen {
+    /// The settings open on `server`.
+    fn open(server: String, _cx: &mut Cx<'_>) -> Self {
+        Self {
+            server,
+            ..Self::default()
+        }
     }
 
-    /// Takes in the core's settings: the screen comes with them and goes
-    /// with them, and the bar shakes when leaving was refused.
-    pub fn server_settings_sync(&mut self) -> Task<Message> {
-        let Some(core) = self.client.state().server_settings.as_ref() else {
-            self.server_screen = None;
-            return Task::none();
-        };
-        let fresh = self
-            .server_screen
-            .as_ref()
-            .is_none_or(|screen| screen.server != core.server);
-        if fresh {
-            self.server_screen = Some(Box::new(Screen {
-                server: core.server.clone(),
-                ..Screen::default()
-            }));
+    /// Takes in the core's settings: the description's field follows the
+    /// core, a dialog's field takes the keys as it shows, and the bar
+    /// shakes when leaving was refused.
+    fn sync(&mut self, core: &ServerSettings) -> Task<Message> {
+        // The description's field follows the core, as after Reset.
+        if let Some(SettingsPage::Profile(page)) = &core.page
+            && self.description.text() != page.description
+        {
+            self.description.reset(&page.description);
         }
-        let nudge = core.nudge;
-        let description = match &core.page {
-            Some(SettingsPage::Profile(page)) => Some(page.description.clone()),
-            _ => None,
-        };
         // A dialog's field takes the keys when it shows: Upload Emoji's
         // name, the server's name to delete it, the emailed code.
         let field = core
@@ -156,31 +149,22 @@ impl App {
                 Some(SettingsPage::Emoji(page)) => expressions::dialog_field(page),
                 _ => None,
             });
-        let Some(screen) = self.server_screen.as_mut() else {
-            return Task::none();
-        };
-        // The description's field follows the core, as after Reset.
-        if let Some(description) = description
-            && screen.description.text() != description
-        {
-            screen.description.reset(&description);
-        }
         let mut tasks = vec![];
-        if screen.focused != field {
-            screen.focused = field;
+        if self.focused != field {
+            self.focused = field;
             tasks.extend(field.map(|id| operation::focus(iced::widget::Id::new(id))));
         }
         tasks.push(
-            screen
-                .shake
-                .start(nudge, |step| message(Event::Shake(step))),
+            self.shake
+                .start(core.nudge, |step| message(Event::Shake(step))),
         );
         Task::batch(tasks)
     }
 
-    /// The pictures the open page shows.
-    pub fn server_settings_pictures(&self) -> Vec<String> {
-        let Some(core) = self.server_settings() else {
+    /// The pictures the open page shows, its lists' in view of a window
+    /// `height` tall.
+    pub fn pictures(&self, state: &AppState, height: f32) -> Vec<String> {
+        let Some(core) = state.server_settings.as_ref() else {
             return Vec::new();
         };
         let mut urls = Vec::new();
@@ -195,60 +179,35 @@ impl App {
             }
             Some(SettingsPage::Roles(page)) => urls.extend(roles::pictures(page)),
             Some(SettingsPage::Members(page)) => {
-                if let Some(screen) = &self.server_screen {
-                    urls.extend(people::member_pictures(
-                        page,
-                        &screen.people,
-                        self.window.height,
-                    ));
-                }
+                urls.extend(people::member_pictures(page, &self.people, height));
             }
             Some(SettingsPage::Invites(page)) => urls.extend(people::invite_pictures(page)),
             Some(SettingsPage::Bans(page)) => urls.extend(moderation::ban_pictures(page)),
             Some(SettingsPage::AuditLog(page)) => urls.extend(moderation::audit_pictures(page)),
             Some(SettingsPage::Emoji(page)) => {
-                if let Some(screen) = &self.server_screen {
-                    urls.extend(expressions::emoji_pictures(
-                        page,
-                        &screen.expressions,
-                        self.window.height,
-                    ));
-                }
+                urls.extend(expressions::emoji_pictures(page, &self.expressions, height));
             }
             Some(SettingsPage::Stickers(page)) => urls.extend(expressions::sticker_pictures(page)),
             _ => {}
         }
         if let Some(ownership) = &core.ownership {
-            urls.extend(ownership::pictures(self.client.state(), ownership));
+            urls.extend(ownership::pictures(state, ownership));
         }
         urls
     }
 
-    pub fn server_settings_event(&mut self, event: Event) -> Task<Message> {
-        if self.server_screen.is_none() {
-            return Task::none();
-        }
+    pub fn update(&mut self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
         let action = match event {
             Event::Section(section) => {
-                if let Some(screen) = self.server_screen.as_mut() {
-                    screen.open = None;
-                }
-                self.client.dispatch(Action::ServerSettingsSection(section));
-                let top = operation::snap_to(
+                self.open = None;
+                cx.dispatch(Action::ServerSettingsSection(section));
+                return operation::snap_to(
                     iced::widget::Id::new(crate::sheet::PAGE),
                     iced::widget::scrollable::RelativeOffset::START,
                 );
-                return Task::batch([top, self.sync()]);
             }
             Event::DeleteServer => Action::Ownership(OwnershipInput::Delete),
-            Event::Close => {
-                self.client.dispatch(Action::CloseServerSettings);
-                let task = self.sync();
-                if self.server_screen.is_none() {
-                    return Task::batch([task, self.refocus()]);
-                }
-                return task;
-            }
+            Event::Close => Action::CloseServerSettings,
             Event::Write(field, text) => Action::WriteServerSetting { field, text },
             Event::Description(event) => match event {
                 field::Event::Edited(text, _) => Action::WriteServerSetting {
@@ -259,15 +218,11 @@ impl App {
             },
             Event::Toggle(toggle) => Action::ToggleServerSetting(toggle),
             Event::Choose(choice) => {
-                if let Some(screen) = self.server_screen.as_mut() {
-                    screen.open = None;
-                }
+                self.open = None;
                 Action::ChooseServerSetting(choice)
             }
             Event::Drop(drop) => {
-                if let Some(screen) = self.server_screen.as_mut() {
-                    screen.open = (screen.open != Some(drop)).then_some(drop);
-                }
+                self.open = (self.open != Some(drop)).then_some(drop);
                 return Task::none();
             }
             Event::Pick(kind) => return pick(kind),
@@ -276,118 +231,131 @@ impl App {
             Event::Undo => Action::UndoServerSettings,
             Event::Save => Action::SaveServerSettings,
             Event::Shake(step) => {
-                return self
-                    .server_screen
-                    .as_mut()
-                    .map_or_else(Task::none, |screen| {
-                        screen.shake.step(step, |step| message(Event::Shake(step)))
-                    });
+                return self.shake.step(step, |step| message(Event::Shake(step)));
             }
             Event::Role(input) => {
                 // Add members' search takes the keys as it opens.
                 let focus = matches!(input, RoleInput::AddMembers);
                 // A choice from a row's More menu is the end of it.
-                if let Some(screen) = self.server_screen.as_mut() {
-                    screen.roles.close_menu();
-                }
-                self.client.dispatch(Action::Roles(input));
-                let task = self.sync();
+                self.roles.close_menu();
+                cx.dispatch(Action::Roles(input));
                 return if focus {
-                    Task::batch([task, roles::focus_candidates()])
+                    roles::focus_candidates()
                 } else {
-                    task
+                    Task::none()
                 };
             }
-            Event::RoleLocal(event) => return self.roles_local(event),
+            Event::RoleLocal(event) => return self.roles_local(event, cx),
             Event::Member(input) => {
-                if let Some(screen) = self.server_screen.as_mut() {
-                    screen.open = None;
-                }
+                self.open = None;
                 Action::Members(input)
             }
-            Event::MemberLocal(event) => return self.members_local(event),
+            Event::MemberLocal(event) => return self.members_local(event, cx),
             Event::Invite(input) => {
-                if let Some(screen) = self.server_screen.as_mut() {
-                    screen.open = None;
-                }
+                self.open = None;
                 Action::Invites(input)
             }
             Event::Ban(input) => Action::Bans(input),
             Event::Audit(input) => {
-                if let Some(screen) = self.server_screen.as_mut() {
-                    screen.open = None;
-                }
+                self.open = None;
                 Action::AuditLog(input)
             }
             Event::Emoji(input) => Action::Emoji(input),
             Event::Sticker(input) => Action::Stickers(input),
-            Event::ExpressionLocal(event) => return self.expressions_local(event),
+            Event::ExpressionLocal(event) => return self.expressions_local(event, cx),
             Event::Ownership(input) => Action::Ownership(input),
         };
-        self.client.dispatch(action);
-        self.sync()
+        cx.dispatch(action);
+        Task::none()
     }
 
     /// Escape in the settings: an open dropdown or menu closes, then a
     /// dialog over the page, then the settings (unless they have changes,
-    /// which shakes the bar).
-    pub fn server_settings_escape(&mut self) -> Task<Message> {
-        // A member's menu or profile, from Members, is over the page.
-        if self.menu.take().is_some() {
+    /// which shakes the bar). A member's menu or profile over them is the
+    /// root's, which closes it first.
+    pub fn escape(&mut self, cx: &mut Cx<'_>) -> Task<Message> {
+        if self.open.take().is_some() || self.roles.close_menu() {
             return Task::none();
         }
-        if self
-            .profiles
-            .shown
-            .as_ref()
-            .is_some_and(|shown| shown.look.view.large)
-        {
-            return self.profile_event(crate::profile::Event::Close);
-        }
-        let Some(screen) = self.server_screen.as_mut() else {
-            return Task::none();
-        };
-        if screen.open.take().is_some() || screen.roles.close_menu() {
-            return Task::none();
-        }
-        if let Some(input) = self.server_dialog_cancel() {
-            return self.server_settings_event(input);
-        }
-        self.server_settings_event(Event::Close)
+        let close = dialog_cancel(cx.state().server_settings.as_ref()).unwrap_or(Event::Close);
+        self.update(close, cx)
     }
+}
 
-    /// What closes the dialog open over the page, if one is.
-    fn server_dialog_cancel(&self) -> Option<Event> {
-        let core = self.server_settings()?;
-        if core.ownership.is_some() {
-            return Some(Event::Ownership(OwnershipInput::Cancel));
-        }
-        match core.page.as_ref()? {
-            SettingsPage::Roles(page) if page.confirm.is_some() => {
-                Some(Event::Role(RoleInput::Cancel))
-            }
-            SettingsPage::Roles(page) if page.adding.is_some() => {
-                Some(Event::Role(RoleInput::CloseAdding))
-            }
-            SettingsPage::Bans(page) if page.open.is_some() => Some(Event::Ban(BanInput::Close)),
-            SettingsPage::Invites(page) if page.security.is_some() => {
-                Some(Event::Invite(InviteInput::CloseSecurity))
-            }
-            SettingsPage::Emoji(page) if page.upload.is_some() => {
-                Some(Event::Emoji(EmojiInput::Cancel))
-            }
-            SettingsPage::Stickers(page) if page.draft.is_some() => {
-                Some(Event::Sticker(StickerInput::Cancel))
-            }
-            _ => None,
+impl Closes for Screen {
+    /// The keys go back to where they were, unless the window went.
+    fn close(self, cx: &mut Cx<'_>, why: Why) {
+        if why != Why::Window {
+            cx.request(Request::Focus(Focus::Default));
         }
     }
+}
 
+/// The screen follows the core's settings: made as they open (or open on
+/// another server), closed as they close.
+pub fn follow(slot: &mut Slot<Screen>, cx: &mut Cx<'_>) -> Task<Message> {
+    let key = cx
+        .state()
+        .server_settings
+        .as_ref()
+        .map(|core| core.server.clone());
+    let Some(screen) = slot.follow(
+        key,
+        cx,
+        |screen, server| screen.server == *server,
+        Screen::open,
+    ) else {
+        return Task::none();
+    };
+    match cx.state().server_settings.as_ref() {
+        Some(core) => screen.sync(core),
+        None => Task::none(),
+    }
+}
+
+/// What closes the dialog open over the page, if one is.
+fn dialog_cancel(core: Option<&ServerSettings>) -> Option<Event> {
+    let core = core?;
+    if core.ownership.is_some() {
+        return Some(Event::Ownership(OwnershipInput::Cancel));
+    }
+    match core.page.as_ref()? {
+        SettingsPage::Roles(page) if page.confirm.is_some() => Some(Event::Role(RoleInput::Cancel)),
+        SettingsPage::Roles(page) if page.adding.is_some() => {
+            Some(Event::Role(RoleInput::CloseAdding))
+        }
+        SettingsPage::Bans(page) if page.open.is_some() => Some(Event::Ban(BanInput::Close)),
+        SettingsPage::Invites(page) if page.security.is_some() => {
+            Some(Event::Invite(InviteInput::CloseSecurity))
+        }
+        SettingsPage::Emoji(page) if page.upload.is_some() => {
+            Some(Event::Emoji(EmojiInput::Cancel))
+        }
+        SettingsPage::Stickers(page) if page.draft.is_some() => {
+            Some(Event::Sticker(StickerInput::Cancel))
+        }
+        _ => None,
+    }
+}
+
+/// The settings over the dimmed window, with what's open over them.
+pub fn view<'a>(screen: &'a Screen, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
+    let core = cx.state.server_settings.as_ref()?;
+    Some(View { s: screen, cx }.view(core))
+}
+
+/// The settings' state and what they read, as their pages draw them.
+#[derive(Clone, Copy)]
+pub(crate) struct View<'a> {
+    pub(crate) s: &'a Screen,
+    pub(crate) cx: Ctx<'a>,
+}
+
+impl<'a> View<'a> {
     /// The settings over the dimmed window, with what's open over them.
-    pub fn server_settings_view(&self) -> Option<Element<'_, Message>> {
-        let core = self.server_settings()?;
-        let screen = self.server_screen.as_deref()?;
-        let theme = &self.theme;
+    fn view(self, core: &'a ServerSettings) -> Element<'a, Message> {
+        let screen = self.s;
+        let theme = self.cx.look.theme;
         let mut page = column![].spacing(form::GAP).width(Length::Fill);
         let mut fill = false;
         if core.loading() {
@@ -439,17 +407,17 @@ impl App {
         )
         .bar(bar)
         .fill(fill)
-        .view(self.look());
+        .view(self.cx.look);
         let mut layers = iced::widget::stack![frame];
         for dialog in self.server_dialogs(core, screen) {
             layers = layers.push(dialog);
         }
-        Some(layers.into())
+        layers.into()
     }
 
     /// The dialogs a page opens over the settings.
-    fn server_dialogs<'a>(
-        &'a self,
+    fn server_dialogs(
+        self,
         core: &'a ServerSettings,
         screen: &'a Screen,
     ) -> Vec<Element<'a, Message>> {
@@ -473,8 +441,8 @@ impl App {
     /// Delete Server after a line for its owner. A heading with nothing
     /// under it goes, as the server's name does for someone who may only
     /// manage roles.
-    fn server_nav<'a>(&'a self, core: &'a ServerSettings) -> Vec<Nav<'a, Message>> {
-        let app = &self.client.app;
+    fn server_nav(self, core: &'a ServerSettings) -> Vec<Nav<'a, Message>> {
+        let app = &self.cx.app;
         let name = app
             .state
             .servers
@@ -595,7 +563,7 @@ fn pick(kind: ServerPicture) -> Task<Message> {
 /// or a new one's preview, cut to cover `width` by `height` with round
 /// corners; `empty` without either.
 fn picture_box<'a>(
-    app: &'a App,
+    app: Ctx<'a>,
     url: Option<&str>,
     new: Option<&std::sync::Arc<yapfast_core::chat::Picture>>,
     width: f32,
@@ -613,7 +581,7 @@ fn picture_box<'a>(
             .radius(radius)
             .into(),
         None => {
-            let sunken = app.theme.sunken;
+            let sunken = app.look.theme.sunken;
             iced::widget::container(empty)
                 .center_x(width)
                 .center_y(height)

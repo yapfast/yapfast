@@ -10,14 +10,15 @@ use iced::{
     widget::{Space, button, column, container, row, text},
 };
 use yapfast_core::{
-    application::{Action, FORWARD_LIMIT},
+    application::{Action, AppState, FORWARD_LIMIT},
     chat::ChatRoom,
     network::Network,
 };
 
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{Kind, action, field},
+    ctx::{Ctx, Cx, Focus, Request},
     dialog::dialog,
     fonts::{BOLD, MEDIUM},
     pictures::Icon,
@@ -41,24 +42,28 @@ pub enum Event {
     Close,
 }
 
-impl App {
-    /// Forward shows on messages that can be forwarded: Matrix forwards
-    /// only from a verified device.
-    pub fn forward_allowed(&self) -> bool {
-        let state = self.client.state();
-        state.preview
-            || state.trusted
-            || state
-                .selected
-                .as_deref()
-                .is_some_and(|room| Network::of(room) == Network::Discord)
-    }
+/// The message added to what's forwarded, as it's typed.
+#[derive(Default)]
+pub struct Forward {
+    note: String,
+}
 
-    /// The dialog's search takes the keys as it opens.
-    pub fn forward_focus(&mut self) -> Task<Message> {
-        self.forward_note = self
-            .client
-            .state()
+/// Forward shows on messages that can be forwarded: Matrix forwards only
+/// from a verified device.
+pub fn allowed(state: &AppState) -> bool {
+    state.preview
+        || state.trusted
+        || state
+            .selected
+            .as_deref()
+            .is_some_and(|room| Network::of(room) == Network::Discord)
+}
+
+impl Forward {
+    /// The dialog opens: its note starts as the core's, and its search
+    /// takes the keys.
+    pub fn open(&mut self, state: &AppState) -> Task<Message> {
+        self.note = state
             .forwarding
             .as_ref()
             .map(|forwarding| forwarding.note.clone())
@@ -66,42 +71,55 @@ impl App {
         iced::widget::operation::focus(SEARCH)
     }
 
-    pub fn forward_event(&mut self, event: Event) -> Task<Message> {
+    pub fn update(&mut self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
         match event {
-            Event::Search(query) => self.client.dispatch(Action::SearchForward(query)),
-            Event::Choose(id) => self.client.dispatch(Action::ChooseForward(id)),
-            Event::Note(note) => {
-                self.forward_note = note;
-                return Task::none();
-            }
+            Event::Search(query) => cx.dispatch(Action::SearchForward(query)),
+            Event::Choose(id) => cx.dispatch(Action::ChooseForward(id)),
+            Event::Note(note) => self.note = note,
             Event::Send => {
-                let chosen = self
-                    .client
+                let chosen = cx
                     .state()
                     .forwarding
                     .as_ref()
                     .is_some_and(|forwarding| !forwarding.chosen.is_empty());
-                if !chosen {
-                    return Task::none();
+                if chosen {
+                    let note = std::mem::take(&mut self.note);
+                    cx.dispatch(Action::Forward(note));
                 }
-                let note = std::mem::take(&mut self.forward_note);
-                self.client.dispatch(Action::Forward(note));
             }
             Event::Close => {
-                self.client.dispatch(Action::CloseForward);
-                return Task::batch([self.sync(), self.refocus()]);
+                cx.dispatch(Action::CloseForward);
+                cx.request(Request::Focus(Focus::Default));
             }
         }
-        self.sync()
+        Task::none()
     }
+}
 
-    pub fn forward_view(&self) -> Option<Element<'_, Message>> {
-        let state = self.client.state();
+/// The dialog over the dimmed window, while the core is forwarding.
+pub fn view<'a>(forward: &'a Forward, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
+    View {
+        s: &forward.note,
+        cx,
+    }
+    .view()
+}
+
+/// The note typed and what the dialog reads, as its parts draw them.
+#[derive(Clone, Copy)]
+struct View<'a> {
+    s: &'a String,
+    cx: Ctx<'a>,
+}
+
+impl<'a> View<'a> {
+    fn view(self) -> Option<Element<'a, Message>> {
+        let state = self.cx.state;
         let forwarding = state.forwarding.as_ref()?;
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let chosen = forwarding.chosen.len();
         let send = |event| Message::Forward(event);
-        let close = button(container(self.glyph(Icon::X, 18, theme.secondary)).center(28))
+        let close = button(container(self.cx.look.glyph(Icon::X, 18, theme.secondary)).center(28))
             .padding(0)
             .on_press(send(Event::Close))
             .style(crate::controls::lit_style(None, theme.hover, 6.0));
@@ -159,7 +177,7 @@ impl App {
             theme,
             NOTE,
             "Add an optional message...",
-            &self.forward_note,
+            self.s,
             false,
             true,
         )
@@ -177,7 +195,7 @@ impl App {
             .filter(|room| room.slowed)
             .map(|room| state.destination(room))
             .collect();
-        if !self.forward_note.is_empty() && !slowed.is_empty() {
+        if !self.s.is_empty() && !slowed.is_empty() {
             let words = match slowed.as_slice() {
                 [one] => {
                     format!("The message you added will not be sent to slowmode channel: {one}.")
@@ -217,27 +235,31 @@ impl App {
 
     /// A conversation to forward to: its avatar, or its server's icon, or
     /// its channel's icon; its name and where it is; the tick.
-    fn forward_row<'a>(
-        &'a self,
-        room: &'a ChatRoom,
-        ticked: bool,
-        chosen: usize,
-    ) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let state = self.client.state();
+    fn forward_row(self, room: &'a ChatRoom, ticked: bool, chosen: usize) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let state = self.cx.state;
         let server = state
             .servers
             .iter()
             .find(|server| !room.direct && server.channels.contains(&room.id));
-        let face: Element<'_, Message> = match server {
-            Some(server) => self.avatar(server.icon.as_deref(), &server.name, 32.0, 16.0, 1.0),
-            None if room.direct => self.avatar(room.avatar.as_deref(), &room.name, 32.0, 16.0, 1.0),
+        let face: Element<'a, Message> = match server {
+            Some(server) => self
+                .cx
+                .avatar(server.icon.as_deref(), &server.name, 32.0, 16.0, 1.0),
+            None if room.direct => {
+                self.cx
+                    .avatar(room.avatar.as_deref(), &room.name, 32.0, 16.0, 1.0)
+            }
             None => {
                 let ground = theme.field;
-                container(self.glyph(crate::sidebar::room_icon(room), 18, theme.secondary))
-                    .center(32)
-                    .style(move |_| rounded(ground, 16))
-                    .into()
+                container(
+                    self.cx
+                        .look
+                        .glyph(crate::sidebar::room_icon(room), 18, theme.secondary),
+                )
+                .center(32)
+                .style(move |_| rounded(ground, 16))
+                .into()
             }
         };
         let place = match server {
@@ -247,7 +269,7 @@ impl App {
         };
         let (accent, faint) = (theme.accent, theme.faint);
         let tick = container(if ticked {
-            Element::from(self.glyph(Icon::Check, 16, theme.on_accent))
+            Element::from(self.cx.look.glyph(Icon::Check, 16, theme.on_accent))
         } else {
             Space::new().into()
         })

@@ -211,12 +211,16 @@ impl App {
         if self.account != account {
             self.account = account;
         }
-        let mut tasks = vec![self.profile_sync(), self.status_sync()];
-        self.info_sync();
+        let mut tasks = vec![self.profile_sync(), self.status.sync(self.client.state())];
+        self.cards.sync(&self.client.app, &self.profiles);
         self.friends_sync();
-        self.switcher_sync();
+        self.quick.sync(self.client.state());
         self.active_now_sync();
-        self.reactions_page();
+        {
+            let height = self.window.height;
+            let mut cx = crate::ctx::cx!(self);
+            self.reactions.page(height, &mut cx);
+        }
         let state = self.client.state();
         let switched = self.selected != state.selected;
         if switched && self.editing.is_some() {
@@ -310,26 +314,34 @@ impl App {
         // Images of pictures the core let go of go too.
         self.pictures.prune();
         self.call_sync();
-        tasks.push(self.viewer_sync());
+        {
+            let mut cx = crate::ctx::cx!(self);
+            tasks.push(self.viewer.sync(&mut cx));
+        }
         tasks.push(self.thread_sync());
         self.popovers_sync();
         self.search_sync();
         self.forum_sync();
-        self.modal_sync();
+        self.modal.sync(self.client.state(), &self.theme);
         tasks.push(self.menu_apps_sync());
         if self.client.state().browse.is_none() && !self.browse_filter.is_empty() {
             self.browse_filter.clear();
         }
-        self.picker_sync();
+        {
+            let mut cx = crate::ctx::cx!(self);
+            if let Some(picker) = self.picker.get_mut() {
+                picker.sync(&mut cx);
+            }
+        }
         self.mentions_sync();
-        self.person_sync();
+        self.person.sync(self.client.state());
         tasks.push(self.server_settings_sync());
-        tasks.push(self.server_dialogs_sync());
+        tasks.push(self.server_dialogs.sync(self.client.state()));
         tasks.push(self.channel_settings_sync());
         tasks.push(self.ask());
-        self.sync_sign_in();
+        self.sign_in.sync(self.client.state(), self.client.root());
         tasks.push(self.shell_sync());
-        tasks.push(self.sync_mfa());
+        tasks.push(self.mfa.sync(&self.client.app));
         tasks.push(self.follow_backend());
         tasks.push(self.arm_clocks());
         Task::batch(tasks)
@@ -702,13 +714,18 @@ impl App {
             }
             top += height;
         }
-        for url in self.info_card_pictures() {
+        for url in self.cards.pictures(&self.client.app, &self.profiles) {
             want(Some(&url));
         }
         for url in self.suggestion_pictures() {
             want(Some(&url));
         }
-        for url in self.picker_pictures() {
+        for url in self
+            .picker
+            .get()
+            .map(crate::picker::Picker::pictures)
+            .unwrap_or_default()
+        {
             want(Some(&url));
         }
         // A custom emoji among the reactions the hover bar and menus offer.
@@ -820,21 +837,25 @@ impl App {
         for url in self.friends_pictures() {
             want(Some(&url));
         }
-        for url in self.reactions_pictures() {
+        for url in crate::reactions::pictures(self.client.state()) {
             want(Some(&url));
         }
-        for url in self.server_settings_pictures() {
+        let server_settings = self
+            .server_screen
+            .get()
+            .map(|screen| screen.pictures(self.client.state(), self.window.height))
+            .unwrap_or_default();
+        for url in server_settings {
             want(Some(&url));
         }
-        for url in self
-            .server_dialog_pictures()
+        for url in crate::server_dialogs::pictures(self.client.state())
             .into_iter()
-            .chain(self.link_dialog_pictures())
+            .chain(crate::link_dialogs::pictures(self.client.state()))
         {
             want(Some(&url));
         }
-        for url in self
-            .channel_settings_pictures()
+        for url in crate::channel_settings::pictures(self.client.state())
+            .collect::<Vec<_>>()
             .into_iter()
             .chain(self.entrance_pictures())
         {

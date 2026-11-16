@@ -183,7 +183,7 @@ fn up_on_the_first_suggestion_goes_round_to_the_last() {
 fn the_emoji_pickers_search_puts_its_first_match_in_the_composer() {
     let (mut app, _folder) = preview();
     let _ = app.update(Message::OpenPicker(Target::Composer, Tab::Emoji));
-    assert!(app.picker.is_some());
+    assert!(app.picker.is_open());
     interact(&mut app, |ui| {
         ui.click(Id::new(FIELD)).expect("the picker's search");
         ui.typewrite("grinning face");
@@ -192,7 +192,7 @@ fn the_emoji_pickers_search_puts_its_first_match_in_the_composer() {
         ui.click(Id::new(FIELD)).expect("the picker's search");
         ui.tap_key(keyboard::Key::Named(key::Named::Enter));
     });
-    assert!(app.picker.is_none(), "picking closes the picker");
+    assert!(app.picker.get().is_none(), "picking closes the picker");
     assert!(app.draft.text().contains('😀'), "{:?}", app.draft.text());
 }
 

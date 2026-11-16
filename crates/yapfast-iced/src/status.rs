@@ -12,18 +12,18 @@ use iced::{
     widget::{Space, button, column, container, opaque, operation, row, stack, text},
 };
 use yapfast_core::{
-    application::{Action, ClearAfter},
+    application::{Action, AppState, ClearAfter},
     chat::Presence,
 };
 
 use crate::{
     app::{App, Message},
     controls::{self, Check, Item, Kind, Light, action, lights, placed},
+    ctx::{Ctx, Cx, Focus, Request},
     dialog::dialog,
     fonts::BOLD,
     form,
     people::StatusInk,
-    picker::{Tab, Target},
     pictures::{Icon, Mark},
     style::{corners, hex, rounded},
     theme::rgb,
@@ -85,6 +85,13 @@ pub struct AccountPopover {
     expanded: bool,
 }
 
+/// The popover and the dialog, while each is open.
+#[derive(Default)]
+pub struct Status {
+    pub popover: Option<AccountPopover>,
+    pub draft: Option<Draft>,
+}
+
 /// What the dialog holds while it's open: the core keeps only its saving.
 #[derive(Clone, Debug, Default)]
 pub struct Draft {
@@ -94,72 +101,68 @@ pub struct Draft {
     pub clear: usize,
 }
 
-impl App {
-    pub fn status_event(&mut self, event: Event) -> Task<Message> {
+impl Status {
+    /// What's done in the popover and the dialog; User Settings and the
+    /// emoji's button are the root's (`App::status_event`).
+    pub fn update(&mut self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
         match event {
             Event::Toggle => {
-                if self.account_popover.take().is_none() {
-                    self.account_popover = Some(AccountPopover::default());
-                    self.client.dispatch(Action::LoadOwnProfile);
+                if self.popover.take().is_none() {
+                    self.popover = Some(AccountPopover::default());
+                    cx.dispatch(Action::LoadOwnProfile);
                 }
             }
-            Event::Close => self.account_popover = None,
+            Event::Close => self.popover = None,
             Event::Expand => {
-                if let Some(popover) = &mut self.account_popover {
+                if let Some(popover) = &mut self.popover {
                     popover.expanded = !popover.expanded;
                 }
                 return Task::none();
             }
             Event::Choose(status) => {
-                self.account_popover = None;
-                self.client.dispatch(Action::SetStatus(status.to_owned()));
+                self.popover = None;
+                cx.dispatch(Action::SetStatus(status.to_owned()));
             }
             Event::EditProfile => {
-                self.account_popover = None;
-                self.client.dispatch(Action::EditProfile);
+                self.popover = None;
+                cx.dispatch(Action::EditProfile);
             }
             Event::CustomStatus => {
-                self.account_popover = None;
-                self.client.dispatch(Action::OpenStatusEditor);
+                self.popover = None;
+                cx.dispatch(Action::OpenStatusEditor);
             }
             Event::CopyId => {
-                self.account_popover = None;
-                let id = self.client.state().discord_user.clone().unwrap_or_default();
+                self.popover = None;
+                let id = cx.state().discord_user.clone().unwrap_or_default();
                 return iced::clipboard::write(id);
             }
-            Event::Settings => {
-                self.account_popover = None;
-                return self.update(Message::Settings(crate::settings::Event::Open(
-                    crate::settings::Section::Account,
-                )));
-            }
+            // The root opens Settings.
+            Event::Settings => self.popover = None,
             Event::Text(text) => {
-                if let Some(draft) = &mut self.status_draft {
+                if let Some(draft) = &mut self.draft {
                     draft.text = text;
                 }
                 return Task::none();
             }
-            Event::Emoji => {
-                let at = self.pressed.get();
-                return self.open_picker(Target::Status(at), Tab::Emoji);
-            }
+            // The root opens the picker beside it.
+            Event::Emoji => {}
             Event::RemoveEmoji => {
-                if let Some(draft) = &mut self.status_draft {
+                if let Some(draft) = &mut self.draft {
                     draft.emoji = None;
                 }
                 return Task::none();
             }
             Event::ClearAfter(index) => {
-                if let Some(draft) = &mut self.status_draft {
+                if let Some(draft) = &mut self.draft {
                     draft.clear = index;
                 }
                 return Task::none();
             }
             Event::Save => {
-                let Some(draft) = self.status_draft.clone() else {
+                let Some(draft) = self.draft.clone() else {
                     return Task::none();
                 };
-                self.client.dispatch(Action::SetCustomStatus {
+                cx.dispatch(Action::SetCustomStatus {
                     emoji: draft.emoji,
                     text: draft.text,
                     clear_after: match draft.clear {
@@ -171,23 +174,23 @@ impl App {
                     },
                 });
             }
-            Event::Clear => self.client.dispatch(Action::ClearCustomStatus),
+            Event::Clear => cx.dispatch(Action::ClearCustomStatus),
             Event::Cancel => {
-                self.client.dispatch(Action::CloseStatusEditor);
-                return Task::batch([self.sync(), self.refocus()]);
+                cx.dispatch(Action::CloseStatusEditor);
+                cx.request(Request::Focus(Focus::Default));
             }
         }
-        self.sync()
+        cx.touch();
+        Task::none()
     }
 
     /// Takes in the core's dialog: opening it starts from the status there
     /// is, and its field takes the keys.
-    pub fn status_sync(&mut self) -> Task<Message> {
-        let state = self.client.state();
-        match (&state.status_editor, &self.status_draft) {
+    pub fn sync(&mut self, state: &AppState) -> Task<Message> {
+        match (&state.status_editor, &self.draft) {
             (Some(_), None) => {
                 let current = state.custom_status.as_ref();
-                self.status_draft = Some(Draft {
+                self.draft = Some(Draft {
                     text: current
                         .map(|status| status.text.clone())
                         .unwrap_or_default(),
@@ -201,7 +204,7 @@ impl App {
                 operation::focus(FIELD)
             }
             (None, Some(_)) => {
-                self.status_draft = None;
+                self.draft = None;
                 Task::none()
             }
             _ => Task::none(),
@@ -209,15 +212,17 @@ impl App {
     }
 
     /// The emoji the picker gave, for the status.
-    pub fn status_emoji(&mut self, key: String) {
-        if let Some(draft) = &mut self.status_draft {
+    pub fn emoji(&mut self, key: String) {
+        if let Some(draft) = &mut self.draft {
             draft.emoji = Some(key);
         }
     }
+}
 
+impl App {
     /// The popover over the account card, its foot 4 px above it.
     pub fn popover_view(&self) -> Option<Element<'_, Message>> {
-        let popover = self.account_popover.as_ref()?;
+        let popover = self.status.popover.as_ref()?;
         let theme = &self.theme;
         let state = self.client.state();
         let account = &self.account;
@@ -426,7 +431,7 @@ impl App {
     /// Whether the popover shows how long a game has run, which the
     /// minute's clock keeps up to date.
     pub fn popover_playing(&self) -> bool {
-        self.account_popover.is_some()
+        self.status.popover.is_some()
             && self
                 .client
                 .state()
@@ -544,16 +549,30 @@ impl App {
             })
             .into()
     }
+}
 
-    /// The custom status's dialog.
-    pub fn status_dialog_view(&self) -> Option<Element<'_, Message>> {
-        let editor = self.client.state().status_editor.as_ref()?;
-        let draft = self.status_draft.as_ref()?;
-        let theme = &self.theme;
+/// The custom status's dialog.
+pub fn dialog_view<'a>(status: &'a Status, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
+    View { s: status, cx }.view()
+}
+
+/// The dialog's draft and what it reads, as its parts draw them.
+#[derive(Clone, Copy)]
+struct View<'a> {
+    s: &'a Status,
+    cx: Ctx<'a>,
+}
+
+impl<'a> View<'a> {
+    fn view(self) -> Option<Element<'a, Message>> {
+        let editor = self.cx.state.status_editor.as_ref()?;
+        let draft = self.s.draft.as_ref()?;
+        let theme = self.cx.look.theme;
         let head = self
-            .look()
+            .cx
+            .look
             .dialog_head("Set a custom status", message(Event::Cancel));
-        let emoji = self.ctx().emoji_slot(
+        let emoji = self.cx.emoji_slot(
             draft.emoji.as_deref(),
             message(Event::Emoji),
             message(Event::RemoveEmoji),
@@ -576,7 +595,7 @@ impl App {
             body = body.push(form::error(theme, error.as_str()));
         }
         let mut foot = row![].spacing(8).align_y(Alignment::Center);
-        if self.client.state().custom_status.is_some() {
+        if self.cx.state.custom_status.is_some() {
             foot = foot.push(action(
                 theme,
                 "Clear status",
@@ -602,7 +621,7 @@ impl App {
             top: 4.0,
             ..Padding::ZERO
         }));
-        let width = DIALOG.min(self.window.width - 48.0);
+        let width = DIALOG.min(self.cx.look.window.width - 48.0);
         Some(dialog(theme, body.into(), width, message(Event::Cancel)))
     }
 }

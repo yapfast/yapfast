@@ -415,8 +415,11 @@ impl App {
         self.close_popup();
         self.call.details.pointed = false;
         self.menu = None;
-        self.picker = None;
-        self.card = None;
+        {
+            let mut cx = crate::ctx::cx!(self);
+            self.picker.close(&mut cx, crate::slot::Why::Window);
+        }
+        self.profiles.card = None;
         let settings = self.close_settings_for(crate::slot::Why::Window);
         self.place_videos();
         self.pictures.forget();

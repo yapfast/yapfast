@@ -19,10 +19,12 @@ use yapfast_core::{
     chat::{ServerEmoji, ServerPicture, ServerSticker},
 };
 
+use super::View;
 use super::{Event as Settings, Screen, message, moderation::face};
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{Kind, action, lights},
+    ctx::{Cx, Request},
     dialog,
     fonts::{BOLD, SEMIBOLD},
     form,
@@ -218,15 +220,12 @@ pub(super) fn answers<'a>(
     .into()
 }
 
-impl App {
+impl Screen {
     /// What Emoji's own controls did: a name written in a row goes to
     /// Discord on Enter, on a click beside it, or once another row's is
     /// written.
-    pub(super) fn expressions_local(&mut self, event: Event) -> Task<Message> {
-        let Some(screen) = self.server_screen.as_mut() else {
-            return Task::none();
-        };
-        let local = &mut screen.expressions;
+    pub(super) fn expressions_local(&mut self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
+        let local = &mut self.expressions;
         let renamed = match event {
             Event::Rename(id, name) => {
                 let earlier = local.renaming.take().filter(|(renamed, _)| *renamed != id);
@@ -236,27 +235,28 @@ impl App {
             Event::Renamed => local.renaming.take(),
             Event::Scrolled(scroll) => {
                 local.scroll = Some(scroll);
-                return self.ask();
+                cx.request(Request::Ask);
+                return Task::none();
             }
         };
         match renamed {
-            Some((id, name)) => {
-                self.server_settings_event(Settings::Emoji(EmojiInput::Rename { id, name }))
-            }
+            Some((id, name)) => self.update(Settings::Emoji(EmojiInput::Rename { id, name }), cx),
             None => Task::none(),
         }
     }
+}
 
+impl<'a> View<'a> {
     /// Emoji: what may be uploaded, Upload Emoji while a slot is free, and
     /// the two tables, or Discord's words while there are none.
-    pub(super) fn emoji_page<'a>(
-        &'a self,
+    pub(super) fn emoji_page(
+        self,
         core: &'a ServerSettings,
         page: &'a EmojiPage,
         screen: &'a Screen,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let rules = self.client.app.expression_rules(&core.server);
+        let theme = self.cx.look.theme;
+        let rules = self.cx.app.expression_rules(&core.server);
         let mut parts = column![
             form::title(theme, "Emoji"),
             form::note(
@@ -298,7 +298,7 @@ impl App {
         }
         let local = &screen.expressions;
         let (tops, total) = tops(&lines);
-        let (first, last) = in_view(&tops, local.scroll, self.window.height);
+        let (first, last) = in_view(&tops, local.scroll, self.cx.look.window.height);
         let mut rows = Rows::new(total);
         for (index, line) in lines.iter().enumerate().take(last).skip(first) {
             let (key, view) = match line {
@@ -324,8 +324,8 @@ impl App {
     }
 
     /// A table's heading: its name with the slots left, then the columns'.
-    fn emoji_heading<'a>(&self, title: &'a str, free: usize) -> Element<'a, Message> {
-        let theme = &self.theme;
+    fn emoji_heading(self, title: &'a str, free: usize) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         let ink = theme.secondary;
         let name = move |name: &'a str| text(name).size(12).font(BOLD).color(ink);
         column![
@@ -365,18 +365,18 @@ impl App {
     /// An emoji: its picture, its name (a field where this account may
     /// change it, which shows its ground under the pointer or while it has
     /// the keys), who uploaded it, and Delete under the pointer.
-    fn emoji_row<'a>(
-        &'a self,
+    fn emoji_row(
+        self,
         listed: &'a ServerEmoji,
         rules: &ExpressionRules<'_>,
         local: &'a Local,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let uploader = listed.user.as_ref();
         let may_change = rules.may_change(uploader.map(|user| user.id.as_str()));
-        let picture = self.shot(
+        let picture = self.cx.shot(
             Shot::new(
-                self.client.state().pictures.get(&listed.picture),
+                self.cx.state.pictures.get(&listed.picture),
                 Size::new(EMOJI, EMOJI),
             )
             .fit(Fit::Contain)
@@ -428,7 +428,7 @@ impl App {
         let mut by = row![].spacing(8).align_y(Alignment::Center);
         if let Some(user) = uploader {
             by = by
-                .push(face(self, &user.avatar, &user.name, UPLOADER))
+                .push(face(self.cx, &user.avatar, &user.name, UPLOADER))
                 .push(
                     text(user.name.as_str())
                         .size(14)
@@ -447,7 +447,8 @@ impl App {
         .height(EMOJI_ROW)
         .align_y(Alignment::Center);
         let delete: Element<'a, Message> = if may_change {
-            self.look()
+            self.cx
+                .look
                 .icon_button(
                     Icon::X,
                     "Delete",
@@ -471,14 +472,14 @@ impl App {
     /// Upload Emoji's dialog: the new emoji at the sizes chat shows it, its
     /// name (as Discord makes one of the file's), what went wrong, and
     /// Upload.
-    pub(super) fn emoji_dialog<'a>(&'a self, page: &'a EmojiPage) -> Option<Element<'a, Message>> {
+    pub(super) fn emoji_dialog(self, page: &'a EmojiPage) -> Option<Element<'a, Message>> {
         let upload = page.upload.as_ref()?;
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let saving = upload.saving;
         let mut sizes = row![].spacing(24).align_y(Alignment::Center);
         for side in EMOJI_SIZES {
             sizes = sizes.push(
-                self.shot(
+                self.cx.shot(
                     Shot::new(
                         upload.picture.as_ref().map(|picture| &picture.preview),
                         Size::new(side, side),
@@ -532,13 +533,13 @@ impl App {
     }
 
     /// Stickers: what may be uploaded, then Discord's four cards.
-    pub(super) fn stickers_page<'a>(
-        &'a self,
+    pub(super) fn stickers_page(
+        self,
         core: &'a ServerSettings,
         page: &'a StickersPage,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let rules = self.client.app.expression_rules(&core.server);
+        let theme = self.cx.look.theme;
+        let rules = self.cx.app.expression_rules(&core.server);
         let may_upload = (rules.manage || rules.create) && !page.full();
         let mut parts = vec![
             form::title(theme, "Stickers"),
@@ -556,16 +557,16 @@ impl App {
     /// A boost level's card: its name (with a lock while the server's level
     /// doesn't reach it), its slots or the boosts it takes, and its
     /// stickers, with Upload Sticker where the next one goes.
-    fn sticker_card<'a>(
-        &'a self,
+    fn sticker_card(
+        self,
         card: &StickerCard<'a>,
         rules: &ExpressionRules<'_>,
         may_upload: bool,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let mut head = row![].spacing(8).align_y(Alignment::Center);
         if !card.unlocked {
-            head = head.push(self.glyph(Icon::Lock, 16, theme.secondary));
+            head = head.push(self.cx.look.glyph(Icon::Lock, 16, theme.secondary));
         }
         let title = match card.level {
             0 => "Free Slots".to_owned(),
@@ -613,16 +614,16 @@ impl App {
 
     /// A sticker: its picture, name and uploader, with Edit and Delete in
     /// its corner under the pointer where this account may change it.
-    fn sticker_tile<'a>(
-        &'a self,
+    fn sticker_tile(
+        self,
         listed: &'a ServerSticker,
         rules: &ExpressionRules<'_>,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let picture = listed
             .picture
             .as_ref()
-            .and_then(|url| self.client.state().pictures.get(url));
+            .and_then(|url| self.cx.state.pictures.get(url));
         let uploader = listed
             .user
             .as_ref()
@@ -645,7 +646,7 @@ impl App {
         let base = container(
             column![
                 container(
-                    self.shot(
+                    self.cx.shot(
                         Shot::new(picture, Size::new(STICKER, STICKER))
                             .fit(Fit::Contain)
                             .bare()
@@ -677,7 +678,8 @@ impl App {
         if rules.may_change(listed.user_id.as_deref()) {
             buttons = buttons
                 .push(
-                    self.look()
+                    self.cx
+                        .look
                         .icon_button(
                             Icon::Pencil,
                             "Edit",
@@ -687,7 +689,8 @@ impl App {
                         .fill(theme.raised),
                 )
                 .push(
-                    self.look()
+                    self.cx
+                        .look
                         .icon_button(
                             Icon::X,
                             "Delete",
@@ -708,13 +711,15 @@ impl App {
     }
 
     /// Upload Sticker's tile, where the next sticker goes.
-    fn add_sticker(&self) -> Element<'_, Message> {
-        let theme = &self.theme;
+    fn add_sticker(self) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         let (line, lit) = (theme.line, theme.secondary);
         button(
             container(
                 column![
-                    self.glyph(Icon::CirclePlus, ADD_GLYPH, theme.secondary),
+                    self.cx
+                        .look
+                        .glyph(Icon::CirclePlus, ADD_GLYPH, theme.secondary),
                     text("Upload Sticker")
                         .size(14)
                         .font(SEMIBOLD)
@@ -743,13 +748,13 @@ impl App {
     /// The sticker form: the preview, the file for a new one (an edit can't
     /// change it), the related emoji, name and description, what went
     /// wrong, and Upload or Update.
-    pub(super) fn sticker_dialog<'a>(
-        &'a self,
+    pub(super) fn sticker_dialog(
+        self,
         core: &'a ServerSettings,
         page: &'a StickersPage,
     ) -> Option<Element<'a, Message>> {
         let draft = page.draft.as_ref()?;
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let saving = draft.saving;
         let editing = draft.editing.is_some();
         let kept = draft
@@ -757,10 +762,10 @@ impl App {
             .as_ref()
             .and_then(|id| page.stickers.iter().find(|listed| &listed.id == id))
             .and_then(|listed| listed.picture.as_ref())
-            .and_then(|url| self.client.state().pictures.get(url));
+            .and_then(|url| self.cx.state.pictures.get(url));
         let preview: Element<'a, Message> =
             match kept.or(draft.file.as_ref().map(|file| &file.preview)) {
-                Some(picture) => self.shot(
+                Some(picture) => self.cx.shot(
                     Shot::new(Some(picture), Size::new(PREVIEW, PREVIEW))
                         .fit(Fit::Contain)
                         .bare(),

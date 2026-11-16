@@ -17,12 +17,13 @@ use iced::{
 use yapfast_core::application::{Action, StickerPicture};
 
 use super::{
-    Event, Picker,
+    Event, Picker, View,
     kit::{self, Grid},
 };
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::lit_style,
+    ctx::Cx,
     media::{Fit, Shot},
     pictures::Icon,
     widgets::Pic,
@@ -83,11 +84,11 @@ impl Stickers {
     }
 }
 
-impl App {
-    pub(super) fn build_stickers(&mut self) {
-        let state = self.client.state();
+impl Picker {
+    pub(super) fn build_stickers(&mut self, cx: &mut Cx<'_>) {
+        let state = cx.state();
         let picker_state = &state.stickers;
-        let nitro = self.client.app.discord_nitro();
+        let nitro = cx.client.app.discord_nitro();
         let listed = picker_state.listed(nitro);
         let mut hasher = std::hash::DefaultHasher::new();
         picker_state.query.hash(&mut hasher);
@@ -98,9 +99,7 @@ impl App {
             sticker.id.hash(&mut hasher);
         }
         let signature = hasher.finish();
-        let Some(picker) = &mut self.picker else {
-            return;
-        };
+        let picker = &mut *self;
         if picker.built == signature {
             return;
         }
@@ -176,10 +175,8 @@ impl App {
 
     /// Tells the core the pictures of the tiles in sight, and the packs'
     /// first stickers the rail shows; it lets go of the rest.
-    pub(super) fn ask_stickers(&mut self) {
-        let Some(picker) = &mut self.picker else {
-            return;
-        };
+    pub(super) fn ask_stickers(&mut self, cx: &mut Cx<'_>) {
+        let picker = &mut *self;
         let scroll = picker.scroll;
         let Some(tab) = &mut picker.stickers else {
             return;
@@ -204,29 +201,19 @@ impl App {
             return;
         }
         tab.asked.clone_from(&asked);
-        self.client.dispatch(Action::StickersShown(asked));
+        cx.client.dispatch(Action::StickersShown(asked));
     }
 
-    pub(super) fn stickers_search(&mut self, text: String) -> Task<Message> {
-        self.client.dispatch(Action::SearchStickers(text));
-        Task::batch([self.sync(), self.scroll_grid(0.0)])
+    pub(super) fn stickers_search(&mut self, text: String, cx: &mut Cx<'_>) -> Task<Message> {
+        cx.dispatch(Action::SearchStickers(text));
+        self.scroll_grid(0.0)
     }
 
     fn sticker_item(&self, index: usize) -> Option<&Item> {
-        Some(
-            &self
-                .picker
-                .as_ref()?
-                .stickers
-                .as_ref()?
-                .grid
-                .tiles
-                .get(index)?
-                .item,
-        )
+        Some(&self.stickers.as_ref()?.grid.tiles.get(index)?.item)
     }
 
-    pub(super) fn sticker_pick(&mut self, index: usize) -> Task<Message> {
+    pub(super) fn sticker_pick(&mut self, index: usize, cx: &mut Cx<'_>) -> Task<Message> {
         let Some(Item::Sticker {
             id, usable: true, ..
         }) = self.sticker_item(index)
@@ -234,13 +221,13 @@ impl App {
             return Task::none();
         };
         let id = id.clone();
-        self.client.dispatch(Action::PickSticker(id));
-        self.close_picker()
+        cx.dispatch(Action::PickSticker(id));
+        self.ask_close(cx)
     }
 
     /// Enter sends the first sticker the search shows.
-    pub(super) fn sticker_first(&mut self) -> Task<Message> {
-        let first = self.picker.as_ref().and_then(|picker| {
+    pub(super) fn sticker_first(&mut self, cx: &mut Cx<'_>) -> Task<Message> {
+        let first = Some(&*self).and_then(|picker| {
             picker
                 .stickers
                 .as_ref()?
@@ -250,27 +237,31 @@ impl App {
                 .position(|tile| matches!(tile.item, Item::Sticker { usable: true, .. }))
         });
         match first {
-            Some(first) => self.sticker_pick(first),
+            Some(first) => self.sticker_pick(first, cx),
             None => Task::none(),
         }
     }
 
-    pub(super) fn sticker_star(&mut self, index: usize) {
+    pub(super) fn sticker_star(&mut self, index: usize, cx: &mut Cx<'_>) {
         if let Some(Item::Sticker { id, .. }) = self.sticker_item(index) {
             let id = id.clone();
-            self.client.dispatch(Action::FavoriteSticker(id));
+            cx.dispatch(Action::FavoriteSticker(id));
         }
     }
+}
 
-    fn sticker_mark(&self, mark: &Mark, side: f32) -> Element<'_, Message> {
+impl<'a> View<'a> {
+    fn sticker_mark(self, mark: &Mark, side: f32) -> Element<'a, Message> {
         let size = side as u32;
-        let state = self.client.state();
+        let state = self.cx.state;
         match mark {
             Mark::Clock => self
-                .glyph(Icon::Clock, size, self.theme.secondary)
+                .cx
+                .look
+                .glyph(Icon::Clock, size, self.cx.look.theme.secondary)
                 .boxed(side)
                 .into(),
-            Mark::Icon(url) => match self.picture(url, size, size, true) {
+            Mark::Icon(url) => match self.cx.picture(url, size, size, true) {
                 Some(handle) => Pic::square(handle, side).into(),
                 None => Space::new().width(side).height(side).into(),
             },
@@ -279,7 +270,7 @@ impl App {
                     Some(StickerPicture::Shown(picture)) => Some(picture),
                     _ => None,
                 };
-                self.shot(
+                self.cx.shot(
                     Shot::new(shown, Size::new(side, side))
                         .fit(Fit::Contain)
                         .bare(),
@@ -288,12 +279,12 @@ impl App {
         }
     }
 
-    pub(super) fn stickers_view<'a>(&'a self, picker: &'a Picker) -> Element<'a, Message> {
-        let theme = &self.theme;
+    pub(super) fn stickers_view(self, picker: &'a Picker) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         let Some(tab) = &picker.stickers else {
             return Space::new().into();
         };
-        let state = self.client.state();
+        let state = self.cx.state;
         let field = kit::search(&picker.field, "Find the perfect sticker", theme);
         let rail = kit::rail(
             tab.grid
@@ -328,7 +319,7 @@ impl App {
                         _ => None,
                     };
                     let mut face = stack![
-                        self.shot(
+                        self.cx.shot(
                             Shot::new(shown, Size::new(TILE, TILE))
                                 .fit(Fit::Contain)
                                 .bare()
@@ -344,7 +335,7 @@ impl App {
                                 .style(move |_| crate::style::fill(veil)),
                         );
                         face = face.push(kit::pinned(
-                            self.glyph(Icon::Lock, 14, theme.text),
+                            self.cx.look.glyph(Icon::Lock, 14, theme.text),
                             Alignment::End,
                             Alignment::End,
                             4.0,
@@ -360,7 +351,7 @@ impl App {
                     if picker.hover == Some(index) {
                         layers = layers.push(kit::pinned(
                             kit::star(
-                                self.look(),
+                                self.cx.look,
                                 *favorite,
                                 24.0,
                                 16,
@@ -377,7 +368,7 @@ impl App {
                         .into()
                 }
             });
-        let grid: Element<'_, Message> = if tab.grid.tiles.is_empty() {
+        let grid: Element<'a, Message> = if tab.grid.tiles.is_empty() {
             let words = state.stickers.error.clone().unwrap_or_else(|| {
                 if state.stickers.query.trim().is_empty() {
                     String::new()

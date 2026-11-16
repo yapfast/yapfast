@@ -34,16 +34,16 @@ fn the_custom_status_starts_from_the_one_set_and_saves_whats_written() {
     interact(&mut app, |ui| {
         ui.click("Change custom status").expect("the row");
     });
-    assert!(app.account_popover.is_none(), "the popover goes");
+    assert!(app.status.popover.is_none(), "the popover goes");
     assert!(shows(&app, "Set a custom status") && shows(&app, "CLEAR AFTER"));
-    let draft = app.status_draft.clone().expect("open");
+    let draft = app.status.draft.clone().expect("open");
     assert_eq!(draft.text, "Testing");
     assert_eq!(draft.emoji.as_deref(), Some("🧪"));
     let _ = app.update(Message::Status(StatusEvent::Text("Away".into())));
     interact(&mut app, |ui| {
         ui.click("1 hour").expect("Clear after");
     });
-    assert_eq!(app.status_draft.as_ref().expect("open").clear, 2);
+    assert_eq!(app.status.draft.as_ref().expect("open").clear, 2);
     interact(&mut app, |ui| {
         ui.click("Save").expect("Save");
     });
@@ -81,7 +81,7 @@ fn the_custom_status_starts_from_the_one_set_and_saves_whats_written() {
     // Escape closes it, and what was written goes with it.
     press(&mut app, key::Named::Escape);
     assert!(app.client.state().status_editor.is_none());
-    assert!(app.status_draft.is_none());
+    assert!(app.status.draft.is_none());
 }
 
 #[test]
@@ -195,6 +195,6 @@ fn the_account_popover_shows_the_accounts_own_card_while_open() {
     assert!(shows(&app, "2 hr 5 min") || shows(&app, "2 hr 4 min"));
     assert!(app.popover_playing(), "its time kept up to the minute");
     press(&mut app, key::Named::Escape);
-    assert!(app.account_popover.is_none());
+    assert!(app.status.popover.is_none());
     assert!(app.profiles.account.is_none(), "let go as it closes");
 }

@@ -14,13 +14,14 @@ use iced::{
     widget::{Space, button, column, container, operation, row, stack, text},
 };
 use yapfast_core::{
-    application::Action,
+    application::{Action, AppState},
     chat::{ListedThread, Permission, Presence},
 };
 
 use crate::{
     app::{App, Message},
     controls::{self, Kind, bar, placed},
+    ctx::{Cx, Focus, Request},
     elide::elide,
     fonts::{BOLD, MEDIUM, SEMIBOLD},
     found::Found,
@@ -79,6 +80,241 @@ impl Popovers {
         self.pins.clear();
         self.topic = None;
     }
+
+    /// What's done in the popovers; one opening opens with its right edge
+    /// at `right`, the topic under `under`. A thread's More is the root's
+    /// (`App::popover_event`).
+    pub fn update(
+        &mut self,
+        event: Event,
+        right: f32,
+        under: iced::Rectangle,
+        cx: &mut Cx<'_>,
+    ) -> Task<Message> {
+        // Focus moves only as a popover opens or closes: focusing a field
+        // puts its caret at the end, so a keystroke or a scroll mustn't.
+        let shown = |popovers: &Self, state: &AppState| {
+            (state.thread_list().is_some(), popovers.is_open(state))
+        };
+        let before = shown(self, cx.state());
+        match event {
+            Event::Pins => {
+                let open = pins_open(cx.state());
+                self.close(cx);
+                if !open {
+                    self.right = right;
+                    cx.dispatch(Action::ShowPins(true));
+                }
+            }
+            Event::Threads => {
+                let open = cx.state().thread_list().is_some();
+                self.close(cx);
+                if !open {
+                    self.right = right;
+                    self.threads_query.clear();
+                    cx.dispatch(Action::ShowThreads(true));
+                }
+            }
+            Event::AddPeople => {
+                let open = people_open(cx.state());
+                self.close(cx);
+                if !open {
+                    self.right = right;
+                    self.people_query.clear();
+                    cx.dispatch(Action::OpenAddPeople);
+                }
+            }
+            Event::Topic => {
+                let open = self.topic.is_some();
+                self.close(cx);
+                let state = cx.state();
+                if !open
+                    && let (Some(room), Some(topic)) =
+                        (state.selected.clone(), state.topic.as_ref())
+                {
+                    let body = markdown::parse(
+                        &topic.body,
+                        &topic.mentions,
+                        rgb(cx.theme.mention),
+                        "topic",
+                        |_| true,
+                    );
+                    self.topic = Some(TopicShown { room, under, body });
+                }
+            }
+            Event::Close => self.close(cx),
+            Event::Jump(item) => {
+                self.close(cx);
+                cx.dispatch(Action::Jump(item));
+            }
+            Event::OpenThread(room) => {
+                // Opening first, as it may use what the list found.
+                cx.dispatch(if cx.modifiers.shift() {
+                    Action::OpenAside(room)
+                } else {
+                    Action::Open(room)
+                });
+                cx.dispatch(Action::ShowThreads(false));
+            }
+            Event::ThreadsQuery(query) => {
+                let cleared = query.is_empty() && !self.threads_query.is_empty();
+                self.threads_query = query;
+                if cleared {
+                    cx.dispatch(Action::SearchThreads(String::new()));
+                }
+            }
+            Event::SearchThreads => {
+                let query = self.threads_query.clone();
+                cx.dispatch(Action::SearchThreads(query));
+            }
+            Event::ThreadsScrolled(top, seen, whole) => {
+                let more = cx
+                    .state()
+                    .thread_list()
+                    .is_some_and(|list| list.more && list.search.is_none() && !list.loading);
+                // A scroll that asks for nothing more changes nothing to
+                // take in.
+                if !(more && top > 0.0 && top + seen >= whole - NEAR_END) {
+                    return Task::none();
+                }
+                cx.dispatch(Action::MoreThreads);
+            }
+            Event::CreateThread => {
+                cx.dispatch(Action::ShowThreads(false));
+                cx.dispatch(crate::thread::start_from(
+                    yapfast_core::application::ThreadFrom::List,
+                ));
+                return operation::focus(crate::thread::FIRST);
+            }
+            Event::PeopleQuery(query) => {
+                self.people_query = query.clone();
+                cx.dispatch(Action::AddPeopleQuery(query));
+            }
+            Event::Choose(id) => cx.dispatch(Action::ChoosePerson(id)),
+            Event::Add => cx.dispatch(Action::AddPeople),
+            Event::ThreadMore => {}
+        }
+        cx.touch();
+        if shown(self, cx.state()) != before {
+            cx.request(Request::Focus(Focus::Default));
+        }
+        Task::none()
+    }
+
+    /// Closes whichever popover is open.
+    pub fn close(&mut self, cx: &mut Cx<'_>) {
+        self.topic = None;
+        if pins_open(cx.state()) {
+            cx.dispatch(Action::ShowPins(false));
+        }
+        if cx.state().thread_list().is_some() {
+            cx.dispatch(Action::ShowThreads(false));
+        }
+        if people_open(cx.state()) {
+            cx.dispatch(Action::CloseAddPeople);
+        }
+    }
+
+    /// Whether a popover is open, for Escape.
+    pub fn is_open(&self, state: &AppState) -> bool {
+        pins_open(state)
+            || people_open(state)
+            || state.thread_list().is_some()
+            || self.topic.is_some()
+    }
+}
+
+impl Popovers {
+    fn threads_sync(&mut self, app: &yapfast_core::application::Application) {
+        let Some(list) = app.state.thread_list() else {
+            if self.threads_shown.take().is_some() {
+                self.threads = Vec::new();
+            }
+            return;
+        };
+        let sections = app.thread_sections().unwrap_or_default();
+        let found = list.search.as_ref().map(|search| &search.found);
+        let now = yapfast_core::clock::now_ms();
+        let mut hasher = std::hash::DefaultHasher::new();
+        (&sections, found, now / 60_000).hash(&mut hasher);
+        let shown = hasher.finish();
+        if self.threads_shown == Some(shown) {
+            return;
+        }
+        self.threads_shown = Some(shown);
+        let mut rows = Vec::new();
+        if let Some(Some(Ok(found))) = found {
+            rows.extend(found.iter().map(|thread| thread_row(thread, now)));
+        } else {
+            let headed = [
+                (&sections.joined, "joined thread", "joined threads"),
+                (
+                    &sections.other,
+                    "other active thread",
+                    "other active threads",
+                ),
+            ];
+            for (threads, one, many) in headed {
+                let heading = match threads.len() {
+                    1 => format!("1 {one}"),
+                    count => format!("{count} {many}"),
+                };
+                section(&mut rows, threads, heading.to_uppercase(), now);
+            }
+            section(&mut rows, &sections.older, "OLDER THREADS".into(), now);
+        }
+        self.threads = rows;
+    }
+
+    fn people_sync(&mut self, state: &AppState) {
+        let picker = state
+            .add_people
+            .as_ref()
+            .filter(|picker| state.selected.as_ref() == Some(&picker.room));
+        let Some(picker) = picker else {
+            if self.people_shown.take().is_some() {
+                self.people = Vec::new();
+            }
+            return;
+        };
+        // Friends' presence changes often; the rows are built again only
+        // when what they show changed.
+        let friends = state.addable_friends();
+        let mut hasher = std::hash::DefaultHasher::new();
+        (&friends, &picker.chosen).hash(&mut hasher);
+        let shown = Some(hasher.finish());
+        if shown == self.people_shown {
+            return;
+        }
+        let rows = friends
+            .into_iter()
+            .map(|friend| PickRow {
+                id: friend.id.clone(),
+                name: friend.name.clone(),
+                avatar: friend.avatar.clone(),
+                presence: friend.presence,
+                chosen: picker.chosen.contains(&friend.id),
+            })
+            .collect();
+        self.people = rows;
+        self.people_shown = shown;
+    }
+}
+
+/// Whether the open conversation's pins show.
+fn pins_open(state: &AppState) -> bool {
+    state
+        .pins
+        .as_ref()
+        .is_some_and(|pins| state.selected.as_ref() == Some(&pins.room))
+}
+
+/// Whether Select Friends shows for the open conversation.
+fn people_open(state: &AppState) -> bool {
+    state
+        .add_people
+        .as_ref()
+        .is_some_and(|picker| state.selected.as_ref() == Some(&picker.room))
 }
 
 /// The topic in full, while it shows: whose, where its line was, and its
@@ -144,179 +380,34 @@ impl App {
         button.contains(self.pressed.get()).then_some(button)
     }
 
+    /// The popovers': each opens from the header's button pressed, its
+    /// right edge, as Slint's, or from the press if opened from
+    /// elsewhere; a thread's More opens with the menus.
     pub fn popover_event(&mut self, event: Event) -> Task<Message> {
-        // Focus moves only as a popover opens or closes: focusing a field
-        // puts its caret at the end, so a keystroke or a scroll mustn't.
-        let shown = |app: &Self| {
-            (
-                app.client.state().thread_list().is_some(),
-                app.popover_open(),
-            )
-        };
-        let before = shown(self);
-        // From the header's button pressed, its right edge, as Slint's;
-        // opened from elsewhere, from the press.
+        if let Event::ThreadMore = event {
+            let Some(room) = self.client.state().selected.clone() else {
+                return Task::none();
+            };
+            return self.open_thread_more(&room, self.pressed.get());
+        }
         let right = self.header_button().map_or(
             self.pressed.get().x + crate::header::BUTTON / 2.0,
             |button| button.x + button.width,
         );
-        match event {
-            Event::Pins => {
-                let open = self.pins_open();
-                self.close_popovers();
-                if !open {
-                    self.popovers.right = right;
-                    self.client.dispatch(Action::ShowPins(true));
-                }
-            }
-            Event::Threads => {
-                let open = self.client.state().thread_list().is_some();
-                self.close_popovers();
-                if !open {
-                    self.popovers.right = right;
-                    self.popovers.threads_query.clear();
-                    self.client.dispatch(Action::ShowThreads(true));
-                }
-            }
-            Event::AddPeople => {
-                let open = self.people_open();
-                self.close_popovers();
-                if !open {
-                    self.popovers.right = right;
-                    self.popovers.people_query.clear();
-                    self.client.dispatch(Action::OpenAddPeople);
-                }
-            }
-            Event::Topic => {
-                let open = self.popovers.topic.is_some();
-                self.close_popovers();
-                let state = self.client.state();
-                if !open
-                    && let (Some(room), Some(topic)) =
-                        (state.selected.clone(), state.topic.as_ref())
-                {
-                    let body = markdown::parse(
-                        &topic.body,
-                        &topic.mentions,
-                        rgb(self.theme.mention),
-                        "topic",
-                        |_| true,
-                    );
-                    self.popovers.topic = Some(TopicShown {
-                        room,
-                        under: self.call.spot.get(),
-                        body,
-                    });
-                }
-            }
-            Event::Close => self.close_popovers(),
-            Event::Jump(item) => {
-                self.close_popovers();
-                self.client.dispatch(Action::Jump(item));
-            }
-            Event::OpenThread(room) => {
-                // Opening first, as it may use what the list found.
-                self.client.dispatch(if self.modifiers.shift() {
-                    Action::OpenAside(room)
-                } else {
-                    Action::Open(room)
-                });
-                self.client.dispatch(Action::ShowThreads(false));
-            }
-            Event::ThreadsQuery(query) => {
-                let cleared = query.is_empty() && !self.popovers.threads_query.is_empty();
-                self.popovers.threads_query = query;
-                if cleared {
-                    self.client.dispatch(Action::SearchThreads(String::new()));
-                }
-            }
-            Event::SearchThreads => {
-                let query = self.popovers.threads_query.clone();
-                self.client.dispatch(Action::SearchThreads(query));
-            }
-            Event::ThreadsScrolled(top, seen, whole) => {
-                let more = self
-                    .client
-                    .state()
-                    .thread_list()
-                    .is_some_and(|list| list.more && list.search.is_none() && !list.loading);
-                // A scroll that asks for nothing more changes nothing to
-                // take in.
-                if !(more && top > 0.0 && top + seen >= whole - NEAR_END) {
-                    return Task::none();
-                }
-                self.client.dispatch(Action::MoreThreads);
-            }
-            Event::CreateThread => {
-                self.client.dispatch(Action::ShowThreads(false));
-                self.client.dispatch(crate::thread::start_from(
-                    yapfast_core::application::ThreadFrom::List,
-                ));
-                return Task::batch([self.sync(), operation::focus(crate::thread::FIRST)]);
-            }
-            Event::PeopleQuery(query) => {
-                self.popovers.people_query = query.clone();
-                self.client.dispatch(Action::AddPeopleQuery(query));
-            }
-            Event::Choose(id) => self.client.dispatch(Action::ChoosePerson(id)),
-            Event::Add => self.client.dispatch(Action::AddPeople),
-            Event::ThreadMore => {
-                let Some(room) = self.client.state().selected.clone() else {
-                    return Task::none();
-                };
-                return self.open_thread_more(&room, self.pressed.get());
-            }
-        }
-        let synced = self.sync();
-        if shown(self) == before {
-            return synced;
-        }
-        Task::batch([synced, self.refocus()])
-    }
-
-    /// Closes whichever popover is open.
-    pub fn close_popovers(&mut self) {
-        self.popovers.topic = None;
-        if self.pins_open() {
-            self.client.dispatch(Action::ShowPins(false));
-        }
-        if self.client.state().thread_list().is_some() {
-            self.client.dispatch(Action::ShowThreads(false));
-        }
-        if self.people_open() {
-            self.client.dispatch(Action::CloseAddPeople);
-        }
+        let under = self.call.spot.get();
+        let mut cx = crate::ctx::cx!(self);
+        self.popovers.update(event, right, under, &mut cx)
     }
 
     /// Whether a popover is open, for Escape.
     pub fn popover_open(&self) -> bool {
-        self.pins_open()
-            || self.people_open()
-            || self.client.state().thread_list().is_some()
-            || self.popovers.topic.is_some()
-    }
-
-    fn pins_open(&self) -> bool {
-        let state = self.client.state();
-        state
-            .pins
-            .as_ref()
-            .is_some_and(|pins| state.selected.as_ref() == Some(&pins.room))
-    }
-
-    fn people_open(&self) -> bool {
-        let state = self.client.state();
-        state
-            .add_people
-            .as_ref()
-            .is_some_and(|picker| state.selected.as_ref() == Some(&picker.room))
+        self.popovers.is_open(self.client.state())
     }
 
     /// Builds the open popover's rows when what they show changed, and lets
     /// go of a closed one's.
     pub fn popovers_sync(&mut self) {
-        let pinned: &[yapfast_core::chat::ChatMessage] = match self
-            .pins_open()
+        let pinned: &[yapfast_core::chat::ChatMessage] = match pins_open(self.client.state())
             .then(|| self.client.state().pins.as_ref())
             .flatten()
             .and_then(|pins| pins.messages.as_ref())
@@ -344,8 +435,8 @@ impl App {
                 self.popovers.pins.push(found);
             }
         }
-        self.threads_sync();
-        self.people_sync();
+        self.popovers.threads_sync(&self.client.app);
+        self.popovers.people_sync(self.client.state());
         // The topic goes with its room, or with the topic.
         let state = self.client.state();
         if self.popovers.topic.as_ref().is_some_and(|topic| {
@@ -353,82 +444,6 @@ impl App {
         }) {
             self.popovers.topic = None;
         }
-    }
-
-    fn threads_sync(&mut self) {
-        let Some(list) = self.client.state().thread_list() else {
-            if self.popovers.threads_shown.take().is_some() {
-                self.popovers.threads = Vec::new();
-            }
-            return;
-        };
-        let sections = self.client.app.thread_sections().unwrap_or_default();
-        let found = list.search.as_ref().map(|search| &search.found);
-        let now = yapfast_core::clock::now_ms();
-        let mut hasher = std::hash::DefaultHasher::new();
-        (&sections, found, now / 60_000).hash(&mut hasher);
-        let shown = hasher.finish();
-        if self.popovers.threads_shown == Some(shown) {
-            return;
-        }
-        self.popovers.threads_shown = Some(shown);
-        let mut rows = Vec::new();
-        if let Some(Some(Ok(found))) = found {
-            rows.extend(found.iter().map(|thread| thread_row(thread, now)));
-        } else {
-            let headed = [
-                (&sections.joined, "joined thread", "joined threads"),
-                (
-                    &sections.other,
-                    "other active thread",
-                    "other active threads",
-                ),
-            ];
-            for (threads, one, many) in headed {
-                let heading = match threads.len() {
-                    1 => format!("1 {one}"),
-                    count => format!("{count} {many}"),
-                };
-                section(&mut rows, threads, heading.to_uppercase(), now);
-            }
-            section(&mut rows, &sections.older, "OLDER THREADS".into(), now);
-        }
-        self.popovers.threads = rows;
-    }
-
-    fn people_sync(&mut self) {
-        let state = self.client.state();
-        let picker = state
-            .add_people
-            .as_ref()
-            .filter(|picker| state.selected.as_ref() == Some(&picker.room));
-        let Some(picker) = picker else {
-            if self.popovers.people_shown.take().is_some() {
-                self.popovers.people = Vec::new();
-            }
-            return;
-        };
-        // Friends' presence changes often; the rows are built again only
-        // when what they show changed.
-        let friends = state.addable_friends();
-        let mut hasher = std::hash::DefaultHasher::new();
-        (&friends, &picker.chosen).hash(&mut hasher);
-        let shown = Some(hasher.finish());
-        if shown == self.popovers.people_shown {
-            return;
-        }
-        let rows = friends
-            .into_iter()
-            .map(|friend| PickRow {
-                id: friend.id.clone(),
-                name: friend.name.clone(),
-                avatar: friend.avatar.clone(),
-                presence: friend.presence,
-                chosen: picker.chosen.contains(&friend.id),
-            })
-            .collect();
-        self.popovers.people = rows;
-        self.popovers.people_shown = shown;
     }
 
     /// The pictures the open popover and the search's results show: found
@@ -458,13 +473,13 @@ impl App {
         if let Some(topic) = &self.popovers.topic {
             return Some(self.topic_layer(topic));
         }
-        let (panel, width, most) = if self.pins_open() {
+        let (panel, width, most) = if pins_open(self.client.state()) {
             (self.pins_view(), PINS_WIDTH, PINS_MOST)
         } else if self.client.state().thread_list().is_some() {
             // As Discord's: 35% of the window wide, from 480 to 600 px.
             let width = (self.window.width * 0.35).clamp(480.0, 600.0);
             (self.threads_view(), width, self.threads_height())
-        } else if self.people_open() {
+        } else if people_open(self.client.state()) {
             (self.people_view(), PEOPLE_WIDTH, PEOPLE_MOST)
         } else {
             return None;
@@ -476,11 +491,12 @@ impl App {
             .max(MARGIN);
         let height = most.min(self.window.height - top - 2.0 * MARGIN);
         let panel = container(panel).width(width).max_height(height);
-        let panel = if self.client.state().thread_list().is_some() || self.people_open() {
-            panel.height(height)
-        } else {
-            panel
-        };
+        let panel =
+            if self.client.state().thread_list().is_some() || people_open(self.client.state()) {
+                panel.height(height)
+            } else {
+                panel
+            };
         Some(
             stack![
                 controls::outside(Message::Popover(Event::Close), false),
@@ -669,14 +685,16 @@ impl App {
             .spacing(10)
             .align_y(Alignment::Center);
         if searchable {
-            heading = heading.push(bar(theme.line, 1, 24)).push(self.search_field(
-                THREADS_SEARCH,
-                "Search for Thread Name",
-                &self.popovers.threads_query,
-                |query| Message::Popover(Event::ThreadsQuery(query)),
-                Message::Popover(Event::SearchThreads),
-                Message::Popover(Event::ThreadsQuery(String::new())),
-            ));
+            heading = heading
+                .push(bar(theme.line, 1, 24))
+                .push(self.ctx().search_field(
+                    THREADS_SEARCH,
+                    "Search for Thread Name",
+                    &self.popovers.threads_query,
+                    |query| Message::Popover(Event::ThreadsQuery(query)),
+                    Message::Popover(Event::SearchThreads),
+                    Message::Popover(Event::ThreadsQuery(String::new())),
+                ));
         }
         let create = can_create.then(|| {
             controls::action(

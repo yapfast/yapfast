@@ -15,14 +15,15 @@ use iced::{
     widget::{Space, column, operation, row, text},
 };
 use yapfast_core::application::{
-    Action, BAN_HISTORY, CommandTarget, MenuChoice, OwnershipInput, PersonAsk, TIMEOUT_TIMES,
-    network_id, network_link,
+    Action, AppState, BAN_HISTORY, CommandTarget, MenuChoice, OwnershipInput, PersonAsk,
+    TIMEOUT_TIMES, network_id, network_link,
 };
 use yapfast_core::chat::RelationshipChange;
 
 use crate::{
     app::{App, Message, NOBODY},
     controls::{Item, Kind, Light, action, field},
+    ctx::{Ctx, Cx, Focus, Request},
     dialog::{CONFIRM_WIDTH, dialog},
     fonts::BOLD,
     menus::{Menu, MenuAct, MenuRow},
@@ -210,20 +211,32 @@ impl App {
         };
         self.client.dispatch(action);
         self.keep_pins();
-        let focus = self.person_focus();
+        let focus = self.person.focus(self.client.state());
         Task::batch([self.sync(), focus])
     }
 
-    /// The dialog's field takes the keys when it has one, else nothing does,
-    /// so Enter and Escape reach the dialog.
-    pub fn person_focus(&mut self) -> Task<Message> {
-        let Some(dialog) = &self.client.state().person_dialog else {
+    /// DMs pinned to the top are kept in `layout.json`, as the Slint client
+    /// keeps them.
+    pub fn keep_pins(&mut self) {
+        let pinned = &self.client.state().pinned;
+        if *pinned != self.layout.pinned {
+            self.layout.pinned = pinned.clone();
+            crate::layout::store(self.client.root(), "pinned", pinned);
+        }
+    }
+}
+
+impl Dialog {
+    /// The dialog opens: its field takes the keys when it has one, else
+    /// nothing does, so Enter and Escape reach the dialog.
+    pub fn focus(&mut self, state: &AppState) -> Task<Message> {
+        let Some(dialog) = &state.person_dialog else {
             return Task::none();
         };
-        self.person.filled = dialog.text.is_some();
-        self.person.text = dialog.text.clone().unwrap_or_default();
-        self.person.ticked = false;
-        if prompt(self, dialog).field.is_empty() {
+        self.filled = dialog.text.is_some();
+        self.text = dialog.text.clone().unwrap_or_default();
+        self.ticked = false;
+        if prompt(state, dialog).field.is_empty() {
             operation::focus(NOBODY)
         } else {
             operation::focus(PERSON_FIELD)
@@ -231,63 +244,86 @@ impl App {
     }
 
     /// What's done in the person dialog.
-    pub fn person_event(&mut self, event: Event) -> Task<Message> {
+    pub fn update(&mut self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
         match event {
-            Event::Text(text) => {
-                self.person.text = text;
-                return Task::none();
-            }
-            Event::Choose(index) => self.client.dispatch(Action::ChoosePersonOption(index)),
-            Event::Tick => {
-                self.person.ticked = !self.person.ticked;
-                return Task::none();
-            }
+            Event::Text(text) => self.text = text,
+            Event::Choose(index) => cx.dispatch(Action::ChoosePersonOption(index)),
+            Event::Tick => self.ticked = !self.ticked,
             Event::Answer => {
-                let Some(dialog) = &self.client.state().person_dialog else {
+                let Some(dialog) = &cx.state().person_dialog else {
                     return Task::none();
                 };
                 if dialog.text.is_none() || dialog.saving {
                     return Task::none();
                 }
-                if dialog.ask == PersonAsk::Call && self.person.ticked {
-                    self.client.dispatch(Action::SkipCallPrompt(true));
-                    crate::layout::store(self.client.root(), "skip_call_prompt", true);
+                if dialog.ask == PersonAsk::Call && self.ticked {
+                    cx.dispatch(Action::SkipCallPrompt(true));
+                    cx.keep("skip_call_prompt", true);
                 }
-                let text = std::mem::take(&mut self.person.text);
-                self.client.dispatch(Action::AnswerPerson(text));
+                let text = std::mem::take(&mut self.text);
+                cx.dispatch(Action::AnswerPerson(text));
             }
-            Event::Close => self.client.dispatch(Action::ClosePersonDialog),
+            Event::Close => cx.dispatch(Action::ClosePersonDialog),
         }
-        let refocus = if self.client.state().person_dialog.is_none() {
-            self.refocus()
-        } else {
-            Task::none()
-        };
-        Task::batch([self.sync(), refocus])
+        if cx.state().person_dialog.is_none() {
+            cx.request(Request::Focus(Focus::Default));
+        }
+        Task::none()
     }
 
     /// The note or nickname the core was waiting for came: the field takes
     /// it, once.
-    pub fn person_sync(&mut self) {
-        match &self.client.state().person_dialog {
-            Some(dialog) if !self.person.filled => {
+    pub fn sync(&mut self, state: &AppState) {
+        match &state.person_dialog {
+            Some(dialog) if !self.filled => {
                 if let Some(text) = &dialog.text {
-                    self.person.text = text.clone();
-                    self.person.filled = true;
+                    self.text = text.clone();
+                    self.filled = true;
                 }
             }
             Some(_) => {}
-            None => self.person = Dialog::default(),
+            None => *self = Dialog::default(),
         }
     }
 
+    /// The person dialog's keys: Enter answers one without a field, Escape
+    /// closes it.
+    pub fn key(
+        &mut self,
+        named: Option<iced::keyboard::key::Named>,
+        cx: &mut Cx<'_>,
+    ) -> Task<Message> {
+        use iced::keyboard::key::Named;
+        match named {
+            Some(Named::Escape) => self.update(Event::Close, cx),
+            Some(Named::Enter) => self.update(Event::Answer, cx),
+            _ => Task::none(),
+        }
+    }
+}
+
+/// The person dialog over the dimmed window: its title and what it
+/// explains, a timeout's or a ban's choices, the field, Don't ask again,
+/// why it failed, Cancel and its button.
+pub fn view<'a>(dialog: &'a Dialog, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
+    View { s: dialog, cx }.view()
+}
+
+/// The dialog's state and what it reads, as its parts draw them.
+#[derive(Clone, Copy)]
+struct View<'a> {
+    s: &'a Dialog,
+    cx: Ctx<'a>,
+}
+
+impl<'a> View<'a> {
     /// The person dialog over the dimmed window: its title and what it
     /// explains, a timeout's or a ban's choices, the field, Don't ask
     /// again, why it failed, Cancel and its button.
-    pub fn person_view(&self) -> Option<Element<'_, Message>> {
-        let dialog = self.client.state().person_dialog.as_ref()?;
-        let prompt = prompt(self, dialog);
-        let theme = &self.theme;
+    fn view(self) -> Option<Element<'a, Message>> {
+        let dialog = self.cx.state.person_dialog.as_ref()?;
+        let prompt = prompt(self.cx.state, dialog);
+        let theme = self.cx.look.theme;
         let close = Message::Person(Event::Close);
         let mut body = column![
             row![
@@ -297,7 +333,8 @@ impl App {
                     .color(theme.text)
                     .wrapping(text::Wrapping::None)
                     .width(Length::Fill),
-                self.look()
+                self.cx
+                    .look
                     .icon_button(Icon::X, "Close", close.clone())
                     .below(),
             ]
@@ -324,7 +361,7 @@ impl App {
                 theme,
                 PERSON_FIELD,
                 placeholder,
-                &self.person.text,
+                &self.s.text,
                 false,
                 !loading,
             )
@@ -338,10 +375,10 @@ impl App {
             body = body.push(input);
         }
         if dialog.ask == PersonAsk::Call {
-            body = body.push(self.menu_item(
+            body = body.push(self.cx.look.menu_item(
                 Item {
                     label: "Don't ask again".into(),
-                    icon: Some(if self.person.ticked {
+                    icon: Some(if self.s.ticked {
                         Icon::Check
                     } else {
                         Icon::Square
@@ -377,8 +414,8 @@ impl App {
     }
 
     /// One of a timeout's or a ban's choices, ticked when chosen.
-    fn choice_item(&self, label: String, chosen: bool, index: usize) -> Element<'_, Message> {
-        self.menu_item(
+    fn choice_item(self, label: String, chosen: bool, index: usize) -> Element<'a, Message> {
+        self.cx.look.menu_item(
             Item {
                 label: label.into(),
                 icon: chosen.then_some(Icon::Check),
@@ -391,27 +428,6 @@ impl App {
             Light::Pointer,
             Message::Person(Event::Choose(index)),
         )
-    }
-
-    /// The person dialog's keys: Enter answers one without a field, Escape
-    /// closes it.
-    pub fn person_key(&mut self, named: Option<iced::keyboard::key::Named>) -> Task<Message> {
-        use iced::keyboard::key::Named;
-        match named {
-            Some(Named::Escape) => self.person_event(Event::Close),
-            Some(Named::Enter) => self.person_event(Event::Answer),
-            _ => Task::none(),
-        }
-    }
-
-    /// DMs pinned to the top are kept in `layout.json`, as the Slint client
-    /// keeps them.
-    pub fn keep_pins(&mut self) {
-        let pinned = &self.client.state().pinned;
-        if *pinned != self.layout.pinned {
-            self.layout.pinned = pinned.clone();
-            crate::layout::store(self.client.root(), "pinned", pinned);
-        }
     }
 }
 
@@ -434,9 +450,9 @@ struct Prompt {
     danger: bool,
 }
 
-fn prompt(app: &App, dialog: &yapfast_core::application::PersonDialog) -> Prompt {
+fn prompt(state: &AppState, dialog: &yapfast_core::application::PersonDialog) -> Prompt {
     let name = &dialog.name;
-    let me = app.client.state().relation(&dialog.user) == yapfast_core::application::Relation::Me;
+    let me = state.relation(&dialog.user) == yapfast_core::application::Relation::Me;
     let (title, text, field, confirm, danger) = match dialog.ask {
         PersonAsk::Note => (
             format!("Note on {name}"),

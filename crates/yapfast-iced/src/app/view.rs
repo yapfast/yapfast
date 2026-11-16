@@ -26,7 +26,7 @@ impl App {
         // Whatever this returns, what it no longer shows goes at its end.
         let _viewing = self.pictures.view();
         if !self.workspace() {
-            return self.frame_layers(self.sign_in_view()).into();
+            return self.frame_layers(crate::signin::view(self.ctx())).into();
         }
         // The window's own background is the theme's chat (`window_style`).
         // The rail and the sidebar on the rail's ground, the account's card
@@ -52,7 +52,8 @@ impl App {
         // modal, each over the last.
         let mut layers = stack![base];
         // A role's card, under the card of someone on it.
-        if let Some(role) = self.role_card_layers() {
+        if let Some(role) = crate::info_cards::role_layers(&self.cards, &self.profiles, self.ctx())
+        {
             layers = layers.extend(role);
         }
         if let Some(card) = self.card_view() {
@@ -62,9 +63,8 @@ impl App {
         }
         // The picker for a dialog's emoji opens over the dialog.
         let mut over_dialogs = None;
-        if let Some(picker) = &self.picker
-            && let Some(shown) = self.picker_view()
-        {
+        if let Some(picker) = self.picker.get() {
+            let shown = picker::view(picker, self.ctx());
             let size = picker.size();
             let place = match &picker.target {
                 // Over the emoji button, its right edge level with the button's.
@@ -107,10 +107,18 @@ impl App {
         if let Some(settings) = self.settings.get() {
             layers = layers.push(crate::settings::view(settings, self.ctx()));
         }
-        if let Some(settings) = self.server_settings_view() {
+        if let Some(settings) = self
+            .server_screen
+            .get()
+            .and_then(|screen| crate::server_settings::view(screen, self.ctx()))
+        {
             layers = layers.push(settings);
         }
-        if let Some(settings) = self.channel_settings_view() {
+        if let Some(settings) = self
+            .channel_screen
+            .get()
+            .and_then(|screen| crate::channel_settings::view(screen, self.ctx()))
+        {
             layers = layers.push(settings);
         }
         // Over the settings, as a member's from Members.
@@ -121,10 +129,14 @@ impl App {
             layers = layers.push(editor);
         }
         // A mutual server's, over the profile that lists it.
-        if let Some(server) = self.server_card_layers() {
+        if let Some(server) =
+            crate::info_cards::server_layers(&self.cards, &self.profiles, self.ctx())
+        {
             layers = layers.extend(server);
         }
-        if let Some(expression) = self.expression_card_layers() {
+        if let Some(expression) =
+            crate::info_cards::expression_layers(&self.cards, &self.profiles, self.ctx())
+        {
             layers = layers.extend(expression);
         }
         if let Some(popover) = self.popover_view() {
@@ -132,15 +144,15 @@ impl App {
                 .push(outside(Message::Status(crate::status::Event::Close), false))
                 .push(popover);
         }
-        if let Some(dialog) = self.status_dialog_view() {
+        if let Some(dialog) = crate::status::dialog_view(&self.status, self.ctx()) {
             layers = layers.push(dialog);
         }
         for dialog in [
-            self.new_dm_view(),
-            self.poll_draft_view(),
-            self.switcher_view(),
-            self.server_dialog_view(),
-            self.link_dialog_view(),
+            crate::switcher::new_dm_view(&self.quick, self.ctx()),
+            crate::switcher::poll_view(&self.quick, self.ctx()),
+            crate::switcher::switcher_view(&self.quick, self.ctx()),
+            crate::server_dialogs::view(&self.server_dialogs, self.ctx()),
+            crate::link_dialogs::view(&self.link_dialogs, self.ctx()),
         ]
         .into_iter()
         .flatten()
@@ -158,34 +170,38 @@ impl App {
         if let Some(modal) = self.modal_view() {
             layers = layers.push(modal);
         }
-        if let Some(viewer) = self.image_viewer() {
+        if let Some(viewer) = crate::image_viewer::view(&self.viewer, self.ctx()) {
             layers = layers.push(viewer);
         }
-        if let Some(menu) = self.menu_view() {
+        if let Some(menu) = self
+            .menu
+            .as_ref()
+            .and_then(|menu| crate::menus::view(menu, self.ctx()))
+        {
             layers = layers.push(outside(Message::CloseMenu, false)).push(menu);
         }
-        if let Some(window) = self.reactions_view() {
+        if let Some(window) = crate::reactions::view(&self.reactions, self.ctx()) {
             layers = layers.push(window);
         }
-        if let Some(modal) = self.delete_view() {
+        if let Some(modal) = crate::dialogs::delete_view(self.confirm_focus, self.ctx()) {
             layers = layers.push(modal);
         }
-        if let Some(dialog) = self.person_view() {
+        if let Some(dialog) = crate::person::view(&self.person, self.ctx()) {
             layers = layers.push(dialog);
         }
         if let Some(dialog) = self.add_friend_view() {
             layers = layers.push(dialog);
         }
-        if let Some(forward) = self.forward_view() {
+        if let Some(forward) = crate::forward::view(&self.forward, self.ctx()) {
             layers = layers.push(forward);
         }
-        if let Some(leaving) = self.leaving_view() {
+        if let Some(leaving) = crate::dialogs::leaving_view(self.leaving.as_deref(), self.ctx()) {
             layers = layers.push(leaving);
         }
         if let Some(drop) = self.drop_view() {
             layers = layers.push(drop);
         }
-        if let Some(prompt) = self.mfa_view() {
+        if let Some(prompt) = crate::mfa::view(&self.mfa, self.ctx()) {
             layers = layers.push(prompt);
         }
         let content = crate::widgets::RightPress::spot(

@@ -16,11 +16,12 @@ use iced::{
 use yapfast_core::application::{Action, GifPicture, GifView};
 
 use super::{
-    Event, Picker,
+    Event, Picker, View,
     kit::{self, Grid, Masonry},
 };
 use crate::{
-    app::{App, Message},
+    app::Message,
+    ctx::Cx,
     fonts::{MEDIUM, SEMIBOLD},
     media::{Fit, Shot},
     pictures::Icon,
@@ -81,9 +82,9 @@ pub struct Gifs {
     query: String,
 }
 
-impl App {
-    pub(super) fn build_gifs(&mut self) {
-        let state = self.client.state();
+impl Picker {
+    pub(super) fn build_gifs(&mut self, cx: &mut Cx<'_>) {
+        let state = cx.state();
         let gifs = &state.gifs;
         let mut hasher = std::hash::DefaultHasher::new();
         (gifs.view as u8, &gifs.query, gifs.loading, &gifs.error).hash(&mut hasher);
@@ -98,9 +99,7 @@ impl App {
         state.favorite_gifs_changed.hash(&mut hasher);
         state.favorite_gifs.as_ref().map(Vec::len).hash(&mut hasher);
         let signature = hasher.finish();
-        let Some(picker) = &mut self.picker else {
-            return;
-        };
+        let picker = &mut *self;
         let width = picker.grid_width();
         let Some(tab) = &mut picker.gifs else {
             return;
@@ -233,10 +232,8 @@ impl App {
     /// Asks for the pictures of the tiles in sight and a screen either
     /// side, letting go of the rest, and says whether the grid is near its
     /// end.
-    pub(super) fn ask_gifs(&mut self) {
-        let Some(picker) = &mut self.picker else {
-            return;
-        };
+    pub(super) fn ask_gifs(&mut self, cx: &mut Cx<'_>) {
+        let picker = &mut *self;
         let scroll = picker.scroll;
         let Some(tab) = &mut picker.gifs else {
             return;
@@ -260,131 +257,119 @@ impl App {
         }
         tab.asked.clone_from(&asked);
         tab.near_end = near_end;
-        self.client.dispatch(Action::GifsShown {
+        cx.client.dispatch(Action::GifsShown {
             shown: asked,
             near_end,
         });
     }
 
     /// Typing searches after a pause; in Favorites it filters at once.
-    pub(super) fn gifs_typed(&mut self, text: String) -> Task<Message> {
-        if self.client.state().gifs.view == GifView::Favorites {
-            self.client.dispatch(Action::SearchGifs(text));
-            return self.sync();
-        }
-        let Some(picker) = &mut self.picker else {
+    pub(super) fn gifs_typed(&mut self, text: String, cx: &mut Cx<'_>) -> Task<Message> {
+        if cx.state().gifs.view == GifView::Favorites {
+            cx.dispatch(Action::SearchGifs(text));
             return Task::none();
-        };
+        }
+        let picker = &mut *self;
         picker.typed += 1;
         crate::after(PAUSE, Message::Picker(Event::SearchDue(picker.typed)))
     }
 
-    pub(super) fn gifs_due(&mut self, typed: u64) -> Task<Message> {
-        if self
-            .picker
-            .as_ref()
-            .is_none_or(|picker| picker.typed != typed)
-        {
+    pub(super) fn gifs_due(&mut self, typed: u64, cx: &mut Cx<'_>) -> Task<Message> {
+        if self.typed != typed {
             return Task::none();
         }
-        self.gifs_search_now()
+        self.gifs_search_now(cx)
     }
 
-    pub(super) fn gifs_search_now(&mut self) -> Task<Message> {
-        let Some(picker) = &mut self.picker else {
-            return Task::none();
-        };
+    pub(super) fn gifs_search_now(&mut self, cx: &mut Cx<'_>) -> Task<Message> {
+        let picker = &mut *self;
         picker.typed += 1;
         let text = picker.field.text();
         if let Some(tab) = &mut picker.gifs {
             tab.query.clone_from(&text);
         }
-        self.client.dispatch(Action::SearchGifs(text));
-        Task::batch([self.sync(), self.scroll_grid(0.0)])
+        cx.dispatch(Action::SearchGifs(text));
+        self.scroll_grid(0.0)
     }
 
-    pub(super) fn gifs_back(&mut self) -> Task<Message> {
-        if let Some(picker) = &mut self.picker {
+    pub(super) fn gifs_back(&mut self, cx: &mut Cx<'_>) -> Task<Message> {
+        {
+            let picker = &mut *self;
             picker.field.reset("");
             picker.typed += 1;
         }
-        self.client.dispatch(Action::ShowGifs(GifView::Home));
-        Task::batch([self.sync(), self.scroll_grid(0.0)])
+        cx.dispatch(Action::ShowGifs(GifView::Home));
+        self.scroll_grid(0.0)
     }
 
-    pub(super) fn gifs_escape(&mut self) -> Task<Message> {
-        if self.client.state().gifs.view == GifView::Home {
-            self.close_picker()
+    pub(super) fn gifs_escape(&mut self, cx: &mut Cx<'_>) -> Task<Message> {
+        if cx.state().gifs.view == GifView::Home {
+            self.ask_close(cx)
         } else {
-            self.gifs_back()
+            self.gifs_back(cx)
         }
     }
 
     fn gif_item(&self, index: usize) -> Option<&Item> {
-        Some(
-            &self
-                .picker
-                .as_ref()?
-                .gifs
-                .as_ref()?
-                .grid
-                .tiles
-                .get(index)?
-                .item,
-        )
+        Some(&self.gifs.as_ref()?.grid.tiles.get(index)?.item)
     }
 
-    pub(super) fn gif_pick(&mut self, index: usize) -> Task<Message> {
+    pub(super) fn gif_pick(&mut self, index: usize, cx: &mut Cx<'_>) -> Task<Message> {
         let action = match self.gif_item(index) {
             Some(Item::Gif { url, .. }) => {
-                let insert = self.modifiers.shift();
+                let insert = cx.modifiers.shift();
                 let action = Action::PickGif {
                     url: url.clone(),
                     insert,
                 };
-                self.client.dispatch(action);
-                return self.close_picker();
+                cx.dispatch(action);
+                return self.ask_close(cx);
             }
             Some(Item::Favorites(_)) => Action::ShowGifs(GifView::Favorites),
             Some(Item::Trending(_)) => Action::ShowGifs(GifView::Trending),
             Some(Item::Term { name, .. }) => Action::SearchGifCategory(name.clone()),
             _ => return Task::none(),
         };
-        self.client.dispatch(action);
-        Task::batch([self.sync(), self.scroll_grid(0.0)])
+        cx.dispatch(action);
+        self.scroll_grid(0.0)
     }
 
     /// A trending term, or one suggested: search for it at once.
-    pub(super) fn gif_term(&mut self, term: String) -> Task<Message> {
-        self.client.dispatch(Action::SearchGifCategory(term));
-        Task::batch([self.sync(), self.scroll_grid(0.0)])
+    pub(super) fn gif_term(&mut self, term: String, cx: &mut Cx<'_>) -> Task<Message> {
+        cx.dispatch(Action::SearchGifCategory(term));
+        self.scroll_grid(0.0)
     }
 
-    pub(super) fn gif_star(&mut self, index: usize) {
+    pub(super) fn gif_star(&mut self, index: usize, cx: &mut Cx<'_>) {
         if let Some(Item::Gif { url, .. }) = self.gif_item(index) {
             let url = url.clone();
-            self.client.dispatch(Action::FavoriteGif(url));
+            cx.dispatch(Action::FavoriteGif(url));
         }
     }
+}
 
-    pub(super) fn gifs_view<'a>(&'a self, picker: &'a Picker) -> Element<'a, Message> {
-        let theme = &self.theme;
+impl<'a> View<'a> {
+    pub(super) fn gifs_view(self, picker: &'a Picker) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         let Some(tab) = &picker.gifs else {
             return Space::new().into();
         };
-        let state = self.client.state();
+        let state = self.cx.state;
         let view = state.gifs.view;
         // The header: Back off the home, the field (in Trending, its title).
         let mut header = row![].spacing(8).align_y(Alignment::Center);
         if view != GifView::Home {
             let hover = theme.hover;
             header = header.push(
-                button(container(self.glyph(Icon::ChevronLeft, 20, theme.secondary)).center(34))
-                    .padding(0)
-                    .width(34)
-                    .height(34)
-                    .on_press(Message::Picker(Event::Back))
-                    .style(crate::controls::lit_style(None, hover, 6.0)),
+                button(
+                    container(self.cx.look.glyph(Icon::ChevronLeft, 20, theme.secondary))
+                        .center(34),
+                )
+                .padding(0)
+                .width(34)
+                .height(34)
+                .on_press(Message::Picker(Event::Back))
+                .style(crate::controls::lit_style(None, hover, 6.0)),
             );
         }
         if view == GifView::Trending {
@@ -414,7 +399,7 @@ impl App {
             .rows(picker.scroll, picker.built, |index, item, size| {
                 self.gif_tile(picker, index, item, size, pictures)
             });
-        let body: Element<'_, Message> = if tab.note.is_empty() {
+        let body: Element<'a, Message> = if tab.note.is_empty() {
             kit::grid(rows, theme)
         } else {
             stack![kit::note(tab.note.clone(), theme), kit::grid(rows, theme)].into()
@@ -422,15 +407,15 @@ impl App {
         column![header, body].height(Length::Fill).into()
     }
 
-    fn gif_tile<'a>(
-        &'a self,
+    fn gif_tile(
+        self,
         picker: &'a Picker,
         index: usize,
         item: &'a Item,
         size: Size,
         pictures: &'a std::collections::HashMap<String, yapfast_core::application::AskedPicture>,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         if let Item::Suggestions = item {
             return self.gif_suggestions();
         }
@@ -446,8 +431,10 @@ impl App {
                 .style(move |_| rounded(ground, 5))
         ];
         if shown.is_some() {
-            layers =
-                layers.push(self.shot(Shot::new(shown, size).fit(Fit::Cover).radius(5.0).bare()));
+            layers = layers.push(
+                self.cx
+                    .shot(Shot::new(shown, size).fit(Fit::Cover).radius(5.0).bare()),
+            );
         }
         let hovered = picker.hover == Some(index);
         // The home's tiles are labelled over a dimmed picture, dimmer under
@@ -471,7 +458,7 @@ impl App {
             };
             let mut line = row![].spacing(6).align_y(Alignment::Center);
             if let Some(icon) = icon {
-                line = line.push(self.glyph(icon, 20, Color::WHITE));
+                line = line.push(self.cx.look.glyph(icon, 20, Color::WHITE));
             }
             line = line.push(
                 text(words)
@@ -500,7 +487,7 @@ impl App {
         {
             layers = layers.push(kit::pinned(
                 kit::star(
-                    self.look(),
+                    self.cx.look,
                     *favorite,
                     32.0,
                     20,
@@ -518,10 +505,10 @@ impl App {
     }
 
     /// Terms to try instead, under a search that found few.
-    fn gif_suggestions(&self) -> Element<'_, Message> {
-        let theme = &self.theme;
+    fn gif_suggestions(self) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         let mut terms = row![].spacing(8);
-        for term in &self.client.state().gifs.suggestions {
+        for term in &self.cx.state.gifs.suggestions {
             let (rest, lit) = (theme.sunken, theme.hover);
             terms = terms.push(
                 button(

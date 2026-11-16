@@ -51,14 +51,14 @@ fn viewing(app: &mut crate::app::App) {
 fn closing_the_viewer_lets_go_of_its_picture() {
     let (mut app, _folder) = preview();
     viewing(&mut app);
-    assert!(app.viewer_size.is_some());
+    assert!(app.viewer.size.is_some());
     assert!(shows(&app, "a.png"), "its name over it");
     let _ = app.update(crate::app::Message::Key(
         keyboard::Key::Named(key::Named::Escape),
         keyboard::Modifiers::default(),
     ));
     assert!(app.client.state().viewer.is_none());
-    assert!(app.viewer_size.is_none());
+    assert!(app.viewer.size.is_none());
     assert!(!shows(&app, "a.png"), "and the viewer is gone");
 }
 
@@ -73,7 +73,7 @@ fn the_viewer_closes_when_its_message_goes_and_gives_the_keys_back() {
         app.client.state().viewer.is_none(),
         "closed, its picture let go"
     );
-    assert!(app.viewer_size.is_none());
+    assert!(app.viewer.size.is_none());
 }
 
 #[test]

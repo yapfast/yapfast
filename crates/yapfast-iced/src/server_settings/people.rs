@@ -22,10 +22,12 @@ use yapfast_core::{
     clock,
 };
 
+use super::View;
 use super::{Drop, Event as Settings, Screen, message, moderation, roles::role_colour};
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{self, Kind, action},
+    ctx::{Cx, Request},
     dialog,
     elide::elide,
     fonts::{BOLD, SEMIBOLD},
@@ -307,12 +309,9 @@ fn join_method(joined: &JoinMethod) -> (String, bool) {
     (label, false)
 }
 
-impl App {
-    pub(super) fn members_local(&mut self, event: Event) -> Task<Message> {
-        let Some(screen) = self.server_screen.as_mut() else {
-            return Task::none();
-        };
-        let local = &mut screen.people;
+impl super::Screen {
+    pub(super) fn members_local(&mut self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
+        let local = &mut self.people;
         let search = match event {
             Event::Type(typed) => {
                 local.typed = typed;
@@ -328,32 +327,37 @@ impl App {
             }
             Event::Scrolled(scroll) => {
                 local.scroll = Some(scroll);
-                return self.ask();
+                cx.request(Request::Ask);
+                return Task::none();
             }
             Event::Menu(user) => {
-                let at = self.pressed.get();
-                return self.open_person_menu(&user, at, crate::person::CONTEXT_MENU);
+                cx.request(Request::PersonMenu {
+                    user,
+                    location: crate::person::CONTEXT_MENU,
+                });
+                return Task::none();
             }
             Event::Open(user) => {
-                self.client
-                    .dispatch(Action::ShowProfile { user, large: true });
-                return self.sync();
+                cx.dispatch(Action::ShowProfile { user, large: true });
+                return Task::none();
             }
         };
-        self.server_settings_event(Settings::Member(MemberInput::Search(search)))
+        self.update(Settings::Member(MemberInput::Search(search)), cx)
     }
+}
 
+impl<'a> View<'a> {
     /// Members: the search and the order, the columns' headings, the
     /// members on the page (only those in view built), and the footer's
     /// page size, count and pager.
-    pub(super) fn members_page<'a>(
-        &'a self,
+    pub(super) fn members_page(
+        self,
         core: &'a ServerSettings,
         page: &'a MembersPage,
         screen: &'a Screen,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let app = &self.client.app;
+        let theme = self.cx.look.theme;
+        let app = &self.cx.app;
         let join_method = app.may(&core.server, Permission::ManageServer);
         let search = controls::field(
             theme,
@@ -377,7 +381,7 @@ impl App {
         )
         .width(SORT)
         .height(HEAD_HEIGHT)
-        .view(self.look());
+        .view(self.cx.look);
         let head = row![
             container(
                 text(if page.searched() {
@@ -433,7 +437,7 @@ impl App {
         } else {
             let roles = app.server_roles(&core.server);
             let now = clock::now_ms();
-            let (first, last) = in_view(page, &screen.people, self.window.height);
+            let (first, last) = in_view(page, &screen.people, self.cx.look.window.height);
             let mut rows = Rows::new(shown.len() as f32 * ROW);
             for (index, listed) in shown.iter().enumerate().take(last).skip(first) {
                 rows.push(
@@ -456,14 +460,14 @@ impl App {
     /// A member: their avatar, name in their highest coloured role's
     /// colour and username, when they joined here and Discord, how, their
     /// roles, Discord's safety signals, and More Options.
-    fn listed_member_row<'a>(
-        &'a self,
+    fn listed_member_row(
+        self,
         listed: &'a ListedMember,
         roles: &[ServerRole],
         join_method: bool,
         now: u64,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let person = &listed.person;
         // Discord colours a name by its highest coloured role.
         let name_ink = roles
@@ -488,7 +492,7 @@ impl App {
         let mut cells = vec![
             container(
                 row![
-                    moderation::face(self, &person.avatar, &person.name, MEMBER_AVATAR),
+                    moderation::face(self.cx, &person.avatar, &person.name, MEMBER_AVATAR),
                     container(names).width(Length::Fill).clip(true)
                 ]
                 .spacing(10)
@@ -526,7 +530,7 @@ impl App {
         );
         let signal = |icon: Icon, ink: Color, tip: String| -> Element<'a, Message> {
             tooltip(
-                self.glyph(icon, SIGNAL, ink),
+                self.cx.look.glyph(icon, SIGNAL, ink),
                 controls::tip(theme, tip),
                 tooltip::Position::Top,
             )
@@ -568,8 +572,9 @@ impl App {
                 .width(Length::FillPortion(MEMBER_COLUMNS[5].1))
                 .into(),
         );
-        let more: Element<'_, Message> = self
-            .look()
+        let more: Element<'a, Message> = self
+            .cx
+            .look
             .icon_button(
                 Icon::Ellipsis,
                 "More Options",
@@ -590,12 +595,8 @@ impl App {
     /// Members' footer: the page size while there are more than the
     /// smallest page holds, how many in all, and the pager while there's
     /// more than a page.
-    fn members_footer<'a>(
-        &'a self,
-        page: &'a MembersPage,
-        screen: &'a Screen,
-    ) -> Element<'a, Message> {
-        let theme = &self.theme;
+    fn members_footer(self, page: &'a MembersPage, screen: &'a Screen) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         let total = page.count();
         let count = if page.members.is_empty() && page.fetching() {
             "...".to_owned()
@@ -614,7 +615,7 @@ impl App {
                 |index| member(MemberInput::PageSize(MEMBER_PAGE_SIZES[index])),
             )
             .width(PAGE_SIZE)
-            .view(self.look());
+            .view(self.cx.look);
             footer = footer
                 .push(text("Showing").size(14).color(theme.secondary))
                 .push(size);
@@ -643,14 +644,14 @@ impl App {
     /// Invites: Pause or Enable Invites and Create Invite Link, then the
     /// invites, each counting down to when it expires and revoked by the
     /// X its row shows under the pointer; dimmed while invites are paused.
-    pub(super) fn invites_page<'a>(
-        &'a self,
+    pub(super) fn invites_page(
+        self,
         core: &'a ServerSettings,
         page: &'a InvitesPage,
         _screen: &'a Screen,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let app = &self.client.app;
+        let theme = self.cx.look.theme;
+        let app = &self.cx.app;
         let now = clock::now_ms() / 1000;
         let paused = page.paused(now);
         let mut buttons = row![
@@ -724,13 +725,13 @@ impl App {
 
     /// An invite: who made it and to where, its code, uses, countdown and
     /// roles, `alpha` of it showing; the pointer on it shows its X.
-    fn invite_row<'a>(
-        &'a self,
+    fn invite_row(
+        self,
         listed: &'a yapfast_core::chat::ServerInvite,
         roles: &[ServerRole],
         alpha: f32,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let ink = |colour: Color| faded(colour, alpha);
         // Discord's list names the inviter by their username.
         let (inviter, avatar) = listed.inviter.as_ref().map_or(("", ""), |inviter| {
@@ -746,7 +747,7 @@ impl App {
             listed.uses.to_string()
         };
         let who = row![
-            self.avatar(
+            self.cx.avatar(
                 Some(avatar).filter(|url| !url.is_empty()),
                 inviter,
                 INVITE_AVATAR,
@@ -800,8 +801,8 @@ impl App {
         let base = container(columns(cells, Space::new().width(BUTTON).into()))
             .center_y(ROW)
             .width(Length::Fill);
-        let remove = self.look().face_button(
-            self.glyph(Icon::X, BUTTON_GLYPH, theme.danger),
+        let remove = self.cx.look.face_button(
+            self.cx.look.glyph(Icon::X, BUTTON_GLYPH, theme.danger),
             BUTTON,
             "Remove",
             invite(InviteInput::Revoke(listed.code.clone())),
@@ -817,13 +818,13 @@ impl App {
 
     /// Security Actions: how long to pause for, whether invites, DMs or
     /// both, and Save once something changed.
-    pub(super) fn security_dialog<'a>(
-        &'a self,
+    pub(super) fn security_dialog(
+        self,
         page: &'a InvitesPage,
         screen: &'a Screen,
     ) -> Option<Element<'a, Message>> {
         let draft = page.security.as_ref()?;
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let ready = !draft.saving;
         let hours = form::dropdown(
             PAUSES.iter().map(|name| (*name).to_owned()).collect(),
@@ -838,7 +839,7 @@ impl App {
             |index| invite(InviteInput::Hours(PAUSE_HOURS[index])),
         )
         .enabled(ready)
-        .view(self.look());
+        .view(self.cx.look);
         let mut body = column![
             text("Security Actions")
                 .size(20)
@@ -853,7 +854,7 @@ impl App {
             .description(
                 "Temporarily stop new members from joining this server via invite or vanity links."
             )
-            .view(self.look()),
+            .view(self.cx.look),
             form::switch(
                 "Pause DMs",
                 draft.dms,
@@ -862,7 +863,7 @@ impl App {
             .description(
                 "Temporarily stop new direct messages from being sent between members in your server. Friends can still DM each other, moderators can still DM members, and your Apps can still DM members."
             )
-            .view(self.look()),
+            .view(self.cx.look),
         ]
         .spacing(14)
         .padding(16);

@@ -13,11 +13,12 @@ use iced::{
     Alignment, Border, Color, Element, Length, Padding, Task,
     widget::{Space, column, container, operation, row, stack, text},
 };
-use yapfast_core::application::{Action, DiscordLink};
+use yapfast_core::application::{Action, AppState, DiscordLink};
 
 use crate::{
     app::{App, Message},
     controls::{Kind, action, bar, field},
+    ctx::{Ctx, Cx},
     fonts::BOLD,
     pictures::Icon,
     style::{card_shadow, fill, rounded, scrollbar},
@@ -147,66 +148,66 @@ impl App {
         let state = self.client.state();
         state.preview || state.account.is_some()
     }
+}
 
-    pub fn sign_in_event(&mut self, event: Event) -> Task<Message> {
-        let busy = self.client.state().busy;
+impl SignIn {
+    pub fn update(&mut self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
+        let busy = cx.state().busy;
         match event {
-            Event::Homeserver(text) => self.sign_in.homeserver = text,
-            Event::Username(text) => self.sign_in.username = text,
-            Event::Password(text) => self.sign_in.password = text,
+            Event::Homeserver(text) => self.homeserver = text,
+            Event::Username(text) => self.username = text,
+            Event::Password(text) => self.password = text,
             Event::Login => {
-                let form = &self.sign_in;
-                self.client.dispatch(Action::Login {
+                let form = &*self;
+                cx.dispatch(Action::Login {
                     homeserver: form.homeserver.clone(),
                     username: form.username.clone(),
                     password: form.password.clone(),
                 });
                 // As the Slint client: the password goes once it's on its way.
-                if !busy && self.client.state().busy {
-                    forget(&mut self.sign_in.password);
+                if !busy && cx.state().busy {
+                    forget(&mut self.password);
                 }
-                return self.sync();
+                return Task::none();
             }
             Event::Restore => {
-                self.client.dispatch(Action::Restore);
-                return self.sync();
+                cx.dispatch(Action::Restore);
+                return Task::none();
             }
             Event::Preview => {
-                self.client.dispatch(Action::Preview);
-                return self.sync();
+                cx.dispatch(Action::Preview);
+                return Task::none();
             }
             Event::ShowCode => {
-                self.client.dispatch(Action::LinkDiscord);
-                return self.sync();
+                cx.dispatch(Action::LinkDiscord);
+                return Task::none();
             }
             Event::OpenToken => {
-                self.sign_in.token_open = true;
+                self.token_open = true;
                 return operation::focus(TOKEN);
             }
-            Event::Token(text) => self.sign_in.token = text,
+            Event::Token(text) => self.token = text,
             Event::LinkToken => {
-                if !self.sign_in.token.is_empty() {
-                    self.client
-                        .dispatch(Action::LinkDiscordToken(self.sign_in.token.clone()));
-                    return self.sync();
+                if !self.token.is_empty() {
+                    cx.dispatch(Action::LinkDiscordToken(self.token.clone()));
+                    return Task::none();
                 }
             }
             Event::OpenCaptcha => {
-                self.client.dispatch(Action::OpenDiscordCaptcha);
-                return self.sync();
+                cx.dispatch(Action::OpenDiscordCaptcha);
+                return Task::none();
             }
-            Event::Recovery(text) => self.sign_in.recovery = text,
+            Event::Recovery(text) => self.recovery = text,
             Event::Recover => {
-                self.client
-                    .dispatch(Action::Recover(self.sign_in.recovery.clone()));
-                if !busy && self.client.state().busy {
-                    forget(&mut self.sign_in.recovery);
+                cx.dispatch(Action::Recover(self.recovery.clone()));
+                if !busy && cx.state().busy {
+                    forget(&mut self.recovery);
                 }
-                return self.sync();
+                return Task::none();
             }
             Event::RefreshTrust => {
-                self.client.dispatch(Action::RefreshTrust);
-                return self.sync();
+                cx.dispatch(Action::RefreshTrust);
+                return Task::none();
             }
         }
         Task::none()
@@ -214,168 +215,169 @@ impl App {
 
     /// Takes in what changed for the sign-in screen: the QR code to show,
     /// and whether a saved session can be tried again.
-    pub fn sync_sign_in(&mut self) {
-        let state = self.client.state();
+    pub fn sync(&mut self, state: &AppState, root: &std::path::Path) {
         if !state.busy {
-            self.sign_in.starting = false;
+            self.starting = false;
         }
         if state.preview || state.account.is_some() {
-            self.sign_in.code = None;
-            self.sign_in.starting = false;
+            self.code = None;
+            self.starting = false;
             // Linked: the token pasted, kept until now to fix a refused
             // one, goes with its field.
-            if state.account.is_some() && !self.sign_in.token.is_empty() {
-                forget(&mut self.sign_in.token);
-                self.sign_in.token_open = false;
+            if state.account.is_some() && !self.token.is_empty() {
+                forget(&mut self.token);
+                self.token_open = false;
             }
             return;
         }
         match &state.discord_link {
             Some(DiscordLink::Code(address)) => {
                 if self
-                    .sign_in
                     .code
                     .as_ref()
                     .is_none_or(|(shown, ..)| shown != address)
                 {
-                    self.sign_in.code =
-                        qr_code(address).map(|(code, side)| (address.clone(), code, side));
+                    self.code = qr_code(address).map(|(code, side)| (address.clone(), code, side));
                 }
             }
-            _ => self.sign_in.code = None,
+            _ => self.code = None,
         }
         if MATRIX {
-            self.sign_in.restore_available = yapfast_core::chat::can_restore(self.client.root());
+            self.restore_available = yapfast_core::chat::can_restore(root);
         }
     }
+}
 
-    /// The sign-in screen: the wordmark, then the card, centred, on the
-    /// rail's ground.
-    pub fn sign_in_view(&self) -> Element<'_, Message> {
-        let theme = &self.theme;
-        let state = self.client.state();
-        let rail = theme.rail;
-        if self.sign_in.starting {
-            return container(
-                text(state.notice.clone().unwrap_or_default())
-                    .size(14)
-                    .color(theme.muted),
-            )
-            .center(Length::Fill)
-            .style(move |_| fill(rail))
-            .into();
-        }
-        let form = if MATRIX {
-            self.matrix_form()
-        } else {
-            self.discord_form()
-        };
-        let divider = bar(theme.line, 1, Length::Fill);
-        let mark = self.glyph(Icon::Logo, 44, theme.accent).boxed(72).style({
+/// The sign-in screen: the wordmark, then the card, centred, on the
+/// rail's ground.
+pub fn view<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
+    let theme = cx.look.theme;
+    let state = cx.state;
+    let rail = theme.rail;
+    if cx.sign_in.starting {
+        return container(
+            text(state.notice.clone().unwrap_or_default())
+                .size(14)
+                .color(theme.muted),
+        )
+        .center(Length::Fill)
+        .style(move |_| fill(rail))
+        .into();
+    }
+    let form = if MATRIX {
+        matrix_form(cx)
+    } else {
+        discord_form(cx)
+    };
+    let divider = bar(theme.line, 1, Length::Fill);
+    let mark = cx
+        .look
+        .glyph(Icon::Logo, 44, theme.accent)
+        .boxed(72)
+        .style({
             let raised = theme.raised;
             move |_| rounded(raised, 24)
         });
-        let preview = column![
-            mark,
-            text("Just looking?")
-                .size(20)
-                .font(BOLD)
-                .color(theme.text)
-                .align_x(Alignment::Center),
-            text("Try the layout with sample conversations. Nothing leaves this computer.")
-                .size(15)
-                .color(theme.secondary)
-                .align_x(Alignment::Center)
-                .width(Length::Fill),
-            action(
-                theme,
-                "Explore local preview",
-                Kind::Plain,
-                (!state.busy).then_some(Message::SignIn(Event::Preview)),
-            )
-            .wide(36.0),
-        ]
-        .spacing(12)
-        .width(220)
-        .align_x(Alignment::Center);
-        let card = container(
-            // Shrink, so the line between takes the height of what's beside it.
-            row![container(form).width(Length::Fill), divider, preview]
-                .spacing(32)
-                .height(Length::Shrink)
-                .align_y(Alignment::Center),
+    let preview = column![
+        mark,
+        text("Just looking?")
+            .size(20)
+            .font(BOLD)
+            .color(theme.text)
+            .align_x(Alignment::Center),
+        text("Try the layout with sample conversations. Nothing leaves this computer.")
+            .size(15)
+            .color(theme.secondary)
+            .align_x(Alignment::Center)
+            .width(Length::Fill),
+        action(
+            theme,
+            "Explore local preview",
+            Kind::Plain,
+            (!state.busy).then_some(Message::SignIn(Event::Preview)),
         )
-        .padding(32)
-        .max_width(760)
-        .style({
-            let chat = theme.chat;
-            move |_| container::Style {
-                shadow: card_shadow(),
-                ..rounded(chat, 12)
-            }
-        });
-        let page = scroll_view(
-            container(card)
-                .padding(Padding {
-                    top: 0.0,
-                    right: 24.0,
-                    bottom: 24.0,
-                    left: 24.0,
-                })
-                .width(Length::Fill)
-                .center_x(Length::Fill)
-                .center_y(Length::Fixed((self.window.height - 64.0).max(0.0))),
-        )
-        .style(scrollbar(theme))
-        .height(Length::Fill);
-        let wordmark = container(text("Yapfast").size(24).font(BOLD).color(theme.accent))
+        .wide(36.0),
+    ]
+    .spacing(12)
+    .width(220)
+    .align_x(Alignment::Center);
+    let card = container(
+        // Shrink, so the line between takes the height of what's beside it.
+        row![container(form).width(Length::Fill), divider, preview]
+            .spacing(32)
+            .height(Length::Shrink)
+            .align_y(Alignment::Center),
+    )
+    .padding(32)
+    .max_width(760)
+    .style({
+        let chat = theme.chat;
+        move |_| container::Style {
+            shadow: card_shadow(),
+            ..rounded(chat, 12)
+        }
+    });
+    let page = scroll_view(
+        container(card)
             .padding(Padding {
-                top: 24.0,
-                right: 0.0,
-                bottom: 0.0,
-                left: 32.0,
+                top: 0.0,
+                right: 24.0,
+                bottom: 24.0,
+                left: 24.0,
             })
-            .height(64);
-        container(stack![column![wordmark, page]])
             .width(Length::Fill)
-            .height(Length::Fill)
-            .style(move |_| fill(rail))
-            .into()
-    }
+            .center_x(Length::Fill)
+            .center_y(Length::Fixed((cx.look.window.height - 64.0).max(0.0))),
+    )
+    .style(scrollbar(theme))
+    .height(Length::Fill);
+    let wordmark = container(text("Yapfast").size(24).font(BOLD).color(theme.accent))
+        .padding(Padding {
+            top: 24.0,
+            right: 0.0,
+            bottom: 0.0,
+            left: 32.0,
+        })
+        .height(64);
+    container(stack![column![wordmark, page]])
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .style(move |_| fill(rail))
+        .into()
+}
 
-    /// Linking Discord, in a build without Matrix.
-    fn discord_form(&self) -> Element<'_, Message> {
-        let theme = &self.theme;
-        let state = self.client.state();
-        let mut form = column![
-            title(theme, "Sign in to Yapfast"),
-            text("Link your Discord account with your phone.")
-                .color(theme.secondary)
-                .align_x(Alignment::Center)
-                .width(Length::Fill),
-            Space::new().height(12),
-        ]
-        .spacing(8)
-        .width(Length::Fill);
-        if !state.busy {
-            form = form.push(self.ctx().link_panel());
-        }
-        if let Some(notice) = &state.notice
-            && (state.busy || state.discord_link.is_none())
-        {
-            form = form.push(
-                text(notice.clone())
-                    .size(15)
-                    .color(if state.busy {
-                        theme.secondary
-                    } else {
-                        theme.danger
-                    })
-                    .width(Length::Fill),
-            );
-        }
-        form.into()
+/// Linking Discord, in a build without Matrix.
+fn discord_form<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
+    let theme = cx.look.theme;
+    let state = cx.state;
+    let mut form = column![
+        title(theme, "Sign in to Yapfast"),
+        text("Link your Discord account with your phone.")
+            .color(theme.secondary)
+            .align_x(Alignment::Center)
+            .width(Length::Fill),
+        Space::new().height(12),
+    ]
+    .spacing(8)
+    .width(Length::Fill);
+    if !state.busy {
+        form = form.push(cx.link_panel());
     }
+    if let Some(notice) = &state.notice
+        && (state.busy || state.discord_link.is_none())
+    {
+        form = form.push(
+            text(notice.clone())
+                .size(15)
+                .color(if state.busy {
+                    theme.secondary
+                } else {
+                    theme.danger
+                })
+                .width(Length::Fill),
+        );
+    }
+    form.into()
 }
 
 impl<'a> crate::ctx::Ctx<'a> {
@@ -560,153 +562,154 @@ impl<'a> crate::ctx::Ctx<'a> {
     }
 }
 
-impl App {
-    /// Matrix's sign-in, in a build with Matrix.
-    fn matrix_form(&self) -> Element<'_, Message> {
-        let theme = &self.theme;
-        let state = self.client.state();
-        let form = &self.sign_in;
-        let open = !state.busy;
-        let input =
-            |id, placeholder, value, secure| field(theme, id, placeholder, value, secure, open);
-        let mut homeserver = input(HOMESERVER, "", &form.homeserver, false);
-        let mut username = input(USERNAME, "@you:matrix.org", &form.username, false);
-        let mut password = input(PASSWORD, "", &form.password, true);
-        if open {
-            homeserver = homeserver.on_input(|text| Message::SignIn(Event::Homeserver(text)));
-            username = username.on_input(|text| Message::SignIn(Event::Username(text)));
-            password = password
-                .on_input(|text| Message::SignIn(Event::Password(text)))
-                .on_submit(Message::SignIn(Event::Login));
-        }
-        let mut form = column![
-            title(theme, "Sign in to Yapfast"),
-            text("Use your existing Matrix account.")
-                .color(theme.secondary)
-                .align_x(Alignment::Center)
+/// Matrix's sign-in, in a build with Matrix.
+fn matrix_form<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
+    let theme = cx.look.theme;
+    let state = cx.state;
+    let form = &cx.sign_in;
+    let open = !state.busy;
+    let input = |id, placeholder, value, secure| field(theme, id, placeholder, value, secure, open);
+    let mut homeserver = input(HOMESERVER, "", &form.homeserver, false);
+    let mut username = input(USERNAME, "@you:matrix.org", &form.username, false);
+    let mut password = input(PASSWORD, "", &form.password, true);
+    if open {
+        homeserver = homeserver.on_input(|text| Message::SignIn(Event::Homeserver(text)));
+        username = username.on_input(|text| Message::SignIn(Event::Username(text)));
+        password = password
+            .on_input(|text| Message::SignIn(Event::Password(text)))
+            .on_submit(Message::SignIn(Event::Login));
+    }
+    let mut form = column![
+        title(theme, "Sign in to Yapfast"),
+        text("Use your existing Matrix account.")
+            .color(theme.secondary)
+            .align_x(Alignment::Center)
+            .width(Length::Fill),
+        Space::new().height(12),
+        label(theme, "HOMESERVER"),
+        homeserver,
+        Space::new().height(4),
+        label(theme, "MATRIX ID"),
+        username,
+        Space::new().height(4),
+        label(theme, "PASSWORD"),
+        password,
+        Space::new().height(12),
+        action(
+            theme,
+            if state.busy {
+                "Connecting..."
+            } else {
+                "Sign in"
+            },
+            Kind::Primary,
+            open.then_some(Message::SignIn(Event::Login)),
+        )
+        .wide(44.0),
+    ]
+    .spacing(8)
+    .width(Length::Fill);
+    if let Some(notice) = &state.notice {
+        form = form.push(
+            text(notice.clone())
+                .size(15)
+                .color(theme.danger)
                 .width(Length::Fill),
-            Space::new().height(12),
-            label(theme, "HOMESERVER"),
-            homeserver,
-            Space::new().height(4),
-            label(theme, "MATRIX ID"),
-            username,
-            Space::new().height(4),
-            label(theme, "PASSWORD"),
-            password,
-            Space::new().height(12),
+        );
+    }
+    if cx.sign_in.restore_available && open {
+        form = form.push(
             action(
                 theme,
-                if state.busy {
-                    "Connecting..."
-                } else {
-                    "Sign in"
-                },
-                Kind::Primary,
-                open.then_some(Message::SignIn(Event::Login)),
+                "Retry saved session",
+                Kind::Plain,
+                Some(Message::SignIn(Event::Restore)),
             )
-            .wide(44.0),
-        ]
-        .spacing(8)
-        .width(Length::Fill);
-        if let Some(notice) = &state.notice {
-            form = form.push(
-                text(notice.clone())
-                    .size(15)
-                    .color(theme.danger)
-                    .width(Length::Fill),
-            );
-        }
-        if self.sign_in.restore_available && open {
-            form = form.push(
-                action(
-                    theme,
-                    "Retry saved session",
-                    Kind::Plain,
-                    Some(Message::SignIn(Event::Restore)),
-                )
-                .wide(36.0),
-            );
-        }
-        form.push(
-            text("Sign in with your Matrix password. Single sign-on isn't available yet.")
-                .size(13)
-                .color(theme.muted)
-                .width(Length::Fill),
-        )
-        .into()
-    }
-
-    /// Above the conversation until this Matrix device is verified, as the
-    /// Slint client's `VerifyBanner`: a recovery key verifies it, or
-    /// verifying it in another client and checking again.
-    pub fn verify_banner(&self) -> Option<Element<'_, Message>> {
-        let state = self.client.state();
-        if state.preview || state.trusted || !MATRIX {
-            return None;
-        }
-        let theme = &self.theme;
-        let open = !state.busy;
-        let mut key = field(
-            theme,
-            RECOVERY,
-            "Recovery key",
-            &self.sign_in.recovery,
-            true,
-            open,
+            .wide(36.0),
         );
-        if open {
-            key = key
-                .on_input(|text| Message::SignIn(Event::Recovery(text)))
-                .on_submit(Message::SignIn(Event::Recover));
-        }
-        let lock = self.glyph(Icon::Lock, 18, theme.accent).boxed(36).style({
+    }
+    form.push(
+        text("Sign in with your Matrix password. Single sign-on isn't available yet.")
+            .size(13)
+            .color(theme.muted)
+            .width(Length::Fill),
+    )
+    .into()
+}
+
+/// Above the conversation until this Matrix device is verified, as the
+/// Slint client's `VerifyBanner`: a recovery key verifies it, or
+/// verifying it in another client and checking again.
+pub fn verify_banner<'a>(cx: Ctx<'a>) -> Option<Element<'a, Message>> {
+    let state = cx.state;
+    if state.preview || state.trusted || !MATRIX {
+        return None;
+    }
+    let theme = cx.look.theme;
+    let open = !state.busy;
+    let mut key = field(
+        theme,
+        RECOVERY,
+        "Recovery key",
+        &cx.sign_in.recovery,
+        true,
+        open,
+    );
+    if open {
+        key = key
+            .on_input(|text| Message::SignIn(Event::Recovery(text)))
+            .on_submit(Message::SignIn(Event::Recover));
+    }
+    let lock = cx
+        .look
+        .glyph(Icon::Lock, 18, theme.accent)
+        .boxed(36)
+        .style({
             let soft = theme.accent_soft;
             move |_| rounded(soft, 18)
         });
-        let raised = theme.raised;
-        Some(
-            container(
-                row![
-                    lock,
-                    column![
-                        text("Verify this device to send messages")
-                            .font(BOLD)
-                            .color(theme.text),
-                        text(
-                            "Use your Matrix recovery key, or verify Yapfast in another client \
-                             and check again."
-                        )
-                        .size(14)
-                        .color(theme.secondary),
-                        row![
-                            key,
-                            action(
-                                theme,
-                                "Recover",
-                                Kind::Primary,
-                                open.then_some(Message::SignIn(Event::Recover)),
-                            ),
-                            action(
-                                theme,
-                                "Check again",
-                                Kind::Plain,
-                                open.then_some(Message::SignIn(Event::RefreshTrust)),
-                            ),
-                        ]
-                        .spacing(8)
-                        .align_y(Alignment::Center),
+    let raised = theme.raised;
+    Some(
+        container(
+            row![
+                lock,
+                column![
+                    text("Verify this device to send messages")
+                        .font(BOLD)
+                        .color(theme.text),
+                    text(
+                        "Use your Matrix recovery key, or verify Yapfast in another client \
+                         and check again."
+                    )
+                    .size(14)
+                    .color(theme.secondary),
+                    row![
+                        key,
+                        action(
+                            theme,
+                            "Recover",
+                            Kind::Primary,
+                            open.then_some(Message::SignIn(Event::Recover)),
+                        ),
+                        action(
+                            theme,
+                            "Check again",
+                            Kind::Plain,
+                            open.then_some(Message::SignIn(Event::RefreshTrust)),
+                        ),
                     ]
-                    .spacing(8),
+                    .spacing(8)
+                    .align_y(Alignment::Center),
                 ]
-                .spacing(14),
-            )
-            .padding(16)
-            .width(Length::Fill)
-            .style(move |_| fill(raised))
-            .into(),
+                .spacing(8),
+            ]
+            .spacing(14),
         )
-    }
+        .padding(16)
+        .width(Length::Fill)
+        .style(move |_| fill(raised))
+        .into(),
+    )
 }
 
 /// The card's heading.

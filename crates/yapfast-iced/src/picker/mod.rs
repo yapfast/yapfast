@@ -27,7 +27,9 @@ use yapfast_core::application::Action;
 use crate::{
     app::{App, Message},
     composer::Writing,
+    ctx::{Ctx, Cx, Focus, Request, Screen, cx},
     field::{self, Draft},
+    slot::{Closes, Why},
 };
 use kit::{FIELD, GRID, Scroll};
 
@@ -141,28 +143,10 @@ impl Picker {
     }
 }
 
-impl App {
-    /// Opens the picker for the composer, the edit or a reaction, on a tab;
-    /// the same again closes it.
-    pub fn open_picker(&mut self, target: Target, tab: Tab) -> Task<Message> {
-        self.menu = None;
-        let tabs = target == Target::Composer && self.client.state().can_pick_gifs();
-        let tab = if tabs { tab } else { Tab::Emoji };
-        if self
-            .picker
-            .as_ref()
-            .is_some_and(|picker| picker.target == target && picker.tab == tab)
-        {
-            return self.close_picker();
-        }
-        if self
-            .picker
-            .as_ref()
-            .is_some_and(|picker| picker.target == target)
-        {
-            return self.switch_tab(tab);
-        }
-        let close = self.close_picker();
+impl Picker {
+    /// A picker for `target` on `tab`, `width` wide if it has the tabs;
+    /// the core opens what the tab shows.
+    fn open(target: Target, tab: Tab, tabs: bool, width: f32, cx: &mut Cx<'_>) -> Self {
         let mut picker = Picker {
             target,
             tab,
@@ -175,78 +159,35 @@ impl App {
             stickers: None,
             built: 0,
             typed: 0,
-            width: WIDTH,
+            width,
             widen_from: None,
         };
-        if tabs {
-            picker.width = self
-                .layout
-                .picker_width
-                .unwrap_or(WIDTH)
-                .clamp(WIDTH, self.picker_room());
-        }
-        let query = self.open_tab(tab);
+        let query = open_tab(tab, cx);
         picker.show(tab, &query);
-        self.picker = Some(picker);
-        Task::batch([close, self.sync(), operation::focus(FIELD)])
+        picker
     }
 
-    /// The core opens what a tab shows, and says what its search is.
-    fn open_tab(&mut self, tab: Tab) -> String {
-        match tab {
-            Tab::Gifs => {
-                self.client.dispatch(Action::OpenGifs);
-                self.client.state().gifs.query.clone()
-            }
-            Tab::Stickers => {
-                self.client.dispatch(Action::OpenStickers);
-                self.client.state().stickers.query.clone()
-            }
-            Tab::Emoji => String::new(),
-        }
-    }
-
-    /// The core lets go of what a tab showed.
-    fn close_tab(&mut self, tab: Tab) {
-        match tab {
-            Tab::Gifs => self.client.dispatch(Action::CloseGifs),
-            Tab::Stickers => self.client.dispatch(Action::CloseStickers),
-            Tab::Emoji => {}
-        }
-    }
-
-    fn switch_tab(&mut self, tab: Tab) -> Task<Message> {
-        let Some(old) = self.picker.as_ref().map(|picker| picker.tab) else {
-            return Task::none();
-        };
+    fn switch_tab(&mut self, tab: Tab, cx: &mut Cx<'_>) -> Task<Message> {
+        let old = self.tab;
         if old == tab {
             return Task::none();
         }
-        self.close_tab(old);
-        let query = self.open_tab(tab);
-        if let Some(picker) = &mut self.picker {
-            picker.show(tab, &query);
-        }
+        close_tab(old, cx);
+        let query = open_tab(tab, cx);
+        self.show(tab, &query);
         crate::control::trim();
-        Task::batch([self.sync(), self.scroll_grid(0.0), operation::focus(FIELD)])
+        cx.touch();
+        Task::batch([self.scroll_grid(0.0), operation::focus(FIELD)])
     }
 
-    /// The picker closes and lets go of its pictures, and the heap they
-    /// took goes back, as the Slint client's `let_go_after_picker` does.
-    pub fn close_picker(&mut self) -> Task<Message> {
-        let Some(picker) = self.picker.take() else {
-            return Task::none();
-        };
-        self.close_tab(picker.tab);
-        drop(picker);
-        crate::control::trim();
-        Task::batch([self.refocus(), self.sync()])
+    /// Asks the root to close the picker.
+    fn ask_close(&self, cx: &mut Cx<'_>) -> Task<Message> {
+        cx.request(Request::Close(Screen::Picker));
+        Task::none()
     }
 
     fn scroll_grid(&mut self, top: f32) -> Task<Message> {
-        if let Some(picker) = &mut self.picker {
-            picker.scroll.top = top;
-        }
+        self.scroll.top = top;
         operation::scroll_to(
             GRID,
             AbsoluteOffset {
@@ -257,48 +198,309 @@ impl App {
     }
 
     /// The tab's layout follows the core, and the pictures in sight are
-    /// asked for; called from `sync`.
-    pub fn picker_sync(&mut self) {
-        let Some(tab) = self.picker.as_ref().map(|picker| picker.tab) else {
-            return;
-        };
-        match tab {
-            Tab::Emoji => self.build_emoji(),
+    /// asked for; called as the window syncs.
+    pub fn sync(&mut self, cx: &mut Cx<'_>) {
+        match self.tab {
+            Tab::Emoji => self.build_emoji(cx),
             Tab::Gifs => {
-                self.build_gifs();
-                self.ask_gifs();
+                self.build_gifs(cx);
+                self.ask_gifs(cx);
             }
             Tab::Stickers => {
-                self.build_stickers();
-                self.ask_stickers();
+                self.build_stickers(cx);
+                self.ask_stickers(cx);
             }
         }
     }
 
     /// The pictures the picker draws from the app's own: custom emoji and
     /// servers' icons.
-    pub fn picker_pictures(&self) -> Vec<String> {
-        let Some(picker) = &self.picker else {
-            return Vec::new();
-        };
-        match (&picker.emoji, &picker.stickers) {
-            (Some(emoji), _) => emoji.pictures(picker.scroll),
+    pub fn pictures(&self) -> Vec<String> {
+        match (&self.emoji, &self.stickers) {
+            (Some(emoji), _) => emoji.pictures(self.scroll),
             (_, Some(stickers)) => stickers.icons(),
             _ => Vec::new(),
         }
     }
 
-    pub fn picker_view(&self) -> Option<Element<'_, Message>> {
-        let picker = self.picker.as_ref()?;
+    /// What's done in the picker; its edge dragged is the root's, which
+    /// knows the room it has (`App::picker_event`).
+    pub fn update(&mut self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
+        let tab = self.tab;
+        match event {
+            Event::Tab(tab) => self.switch_tab(tab, cx),
+            Event::Scrolled(viewport) => {
+                self.scroll = Scroll {
+                    top: viewport.absolute_offset().y,
+                    height: viewport.bounds().height,
+                };
+                match tab {
+                    Tab::Gifs => self.ask_gifs(cx),
+                    Tab::Stickers => self.ask_stickers(cx),
+                    Tab::Emoji => cx.request(Request::Ask),
+                }
+                Task::none()
+            }
+            Event::Hover(index) => {
+                self.hover = Some(index);
+                Task::none()
+            }
+            Event::Left(index) => {
+                if self.hover == Some(index) {
+                    self.hover = None;
+                }
+                Task::none()
+            }
+            Event::Jump(index) => self.jump(index, cx),
+            Event::Field(field::Event::Escape) => match tab {
+                Tab::Gifs => self.gifs_escape(cx),
+                _ => self.ask_close(cx),
+            },
+            Event::Field(field::Event::Gifs) => self.ask_close(cx),
+            Event::Field(field::Event::Edited(text, _)) => match tab {
+                Tab::Emoji => self.emoji_search(text, cx),
+                Tab::Gifs => self.gifs_typed(text, cx),
+                Tab::Stickers => self.stickers_search(text, cx),
+            },
+            Event::Field(field::Event::Send) => match tab {
+                Tab::Emoji => self.emoji_first(cx),
+                Tab::Gifs => self.gifs_search_now(cx),
+                Tab::Stickers => self.sticker_first(cx),
+            },
+            Event::Field(_) => Task::none(),
+            Event::Pick(index) => match tab {
+                Tab::Emoji => self.emoji_pick(index, cx),
+                Tab::Gifs => self.gif_pick(index, cx),
+                Tab::Stickers => self.sticker_pick(index, cx),
+            },
+            Event::Star(index) => {
+                match tab {
+                    Tab::Emoji => self.emoji_star(index, cx),
+                    Tab::Gifs => self.gif_star(index, cx),
+                    Tab::Stickers => self.sticker_star(index, cx),
+                }
+                cx.touch();
+                Task::none()
+            }
+            Event::Back => self.gifs_back(cx),
+            Event::Close => self.ask_close(cx),
+            Event::Term(term) => self.gif_term(term, cx),
+            Event::SearchDue(typed) => self.gifs_due(typed, cx),
+            Event::Widened => {
+                // Kept for the next start, if the drag changed it.
+                if self.widen_from.take() != Some(self.width) {
+                    cx.layout.picker_width = Some(self.width);
+                    cx.keep("picker_width", self.width);
+                }
+                Task::none()
+            }
+            Event::ResetWidth => {
+                self.widen_from = None;
+                self.width = WIDTH;
+                self.built = 0;
+                cx.layout.picker_width = Some(WIDTH);
+                cx.keep("picker_width", WIDTH);
+                self.sync(cx);
+                Task::none()
+            }
+            Event::Widen(_) => Task::none(),
+        }
+    }
+
+    /// Its left edge dragged `by` since the press, in `room`.
+    pub fn widen(&mut self, by: f32, room: f32, cx: &mut Cx<'_>) {
+        let from = *self.widen_from.get_or_insert(self.width);
+        self.width = (from - by).clamp(WIDTH, room);
+        self.built = 0;
+        self.sync(cx);
+    }
+
+    /// The rail's section, by its place: the grid jumps to its top,
+    /// leaving a search first.
+    fn jump(&mut self, index: usize, cx: &mut Cx<'_>) -> Task<Message> {
+        let mut tasks = Vec::new();
+        if !self.field.text().is_empty() {
+            self.field.reset("");
+            match self.tab {
+                Tab::Emoji => tasks.push(self.emoji_search(String::new(), cx)),
+                Tab::Stickers => tasks.push(self.stickers_search(String::new(), cx)),
+                Tab::Gifs => {}
+            }
+        }
+        let top = match self.tab {
+            Tab::Emoji => self.emoji.as_ref().and_then(|tab| tab.section_top(index)),
+            Tab::Stickers => self
+                .stickers
+                .as_ref()
+                .and_then(|tab| tab.section_top(index)),
+            Tab::Gifs => None,
+        };
+        tasks.push(self.scroll_grid(top.unwrap_or(0.0)));
+        Task::batch(tasks)
+    }
+
+    /// An emoji goes where the picker was opened for, which the root
+    /// places, and the picker closes.
+    fn place_emoji(&mut self, key: String, cx: &mut Cx<'_>) -> Task<Message> {
+        cx.request(Request::PlaceEmoji {
+            target: self.target.clone(),
+            key,
+        });
+        self.ask_close(cx)
+    }
+}
+
+impl Closes for Picker {
+    /// The core lets go of what its tab showed, the heap its pictures took
+    /// goes back, as the Slint client's `let_go_after_picker` does, and the
+    /// keys go back unless the window went.
+    fn close(self, cx: &mut Cx<'_>, why: Why) {
+        close_tab(self.tab, cx);
+        drop(self);
+        crate::control::trim();
+        if why != Why::Window {
+            cx.request(Request::Focus(Focus::Default));
+        }
+        cx.touch();
+    }
+}
+
+/// The core opens what a tab shows, and says what its search is.
+fn open_tab(tab: Tab, cx: &mut Cx<'_>) -> String {
+    match tab {
+        Tab::Gifs => {
+            cx.dispatch(Action::OpenGifs);
+            cx.state().gifs.query.clone()
+        }
+        Tab::Stickers => {
+            cx.dispatch(Action::OpenStickers);
+            cx.state().stickers.query.clone()
+        }
+        Tab::Emoji => String::new(),
+    }
+}
+
+/// The core lets go of what a tab showed.
+fn close_tab(tab: Tab, cx: &mut Cx<'_>) {
+    match tab {
+        Tab::Gifs => cx.dispatch(Action::CloseGifs),
+        Tab::Stickers => cx.dispatch(Action::CloseStickers),
+        Tab::Emoji => {}
+    }
+}
+
+impl App {
+    /// Opens the picker for the composer, the edit or a reaction, on a tab;
+    /// the same again closes it.
+    pub fn open_picker(&mut self, target: Target, tab: Tab) -> Task<Message> {
+        self.menu = None;
+        let tabs = target == Target::Composer && self.client.state().can_pick_gifs();
+        let tab = if tabs { tab } else { Tab::Emoji };
+        let width = if tabs {
+            self.layout
+                .picker_width
+                .unwrap_or(WIDTH)
+                .clamp(WIDTH, self.picker_room())
+        } else {
+            WIDTH
+        };
+        let mut cx = cx!(self);
+        let task = match self.picker.get_mut() {
+            Some(picker) if picker.target == target && picker.tab == tab => {
+                self.picker.close(&mut cx, Why::User);
+                Task::none()
+            }
+            Some(picker) if picker.target == target => picker.switch_tab(tab, &mut cx),
+            _ => {
+                self.picker.close(&mut cx, Why::User);
+                self.picker
+                    .open(|| Picker::open(target, tab, tabs, width, &mut cx));
+                cx.touch();
+                // After the keys the closed one gave back.
+                cx.request(Request::Focus(Focus::Id(FIELD)));
+                Task::none()
+            }
+        };
+        Task::batch([task, self.settle()])
+    }
+
+    /// The picker closes, if it's open.
+    pub fn close_picker(&mut self) -> Task<Message> {
+        let mut cx = cx!(self);
+        self.picker.close(&mut cx, Why::User);
+        self.settle()
+    }
+
+    /// The picker's: its edge dragged widens it in the room it has.
+    pub fn picker_event(&mut self, event: Event) -> Task<Message> {
+        let room = self.picker_room();
+        let mut cx = cx!(self);
+        let Some(picker) = self.picker.get_mut() else {
+            return Task::none();
+        };
+        match event {
+            Event::Widen(by) => {
+                picker.widen(by, room, &mut cx);
+                Task::none()
+            }
+            event => picker.update(event, &mut cx),
+        }
+    }
+
+    /// An emoji picked goes where the picker was opened for: the
+    /// composer's text, the edit's, a reaction, the custom status or a
+    /// poll's answer.
+    pub fn place_emoji(&mut self, target: Target, key: String) -> Task<Message> {
+        let text = yapfast_core::emoji::composer_text(&key);
+        match target {
+            Target::Composer => self.insert(Writing::Draft, &text),
+            Target::Edit => self.insert(Writing::Edit, &text),
+            Target::React(item, _) => {
+                self.client.dispatch(Action::React { item, key });
+                self.dirty = true;
+            }
+            Target::Status(_) => self.status.emoji(key),
+            Target::Poll(index, _) => {
+                self.poll_draft_emoji(index, key);
+                self.dirty = true;
+            }
+        }
+        Task::none()
+    }
+
+    /// How wide the expression picker may grow: from its right edge, over
+    /// the emoji button, to 8 px right of the server rail, or 8 px from the
+    /// window's own edge if that comes first, as the Slint client's.
+    pub fn picker_room(&self) -> f32 {
+        let right = self.chat_right() - 8.0 - 4.0;
+        (self.window.width - 88.0).min(right - 80.0).max(WIDTH)
+    }
+}
+
+/// The picker, framed, with its tabs when it has them.
+pub fn view<'a>(picker: &'a Picker, cx: Ctx<'a>) -> Element<'a, Message> {
+    View { s: picker, cx }.view()
+}
+
+/// The picker's state and what it reads, as its tabs draw them.
+#[derive(Clone, Copy)]
+struct View<'a> {
+    s: &'a Picker,
+    cx: Ctx<'a>,
+}
+
+impl<'a> View<'a> {
+    fn view(self) -> Element<'a, Message> {
+        let picker = self.s;
         let body = match picker.tab {
             Tab::Emoji => self.emoji_view(picker),
             Tab::Gifs => self.gifs_view(picker),
             Tab::Stickers => self.stickers_view(picker),
         };
-        let content: Element<'_, Message> = if picker.tabs {
+        let theme = self.cx.look.theme;
+        let content: Element<'a, Message> = if picker.tabs {
             // Its left edge drags it wider, as Discord's: the right edge and
             // the height stay. A double click puts it back.
-            let theme = &self.theme;
             let edge = crate::widgets::Splitter::new(
                 Color::TRANSPARENT,
                 theme.line,
@@ -317,174 +519,6 @@ impl App {
         } else {
             body
         };
-        Some(kit::frame(content, picker.size(), &self.theme))
-    }
-
-    pub fn picker_event(&mut self, event: Event) -> Task<Message> {
-        let Some(picker) = &mut self.picker else {
-            return Task::none();
-        };
-        let tab = picker.tab;
-        match event {
-            Event::Tab(tab) => self.switch_tab(tab),
-            Event::Scrolled(viewport) => {
-                picker.scroll = Scroll {
-                    top: viewport.absolute_offset().y,
-                    height: viewport.bounds().height,
-                };
-                match tab {
-                    Tab::Gifs => self.ask_gifs(),
-                    Tab::Stickers => self.ask_stickers(),
-                    Tab::Emoji => return self.ask(),
-                }
-                Task::none()
-            }
-            Event::Hover(index) => {
-                picker.hover = Some(index);
-                Task::none()
-            }
-            Event::Left(index) => {
-                if picker.hover == Some(index) {
-                    picker.hover = None;
-                }
-                Task::none()
-            }
-            Event::Jump(index) => self.jump(index),
-            Event::Field(field::Event::Escape) => match tab {
-                Tab::Gifs => self.gifs_escape(),
-                _ => self.close_picker(),
-            },
-            Event::Field(field::Event::Gifs) => self.close_picker(),
-            Event::Field(field::Event::Edited(text, _)) => match tab {
-                Tab::Emoji => self.emoji_search(text),
-                Tab::Gifs => self.gifs_typed(text),
-                Tab::Stickers => self.stickers_search(text),
-            },
-            Event::Field(field::Event::Send) => match tab {
-                Tab::Emoji => self.emoji_first(),
-                Tab::Gifs => self.gifs_search_now(),
-                Tab::Stickers => self.sticker_first(),
-            },
-            Event::Field(_) => Task::none(),
-            Event::Pick(index) => match tab {
-                Tab::Emoji => self.emoji_pick(index),
-                Tab::Gifs => self.gif_pick(index),
-                Tab::Stickers => self.sticker_pick(index),
-            },
-            Event::Star(index) => {
-                match tab {
-                    Tab::Emoji => self.emoji_star(index),
-                    Tab::Gifs => self.gif_star(index),
-                    Tab::Stickers => self.sticker_star(index),
-                }
-                self.sync()
-            }
-            Event::Back => self.gifs_back(),
-            Event::Close => self.close_picker(),
-            Event::Term(term) => self.gif_term(term),
-            Event::SearchDue(typed) => self.gifs_due(typed),
-            Event::Widen(by) => {
-                let room = self.picker_room();
-                if let Some(picker) = &mut self.picker {
-                    let from = *picker.widen_from.get_or_insert(picker.width);
-                    picker.width = (from - by).clamp(WIDTH, room);
-                    picker.built = 0;
-                }
-                self.picker_sync();
-                Task::none()
-            }
-            Event::Widened => {
-                let Some(picker) = &mut self.picker else {
-                    return Task::none();
-                };
-                // Kept for the next start, if the drag changed it.
-                if picker.widen_from.take() != Some(picker.width) {
-                    self.layout.picker_width = Some(picker.width);
-                    crate::layout::store(self.client.root(), "picker_width", picker.width);
-                }
-                Task::none()
-            }
-            Event::ResetWidth => {
-                if let Some(picker) = &mut self.picker {
-                    picker.widen_from = None;
-                    picker.width = WIDTH;
-                    picker.built = 0;
-                }
-                self.layout.picker_width = Some(WIDTH);
-                crate::layout::store(self.client.root(), "picker_width", WIDTH);
-                self.picker_sync();
-                Task::none()
-            }
-        }
-    }
-
-    /// How wide the expression picker may grow: from its right edge, over
-    /// the emoji button, to 8 px right of the server rail, or 8 px from the
-    /// window's own edge if that comes first, as the Slint client's.
-    pub fn picker_room(&self) -> f32 {
-        let right = self.chat_right() - 8.0 - 4.0;
-        (self.window.width - 88.0).min(right - 80.0).max(WIDTH)
-    }
-
-    /// The rail's section, by its place: the grid jumps to its top,
-    /// leaving a search first.
-    fn jump(&mut self, index: usize) -> Task<Message> {
-        let Some(picker) = &mut self.picker else {
-            return Task::none();
-        };
-        let mut tasks = Vec::new();
-        if !picker.field.text().is_empty() {
-            picker.field.reset("");
-            match picker.tab {
-                Tab::Emoji => tasks.push(self.emoji_search(String::new())),
-                Tab::Stickers => tasks.push(self.stickers_search(String::new())),
-                Tab::Gifs => {}
-            }
-        }
-        let Some(picker) = &self.picker else {
-            return Task::none();
-        };
-        let top = match picker.tab {
-            Tab::Emoji => picker.emoji.as_ref().and_then(|tab| tab.section_top(index)),
-            Tab::Stickers => picker
-                .stickers
-                .as_ref()
-                .and_then(|tab| tab.section_top(index)),
-            Tab::Gifs => None,
-        };
-        tasks.push(self.scroll_grid(top.unwrap_or(0.0)));
-        Task::batch(tasks)
-    }
-
-    /// An emoji goes where the picker was opened for: the composer's text,
-    /// the edit's, or a reaction.
-    fn place_emoji(&mut self, key: String) -> Task<Message> {
-        let Some(target) = self.picker.as_ref().map(|picker| picker.target.clone()) else {
-            return Task::none();
-        };
-        let close = self.close_picker();
-        let text = yapfast_core::emoji::composer_text(&key);
-        match target {
-            Target::Composer => {
-                self.insert(Writing::Draft, &text);
-                close
-            }
-            Target::Edit => {
-                self.insert(Writing::Edit, &text);
-                close
-            }
-            Target::React(item, _) => {
-                self.client.dispatch(Action::React { item, key });
-                Task::batch([close, self.sync()])
-            }
-            Target::Status(_) => {
-                self.status_emoji(key);
-                close
-            }
-            Target::Poll(index, _) => {
-                self.poll_draft_emoji(index, key);
-                Task::batch([close, self.sync()])
-            }
-        }
+        kit::frame(content, picker.size(), theme)
     }
 }

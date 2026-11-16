@@ -168,7 +168,11 @@ impl App {
         let theme = &self.theme;
         let pointed = self.pointed.member.as_ref() == Some(&look.id);
         // The member whose card is open.
-        let selected = self.card.as_ref().is_some_and(|card| card.user == look.id);
+        let selected = self
+            .profiles
+            .card
+            .as_ref()
+            .is_some_and(|card| card.user == look.id);
         let offline = look.offline();
         let (avatar_opacity, opacity) = if offline { (0.4, 0.5) } else { (1.0, 1.0) };
         let face = Face::new(look.avatar.as_deref(), &look.name, 32.0)

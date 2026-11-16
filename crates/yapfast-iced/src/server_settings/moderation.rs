@@ -21,10 +21,12 @@ use yapfast_core::{
     clock,
 };
 
+use super::View;
 use super::{Drop, Event, Screen, message};
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{Kind, action, lights},
+    ctx::Ctx,
     dialog,
     fonts::{BOLD, MEDIUM, SEMIBOLD},
     form,
@@ -140,7 +142,7 @@ fn safety(choice: SafetyChoice) -> Message {
 }
 
 /// An avatar `size` across, by its address if it has one.
-pub(super) fn face<'a>(app: &'a App, url: &str, name: &str, size: f32) -> Element<'a, Message> {
+pub(super) fn face<'a>(app: Ctx<'a>, url: &str, name: &str, size: f32) -> Element<'a, Message> {
     app.avatar(
         Some(url).filter(|url| !url.is_empty()),
         name,
@@ -171,18 +173,18 @@ fn choices(list: &[Level], offered: impl Fn(u8) -> bool) -> Vec<form::Choice<'st
         .collect()
 }
 
-impl App {
+impl<'a> View<'a> {
     /// Safety Setup: the verification level, the two-factor rule for
     /// moderators (only its owner with 2FA may move it), and the content
     /// filter; each choice is saved as it's made.
-    pub(super) fn safety_page<'a>(
-        &'a self,
+    pub(super) fn safety_page(
+        self,
         core: &'a ServerSettings,
         page: &'a SafetyPage,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let community = page.community();
-        let rule = self.client.app.mfa_rule(&core.server);
+        let rule = self.cx.app.mfa_rule(&core.server);
         let ready = !core.saving;
         let verification = page.verification();
         let levels = form::options(
@@ -226,7 +228,7 @@ impl App {
         if let Some(lock) = lock {
             switch = switch.locked(lock);
         }
-        let mut mfa = vec![switch.view(self.look())];
+        let mut mfa = vec![switch.view(self.cx.look)];
         if !mfa_note.is_empty() {
             let sunken = theme.sunken;
             mfa.push(
@@ -265,12 +267,12 @@ impl App {
 
     /// Bans: the search, the bans on the page shown (or none, or loading),
     /// and the pager while there's more than a page.
-    pub(super) fn bans_page<'a>(
-        &'a self,
+    pub(super) fn bans_page(
+        self,
         _core: &'a ServerSettings,
         page: &'a BansPage,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let field = crate::controls::field(
             theme,
             "bans-search",
@@ -339,8 +341,8 @@ impl App {
     }
 
     /// A ban: who; a click opens its dialog.
-    fn ban_row<'a>(&'a self, user: &'a RoleMember) -> Element<'a, Message> {
-        let theme = &self.theme;
+    fn ban_row(self, user: &'a RoleMember) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         let mut names = column![
             text(user.name.as_str())
                 .size(16)
@@ -359,7 +361,7 @@ impl App {
         }
         button(
             row![
-                face(self, &user.avatar, &user.name, AVATAR),
+                face(self.cx, &user.avatar, &user.name, AVATAR),
                 container(names).width(Length::Fill).clip(true)
             ]
             .spacing(12)
@@ -380,13 +382,13 @@ impl App {
 
     /// The ban shown: whom, why, why it couldn't be lifted, and Revoke Ban
     /// and Done for someone who may lift it.
-    pub(super) fn ban_dialog<'a>(
-        &'a self,
+    pub(super) fn ban_dialog(
+        self,
         core: &'a ServerSettings,
         page: &'a BansPage,
     ) -> Option<Element<'a, Message>> {
         let ban_ = page.open_ban()?;
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let user = &ban_.user;
         // Discord's title is the username alone.
         let name = user.username.as_deref().unwrap_or(&user.name);
@@ -409,7 +411,7 @@ impl App {
         if let Some(error) = &page.open_error {
             body = body.push(form::error(theme, error.as_str()));
         }
-        if self.client.app.may(&core.server, Permission::Ban) {
+        if self.cx.app.may(&core.server, Permission::Ban) {
             body = body.push(
                 row![
                     Space::new().width(Length::Fill),
@@ -440,12 +442,12 @@ impl App {
     /// Audit Log: the title with the filters by user and by action, then
     /// the rows, a row's arrow opening its numbered lines; the list's end
     /// loads older entries, as Discord's does.
-    pub(super) fn audit_page<'a>(
-        &'a self,
+    pub(super) fn audit_page(
+        self,
         page: &'a AuditLogPage,
         screen: &'a Screen,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         // Discord's client ignores a filter while it's fetching.
         let fetching = page.fetching();
         let users: Vec<String> = std::iter::once("All Users".to_owned())
@@ -469,7 +471,7 @@ impl App {
             },
         )
         .enabled(!fetching)
-        .view(self.look());
+        .view(self.cx.look);
         let actions: Vec<String> = std::iter::once("All Actions".to_owned())
             .chain(AUDIT_ACTIONS.iter().map(|(_, name)| (*name).to_owned()))
             .collect();
@@ -496,7 +498,7 @@ impl App {
             },
         )
         .enabled(!fetching)
-        .view(self.look());
+        .view(self.cx.look);
         let filter = |label: &'a str, dropdown: Element<'a, Message>| -> Element<'a, Message> {
             column![
                 text(label).size(12).font(BOLD).color(theme.secondary),
@@ -568,10 +570,10 @@ impl App {
     /// A row of Audit Log in its card: the moderator's avatar, who did
     /// what, when, and its arrow; open, its lines under a line, numbered
     /// in the colour of what was done.
-    fn audit_row<'a>(&'a self, page: &'a AuditLogPage, index: usize) -> Element<'a, Message> {
-        let theme = &self.theme;
+    fn audit_row(self, page: &'a AuditLogPage, index: usize) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         let entry = &page.rows[index];
-        let twelve_hour = self.layout.prefs.twelve_hour_clock;
+        let twelve_hour = self.cx.layout.prefs.twelve_hour_clock;
         let now = clock::now_ms() / 1000;
         let when = |seconds: u64| clock::calendar(seconds, now, twelve_hour);
         let (start, end) = (when(entry.start), when(entry.end));
@@ -590,7 +592,7 @@ impl App {
         let open = page.open == Some(index);
         let mut head = row![
             face(
-                self,
+                self.cx,
                 actor.map_or("", |user| user.avatar.as_str()),
                 actor.map_or("", |user| user.name.as_str()),
                 AVATAR
@@ -610,7 +612,7 @@ impl App {
         .spacing(12)
         .align_y(Alignment::Center);
         if expandable {
-            head = head.push(self.glyph(
+            head = head.push(self.cx.look.glyph(
                 if open {
                     Icon::ChevronDown
                 } else {
@@ -676,15 +678,15 @@ impl App {
 
     /// A sentence of Audit Log's in `ink`, its names and times in bold in
     /// the text's ink.
-    fn audit_words<'a>(
-        &self,
+    fn audit_words(
+        self,
         words: &'a AuditWords,
         size: u32,
         ink: Color,
         now: u64,
     ) -> Element<'a, Message> {
-        let strong = self.theme.text;
-        let twelve_hour = self.layout.prefs.twelve_hour_clock;
+        let strong = self.cx.look.theme.text;
+        let twelve_hour = self.cx.layout.prefs.twelve_hour_clock;
         let spans: Vec<Span<'a, (), iced::Font>> = words
             .spans()
             .filter_map(|piece| match piece {

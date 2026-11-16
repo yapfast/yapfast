@@ -25,9 +25,11 @@ use crate::profile::{Event as ProfileEvent, Mode, Shown, look::Tab};
 use crate::{
     app::{App, Message},
     controls::{lights, placed},
+    ctx::{Cx, Focus, Request},
     field::{self, Draft},
     fonts::{BOLD, MEDIUM, SEMIBOLD},
     pictures::Icon,
+    slot::{Closes, Slot, Why},
     style::{faded, rounded},
     theme::rgb,
     widgets::{Hsv, hsv_rgb, rgb_hsv},
@@ -261,60 +263,268 @@ fn server_id(id: &str) -> &str {
     id.rsplit(':').next().unwrap_or(id)
 }
 
-impl App {
+impl Editor {
+    /// A new editor on the core's, its card made of what's written.
+    fn open(state: &AppState, link: u32) -> Self {
+        let core = state
+            .profile_editor
+            .as_ref()
+            .expect("the editor opens only while the core's is open");
+        let view = Arc::new(preview(state, core));
+        Self::new(Shown::new(crate::profile::look::Look::new(
+            state,
+            &view,
+            None,
+            &[],
+            link,
+        )))
+    }
+
     /// Takes in the core's editor: its card is made again only when what it
-    /// would show changed, and goes with the editor.
-    pub(super) fn editor_sync(&mut self) {
-        let state = self.client.state();
-        let Some(core) = state.profile_editor.as_ref() else {
-            self.profiles.editor = None;
-            return;
-        };
+    /// would show changed.
+    fn sync(&mut self, state: &AppState, core: &ProfileEditor, link: u32) {
         // The preview is made from the editor and the servers' tags alone.
         let made = (state.profile_editor_changes, state.list_changes);
-        if self
-            .profiles
-            .editor
-            .as_ref()
-            .is_some_and(|editor| editor.made == made)
-        {
+        if self.made == made {
             return;
         }
         let view = Arc::new(preview(state, core));
-        let link = rgb(self.theme.link);
-        let editor = self.profiles.editor.take();
-        let mut editor = match editor {
-            Some(editor) if *editor.shown.look.view == *view => editor,
-            Some(mut editor) => {
-                editor.shown.look = crate::profile::look::Look::new(state, &view, None, &[], link);
-                editor
-            }
-            None => Editor::new(Shown::new(crate::profile::look::Look::new(
-                state,
-                &view,
-                None,
-                &[],
-                link,
-            ))),
-        };
+        if *self.shown.look.view != *view {
+            self.shown.look = crate::profile::look::Look::new(state, &view, None, &[], link);
+        }
         let mut picked = std::collections::HashMap::new();
         for kind in [ProfilePicture::Avatar, ProfilePicture::Banner] {
             if let (_, Some(preview)) = core.picture(kind) {
                 picked.insert(picked_url(kind, core.picture_edits), preview.clone());
             }
         }
-        *editor.shown.picked.borrow_mut() = picked;
-        editor.made = made;
+        *self.shown.picked.borrow_mut() = picked;
+        self.made = made;
         // The bio's field follows the core while it isn't being written.
-        if editor.editing != Some(Text::Bio) && editor.bio.text() != core.bio {
-            editor.bio.reset(&core.bio);
+        if self.editing != Some(Text::Bio) && self.bio.text() != core.bio {
+            self.bio.reset(&core.bio);
         }
-        self.profiles.editor = Some(editor);
     }
 
+    /// What's done in the editor.
+    pub fn update(&mut self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
+        let editor = self;
+        match event {
+            Event::Style(event) => return crate::profile::name_style::update(editor, event, cx),
+            Event::Edit(field) => {
+                editor.editing = field;
+                editor.colour_open = false;
+                editor.pop = None;
+                let id = match field {
+                    Some(Text::Name) => NAME,
+                    Some(Text::Pronouns) => PRONOUNS,
+                    Some(Text::Bio) => BIO,
+                    None => return operation::focus(crate::app::NOBODY),
+                };
+                return operation::focus(Id::new(id));
+            }
+            Event::Write(field, text) => {
+                // A theme colour's code typed moves its pad there.
+                if matches!(field, ProfileText::ThemeTop | ProfileText::ThemeBottom)
+                    && let Some(rgb) = parse_colour(&text)
+                {
+                    editor.hsv = rgb_hsv(rgb);
+                }
+                cx.dispatch(Action::WriteProfile { field, text });
+            }
+            Event::Hsv(hsv) => {
+                let field = match editor.pop {
+                    Some(Pop::Top) => ProfileText::ThemeTop,
+                    Some(Pop::Bottom) => ProfileText::ThemeBottom,
+                    _ => return Task::none(),
+                };
+                editor.hsv = hsv;
+                cx.dispatch(Action::WriteProfile {
+                    field,
+                    text: format!("#{:06x}", hsv_rgb(hsv)),
+                });
+            }
+            Event::Bio(event) => match event {
+                field::Event::Edited(text, _) => {
+                    cx.dispatch(Action::WriteProfile {
+                        field: ProfileText::Bio,
+                        text,
+                    });
+                }
+                // Escape comes as a key too, which `editor_escape` takes.
+                field::Event::Send => {
+                    editor.editing = None;
+                    return operation::focus(crate::app::NOBODY);
+                }
+                _ => return Task::none(),
+            },
+            Event::Picture(kind) => {
+                editor.editing = None;
+                let state = cx.state();
+                let Some(core) = state.profile_editor.as_ref() else {
+                    return Task::none();
+                };
+                if kind == ProfilePicture::Banner && core.may_write(ProfileText::Colour) {
+                    editor.colour_open = !editor.colour_open;
+                    editor.pop = None;
+                    return if editor.colour_open {
+                        operation::focus(Id::new(COLOUR))
+                    } else {
+                        Task::none()
+                    };
+                }
+                if core.resettable(kind) {
+                    editor.pop = Some(match kind {
+                        ProfilePicture::Avatar => Pop::Avatar,
+                        ProfilePicture::Banner => Pop::Banner,
+                    });
+                    return Task::none();
+                }
+                return editor.update(Event::Pick(kind), cx);
+            }
+            Event::Pick(kind) => {
+                editor.pop = None;
+                let title = match kind {
+                    ProfilePicture::Avatar => "Change Avatar",
+                    ProfilePicture::Banner => "Change Banner",
+                };
+                return Task::perform(
+                    async move {
+                        rfd::AsyncFileDialog::new()
+                            .set_title(title)
+                            .add_filter("Pictures", &["png", "jpg", "jpeg", "gif", "webp"])
+                            .pick_file()
+                            .await
+                            .map(|file| file.path().to_owned())
+                    },
+                    move |path| match path {
+                        Some(path) => message(Event::Picked(kind, path)),
+                        None => Message::Nothing,
+                    },
+                );
+            }
+            Event::Picked(kind, path) => {
+                cx.dispatch(Action::PickProfilePicture { kind, path });
+            }
+            Event::Reset(kind) => {
+                editor.pop = None;
+                cx.dispatch(Action::ResetProfilePicture(kind));
+            }
+            Event::Pop(pop) => {
+                editor.pop = if editor.pop == pop { None } else { pop };
+                editor.editing = None;
+                editor.tag_query.clear();
+                match editor.pop {
+                    Some(Pop::Tag) => return operation::focus(Id::new(TAG_SEARCH)),
+                    Some(pop @ (Pop::Top | Pop::Bottom)) => {
+                        let core = cx.state().profile_editor.as_ref();
+                        let code = core.map_or("", |core| match pop {
+                            Pop::Top => core.theme_top.as_str(),
+                            _ => core.theme_bottom.as_str(),
+                        });
+                        editor.hsv = rgb_hsv(parse_colour(code).unwrap_or(0x5865f2));
+                        return operation::focus(Id::new(THEME_COLOUR));
+                    }
+                    _ => return Task::none(),
+                }
+            }
+            Event::Tag(server) => {
+                editor.pop = None;
+                cx.dispatch(Action::ChooseServerTag(server));
+            }
+            Event::TagQuery(query) => {
+                editor.tag_query = query;
+                return Task::none();
+            }
+            Event::Tab(tab) => {
+                editor.tab = Some(tab);
+                if tab == Tab::Wishlist {
+                    cx.dispatch(Action::OpenWishlist);
+                }
+            }
+            Event::Side(side) => editor.side = side,
+            Event::Undo => {
+                editor.editing = None;
+                editor.colour_open = false;
+                cx.dispatch(Action::UndoProfileEdits);
+            }
+            Event::Save => {
+                editor.editing = None;
+                cx.dispatch(Action::SaveProfile);
+            }
+            Event::Nitro => cx.dispatch(Action::UnlockNitro),
+            Event::CopyId => {
+                editor.pop = None;
+                let id = editor.shown.look.profile().id.clone();
+                return iced::clipboard::write(id);
+            }
+            Event::Status => cx.dispatch(Action::OpenStatusEditor),
+            Event::Note => {
+                let Some(user) = cx.state().discord_user.clone() else {
+                    return Task::none();
+                };
+                cx.dispatch(Action::AskPerson {
+                    user,
+                    ask: yapfast_core::application::PersonAsk::Note,
+                    location: "ContextMenu",
+                });
+            }
+            // The slot closes as the core's editor goes.
+            Event::Close => cx.dispatch(Action::CloseProfileEditor),
+        }
+        cx.touch();
+        Task::none()
+    }
+
+    /// Escape in the editor: what's being edited or open first, then the
+    /// editor.
+    pub fn escape(&mut self, cx: &mut Cx<'_>) -> Task<Message> {
+        if crate::profile::name_style::escape(self) {
+            return Task::none();
+        }
+        let editor = self;
+        if editor.editing.is_some() || editor.colour_open || editor.pop.is_some() {
+            editor.editing = None;
+            editor.colour_open = false;
+            editor.pop = None;
+            return operation::focus(crate::app::NOBODY);
+        }
+        editor.update(Event::Close, cx)
+    }
+}
+
+impl Closes for Editor {
+    /// The keys go back to where they were, unless the window went.
+    fn close(self, cx: &mut Cx<'_>, why: Why) {
+        if why != Why::Window {
+            cx.request(Request::Focus(Focus::Default));
+        }
+    }
+}
+
+/// The editor follows the core's: made as it opens, closed as it closes,
+/// its card made again as what it shows changes.
+pub fn follow(slot: &mut Slot<Editor>, cx: &mut Cx<'_>) {
+    let link = rgb(cx.theme.link);
+    let open = cx.state().profile_editor.is_some().then_some(());
+    let Some(editor) = slot.follow(
+        open,
+        cx,
+        |_, _| true,
+        |(), cx| Editor::open(cx.state(), link),
+    ) else {
+        return;
+    };
+    let state = cx.state();
+    if let Some(core) = state.profile_editor.as_ref() {
+        editor.sync(state, core, link);
+    }
+}
+
+impl App {
     /// The pictures the editor's card shows.
     pub(super) fn editor_pictures(&self) -> Vec<String> {
-        let Some(editor) = &self.profiles.editor else {
+        let Some(editor) = self.profiles.editor.get() else {
             return Vec::new();
         };
         let profile = editor.shown.look.profile();
@@ -342,205 +552,12 @@ impl App {
                 .map(str::to_owned),
         );
         // The effect's still, on its tile.
-        urls.extend(self.effect_pictures(&editor.shown, false));
+        urls.extend(crate::profile::cosmetic::effect_pictures(
+            self.client.state(),
+            &editor.shown,
+            false,
+        ));
         urls
-    }
-
-    /// What's done in the editor.
-    pub(super) fn editor_event(&mut self, event: Event) -> Task<Message> {
-        let Some(editor) = self.profiles.editor.as_mut() else {
-            return Task::none();
-        };
-        match event {
-            Event::Style(event) => return self.name_style_event(event),
-            Event::Edit(field) => {
-                editor.editing = field;
-                editor.colour_open = false;
-                editor.pop = None;
-                let id = match field {
-                    Some(Text::Name) => NAME,
-                    Some(Text::Pronouns) => PRONOUNS,
-                    Some(Text::Bio) => BIO,
-                    None => return operation::focus(crate::app::NOBODY),
-                };
-                return operation::focus(Id::new(id));
-            }
-            Event::Write(field, text) => {
-                // A theme colour's code typed moves its pad there.
-                if matches!(field, ProfileText::ThemeTop | ProfileText::ThemeBottom)
-                    && let Some(rgb) = parse_colour(&text)
-                {
-                    editor.hsv = rgb_hsv(rgb);
-                }
-                self.client.dispatch(Action::WriteProfile { field, text });
-            }
-            Event::Hsv(hsv) => {
-                let field = match editor.pop {
-                    Some(Pop::Top) => ProfileText::ThemeTop,
-                    Some(Pop::Bottom) => ProfileText::ThemeBottom,
-                    _ => return Task::none(),
-                };
-                editor.hsv = hsv;
-                self.client.dispatch(Action::WriteProfile {
-                    field,
-                    text: format!("#{:06x}", hsv_rgb(hsv)),
-                });
-            }
-            Event::Bio(event) => match event {
-                field::Event::Edited(text, _) => {
-                    self.client.dispatch(Action::WriteProfile {
-                        field: ProfileText::Bio,
-                        text,
-                    });
-                }
-                // Escape comes as a key too, which `editor_escape` takes.
-                field::Event::Send => {
-                    editor.editing = None;
-                    return operation::focus(crate::app::NOBODY);
-                }
-                _ => return Task::none(),
-            },
-            Event::Picture(kind) => {
-                editor.editing = None;
-                let state = self.client.state();
-                let Some(core) = state.profile_editor.as_ref() else {
-                    return Task::none();
-                };
-                if kind == ProfilePicture::Banner && core.may_write(ProfileText::Colour) {
-                    editor.colour_open = !editor.colour_open;
-                    editor.pop = None;
-                    return if editor.colour_open {
-                        operation::focus(Id::new(COLOUR))
-                    } else {
-                        Task::none()
-                    };
-                }
-                if core.resettable(kind) {
-                    editor.pop = Some(match kind {
-                        ProfilePicture::Avatar => Pop::Avatar,
-                        ProfilePicture::Banner => Pop::Banner,
-                    });
-                    return Task::none();
-                }
-                return self.editor_event(Event::Pick(kind));
-            }
-            Event::Pick(kind) => {
-                editor.pop = None;
-                let title = match kind {
-                    ProfilePicture::Avatar => "Change Avatar",
-                    ProfilePicture::Banner => "Change Banner",
-                };
-                return Task::perform(
-                    async move {
-                        rfd::AsyncFileDialog::new()
-                            .set_title(title)
-                            .add_filter("Pictures", &["png", "jpg", "jpeg", "gif", "webp"])
-                            .pick_file()
-                            .await
-                            .map(|file| file.path().to_owned())
-                    },
-                    move |path| match path {
-                        Some(path) => message(Event::Picked(kind, path)),
-                        None => Message::Nothing,
-                    },
-                );
-            }
-            Event::Picked(kind, path) => {
-                self.client
-                    .dispatch(Action::PickProfilePicture { kind, path });
-            }
-            Event::Reset(kind) => {
-                editor.pop = None;
-                self.client.dispatch(Action::ResetProfilePicture(kind));
-            }
-            Event::Pop(pop) => {
-                editor.pop = if editor.pop == pop { None } else { pop };
-                editor.editing = None;
-                editor.tag_query.clear();
-                match editor.pop {
-                    Some(Pop::Tag) => return operation::focus(Id::new(TAG_SEARCH)),
-                    Some(pop @ (Pop::Top | Pop::Bottom)) => {
-                        let core = self.client.state().profile_editor.as_ref();
-                        let code = core.map_or("", |core| match pop {
-                            Pop::Top => core.theme_top.as_str(),
-                            _ => core.theme_bottom.as_str(),
-                        });
-                        editor.hsv = rgb_hsv(parse_colour(code).unwrap_or(0x5865f2));
-                        return operation::focus(Id::new(THEME_COLOUR));
-                    }
-                    _ => return Task::none(),
-                }
-            }
-            Event::Tag(server) => {
-                editor.pop = None;
-                self.client.dispatch(Action::ChooseServerTag(server));
-            }
-            Event::TagQuery(query) => {
-                editor.tag_query = query;
-                return Task::none();
-            }
-            Event::Tab(tab) => {
-                editor.tab = Some(tab);
-                if tab == Tab::Wishlist {
-                    self.client.dispatch(Action::OpenWishlist);
-                }
-            }
-            Event::Side(side) => editor.side = side,
-            Event::Undo => {
-                editor.editing = None;
-                editor.colour_open = false;
-                self.client.dispatch(Action::UndoProfileEdits);
-            }
-            Event::Save => {
-                editor.editing = None;
-                self.client.dispatch(Action::SaveProfile);
-            }
-            Event::Nitro => self.client.dispatch(Action::UnlockNitro),
-            Event::CopyId => {
-                editor.pop = None;
-                let id = editor.shown.look.profile().id.clone();
-                return iced::clipboard::write(id);
-            }
-            Event::Status => self.client.dispatch(Action::OpenStatusEditor),
-            Event::Note => {
-                let Some(user) = self.client.state().discord_user.clone() else {
-                    return Task::none();
-                };
-                self.client.dispatch(Action::AskPerson {
-                    user,
-                    ask: yapfast_core::application::PersonAsk::Note,
-                    location: "ContextMenu",
-                });
-            }
-            Event::Close => {
-                self.client.dispatch(Action::CloseProfileEditor);
-                self.profiles.editor = None;
-                return Task::batch([self.sync(), self.refocus()]);
-            }
-        }
-        self.sync()
-    }
-
-    /// Escape in the editor: what's being edited or open first, then the
-    /// editor.
-    pub fn editor_escape(&mut self) -> Task<Message> {
-        if self.name_style_escape() {
-            return Task::none();
-        }
-        let Some(editor) = self.profiles.editor.as_mut() else {
-            return Task::none();
-        };
-        if editor.editing.is_some() || editor.colour_open || editor.pop.is_some() {
-            editor.editing = None;
-            editor.colour_open = false;
-            editor.pop = None;
-            return operation::focus(crate::app::NOBODY);
-        }
-        self.editor_event(Event::Close)
-    }
-
-    pub fn editor_open(&self) -> bool {
-        self.profiles.editor.is_some()
     }
 
     /// The editor over the window dimmed by 60%; a click outside the card
@@ -578,7 +595,7 @@ impl App {
     }
 
     pub fn profile_editor_view(&self) -> Option<Element<'_, Message>> {
-        let editor = self.profiles.editor.as_ref()?;
+        let editor = self.profiles.editor.get()?;
         let core = self.client.state().profile_editor.as_ref()?;
         let theme = &self.theme;
         let main = core.main();

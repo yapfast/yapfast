@@ -10,9 +10,10 @@ use iced::{
 };
 use yapfast_core::application::{AppState, DeleteAsk, Ownership, OwnershipInput, TransferAsk};
 
+use super::View;
 use super::{expressions::answers, message, moderation::face};
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{Kind, ink_style},
     dialog,
     fonts::BOLD,
@@ -77,10 +78,10 @@ fn sentence<'a>(
     rich_text(spans).size(size).into()
 }
 
-impl App {
+impl<'a> View<'a> {
     /// Delete Server's or Transfer Ownership's dialog, over the settings.
-    pub(super) fn ownership_dialog<'a>(
-        &'a self,
+    pub(super) fn ownership_dialog(
+        self,
         server: &'a str,
         ownership: &'a Ownership,
     ) -> Element<'a, Message> {
@@ -96,7 +97,7 @@ impl App {
                 ask.sending,
             ),
         };
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         body.insert(0, title.size(20).font(BOLD).color(theme.text).into());
         let outside = if sending {
             Message::Nothing
@@ -114,8 +115,8 @@ impl App {
 
     /// Delete Server: Discord's question, the server's name to type
     /// without two-factor authentication, and Delete Server.
-    fn delete_body<'a>(&'a self, ask: &'a DeleteAsk) -> Vec<Element<'a, Message>> {
-        let theme = &self.theme;
+    fn delete_body(self, ask: &'a DeleteAsk) -> Vec<Element<'a, Message>> {
+        let theme = self.cx.look.theme;
         let mut body = vec![sentence(
             [
                 "Are you sure you want to delete ",
@@ -163,13 +164,9 @@ impl App {
     /// Transfer Ownership: who gets the server, from whom, the warning a
     /// Verified or Partnered server gets, and the acknowledgement; or, once
     /// Discord emailed it, the code.
-    fn transfer_body<'a>(
-        &'a self,
-        server: &str,
-        ask: &'a TransferAsk,
-    ) -> Vec<Element<'a, Message>> {
-        let theme = &self.theme;
-        let state = self.client.state();
+    fn transfer_body(self, server: &str, ask: &'a TransferAsk) -> Vec<Element<'a, Message>> {
+        let theme = self.cx.look.theme;
+        let state = self.cx.state;
         // Discord's tag: the username.
         let tag = ask.to.username.as_deref().unwrap_or(&ask.to.name);
         let mut body = Vec::new();
@@ -227,9 +224,9 @@ impl App {
             body.push(
                 container(
                     row![
-                        face(self, mine, me, AVATAR),
-                        self.glyph(Icon::ChevronRight, ARROW, theme.muted),
-                        face(self, &ask.to.avatar, &ask.to.name, AVATAR),
+                        face(self.cx, mine, me, AVATAR),
+                        self.cx.look.glyph(Icon::ChevronRight, ARROW, theme.muted),
+                        face(self.cx, &ask.to.avatar, &ask.to.name, AVATAR),
                     ]
                     .spacing(24)
                     .align_y(Alignment::Center),
@@ -259,7 +256,7 @@ impl App {
                 theme.secondary
             };
             let acknowledgement = row![
-                container(self.checkbox(ask.agreed, false)).padding(iced::Padding {
+                container(self.cx.look.checkbox(ask.agreed, false)).padding(iced::Padding {
                     top: 2.0,
                     ..iced::Padding::ZERO
                 }),

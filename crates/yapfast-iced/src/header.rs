@@ -448,7 +448,11 @@ impl App {
             buttons.push(self.members_toggle(members, shown));
         }
         if let Some(placeholder) = &header.search {
-            buttons.push(self.header_search(placeholder));
+            buttons.push(crate::search::header_search(
+                &self.searching,
+                placeholder,
+                self.ctx(),
+            ));
         }
         if !header.members_available && !header.profile_available && !header.members.is_empty() {
             buttons.push(

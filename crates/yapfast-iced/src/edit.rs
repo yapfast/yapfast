@@ -115,7 +115,7 @@ impl App {
             left: 6.0,
         })
         .suggesting(self.suggesting(Writing::Edit));
-        let tint = match &self.picker {
+        let tint = match self.picker.get() {
             Some(picker) if picker.target == Target::Edit => theme.text,
             _ => theme.secondary,
         };

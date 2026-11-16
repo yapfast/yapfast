@@ -17,6 +17,7 @@ use yapfast_core::application::Action;
 use crate::{
     app::{App, Message},
     controls::field,
+    ctx::{Ctx, Cx},
     fonts::MEDIUM,
     pictures::Icon,
     popover::{Popover, Side, Width},
@@ -36,28 +37,28 @@ pub enum Event {
     Close,
 }
 
-impl App {
-    pub fn select_event(&mut self, event: Event) -> Task<Message> {
-        match event {
-            Event::Open(item, custom_id) => {
-                self.client.dispatch(Action::OpenSelect { item, custom_id });
-                let searchable = self
-                    .client
-                    .state()
-                    .select_menu
-                    .as_ref()
-                    .is_some_and(|select| matches!(select.kind, 5..=8));
-                if searchable {
-                    return Task::batch([self.sync(), iced::widget::operation::focus(SEARCH)]);
-                }
+/// What's done in a select menu: the core holds it all.
+pub fn update(event: Event, cx: &mut Cx<'_>) -> Task<Message> {
+    match event {
+        Event::Open(item, custom_id) => {
+            cx.dispatch(Action::OpenSelect { item, custom_id });
+            let searchable = cx
+                .state()
+                .select_menu
+                .as_ref()
+                .is_some_and(|select| matches!(select.kind, 5..=8));
+            if searchable {
+                return iced::widget::operation::focus(SEARCH);
             }
-            Event::Toggle(index) => self.client.dispatch(Action::ToggleSelect(index)),
-            Event::Search(query) => self.client.dispatch(Action::SearchSelect(query)),
-            Event::Close => self.client.dispatch(Action::CloseSelect),
         }
-        self.sync()
+        Event::Toggle(index) => cx.dispatch(Action::ToggleSelect(index)),
+        Event::Search(query) => cx.dispatch(Action::SearchSelect(query)),
+        Event::Close => cx.dispatch(Action::CloseSelect),
     }
+    Task::none()
+}
 
+impl App {
     /// A menu's box, with its dropdown under it while it's the one open.
     pub fn select_with_dropdown<'a>(
         &'a self,
@@ -68,16 +69,19 @@ impl App {
         let open = self.client.state().select_menu.as_ref().filter(|select| {
             select.item == item && select.custom_id == custom_id && select.modal_field.is_none()
         });
-        Popover::new(boxed, open.map(|_| self.dropdown()), Side::Below)
+        Popover::new(boxed, open.map(|_| self.ctx().dropdown()), Side::Below)
             .width(Width::Same)
             .gap(4.0)
             .outside(Message::BotSelect(Event::Close))
             .into()
     }
+}
 
-    pub fn dropdown(&self) -> Element<'_, Message> {
-        let theme = &self.theme;
-        let state = self.client.state();
+impl<'a> Ctx<'a> {
+    /// The open select menu's options, under the box that opened it.
+    pub fn dropdown(self) -> Element<'a, Message> {
+        let theme = self.look.theme;
+        let state = self.state;
         let Some(select) = &state.select_menu else {
             return Space::new().into();
         };
@@ -118,7 +122,7 @@ impl App {
                 let on = choice.selected;
                 line = line.push(
                     container(if on {
-                        Element::from(self.glyph(Icon::Check, 14, theme.on_accent))
+                        Element::from(self.look.glyph(Icon::Check, 14, theme.on_accent))
                     } else {
                         Space::new().into()
                     })
@@ -134,7 +138,7 @@ impl App {
                     }),
                 );
             } else if choice.selected {
-                line = line.push(self.glyph(Icon::Check, 18, theme.accent));
+                line = line.push(self.look.glyph(Icon::Check, 18, theme.accent));
             }
             let (hover, sunken) = (theme.hover, theme.sunken);
             let picked = choice.selected && !several;
@@ -191,10 +195,9 @@ impl App {
 
     /// An option's emoji: a Unicode one's picture, or one of the message's
     /// custom emoji by `:name:`.
-    fn choice_emoji(&self, item: &str, emoji: &str) -> Element<'_, Message> {
+    fn choice_emoji(self, item: &str, emoji: &str) -> Element<'a, Message> {
         let custom = self
-            .client
-            .state()
+            .state
             .message(item)
             .and_then(|message| message.emoji.iter().find(|custom| custom.text == emoji));
         match custom.and_then(|custom| self.picture(&custom.picture, 18, 18, false)) {

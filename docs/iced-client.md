@@ -1346,30 +1346,48 @@ that keeps Escape is open, the window takes a captured Escape too.
 
 ## Screens
 
-A screen the window opens over the rest (Settings so far; the others are
-moving to it) keeps its own state in a type of its own and works on the
+A screen (Settings, a server's and a channel's settings, the profile
+editor, sign-in and the two-factor prompt, the dialogs, the switcher,
+the custom status, the picture viewer, the info cards and the picker;
+the other overlays and the main areas are moving to it) keeps its own state in a type of its own and works on the
 app's state only through what it's handed, so its code is its own and
 not the app's:
 
 - Its state lives in a `slot::Slot` on the app while it's open, and goes
   only through `Slot::close`, which runs its `Closes::close` with why
-  (`slot::Why`: the person, or the window going), so nothing it started
-  outlives it.
+  (`slot::Why`: the person, the core, or the window going), so nothing it
+  started outlives it. A screen the core opens (a server's or a channel's
+  settings, the profile editor: the core holds what they edit) follows the core with `Slot::follow` as the
+  window syncs: made as the core's state appears, closed with `Why::Core`
+  as it goes. The root's glue for each screen, its message, Escape and
+  follow, is in `app/screens.rs`. One whose state is small and kept
+  whether it shows or not (sign-in's fields, the two-factor prompt's
+  wait) is a plain field of the app instead, its `sync` handed the
+  core's state.
 - Its update (`Settings::update`, `open`, `show`, `escape`) works through
   a `ctx::Cx`: the core to dispatch to, what `layout.json` keeps, the
-  themes, the theme shown, which build this is. Dispatching or
+  themes, the theme shown, the window's size, which build this is. Dispatching or
   `Cx::touch` marks the window to sync; the update never syncs itself.
   What it needs outside itself it asks for with a `ctx::Request`, the one
-  list of what screens may ask: close itself, close the menus or the
-  call's popups, where the keys go, a title bar, a look at the releases,
+  list of what screens may ask: close a screen the window opened
+  (`Close(Screen)`), close the menus or the call's popups, someone's menu
+  where the pointer was pressed, an emoji picked placed where the picker
+  was opened for, the pictures in view as a list scrolls, where the keys go (the
+  composer's or nobody's, or a field by its id; the last asked wins), a title bar, a look at the releases,
   and `Changed` with a preference others show (`ctx::Pref`: the clock,
   the timeline's rows, the member list's, the keybinds, going idle,
   the theme, noise suppression).
 - Its view is a free function of its state and a `ctx::Ctx`
   (`settings::view`), with its parts on a view type of its own
-  (`settings::Page`) rather than on the app.
+  (`settings::Page`) rather than on the app. The profile editor's,
+  the account popover's and an app form's views are still the app's, as
+  they draw with the profile card's or the message body's parts, which
+  are too. What a screen hands back to the root (Ctrl+K over Settings,
+  an emoji's button opening the picker, a picture's menu) is decided in
+  its glue in `app/screens.rs` before its update runs.
 - After each message, `App::settle` (`app/settle.rs`) does what was
-  asked, in one pass: the requests (a close may ask more), each changed
+  asked, in passes while anything is asked or marked (at most four: a
+  sync may close a screen the core closed, whose close asks more), each the requests (a close may ask more), each changed
   preference once (the root's part, such as working the rows out again
   or watching the keybinds again, then each open screen's `changed`),
   the focus, a sync if anything was marked (after the focus, so a field

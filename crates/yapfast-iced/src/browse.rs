@@ -118,7 +118,7 @@ impl App {
             (_, "c") if !message.body.is_empty() => {
                 Some(iced::clipboard::write(message.body.clone()))
             }
-            (_, "f") if message.can_forward && self.forward_allowed() => {
+            (_, "f") if message.can_forward && crate::forward::allowed(self.client.state()) => {
                 act(self, MenuAct::Forward)
             }
             _ => None,

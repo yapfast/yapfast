@@ -59,7 +59,7 @@ impl App {
             .is_some_and(|menu| menu.item.as_ref() == Some(item))
             || self
                 .picker
-                .as_ref()
+                .get()
                 .is_some_and(|picker| matches!(&picker.target, crate::picker::Target::React(on, _) if on == item));
         let quick = self.modifiers.shift() && !open_here;
         let deletes = quick && message.can_delete && writes;
@@ -109,7 +109,7 @@ impl App {
             buttons = buttons.push(button(Icon::Reply, "Reply", act(MenuAct::Reply)));
         }
         // Beside Reply, as in Discord, whether or not Shift is held.
-        if message.can_forward && self.forward_allowed() {
+        if message.can_forward && crate::forward::allowed(self.client.state()) {
             buttons = buttons.push(button(Icon::Forward, "Forward", act(MenuAct::Forward)));
         }
         buttons = buttons.push(if deletes {

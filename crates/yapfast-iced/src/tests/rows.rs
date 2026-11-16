@@ -72,7 +72,7 @@ fn a_click_on_an_author_opens_that_messages_author_after_the_rows_moved() {
     for message in clicked {
         let _ = app.update(message);
     }
-    let card = app.card.as_ref().expect("a card");
+    let card = app.profiles.card.as_ref().expect("a card");
     assert_eq!(card.user, sender, "the clicked message's author's");
 }
 
@@ -122,7 +122,7 @@ fn a_click_on_a_member_opens_their_card_after_the_list_moved() {
     for message in clicked {
         let _ = app.update(message);
     }
-    let card = app.card.as_ref().expect("a card");
+    let card = app.profiles.card.as_ref().expect("a card");
     assert_eq!(card.user, riley, "Riley's");
 }
 
@@ -293,7 +293,7 @@ fn a_rows_menu_and_its_authors_card_open_by_its_message_under_any_head() {
     let mut cards = Vec::new();
     for (row, name) in names.iter().enumerate() {
         let _ = app.open_author(row);
-        cards.push(app.card.take().expect("a card").at.y - name);
+        cards.push(app.profiles.card.take().expect("a card").at.y - name);
     }
     assert!(
         cards.iter().all(|card| (card - cards[1]).abs() < 0.5),

@@ -28,13 +28,15 @@ use yapfast_core::{
 };
 
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{self, Kind, action},
+    ctx::{Ctx, Cx, Focus, Request},
     fonts::{BOLD, SEMIBOLD},
     form::{self, Tri},
     pictures::Icon,
     server_settings::roles::role_colour,
     sheet::{Nav, sheet},
+    slot::{Closes, Slot, Why},
     style::{rounded, scrollbar},
 };
 
@@ -111,89 +113,53 @@ fn overwrite_state(tri: Tri) -> OverwriteState {
     }
 }
 
-impl App {
-    fn channel_core(&self) -> Option<&ChannelSettingsScreen> {
-        self.client.state().channel_settings.as_ref()
+impl Screen {
+    /// The settings open on `room`: the composer lets go of the keys
+    /// under them.
+    fn open(room: String, cx: &mut Cx<'_>) -> Self {
+        cx.request(Request::Focus(Focus::Nobody));
+        Self {
+            room,
+            ..Self::default()
+        }
     }
 
-    /// Takes in the core's settings: the screen comes and goes with them,
-    /// the bar shakes when leaving was refused, and Add's search takes the
-    /// keys as it opens.
-    pub fn channel_settings_sync(&mut self) -> Task<Message> {
-        let Some(core) = self.client.state().channel_settings.as_ref() else {
-            self.channel_screen = None;
-            return Task::none();
-        };
-        let (room, nudge) = (core.room.clone(), core.nudge);
+    /// Takes in the core's settings: the bar shakes when leaving was
+    /// refused, and Add's search takes the keys as it opens.
+    fn sync(&mut self, core: &ChannelSettingsScreen) -> Task<Message> {
         let adding = core.permissions.adding.is_some();
         let mut tasks = vec![];
-        if self
-            .channel_screen
-            .as_ref()
-            .is_none_or(|screen| screen.room != room)
-        {
-            self.channel_screen = Some(Box::new(Screen {
-                room,
-                ..Screen::default()
-            }));
-            // The composer lets go of the keys under the settings.
-            tasks.push(operation::focus(crate::app::NOBODY));
-        }
-        let Some(screen) = self.channel_screen.as_mut() else {
-            return Task::none();
-        };
-        if screen.adding != adding {
-            screen.adding = adding;
+        if self.adding != adding {
+            self.adding = adding;
             if adding {
                 tasks.push(operation::focus(iced::widget::Id::new(ADD_SEARCH)));
             }
         }
-        tasks.push(screen.shake.start(nudge, shake));
+        tasks.push(self.shake.start(core.nudge, shake));
         Task::batch(tasks)
     }
 
-    /// The avatars Add's members show.
-    pub fn channel_settings_pictures(&self) -> Vec<String> {
-        self.channel_core()
-            .and_then(|core| core.permissions.adding.as_ref())
-            .into_iter()
-            .flat_map(|adding| &adding.found)
-            .map(|member| member.avatar.clone())
-            .filter(|url| !url.is_empty())
-            .collect()
-    }
-
-    pub fn channel_settings_event(&mut self, event: Event) -> Task<Message> {
-        if self.channel_screen.is_none() {
-            return Task::none();
-        }
+    pub fn update(&mut self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
         match event {
             Event::Input(input) => {
                 let page = matches!(input, ChannelInput::Section(_));
-                self.client.dispatch(Action::ChannelSettings(input));
-                let mut tasks = vec![self.sync()];
+                cx.dispatch(Action::ChannelSettings(input));
                 if page {
-                    tasks.push(operation::snap_to(
+                    return operation::snap_to(
                         iced::widget::Id::new(crate::sheet::PAGE),
                         iced::widget::scrollable::RelativeOffset::START,
-                    ));
+                    );
                 }
-                if self.channel_screen.is_none() {
-                    tasks.push(self.refocus());
-                }
-                Task::batch(tasks)
+                Task::none()
             }
-            Event::Shake(step) => self
-                .channel_screen
-                .as_mut()
-                .map_or_else(Task::none, |screen| screen.shake.step(step, shake)),
+            Event::Shake(step) => self.shake.step(step, shake),
         }
     }
 
     /// Escape in the settings: Add's picker closes, then the question, then
     /// the settings (unless they have changes, which shakes the bar).
-    pub fn channel_settings_escape(&mut self) -> Task<Message> {
-        let Some(core) = self.channel_core() else {
+    pub fn escape(&mut self, cx: &mut Cx<'_>) -> Task<Message> {
+        let Some(core) = cx.state().channel_settings.as_ref() else {
             return Task::none();
         };
         let close = if core.permissions.adding.is_some() {
@@ -203,12 +169,66 @@ impl App {
         } else {
             ChannelInput::Close
         };
-        self.channel_settings_event(Event::Input(close))
+        self.update(Event::Input(close), cx)
     }
+}
 
+impl Closes for Screen {
+    /// The keys go back to where they were, unless the window went.
+    fn close(self, cx: &mut Cx<'_>, why: Why) {
+        if why != Why::Window {
+            cx.request(Request::Focus(Focus::Default));
+        }
+    }
+}
+
+/// The screen follows the core's settings: made as they open (or open on
+/// another channel), closed as they close.
+pub fn follow(slot: &mut Slot<Screen>, cx: &mut Cx<'_>) -> Task<Message> {
+    let key = cx
+        .state()
+        .channel_settings
+        .as_ref()
+        .map(|core| core.room.clone());
+    let Some(screen) = slot.follow(key, cx, |screen, room| screen.room == *room, Screen::open)
+    else {
+        return Task::none();
+    };
+    match cx.state().channel_settings.as_ref() {
+        Some(core) => screen.sync(core),
+        None => Task::none(),
+    }
+}
+
+/// The avatars Add's members show.
+pub fn pictures(state: &yapfast_core::application::AppState) -> impl Iterator<Item = String> + '_ {
+    state
+        .channel_settings
+        .as_ref()
+        .and_then(|core| core.permissions.adding.as_ref())
+        .into_iter()
+        .flat_map(|adding| &adding.found)
+        .map(|member| member.avatar.clone())
+        .filter(|url| !url.is_empty())
+}
+
+/// The settings over the dimmed window, with what's open over them.
+pub fn view<'a>(screen: &'a Screen, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
+    let core = cx.state.channel_settings.as_ref()?;
+    Some(View { s: screen, cx }.view(core))
+}
+
+/// The settings' state and what they read, as their parts draw them.
+#[derive(Clone, Copy)]
+struct View<'a> {
+    s: &'a Screen,
+    cx: Ctx<'a>,
+}
+
+impl<'a> View<'a> {
     /// The channel as its settings name it: a text channel with its `#`.
-    fn channel_label(&self, core: &ChannelSettingsScreen) -> String {
-        let title = self.client.app.channel_title(&core.room);
+    fn channel_label(self, core: &ChannelSettingsScreen) -> String {
+        let title = self.cx.app.channel_title(&core.room);
         if core.kind == ChannelKind::Text {
             format!("#{title}")
         } else {
@@ -217,11 +237,10 @@ impl App {
     }
 
     /// The settings over the dimmed window, with what's open over them.
-    pub fn channel_settings_view(&self) -> Option<Element<'_, Message>> {
-        let core = self.channel_core()?;
-        let screen = self.channel_screen.as_deref()?;
-        let theme = &self.theme;
-        let app = &self.client.app;
+    fn view(self, core: &'a ChannelSettingsScreen) -> Element<'a, Message> {
+        let screen = self.s;
+        let theme = self.cx.look.theme;
+        let app = &self.cx.app;
         let label = self.channel_label(core);
         let mut nav = vec![Nav::Heading(label.to_uppercase().into())];
         for section in app.channel_sections(&core.room) {
@@ -287,7 +306,7 @@ impl App {
         let frame = sheet(nav, page, input(ChannelInput::Close), "Channel settings")
             .bar(bar)
             .fill(permissions)
-            .view(self.look());
+            .view(self.cx.look);
         let mut layers = iced::widget::stack![frame];
         if let Some(confirm) = &core.permissions.confirm {
             layers = layers.push(self.overwrite_confirm(core, confirm, label));
@@ -295,13 +314,13 @@ impl App {
         if core.permissions.adding.is_some() {
             layers = layers.push(self.add_overwrite(core));
         }
-        Some(layers.into())
+        layers.into()
     }
 
     /// Overview: the name, and a text channel's topic, slowmode and age
     /// restriction.
-    fn channel_overview<'a>(&'a self, core: &'a ChannelSettingsScreen) -> Element<'a, Message> {
-        let theme = &self.theme;
+    fn channel_overview(self, core: &'a ChannelSettingsScreen) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         let Some((_, draft)) = &core.overview else {
             return Space::new().into();
         };
@@ -344,14 +363,14 @@ impl App {
                 form::group([
                     form::heading(theme, "SLOWMODE"),
                     row![
-                        self.look().icon_button(Icon::ChevronLeft, "Shorter slowmode", Some(to(step.saturating_sub(1)))).size(STEP, STEP_GLYPH).fill(iced::Color::TRANSPARENT),
+                        self.cx.look.icon_button(Icon::ChevronLeft, "Shorter slowmode", Some(to(step.saturating_sub(1)))).size(STEP, STEP_GLYPH).fill(iced::Color::TRANSPARENT),
                         container(
                             text(SLOWMODE_NAMES[step.min(SLOWMODE_NAMES.len() - 1)])
                                 .size(15)
                                 .color(theme.text)
                         )
                         .center_x(SLOWMODE_SHOWN),
-                        self.look().icon_button(Icon::ChevronRight, "Longer slowmode", Some(to((step + 1).min(SLOWMODES.len() - 1)))).size(STEP, STEP_GLYPH).fill(iced::Color::TRANSPARENT),
+                        self.cx.look.icon_button(Icon::ChevronRight, "Longer slowmode", Some(to((step + 1).min(SLOWMODES.len() - 1)))).size(STEP, STEP_GLYPH).fill(iced::Color::TRANSPARENT),
                     ]
                     .spacing(form::TIGHT)
                     .align_y(Alignment::Center)
@@ -369,7 +388,7 @@ impl App {
                 .description(
                     "Users will need to confirm they are of over legal age to view the content in this channel. Age-restricted channels are exempt from the explicit content filter.",
                 )
-                .view(self.look()),
+                .view(self.cx.look),
             ]);
         }
         column(parts)
@@ -380,9 +399,9 @@ impl App {
 
     /// Permissions: the sync notice, Private Channel, and the overwrites
     /// beside the shown one's permissions.
-    fn channel_permissions<'a>(&'a self, core: &'a ChannelSettingsScreen) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let app = &self.client.app;
+    fn channel_permissions(self, core: &'a ChannelSettingsScreen) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let app = &self.cx.app;
         let room = &core.room;
         let page = &core.permissions;
         let rules = app.overwrite_rules(room);
@@ -480,7 +499,7 @@ impl App {
         let raised = theme.raised;
         parts = parts
             .push(
-                container(switch.view(self.look()))
+                container(switch.view(self.cx.look))
                     .padding(14)
                     .width(Length::Fill)
                     .style(move |_| rounded(raised, 8)),
@@ -505,7 +524,7 @@ impl App {
                 let on: Option<&dyn Fn(Tri) -> Message> = ready.then_some(&chose);
                 list = list.push(
                     container(form::tri_line(
-                        self.look(),
+                        self.cx.look,
                         title,
                         description,
                         tri(Overwrites::state(&shown, bit)),
@@ -545,13 +564,13 @@ impl App {
 
     /// The roles and members with an overwrite, the shown one lit, under
     /// their heading and Add.
-    fn overwrite_list<'a>(
-        &'a self,
+    fn overwrite_list(
+        self,
         core: &'a ChannelSettingsScreen,
         ready: bool,
     ) -> iced::widget::Column<'a, Message> {
-        let theme = &self.theme;
-        let app = &self.client.app;
+        let theme = self.cx.look.theme;
+        let app = &self.cx.app;
         let page = &core.permissions;
         let roles = app.server_roles(&core.room);
         let head = row![
@@ -560,7 +579,8 @@ impl App {
                 .font(BOLD)
                 .color(theme.muted)
                 .width(Length::Fill),
-            self.look()
+            self.cx
+                .look
                 .icon_button(
                     Icon::CirclePlus,
                     "Add a role or member",
@@ -590,16 +610,16 @@ impl App {
     }
 
     /// A role's or member's row: its colour's dot or a person, its name.
-    fn overwrite_row<'a>(
-        &'a self,
+    fn overwrite_row(
+        self,
         overwrite: &ChannelOverwrite,
         name: String,
         colour: Option<u32>,
         selected: bool,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let mark: Element<'a, Message> = if overwrite.member {
-            self.glyph(Icon::User, 14, theme.muted).into()
+            self.cx.look.glyph(Icon::User, 14, theme.muted).into()
         } else {
             dot(role_colour(colour.unwrap_or(0)))
         };
@@ -638,14 +658,14 @@ impl App {
 
     /// What Permissions asks before removing an overwrite or syncing, or
     /// tells when a change would take a permission from this account.
-    fn overwrite_confirm<'a>(
-        &'a self,
+    fn overwrite_confirm(
+        self,
         core: &'a ChannelSettingsScreen,
         confirm: &'a OverwriteConfirm,
         channel: String,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let app = &self.client.app;
+        let theme = self.cx.look.theme;
+        let app = &self.cx.app;
         let category = app
             .sync_category(&core.room)
             .map(|(_, name)| name)
@@ -724,9 +744,9 @@ impl App {
 
     /// Add's picker: the roles without an overwrite, then the members
     /// found by what's typed; one chosen is added at once.
-    fn add_overwrite<'a>(&'a self, core: &'a ChannelSettingsScreen) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let app = &self.client.app;
+    fn add_overwrite(self, core: &'a ChannelSettingsScreen) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let app = &self.cx.app;
         let Some(adding) = &core.permissions.adding else {
             return Space::new().into();
         };
@@ -794,7 +814,7 @@ impl App {
             list = list.push(
                 self.add_row(
                     row![
-                        self.avatar(
+                        self.cx.avatar(
                             Some(member.avatar.as_str()).filter(|url| !url.is_empty()),
                             &member.name,
                             MEMBER_AVATAR,
@@ -833,13 +853,13 @@ impl App {
         .spacing(12)
         .padding(16)
         .height(Length::Fill);
-        let height = ADD_HEIGHT.min(self.window.height - ADD_ROOM);
+        let height = ADD_HEIGHT.min(self.cx.look.window.height - ADD_ROOM);
         crate::dialog::panel(theme, body.into(), ADD_WIDTH, Some(height), close)
     }
 
     /// A row of Add's picker, lit under the pointer.
-    fn add_row<'a>(
-        &self,
+    fn add_row(
+        self,
         face: Element<'a, Message>,
         height: f32,
         padding: Padding,
@@ -854,7 +874,7 @@ impl App {
         .width(Length::Fill)
         .height(height)
         .on_press(press)
-        .style(controls::lit_style(None, self.theme.hover, 4.0))
+        .style(controls::lit_style(None, self.cx.look.theme.hover, 4.0))
         .into()
     }
 }

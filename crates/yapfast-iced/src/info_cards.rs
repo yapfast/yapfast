@@ -14,13 +14,14 @@ use iced::{
     widget::{button, column, container, opaque, row, stack, text},
 };
 use yapfast_core::{
-    application::{Action, Navigation},
+    application::{Action, Application, Navigation},
     emoji::card::{self as expression, Target},
 };
 
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{self, Kind},
+    ctx::{Ctx, Cx},
     elide::elide,
     fonts::{BOLD, MEDIUM, SEMIBOLD},
     media::{Fit, Shot},
@@ -109,101 +110,98 @@ pub fn frame<'a>(
         })
 }
 
-impl App {
-    pub fn info_event(&mut self, event: Event) -> Task<Message> {
+/// The mutual server whose card is open, as the profile lists it.
+fn card_server<'a>(
+    cards: &Cards,
+    profiles: &'a crate::profile::Profiles,
+) -> Option<&'a yapfast_core::chat::ProfileServer> {
+    let (id, _) = cards.server.as_ref()?;
+    let shown = profiles.shown.as_ref()?;
+    shown
+        .look
+        .profile()
+        .servers
+        .iter()
+        .find(|server| &server.id == id)
+}
+
+/// What the open emoji's or sticker's card says, from the core.
+fn expression_card(app: &Application, expression: &Expression) -> Option<expression::Card> {
+    match expression {
+        Expression::Emoji(target) => Some(expression::emoji_for(app, target)),
+        Expression::Sticker(item, index) => expression::sticker(&app.state, item, *index),
+    }
+}
+
+impl Cards {
+    /// What's done on the cards. Someone on a role's card, a mutual
+    /// server's and a sticker's open at the press, which the root has
+    /// (`App::info_event`).
+    pub fn update(&mut self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
         match event {
             Event::CloseRole => {
-                self.cards.role_at = None;
-                self.client.dispatch(Action::CloseRole);
+                self.role_at = None;
+                cx.dispatch(Action::CloseRole);
             }
-            Event::RoleMember(user) => {
-                let at = self.pressed.get();
-                return self.open_card(user, Point::new(at.x + 8.0, at.y));
-            }
-            Event::Server(server) => {
-                self.cards.server = Some((server, self.pressed.get()));
-                return self.ask();
-            }
-            Event::CloseServer => self.cards.server = None,
-            Event::Sticker(item, index) => {
-                return self.show_expression(Expression::Sticker(item, index));
-            }
-            Event::CloseExpression => self.cards.expression = None,
+            Event::CloseServer => self.server = None,
+            Event::CloseExpression => self.expression = None,
             Event::OpenServer(server) => {
-                self.cards.expression = None;
-                self.client
-                    .dispatch(Action::Navigate(Navigation::Server(server)));
+                self.expression = None;
+                cx.dispatch(Action::Navigate(Navigation::Server(server)));
             }
             Event::GoToServer(server) => {
-                self.cards.server = None;
-                self.client.dispatch(Action::CloseProfile);
-                self.card = None;
-                self.client
-                    .dispatch(Action::Navigate(Navigation::Server(server)));
+                self.server = None;
+                cx.dispatch(Action::CloseProfile);
+                cx.dispatch(Action::Navigate(Navigation::Server(server)));
             }
+            Event::RoleMember(_) | Event::Server(_) | Event::Sticker(..) => {}
         }
-        self.sync()
+        cx.touch();
+        Task::none()
     }
 
     /// A role mention clicked at `at`: its card there.
-    pub fn show_role(&mut self, role: String, at: Point) -> Task<Message> {
-        self.client.dispatch(Action::ShowRole(role));
-        self.cards.role_at = Some(Point::new(at.x + 8.0, at.y - 8.0));
-        Task::batch([
-            self.sync(),
-            iced::widget::operation::focus(crate::app::NOBODY),
-        ])
+    pub fn show_role(&mut self, role: String, at: Point, cx: &mut Cx<'_>) -> Task<Message> {
+        cx.dispatch(Action::ShowRole(role));
+        self.role_at = Some(Point::new(at.x + 8.0, at.y - 8.0));
+        iced::widget::operation::focus(crate::app::NOBODY)
     }
 
-    /// An emoji's or sticker's card, under what was pressed
-    /// (`App::link_spot`, from the press), as the Slint client's: its server's card asks
-    /// Discord how many are online there, and shows it when it answers.
-    pub fn show_expression(&mut self, expression: Expression) -> Task<Message> {
-        let card = self.expression_card(&expression);
+    /// An emoji's or sticker's card under `spot`, in the window, as the
+    /// Slint client's: its server's card asks Discord how many are online
+    /// there, and shows it when it answers.
+    pub fn show_expression(
+        &mut self,
+        expression: Expression,
+        spot: Rectangle,
+        cx: &mut Cx<'_>,
+    ) -> Task<Message> {
+        let card = expression_card(&cx.client.app, &expression);
         if let Some(server) = card.and_then(|card| card.server) {
-            self.client.dispatch(Action::PreviewServer(server.id));
+            cx.dispatch(Action::PreviewServer(server.id));
         }
-        self.cards.expression = Some((expression, self.pressed_spot(self.link_spot.get())));
-        Task::batch([
-            self.sync(),
-            iced::widget::operation::focus(crate::app::NOBODY),
-        ])
+        self.expression = Some((expression, spot));
+        iced::widget::operation::focus(crate::app::NOBODY)
     }
 
-    /// A place noted from the press (`widgets::Spot::by_press`, a link's
-    /// in text), in the window.
-    pub fn pressed_spot(&self, from_press: Rectangle) -> Rectangle {
-        from_press + (self.pressed.get() - Point::ORIGIN)
-    }
-
-    /// What the open emoji's or sticker's card says, from the core.
     /// Lets go of the cards whose subject went (a sticker's message
     /// deleted, the profile listing a mutual server closed): drawn as
     /// nothing, they'd still hold the keys and take the next Escape.
-    pub fn info_sync(&mut self) {
-        if let Some((expression, _)) = &self.cards.expression
-            && self.expression_card(expression).is_none()
+    pub fn sync(&mut self, app: &Application, profiles: &crate::profile::Profiles) {
+        if let Some((expression, _)) = &self.expression
+            && expression_card(app, expression).is_none()
         {
-            self.cards.expression = None;
+            self.expression = None;
         }
-        if self.cards.server.is_some() && self.card_server().is_none() {
-            self.cards.server = None;
-        }
-    }
-
-    fn expression_card(&self, expression: &Expression) -> Option<expression::Card> {
-        match expression {
-            Expression::Emoji(target) => Some(expression::emoji_for(&self.client.app, target)),
-            Expression::Sticker(item, index) => {
-                expression::sticker(self.client.state(), item, *index)
-            }
+        if self.server.is_some() && card_server(self, profiles).is_none() {
+            self.server = None;
         }
     }
 
     /// The pictures the cards show, for the pictures asked for.
-    pub fn info_card_pictures(&self) -> Vec<String> {
+    pub fn pictures(&self, app: &Application, profiles: &crate::profile::Profiles) -> Vec<String> {
         let mut urls = Vec::new();
-        if let Some(role) = &self.client.state().role {
+        if let Some(role) = &app.state.role {
             urls.extend(
                 role.members
                     .iter()
@@ -211,12 +209,12 @@ impl App {
                     .filter_map(|member| member.avatar.clone()),
             );
         }
-        if let Some(server) = self.card_server() {
+        if let Some(server) = card_server(self, profiles) {
             urls.extend(server.icon.clone());
             urls.extend(server.banner.clone());
         }
-        if let Some((expression, _)) = &self.cards.expression
-            && let Some(card) = self.expression_card(expression)
+        if let Some((expression, _)) = &self.expression
+            && let Some(card) = expression_card(app, expression)
         {
             // A sticker's picture is its message's, which the timeline has.
             if matches!(expression, Expression::Emoji(_)) {
@@ -226,9 +224,61 @@ impl App {
         }
         urls
     }
+}
 
+/// A role's card over a layer that closes it on a click outside.
+pub fn role_layers<'a>(
+    cards: &'a Cards,
+    profiles: &'a crate::profile::Profiles,
+    cx: Ctx<'a>,
+) -> Option<[Element<'a, Message>; 2]> {
+    View {
+        s: cards,
+        profiles,
+        cx,
+    }
+    .role_card_layers()
+}
+
+/// A mutual server's card, the same way.
+pub fn server_layers<'a>(
+    cards: &'a Cards,
+    profiles: &'a crate::profile::Profiles,
+    cx: Ctx<'a>,
+) -> Option<[Element<'a, Message>; 2]> {
+    View {
+        s: cards,
+        profiles,
+        cx,
+    }
+    .server_card_layers()
+}
+
+/// An emoji's or sticker's card, the same way.
+pub fn expression_layers<'a>(
+    cards: &'a Cards,
+    profiles: &'a crate::profile::Profiles,
+    cx: Ctx<'a>,
+) -> Option<[Element<'a, Message>; 2]> {
+    View {
+        s: cards,
+        profiles,
+        cx,
+    }
+    .expression_card_layers()
+}
+
+/// The cards' state and what they read, as their parts draw them.
+#[derive(Clone, Copy)]
+struct View<'a> {
+    s: &'a Cards,
+    profiles: &'a crate::profile::Profiles,
+    cx: Ctx<'a>,
+}
+
+impl<'a> View<'a> {
     /// An emoji's or sticker's card, the same way.
-    pub fn expression_card_layers(&self) -> Option<[Element<'_, Message>; 2]> {
+    fn expression_card_layers(self) -> Option<[Element<'a, Message>; 2]> {
         let card = self.expression_view()?;
         Some([
             controls::outside(Message::Info(Event::CloseExpression), false),
@@ -236,17 +286,17 @@ impl App {
         ])
     }
 
-    fn expression_view(&self) -> Option<Element<'_, Message>> {
-        let (expression, spot) = self.cards.expression.as_ref()?;
-        let card = self.expression_card(expression)?;
-        let theme = &self.theme;
-        let state = self.client.state();
+    fn expression_view(self) -> Option<Element<'a, Message>> {
+        let (expression, spot) = self.s.expression.as_ref()?;
+        let card = expression_card(self.cx.app, expression)?;
+        let theme = self.cx.look.theme;
+        let state = self.cx.state;
         let side = EXPRESSION_PICTURE;
         let size = Size::new(side, side);
-        let picture: Element<'_, Message> = match expression {
+        let picture: Element<'a, Message> = match expression {
             Expression::Emoji(Target::Unicode(emoji)) => {
                 match emojis::get(emoji).map(emojis::Emoji::as_str) {
-                    Some(key) if let Some(picture) = self.emoji_picture(key, side as u32) => {
+                    Some(key) if let Some(picture) = self.cx.emoji_picture(key, side as u32) => {
                         crate::widgets::Pic::square(picture, side).into()
                     }
                     _ => container(text(emoji.clone()).size(EXPRESSION_GLYPH))
@@ -259,14 +309,16 @@ impl App {
                     .picture
                     .as_deref()
                     .and_then(|url| state.pictures.get(url));
-                self.shot(Shot::new(picture, size).fit(Fit::Contain).bare())
+                self.cx
+                    .shot(Shot::new(picture, size).fit(Fit::Contain).bare())
             }
             Expression::Sticker(item, index) => {
                 let picture = state
                     .message(item)
                     .and_then(|message| message.attachments.get(*index))
                     .and_then(|attachment| attachment.preview.as_ref());
-                self.shot(Shot::new(picture, size).fit(Fit::Contain).bare())
+                self.cx
+                    .shot(Shot::new(picture, size).fit(Fit::Contain).bare())
             }
         };
         let words = column![
@@ -303,13 +355,13 @@ impl App {
         &self,
         server: expression::CardServer,
         sticker: bool,
-    ) -> Element<'_, Message> {
-        let theme = &self.theme;
+    ) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         let icon_side = EXPRESSION_ICON;
         let picture = server
             .icon
             .as_deref()
-            .and_then(|url| self.client.state().pictures.get(url));
+            .and_then(|url| self.cx.state.pictures.get(url));
         // A sticker's card shows the icon as it is, or a round letter; an
         // emoji's rounds the icon's corners.
         let (radius, ground, weight) = if sticker {
@@ -317,8 +369,8 @@ impl App {
         } else {
             (8.0, theme.field, BOLD)
         };
-        let icon: Element<'_, Message> = match picture {
-            Some(picture) => self.shot(
+        let icon: Element<'a, Message> = match picture {
+            Some(picture) => self.cx.shot(
                 Shot::new(Some(picture), Size::new(icon_side, icon_side))
                     .fit(if sticker { Fit::Contain } else { Fit::Cover })
                     .radius(if sticker { 0.0 } else { radius })
@@ -382,7 +434,7 @@ impl App {
     }
 
     /// A role's card over a layer that closes it on a click outside.
-    pub fn role_card_layers(&self) -> Option<[Element<'_, Message>; 2]> {
+    fn role_card_layers(self) -> Option<[Element<'a, Message>; 2]> {
         let card = self.role_card()?;
         Some([
             controls::outside(Message::Info(Event::CloseRole), false),
@@ -391,7 +443,7 @@ impl App {
     }
 
     /// A mutual server's card, the same way.
-    pub fn server_card_layers(&self) -> Option<[Element<'_, Message>; 2]> {
+    fn server_card_layers(self) -> Option<[Element<'a, Message>; 2]> {
         let card = self.server_card()?;
         Some([
             controls::outside(Message::Info(Event::CloseServer), false),
@@ -399,10 +451,10 @@ impl App {
         ])
     }
 
-    fn role_card(&self) -> Option<Element<'_, Message>> {
-        let role = self.client.state().role.as_ref()?;
-        let at = self.cards.role_at?;
-        let theme = &self.theme;
+    fn role_card(self) -> Option<Element<'a, Message>> {
+        let role = self.cx.state.role.as_ref()?;
+        let at = self.s.role_at?;
+        let theme = self.cx.look.theme;
         let ink = role.color.map(crate::style::hex);
         let dot = controls::bar(ink.unwrap_or(theme.muted), 12, 12).style({
             let ink = ink.unwrap_or(theme.muted);
@@ -435,7 +487,7 @@ impl App {
             let mut list = column![];
             for member in members {
                 let face = row![
-                    self.avatar(
+                    self.cx.avatar(
                         member.avatar.as_deref(),
                         &member.name,
                         ROLE_AVATAR,
@@ -461,32 +513,20 @@ impl App {
             let tall = (members.len() as f32 * ROLE_ROW).min(ROLE_LIST);
             card = card.push(scroll_view(list).height(tall).style(scrollbar(theme)));
         }
-        let limit = self.window.height - 16.0;
+        let limit = self.cx.look.window.height - 16.0;
         let card = frame(theme, theme.raised, ROLE_WIDTH, 8.0, card).max_height(limit);
         Some(Place::new(opaque(card), at, 8.0).into())
     }
 
-    /// The mutual server whose card is open, as the profile lists it.
-    fn card_server(&self) -> Option<&yapfast_core::chat::ProfileServer> {
-        let (id, _) = self.cards.server.as_ref()?;
-        let shown = self.profiles.shown.as_ref()?;
-        shown
-            .look
-            .profile()
-            .servers
-            .iter()
-            .find(|server| &server.id == id)
-    }
-
-    fn server_card(&self) -> Option<Element<'_, Message>> {
-        let server = self.card_server()?;
-        let (_, at) = self.cards.server.as_ref()?;
-        let theme = &self.theme;
-        let picture = |url: Option<&str>| url.and_then(|url| self.client.state().pictures.get(url));
+    fn server_card(self) -> Option<Element<'a, Message>> {
+        let server = card_server(self.s, self.profiles)?;
+        let (_, at) = self.s.server.as_ref()?;
+        let theme = self.cx.look.theme;
+        let picture = |url: Option<&str>| url.and_then(|url| self.cx.state.pictures.get(url));
         let banner_size = Size::new(SERVER_WIDTH - 2.0, SERVER_BANNER);
         let raised = theme.raised;
-        let banner: Element<'_, Message> = match picture(server.banner.as_deref()) {
-            Some(banner) => self.shot(Shot {
+        let banner: Element<'a, Message> = match picture(server.banner.as_deref()) {
+            Some(banner) => self.cx.shot(Shot {
                 picture: Some(banner),
                 size: banner_size,
                 fit: Fit::Cover,
@@ -496,8 +536,8 @@ impl App {
             }),
             None => controls::bar(raised, banner_size.width, banner_size.height).into(),
         };
-        let icon: Element<'_, Message> = match picture(server.icon.as_deref()) {
-            Some(icon) => self.shot(Shot {
+        let icon: Element<'a, Message> = match picture(server.icon.as_deref()) {
+            Some(icon) => self.cx.shot(Shot {
                 picture: Some(icon),
                 size: Size::new(SERVER_ICON, SERVER_ICON),
                 fit: Fit::Cover,

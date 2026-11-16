@@ -303,16 +303,17 @@ impl App {
         if searchable {
             // The header's search box, across the room New Post leaves.
             top = top.push(
-                self.search_field(
-                    SEARCH,
-                    "Search posts",
-                    &self.forum_post.query,
-                    |query| Message::Forum(Event::Query(query)),
-                    Message::Forum(Event::Search),
-                    Message::Forum(Event::Query(String::new())),
-                )
-                .width(Length::Fill)
-                .height(SEARCH_HEIGHT),
+                self.ctx()
+                    .search_field(
+                        SEARCH,
+                        "Search posts",
+                        &self.forum_post.query,
+                        |query| Message::Forum(Event::Query(query)),
+                        Message::Forum(Event::Search),
+                        Message::Forum(Event::Query(String::new())),
+                    )
+                    .width(Length::Fill)
+                    .height(SEARCH_HEIGHT),
             );
         } else {
             top = top.push(Space::new().width(Length::Fill));

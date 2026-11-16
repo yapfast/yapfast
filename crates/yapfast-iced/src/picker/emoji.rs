@@ -26,17 +26,19 @@ use iced::{
 };
 use yapfast_core::{
     application::Action,
+    application::Application,
     chat::{CustomEmoji, EmojiSet},
     emoji as names,
 };
 
 use super::{
-    Event, Picker, Target,
+    Event, Picker, Target, View,
     kit::{self, Grid, Scroll},
 };
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::lit_style,
+    ctx::{Cx, Request},
     paint, pictures,
     pictures::Icon,
     widgets::Pic,
@@ -220,27 +222,27 @@ impl Lists {
     }
 }
 
-impl App {
+impl Picker {
     /// The account's favourites and most used, and the servers' emoji, for
     /// the picker's target.
-    fn emoji_lists(&self, picker: &Picker) -> Lists {
-        let query = picker.field.text().trim().trim_matches(':').to_lowercase();
-        let sets = self.client.app.emoji_sets();
+    fn emoji_lists(&self, app: &Application) -> Lists {
+        let query = self.field.text().trim().trim_matches(':').to_lowercase();
+        let sets = app.emoji_sets();
         let (favorites, frequent) = if query.is_empty() {
             let by_id: HashMap<&str, &CustomEmoji> = sets
                 .iter()
                 .flat_map(|set| &set.emoji)
                 .map(|emoji| (emoji.id.as_str(), emoji))
                 .collect();
-            let lists = &self.client.state().discord_emojis;
-            let used = match picker.target {
+            let lists = &app.state.discord_emojis;
+            let used = match self.target {
                 Target::React(..) => &lists.reactions,
                 Target::Composer | Target::Edit | Target::Status(_) | Target::Poll(..) => {
                     &lists.frequent
                 }
             };
             let mut frequent = names::discord_keys(used, &by_id);
-            for key in self.client.app.frequent_reactions(16) {
+            for key in app.frequent_reactions(16) {
                 if !frequent.iter().any(|(known, _)| *known == key) {
                     frequent.push((key, true));
                 }
@@ -259,15 +261,10 @@ impl App {
 
     /// Lays the grid out again when what it shows changed, as `emoji::rows`
     /// lays the Slint client's out.
-    pub(super) fn build_emoji(&mut self) {
-        let Some(picker) = &self.picker else {
-            return;
-        };
-        let lists = self.emoji_lists(picker);
+    pub(super) fn build_emoji(&mut self, cx: &mut Cx<'_>) {
+        let lists = self.emoji_lists(&cx.client.app);
         let signature = lists.signature();
-        let Some(picker) = &mut self.picker else {
-            return;
-        };
+        let picker = &mut *self;
         if picker.built == signature {
             return;
         }
@@ -410,36 +407,36 @@ impl App {
         picker.hover = None;
     }
 
-    pub(super) fn emoji_search(&mut self, _text: String) -> Task<Message> {
-        self.build_emoji();
-        Task::batch([self.scroll_grid(0.0), self.ask()])
+    pub(super) fn emoji_search(&mut self, _text: String, cx: &mut Cx<'_>) -> Task<Message> {
+        self.build_emoji(cx);
+        {
+            cx.request(Request::Ask);
+            self.scroll_grid(0.0)
+        }
     }
 
     fn emoji_cell(&self, index: usize) -> Option<(&Face, bool)> {
-        let tab = self.picker.as_ref()?.emoji.as_ref()?;
+        let tab = self.emoji.as_ref()?;
         match &tab.grid.tiles.get(index)?.item {
             Item::Cell { face, usable, .. } => Some((face, *usable)),
             Item::Heading(_) => None,
         }
     }
 
-    pub(super) fn emoji_pick(&mut self, index: usize) -> Task<Message> {
+    pub(super) fn emoji_pick(&mut self, index: usize, cx: &mut Cx<'_>) -> Task<Message> {
         match self.emoji_cell(index) {
             Some((face, true)) => {
                 let key = face.key();
-                self.place_emoji(key)
+                self.place_emoji(key, cx)
             }
             _ => Task::none(),
         }
     }
 
     /// Enter picks the first match.
-    pub(super) fn emoji_first(&mut self) -> Task<Message> {
-        let searching = self
-            .picker
-            .as_ref()
-            .is_some_and(|picker| !picker.field.text().trim().is_empty());
-        let first = self.picker.as_ref().and_then(|picker| {
+    pub(super) fn emoji_first(&mut self, cx: &mut Cx<'_>) -> Task<Message> {
+        let searching = !self.field.text().trim().is_empty();
+        let first = Some(&*self).and_then(|picker| {
             picker
                 .emoji
                 .as_ref()?
@@ -449,23 +446,25 @@ impl App {
                 .position(|tile| matches!(tile.item, Item::Cell { usable: true, .. }))
         });
         match first {
-            Some(first) if searching => self.emoji_pick(first),
+            Some(first) if searching => self.emoji_pick(first, cx),
             _ => Task::none(),
         }
     }
 
     /// The star keeps the emoji among the Discord account's favourites, or
     /// lets it go.
-    pub(super) fn emoji_star(&mut self, index: usize) {
+    pub(super) fn emoji_star(&mut self, index: usize, cx: &mut Cx<'_>) {
         let Some(name) = self
             .emoji_cell(index)
             .and_then(|(face, _)| names::discord_name(&face.key()))
         else {
             return;
         };
-        self.client.dispatch(Action::FavoriteEmoji(name));
+        cx.dispatch(Action::FavoriteEmoji(name));
     }
+}
 
+impl<'a> View<'a> {
     /// An emoji as the grid, rail or foot draws it, `size` across.
     fn face_view(
         &self,
@@ -474,10 +473,10 @@ impl App {
         side: f32,
         size: u32,
         opacity: f32,
-    ) -> Element<'_, Message> {
+    ) -> Element<'a, Message> {
         let handle = match face {
             Face::Unicode(key) => tab.picture(key, size),
-            Face::Custom(emoji) => self.picture(&emoji.picture, size, size, false),
+            Face::Custom(emoji) => self.cx.picture(&emoji.picture, size, size, false),
         };
         match handle {
             Some(handle) => Pic::square(handle, size as f32)
@@ -488,27 +487,31 @@ impl App {
         }
     }
 
-    fn section_mark(&self, tab: &Emoji, mark: &Mark, side: f32, size: u32) -> Element<'_, Message> {
-        let theme = &self.theme;
+    fn section_mark(self, tab: &Emoji, mark: &Mark, side: f32, size: u32) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         match mark {
             Mark::Star => self
+                .cx
+                .look
                 .glyph(Icon::StarFilled, size, kit::GOLD)
                 .boxed(side)
                 .into(),
             Mark::Clock => self
+                .cx
+                .look
                 .glyph(Icon::Clock, size, theme.secondary)
                 .boxed(side)
                 .into(),
             Mark::Face(face) => self.face_view(tab, face, side, size, 1.0),
-            Mark::Icon(url) => match self.picture(url, size, size, true) {
+            Mark::Icon(url) => match self.cx.picture(url, size, size, true) {
                 Some(handle) => Pic::square(handle, size as f32).boxed(side).into(),
                 None => Space::new().width(side).height(side).into(),
             },
         }
     }
 
-    pub(super) fn emoji_view<'a>(&'a self, picker: &'a Picker) -> Element<'a, Message> {
-        let theme = &self.theme;
+    pub(super) fn emoji_view(self, picker: &'a Picker) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         let Some(tab) = &picker.emoji else {
             return Space::new().into();
         };
@@ -546,7 +549,7 @@ impl App {
                     let mut face_shown = stack![self.face_view(tab, face, CELL, GLYPH, fade)];
                     if !usable {
                         face_shown = face_shown.push(kit::pinned(
-                            self.glyph(Icon::Lock, 14, theme.text),
+                            self.cx.look.glyph(Icon::Lock, 14, theme.text),
                             Alignment::End,
                             Alignment::End,
                             4.0,
@@ -562,7 +565,7 @@ impl App {
                     if *favorite || picker.hover == Some(index) {
                         layers = layers.push(kit::pinned(
                             kit::star(
-                                self.look(),
+                                self.cx.look,
                                 *favorite,
                                 18.0,
                                 12,
@@ -579,7 +582,7 @@ impl App {
                         .into()
                 }
             });
-        let grid: Element<'_, Message> = if tab.grid.tiles.is_empty() {
+        let grid: Element<'a, Message> = if tab.grid.tiles.is_empty() {
             kit::note(
                 format!("No emoji match \"{}\".", picker.field.text().trim()),
                 theme,
@@ -594,7 +597,7 @@ impl App {
                 Item::Cell { face, .. } => Some(face),
                 Item::Heading(_) => None,
             });
-        let foot: Element<'_, Message> = match pointed {
+        let foot: Element<'a, Message> = match pointed {
             Some(face) => row![
                 self.face_view(tab, face, 30.0, 26, 1.0),
                 kit::foot_words(names::title(&face.key()), true, theme)

@@ -17,6 +17,7 @@ use yapfast_core::application::{Action, ThreadFrom};
 use crate::{
     app::{App, Message, NOBODY},
     controls::{Item, Light, menu_panel, separator},
+    ctx::Ctx,
     field::MenuEdit,
     picker::{Tab, Target},
     pictures::Icon,
@@ -303,7 +304,7 @@ impl App {
         if message.can_reply && writes {
             rows.push(row(MenuAct::Reply, "Reply", Icon::Reply));
         }
-        if message.can_forward && self.forward_allowed() {
+        if message.can_forward && crate::forward::allowed(self.client.state()) {
             rows.push(row(MenuAct::Forward, "Forward", Icon::Forward));
         }
         // A message someone wrote starts a thread, or leads to its own.
@@ -615,7 +616,7 @@ impl App {
             }
             MenuAct::Forward => {
                 self.client.dispatch(Action::StartForward(item));
-                Task::batch([self.sync(), self.forward_focus()])
+                Task::batch([self.sync(), self.forward.open(self.client.state())])
             }
             MenuAct::EndPoll => {
                 self.client.dispatch(Action::AskEndPoll(item));
@@ -765,15 +766,29 @@ impl App {
         }
         Task::none()
     }
+}
 
-    pub fn menu_view(&self) -> Option<Element<'_, Message>> {
-        let menu = self.menu.as_ref()?;
-        let theme = &self.theme;
+/// The menu open, at its place, with its submenu beside its row.
+pub fn view<'a>(menu: &'a Menu, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
+    View { s: menu, cx }.view()
+}
+
+/// The menu and what it reads, as its parts draw them.
+#[derive(Clone, Copy)]
+struct View<'a> {
+    s: &'a Menu,
+    cx: Ctx<'a>,
+}
+
+impl<'a> View<'a> {
+    fn view(self) -> Option<Element<'a, Message>> {
+        let menu = self.s;
+        let theme = self.cx.look.theme;
         let mut rows = column![].spacing(2).padding(6);
         let volumes = menu
             .volumes
             .as_ref()
-            .map(|volumes| self.volumes_view(volumes));
+            .map(|volumes| self.cx.volumes_view(volumes));
         if !menu.reactions.is_empty()
             && let Some(item) = &menu.item
         {
@@ -787,7 +802,7 @@ impl App {
             // lifted under the pointer.
             let (ground, lifted) = (theme.field, blend(theme.field, theme.wash(0.12)));
             for key in &menu.reactions {
-                quick = quick.push(self.ctx().emoji_button(
+                quick = quick.push(self.cx.emoji_button(
                     key,
                     24,
                     44.0,
@@ -812,7 +827,7 @@ impl App {
                 (menu.lit == Some(index) && menu.sub_lit.is_none()) || menu.sub == Some(index);
             let light = Light::Lit(lit && !entry.disabled);
             rows = rows.push(
-                mouse_area(self.menu_item(
+                mouse_area(self.cx.look.menu_item(
                     self.menu_entry(entry, slot),
                     light,
                     Message::MenuChoose(index),
@@ -824,13 +839,13 @@ impl App {
             }
             children += 1;
         }
-        let panel: Element<'_, Message> = if menu.rows.is_empty() {
+        let panel: Element<'a, Message> = if menu.rows.is_empty() {
             Space::new().into()
         } else {
             container(rows).width(width).style(menu_panel(theme)).into()
         };
         // Someone's volumes, in a panel of their own over their rows.
-        let panel: Element<'_, Message> = match volumes {
+        let panel: Element<'a, Message> = match volumes {
             Some(volumes) => column![
                 container(volumes).width(width).style(menu_panel(theme)),
                 panel
@@ -847,7 +862,7 @@ impl App {
                 .on_scroll(|viewport| Message::MenuScrolled(viewport.absolute_offset().y))
                 .style(crate::style::scrollbar(theme)),
         )
-        .max_height(self.window.height - 2.0 * MENU_MARGIN);
+        .max_height(self.cx.look.window.height - 2.0 * MENU_MARGIN);
         let mut place = Place::new(opaque(panel), menu.at, MENU_MARGIN).anchor(menu.anchor);
         if let (Some(sub), Some(child)) = (menu.sub, sub_child) {
             // Through the frame and the scrollable to the rows.
@@ -866,7 +881,7 @@ impl App {
 
     /// A menu row as [`App::menu_item`] draws it, with its submenu's
     /// chevron.
-    fn menu_entry<'a>(&self, entry: &'a MenuRow, slot: bool) -> Item<'a> {
+    fn menu_entry(self, entry: &'a MenuRow, slot: bool) -> Item<'a> {
         Item {
             label: entry.label.as_ref().into(),
             icon: entry.icon,
@@ -883,8 +898,8 @@ impl App {
     }
 
     /// The open submenu: its rows, beside the row that opened it.
-    fn submenu_view<'a>(&'a self, menu: &'a Menu, sub: usize) -> Element<'a, Message> {
-        let theme = &self.theme;
+    fn submenu_view(self, menu: &'a Menu, sub: usize) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         let entries = &menu.rows[sub].submenu;
         let slot = ticks(entries);
         let mut rows = column![].spacing(2).padding(PAD);
@@ -894,7 +909,7 @@ impl App {
             }
             let light = Light::Lit(menu.sub_lit == Some(index) && !entry.disabled);
             rows = rows.push(
-                mouse_area(self.menu_item(
+                mouse_area(self.cx.look.menu_item(
                     self.menu_entry(entry, slot),
                     light,
                     Message::SubChoose(index),

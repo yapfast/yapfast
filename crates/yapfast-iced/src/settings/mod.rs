@@ -37,7 +37,7 @@ use yapfast_core::new_tags::{self, Page as NewPage};
 use crate::{
     app::Message,
     controls::{self, bar},
-    ctx::{self, Ctx, Cx, Focus, Request},
+    ctx::{self, Ctx, Cx, Focus, Request, Screen},
     fonts::BOLD,
     form,
     pictures::Icon,
@@ -276,7 +276,7 @@ impl Settings {
     pub fn update(&mut self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
         match event {
             Event::Open(section) => return self.show(section, cx),
-            Event::Close => cx.request(Request::CloseSelf),
+            Event::Close => cx.request(Request::Close(Screen::Settings)),
             Event::Search(query) => self.query = query,
             Event::Drop(drop) => {
                 self.open = (self.open != Some(drop)).then_some(drop);
@@ -318,7 +318,7 @@ impl Settings {
         if self.record.take().is_some() {
             return;
         }
-        cx.request(Request::CloseSelf);
+        cx.request(Request::Close(Screen::Settings));
     }
 
     /// A preference others show changed: Voice's gate meter follows the

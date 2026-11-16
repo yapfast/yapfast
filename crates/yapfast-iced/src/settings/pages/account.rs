@@ -13,7 +13,7 @@ use crate::settings::{Event, Page, Settings};
 use crate::{
     app::Message,
     controls::{Kind, action},
-    ctx::{Cx, Request},
+    ctx::{Cx, Request, Screen},
     fonts::BOLD,
     form::{self},
     people::StatusInk,
@@ -28,11 +28,11 @@ impl Settings {
         let action = match event {
             AccountEvent::Reconnect => Action::RetrySync,
             AccountEvent::CustomStatus => {
-                cx.request(Request::CloseSelf);
+                cx.request(Request::Close(Screen::Settings));
                 Action::OpenStatusEditor
             }
             AccountEvent::SignOut => {
-                cx.request(Request::CloseSelf);
+                cx.request(Request::Close(Screen::Settings));
                 Action::Logout
             }
             AccountEvent::Unlink => Action::UnlinkDiscord,

@@ -297,7 +297,10 @@ fn a_member_clicked_in_the_list_shows_their_card_until_a_click_outside() {
     });
     let view = app.client.state().profile.as_ref().expect("the profile");
     assert_eq!(view.profile.name, "Riley");
-    assert_eq!(app.card.as_ref().expect("the card").user, view.profile.id);
+    assert_eq!(
+        app.profiles.card.as_ref().expect("the card").user,
+        view.profile.id
+    );
     // Their name on the card itself: the timeline and the list show it too.
     {
         let mut ui = Simulator::with_size(
@@ -311,7 +314,7 @@ fn a_member_clicked_in_the_list_shows_their_card_until_a_click_outside() {
         ui.point_at(Point::new(500.0, 300.0));
         ui.simulate(click());
     });
-    assert!(app.card.is_none());
+    assert!(app.profiles.card.is_none());
     assert!(app.client.state().profile.is_none());
 }
 
@@ -518,7 +521,7 @@ fn a_held_request_asks_for_a_code_and_cancelling_closes_the_prompt() {
         ui.click("Use a backup code").expect("a backup code");
     });
     assert!(shows(&app, "Slow down! Are you sure?"));
-    assert_eq!(app.wait.left, 10, "the button waits");
+    assert_eq!(app.mfa.wait.left, 10, "the button waits");
     interact(&mut app, |ui| {
         ui.click("Cancel").expect("Cancel");
     });

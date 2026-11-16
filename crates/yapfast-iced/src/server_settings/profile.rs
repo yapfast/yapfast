@@ -18,9 +18,10 @@ use yapfast_core::{
     chat::ServerPicture,
 };
 
+use super::View;
 use super::{DESCRIPTION, Drop, Event, Screen, message, picture_box};
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{Kind, action},
     fonts::{BOLD, SEMIBOLD},
     form,
@@ -49,22 +50,22 @@ const SYSTEM_MESSAGES: [(u64, &str); 4] = [
     (SETUP_TIPS, "Send helpful tips for server setup."),
 ];
 
-impl App {
+impl<'a> View<'a> {
     /// Server Profile: the name, the icon with Change and Remove, and the
     /// description with how much of it is left.
-    pub(super) fn server_profile_page<'a>(
-        &'a self,
+    pub(super) fn server_profile_page(
+        self,
         core: &'a ServerSettings,
         page: &'a ProfilePage,
         screen: &'a Screen,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let ready = !core.saving;
         let reading = core.reading.is_some();
         let (url, new) = page.icon();
         let icon: Element<'a, Message> = match new {
             Some(picture) => picture_box(
-                self,
+                self.cx,
                 None,
                 Some(picture),
                 80.0,
@@ -72,7 +73,7 @@ impl App {
                 40.0,
                 column![].into(),
             ),
-            None => self.avatar(url, &page.name, 80.0, 40.0, 1.0),
+            None => self.cx.avatar(url, &page.name, 80.0, 40.0, 1.0),
         };
         let mut buttons = vec![
             action(
@@ -148,15 +149,15 @@ impl App {
     /// Engagement: the system messages' channel and switches (which wait
     /// for a channel), the default notifications, and the inactive channel
     /// with its timeout (which waits for one).
-    pub(super) fn engagement_page<'a>(
-        &'a self,
+    pub(super) fn engagement_page(
+        self,
         core: &'a ServerSettings,
         page: &'a EngagementPage,
         screen: &'a Screen,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let ready = !core.saving;
-        let app = &self.client.app;
+        let app = &self.cx.app;
         let text_channels = app.settings_channels(&core.server, false);
         let voice_channels = app.settings_channels(&core.server, true);
         let system = channel_list(
@@ -185,7 +186,7 @@ impl App {
             },
         )
         .enabled(ready)
-        .view(self.look());
+        .view(self.cx.look);
         let mut parts = vec![
             form::title(theme, "Engagement"),
             form::group([
@@ -206,7 +207,7 @@ impl App {
                     (ready && sends)
                         .then(|| message(Event::Toggle(SettingsToggle::SystemMessage(bit)))),
                 )
-                .view(self.look()),
+                .view(self.cx.look),
             );
         }
         let voice = voice_channels.clone();
@@ -224,7 +225,7 @@ impl App {
             },
         )
         .enabled(ready)
-        .view(self.look());
+        .view(self.cx.look);
         // Discord's default, five minutes, for a timeout it doesn't offer.
         let timeout = AFK_TIMEOUTS
             .iter()
@@ -242,7 +243,7 @@ impl App {
             },
         )
         .enabled(ready && page.afk_channel.is_some())
-        .view(self.look());
+        .view(self.cx.look);
         parts.extend([
             form::group([
                 form::heading(theme, "DEFAULT NOTIFICATION SETTINGS"),
@@ -277,12 +278,12 @@ impl App {
 
     /// Boost Perks: the level, the progress bar's switch, and the banner
     /// and invite background, each with the level that unlocks it.
-    pub(super) fn boost_page<'a>(
-        &'a self,
+    pub(super) fn boost_page(
+        self,
         core: &'a ServerSettings,
         page: &'a BoostPage,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let ready = !core.saving && core.reading.is_none();
         let level = match page.original.premium_tier {
             0 => "No Level".to_owned(),
@@ -303,7 +304,7 @@ impl App {
             .description(
                 "This progress bar will display in your channel list, attached to your server name (or server banner if you have one set).",
             )
-            .view(self.look()),
+            .view(self.cx.look),
             self.boost_background(
                 page,
                 ServerPicture::Banner,
@@ -325,8 +326,8 @@ impl App {
 
     /// A banner or invite background: the picture at 16 by 9 (or the level
     /// that unlocks it), with Upload and Remove.
-    fn boost_background<'a>(
-        &'a self,
+    fn boost_background(
+        self,
         page: &'a BoostPage,
         kind: ServerPicture,
         level: u8,
@@ -334,7 +335,7 @@ impl App {
         words: &'a str,
         ready: bool,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let (url, new) = page.picture(kind);
         let unlocked = page.unlocked(kind);
         let empty = text(if unlocked {
@@ -364,7 +365,7 @@ impl App {
             form::heading(theme, heading),
             form::note(theme, words),
             row![
-                picture_box(self, url, new, 240.0, 135.0, 8.0, empty.into()),
+                picture_box(self.cx, url, new, 240.0, 135.0, 8.0, empty.into()),
                 buttons
             ]
             .spacing(form::GAP)

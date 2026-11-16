@@ -9,11 +9,12 @@ use iced::{
     Alignment, Element, Length, Padding, Task,
     widget::{Space, button, column, container, mouse_area, row, text},
 };
-use yapfast_core::application::Action;
+use yapfast_core::application::{Action, AppState};
 
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{self, bar, lit_style},
+    ctx::{Ctx, Cx, Focus, Request},
     dialog::dialog,
     fonts::{BOLD, MEDIUM},
     message::emoji_shortcode,
@@ -45,58 +46,66 @@ pub struct Reactions {
     pointed: Option<String>,
 }
 
-impl App {
-    pub fn reactions_event(&mut self, event: Event) -> Task<Message> {
+impl Reactions {
+    pub fn update(&mut self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
         match event {
             Event::Choose(key) => {
-                self.reactions.scroll = None;
-                self.client.dispatch(Action::ShowReactors(key));
+                self.scroll = None;
+                cx.dispatch(Action::ShowReactors(key));
             }
-            Event::Remove(user) => self.client.dispatch(Action::RemoveReactor(user)),
+            Event::Remove(user) => cx.dispatch(Action::RemoveReactor(user)),
             Event::Close => {
-                self.client.dispatch(Action::CloseReactions);
-                self.reactions = Reactions::default();
-                return Task::batch([self.sync(), self.refocus()]);
+                cx.dispatch(Action::CloseReactions);
+                *self = Reactions::default();
+                cx.request(Request::Focus(Focus::Default));
             }
             Event::Scrolled(scroll) => {
-                self.reactions.scroll = Some(scroll);
-                self.reactions_page();
-                return self.ask();
+                self.scroll = Some(scroll);
+                self.page(scroll.height, cx);
+                cx.request(Request::Ask);
             }
-            Event::Pointed(pointed) => {
-                self.reactions.pointed = pointed;
-                return Task::none();
-            }
+            Event::Pointed(pointed) => self.pointed = pointed,
         }
-        self.sync()
+        Task::none()
     }
 
     /// The next page comes as the list nears its end, as in Discord's
-    /// client: at a scroll, and when a page comes short of the view.
-    pub fn reactions_page(&mut self) {
-        let state = self.client.state();
+    /// client: at a scroll, and when a page comes short of the view, which
+    /// is `height` tall until it's scrolled.
+    pub fn page(&self, height: f32, cx: &mut Cx<'_>) {
+        let state = cx.state();
         let Some(window) = &state.reactions else {
             return;
         };
         if window.loading || !state.more_reactors() {
             return;
         }
-        let scroll = self
-            .reactions
-            .scroll
-            .unwrap_or(Scroll::new(self.window.height));
+        let scroll = self.scroll.unwrap_or(Scroll::new(height));
         let content = window.people.len() as f32 * ROW + 16.0;
         if scroll.offset + scroll.height >= content - ROW {
-            self.client.dispatch(Action::MoreReactors);
+            cx.dispatch(Action::MoreReactors);
         }
     }
+}
 
-    /// The window over the dimmed window, while it's open.
-    pub fn reactions_view(&self) -> Option<Element<'_, Message>> {
-        let state = self.client.state();
+/// The window over the dimmed window, while it's open.
+pub fn view<'a>(reactions: &'a Reactions, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
+    View { s: reactions, cx }.view()
+}
+
+/// What the window keeps and reads, as its parts draw them.
+#[derive(Clone, Copy)]
+struct View<'a> {
+    s: &'a Reactions,
+    cx: Ctx<'a>,
+}
+
+impl<'a> View<'a> {
+    fn view(self) -> Option<Element<'a, Message>> {
+        let state = self.cx.state;
         let window = state.reactions.as_ref()?;
-        let theme = &self.theme;
-        let close = button(self.glyph(Icon::X, 18, theme.secondary).boxed(28))
+        let theme = self.cx.look.theme;
+        let close = button(self.cx.look.glyph(Icon::X, 18, theme.secondary).boxed(28))
             .padding(0)
             .on_press(Message::Reactions(Event::Close))
             .style(lit_style(None, theme.hover, 6.0));
@@ -160,7 +169,7 @@ impl App {
         let mut people = column![].padding([8, 0]);
         for person in &window.people {
             let removable = !window.poll && (person.me || window.can_remove);
-            let pointed = self.reactions.pointed.as_deref() == Some(person.id.as_str());
+            let pointed = self.s.pointed.as_deref() == Some(person.id.as_str());
             let avatar = (!person.avatar.is_empty()).then_some(person.avatar.as_str());
             let mut words = column![
                 text(person.name.as_str())
@@ -178,13 +187,13 @@ impl App {
                         .wrapping(text::Wrapping::None),
                 );
             }
-            let mut line = row![self.avatar(avatar, &person.name, 32.0, 16.0, 1.0), words]
+            let mut line = row![self.cx.avatar(avatar, &person.name, 32.0, 16.0, 1.0), words]
                 .spacing(10)
                 .padding([0, 16])
                 .height(ROW)
                 .align_y(Alignment::Center);
             if removable && pointed {
-                let remove = button(self.glyph(Icon::X, 16, theme.secondary).boxed(28))
+                let remove = button(self.cx.look.glyph(Icon::X, 16, theme.secondary).boxed(28))
                     .padding(0)
                     .on_press(Message::Reactions(Event::Remove(person.id.clone())))
                     .style(lit_style(None, theme.hover, 6.0));
@@ -234,8 +243,8 @@ impl App {
             top: 16.0,
             ..Padding::ZERO
         });
-        let width = 600.0_f32.min(self.window.width - 48.0);
-        let height = 720.0_f32.min(self.window.height - 96.0);
+        let width = 600.0_f32.min(self.cx.look.window.width - 48.0);
+        let height = 720.0_f32.min(self.cx.look.window.height - 96.0);
         Some(dialog(
             theme,
             container(body).height(height).into(),
@@ -246,15 +255,15 @@ impl App {
 
     /// A reaction's or an answer's row on the left: its emoji, its name for
     /// an answer, and how many.
-    fn pill<'a>(
-        &'a self,
+    fn pill(
+        self,
         chosen: bool,
         emoji: Option<Element<'a, Message>>,
         name: Option<&'a str>,
         count: usize,
         key: String,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let mut face = row![].spacing(8).align_y(Alignment::Center);
         if let Some(emoji) = emoji {
             face = face.push(container(emoji).center_x(24));
@@ -307,41 +316,40 @@ impl App {
 
     /// A reaction's emoji: a custom one's picture, as the message has it,
     /// or the Unicode one drawn from Twemoji.
-    fn reaction_face<'a>(
-        &self,
+    fn reaction_face(
+        self,
         message: Option<&yapfast_core::chat::ChatMessage>,
         key: &str,
     ) -> Element<'a, Message> {
         let custom = message
             .and_then(|message| message.emoji.iter().find(|emoji| emoji.text == key))
-            .and_then(|emoji| self.picture(&emoji.picture, 20, 20, false));
+            .and_then(|emoji| self.cx.picture(&emoji.picture, 20, 20, false));
         if let Some(picture) = custom {
             return Pic::square(picture, 20.0).into();
         }
         match emojis::get(key)
             .map(emojis::Emoji::as_str)
-            .and_then(|key| self.emoji_picture(key, 20))
+            .and_then(|key| self.cx.emoji_picture(key, 20))
         {
             Some(picture) => Pic::square(picture, 20.0).into(),
             None => text(emoji_shortcode(key)).size(12).into(),
         }
     }
+}
 
-    /// The pictures the window shows: who reacted, and custom emoji.
-    pub fn reactions_pictures(&self) -> Vec<String> {
-        let state = self.client.state();
-        let Some(window) = &state.reactions else {
-            return Vec::new();
-        };
-        let mut urls: Vec<String> = window
-            .people
-            .iter()
-            .filter(|person| !person.avatar.is_empty())
-            .map(|person| person.avatar.clone())
-            .collect();
-        if let Some(message) = state.message(&window.item) {
-            urls.extend(message.emoji.iter().map(|emoji| emoji.picture.clone()));
-        }
-        urls
+/// The pictures the window shows: who reacted, and custom emoji.
+pub fn pictures(state: &AppState) -> Vec<String> {
+    let Some(window) = &state.reactions else {
+        return Vec::new();
+    };
+    let mut urls: Vec<String> = window
+        .people
+        .iter()
+        .filter(|person| !person.avatar.is_empty())
+        .map(|person| person.avatar.clone())
+        .collect();
+    if let Some(message) = state.message(&window.item) {
+        urls.extend(message.emoji.iter().map(|emoji| emoji.picture.clone()));
     }
+    urls
 }

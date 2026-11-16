@@ -13,11 +13,12 @@ use iced::{
     keyboard::key,
     widget::{container, row, text},
 };
-use yapfast_core::application::Action;
+use yapfast_core::application::{Action, AppState};
 
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{Kind, action},
+    ctx::{Ctx, Cx, Focus, Request},
     dialog::buttons,
     fonts::BOLD,
     form,
@@ -66,15 +67,25 @@ fn message(event: Event) -> Message {
     Message::LinkDialog(event)
 }
 
-impl App {
-    /// Whether one of these dialogs is open, which takes the keys.
-    pub fn link_dialog_open(&self) -> bool {
-        let state = self.client.state();
-        state.scheduled_event.is_some() || state.gift.is_some() || state.oauth.is_some()
-    }
+/// Whether one of these dialogs is open, which takes the keys.
+pub fn is_open(state: &AppState) -> bool {
+    state.scheduled_event.is_some() || state.gift.is_some() || state.oauth.is_some()
+}
 
-    pub fn link_dialog_event(&mut self, event: Event) -> Task<Message> {
-        let state = self.client.state();
+/// The pictures the dialogs show: the application's.
+pub fn pictures(state: &AppState) -> Vec<String> {
+    state
+        .oauth
+        .as_ref()
+        .and_then(|dialog| dialog.preview.as_ref())
+        .and_then(|preview| preview.icon.clone())
+        .into_iter()
+        .collect()
+}
+
+impl LinkDialogs {
+    pub fn update(&mut self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
+        let state = cx.state();
         let action = match event {
             Event::CloseScheduled => Action::CloseEvent,
             Event::ToggleInterest => match state.event_prompt(false) {
@@ -100,11 +111,11 @@ impl App {
                 _ => return Task::none(),
             },
             Event::GuildMenu => {
-                self.link_dialogs.guild_menu = !self.link_dialogs.guild_menu;
+                self.guild_menu = !self.guild_menu;
                 return Task::none();
             }
             Event::Guild(index) => {
-                self.link_dialogs.guild_menu = false;
+                self.guild_menu = false;
                 let Some((id, _)) = state
                     .oauth_prompt()
                     .and_then(|prompt| prompt.guilds.into_iter().nth(index))
@@ -114,28 +125,24 @@ impl App {
                 Action::ChooseOAuthGuild(id)
             }
             Event::Copy(address) => {
-                self.link_dialogs.copied = Some(address.clone());
+                self.copied = Some(address.clone());
                 return iced::clipboard::write(address);
             }
         };
-        self.client.dispatch(action);
-        if !self.link_dialog_open() {
-            self.link_dialogs = LinkDialogs::default();
+        cx.dispatch(action);
+        if !is_open(cx.state()) {
+            *self = LinkDialogs::default();
+            cx.request(Request::Focus(Focus::Default));
         }
-        let task = self.sync();
-        if self.link_dialog_open() {
-            task
-        } else {
-            Task::batch([task, self.refocus()])
-        }
+        Task::none()
     }
 
     /// Escape closes the open one.
-    pub fn link_dialog_key(&mut self, named: Option<key::Named>) -> Task<Message> {
+    pub fn key(&mut self, named: Option<key::Named>, cx: &mut Cx<'_>) -> Task<Message> {
         if named != Some(key::Named::Escape) {
             return Task::none();
         }
-        let state = self.client.state();
+        let state = cx.state();
         let close = if state.oauth.is_some() {
             Event::CloseOAuth
         } else if state.gift.is_some() {
@@ -143,24 +150,26 @@ impl App {
         } else {
             Event::CloseScheduled
         };
-        self.link_dialog_event(close)
+        self.update(close, cx)
     }
+}
 
-    /// The pictures the dialogs show: the application's.
-    pub fn link_dialog_pictures(&self) -> Vec<String> {
-        self.client
-            .state()
-            .oauth
-            .as_ref()
-            .and_then(|dialog| dialog.preview.as_ref())
-            .and_then(|preview| preview.icon.clone())
-            .into_iter()
-            .collect()
-    }
+/// The open one of these dialogs, if any.
+pub fn view<'a>(dialogs: &'a LinkDialogs, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
+    View { s: dialogs, cx }.view()
+}
 
-    /// The open one of these dialogs, if any.
-    pub fn link_dialog_view(&self) -> Option<Element<'_, Message>> {
-        let state = self.client.state();
+/// What's chosen in the dialogs and what they read, as their parts draw
+/// them.
+#[derive(Clone, Copy)]
+struct View<'a> {
+    s: &'a LinkDialogs,
+    cx: Ctx<'a>,
+}
+
+impl<'a> View<'a> {
+    fn view(self) -> Option<Element<'a, Message>> {
+        let state = self.cx.state;
         if state.oauth.is_some() {
             return self.oauth_view();
         }
@@ -172,14 +181,14 @@ impl App {
 
     /// The status, the error and the buttons every one of them ends with:
     /// Close, or Cancel beside the main button while there is one.
-    fn link_dialog_foot<'a>(
-        &'a self,
+    fn link_dialog_foot(
+        self,
         body: &mut Vec<Element<'a, Message>>,
         foot: Foot<'a>,
         close: Event,
         main: Event,
     ) {
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let Foot {
             status,
             error,
@@ -221,19 +230,21 @@ impl App {
 
     /// A server's scheduled event: its name, when and where, what it says,
     /// and Interested or Remove interest.
-    fn event_view(&self) -> Option<Element<'_, Message>> {
+    fn event_view(self) -> Option<Element<'a, Message>> {
         let prompt = self
-            .client
-            .state()
-            .event_prompt(self.layout.prefs.twelve_hour_clock)?;
-        let theme = &self.theme;
+            .cx
+            .state
+            .event_prompt(self.cx.layout.prefs.twelve_hour_clock)?;
+        let theme = self.cx.look.theme;
         let mut body = vec![
-            self.look()
+            self.cx
+                .look
                 .dialog_head(prompt.title.to_owned(), message(Event::CloseScheduled)),
         ];
         if prompt.found {
             body.push(
-                self.look()
+                self.cx
+                    .look
                     .found_card(None, prompt.name, [prompt.when, prompt.detail]),
             );
         }
@@ -258,21 +269,23 @@ impl App {
             Event::ToggleInterest,
         );
         Some(
-            self.look()
+            self.cx
+                .look
                 .framed(body, WIDTH, message(Event::CloseScheduled)),
         )
     }
 
     /// A gift: what it grants and from whom, and Redeem Gift, or Open in
     /// Browser for one only Discord redeems.
-    fn gift_view(&self) -> Option<Element<'_, Message>> {
-        let prompt = self.client.state().gift_prompt()?;
+    fn gift_view(self) -> Option<Element<'a, Message>> {
+        let prompt = self.cx.state.gift_prompt()?;
         let mut body = vec![
-            self.look()
+            self.cx
+                .look
                 .dialog_head(prompt.title.to_owned(), message(Event::CloseGift)),
         ];
         if prompt.found {
-            body.push(self.look().found_card(None, prompt.name, [prompt.detail]));
+            body.push(self.cx.look.found_card(None, prompt.name, [prompt.detail]));
         }
         self.link_dialog_foot(
             &mut body,
@@ -285,23 +298,27 @@ impl App {
             Event::CloseGift,
             Event::Redeem,
         );
-        Some(self.look().framed(body, WIDTH, message(Event::CloseGift)))
+        Some(self.cx.look.framed(body, WIDTH, message(Event::CloseGift)))
     }
 
     /// An application's authorization: the application, what of it can
     /// take over the account or a server in red, what it asks for, the
     /// server it's added to, the address to copy, and Authorize.
-    fn oauth_view(&self) -> Option<Element<'_, Message>> {
-        let prompt = self.client.state().oauth_prompt()?;
-        let theme = &self.theme;
+    fn oauth_view(self) -> Option<Element<'a, Message>> {
+        let prompt = self.cx.state.oauth_prompt()?;
+        let theme = self.cx.look.theme;
         let mut body = vec![
-            self.look()
+            self.cx
+                .look
                 .dialog_head(prompt.title.clone(), message(Event::CloseOAuth)),
         ];
         if prompt.found {
-            let avatar = self.avatar(prompt.icon.as_deref(), &prompt.name, 48.0, 24.0, 1.0);
+            let avatar = self
+                .cx
+                .avatar(prompt.icon.as_deref(), &prompt.name, 48.0, 24.0, 1.0);
             body.push(
-                self.look()
+                self.cx
+                    .look
                     .found_card(Some(avatar), prompt.name.clone(), [prompt.detail]),
             );
         }
@@ -345,14 +362,14 @@ impl App {
             let mut menu = form::dropdown(
                 names,
                 Some(prompt.guild_chosen),
-                self.link_dialogs.guild_menu,
+                self.s.guild_menu,
                 message(Event::GuildMenu),
                 |index| message(Event::Guild(index)),
             );
             if prompt.busy {
                 menu = menu.enabled(false);
             }
-            body.push(menu.view(self.look()));
+            body.push(menu.view(self.cx.look));
         } else if !prompt.guild_name.is_empty() {
             body.push(
                 boxed(
@@ -371,7 +388,7 @@ impl App {
             body.push(form::note(theme, prompt.status));
         }
         if !prompt.address.is_empty() {
-            let copied = self.link_dialogs.copied.as_deref() == Some(prompt.address.as_str());
+            let copied = self.s.copied.as_deref() == Some(prompt.address.as_str());
             let copy = action(
                 theme,
                 if copied { "Copied" } else { "Copy" },
@@ -410,6 +427,6 @@ impl App {
             Event::CloseOAuth,
             Event::Authorize,
         );
-        Some(self.look().framed(body, WIDTH, message(Event::CloseOAuth)))
+        Some(self.cx.look.framed(body, WIDTH, message(Event::CloseOAuth)))
     }
 }

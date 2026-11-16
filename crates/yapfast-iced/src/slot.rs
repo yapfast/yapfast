@@ -4,10 +4,12 @@
 
 use crate::ctx::Cx;
 
-/// Why a screen closes: the person closed it, or the window went.
+/// Why a screen closes: the person closed it, the core's state took it
+/// away, or the window went.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Why {
     User,
+    Core,
     Window,
 }
 
@@ -52,5 +54,29 @@ impl<T: Closes> Slot<T> {
 
     pub fn is_open(&self) -> bool {
         self.0.is_some()
+    }
+
+    /// A screen the core opens follows the core: while `key` says it's
+    /// open, the screen for that key is made (closing one for another
+    /// key first), and when it goes the screen closes with [`Why::Core`],
+    /// so a close the core started isn't sent to it again.
+    pub fn follow<K>(
+        &mut self,
+        key: Option<K>,
+        cx: &mut Cx<'_>,
+        same: impl Fn(&T, &K) -> bool,
+        make: impl FnOnce(K, &mut Cx<'_>) -> T,
+    ) -> Option<&mut T> {
+        let Some(key) = key else {
+            self.close(cx, Why::Core);
+            return None;
+        };
+        if self.get().is_some_and(|screen| !same(screen, &key)) {
+            self.close(cx, Why::Core);
+        }
+        if self.0.is_none() {
+            self.0 = Some(Box::new(make(key, cx)));
+        }
+        self.get_mut()
     }
 }

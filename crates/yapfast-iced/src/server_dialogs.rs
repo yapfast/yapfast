@@ -16,13 +16,14 @@ use iced::{
     widget::{Id, button, container, operation, row, text},
 };
 use yapfast_core::{
-    application::{Action, ChannelAsk, INVITE_AGES, INVITE_USES},
+    application::{Action, AppState, ChannelAsk, INVITE_AGES, INVITE_USES},
     chat::{ChannelKind, ChannelSettings},
 };
 
 use crate::{
-    app::{App, Message, NOBODY},
+    app::{Message, NOBODY},
     controls::{self, Kind, action},
+    ctx::{Ctx, Cx, Focus, Request},
     dialog::buttons,
     form,
     style::rounded,
@@ -55,6 +56,8 @@ pub struct Dialogs {
     join: Option<String>,
     /// The channel dialog's name and kind, while it's open.
     channel: Option<ChannelDraft>,
+    /// Whether the leave dialog showed at the last sync.
+    leave_shown: bool,
 }
 
 struct InviteChoice {
@@ -97,24 +100,33 @@ fn message(event: Event) -> Message {
     Message::ServerDialog(event)
 }
 
-impl App {
-    /// Whether one of these dialogs is open, which takes the keys.
-    pub fn server_dialog_open(&self) -> bool {
-        let state = self.client.state();
-        state.invite.is_some()
-            || state.join.is_some()
-            || state.channel_dialog.is_some()
-            || state.leave.is_some()
-            || state.move_sync.is_some()
-    }
+/// Whether one of these dialogs is open, which takes the keys.
+pub fn is_open(state: &AppState) -> bool {
+    state.invite.is_some()
+        || state.join.is_some()
+        || state.channel_dialog.is_some()
+        || state.leave.is_some()
+        || state.move_sync.is_some()
+}
 
+/// The pictures the dialogs show: the server an invite is to.
+pub fn pictures(state: &AppState) -> Vec<String> {
+    state
+        .join
+        .as_ref()
+        .and_then(|join| join.preview.as_ref())
+        .and_then(|preview| preview.icon.clone())
+        .into_iter()
+        .collect()
+}
+
+impl Dialogs {
     /// Takes in the core's dialogs: what's typed in one starts as it opens
     /// (a copy's name from its channel, Join's field empty) and goes when it
     /// closes. An opening dialog's field takes the keys, else nothing under
     /// it does.
-    pub fn server_dialogs_sync(&mut self) -> Task<Message> {
-        let state = self.client.state();
-        let local = &mut self.server_dialogs;
+    pub fn sync(&mut self, state: &AppState) -> Task<Message> {
+        let local = &mut *self;
         let mut focus = None;
         match &state.invite {
             Some(invite) if local.invite.is_none() => {
@@ -155,30 +167,18 @@ impl App {
             Some(_) => {}
             None => local.channel = None,
         }
-        if state.leave.is_some() && !self.leave_shown {
+        if state.leave.is_some() && !local.leave_shown {
             focus = Some(NOBODY);
         }
-        self.leave_shown = state.leave.is_some();
+        local.leave_shown = state.leave.is_some();
         match focus {
             Some(id) => operation::focus(Id::new(id)),
             None => Task::none(),
         }
     }
 
-    /// The pictures the dialogs show: the server an invite is to.
-    pub fn server_dialog_pictures(&self) -> Vec<String> {
-        let state = self.client.state();
-        state
-            .join
-            .as_ref()
-            .and_then(|join| join.preview.as_ref())
-            .and_then(|preview| preview.icon.clone())
-            .into_iter()
-            .collect()
-    }
-
-    pub fn server_dialog_event(&mut self, event: Event) -> Task<Message> {
-        let local = &mut self.server_dialogs;
+    pub fn update(&mut self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
+        let local = &mut *self;
         let action = match event {
             Event::InviteAge(age) => {
                 if let Some(invite) = &mut local.invite {
@@ -213,19 +213,18 @@ impl App {
                 return Task::none();
             }
             Event::Find => {
-                let busy = self
-                    .client
+                let busy = cx
                     .state()
                     .join
                     .as_ref()
                     .is_some_and(|join| join.resolving || join.joining);
-                match &self.server_dialogs.join {
+                match &local.join {
                     Some(link) if !busy => Action::FindInvite(link.clone()),
                     _ => return Task::none(),
                 }
             }
             Event::Confirm => {
-                let Some(join) = self.client.state().join.as_ref() else {
+                let Some(join) = cx.state().join.as_ref() else {
                     return Task::none();
                 };
                 if join.form.is_some() {
@@ -233,7 +232,7 @@ impl App {
                 } else if join.preview.is_some() {
                     Action::JoinServer
                 } else {
-                    return self.server_dialog_event(Event::Find);
+                    return self.update(Event::Find, cx);
                 }
             }
             Event::OpenCaptcha => Action::OpenJoinCaptcha,
@@ -251,13 +250,12 @@ impl App {
                 return Task::none();
             }
             Event::SaveChannel => {
-                let saving = self
-                    .client
+                let saving = cx
                     .state()
                     .channel_dialog
                     .as_ref()
                     .is_none_or(|asked| asked.saving);
-                let Some(draft) = &self.server_dialogs.channel else {
+                let Some(draft) = &local.channel else {
                     return Task::none();
                 };
                 if saving {
@@ -281,19 +279,17 @@ impl App {
             Event::CloseLeave => Action::CloseLeave,
             Event::MoveSync(sync) => Action::AnswerMoveSync(sync),
         };
-        self.client.dispatch(action);
-        let task = self.sync();
-        if self.server_dialog_open() {
-            task
-        } else {
-            Task::batch([task, self.refocus()])
+        cx.dispatch(action);
+        if !is_open(cx.state()) {
+            cx.request(Request::Focus(Focus::Default));
         }
+        Task::none()
     }
 
     /// The keys while one is open: Escape closes it, and Enter carries out
     /// a channel dialog or a leave without a field.
-    pub fn server_dialog_key(&mut self, named: Option<key::Named>) -> Task<Message> {
-        let state = self.client.state();
+    pub fn key(&mut self, named: Option<key::Named>, cx: &mut Cx<'_>) -> Task<Message> {
+        let state = cx.state();
         let (close, enter) = if state.move_sync.is_some() {
             (Event::MoveSync(None), Some(Event::MoveSync(Some(true))))
         } else if state.leave.is_some() {
@@ -309,15 +305,29 @@ impl App {
         };
         let busy = state.leave.as_ref().is_some_and(|leave| leave.leaving);
         match (named, enter) {
-            (Some(key::Named::Escape), _) => self.server_dialog_event(close),
-            (Some(key::Named::Enter), Some(enter)) if !busy => self.server_dialog_event(enter),
+            (Some(key::Named::Escape), _) => self.update(close, cx),
+            (Some(key::Named::Enter), Some(enter)) if !busy => self.update(enter, cx),
             _ => Task::none(),
         }
     }
+}
 
-    /// The open one of these dialogs, if any.
-    pub fn server_dialog_view(&self) -> Option<Element<'_, Message>> {
-        let state = self.client.state();
+/// The open one of these dialogs, if any.
+pub fn view<'a>(dialogs: &'a Dialogs, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
+    View { s: dialogs, cx }.view()
+}
+
+/// What's typed in the dialogs and what they read, as their parts draw
+/// them.
+#[derive(Clone, Copy)]
+struct View<'a> {
+    s: &'a Dialogs,
+    cx: Ctx<'a>,
+}
+
+impl<'a> View<'a> {
+    fn view(self) -> Option<Element<'a, Message>> {
+        let state = self.cx.state;
         if state.move_sync.is_some() {
             return self.move_sync_view();
         }
@@ -335,10 +345,10 @@ impl App {
 
     /// The invite link to a server or channel: the link with Copy, how long
     /// it lasts and how often it works, and the choices for a new one.
-    fn invite_view(&self) -> Option<Element<'_, Message>> {
-        let invite = self.client.state().invite.as_ref()?;
-        let choice = self.server_dialogs.invite.as_ref()?;
-        let theme = &self.theme;
+    fn invite_view(self) -> Option<Element<'a, Message>> {
+        let invite = self.cx.state.invite.as_ref()?;
+        let choice = self.s.invite.as_ref()?;
+        let theme = self.cx.look.theme;
         let place = if invite.voice {
             invite.channel.clone()
         } else {
@@ -377,7 +387,7 @@ impl App {
         .align_y(Alignment::Center)
         .style(move |_| rounded(sunken, 8));
         let mut body = vec![
-            self.look().dialog_head(
+            self.cx.look.dialog_head(
                 format!("Invite friends to {}", invite.server),
                 message(Event::CloseInvite),
             ),
@@ -424,16 +434,16 @@ impl App {
                 .into(),
             ]),
         ]);
-        Some(self.look().framed(body, WIDE, message(Event::CloseInvite)))
+        Some(self.cx.look.framed(body, WIDE, message(Event::CloseInvite)))
     }
 
     /// Join a Server, or the dialog a clicked invite link opens: the field
     /// (Join's alone), the server once found, how joining goes, and its
     /// buttons.
-    fn join_server_view(&self) -> Option<Element<'_, Message>> {
-        let join = self.client.state().join.as_ref()?;
-        let typed = self.server_dialogs.join.as_deref()?;
-        let theme = &self.theme;
+    fn join_server_view(self) -> Option<Element<'a, Message>> {
+        let join = self.cx.state.join.as_ref()?;
+        let typed = self.s.join.as_deref()?;
+        let theme = self.cx.look.theme;
         let preview = join.preview.as_ref();
         let busy = join.resolving || join.joining;
         let title = if join.from_link {
@@ -442,7 +452,8 @@ impl App {
             "Join a Server"
         };
         let mut body = vec![
-            self.look()
+            self.cx
+                .look
                 .dialog_head(title.to_owned(), message(Event::CloseJoin)),
         ];
         if !join.from_link {
@@ -467,11 +478,16 @@ impl App {
                 _ if preview.voice => preview.channel.clone(),
                 _ => format!("#{}", preview.channel),
             };
-            body.push(self.look().found_card(
-                Some(self.avatar(preview.icon.as_deref(), &preview.name, 48.0, 24.0, 1.0)),
-                preview.name.clone(),
-                [detail],
-            ));
+            body.push(
+                self.cx.look.found_card(
+                    Some(
+                        self.cx
+                            .avatar(preview.icon.as_deref(), &preview.name, 48.0, 24.0, 1.0),
+                    ),
+                    preview.name.clone(),
+                    [detail],
+                ),
+            );
         }
         let status = if join.form.is_some() {
             "You joined. This server asks new members to fill in a form before they can talk, which Yapfast can't show yet. Finish it in Discord's web app."
@@ -539,15 +555,15 @@ impl App {
             );
         }
         body.push(buttons(row_));
-        Some(self.look().framed(body, NARROW, message(Event::CloseJoin)))
+        Some(self.cx.look.framed(body, NARROW, message(Event::CloseJoin)))
     }
 
     /// Making, copying or deleting a channel or category: where it goes or
     /// what deleting does, a new channel's kind, the name, and the button.
-    fn channel_dialog_view(&self) -> Option<Element<'_, Message>> {
-        let asked = self.client.state().channel_dialog.as_ref()?;
-        let draft = self.server_dialogs.channel.as_ref()?;
-        let theme = &self.theme;
+    fn channel_dialog_view(self) -> Option<Element<'a, Message>> {
+        let asked = self.cx.state.channel_dialog.as_ref()?;
+        let draft = self.s.channel.as_ref()?;
+        let theme = self.cx.look.theme;
         let category = asked.kind == ChannelKind::Category;
         let thing = if category { "category" } else { "channel" };
         let named = |name: &str| {
@@ -587,7 +603,9 @@ impl App {
         let deleting = matches!(asked.ask, ChannelAsk::Delete(_));
         let ready = !asked.saving;
         let mut body = vec![
-            self.look().dialog_head(title, message(Event::CloseChannel)),
+            self.cx
+                .look
+                .dialog_head(title, message(Event::CloseChannel)),
             form::note(theme, detail),
         ];
         if matches!(asked.ask, ChannelAsk::Create { .. }) && !category {
@@ -639,18 +657,22 @@ impl App {
             )
             .into(),
         ]));
-        Some(self.look().framed(body, WIDE, message(Event::CloseChannel)))
+        Some(
+            self.cx
+                .look
+                .framed(body, WIDE, message(Event::CloseChannel)),
+        )
     }
 
     /// Asks before leaving a server or group DM, in red; a group's offers
     /// to leave without telling its other members.
-    fn leave_view(&self) -> Option<Element<'_, Message>> {
-        let leave = self.client.state().leave.as_ref()?;
-        let theme = &self.theme;
+    fn leave_view(self) -> Option<Element<'a, Message>> {
+        let leave = self.cx.state.leave.as_ref()?;
+        let theme = self.cx.look.theme;
         let what = if leave.group { "group" } else { "server" };
         let ready = !leave.leaving;
         let mut body = vec![
-            self.look().dialog_head(
+            self.cx.look.dialog_head(
                 format!("Leave '{}'", leave.name),
                 message(Event::CloseLeave),
             ),
@@ -666,10 +688,12 @@ impl App {
             body.push(
                 button(
                     row![
-                        container(self.checkbox(leave.silent, false)).padding(iced::Padding {
-                            top: 1.0,
-                            ..iced::Padding::ZERO
-                        }),
+                        container(self.cx.look.checkbox(leave.silent, false)).padding(
+                            iced::Padding {
+                                top: 1.0,
+                                ..iced::Padding::ZERO
+                            }
+                        ),
                         text("Leave without notifying other members")
                             .size(14)
                             .color(theme.secondary)
@@ -703,20 +727,20 @@ impl App {
             )
             .into(),
         ]));
-        Some(self.look().framed(body, WIDE, message(Event::CloseLeave)))
+        Some(self.cx.look.framed(body, WIDE, message(Event::CloseLeave)))
     }
 }
 
-impl App {
+impl<'a> View<'a> {
     /// Asks whether a channel dragged into a category takes its
     /// permissions, as Discord's client does (the Slint client's
     /// `ChannelDialog` with the core's `MoveSync`): Sync Permissions, or
     /// Keep Current Permissions; closing it leaves the channel where it was.
-    fn move_sync_view(&self) -> Option<Element<'_, Message>> {
-        let asked = self.client.state().move_sync.as_ref()?;
-        let theme = &self.theme;
+    fn move_sync_view(self) -> Option<Element<'a, Message>> {
+        let asked = self.cx.state.move_sync.as_ref()?;
+        let theme = self.cx.look.theme;
         let body = vec![
-            self.look().dialog_head(
+            self.cx.look.dialog_head(
                 "Sync permissions?".to_owned(),
                 message(Event::MoveSync(None)),
             ),
@@ -745,7 +769,8 @@ impl App {
             ]),
         ];
         Some(
-            self.look()
+            self.cx
+                .look
                 .framed(body, WIDE, message(Event::MoveSync(None))),
         )
     }

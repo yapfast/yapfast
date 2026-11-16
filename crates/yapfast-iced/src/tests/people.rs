@@ -91,11 +91,11 @@ fn a_profiles_more_menu_is_the_persons_own_and_asks_before_a_block() {
         (dialog.user.as_str(), dialog.ask, dialog.location),
         ("4", PersonAsk::Block, person::PROFILE_OVERFLOW)
     );
-    let _ = app.person_focus();
+    let _ = app.person.focus(app.client.state());
     let mut ui = iced_test::Simulator::with_size(
         iced::Settings::default(),
         app.window,
-        app.person_view().expect("the question"),
+        crate::person::view(&app.person, app.ctx()).expect("the question"),
     );
     assert!(ui.find("Block Dave?").is_ok());
     drop(ui);
@@ -256,7 +256,7 @@ fn view_reactions_opens_from_a_messages_menu_and_escape_closes_it() {
         let mut ui = iced_test::Simulator::with_size(
             iced::Settings::default(),
             app.window,
-            app.reactions_view().expect("the window"),
+            crate::reactions::view(&app.reactions, app.ctx()).expect("the window"),
         );
         assert!(
             ui.find("5").is_ok() && ui.find("2").is_ok(),

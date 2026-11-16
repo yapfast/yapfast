@@ -7,10 +7,13 @@ use iced::Task;
 
 use super::{App, Message};
 use crate::{
-    ctx::{Ctx, Focus, Pref, Request, cx},
+    ctx::{Ctx, Focus, Pref, Request, Screen, cx},
     settings::{Event, Section, Settings},
     slot::Why,
 };
+
+/// The most passes `settle` makes.
+const PASSES: usize = 4;
 
 impl App {
     /// The view's context: the look, the pictures, the core's state and
@@ -101,48 +104,13 @@ impl App {
     /// recorded. It touches nothing while nothing was asked.
     pub fn settle(&mut self) -> Task<Message> {
         let mut tasks = Vec::new();
-        let mut focus = None;
-        let mut heard: Vec<Pref> = Vec::new();
-        // A close may ask more of its own, so this runs until none is
-        // left.
-        while !self.requests.is_empty() {
-            for request in std::mem::take(&mut self.requests) {
-                match request {
-                    Request::CloseSelf => {
-                        let mut cx = cx!(self);
-                        self.settings.close(&mut cx, Why::User);
-                    }
-                    Request::CloseMenus => self.menu = None,
-                    Request::ClosePopups => {
-                        self.close_popup();
-                        // They cover the signal, whose touch says nothing
-                        // as it's covered.
-                        self.call.details.pointed = false;
-                    }
-                    Request::Focus(to) => focus = Some(to),
-                    Request::Changed(pref) => {
-                        if !heard.contains(&pref) {
-                            heard.push(pref);
-                        }
-                    }
-                    Request::TitleBar(system) => tasks.push(self.choose_title_bar(system)),
-                    Request::LookForUpdates(announce) => self.look_for_updates(announce),
-                }
+        // A sync may close a screen the core closed, whose close asks
+        // more; a few passes are enough for any chain the screens make.
+        for _ in 0..PASSES {
+            if self.requests.is_empty() && !self.dirty {
+                break;
             }
-        }
-        for pref in heard {
-            tasks.push(self.changed(pref));
-        }
-        // The keys go where they were sent before the sync, so a field
-        // that what the sync opens focuses (the status editor's, as My
-        // Account's Custom Status closes Settings) takes them after.
-        match focus {
-            Some(Focus::Default) => tasks.push(self.refocus()),
-            Some(Focus::Nobody) => tasks.push(iced::widget::operation::focus(super::NOBODY)),
-            None => {}
-        }
-        if std::mem::take(&mut self.dirty) {
-            tasks.push(self.sync());
+            tasks.push(self.settle_pass());
         }
         let videos = self
             .settings
@@ -162,6 +130,75 @@ impl App {
             crate::pause_keybinds(recording);
         }
         Task::batch(tasks)
+    }
+
+    /// One pass of [`App::settle`]: the requests, the preferences heard,
+    /// the focus, then the sync.
+    fn settle_pass(&mut self) -> Task<Message> {
+        let mut tasks = Vec::new();
+        let mut focus = None;
+        let mut heard: Vec<Pref> = Vec::new();
+        // A close may ask more of its own, so this runs until none is
+        // left.
+        while !self.requests.is_empty() {
+            for request in std::mem::take(&mut self.requests) {
+                match request {
+                    Request::Close(screen) => self.close_screen(screen, Why::User),
+                    Request::CloseMenus => self.menu = None,
+                    Request::ClosePopups => {
+                        self.close_popup();
+                        // They cover the signal, whose touch says nothing
+                        // as it's covered.
+                        self.call.details.pointed = false;
+                    }
+                    Request::Focus(to) => focus = Some(to),
+                    Request::Changed(pref) => {
+                        if !heard.contains(&pref) {
+                            heard.push(pref);
+                        }
+                    }
+                    Request::TitleBar(system) => tasks.push(self.choose_title_bar(system)),
+                    Request::LookForUpdates(announce) => self.look_for_updates(announce),
+                    Request::Ask => tasks.push(self.ask()),
+                    Request::PlaceEmoji { target, key } => {
+                        tasks.push(self.place_emoji(target, key));
+                    }
+                    Request::PersonMenu { user, location } => {
+                        let at = self.pressed.get();
+                        tasks.push(self.open_person_menu(&user, at, location));
+                    }
+                }
+            }
+        }
+        for pref in heard {
+            tasks.push(self.changed(pref));
+        }
+        // The keys go where they were sent before the sync, so a field
+        // that what the sync opens focuses (the status editor's, as My
+        // Account's Custom Status closes Settings) takes them after.
+        match focus {
+            Some(Focus::Default) => tasks.push(self.refocus()),
+            Some(Focus::Nobody) => tasks.push(iced::widget::operation::focus(super::NOBODY)),
+            Some(Focus::Id(id)) => tasks.push(iced::widget::operation::focus(id)),
+            None => {}
+        }
+        if std::mem::take(&mut self.dirty) {
+            tasks.push(self.sync());
+        }
+        Task::batch(tasks)
+    }
+
+    /// Closes a screen the window opened, running its close.
+    fn close_screen(&mut self, screen: Screen, why: Why) {
+        let mut cx = cx!(self);
+        match screen {
+            Screen::Settings => {
+                self.settings.close(&mut cx, why);
+            }
+            Screen::Picker => {
+                self.picker.close(&mut cx, why);
+            }
+        }
     }
 
     /// A preference others show changed: the root does its part, then each

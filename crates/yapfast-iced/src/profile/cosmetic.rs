@@ -15,9 +15,12 @@ use iced::{
     Element, Length, Rectangle, Size, Task,
     widget::{Space, container, stack},
 };
-use yapfast_core::chat::{EffectLayer, ProfileEffect};
+use yapfast_core::{
+    application::AppState,
+    chat::{EffectLayer, ProfileEffect},
+};
 
-use super::{Event, Mode, Shown};
+use super::{Event, Mode, Profiles, Shown};
 use crate::{
     app::{App, Message},
     widgets::{FrameAnchor, FrameKind, FrameLayer, Framed, Pic},
@@ -93,51 +96,54 @@ fn next_change(effect: &ProfileEffect, time: u64) -> Option<u64> {
     times.into_iter().filter(|&at| at > time).min()
 }
 
-impl App {
-    /// The effect a profile wears, when the profile switches show effects
-    /// and the core has fetched it.
-    fn worn_effect(&self, shown: &Shown) -> Option<&ProfileEffect> {
-        let state = self.client.state();
-        let sku = state
-            .cosmetics
-            .effect(shown.look.profile().effect.as_deref())?;
-        state
-            .profile_effects
-            .iter()
-            .find(|effect| effect.sku == sku)
-            .map(|effect| &**effect)
-    }
+/// The effect a profile wears, when the profile switches show effects and
+/// the core has fetched it.
+pub(super) fn worn_effect<'a>(state: &'a AppState, shown: &Shown) -> Option<&'a ProfileEffect> {
+    let sku = state
+        .cosmetics
+        .effect(shown.look.profile().effect.as_deref())?;
+    state
+        .profile_effects
+        .iter()
+        .find(|effect| effect.sku == sku)
+        .map(|effect| &**effect)
+}
 
-    /// The effect's pictures to ask for: its still, and its layers while
-    /// the card is pointed at.
-    pub(super) fn effect_pictures(&self, shown: &Shown, pointed: bool) -> Vec<String> {
-        let Some(effect) = self.worn_effect(shown) else {
-            return Vec::new();
-        };
-        let mut urls: Vec<String> = effect.still.iter().cloned().collect();
-        if pointed {
-            urls.extend(effect.layers.iter().map(|layer| layer.src.clone()));
-        }
-        urls
+/// The effect's pictures to ask for: its still, and its layers while the
+/// card is pointed at.
+pub(super) fn effect_pictures(state: &AppState, shown: &Shown, pointed: bool) -> Vec<String> {
+    let Some(effect) = worn_effect(state, shown) else {
+        return Vec::new();
+    };
+    let mut urls: Vec<String> = effect.still.iter().cloned().collect();
+    if pointed {
+        urls.extend(effect.layers.iter().map(|layer| layer.src.clone()));
     }
+    urls
+}
 
-    /// The frame's pictures to ask for.
-    pub(super) fn frame_pictures(&self, shown: &Shown) -> Vec<String> {
-        let state = self.client.state();
-        let profile = shown.look.profile();
-        state
-            .cosmetics
-            .frame(Some(&profile.frame))
-            .into_iter()
-            .flat_map(|frame| frame.iter())
-            .map(|layer| layer.src.clone())
-            .collect()
-    }
+/// The frame's pictures to ask for.
+pub(super) fn frame_pictures(state: &AppState, shown: &Shown) -> Vec<String> {
+    let profile = shown.look.profile();
+    state
+        .cosmetics
+        .frame(Some(&profile.frame))
+        .into_iter()
+        .flat_map(|frame| frame.iter())
+        .map(|layer| layer.src.clone())
+        .collect()
+}
 
+impl Profiles {
     /// The pointer came onto a card or left it: its effect starts from the
     /// beginning, or stops. `panel` is the card beside a DM.
-    pub(super) fn point_effect(&mut self, panel: bool, pointed: bool) -> Task<Message> {
-        let clock = &mut self.profiles.effect;
+    pub(super) fn point_effect(
+        &mut self,
+        panel: bool,
+        pointed: bool,
+        state: &AppState,
+    ) -> Task<Message> {
+        let clock = &mut self.effect;
         let since = if panel {
             &mut clock.panel
         } else {
@@ -149,32 +155,32 @@ impl App {
         *since = pointed.then(Instant::now);
         clock.generation += 1;
         let generation = clock.generation;
-        self.effect_tick(generation)
+        self.effect_tick(generation, state)
     }
 
     /// A card opened or grew to the full profile: nothing points at it
     /// yet, so its effect rests until the pointer comes onto it.
     pub(super) fn unpoint_card(&mut self) {
-        self.profiles.pointed = false;
-        self.profiles.effect.card = None;
-        self.profiles.effect.generation += 1;
+        self.pointed = false;
+        self.effect.card = None;
+        self.effect.generation += 1;
     }
 
     /// A layer of a playing effect shows or goes now: the view takes it,
     /// and the next such time is asked for.
-    pub(super) fn effect_tick(&mut self, generation: u64) -> Task<Message> {
-        let clock = &self.profiles.effect;
+    pub(super) fn effect_tick(&self, generation: u64, state: &AppState) -> Task<Message> {
+        let clock = &self.effect;
         if generation != clock.generation {
             return Task::none();
         }
         let now = Instant::now();
         let next = [
-            (self.profiles.shown.as_ref(), clock.card),
-            (self.profiles.panel.as_ref(), clock.panel),
+            (self.shown.as_ref(), clock.card),
+            (self.panel.as_ref(), clock.panel),
         ]
         .into_iter()
         .filter_map(|(shown, since)| {
-            let effect = self.worn_effect(shown?)?;
+            let effect = worn_effect(state, shown?)?;
             let time = now.duration_since(since?).as_millis() as u64;
             next_change(effect, time).map(|at| at - time)
         })
@@ -187,7 +193,9 @@ impl App {
             None => Task::none(),
         }
     }
+}
 
+impl App {
     /// The card `card`, `width` wide, with its effect over it and its frame
     /// round it, as `mode` shows them.
     pub(super) fn dressed<'a>(
@@ -232,9 +240,8 @@ impl App {
         width: f32,
         since: Option<Instant>,
     ) -> Option<Element<'_, Message>> {
-        let effect = self
-            .worn_effect(shown)
-            .filter(|effect| !effect.layers.is_empty())?;
+        let effect =
+            worn_effect(self.client.state(), shown).filter(|effect| !effect.layers.is_empty())?;
         let pictures = &self.client.state().pictures;
         let time = since.map(|since| since.elapsed().as_millis() as u64);
         let playing = self.plays() && time.is_some_and(|time| !finished(effect, time));
@@ -286,7 +293,7 @@ impl App {
     /// card, as Discord's tile shows it (a light panel, the name's and
     /// bio's bars at the lower left), `size` big.
     pub(super) fn effect_tile(&self, shown: &Shown, size: Size) -> Option<Element<'_, Message>> {
-        let effect = self.worn_effect(shown)?;
+        let effect = worn_effect(self.client.state(), shown)?;
         if effect.still.is_none() && effect.layers.is_empty() {
             return None;
         }

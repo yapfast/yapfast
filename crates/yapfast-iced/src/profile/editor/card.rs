@@ -353,7 +353,7 @@ impl App {
         let thought = &self
             .profiles
             .editor
-            .as_ref()
+            .get()
             .map(|editor| &editor.shown.look.thought);
         let set = thought.is_some_and(|thought| !thought.is_empty());
         let mut words = row![].spacing(4).align_y(Alignment::Center);

@@ -219,11 +219,13 @@ impl App {
             None => Task::none(),
         }
     }
+}
 
+impl<'a> crate::ctx::Ctx<'a> {
     /// Someone's volumes, as the Slint client's `VolumeMenu`: their name,
     /// then their voice's slider, and their stream's while they share.
-    pub fn volumes_view<'a>(&'a self, volumes: &'a Volumes) -> Element<'a, Message> {
-        let theme = &self.theme;
+    pub fn volumes_view(self, volumes: &'a Volumes) -> Element<'a, Message> {
+        let theme = self.look.theme;
         let slider = |label, stream: bool, value| {
             controls::slider(label, value, 200, move |value| {
                 Message::Call(Event::Volume(stream, value, false))

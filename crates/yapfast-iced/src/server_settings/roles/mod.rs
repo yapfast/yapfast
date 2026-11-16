@@ -18,9 +18,11 @@ use yapfast_core::application::{
 };
 
 use super::{Event as SettingsEvent, Screen, message};
+use crate::server_settings::View;
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{self, Kind, action},
+    ctx::Cx,
     fonts::BOLD,
     style::hex,
 };
@@ -176,27 +178,25 @@ fn search<'a>(
 }
 
 /// The open Roles, if it's showing.
-fn roles(app: &App) -> Option<&RolesPage> {
-    match app.client.state().server_settings.as_ref()?.page.as_ref()? {
-        SettingsPage::Roles(page) => Some(page),
+fn roles(state: &yapfast_core::application::AppState) -> Option<&RolesPage> {
+    match state.server_settings.as_ref()?.page.as_ref()? {
+        SettingsPage::Roles(page) => Some(&**page),
         _ => None,
     }
 }
 
-impl App {
+impl super::Screen {
     /// What's done on Roles that's the screen's own.
-    pub(super) fn roles_local(&mut self, event: Event) -> Task<Message> {
-        let open = roles(self).and_then(|page| page.open.as_ref().map(|draft| draft.id.clone()));
+    pub(super) fn roles_local(&mut self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
+        let state = cx.state();
+        let open = roles(state).and_then(|page| page.open.as_ref().map(|draft| draft.id.clone()));
         let moved = match &event {
             Event::Moved(from, _) => {
-                roles(self).and_then(|page| page.listed().get(*from).map(|role| role.id.clone()))
+                roles(state).and_then(|page| page.listed().get(*from).map(|role| role.id.clone()))
             }
             _ => None,
         };
-        let Some(screen) = self.server_screen.as_mut() else {
-            return Task::none();
-        };
-        let local = &mut screen.roles;
+        let local = &mut self.roles;
         let action = match event {
             Event::More(role) => {
                 local.more = if local.more == role { None } else { role };
@@ -231,18 +231,20 @@ impl App {
                 RoleInput::Move { role, to }
             }
         };
-        self.server_settings_event(SettingsEvent::Role(action))
+        self.update(SettingsEvent::Role(action), cx)
     }
+}
 
+impl<'a> View<'a> {
     /// Roles: the list, or the editor of the open role. Its Permissions
     /// tab fills the frame's height, scrolling its own list.
-    pub(super) fn roles_page<'a>(
-        &'a self,
+    pub(super) fn roles_page(
+        self,
         core: &'a ServerSettings,
         page: &'a RolesPage,
         screen: &'a Screen,
     ) -> (Element<'a, Message>, bool) {
-        let rules = self.client.app.role_rules(&core.server);
+        let rules = self.cx.app.role_rules(&core.server);
         match (&page.open, page.open_role()) {
             (Some(draft), Some(role)) => (
                 self.role_editor(core, page, role, &rules, screen),
@@ -253,11 +255,11 @@ impl App {
     }
 }
 
-impl App {
+impl<'a> View<'a> {
     /// Delete Role's or Remove member's question, and Add members, over
     /// the settings.
-    pub(super) fn roles_dialogs<'a>(
-        &'a self,
+    pub(super) fn roles_dialogs(
+        self,
         page: &'a RolesPage,
         _screen: &'a Screen,
     ) -> Vec<Element<'a, Message>> {
@@ -272,12 +274,8 @@ impl App {
     }
 
     /// What Roles asks before deleting a role or taking it from someone.
-    fn role_confirm<'a>(
-        &'a self,
-        page: &'a RolesPage,
-        confirm: &'a RoleConfirm,
-    ) -> Element<'a, Message> {
-        let theme = &self.theme;
+    fn role_confirm(self, page: &'a RolesPage, confirm: &'a RoleConfirm) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         let (title, question, answer) = match confirm {
             RoleConfirm::Delete(id) => {
                 let name = page.role(id).map_or("", |role| role.name.as_str());

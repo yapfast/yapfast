@@ -55,8 +55,8 @@ pub struct Ctx<'a> {
 /// what screens may ask of each other, in one place.
 #[derive(Clone, Debug)]
 pub enum Request {
-    /// The screen that asked closes, its own close run.
-    CloseSelf,
+    /// A screen the window opened closes, its own close run.
+    Close(Screen),
     /// The menu open, if any, closes.
     CloseMenus,
     /// The call's popups close, and the signal's pointer is let go.
@@ -69,6 +69,19 @@ pub enum Request {
     TitleBar(bool),
     /// A look at the releases, telling of a newer one if `true`.
     LookForUpdates(bool),
+    /// The pictures in view are asked for, as a list scrolls.
+    Ask,
+    /// An emoji picked, for where the picker was opened for.
+    PlaceEmoji {
+        target: crate::picker::Target,
+        key: String,
+    },
+    /// Someone's menu, where the pointer was pressed, as the place the
+    /// core's analytics name (`person::CONTEXT_MENU`).
+    PersonMenu {
+        user: String,
+        location: &'static str,
+    },
 }
 
 /// Where the keys go.
@@ -78,6 +91,15 @@ pub enum Focus {
     Default,
     /// Nowhere, so no field takes them (`app::NOBODY`).
     Nobody,
+    /// The field with this id.
+    Id(&'static str),
+}
+
+/// The screens the window opens, by their slot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Screen {
+    Settings,
+    Picker,
 }
 
 /// A preference others show, changed.
@@ -113,6 +135,10 @@ pub struct Cx<'a> {
     pub theme: &'a Theme,
     /// The window's pixels to the display's.
     pub scale: f32,
+    /// The window's size, for what a screen lays out by it.
+    pub window: iced::Size,
+    /// The keyboard's modifiers held.
+    pub modifiers: iced::keyboard::Modifiers,
     pub build: &'a Build,
     pub requests: &'a mut Vec<Request>,
     /// Something changed that the window shows: sync after the update.
@@ -156,6 +182,8 @@ macro_rules! cx {
             themes: &mut $app.themes,
             theme: &$app.theme,
             scale,
+            window: $app.window,
+            modifiers: $app.modifiers,
             build: &$app.build,
             requests: &mut $app.requests,
             dirty: &mut $app.dirty,

@@ -19,7 +19,6 @@ use crate::{
     menus::Menu,
     mfa,
     picker::Picker,
-    profile::Card,
     rail::RailItem,
     select::Sel,
     sidebar::SideRow,
@@ -32,6 +31,7 @@ use crate::{
 
 mod layers;
 mod message;
+mod screens;
 mod settle;
 mod subscription;
 mod view;
@@ -192,11 +192,11 @@ pub struct App {
     /// length: the channel's and the thread's.
     pub staged_seen: [usize; 4],
     pub drop: crate::uploads::Drop,
-    pub picker: Option<Picker>,
+    pub picker: crate::slot::Slot<Picker>,
     /// The keys held with a click: Shift puts a GIF in the composer.
     pub modifiers: keyboard::Modifiers,
     /// The message added to one being forwarded.
-    pub forward_note: String,
+    pub forward: crate::forward::Forward,
     /// The timeline's selection, where it started and where it goes to, and
     /// whether the button is still down.
     pub selection: Option<(Sel, Sel)>,
@@ -222,7 +222,6 @@ pub struct App {
     pub voice_held: Option<String>,
     /// A masked link clicked, while the question before it shows.
     pub leaving: Option<String>,
-    pub card: Option<Card>,
     /// The profiles on screen.
     pub profiles: crate::profile::Profiles,
     /// Where in the window the last press was, for a menu its button opens.
@@ -265,19 +264,16 @@ pub struct App {
     /// stopped, when the videos were last placed for it.
     videos_for: (bool, u32),
     /// A server's settings' own state while they're open.
-    pub server_screen: Option<Box<crate::server_settings::Screen>>,
-    /// What's chosen or typed in the invite, join and channel dialogs, and
-    /// whether the leave dialog showed at the last sync.
+    pub server_screen: crate::slot::Slot<crate::server_settings::Screen>,
+    /// What's chosen or typed in the invite, join and channel dialogs.
     pub server_dialogs: crate::server_dialogs::Dialogs,
     /// What's chosen in an event's, gift's or authorization's dialog.
     pub link_dialogs: crate::link_dialogs::LinkDialogs,
     /// Whether Discord heard nobody is using Yapfast.
     pub away: crate::away::Away,
-    pub leave_shown: bool,
-    pub channel_screen: Option<Box<crate::channel_settings::Screen>>,
+    pub channel_screen: crate::slot::Slot<crate::channel_settings::Screen>,
     /// The account's popover, and the custom status's dialog's draft.
-    pub account_popover: Option<crate::status::AccountPopover>,
-    pub status_draft: Option<crate::status::Draft>,
+    pub status: crate::status::Status,
     /// The quick switcher's places and the one Enter goes to.
     pub quick: crate::switcher::Quick,
     pub build: crate::settings::Build,
@@ -290,9 +286,8 @@ pub struct App {
     pub clip_full: bool,
     pub clip_cell: (u32, u32),
     pub clip_volume: u8,
-    /// The size the picture viewer opened at, for its message's item and
-    /// attachment, which the full picture coming keeps.
-    pub viewer_size: Option<(String, usize, Size)>,
+    /// The size the picture viewer opened at.
+    pub viewer: crate::image_viewer::Viewed,
     /// The thread beside the channel, while it shows, the last message it
     /// had read, and the side composers' fields (`thread.rs`).
     pub aside: Option<Box<crate::thread::Aside>>,
@@ -314,10 +309,7 @@ pub struct App {
     pub sign_in: SignIn,
     pub backend_events: Option<iced::task::Handle>,
     pub linking: Option<iced::task::Handle>,
-    /// The two-factor prompt shown, by its id and method, and its warning's
-    /// wait.
-    pub mfa_shown: Option<(u64, Option<yapfast_core::chat::MfaMethod>)>,
-    pub wait: mfa::Wait,
+    pub mfa: mfa::Mfa,
 }
 
 impl App {
@@ -454,9 +446,9 @@ impl App {
             thumbnails: HashMap::new(),
             staged_seen: [0; 4],
             drop: Default::default(),
-            picker: None,
+            picker: Default::default(),
             modifiers: keyboard::Modifiers::default(),
-            forward_note: String::new(),
+            forward: Default::default(),
             selection: None,
             selecting: false,
             menu: None,
@@ -469,7 +461,6 @@ impl App {
             clip_time: None,
             voice_held: None,
             leaving: None,
-            card: None,
             profiles: Default::default(),
             pressed: Default::default(),
             link_spot: Default::default(),
@@ -486,14 +477,12 @@ impl App {
             requests: Vec::new(),
             dirty: false,
             videos_for: (false, 0),
-            server_screen: None,
+            server_screen: Default::default(),
             server_dialogs: Default::default(),
             link_dialogs: Default::default(),
             away: Default::default(),
-            leave_shown: false,
-            channel_screen: None,
-            account_popover: None,
-            status_draft: None,
+            channel_screen: Default::default(),
+            status: Default::default(),
             quick: Default::default(),
             build: crate::build(),
             keybinds: Default::default(),
@@ -501,7 +490,7 @@ impl App {
             clip_full: false,
             clip_cell: (0, 0),
             clip_volume: 0,
-            viewer_size: None,
+            viewer: Default::default(),
             aside: None,
             seen_aside: None,
             drafts: Default::default(),
@@ -515,8 +504,7 @@ impl App {
             sign_in: SignIn::default(),
             backend_events: None,
             linking: None,
-            mfa_shown: None,
-            wait: mfa::Wait::default(),
+            mfa: mfa::Mfa::default(),
         };
         app.fit_window();
         let talk = app.watch_keybinds();
@@ -571,8 +559,14 @@ impl App {
                 self.client.linking(step);
                 self.sync()
             }
-            Message::SignIn(event) => self.sign_in_event(event),
-            Message::Mfa(event) => self.mfa_event(event),
+            Message::SignIn(event) => {
+                let mut cx = crate::ctx::cx!(self);
+                self.sign_in.update(event, &mut cx)
+            }
+            Message::Mfa(event) => {
+                let mut cx = crate::ctx::cx!(self);
+                self.mfa.update(event, &mut cx)
+            }
             Message::Control(command) => self.control(&command),
             Message::Timeline(viewport) => self.timeline_scrolled(viewport),
             Message::Measured(heights) => self.measured(heights),
@@ -615,7 +609,10 @@ impl App {
             Message::Write(event) => self.write_event(event),
             Message::OpenPicker(target, tab) => self.open_picker(target, tab),
             Message::Picker(event) => self.picker_event(event),
-            Message::Forward(event) => self.forward_event(event),
+            Message::Forward(event) => {
+                let mut cx = crate::ctx::cx!(self);
+                self.forward.update(event, &mut cx)
+            }
             Message::Select(select) => {
                 self.select(select);
                 Task::none()
@@ -656,7 +653,10 @@ impl App {
             Message::PersonMenu(user, at) => {
                 self.open_person_menu(&user, at, crate::person::CONTEXT_MENU)
             }
-            Message::Person(event) => self.person_event(event),
+            Message::Person(event) => {
+                let mut cx = crate::ctx::cx!(self);
+                self.person.update(event, &mut cx)
+            }
             Message::ConfirmDelete => {
                 self.client.dispatch(Action::ConfirmDelete);
                 Task::batch([self.sync(), self.refocus()])
@@ -730,13 +730,22 @@ impl App {
             Message::Image(event) => self.image_event(event),
             Message::Thread(event) => self.thread_event(event),
             Message::Popover(event) => self.popover_event(event),
-            Message::Modal(event) => self.modal_event(event),
+            Message::Modal(event) => {
+                let mut cx = crate::ctx::cx!(self);
+                self.modal.update(event, &mut cx)
+            }
             Message::Forum(event) => self.forum_event(event),
             Message::BrowseChannels(event) => self.browse_channels_event(event),
-            Message::Search(event) => self.search_event(event),
+            Message::Search(event) => {
+                let mut cx = crate::ctx::cx!(self);
+                self.searching.update(event, &mut cx)
+            }
             Message::Focus(id) => operation::focus(id),
             Message::Leave(visit) => self.leave(visit),
-            Message::BotSelect(event) => self.select_event(event),
+            Message::BotSelect(event) => {
+                let mut cx = crate::ctx::cx!(self);
+                crate::bot_select::update(event, &mut cx)
+            }
             Message::UseButton(item, custom_id) => {
                 self.client.dispatch(Action::UseButton { item, custom_id });
                 self.sync()
@@ -763,7 +772,10 @@ impl App {
             Message::Info(event) => self.info_event(event),
             Message::Profile(event) => self.profile_event(event),
             Message::Friends(event) => self.friends_event(event),
-            Message::Reactions(event) => self.reactions_event(event),
+            Message::Reactions(event) => {
+                let mut cx = crate::ctx::cx!(self);
+                self.reactions.update(event, &mut cx)
+            }
             Message::Frames(clip_time) => {
                 self.frames_found(clip_time);
                 Task::none()
@@ -784,8 +796,14 @@ impl App {
                 self.active_now_sync();
                 Task::batch([self.read_window_state(), self.ask()])
             }
-            Message::ServerDialog(event) => self.server_dialog_event(event),
-            Message::LinkDialog(event) => self.link_dialog_event(event),
+            Message::ServerDialog(event) => {
+                let mut cx = crate::ctx::cx!(self);
+                self.server_dialogs.update(event, &mut cx)
+            }
+            Message::LinkDialog(event) => {
+                let mut cx = crate::ctx::cx!(self);
+                self.link_dialogs.update(event, &mut cx)
+            }
             Message::Away(event) => self.away_event(event),
             Message::ChannelSettings(event) => self.channel_settings_event(event),
             Message::Status(event) => self.status_event(event),
