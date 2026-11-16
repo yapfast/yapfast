@@ -127,15 +127,7 @@ impl Queue {
         }
     }
 
-    /// Forgets what was wanted, as everything wanted changed at once: another
-    /// channel, or a frame size that leaves every decoded frame too small.
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(super) fn clear(&mut self) {
-        self.waiting.clear();
-    }
-
     /// How many emoji are waiting to be decoded.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(super) fn len(&self) -> usize {
         self.waiting.len()
     }
@@ -418,13 +410,13 @@ impl Animations {
         i_slint_core::yapfast_emoji::set_active(messages.iter().chain(picker).map(String::as_str));
     }
 
-    /// The picker closed. Its unpinned frames must leave the renderer too,
-    /// and a decoder already running must not register them again later.
     /// Whether the picker's ready rows animate `key`.
     pub(super) fn animates_in_picker(&self, key: &str) -> bool {
         self.picker.contains(key)
     }
 
+    /// The picker closed. Its unpinned frames must leave the renderer too,
+    /// and a decoder already running must not register them again later.
     pub(super) fn hide_picker(&mut self) {
         self.picker.clear();
         self.prune_waiting();
@@ -508,6 +500,14 @@ impl Animations {
             global.set_revision(revision);
             window.window().request_redraw();
         }
+    }
+
+    /// Stops the clock bound to a closing window, keeping decoded frames for
+    /// the next one. It must install a new callback even at the same cadence.
+    pub(super) fn detach(&mut self) {
+        self.timer.stop();
+        self.interval = 0;
+        i_slint_core::yapfast_emoji::set_playing(false);
     }
 
     /// Sets whether the clock may move, and starts or stops the timer. Paused
@@ -688,9 +688,6 @@ mod tests {
             .map(|job| job.key)
             .collect();
         assert_eq!(order, ["c", "a", "b"]);
-        queue.want(job("d", "4"));
-        queue.clear();
-        assert_eq!(queue.len(), 0);
     }
 
     #[test]
@@ -952,6 +949,64 @@ mod tests {
             "reopening restarts the timer without a refresh"
         );
         assert!(!adapter.animations.decoding.is_empty());
+    }
+
+    #[test]
+    fn detaching_the_window_stops_the_clock_and_reopening_rebinds_it() {
+        i_slint_backend_testing::init_no_event_loop();
+        let directory = tempfile::tempdir().unwrap();
+        let window = YapfastWindow::new().unwrap();
+        let adapter = Adapter::new(
+            Arc::new(BackgroundRuntime::new().unwrap()),
+            directory.path().into(),
+            &window,
+        )
+        .unwrap();
+        window.global::<Motion>().set_playing(true);
+        {
+            let mut guard = adapter.borrow_mut();
+            guard.animations.show(
+                [("window-clock:1".into(), None, "test.gif".into())],
+                &HashMap::new(),
+            );
+            guard
+                .animations
+                .done
+                .send(Decoded {
+                    key: "window-clock:1".into(),
+                    glyph: None,
+                    frames: vec![vec![0; 16], vec![255; 16]],
+                    delays: vec![50, 50],
+                })
+                .unwrap();
+            guard.run_emoji_animations(&window);
+            assert!(guard.animations.timer.running());
+            guard.detach();
+            assert!(
+                !guard.animations.timer.running(),
+                "no emoji wakeups in the tray"
+            );
+            assert!(!i_slint_core::yapfast_emoji::playing());
+        }
+        let reopened = YapfastWindow::new().unwrap();
+        {
+            let mut guard = adapter.borrow_mut();
+            guard.attach(&reopened);
+            reopened.global::<Motion>().set_playing(true);
+            guard.run_emoji_animations(&reopened);
+            assert!(guard.animations.timer.running());
+        }
+        // A callback still bound to the old, live window would update it instead.
+        i_slint_core::yapfast_emoji::advance(Duration::from_millis(50));
+        i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(50));
+        assert_eq!(
+            reopened.global::<EmojiAnimations>().get_revision(),
+            i_slint_core::yapfast_emoji::revision() as i32
+        );
+        assert!(
+            adapter.borrow().animations.decoding.is_empty(),
+            "cached frames are reused"
+        );
     }
 
     #[test]

@@ -430,7 +430,6 @@ struct Frames {
 #[derive(Default)]
 struct Decoding {
     cursors: Vec<Cursor>,
-    used: Option<Duration>,
 }
 
 type Frame = (usize, slint::SharedPixelBuffer<slint::Rgba8Pixel>);
@@ -547,7 +546,6 @@ impl Model for Frames {
             let now = Duration::from(i_slint_core::animations::current_tick());
             let image = {
                 let mut decoding = self.decoding.borrow_mut();
-                decoding.used = Some(now);
                 self.frame(&mut decoding, row, now)
             };
             FRAME_SWEEP.with(|timer| {
@@ -635,7 +633,7 @@ fn sweep(now: Duration) -> bool {
             if decoding.cursors.is_empty() {
                 *decoding = Decoding::default();
             }
-            active |= decoding.used.is_some();
+            active |= !decoding.cursors.is_empty();
         }
     });
     active
@@ -1051,7 +1049,7 @@ mod tests {
     }
 
     #[test]
-    fn reading_an_animation_frame_does_not_subscribe_to_the_render_clock() {
+    fn idle_animation_does_not_redraw_and_releases_its_decoder() {
         i_slint_backend_testing::init_no_event_loop();
         let file = std::fs::read(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("testing/fixtures/gif-h264.mp4"),
@@ -1060,7 +1058,7 @@ mod tests {
         let picture = Arc::new(yapfast_core::chat::decode_picture(&file, 32, 32).unwrap());
         let (frames, _) = animation(&picture);
         let tracker = std::pin::pin!(i_slint_core::properties::PropertyTracker::<false>::default());
-        tracker.as_ref().evaluate(|| frames.row_data(0).unwrap());
+        let shown = tracker.as_ref().evaluate(|| frames.row_data(0).unwrap());
         assert!(!tracker.is_dirty());
         i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(16));
         slint::platform::update_timers_and_animations();
@@ -1068,18 +1066,6 @@ mod tests {
             !tracker.is_dirty(),
             "only the Picture timer changing its frame should invalidate the image"
         );
-    }
-
-    #[test]
-    fn idle_animation_releases_its_decoder_without_another_frame_request() {
-        i_slint_backend_testing::init_no_event_loop();
-        let file = std::fs::read(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("testing/fixtures/gif-h264.mp4"),
-        )
-        .unwrap();
-        let picture = Arc::new(yapfast_core::chat::decode_picture(&file, 32, 32).unwrap());
-        let (frames, _) = animation(&picture);
-        let shown = frames.row_data(0).unwrap();
         let model = FRAMES.with_borrow(|cache| cache.last().unwrap().upgrade().unwrap());
         assert_eq!(model.decoding.borrow().cursors.len(), 1);
         i_slint_backend_testing::mock_elapsed_time(IDLE_FRAMES * 2);
