@@ -807,7 +807,10 @@ struct Streamer {
 impl Streamer {
     fn learn(&mut self, op: u64, data: &Value) {
         match op {
-            // Video: the streamer's SSRCs.
+            // Video: the streamer's SSRCs. Discord's server names the RTX
+            // SSRC in the stream that has the video's SSRC, not beside the
+            // video's as a sender does, and one it doesn't name is the SSRC
+            // after the video's, as call_video.rs takes it.
             12 => {
                 let ssrc = |value: &Value| {
                     value
@@ -815,8 +818,19 @@ impl Streamer {
                         .filter(|&ssrc| ssrc != 0)
                         .map(|ssrc| ssrc as u32)
                 };
-                self.video = ssrc(&data["video_ssrc"]).or(self.video);
-                self.rtx = ssrc(&data["rtx_ssrc"]).or(self.rtx);
+                let Some(video) = ssrc(&data["video_ssrc"]) else {
+                    return;
+                };
+                let stream = data["streams"].as_array().and_then(|streams| {
+                    streams
+                        .iter()
+                        .find(|stream| stream["ssrc"].as_u64() == Some(u64::from(video)))
+                });
+                self.video = Some(video);
+                self.rtx = stream
+                    .and_then(|stream| ssrc(&stream["rtx_ssrc"]))
+                    .or_else(|| ssrc(&data["rtx_ssrc"]))
+                    .or(Some(video.wrapping_add(1)));
             }
             // Session update: the codec may change.
             14 => {
@@ -828,15 +842,18 @@ impl Streamer {
         }
     }
 
-    /// The codec of a packet, by its payload type or, from the streamer's
-    /// video SSRC, by what Discord chose.
-    fn codec(&self, packet: &rtp::Packet) -> Option<Codec> {
+    /// The codec of a packet: the one its payload type names, or, for one
+    /// from the streamer's video SSRC whose payload type names none, the
+    /// codec its frames are put together in, `assembling`, or else what
+    /// Discord chose. Such a packet never starts the frames over: the
+    /// codec Discord last named can be out of date.
+    fn codec(&self, packet: &rtp::Packet, assembling: Option<Codec>) -> Option<Codec> {
         if Some(packet.ssrc) == self.rtx {
             return None;
         }
         Codec::from_payload_type(packet.payload_type).or_else(|| {
             (Some(packet.ssrc) == self.video)
-                .then_some(self.codec)
+                .then_some(assembling.or(self.codec))
                 .flatten()
         })
     }
@@ -904,6 +921,60 @@ impl Video {
             self.orientation = orientation;
         }
         self.assembler.push(packet)
+    }
+}
+
+/// Takes a video packet, or a resend of one, into its SSRC's buffers, to
+/// be put together into frames once those before it are in.
+fn take_video(
+    incoming: &mut HashMap<u32, Video>,
+    streamer: &mut Streamer,
+    packet: &rtp::Packet,
+    received: &mut Received,
+) {
+    let resent = streamer.rtx == Some(packet.ssrc);
+    let held = if resent {
+        received.resent += 1;
+        match streamer
+            .video
+            .and_then(|video| rtp::Held::unwrap_rtx(packet, video))
+        {
+            Some(held) => held,
+            None => {
+                received.padding += 1;
+                return;
+            }
+        }
+    } else {
+        rtp::Held::new(packet)
+    };
+    let assembling = incoming
+        .get(&held.ssrc)
+        .map(|video| video.assembler.codec());
+    let Some(codec) = streamer.codec(&held.packet(), assembling) else {
+        received.other += 1;
+        return;
+    };
+    received.video += 1;
+    streamer.video.get_or_insert(held.ssrc);
+    // Packets can name any SSRC: past a few, a new one isn't given buffers
+    // of its own.
+    if incoming.len() >= MAX_SSRCS && !incoming.contains_key(&held.ssrc) {
+        received.other += 1;
+        return;
+    }
+    let video = incoming
+        .entry(held.ssrc)
+        .or_insert_with(|| Video::new(codec));
+    // The streamer switched codecs.
+    if video.assembler.codec() != codec {
+        video.assembler = Assembler::new(codec);
+    }
+    match video.reorder.insert(held, std::time::Instant::now()) {
+        rtp::Arrival::New if !resent => {}
+        rtp::Arrival::New | rtp::Arrival::Recovered if resent => received.recovered += 1,
+        rtp::Arrival::New | rtp::Arrival::Recovered => received.reordered += 1,
+        rtp::Arrival::Late => received.late += 1,
     }
 }
 
@@ -1041,41 +1112,7 @@ async fn receive_stream(
                     }
                     continue;
                 }
-                let held = if streamer.rtx.is_some() && Some(packet.ssrc) == streamer.rtx {
-                    received.resent += 1;
-                    match streamer.video.and_then(|video| rtp::Held::unwrap_rtx(&packet, video)) {
-                        Some(held) => held,
-                        None => {
-                            received.padding += 1;
-                            continue;
-                        }
-                    }
-                } else {
-                    rtp::Held::new(&packet)
-                };
-                let Some(codec) = streamer.codec(&held.packet()) else {
-                    received.other += 1;
-                    continue;
-                };
-                received.video += 1;
-                streamer.video.get_or_insert(held.ssrc);
-                // Packets can name any SSRC: past a few, a new one isn't
-                // given buffers of its own.
-                if incoming.len() >= MAX_SSRCS && !incoming.contains_key(&held.ssrc) {
-                    received.other += 1;
-                    continue;
-                }
-                let video = incoming.entry(held.ssrc).or_insert_with(|| Video::new(codec));
-                if video.assembler.codec() != codec {
-                    video.assembler = Assembler::new(codec);
-                }
-                let resent = Some(packet.ssrc) == streamer.rtx;
-                match video.reorder.insert(held, std::time::Instant::now()) {
-                    rtp::Arrival::New if !resent => {}
-                    rtp::Arrival::New | rtp::Arrival::Recovered if resent => received.recovered += 1,
-                    rtp::Arrival::New | rtp::Arrival::Recovered => received.reordered += 1,
-                    rtp::Arrival::Late => received.late += 1,
-                }
+                take_video(&mut incoming, &mut streamer, &packet, &mut received);
             }
         }
         let now = std::time::Instant::now();
@@ -1228,15 +1265,16 @@ mod tests {
         );
     }
 
-    #[test]
-    fn learns_the_streamers_video() {
-        let mut streamer = Streamer::default();
-        streamer.learn(
-            12,
-            &json!({"user_id": "2", "audio_ssrc": 10, "video_ssrc": 11, "rtx_ssrc": 12}),
-        );
-        streamer.learn(14, &json!({"video_codec": "H264"}));
-        let packet = |ssrc: u32, payload_type: u8| rtp::Packet {
+    /// Op 12 as Discord's server sends it to a viewer: the RTX SSRC only in
+    /// the stream with the video's SSRC.
+    fn video_of(video: u32, rtx: u32) -> Value {
+        json!({"user_id": "2", "audio_ssrc": video - 1, "video_ssrc": video, "streams": [{
+            "ssrc": video, "rtx_ssrc": rtx, "rid": "100", "quality": 100, "active": true,
+        }]})
+    }
+
+    fn packet(ssrc: u32, payload_type: u8) -> rtp::Packet<'static> {
+        rtp::Packet {
             payload_type,
             marker: false,
             sequence: 0,
@@ -1244,22 +1282,172 @@ mod tests {
             ssrc,
             payload: &[],
             orientation: None,
-        };
+        }
+    }
+
+    #[test]
+    fn learns_the_streamers_video() {
+        let mut streamer = Streamer::default();
+        streamer.learn(12, &video_of(11, 15));
+        assert_eq!((streamer.video, streamer.rtx), (Some(11), Some(15)));
+        streamer.learn(14, &json!({"video_codec": "H264"}));
         assert_eq!(
-            streamer.codec(&packet(11, rtp::VP8)),
+            streamer.codec(&packet(11, rtp::VP8), None),
             Some(Codec::Vp8),
             "by payload type"
         );
         assert_eq!(
-            streamer.codec(&packet(11, 96)),
+            streamer.codec(&packet(11, 96), None),
             Some(Codec::H264),
             "by Discord's choice"
         );
         assert_eq!(
-            streamer.codec(&packet(12, rtp::VP8)),
+            streamer.codec(&packet(11, 96), Some(Codec::Av1)),
+            Some(Codec::Av1),
+            "as the frames on the way"
+        );
+        assert_eq!(
+            streamer.codec(&packet(11, rtp::VP8), Some(Codec::Av1)),
+            Some(Codec::Vp8),
+            "a switch"
+        );
+        assert_eq!(
+            streamer.codec(&packet(15, rtp::VP8_RTX), None),
             None,
             "retransmissions aren't frames"
         );
-        assert_eq!(streamer.codec(&packet(30, 96)), None);
+        assert_eq!(streamer.codec(&packet(30, 96), Some(Codec::Av1)), None);
+
+        // A stream that names no RTX SSRC resends on the one after its
+        // video's; one sent as a sender sends it names it beside the video.
+        let mut streamer = Streamer::default();
+        streamer.learn(
+            12,
+            &json!({"user_id": "2", "audio_ssrc": 20, "video_ssrc": 21,
+                    "streams": [{"ssrc": 21, "rid": "100", "active": true}]}),
+        );
+        assert_eq!((streamer.video, streamer.rtx), (Some(21), Some(22)));
+        streamer.learn(
+            12,
+            &json!({"user_id": "2", "audio_ssrc": 30, "video_ssrc": 31, "rtx_ssrc": 35}),
+        );
+        assert_eq!((streamer.video, streamer.rtx), (Some(31), Some(35)));
+        // Another layer's stream doesn't give the video's.
+        streamer.learn(
+            12,
+            &json!({"user_id": "2", "audio_ssrc": 40, "video_ssrc": 41, "streams": [
+                {"ssrc": 51, "rtx_ssrc": 52, "rid": "50"},
+                {"ssrc": 41, "rtx_ssrc": 44, "rid": "100"},
+            ]}),
+        );
+        assert_eq!((streamer.video, streamer.rtx), (Some(41), Some(44)));
+        // No video: what was learned stands.
+        streamer.learn(
+            12,
+            &json!({"user_id": "3", "audio_ssrc": 60, "video_ssrc": 0}),
+        );
+        assert_eq!((streamer.video, streamer.rtx), (Some(41), Some(44)));
+    }
+
+    /// The video's packets in, frames out, as the connection's loop passes
+    /// them on.
+    fn assemble(incoming: &mut HashMap<u32, Video>) -> Vec<rtp::Assembled> {
+        let mut frames = vec![];
+        for video in incoming.values_mut() {
+            let (ready, _) = video.reorder.ready(std::time::Instant::now());
+            for held in ready {
+                frames.extend(video.push(&held.packet()).frame);
+            }
+        }
+        frames
+    }
+
+    /// A packet lost on the way comes again on the RTX SSRC that op 12's
+    /// stream names, and completes its frame.
+    #[test]
+    fn takes_resends_from_the_rtx_ssrc_the_stream_names() {
+        let mut streamer = Streamer::default();
+        streamer.learn(12, &video_of(11, 12));
+        let mut packetizer = Packetizer::new(11, Codec::H264);
+        let mut keyframe = vec![0, 0, 0, 1, 0x65];
+        keyframe.resize(3000, 1);
+        let sent = packetizer.packets(&keyframe, 0, true);
+        assert!(sent.len() > 2);
+        let (mut incoming, mut received) = (HashMap::new(), Received::default());
+        let mut frames = vec![];
+        for (index, bytes) in sent.iter().enumerate() {
+            if index != 1 {
+                take_video(
+                    &mut incoming,
+                    &mut streamer,
+                    &rtp::parse(bytes).unwrap(),
+                    &mut received,
+                );
+                frames.extend(assemble(&mut incoming));
+            }
+        }
+        assert!(frames.is_empty(), "waiting for the lost packet");
+        let again = packetizer.retransmit(&sent[1], 12).unwrap();
+        take_video(
+            &mut incoming,
+            &mut streamer,
+            &rtp::parse(&again).unwrap(),
+            &mut received,
+        );
+        frames.extend(assemble(&mut incoming));
+        assert_eq!(
+            frames
+                .iter()
+                .map(|frame| (frame.keyframe, &frame.data))
+                .collect::<Vec<_>>(),
+            [(true, &keyframe)]
+        );
+        assert_eq!(
+            (received.resent, received.recovered, received.other),
+            (1, 1, 0)
+        );
+    }
+
+    /// AV1 frames go on whole past packets on the video's SSRC whose
+    /// payload type names no codec, while op 4 named another codec, as in
+    /// a user's log: those packets don't start the frames over from the
+    /// next keyframe.
+    #[test]
+    fn an_unknown_payload_type_keeps_the_frames_going() {
+        let mut streamer = Streamer {
+            codec: Some(Codec::H264),
+            ..Streamer::default()
+        };
+        streamer.learn(12, &video_of(11, 12));
+        let mut packetizer = Packetizer::new(11, Codec::Av1);
+        let keyframe = [&[1 << 3 | 2, 3, 1, 2, 3][..], &[6 << 3 | 2, 4, 9, 9, 9, 9]].concat();
+        let delta = vec![6 << 3 | 2, 4, 8, 8, 8, 8];
+        let (mut incoming, mut received) = (HashMap::new(), Received::default());
+        let mut sequence = 0u16;
+        let mut keyframes = vec![];
+        for (index, frame) in [&keyframe, &delta, &delta].into_iter().enumerate() {
+            let timestamp = index as u32 * 3000;
+            let sent = packetizer.packets(frame, timestamp, index == 0);
+            let stray = rtp::Packet {
+                sequence,
+                timestamp,
+                ..packet(11, 96)
+            };
+            sequence += 1;
+            let mut packets = vec![stray];
+            for bytes in &sent {
+                packets.push(rtp::Packet {
+                    sequence,
+                    ..rtp::parse(bytes).unwrap()
+                });
+                sequence += 1;
+            }
+            for packet in packets {
+                take_video(&mut incoming, &mut streamer, &packet, &mut received);
+                keyframes.extend(assemble(&mut incoming).iter().map(|frame| frame.keyframe));
+            }
+        }
+        assert_eq!(keyframes, [true, false, false]);
+        assert_eq!(incoming[&11].assembler.codec(), Codec::Av1);
     }
 }

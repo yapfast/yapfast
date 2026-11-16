@@ -3112,7 +3112,11 @@ async fn calls_and_goes_live() {
     // Bob's video arrives whole: the recording's frames, in order, from the
     // first keyframe, in VP8, in H264, and in H265 or AV1 to a viewer that
     // decodes it, while one that doesn't gets H264, though the fake loses
-    // one packet on the way and delivers another late each time.
+    // one packet on the way, which comes again on the RTX SSRC op 12's
+    // stream names, and delivers another late each time. Last, AV1 as in a
+    // user's log: keyframes without N, which their sequence header marks,
+    // and before each frame a packet whose payload type names no codec,
+    // while op 4 named H264.
     let older = vec![Codec::H264, Codec::Vp8];
     let all = vec![Codec::Av1, Codec::H265, Codec::H264, Codec::Vp8];
     for (codec, name, decodes) in [
@@ -3120,10 +3124,12 @@ async fn calls_and_goes_live() {
         (Codec::H264, "h264", older.clone()),
         (Codec::H265, "h265", all.clone()),
         (Codec::H264, "h265", older.clone()),
-        (Codec::Av1, "av1", all),
+        (Codec::Av1, "av1", all.clone()),
         (Codec::H264, "av1", older),
+        (Codec::Av1, "av1?unmarked&stray", all),
     ] {
-        stream_codec(server, name);
+        let (name, quirks) = name.split_once('?').unwrap_or((name, ""));
+        post_control(server, &format!("/_control/stream-codec?{quirks}"), name);
         let watched = watched.clone();
         let frames = tokio::task::spawn_blocking(move || watch_frames(&watched, decodes, 12))
             .await
@@ -3142,7 +3148,7 @@ async fn calls_and_goes_live() {
     let repairs = serde_json::from_slice::<serde_json::Value>(&body).unwrap()["repairs"].clone();
     assert_eq!(
         (repairs["dropped"].as_u64(), repairs["reordered"].as_u64()),
-        (Some(6), Some(6))
+        (Some(7), Some(7))
     );
     assert!(
         repairs["nacks"].as_u64() >= Some(2) && repairs["resent"].as_u64() >= Some(2),

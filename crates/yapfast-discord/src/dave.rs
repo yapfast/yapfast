@@ -684,6 +684,20 @@ mod tests {
             .expect("the frame, reassembled");
         let opened = dave.decrypt(streamer, whole.data).expect("decrypted");
         assert_eq!(rtp::obu_elements(&opened), rtp::obu_elements(&frame));
+        // Sent without N, it's still a keyframe: DAVE encrypts the OBUs'
+        // payloads and leaves their headers, which say a sequence header
+        // is among them.
+        let mut assembler = rtp::Assembler::new(rtp::Codec::Av1);
+        let unmarked = packetizer
+            .packets(&sealed, 6000, false)
+            .iter()
+            .find_map(|packet| assembler.push(&rtp::parse(packet).unwrap()).frame)
+            .expect("the frame, reassembled");
+        assert!(unmarked.keyframe);
+        assert_eq!(
+            rtp::obu_elements(&unmarked.data),
+            rtp::obu_elements(&sealed)
+        );
     }
 
     /// Someone already in a call commits Yapfast's addition, and the voice

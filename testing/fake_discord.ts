@@ -104,7 +104,10 @@
 // Bob's stream gets testing/fixtures' recording once the viewer asks for video
 // with op 15: VP8 or, after POST /_control/stream-codec with "h264", H264;
 // with "h265" or "av1", that codec to viewers that decode it, and H264 to
-// the rest.
+// the rest. Op 12 names the stream's RTX SSRC only in its `streams`, as
+// Discord tells a viewer. As streams in a user's report did, ?unmarked
+// sends AV1 keyframes without N, and ?stray an empty packet of payload type
+// 96 on the video's SSRC before each frame, with op 4 naming H264.
 // Alice has a DM with Bob, whose last two messages she hasn't read, and a
 // group DM, "Weekend plans", with Bob and Carol. POST /_control/dm makes Dave
 // write to her, opening a DM with her the first time, and POST
@@ -4196,6 +4199,11 @@ const h265Recording = annexB(readFileSync(new URL("stream-h265.h265", fixtures))
 /** And in AV1, for viewers that decode that. */
 const av1Recording = obus(readFileSync(new URL("stream-av1.obu", fixtures)));
 let streamCodec: "vp8" | "h264" | "h265" | "av1" = "vp8";
+/** How Bob's stream strays from the payload format, as streams in a user's
+ *  report did: AV1 keyframes without N (`unmarked`), and an empty packet of
+ *  payload type 96 on the video's SSRC before each frame, with op 4 naming
+ *  H264 whatever the stream is in (`stray`). */
+let streamQuirks = { unmarked: false, stray: false };
 
 /** A viewer of Bob's stream and what it was sent. */
 type Watcher = {
@@ -4294,6 +4302,7 @@ function streamTo(ws: Socket, key: Buffer, ssrc: number, watcher = watchers.get(
   watcher.timer = setInterval(() => {
     const timestamp = frame * (90000 / fps);
     const recorded = watcher.recording ?? recordings;
+    if (streamQuirks.stray && !camera) send(Buffer.alloc(0), false, timestamp, 96);
     if (watcher.codec === "vp8") {
       const { data } = recorded.vp8[frame % recorded.vp8.length]!;
       for (let at = 0; at < data.length; at += 1100) {
@@ -4304,13 +4313,15 @@ function streamTo(ws: Socket, key: Buffer, ssrc: number, watcher = watchers.get(
     } else if (watcher.codec === "av1") {
       // AOM's RTP payload format, an OBU element to a packet, or a large
       // one in fragments: W of 1, Z and Y marking fragments, and N on a
-      // keyframe's first packet, which starts with its sequence header.
+      // keyframe's first packet, which starts with its sequence header,
+      // unless the stream leaves N out.
       const { elements, keyframe } = av1Recording[frame % av1Recording.length]!;
+      const marked = keyframe && !streamQuirks.unmarked;
       elements.forEach((element, index) => {
         const last = index === elements.length - 1;
         for (let at = 0; at < element.length; at += 1100) {
           const end = at + 1100 >= element.length;
-          const header = 0x10 | (at > 0 ? 0x80 : 0) | (end ? 0 : 0x40) | (keyframe && index === 0 && at === 0 ? 0x08 : 0);
+          const header = 0x10 | (at > 0 ? 0x80 : 0) | (end ? 0 : 0x40) | (marked && index === 0 && at === 0 ? 0x08 : 0);
           send(Buffer.concat([Buffer.from([header]), element.subarray(at, at + 1100)]), last && end, timestamp, 107);
         }
       });
@@ -5002,13 +5013,15 @@ function voiceMessage(ws: Socket, text: string) {
         .some((codec) => codec.name.toLowerCase() === streamCodec && codec.decode !== false);
       const watched = (streamCodec === "h265" || streamCodec === "av1") && !decodesIt ? "h264" : streamCodec;
       const codec = watching ? watched : (offered?.name ?? "VP8").toLowerCase();
-      reply(4, { mode: d.data?.mode, secret_key: [...key], dave_protocol_version: 0, audio_codec: "opus", video_codec: codec.toUpperCase() });
+      const named = watching && streamQuirks.stray ? "h264" : codec;
+      reply(4, { mode: d.data?.mode, secret_key: [...key], dave_protocol_version: 0, audio_codec: "opus", video_codec: named.toUpperCase() });
       if (watching && ws.data.ssrc) {
-        // The streamer's SSRCs, as Discord announces another client's video.
+        // The streamer's SSRCs, as Discord announces another client's video:
+        // the RTX SSRC only in the stream with the video's.
         const bob = 5000;
         reply(12, {
-          user_id: streamOf(ws.data.stream!).user, audio_ssrc: bob, video_ssrc: bob + 1, rtx_ssrc: bob + 2,
-          streams: [{ type: "video", rid: "100", ssrc: bob + 1, rtx_ssrc: bob + 2, active: true, quality: 100 }],
+          user_id: streamOf(ws.data.stream!).user, audio_ssrc: bob, video_ssrc: bob + 1,
+          streams: [{ ssrc: bob + 1, rtx_ssrc: bob + 2, rid: "100", quality: 100, max_resolution: { type: "source", width: 0, height: 0 }, max_framerate: 60, active: true }],
         });
         watchers.set(ws.data.ssrc, {
           stream: ws.data.stream!, codec, framesSent: 0, soundsSent: 0, keyframeRequests: 0, repairs,
@@ -9390,6 +9403,7 @@ const server = Bun.serve<SocketData>({
       const codec = (await req.text()).trim();
       if (codec !== "vp8" && codec !== "h264" && codec !== "h265" && codec !== "av1") return new Response("vp8, h264, h265 or av1\n", { status: 400 });
       streamCodec = codec;
+      streamQuirks = { unmarked: url.searchParams.has("unmarked"), stray: url.searchParams.has("stray") };
       return new Response(`streams are ${codec}\n`);
     }
     if (req.method === "POST" && path === "/_control/chat-start") {

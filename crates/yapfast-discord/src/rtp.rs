@@ -792,7 +792,9 @@ impl Assembler {
     /// AV1's OBU elements, written as OBUs that give their size but for
     /// the last, as DAVE left it: its decryptor reads the frame as the
     /// sender sealed it. N in a packet's aggregation header makes the frame
-    /// a keyframe.
+    /// a keyframe, and so does a sequence header among its OBUs, for a
+    /// sender that leaves N out: DAVE encrypts only OBUs' payloads, so
+    /// their headers, and the type in them, stay readable.
     fn av1(&mut self, payload: &[u8]) {
         let Some((&header, mut rest)) = payload.split_first() else {
             self.damaged = true;
@@ -828,8 +830,13 @@ impl Assembler {
                 return;
             };
             rest = &rest[size..];
+            // An element that starts here, not one carrying on, begins
+            // with its OBU header.
             if !(index == 1 && continues) {
                 self.write_obu(true);
+                self.keyframe |= element
+                    .first()
+                    .is_some_and(|header| (header >> 3) & 0x0f == OBU_SEQUENCE_HEADER);
             }
             self.obu.extend_from_slice(element);
         }
@@ -2262,6 +2269,51 @@ mod tests {
         assert_eq!((pushed.frame, pushed.lost), (None, true));
         let sent = packetizer.packets(&small, 9000, false);
         assert!(assembler.push(&parse(&sent[0]).unwrap()).frame.is_none());
+    }
+
+    /// A keyframe from a sender that leaves N out: its sequence header
+    /// marks it, wherever among its OBUs, and frames come again from it
+    /// after a loss. A piece that carries an element on from the packet
+    /// before isn't an OBU header, whatever its first byte.
+    #[test]
+    fn takes_an_av1_frame_with_a_sequence_header_for_a_keyframe() {
+        let mut packetizer = Packetizer::new(5, Codec::Av1);
+        let mut assembler = Assembler::new(Codec::Av1);
+        let tile: Vec<u8> = (0..2500u32).map(|index| (index % 251) as u8).collect();
+        // A temporal delimiter, which isn't sent, and metadata before the
+        // sequence header.
+        let keyframe = [
+            obu(OBU_TEMPORAL_DELIMITER, &[]),
+            obu(5, &[1, 2]),
+            obu(OBU_SEQUENCE_HEADER, &[1; 11]),
+            obu(6, &tile),
+        ]
+        .concat();
+        let delta = obu(6, &[OBU_SEQUENCE_HEADER << 3; 2500]);
+        // Each frame as it comes out, if it does, and whether it's a
+        // keyframe.
+        let mut push = |frame: &[u8], timestamp: u32, lose: Option<usize>| {
+            let mut sent = packetizer.packets(frame, timestamp, false);
+            assert!(sent.len() > 2);
+            assert!(
+                sent.iter()
+                    .all(|packet| parse(packet).unwrap().payload[0] & 0x08 == 0),
+                "no N"
+            );
+            if let Some(lost) = lose {
+                sent.remove(lost);
+            }
+            sent.iter()
+                .find_map(|packet| assembler.push(&parse(packet).unwrap()).frame)
+                .map(|frame| frame.keyframe)
+        };
+        assert_eq!(push(&keyframe, 0, None), Some(true));
+        // Its continuations start with a sequence header's type.
+        assert_eq!(push(&delta, 3000, None), Some(false));
+        assert_eq!(push(&delta, 6000, Some(1)), None, "lost");
+        assert_eq!(push(&delta, 9000, None), None, "waits for a keyframe");
+        assert_eq!(push(&keyframe, 12000, None), Some(true));
+        assert_eq!(push(&delta, 15000, None), Some(false));
     }
 
     #[test]

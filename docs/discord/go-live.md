@@ -314,12 +314,19 @@ Watching works the same way in reverse. Clicking someone's LIVE badge, or their
 tile in the call, sends op 20 and starts a worker with a watch job. The worker
 connects as a viewer, offers AV1, H265, H264 and VP8 for decoding only (H265
 only where it's built, on Linux and Windows), and asks for video with op 15. It
-learns the streamer's SSRCs and codec from op 12 and op 14, then puts RTP
-packets back in order (`rtp::Reorder`) and together into frames
+learns the streamer's SSRCs and codec from op 12 and op 14: Discord names the
+RTX SSRC only in op 12's `streams`, in the one with the video's SSRC, and
+one it doesn't name is the SSRC after the video's. A packet's payload type
+gives its codec. On the video's SSRC, a packet whose payload type names none
+goes with the codec the frames are already put together in; the codec op 4
+or op 14 named, which can be out of date, counts only before there are any.
+It then puts RTP packets back in order (`rtp::Reorder`) and together into frames
 (`rtp::Assembler`: VP8 descriptors, H264 single units, STAP-A and FU-A, and
 H265 single units, aggregation and fragmentation units, as Annex B; AV1's
 OBU elements as OBUs, the last without its size, as DAVE's decryptor needs
-it and dav1d takes it). As
+it and dav1d takes it). An AV1 frame is a keyframe when N marks its first
+packet or one of its OBUs is a sequence header, for senders that leave N
+out: DAVE encrypts only OBUs' payloads, so their headers show. As
 Discord's client does, it asks for a missing packet again at once with a
 generic NACK, again every 80 ms up to three times, and takes the resend from
 the streamer's RTX SSRC (RFC 4588); padding there, which probes the path, is
