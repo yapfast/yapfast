@@ -1289,6 +1289,63 @@ component ThemeColourRow inherits HorizontalLayout {
     }
 }
 
+/// A font file the person chose, in Appearance: its name, the faces it gave
+/// or why it gave none, a warning on what it lacks, and the weight and slant
+/// of its first face, which its sample is drawn in.
+export struct FontFile { name: string, detail: string, problem: bool, warning: string, weight: int, italic: bool }
+
+// A font file in Appearance's list: a sample of its first face, or a warning
+// sign when it gave none, its name, its faces or why it gave none, and the
+// button that takes it out.
+component FontFileRow inherits HorizontalLayout {
+    in property <FontFile> file;
+    callback remove();
+    padding-left: 12px; padding-right: 8px; padding-top: 10px; padding-bottom: 10px;
+    spacing: 12px;
+    accessible-role: list-item;
+    accessible-label: root.file.name;
+    accessible-description: root.file.warning != "" ? root.file.detail + ". " + root.file.warning : root.file.detail;
+    Middle {
+        Rectangle {
+            width: 40px; height: 40px; border-radius: 8px; background: Theme.sunken;
+            border-width: 1px; border-color: Theme.line;
+            if !root.file.problem: Text {
+                text: "Aa"; color: Theme.text; font-size: 18px;
+                font-weight: root.file.weight; font-italic: root.file.italic;
+                horizontal-alignment: center; vertical-alignment: center;
+                accessible-role: none;
+            }
+            if root.file.problem: Image {
+                width: 18px; source: @image-url("icons/triangle-alert.svg"); colorize: Theme.danger-text; image-fit: contain;
+            }
+        }
+    }
+    VerticalLayout {
+        alignment: center; spacing: 2px; horizontal-stretch: 1; min-width: 0;
+        Text { text: root.file.name; color: Theme.text; font-size: 15px; overflow: elide; }
+        Text {
+            text: root.file.detail; font-size: 13px; wrap: word-wrap;
+            color: root.file.problem ? Theme.danger-text : Theme.muted;
+        }
+        // The sign in the warning colour, the words in one every theme
+        // reads at this size.
+        if root.file.warning != "": HorizontalLayout {
+            spacing: 6px;
+            VerticalLayout {
+                padding-top: 2px; alignment: start;
+                Image { width: 14px; height: 14px; source: @image-url("icons/triangle-alert.svg"); colorize: Theme.loud; image-fit: contain; }
+            }
+            Text { text: root.file.warning; color: Theme.secondary; font-size: 13px; wrap: word-wrap; horizontal-stretch: 1; }
+        }
+    }
+    Middle {
+        IconButton {
+            icon: @image-url("icons/x.svg"); label: @tr("Remove {}", root.file.name); size: 32px; glyph: 16px;
+            clicked => { root.remove(); }
+        }
+    }
+}
+
 // Settings: the window's colours, from the themes Yapfast comes with and the
 // person's own. A click shows one at once. New theme opens the editor, whose
 // changes show at once too; Save keeps them, Cancel restores the theme from
@@ -1328,6 +1385,14 @@ export component AppearanceSettings inherits VerticalLayout {
     in property <[string]> languages;
     in property <int> language;
     callback language-chosen(int);
+    /// The font files chosen, a note on them, such as which of those chosen
+    /// last weren't added, and whether files chosen are being copied in.
+    in property <[FontFile]> font-files;
+    in property <string> font-note;
+    in property <bool> font-importing;
+    callback choose-font-files();
+    callback remove-font-file(int);
+    callback reset-font();
     spacing: 16px;
     if !ClientStyle.enabled: SettingsTitle { text: @tr("Appearance"); }
     if !root.editor: VerticalLayout {
@@ -1368,6 +1433,40 @@ export component AppearanceSettings inherits VerticalLayout {
                 accessible-label: @tr("Language");
                 selected => { root.language-chosen(self.current-index); }
             }
+        }
+    }
+    if !root.editor: VerticalLayout {
+        spacing: 8px;
+        // As the theme's heading: the action at its end.
+        HorizontalLayout {
+            spacing: 8px;
+            SettingsHeading { text: @tr("FONT"); vertical-alignment: center; horizontal-stretch: 1; }
+            ActionButton {
+                text: root.font-importing ? @tr("Adding…") : @tr("Add font files"); small: true;
+                icon: @image-url("icons/circle-plus.svg"); enabled: !root.font-importing;
+                clicked => { root.choose-font-files(); }
+            }
+        }
+        Label { text: @tr("Draw the whole interface in a font of your own: add its TTF, OTF, TTC or WOFF files, each weight and italic you have. Code and emoji keep their fonts."); }
+        // The files in a rimmed card, as the page's other groups, a line
+        // between each.
+        if root.font-files.length > 0: Rectangle {
+            border-radius: 8px; border-width: 1px; border-color: Theme.line;
+            accessible-role: list; accessible-label: @tr("Font files");
+            VerticalLayout {
+                for file[index] in root.font-files: VerticalLayout {
+                    if index > 0: Rectangle { height: 1px; background: Theme.line; }
+                    FontFileRow {
+                        file: file;
+                        remove => { root.remove-font-file(index); }
+                    }
+                }
+            }
+        }
+        if root.font-note != "": Text { text: root.font-note; color: Theme.danger-text; font-size: 13px; wrap: word-wrap; }
+        if root.font-files.length > 0: HorizontalLayout {
+            alignment: start;
+            LinkButton { text: @tr("Back to the bundled font"); small: true; clicked => { root.reset-font(); } }
         }
     }
     if !root.editor && root.title-bar-choice: SettingsSwitch {

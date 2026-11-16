@@ -11725,6 +11725,205 @@ fn a_long_message_folds_until_show_more_only_with_the_switch_on() {
     assert!(adapter.borrow().layout.collapse_long);
 }
 
+fn font_path(name: &str) -> std::path::PathBuf {
+    format!("{}/ui/fonts/{name}", env!("CARGO_MANIFEST_DIR")).into()
+}
+
+fn font_window(directory: &std::path::Path) -> (YapfastWindow, Rc<RefCell<Adapter>>) {
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    (window, adapter)
+}
+
+/// Adds the font files at `paths` as a choice in the file dialog does, the
+/// copying done here rather than off the thread.
+fn add_font_files(
+    adapter: &Rc<RefCell<Adapter>>,
+    window: &YapfastWindow,
+    paths: &[std::path::PathBuf],
+) {
+    let folder = adapter.borrow().root.join(crate::custom_font::FOLDER);
+    let imported = crate::custom_font::import(&folder, paths);
+    adapter.borrow_mut().add_fonts(window, imported);
+}
+
+/// The names of the files in the data folder's copies of fonts.
+fn font_copies(directory: &std::path::Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(directory.join(crate::custom_font::FOLDER))
+        .map(|listing| {
+            listing
+                .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+                .collect()
+        })
+        .unwrap_or_default();
+    names.sort();
+    names
+}
+
+#[test]
+fn the_layout_without_fonts_loads_and_fonts_are_kept() {
+    let old = r#"{"sidebar_width":280.0}"#;
+    let read: Layout = serde_json::from_str(old).unwrap();
+    assert!(read.ui_fonts.is_empty());
+    // Nothing chosen writes nothing, so a layout is as it was.
+    assert!(
+        serde_json::to_value(&read)
+            .unwrap()
+            .get("ui_fonts")
+            .is_none()
+    );
+
+    let directory = tempfile::tempdir().unwrap();
+    let kept = vec![
+        crate::custom_font::Stored {
+            name: "Inter-Regular.ttf".into(),
+            file: "0123.ttf".into(),
+        },
+        crate::custom_font::Stored {
+            name: "inter-cyrillic.woff".into(),
+            file: "4567.ttf".into(),
+        },
+    ];
+    let layout = Layout {
+        ui_fonts: kept.clone(),
+        ..Default::default()
+    };
+    layout.write(directory.path());
+    assert_eq!(Layout::read(directory.path()).ui_fonts, kept);
+}
+
+#[test]
+fn font_files_chosen_draw_the_window_until_reset() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let (window, adapter) = font_window(directory.path());
+    let style = window.global::<ClientStyle>();
+    assert_eq!(style.get_font_family(), "DM Sans");
+    let size = style.get_text_size();
+    assert_eq!(window.get_font_files().row_count(), 0);
+
+    let regular = font_path("AtkinsonHyperlegibleNext-Regular.ttf");
+    let bold = font_path("AtkinsonHyperlegibleNext-Bold.ttf");
+    let elsewhere = tempfile::tempdir().unwrap();
+    let junk = elsewhere.path().join("notes.ttf");
+    std::fs::write(&junk, "not a font, but long enough to be read").unwrap();
+
+    add_font_files(&adapter, &window, &[regular.clone(), junk]);
+    let first = style.get_font_family().to_string();
+    assert!(first.starts_with("Yapfast Custom Font"), "{first}");
+    assert_eq!(style.get_text_size(), size, "the text keeps its size");
+    // The file that isn't a font is told of, and isn't kept.
+    assert_eq!(window.get_font_files().row_count(), 1);
+    assert!(window.get_font_note().contains("notes.ttf"));
+    // It's said until the settings close.
+    window.invoke_forget_font_note();
+    assert_eq!(window.get_font_note(), "");
+    let row = window.get_font_files().row_data(0).unwrap();
+    assert_eq!(row.name, "AtkinsonHyperlegibleNext-Regular.ttf");
+    assert_eq!((row.weight, row.italic, row.problem), (400, false, false));
+    // Atkinson has no Cyrillic, and no other file gives it.
+    assert!(row.warning.contains("Cyrillic"), "{}", row.warning);
+    let kept = Layout::read(directory.path()).ui_fonts;
+    assert_eq!(kept.len(), 1);
+    assert_eq!(font_copies(directory.path()), [kept[0].file.clone()]);
+
+    // Choosing adds, and the family is new, so the texts are measured again.
+    add_font_files(&adapter, &window, std::slice::from_ref(&bold));
+    let second = style.get_font_family().to_string();
+    assert_ne!(first, second);
+    assert_eq!(window.get_font_files().row_count(), 2);
+    let detail = |index| window.get_font_files().row_data(index).unwrap().detail;
+    assert_eq!(detail(0), "Regular");
+    assert_eq!(detail(1), "Bold");
+    assert_eq!(window.get_font_note(), "");
+    assert_eq!(font_copies(directory.path()).len(), 2);
+
+    // Removing the first leaves the other, and deletes its copy.
+    window.invoke_remove_font_file(0);
+    assert_eq!(window.get_font_files().row_count(), 1);
+    let kept = Layout::read(directory.path()).ui_fonts;
+    assert_eq!(kept.len(), 1);
+    assert_eq!(kept[0].name, "AtkinsonHyperlegibleNext-Bold.ttf");
+    assert_eq!(font_copies(directory.path()), [kept[0].file.clone()]);
+
+    // They are there at the next start, before the first frame.
+    let (again, _adapter) = font_window(directory.path());
+    assert!(
+        again
+            .global::<ClientStyle>()
+            .get_font_family()
+            .starts_with("Yapfast Custom Font")
+    );
+
+    window.invoke_reset_font();
+    assert_eq!(style.get_font_family(), "DM Sans");
+    assert_eq!(window.get_font_files().row_count(), 0);
+    assert!(Layout::read(directory.path()).ui_fonts.is_empty());
+    assert!(
+        !directory.path().join(crate::custom_font::FOLDER).exists(),
+        "no copy is left"
+    );
+}
+
+#[test]
+fn a_kept_font_whose_copy_is_gone_is_shown_and_noted() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let folder = directory.path().join(crate::custom_font::FOLDER);
+    let mut kept: Vec<_> = crate::custom_font::import(
+        &folder,
+        &[font_path("AtkinsonHyperlegibleNext-Regular.ttf")],
+    )
+    .into_iter()
+    .map(Result::unwrap)
+    .collect();
+    let gone = crate::custom_font::Stored {
+        name: "Gone.ttf".into(),
+        file: "0000.ttf".into(),
+    };
+    kept.insert(0, gone.clone());
+    Layout {
+        ui_fonts: kept,
+        ..Default::default()
+    }
+    .write(directory.path());
+    let (window, _adapter) = font_window(directory.path());
+    assert!(
+        window
+            .global::<ClientStyle>()
+            .get_font_family()
+            .starts_with("Yapfast Custom Font")
+    );
+    assert_eq!(window.get_font_files().row_count(), 2);
+    let row = window.get_font_files().row_data(0).unwrap();
+    assert!(row.problem);
+    assert_eq!(row.detail, "The file is missing.");
+    assert_eq!(window.get_font_note(), "");
+    // It stays kept, so it can be removed.
+    assert!(Layout::read(directory.path()).ui_fonts.contains(&gone));
+
+    // With none loadable, the bundled font stays, and the note says so.
+    let only = tempfile::tempdir().unwrap();
+    Layout {
+        ui_fonts: vec![gone],
+        ..Default::default()
+    }
+    .write(only.path());
+    let (window, _adapter) = font_window(only.path());
+    assert_eq!(window.global::<ClientStyle>().get_font_family(), "DM Sans");
+    assert!(
+        window
+            .get_font_note()
+            .contains("the interface keeps its own font")
+    );
+}
+
 #[test]
 fn many_reactions_wrap_onto_more_lines_in_the_messages_width() {
     i_slint_backend_testing::init_no_event_loop();

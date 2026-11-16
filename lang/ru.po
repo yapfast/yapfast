@@ -10045,3 +10045,118 @@ msgstr "Anomi не передаёт звук приложения Discord: в н
 
 msgid "Yapfast can't tell which application this window belongs to."
 msgstr "Anomi не может определить, какому приложению принадлежит это окно."
+
+msgid "FONT"
+msgstr "ШРИФТ"
+
+msgid "Add font files"
+msgstr "Добавить файлы шрифта"
+
+msgid "Adding…"
+msgstr "Добавление…"
+
+msgid "Draw the whole interface in a font of your own: add its TTF, OTF, TTC or WOFF files, each weight and italic you have. Code and emoji keep their fonts."
+msgstr "Весь интерфейс вашим шрифтом: добавьте его файлы TTF, OTF, TTC или WOFF, все начертания, какие есть. Код и эмодзи остаются в своих шрифтах."
+
+msgid "Font files"
+msgstr "Файлы шрифта"
+
+msgid "Back to the bundled font"
+msgstr "Вернуть встроенный шрифт"
+
+msgid "Choose font files"
+msgstr "Выберите файлы шрифта"
+
+msgid "Fonts"
+msgstr "Шрифты"
+
+msgid "No Cyrillic: Russian letters are drawn in another font."
+msgstr "Нет кириллицы: русские буквы возьмутся из другого шрифта."
+
+msgid "None of the font files loaded, so the interface keeps its own font."
+msgstr "Ни один файл шрифта не загрузился, интерфейс остаётся во встроенном шрифте."
+
+msgid "{}: {} And {n} more file wasn't added."
+msgid_plural "{}: {} And {n} more files weren't added."
+msgstr[0] "{}: {} И ещё {n} файл не добавлен."
+msgstr[1] "{}: {} И ещё {n} файла не добавлены."
+msgstr[2] "{}: {} И ещё {n} файлов не добавлены."
+
+msgid "The file is missing."
+msgstr "Файл не найден."
+
+msgid "The file can't be read."
+msgstr "Не удалось прочитать файл."
+
+msgid "Not a font file. TTF, OTF, TTC and WOFF files work."
+msgstr "Это не файл шрифта. Подходят TTF, OTF, TTC и WOFF."
+
+msgid "WOFF2 isn't supported. Choose the font's TTF, OTF or WOFF file."
+msgstr "WOFF2 не поддерживается. Выберите этот шрифт в TTF, OTF или WOFF."
+
+msgid "The font file is damaged."
+msgstr "Файл шрифта повреждён."
+
+msgid "The font file is too large."
+msgstr "Файл шрифта слишком большой."
+
+msgid "Not a usable font."
+msgstr "Шрифт не подходит."
+
+msgid "Only {} files load at once."
+msgstr "Загружается не больше {} файлов."
+
+msgid "The font couldn't be saved."
+msgstr "Не удалось сохранить шрифт."
+
+msgctxt "FontWeight"
+msgid "Variable"
+msgstr "Вариативный"
+
+msgctxt "FontWeight"
+msgid "Thin"
+msgstr "Тонкий"
+
+msgctxt "FontWeight"
+msgid "Extra Light"
+msgstr "Сверхсветлый"
+
+msgctxt "FontWeight"
+msgid "Light"
+msgstr "Светлый"
+
+msgctxt "FontWeight"
+msgid "Regular"
+msgstr "Обычный"
+
+msgctxt "FontWeight"
+msgid "Medium"
+msgstr "Средний"
+
+msgctxt "FontWeight"
+msgid "Semibold"
+msgstr "Полужирный"
+
+msgctxt "FontWeight"
+msgid "Bold"
+msgstr "Жирный"
+
+msgctxt "FontWeight"
+msgid "Extra Bold"
+msgstr "Сверхжирный"
+
+msgctxt "FontWeight"
+msgid "Black"
+msgstr "Чёрный"
+
+msgid "Italic"
+msgstr "Курсив"
+
+msgid "{} Italic"
+msgstr "{} курсив"
+
+msgid "{n} style"
+msgid_plural "{n} styles"
+msgstr[0] "{n} начертание"
+msgstr[1] "{n} начертания"
+msgstr[2] "{n} начертаний"

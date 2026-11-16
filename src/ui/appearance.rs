@@ -1,6 +1,8 @@
-//! Appearance: choosing a theme, and making and editing the person's own.
+//! Appearance: choosing a theme, and making and editing the person's own;
+//! and the font files the interface is drawn in.
 
 use super::*;
+use crate::custom_font;
 
 impl Adapter {
     /// Shows the window in a theme, built in or the person's own, and keeps
@@ -201,4 +203,229 @@ fn close_theme_editor(window: &YapfastWindow) {
     window.set_theme_editor(false);
     window.set_theme_colours(ModelRc::default());
     window.set_theme_starts(ModelRc::default());
+}
+
+/// The font files the interface is drawn in, as Appearance shows them; see
+/// [`custom_font`].
+#[derive(Default)]
+pub(super) struct Fonts {
+    loaded: custom_font::Loaded,
+    /// The files the last choice brought that weren't added, by name, and why.
+    refused: Vec<(String, custom_font::Problem)>,
+    /// Files chosen are being copied in.
+    importing: bool,
+}
+
+/// The extensions the file dialog offers, in both cases: some dialogs match
+/// them as written. WOFF2 is offered so that choosing one says it isn't
+/// read, rather than hiding the file.
+const FONT_EXTENSIONS: &[&str] = &[
+    "ttf", "otf", "ttc", "woff", "woff2", "TTF", "OTF", "TTC", "WOFF", "WOFF2",
+];
+
+impl Fonts {
+    /// The fonts `layout.json` keeps, loaded from the data folder `root`.
+    pub(super) fn load(root: &std::path::Path, stored: &[custom_font::Stored]) -> Self {
+        Self {
+            loaded: custom_font::Loaded::load(
+                &root.join(custom_font::FOLDER),
+                custom_font::Loaded::default(),
+                stored,
+            ),
+            ..Self::default()
+        }
+    }
+
+    /// Shows the files in Appearance, and draws the window in their family,
+    /// or in the bundled font while there is none. Setting the family it
+    /// already has measures nothing again.
+    pub(super) fn show(&self, window: &YapfastWindow) {
+        let loaded = &self.loaded;
+        let rows: Vec<FontFile> = loaded
+            .entries()
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| {
+                let first = entry
+                    .outcome
+                    .as_ref()
+                    .ok()
+                    .and_then(|given| given.faces.first());
+                FontFile {
+                    name: entry.stored.name.as_str().into(),
+                    detail: entry.detail().into(),
+                    problem: entry.outcome.is_err(),
+                    warning: if loaded.lacks_cyrillic(index) {
+                        tr!("No Cyrillic: Russian letters are drawn in another font.").into()
+                    } else {
+                        SharedString::default()
+                    },
+                    weight: first.map_or(400, |face| face.weight.round() as i32),
+                    italic: first.is_some_and(|face| face.italic),
+                }
+            })
+            .collect();
+        window.set_font_files(ModelRc::new(VecModel::from(rows)));
+        window.set_font_note(self.note().into());
+        window.set_font_importing(self.importing);
+        window
+            .global::<ClientStyle>()
+            .set_custom_font(loaded.family().into());
+    }
+
+    /// What Appearance says under the files: which of those chosen last
+    /// weren't added, and why, or that none of those kept loaded.
+    fn note(&self) -> String {
+        match self.refused.as_slice() {
+            [] if self.loaded.family().is_empty() && !self.loaded.entries().is_empty() => {
+                tr!("None of the font files loaded, so the interface keeps its own font.")
+                    .to_owned()
+            }
+            [] => String::new(),
+            [(name, problem)] => format!("{name}: {}", problem.text()),
+            [(name, problem), rest @ ..] => trn!(
+                "{}: {} And {n} more file wasn't added.",
+                "{}: {} And {n} more files weren't added.",
+                rest.len(),
+                name,
+                problem.text()
+            ),
+        }
+    }
+}
+
+impl Adapter {
+    fn fonts_folder(&self) -> std::path::PathBuf {
+        self.root.join(custom_font::FOLDER)
+    }
+
+    /// Asks for font files, and adds those chosen.
+    pub(super) fn choose_fonts(&mut self) {
+        let weak = self.weak.clone();
+        self.dialog(async move {
+            let files = rfd::AsyncFileDialog::new()
+                .set_title(tr!("Choose font files"))
+                .add_filter(tr!("Fonts"), FONT_EXTENSIONS)
+                .pick_files()
+                .await;
+            let (Some(files), Some(adapter)) = (files, weak.upgrade()) else {
+                return;
+            };
+            let paths = files.iter().map(|file| file.path().to_owned()).collect();
+            let window = adapter.borrow().window.upgrade();
+            if let Some(window) = window {
+                adapter.borrow_mut().import_fonts(&window, paths);
+            }
+        });
+    }
+
+    /// Copies the font files at `paths` into the data folder, off the
+    /// window's thread, and then adds them. Choosing is off until they're in.
+    pub(super) fn import_fonts(&mut self, window: &YapfastWindow, paths: Vec<std::path::PathBuf>) {
+        if self.fonts.importing || paths.is_empty() {
+            return;
+        }
+        let folder = self.fonts_folder();
+        let copying = self
+            .runtime
+            .spawn_blocking(move || custom_font::import(&folder, &paths));
+        let weak = self.weak.clone();
+        let task = slint::spawn_local(async move {
+            let imported = copying.await.unwrap_or_else(|error| {
+                tracing::error!(%error, "the font files' copying stopped");
+                Vec::new()
+            });
+            let Some(adapter) = weak.upgrade() else {
+                return;
+            };
+            let window = adapter.borrow().window.upgrade();
+            let mut adapter = adapter.borrow_mut();
+            adapter.fonts.importing = false;
+            if let Some(window) = window {
+                adapter.add_fonts(&window, imported);
+            }
+        });
+        match task {
+            Ok(_) => {
+                self.fonts.importing = true;
+                window.set_font_importing(true);
+            }
+            Err(error) => tracing::error!(%error, "could not add the font files"),
+        }
+    }
+
+    /// Adds the fonts copied in to those loaded. A file that gave no font is
+    /// left out, and the note says why; its copy is deleted.
+    pub(super) fn add_fonts(
+        &mut self,
+        window: &YapfastWindow,
+        imported: Vec<custom_font::Imported>,
+    ) {
+        let mut stored = self.fonts.loaded.stored();
+        let mut fresh = Vec::new();
+        let mut refused = Vec::new();
+        for result in imported {
+            match result {
+                Ok(chosen) => {
+                    fresh.push(chosen.file.clone());
+                    if !stored.iter().any(|kept| kept.file == chosen.file) {
+                        stored.push(chosen);
+                    }
+                }
+                Err(refusal) => refused.push(refusal),
+            }
+        }
+        let previous = std::mem::take(&mut self.fonts.loaded);
+        let mut loaded = custom_font::Loaded::load(&self.fonts_folder(), previous, &stored);
+        for entry in loaded.drop_failed(&fresh) {
+            if let Err(problem) = entry.outcome {
+                refused.push((entry.stored.name, problem));
+            }
+        }
+        self.fonts.loaded = loaded;
+        self.fonts.refused = refused;
+        self.keep_fonts(window);
+    }
+
+    /// The settings closed: which files weren't added has been said. That
+    /// none of those kept loaded is said again.
+    pub(super) fn forget_font_note(&mut self, window: &YapfastWindow) {
+        self.fonts.refused.clear();
+        window.set_font_note(self.fonts.note().into());
+    }
+
+    /// Takes the font file in this row out of the ones loaded.
+    pub(super) fn remove_font(&mut self, window: &YapfastWindow, index: usize) {
+        let mut stored = self.fonts.loaded.stored();
+        if index < stored.len() {
+            stored.remove(index);
+            self.set_fonts(window, &stored);
+        }
+    }
+
+    /// Goes back to the bundled font.
+    pub(super) fn reset_font(&mut self, window: &YapfastWindow) {
+        self.set_fonts(window, &[]);
+    }
+
+    /// Loads these fonts in place of the ones loaded. The window's text is
+    /// measured again, as the family it's drawn in is a new one.
+    fn set_fonts(&mut self, window: &YapfastWindow, stored: &[custom_font::Stored]) {
+        let previous = std::mem::take(&mut self.fonts.loaded);
+        self.fonts.loaded = custom_font::Loaded::load(&self.fonts_folder(), previous, stored);
+        self.fonts.refused.clear();
+        self.keep_fonts(window);
+    }
+
+    /// Keeps the fonts loaded chosen, deletes the copies no longer chosen,
+    /// and shows them. While files are being copied in, their copies wait
+    /// for the next change.
+    fn keep_fonts(&mut self, window: &YapfastWindow) {
+        self.layout.ui_fonts = self.fonts.loaded.stored();
+        self.layout.write(&self.root);
+        if !self.fonts.importing {
+            custom_font::sweep(&self.fonts_folder(), &self.layout.ui_fonts);
+        }
+        self.fonts.show(window);
+    }
 }

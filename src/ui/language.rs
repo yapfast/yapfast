@@ -79,6 +79,8 @@ impl Adapter {
     pub(super) fn choose_language(&mut self, window: &YapfastWindow, index: i32) {
         self.layout.language = code_at(index);
         show(window, self.layout.language.as_deref());
+        // The font files' rows are Rust's text.
+        self.fonts.show(window);
         if let Some(tray) = &self.tray {
             tray.reword();
         }

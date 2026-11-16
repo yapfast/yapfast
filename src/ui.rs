@@ -1036,6 +1036,14 @@ fn control(path: PathBuf, shell: Rc<shell::Shell>) -> slint::Timer {
                         }
                     }
                     "quit" => slint::quit_event_loop().map_err(|error| error.to_string().into()),
+                    // `pick font PATH` adds a font file in Appearance.
+                    command if command.starts_with("pick font ") => {
+                        if let Some(window) = window {
+                            let path = PathBuf::from(&command["pick font ".len()..]);
+                            adapter.borrow_mut().import_fonts(&window, vec![path]);
+                        }
+                        Ok(())
+                    }
                     // `pick avatar PATH` or `pick banner PATH` chooses a
                     // picture in the server profile editor, `pick icon PATH`
                     // a server's icon in its settings, and `pick emoji` and
@@ -1409,6 +1417,11 @@ struct Layout {
     /// The desktop draws the window's title bar; unset, Yapfast draws its own
     /// on desktops that give windows one. See [`title_bar`].
     system_title_bar: Option<bool>,
+    /// The font files the person loaded to draw the interface in, by their
+    /// names and their copies' in the data folder, in the order they were
+    /// added. See [`crate::custom_font`].
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    ui_fonts: Vec<crate::custom_font::Stored>,
     /// Where the window was when Yapfast last ran, and how big.
     window: Option<placement::Placement>,
 }
@@ -2224,6 +2237,9 @@ struct Adapter {
     restyle: bool,
     /// Appearance's theme editor, while it's open.
     theme_editor: Option<theme::Editor>,
+    /// The font files loaded for the interface, what they gave, and what
+    /// became of the last ones chosen.
+    fonts: appearance::Fonts,
     /// Where the `@` of the word being mentioned is in the composer text.
     mention_at: Option<usize>,
     /// What the composer's mentions were last coloured for.
@@ -2445,7 +2461,11 @@ impl Adapter {
         let models = Models::default();
         models.attach(window);
         let layout = Layout::read(&root);
+        // Before the first frame, so no text is measured in the bundled font
+        // first.
+        let fonts = appearance::Fonts::load(&root, &layout.ui_fonts);
         layout.apply(window);
+        fonts.show(window);
         let mut app = Application::default();
         app.remember_reaction_uses(layout.reactions.clone());
         app.remember_sticker_favorites(
@@ -2559,6 +2579,7 @@ impl Adapter {
                 clock_minute: 0,
                 restyle: false,
                 theme_editor: None,
+                fonts,
                 aside_messages: Arc::new(Vec::new()),
                 aside_fit: 0,
                 aside_rows: Vec::new(),
@@ -2687,6 +2708,7 @@ impl Adapter {
     fn attach(&mut self, window: &YapfastWindow) {
         self.models.attach(window);
         self.layout.apply(window);
+        self.fonts.show(window);
         updates::show(window, &self.layout, &self.updates);
         self.watch_keybinds(window);
         self.show_protocol(window);

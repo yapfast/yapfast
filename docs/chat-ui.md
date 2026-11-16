@@ -729,9 +729,12 @@ The window follows Discord's arrangement:
 - A voice stage with participant tiles, a green border while someone speaks,
   and round mute, deafen and leave controls.
 
-Atkinson Hyperlegible Next (SIL Open Font License, embedded in the binary; see
-`ui/fonts/README.md`) sets all text in four weights. Satoshi, the second choice,
-isn't distributed; `ui/fonts/README.md` says how to switch back. The palette is layered graphite with one
+DM Sans (SIL Open Font License, embedded in the binary; see
+`ui/fonts/README.md`) sets the interface's text, in the weights of its variable
+axis, unless Settings → Appearance → Font draws it in the person's own font
+files (see [Themes](themes.md#fonts)). Atkinson Hyperlegible Next is the
+inherited interface's. Satoshi, the second choice, isn't distributed;
+`ui/fonts/README.md` says how to switch back. The palette is layered graphite with one
 marigold accent for selection and primary actions, red only for mentions and
 destructive actions, and green only for live voice. Avatars get one of eight
 tints from the person's name.

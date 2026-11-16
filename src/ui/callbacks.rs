@@ -2203,6 +2203,29 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         }
     });
     let state = adapter.clone();
+    window.on_choose_font_files(move || state.borrow_mut().choose_fonts());
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_forget_font_note(move || {
+        if let Some(window) = weak.upgrade() {
+            state.borrow_mut().forget_font_note(&window);
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_remove_font_file(move |index| {
+        if let (Ok(index), Some(window)) = (usize::try_from(index), weak.upgrade()) {
+            state.borrow_mut().remove_font(&window, index);
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_reset_font(move || {
+        if let Some(window) = weak.upgrade() {
+            state.borrow_mut().reset_font(&window);
+        }
+    });
+    let state = adapter.clone();
     let weak = window.as_weak();
     window.on_edit_theme(move |id| {
         if let Some(window) = weak.upgrade() {

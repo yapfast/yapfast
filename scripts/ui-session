@@ -55,10 +55,11 @@ do commands, run in order; the first error stops the rest:
   type TEXT (US layout letters, digits and common punctuation)
   sleep SECONDS | pid
   shot NAME [X Y W H]   saves .local/ui-session/shots/NAME.png, cropped if asked
-  pick avatar|banner|icon|server-banner|splash|role-icon|emoji|sticker PATH
+  pick avatar|banner|icon|server-banner|splash|role-icon|emoji|sticker|font PATH
       chooses the picture in the profile editor, or a server's icon, banner,
       invite background, open role's icon, new emoji or new sticker in its
-      settings, as the file chooser would; PATH as for stage
+      settings, or adds a font file in Appearance, as the file chooser would;
+      PATH as for stage
   stage PATH   adds the file to the composer's next message, as a paste would;
       PATH is relative to the repository, outside .local/ui-session, which
       start empties

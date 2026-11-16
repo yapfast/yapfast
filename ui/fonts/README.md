@@ -24,6 +24,12 @@ Yapfast binary by the Slint compiler. `LICENSE-OFL.txt` is their SIL Open Font
 License 1.1, which permits embedding, modifying and redistributing them,
 including in a public repository.
 
+A person can load a font of their own from Settings → Appearance → Font (TTF,
+OTF, TTC or WOFF; not WOFF2), and it replaces DM Sans and Atkinson for the
+whole interface until they go back to the bundled font. Yapfast copies the
+files into its data folder, not here; see the Fonts section of
+[docs/themes.md](../../docs/themes.md#fonts).
+
 Satoshi by Indian Type Foundry was the second choice. Its ITF Free Font License
 2.0 forbids redistributing the files through a public repository, so they
 aren't here. To try it, download the static TTF styles Regular, Italic, Medium,
