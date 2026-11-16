@@ -2855,8 +2855,8 @@ export component YapfastWindow inherits Window {
                 // Inset the account card while preserving the inherited controls.
                 VerticalLayout {
                     padding: ClientStyle.account-inset; padding-top: 0px;
-                    // Discord leaves 10px under its card, whose 58px the nameplate edges by a pixel.
-                    padding-bottom: ClientStyle.enabled ? 11px : ClientStyle.account-inset;
+                    // Discord's card ends level with its composer, 8px above the window's content edge; its 58px the nameplate edges by a pixel.
+                    padding-bottom: ClientStyle.enabled ? 9px : ClientStyle.account-inset;
                     account-panel := Rectangle {
                         // Anywhere on the card brightens its nameplate; each part lights only itself.
                         property <bool> hot: account-touch.has-hover || avatar-touch.has-hover || mic.hovered || ear.hovered || cog.hovered;
@@ -2872,8 +2872,8 @@ export component YapfastWindow inherits Window {
                             // Discord's controls sit 3px further apart and 6px further from the edge.
                             padding-right: ClientStyle.enabled ? 14px : 8px; spacing: ClientStyle.enabled ? 9px : 2px;
                             Rectangle {
-                                // Discord's name starts 7px nearer the avatar than the old 48px block put it.
-                                width: ClientStyle.enabled ? 41px : 58px;
+                                // Discord's name starts 11px nearer the avatar than the old 48px block put it.
+                                width: ClientStyle.enabled ? 37px : 58px;
                                 Avatar { x: ClientStyle.enabled ? 12px : 19px; y: (parent.height - self.height) / 2; size: ClientStyle.enabled ? 32px : 34px; initial: root.account-initial; tint: root.account-tint; picture: root.account-picture; speaking: root.account-speaking; decoration-url: AccountLook.decoration-url; animate: account-panel.hot; }
                                 if root.account-presence != "": StatusDot {
                                     x: ClientStyle.enabled ? 30px : 40px; y: parent.height / 2 + (ClientStyle.enabled ? 2px : 3px); presence: root.account-presence; ring: Theme.panel;
