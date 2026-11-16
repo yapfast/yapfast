@@ -15,13 +15,14 @@ use yapfast_plugin_api::PluginId;
 use yapfast_plugin_api::call::{CommandInvocation, CommandOutcome, HostReturn};
 use yapfast_plugin_api::event::{EventEnvelope, EventKind, Network, TopicEvent};
 use yapfast_plugin_api::frame::{Frame, FrameKind, read_frame};
+use yapfast_plugin_api::guest::CallResult;
 use yapfast_plugin_api::hook::{Draft, HookKind, HookOutcome, HookRequest, HookSubject};
 use yapfast_plugin_api::message::{Fault, FaultKind, FromHelper, PluginStatus, ToHelper};
 
 use yapfast_plugin_host::backend::{Backend, CancelToken, LoadSpec, Wait, Waits};
 use yapfast_plugin_host::host::apply_limits;
 use yapfast_plugin_host::pipe::{Pipe, Signal};
-use yapfast_plugin_host::scheduler::{Config, Message, Scheduler};
+use yapfast_plugin_host::scheduler::{BACKGROUND_CAP, Config, Message, Scheduler};
 
 /// How long a test waits for the scheduler before calling it stuck.
 const PATIENCE: Duration = Duration::from_secs(5);
@@ -598,6 +599,93 @@ fn an_answer_nothing_was_held_for_does_not_settle_a_pending_call() {
         1,
         "a post's answer is not the answer a fetch is waiting for"
     );
+    harness.finish();
+}
+
+/// Answers that arrive while the plugin is busy go to the guest together, in
+/// one `yf_event`, rather than one guest call each.
+#[test]
+fn answers_queued_while_the_plugin_is_busy_arrive_in_one_call() {
+    let harness = Harness::new(config(1));
+    let a = plugin("a");
+    harness.load(&a, 256);
+    harness.live(&a, 1);
+    for call in [7, 8, 9] {
+        harness.report(&a, Wait::Call(call));
+    }
+
+    harness.hold(true);
+    harness.send(Message::Command {
+        id: 2,
+        plugin: a.clone(),
+        command: command("blocker"),
+    });
+    harness.wait_log("command:com.example.a:blocker");
+    for call in [7, 8, 9] {
+        harness.send(Message::Return {
+            plugin: a.clone(),
+            call,
+            answer: HostReturn::Unsupported,
+        });
+    }
+    harness.hold(false);
+
+    harness.wait_log("answer:com.example.a:7,8,9");
+    let answers = harness
+        .log()
+        .iter()
+        .filter(|call| call.starts_with("answer:"))
+        .count();
+    assert_eq!(
+        answers,
+        1,
+        "three answers, one guest call: {:?}",
+        harness.log()
+    );
+    assert_eq!(
+        harness.scheduler.waiting(&a),
+        0,
+        "every answer settles its call"
+    );
+    harness.finish();
+}
+
+/// A plugin that can't keep up doesn't grow its lane without end: past the cap
+/// the oldest background job is answered as if the plugin said nothing.
+#[test]
+fn a_full_background_lane_answers_its_oldest_job_as_nothing() {
+    let harness = Harness::new(config(1));
+    let a = plugin("a");
+    harness.load(&a, 256);
+    harness.live(&a, 1);
+
+    harness.hold(true);
+    harness.send(Message::Command {
+        id: 1,
+        plugin: a.clone(),
+        command: command("blocker"),
+    });
+    harness.wait_log("command:com.example.a:blocker");
+    let events = BACKGROUND_CAP as u64 + 1;
+    for index in 0..events {
+        harness.send(Message::Event {
+            id: 10 + index,
+            plugin: a.clone(),
+            events: vec![event(&format!("e{index}"))],
+            topics: Vec::new(),
+        });
+    }
+    // The first event was pushed out, and answered, while the worker was held.
+    harness.wait_for_reply(10);
+    harness.hold(false);
+
+    harness.wait_log(&format!("event:com.example.a:e{}", events - 1));
+    let log = harness.log();
+    assert!(
+        !log.contains(&"event:com.example.a:e0".to_string()),
+        "the oldest event was dropped, not run"
+    );
+    assert!(log.contains(&"event:com.example.a:e1".to_string()));
     harness.finish();
 }
 
@@ -1829,13 +1917,13 @@ impl Backend for Fake {
         Ok(CommandOutcome::None)
     }
 
-    fn answer(
-        &self,
-        plugin: &PluginId,
-        call: u64,
-        _answer: &yapfast_plugin_api::call::HostReturn,
-    ) -> Result<(), Fault> {
-        self.calls.enter(format!("answer:{plugin}:{call}"))
+    fn answer(&self, plugin: &PluginId, results: &[CallResult]) -> Result<(), Fault> {
+        let calls: Vec<String> = results
+            .iter()
+            .map(|result| result.call.to_string())
+            .collect();
+        self.calls
+            .enter(format!("answer:{plugin}:{}", calls.join(",")))
     }
 
     fn evict(&self, plugin: &PluginId) {

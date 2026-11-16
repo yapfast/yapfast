@@ -27,12 +27,23 @@ use tracing::{debug, warn};
 use yapfast_plugin_api::PluginId;
 use yapfast_plugin_api::call::{CommandInvocation, CommandOutcome, HostReturn, base64};
 use yapfast_plugin_api::event::{EventEnvelope, TopicEvent};
+use yapfast_plugin_api::guest::CallResult;
 use yapfast_plugin_api::hook::{HookOutcome, HookRequest, Lane};
 use yapfast_plugin_api::limits;
 use yapfast_plugin_api::message::{Fault, FaultKind, FromHelper, PluginStatus};
 
 use crate::backend::{Backend, CancelToken, HookRun, LoadSpec, Wait, Waits};
 use crate::pipe::{Outbox, Waker};
+
+/// The most work one plugin's background lane holds.
+///
+/// Events, decorations, badges and colours queue there while the plugin is
+/// busy, and a slow plugin on a busy server would otherwise grow its lane, and
+/// the helper's memory, for as long as the server talks. Past this the oldest
+/// droppable job is answered as if the plugin had said nothing, which is what
+/// the row showed while it waited; a hook is never dropped, since one that says
+/// a message mustn't go without it has to be asked.
+pub const BACKGROUND_CAP: usize = 1024;
 
 /// How long one batch of events may run. Events aren't on a person's path, so
 /// this is looser than a hook's budget, but a batch that never returns holds
@@ -528,9 +539,13 @@ impl<B: Backend + 'static> Shared<B> {
                 // overtake the module and find nothing to instantiate.
                 state.push(slot, Lane::Interactive, 0, Job::Load(spec));
             }
+            // Unloading, evicting or answering a plugin the helper has never
+            // seen has nothing to act on, and making a slot for it would keep
+            // one for the rest of the helper's life.
             Message::Unload { plugin } => {
-                let slot = state.slot_for(&plugin);
-                state.push(slot, Lane::Interactive, 0, Job::Unload);
+                if let Some(&slot) = state.index.get(&plugin) {
+                    state.push(slot, Lane::Interactive, 0, Job::Unload);
+                }
             }
             Message::Activate { id, plugin, load } => {
                 let slot = state.slot_for(&plugin);
@@ -548,7 +563,15 @@ impl<B: Backend + 'static> Shared<B> {
             }
             Message::Kick { plugin } => {
                 let slot = state.slot_for(&plugin);
-                state.push(slot, Lane::Background, 0, Job::Kick);
+                // A kick says "look at your timers"; a second one queued behind
+                // the first says nothing more.
+                let queued = state.slots[slot]
+                    .background
+                    .iter()
+                    .any(|task| matches!(task.job, Job::Kick));
+                if !queued {
+                    state.push(slot, Lane::Background, 0, Job::Kick);
+                }
             }
             Message::Event {
                 id,
@@ -696,16 +719,47 @@ impl<B: Backend + 'static> Shared<B> {
                 call,
                 answer,
             } => {
-                let slot = state.slot_for(&plugin);
-                state.push(slot, Lane::Interactive, 0, Job::Return { call, answer });
+                let Some(&slot) = state.index.get(&plugin) else {
+                    debug!(%plugin, "an answer arrived for a plugin the helper has never seen");
+                    return;
+                };
+                let result = CallResult { call, answer };
+                // Answers that arrive while the plugin is busy ride together:
+                // one `yf_event` carries them all, rather than one guest call
+                // each. Only an answer at the back of the lane is joined, so
+                // nothing queued between two answers is overtaken.
+                let joined = state.slots[slot]
+                    .interactive
+                    .back_mut()
+                    .and_then(Arc::get_mut)
+                    .and_then(|task| match &mut task.job {
+                        Job::Return { results } => Some(results),
+                        _ => None,
+                    });
+                match joined {
+                    Some(results) => results.push(result),
+                    None => state.push(
+                        slot,
+                        Lane::Interactive,
+                        0,
+                        Job::Return {
+                            results: vec![result],
+                        },
+                    ),
+                }
             }
             Message::Evict { plugin } => {
-                let slot = state.slot_for(&plugin);
-                state.push(slot, Lane::Interactive, 0, Job::Evict);
+                if let Some(&slot) = state.index.get(&plugin) {
+                    state.push(slot, Lane::Interactive, 0, Job::Evict);
+                }
             }
         }
+        let dropped = std::mem::take(&mut state.dropped);
         drop(state);
         self.work.notify_all();
+        for task in &dropped {
+            self.abandon(task);
+        }
     }
 
     /// Queues the eviction a lowered budget wants, as work for a worker.
@@ -779,7 +833,7 @@ impl<B: Backend + 'static> Shared<B> {
                 text,
                 request,
             } => self.code_block(task, block, text, request),
-            Job::Return { call, answer } => self.answer(task.owner(), *call, answer),
+            Job::Return { results } => self.answer(task.owner(), results),
         }
     }
 
@@ -1400,17 +1454,23 @@ impl<B: Backend + 'static> Shared<B> {
         }
     }
 
-    /// Hands a guest the answer the parent sent for a call it made earlier.
-    fn answer(&self, slot: usize, call: u64, answer: &HostReturn) {
-        // The call is settled whether or not the instance that asked is still
+    /// Hands a guest the answers the parent sent for calls it made earlier.
+    fn answer(&self, slot: usize, results: &[CallResult]) {
+        // Each call is settled whether or not the instance that asked is still
         // there, and by its own id: the parent also answers posts, which no
         // instance was ever held for, so anything else would release a hold that
         // belongs to a call still out.
         {
             let mut state = lock(&self.state);
             let entry = &mut state.slots[slot];
-            if let Some(at) = entry.waiting.iter().position(|&pending| pending == call) {
-                entry.waiting.swap_remove(at);
+            for result in results {
+                if let Some(at) = entry
+                    .waiting
+                    .iter()
+                    .position(|&pending| pending == result.call)
+                {
+                    entry.waiting.swap_remove(at);
+                }
             }
         }
         if !self.is_live(slot) {
@@ -1421,7 +1481,7 @@ impl<B: Backend + 'static> Shared<B> {
         }
         let plugin = self.id(slot);
         let (result, late) = self.call(&[slot], EVENT_BUDGET, |backend| {
-            backend.answer(&plugin, call, answer)
+            backend.answer(&plugin, results)
         });
         if late {
             self.discard(slot, deadline_fault("an answer"), None);
@@ -1676,6 +1736,7 @@ impl<B: Backend + 'static> Shared<B> {
             let mut abandoned: Vec<Arc<Task>> = entry.interactive.drain(..).collect();
             abandoned.extend(entry.background.drain(..));
             entry.queued = false;
+            entry.overflowing = false;
             abandoned
         };
         for task in abandoned {
@@ -2094,10 +2155,27 @@ enum Job {
         text: String,
         request: serde_json::Value,
     },
+    /// Answers to the guest's host calls, in the order the parent sent them.
     Return {
-        call: u64,
-        answer: HostReturn,
+        results: Vec<CallResult>,
     },
+}
+
+impl Job {
+    /// Whether the cap on a background lane may answer this job as "nothing"
+    /// rather than run it. A hook may not: one that says a message mustn't go
+    /// without it has to be asked, so it is never dropped to make room.
+    fn droppable(&self) -> bool {
+        matches!(
+            self,
+            Job::Kick
+                | Job::Event(..)
+                | Job::Decorate { .. }
+                | Job::DecorateMember { .. }
+                | Job::Identity { .. }
+                | Job::CodeBlock { .. }
+        )
+    }
 }
 
 /// One unit of work, with the reply frame it answers.
@@ -2179,6 +2257,9 @@ struct Slot {
     waiting: Vec<u64>,
     /// Whether it holds a timer.
     timer: bool,
+    /// Whether its background lane is full and dropping work, so that is said
+    /// once rather than for every job; cleared when the lane empties.
+    overflowing: bool,
 }
 
 impl Slot {
@@ -2198,6 +2279,7 @@ impl Slot {
             last_call: Instant::now(),
             waiting: Vec::new(),
             timer: false,
+            overflowing: false,
         }
     }
 
@@ -2213,7 +2295,11 @@ impl Slot {
 
     fn pop(&mut self) -> Option<Arc<Task>> {
         if self.interactive.is_empty() {
-            self.background.pop_front()
+            let task = self.background.pop_front();
+            if self.background.is_empty() {
+                self.overflowing = false;
+            }
+            task
         } else {
             self.interactive.pop_front()
         }
@@ -2296,6 +2382,9 @@ struct State {
     /// and eviction hold the live caps against.
     budget_bytes: u64,
     stopping: bool,
+    /// Work a full background lane pushed out during one enqueue, answered as
+    /// "nothing" once the lock is let go.
+    dropped: Vec<Arc<Task>>,
 }
 
 impl State {
@@ -2309,6 +2398,7 @@ impl State {
             idle_after,
             budget_bytes,
             stopping: false,
+            dropped: Vec::new(),
         }
     }
 
@@ -2377,7 +2467,25 @@ impl State {
         let task = Arc::new(task);
         match task.lane {
             Lane::Interactive => entry.interactive.push_back(task),
-            Lane::Background => entry.background.push_back(task),
+            Lane::Background => {
+                if entry.background.len() >= BACKGROUND_CAP
+                    && let Some(oldest) = entry
+                        .background
+                        .iter()
+                        .position(|task| task.job.droppable())
+                    && let Some(dropped) = entry.background.remove(oldest)
+                {
+                    if !entry.overflowing {
+                        entry.overflowing = true;
+                        warn!(
+                            plugin = %entry.id,
+                            "a plugin's background work is past {BACKGROUND_CAP} jobs; the oldest are answered as nothing until it catches up"
+                        );
+                    }
+                    self.dropped.push(dropped);
+                }
+                entry.background.push_back(task);
+            }
         }
         let first = !entry.queued;
         entry.queued = true;

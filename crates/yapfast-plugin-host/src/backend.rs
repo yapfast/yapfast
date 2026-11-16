@@ -10,8 +10,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use yapfast_plugin_api::PluginId;
-use yapfast_plugin_api::call::{CommandInvocation, CommandOutcome, HostReturn};
+use yapfast_plugin_api::call::{CommandInvocation, CommandOutcome};
 use yapfast_plugin_api::event::{EventEnvelope, TopicEvent};
+use yapfast_plugin_api::guest::CallResult;
 use yapfast_plugin_api::hook::{HookOutcome, HookRequest};
 use yapfast_plugin_api::message::Fault;
 
@@ -120,8 +121,10 @@ pub trait Backend: Send + Sync {
         args: &[u8],
     ) -> Result<Option<Vec<u8>>, Fault>;
 
-    /// Answers a guest's host call that was left pending.
-    fn answer(&self, plugin: &PluginId, call: u64, answer: &HostReturn) -> Result<(), Fault>;
+    /// Answers host calls a guest left pending, in the order the parent sent
+    /// them: every answer queued for the plugin goes in one `yf_event`, so K
+    /// answers cost one guest call rather than K.
+    fn answer(&self, plugin: &PluginId, results: &[CallResult]) -> Result<(), Fault>;
 
     /// Drops an instance, keeping nothing. Used for idle eviction, for the
     /// memory budget, and after a fault.

@@ -39,7 +39,7 @@ use extism::{CancelHandle, CompiledPlugin, Manifest, Plugin, PluginBuilder, Wasm
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use yapfast_plugin_api::call::{CommandInvocation, CommandOutcome, HostReturn};
+use yapfast_plugin_api::call::{CommandInvocation, CommandOutcome};
 use yapfast_plugin_api::event::{EventEnvelope, TopicEvent};
 use yapfast_plugin_api::guest::{ActivatePayload, CallResult, DeactivatePayload};
 use yapfast_plugin_api::hook::{HookOutcome, HookRequest};
@@ -328,18 +328,14 @@ impl Backend for ExtismBackend {
             })
     }
 
-    fn answer(&self, plugin: &PluginId, call: u64, answer: &HostReturn) -> Result<(), Fault> {
+    fn answer(&self, plugin: &PluginId, results: &[CallResult]) -> Result<(), Fault> {
         // An answer can outlive the instance that asked for it: eviction, a
         // fault and a deadline all drop one while a request is in flight. The
         // answer still travels, and the guest that replaces it sees a result
         // id it has nothing waiting on and ignores it.
-        let result = CallResult {
-            call,
-            answer: answer.clone(),
-        };
         let bytes = encode(&Batch {
             events: &[],
-            results: std::slice::from_ref(&result),
+            results,
             topics: &[],
         })?;
         // A batch's answer isn't part of the ABI, and a guest that writes one
@@ -754,7 +750,7 @@ fn toml_string(text: &str) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
-    use yapfast_plugin_api::call::HostCall;
+    use yapfast_plugin_api::call::{HostCall, HostReturn};
     use yapfast_plugin_api::event::{EventKind, Network};
     use yapfast_plugin_api::guest::EventBatch;
     use yapfast_plugin_api::hook::{Draft, HookKind, HookSubject};
@@ -914,7 +910,13 @@ mod tests {
         );
         assert!(
             backend
-                .answer(&plugin, 1, &HostReturn::Unsupported)
+                .answer(
+                    &plugin,
+                    &[CallResult {
+                        call: 1,
+                        answer: HostReturn::Unsupported,
+                    }]
+                )
                 .is_err()
         );
         assert!(

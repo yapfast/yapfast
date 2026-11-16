@@ -60,10 +60,19 @@ one lock per plugin rather than one for the whole thing, so a call on one plugin
 never waits for a call on another. That is what makes the lanes more than a queue
 order: two plugins run at once.
 
+A plugin's background lane holds at most 1,024 jobs. A slow plugin on a busy
+server would otherwise grow it, and the helper's memory, for as long as the
+server talks; past the cap the oldest event, decoration, badge, identity or
+colouring is answered as if the plugin had said nothing, which is what the row
+showed while it waited, and the helper logs it once. A hook is never dropped to
+make room, since one that says a message mustn't go without it has to be asked.
+
 Nothing blocks a worker either. An HTTP request, a storage write, a timer and a
 consent prompt are all requests the parent answers later, and a guest that wants
 to wait returns instead, getting its answer in a later batch. A worker is
-therefore never asleep inside a guest's call.
+therefore never asleep inside a guest's call. Answers that arrive while the
+plugin is busy ride together: they join the answer already queued at the back of
+its interactive lane, so K answers cost one `yf_event` rather than K.
 
 ## Deadlines
 

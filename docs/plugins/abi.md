@@ -550,7 +550,9 @@ function never waits for a person: it gets `pending` and returns.
 4. The parent performs the request through the network gate, or asks the person,
    and sends `return` with that call id and the answer.
 5. The helper passes the answer to the instance, and the guest's next `yf_event`
-   call carries it in `results` as `{ "call": 7, "answer": … }`.
+   call carries it in `results` as `{ "call": 7, "answer": … }`. Answers that
+   arrived while the plugin was busy come in the same call, in the order the
+   parent sent them, so a guest reads every entry of `results`, not the first.
 
 That is why an event function has to handle its own replies, and why a plugin
 that wants to look synchronous uses a PDK that wraps this in futures. A call
