@@ -4116,13 +4116,13 @@ fn a_finished_activity_says_how_long_ago_in_discords_steps() {
     let (minute, hour, day) = (60_000, 3_600_000, 86_400_000);
     let at = 100 * day;
     for (ago, words) in [
-        (5_000, "5s ago"),
-        (12 * minute, "12m ago"),
-        (3 * hour, "3h ago"),
-        (13 * hour, "1d ago"),
-        (8 * day, "8d ago"),
-        (15 * day, "2w ago"),
-        (60 * day, "2mo ago"),
+        (5_000, "5 seconds ago"),
+        (12 * minute, "12 minutes ago"),
+        (3 * hour, "3 hours ago"),
+        (13 * hour, "1 day ago"),
+        (8 * day, "8 days ago"),
+        (15 * day, "2 weeks ago"),
+        (60 * day, "2 months ago"),
     ] {
         assert_eq!(finished_ago(at - ago, at), words);
     }

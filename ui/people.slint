@@ -91,6 +91,8 @@ export struct MemberActivityRow {
     icon: int,
     /// Going on now, which its icon and time show in green.
     live: bool,
+    /// The name's colour, from a coloured Discord role.
+    color: color, has-color: bool,
 }
 
 // The open room's members, grouped by role under the conversation header.
@@ -151,7 +153,7 @@ export component MemberPanel inherits Rectangle {
             }
         }
         if root.activity-rows.length > 0: VerticalLayout {
-            padding-left: 8px; padding-right: 8px; padding-top: 8px; padding-bottom: 4px; spacing: 0px;
+            padding-left: 8px; padding-right: 8px; padding-top: 8px; padding-bottom: ClientStyle.enabled ? 0px : 4px; spacing: 0px;
             activity-header := Rectangle {
                 // Opening it shows the cards again if they were hidden, as
                 // there's otherwise nothing to open.
@@ -237,12 +239,14 @@ export component MemberPanel inherits Rectangle {
             for row[index] in root.activity-rows: Rectangle {
                 // Each card keeps 8px beneath it; the rest stay unmade, and their
                 // pictures unasked for, until the panel opens.
-                height: !root.activity-hidden && (root.activity-open || index < 3) ? (ClientStyle.enabled ? 78px : 76px) : 0px;
+                height: !root.activity-hidden && (root.activity-open || index < 3) ? (ClientStyle.enabled ? (index == (root.activity-open ? root.activity-rows.length : min(3, root.activity-rows.length)) - 1 ? 70px : 78px) : 76px) : 0px;
                 if !root.activity-hidden && (root.activity-open || index < 3): Rectangle {
                     y: 0px; height: ClientStyle.enabled ? 70px : 68px;
-                    border-radius: 8px; border-width: 1px;
-                    border-color: Theme.line;
-                    background: activity-touch.has-hover ? Theme.overlay.with-alpha(0.12) : Theme.overlay.with-alpha(0.06);
+                    // Discord's dark card: (36,36,41) in a (40,40,45) line, 12px round.
+                    property <bool> dark: ClientStyle.enabled && Theme.dark;
+                    border-radius: ClientStyle.enabled ? 12px : 8px; border-width: 1px;
+                    border-color: self.dark ? #28282d : Theme.line;
+                    background: activity-touch.has-hover ? (self.dark ? #2b2b30 : Theme.overlay.with-alpha(0.12)) : (self.dark ? #242429 : Theme.overlay.with-alpha(0.06));
                     accessible-role: button;
                     accessible-label: row.name + ", " + row.game + ", " + row.since + ", show profile";
                     accessible-action-default => { root.open-profile(row.id, self.absolute-position.y); }
@@ -253,14 +257,14 @@ export component MemberPanel inherits Rectangle {
                             HorizontalLayout {
                                 spacing: 6px; alignment: start;
                                 Middle { Avatar { size: 16px; initial: row.initial; tint: row.tint; picture-url: row.picture-url; } }
-                                Text { text: row.name; color: Theme.secondary; font-size: 14px; font-weight: 500; overflow: elide; vertical-alignment: center; }
+                                Text { text: row.name; color: ClientStyle.enabled && row.has-color ? row.color : Theme.secondary; font-size: 14px; font-weight: 500; overflow: elide; vertical-alignment: center; }
                             }
                             Text { text: row.game; color: Theme.text; font-size: 14px; font-weight: 600; overflow: elide; }
                             HorizontalLayout {
                                 spacing: 4px; alignment: start;
                                 Middle {
                                     Image {
-                                        source: row.icon == 2 ? @image-url("icons/music.svg") : row.icon == 3 ? @image-url("icons/tv.svg") : row.icon == 4 ? @image-url("icons/video.svg") : row.icon == 5 ? @image-url("icons/trophy.svg") : (ClientStyle.enabled && !row.live) ? @image-url("icons/dots-grid.svg") : @image-url("icons/gamepad.svg");
+                                        source: row.icon == 2 ? @image-url("icons/music.svg") : row.icon == 3 ? @image-url("icons/tv.svg") : row.icon == 4 ? @image-url("icons/video.svg") : row.icon == 5 ? @image-url("icons/trophy.svg") : @image-url("icons/gamepad.svg");
                                         width: 16px; height: 16px; image-fit: contain; colorize: row.live ? Theme.live : Theme.muted;
                                     }
                                 }
@@ -287,7 +291,7 @@ export component MemberPanel inherits Rectangle {
             vertical-stretch: 1;
             for member[index] in root.rows: VerticalLayout {
                 padding-left: 8px; padding-right: 8px;
-                padding-top: index == 0 ? 8px : 0px;
+                padding-top: index == 0 && !(ClientStyle.enabled && root.activity-rows.length > 0) ? 8px : 0px;
                 padding-bottom: index == root.rows.length - 1 ? 12px : 2px;
                 spacing: 2px;
                 // Discord's group heading: 14px medium in the channel grey, 20px above and 4px below.

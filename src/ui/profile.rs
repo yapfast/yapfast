@@ -37,13 +37,20 @@ pub(super) fn finished_ago(at_ms: u64, now_ms: u64) -> String {
     const DAY: u64 = 24 * HOUR;
     let seconds = now_ms.saturating_sub(at_ms) / 1000;
     match seconds {
-        0..MINUTE => format!("{seconds}s ago"),
-        MINUTE..HOUR => format!("{}m ago", seconds / MINUTE),
-        _ if seconds < 12 * HOUR => format!("{}h ago", seconds / HOUR),
-        _ if seconds < 9 * DAY => format!("{}d ago", (seconds / DAY).max(1)),
-        _ if seconds < 28 * DAY => format!("{}w ago", seconds / (7 * DAY)),
-        _ => format!("{}mo ago", (seconds / (30 * DAY)).max(1)),
+        0..MINUTE => ago_words(seconds, "second"),
+        MINUTE..HOUR => ago_words(seconds / MINUTE, "minute"),
+        _ if seconds < 12 * HOUR => ago_words(seconds / HOUR, "hour"),
+        _ if seconds < 9 * DAY => ago_words((seconds / DAY).max(1), "day"),
+        _ if seconds < 28 * DAY => ago_words(seconds / (7 * DAY), "week"),
+        _ => ago_words((seconds / (30 * DAY)).max(1), "month"),
     }
+}
+
+/// "1 day ago" or "3 days ago", as Discord's client words a card's time.
+#[cfg(feature = "discord")]
+fn ago_words(count: u64, unit: &str) -> String {
+    let plural = if count == 1 { "" } else { "s" };
+    format!("{count} {unit}{plural} ago")
 }
 
 /// What the channel's Activity panel shows: Discord's feed, in its order, of
@@ -97,6 +104,11 @@ pub(super) fn activity_panel(
                 return None;
             }
             let activity = member.and_then(|member| doing(member, entry));
+            // Their name takes the colour of their role, as in the member list.
+            let color = members
+                .iter()
+                .find(|member| *member.id == *entry.author)
+                .and_then(|member| member.color);
             let since = match (entry.hours, entry.tracks) {
                 (Some(hours), _) if entry.kind == Kind::TopGame => {
                     format!("Most played: {hours}h")
@@ -131,6 +143,8 @@ pub(super) fn activity_panel(
                     Kind::TopGame | Kind::TopArtist => 5,
                 },
                 live,
+                color: role_color(color),
+                has_color: color.is_some(),
                 game: (*entry.title).into(),
                 since: since.into(),
                 thumb_url: yapfast_core::yapfast_discord::activity::small_picture(picture)
