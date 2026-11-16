@@ -347,7 +347,7 @@ export component SettingsCard inherits Rectangle {
     in property <float> motion: 1;
     in property <length> margin: ClientStyle.settings-margin;
     callback close;
-    Rectangle { background: #000000b3; opacity: root.motion; }
+    Rectangle { background: ClientStyle.enabled ? #000000ba : #000000b3; opacity: root.motion; }
     TouchArea { clicked => { root.close(); } }
     Rectangle {
         width: min(ClientStyle.settings-width, root.width - root.margin);

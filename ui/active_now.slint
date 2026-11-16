@@ -199,7 +199,8 @@ export component ActiveNowColumn inherits Rectangle {
     clip: true;
     Rectangle { x: 0px; width: 1px; background: ClientStyle.enabled && Theme.dark ? #28282d : Theme.line; }
     VerticalLayout {
-        padding: 16px; padding-right: 12px; spacing: ClientStyle.enabled ? 10px : 16px; padding-left: ClientStyle.enabled ? 18px : 16px;
+        // Discord's cards run from 17px in to 16px short of the right, measured at 2560px wide.
+        padding: 16px; padding-right: ClientStyle.enabled ? 16px : 12px; spacing: ClientStyle.enabled ? 10px : 16px; padding-left: ClientStyle.enabled ? 17px : 16px;
         padding-top: ClientStyle.enabled ? 13px : 16px;
         Text { text: "Active Now"; color: Theme.text; font-size: 20px; font-weight: 800; }
         if root.cards.length == 0: VerticalLayout {
@@ -214,6 +215,8 @@ export component ActiveNowColumn inherits Rectangle {
             vertical-stretch: 1;
             content-width: self.visible-width;
             horizontal-scrollbar-policy: always-off;
+            // Discord's list shows no bar at rest; the wheel still scrolls it.
+            vertical-scrollbar-policy: ClientStyle.enabled ? ScrollBarPolicy.always-off : ScrollBarPolicy.as-needed;
             VerticalLayout {
                 width: cards-view.visible-width;
                 spacing: 12px; alignment: start;

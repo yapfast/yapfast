@@ -198,7 +198,8 @@ export component FriendItem inherits Rectangle {
         // The row's contents sit in its pointer area, so the buttons in
         // them take their own clicks while the row stays hovered.
         HorizontalLayout {
-            padding-left: ClientStyle.enabled ? 0px : 10px; padding-right: ClientStyle.enabled ? 18px : 10px; spacing: 12px;
+            // Discord's buttons sit 2px nearer each other (kebab 2px further in) and 1px lower, measured at 2560px wide.
+            padding-left: ClientStyle.enabled ? 0px : 10px; padding-right: ClientStyle.enabled ? 20px : 10px; spacing: 12px;
             Middle {
                 Rectangle {
                     width: 32px; height: 32px;
@@ -229,18 +230,20 @@ export component FriendItem inherits Rectangle {
                 if !root.in-voice && !root.has-activity: Text { text: root.status; color: Theme.muted; font-size: 13px; overflow: elide; }
             }
             Middle {
-                IconButton {
-                    icon: @image-url("icons/message-circle.svg"); label: "Message"; size: 36px; glyph: 20px; radius: 18px;
-                    fill: ClientStyle.enabled ? transparent : Theme.raised; tip-side: 2;
-                    clicked => { root.message(); }
-                }
-            }
-            // Discord's row also has the friend's menu behind a kebab.
-            if ClientStyle.enabled: Middle {
-                kebab := IconButton {
-                    icon: @image-url("icons/ellipsis-vertical.svg"); label: "More"; size: 36px; glyph: 20px; radius: 18px;
-                    fill: transparent; tip-side: 2;
-                    clicked => { root.context-menu(self.absolute-position.x, self.absolute-position.y + self.height); }
+                HorizontalLayout {
+                    spacing: ClientStyle.enabled ? 10px : 0px;
+                    padding-top: ClientStyle.enabled ? 2px : 0px;
+                    IconButton {
+                        icon: @image-url("icons/message-circle.svg"); label: "Message"; size: 36px; glyph: 20px; radius: 18px;
+                        fill: ClientStyle.enabled ? transparent : Theme.raised; tip-side: 2;
+                        clicked => { root.message(); }
+                    }
+                    // Discord's row also has the friend's menu behind a kebab.
+                    if ClientStyle.enabled: kebab := IconButton {
+                        icon: @image-url("icons/ellipsis-vertical.svg"); label: "More"; size: 36px; glyph: 20px; radius: 18px;
+                        fill: transparent; tip-side: 2;
+                        clicked => { root.context-menu(self.absolute-position.x, self.absolute-position.y + self.height); }
+                    }
                 }
             }
         }
