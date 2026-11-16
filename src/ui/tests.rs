@@ -4095,7 +4095,7 @@ fn the_activity_panel_shows_discords_feed_in_its_order_for_those_the_channel_may
             // Their presence says when it started, which the feed's id may not.
             ("Member 7", "Factorio", "for 5 min"),
             ("Member 8", "Marconi Union", "for 1 min"),
-            ("Member 9", "Celeste", "3h ago"),
+            ("Member 9", "Celeste", "3 hours ago"),
             ("Member 7", "Factorio", "Most played: 13h"),
             ("Member 8", "Marconi Union", "31 tracks this week"),
         ],
@@ -10677,7 +10677,7 @@ fn yapfast_docked_profile_opens_the_existing_full_profile() {
 }
 
 #[test]
-fn yapfast_dm_heading_keeps_friend_and_new_message_actions() {
+fn yapfast_dm_heading_holds_only_the_new_message_plus() {
     use slint::platform::{PointerEventButton, WindowEvent};
     let window = one_message("Synthetic message");
     window.global::<ClientStyle>().set_enabled(true);
@@ -10698,6 +10698,8 @@ fn yapfast_dm_heading_keeps_friend_and_new_message_actions() {
     let message = Rc::new(Cell::new(false));
     let seen = message.clone();
     window.on_open_new_dm(move || seen.set(true));
+    // Discord's heading holds one "+" at its right end; the add-friend
+    // button that used to sit left of it lives on the Friends page.
     for x in [328., 356.] {
         let position = slint::LogicalPosition::new(x, 182.);
         window.window().dispatch_event(WindowEvent::PointerPressed {
@@ -10712,8 +10714,8 @@ fn yapfast_dm_heading_keeps_friend_and_new_message_actions() {
             });
     }
     assert!(
-        friend.get(),
-        "the existing add-friend action remains reachable"
+        !friend.get(),
+        "the heading no longer holds an add-friend button"
     );
     assert!(
         message.get(),
@@ -10756,17 +10758,18 @@ fn yapfast_settings_navigation_and_header_keep_the_existing_actions() {
                 button: PointerEventButton::Left,
             });
     };
-    // Reference geometry: a 1400px card, 72px outer inset, 266px navigation.
-    click(350., 500.);
+    // Reference geometry: a 1400px card with a 1px edge, 72px outer inset,
+    // 266px navigation, 36px rows.
+    click(350., 479.);
     assert_eq!(
         window.get_settings_section(),
         7,
         "Appearance remains reachable"
     );
-    click(350., 340.);
+    click(350., 335.);
     assert_eq!(window.get_settings_section(), 1);
     assert_eq!(refreshed.get(), 1, "Voice still refreshes the device list");
-    click(350., 180.);
+    click(350., 181.);
     for character in "APPEAR".chars() {
         let text: SharedString = character.to_string().into();
         window
@@ -10776,13 +10779,13 @@ fn yapfast_settings_navigation_and_header_keep_the_existing_actions() {
             .window()
             .dispatch_event(WindowEvent::KeyReleased { text });
     }
-    click(350., 236.);
+    click(350., 235.);
     assert_eq!(
         window.get_settings_section(),
         7,
         "search filters supported pages regardless of case"
     );
-    click(1636., 96.);
+    click(1635., 97.);
     assert!(!window.get_settings_open(), "the header close action works");
     window.set_settings_open(true);
     window.window().dispatch_event(WindowEvent::KeyPressed {
