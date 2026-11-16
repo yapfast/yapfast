@@ -222,7 +222,7 @@ export component ThreadPanel inherits Rectangle {
                             }
                         }
                         col := VerticalLayout {
-                            padding-top: message.day != "" ? 12px : message.first ? 14px : 1px;
+                            padding-top: message.day != "" ? 12px : message.first ? (ClientStyle.compact-messages ? ClientStyle.message-group-gap : 14px) : 1px;
                             padding-bottom: index == root.messages.length - 1 ? 20px : 1px;
                             spacing: 0px;
                             if index == 0: HistoryEdge {

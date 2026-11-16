@@ -10268,3 +10268,15 @@ msgstr "Начинает показ экрана в звонке, а пока о
 
 msgid "Leave the voice channel you're in."
 msgstr "Выходит из голосового канала, в котором вы находитесь."
+
+msgid "MESSAGE DISPLAY"
+msgstr "ОТОБРАЖЕНИЕ СООБЩЕНИЙ"
+
+msgid "Message display"
+msgstr "Отображение сообщений"
+
+msgid "Cozy"
+msgstr "Уютный"
+
+msgid "Compact"
+msgstr "Компактный"

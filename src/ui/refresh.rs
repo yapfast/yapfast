@@ -414,8 +414,16 @@ impl SwitcherShown {
 
 /// What a message row in the thread beside the channel takes across beside
 /// its content: the space before the avatar, the avatar and the space after
-/// it, and the space at the end, as `ThreadPanel` lays it out.
-const ASIDE_GUTTER: i32 = 16 + 40 + 16 + 16;
+/// it, and the space at the end, as `ThreadPanel` lays it out. The compact
+/// display has the time's gutter, `ClientStyle.compact-gutter`, and 8 pixels
+/// after it.
+pub(super) const fn aside_gutter(compact: bool) -> i32 {
+    if compact {
+        16 + 60 + 8 + 16
+    } else {
+        16 + 40 + 16 + 16
+    }
+}
 
 impl Adapter {
     /// Shows what a burst of backend events can have changed.
@@ -4021,7 +4029,7 @@ impl Adapter {
             None => SharedString::default(),
         });
         // Pictures and link previews fit the panel's width beside the avatar.
-        let fit = window.get_aside_shown() as i32 - ASIDE_GUTTER;
+        let fit = window.get_aside_shown() as i32 - aside_gutter(window.get_compact_messages());
         if self.aside_fit != fit {
             self.aside_fit = fit;
             self.aside_restyle = true;

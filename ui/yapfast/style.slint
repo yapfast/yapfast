@@ -2,6 +2,11 @@
 // Disabled for comparisons with the inherited interface.
 export global ClientStyle {
     in-out property <bool> enabled: true;
+    // Settings → Messages → Message display: no avatars, each message's time in
+    // a gutter, and a group's author beside its first line.
+    in-out property <bool> compact-messages;
+    // The compact display's gutter, which holds a time with seconds and a notice's icon.
+    out property <length> compact-gutter: 60px;
     // An open-licensed, bundled face gives every platform the same text metrics.
     in-out property <string> native-font: "DM Sans";
     // The family of the font files the person loaded (Settings → Appearance),
@@ -25,7 +30,7 @@ export global ClientStyle {
     out property <length> dm-row-height: 42px;
     out property <length> channel-row-height: self.enabled ? 32px : 34px;
     out property <length> message-gap: self.enabled ? 0px : 3px;
-    out property <length> message-group-gap: self.enabled ? 16px : 14px;
+    out property <length> message-group-gap: self.compact-messages ? 8px : self.enabled ? 16px : 14px;
     out property <length> profile-inset: self.enabled ? 8px : 0px;
     out property <length> composer-height: self.enabled ? 58px : 48px;
     out property <length> composer-padding: self.enabled ? 18px : 12px;

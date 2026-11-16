@@ -2309,6 +2309,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.date_format = Some(window.get_date_format()).filter(|&index| index >= 0);
         layout.apply_date_format();
         layout.text_size = Some(window.get_text_size());
+        layout.compact_messages = window.get_compact_messages();
         layout.link_previews = Some(window.get_link_previews());
         layout.boost_gems = Some(window.get_boost_gems());
         layout.reply_ping = Some(window.get_reply_ping_default());

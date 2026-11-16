@@ -719,7 +719,19 @@ The window follows Discord's arrangement:
   and stays open in them. Messages from one person within seven
   minutes are grouped under one avatar and name. Hovering a grouped message
   shows its time in the gutter. Replies draw a spine to the quoted message, and
-  a date divider starts each day. The top of the history shows what's
+  a date divider starts each day. Settings → Messages → Message display
+  chooses Cozy, the default, or Compact, as Discord's own: no avatars, and a
+  60px gutter (`ClientStyle.compact-gutter`) that shows every message's clock
+  time, with its seconds if chosen and no AM or PM, where a notice also has
+  its icon. A group's first message puts the author's name, and the server
+  tag or BOT badge, in front of the text, which goes on under the name when
+  it wraps; the name gives way to the text past about eleven text sizes. A
+  message with blocks (code, lists, quotes), a forward, or an edit in
+  progress, and one with no text, keeps the name on a line of its own, and a
+  reply or an app's command line drops its small avatar and its spine. The
+  gap between groups is 8px. The thread beside the channel follows
+  (`aside_gutter` in `src/ui/refresh.rs` fits its pictures to the narrower
+  text). `layout.json` keeps the choice as `compact_messages`. The top of the history shows what's
   before it: earlier messages loading, a way to retry them, or the start of
   the conversation. The composer is a rounded field with attach, the
   message ("Message #general"), and a send button; a reply attaches a bar

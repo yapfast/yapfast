@@ -2942,6 +2942,73 @@ component InlineEditor inherits VerticalLayout {
     }
 }
 
+// A message's text, cut off at its folded height while it folds, with Show
+// more under it. It stands under the author line, or beside the name in the
+// compact display.
+component MessageBody inherits VerticalLayout {
+    in property <MessageRow> message;
+    in property <length> message-font-size;
+    /// Long bodies fold to twelve lines of text, with Show more.
+    in property <bool> collapse-long;
+    callback link-clicked(string);
+    /// Show more or Show less was clicked: the message's item, whether it shows whole now.
+    callback fold(string, bool);
+    // A body folds once it's a few lines longer than twelve, so Show more
+    // never uncovers only a line or two. A line of message text is 1.3 times
+    // its size, as the font lays it out.
+    property <length> line-height: root.message-font-size * 1.3;
+    property <bool> long: root.collapse-long && body.preferred-height > root.line-height * 15;
+    property <bool> folded: root.long && !message.expanded;
+    Rectangle {
+        height: root.folded ? root.line-height * 12 : body.preferred-height;
+        clip: root.folded;
+        body := VerticalLayout {
+            y: 0px; height: self.preferred-height;
+            if message.blocks.length == 0: StyledText {
+                // An overlong word breaks, as in Discord's client, rather than widening the row.
+                min-width: 0px;
+                text: message.styled; link-color: Theme.link;
+                default-color: message.deleted || message.delivery != "" ? Theme.muted : message.notice != "" ? Theme.secondary : Theme.text;
+                // Discord's large emoji are 48 pixels where text's are 22.
+                default-font-size: message.jumbo ? root.message-font-size * 2.2 : root.message-font-size;
+                // A mention's card opens beside the pointer.
+                link-clicked(link) => { root.link-clicked(link); }
+                accessible-role: text; accessible-label: @tr("Message from {}: {}", message.author, message.body);
+            }
+            if message.blocks.length > 0: Rectangle {
+                accessible-role: text; accessible-label: @tr("Message from {}: {}", message.author, message.body);
+                TextBlocks {
+                    blocks: message.blocks; font-size: root.message-font-size;
+                    color: message.deleted || message.delivery != "" ? Theme.muted : Theme.text;
+                    open-link(link) => { root.link-clicked(link); }
+                }
+            }
+        }
+    }
+    // Made only while long messages fold. It's there for a short
+    // body too, empty, as a row that came and went with the
+    // body's length would change the width it's measured at.
+    if root.collapse-long: HorizontalLayout {
+        alignment: start;
+        // 3px below the body, as the parts of a message are.
+        height: root.long ? self.preferred-height + 3px : 0px;
+        visible: root.long;
+        Text {
+            vertical-alignment: bottom;
+            text: message.expanded ? @tr("Show less") : @tr("Show more");
+            color: fold-touch.has-hover ? Theme.text : Theme.link;
+            animate color { duration: Theme.quick; }
+            font-size: root.message-font-size * 0.875; font-weight: 600;
+            accessible-role: button; accessible-label: self.text;
+            accessible-action-default => { root.fold(message.item, !message.expanded); }
+            fold-touch := TouchArea {
+                mouse-cursor: MouseCursor.pointer;
+                clicked => { root.fold(message.item, !message.expanded); }
+            }
+        }
+    }
+}
+
 // A message's avatar or time, its reply, author line, text, attachments,
 // thread and reactions: a timeline row without what scrolls and hovers it,
 // for the conversation's timeline and a thread's beside it.
@@ -2974,6 +3041,17 @@ export component MessageContent inherits VerticalLayout {
     callback use-command(string);
     /// A line above the message: its reply, or the command it answers.
     property <bool> header: message.has-reply || message.has-command;
+    /// The compact display: no avatars, each message's time in the gutter,
+    /// and a group's author beside its first line.
+    property <bool> compact: ClientStyle.compact-messages;
+    /// The column before the text, which holds the avatar, or in the compact
+    /// display the time.
+    property <length> gutter: root.compact ? ClientStyle.compact-gutter : 40px;
+    /// A first message whose text starts beside the author's name, as
+    /// Discord's compact display sets it; one with blocks, a forward or an
+    /// edit in progress keeps its own lines.
+    property <bool> inline-body: root.compact && message.first && message.notice == "" && message.body != ""
+        && message.blocks.length == 0 && !message.forwarded && !root.editing;
     /// A link in the text, which opens beside the pointer; and one in an embed.
     callback link-clicked(string);
     callback open-link(string);
@@ -3004,11 +3082,11 @@ export component MessageContent inherits VerticalLayout {
     property <bool> editing: root.message.item != "" && InlineEdit.item == root.message.item && InlineEdit.aside == root.aside;
     HorizontalLayout {
         // The field ends 22 pixels from the row's edge as Discord's does, not where the actions' room ends it.
-        padding-left: root.start-padding; padding-right: root.editing ? 21px : root.end-padding; padding-top: 2px; padding-bottom: 2px; spacing: 16px;
+        padding-left: root.start-padding; padding-right: root.editing ? 21px : root.end-padding; padding-top: 2px; padding-bottom: 2px; spacing: root.compact ? 8px : 16px;
         Rectangle {
-            width: 40px;
-            min-height: message.first && message.notice == "" ? (root.header ? 64px : 40px) : 0px;
-            if root.header: Rectangle {
+            width: root.gutter;
+            min-height: message.first && message.notice == "" && !root.compact ? (root.header ? 64px : 40px) : 0px;
+            if root.header && !root.compact: Rectangle {
                 x: 19px; y: 11px; width: 33px; height: 13px; clip: true;
                 Rectangle {
                     x: 0px; y: 0px; width: parent.width + 12px; height: parent.height + 12px;
@@ -3017,7 +3095,7 @@ export component MessageContent inherits VerticalLayout {
             }
             // As Discord's client marks a notice, in place of the avatar.
             if message.notice != "": Image {
-                x: 12px; y: (root.message-font-size * 1.375 - 16px) / 2 + 1px; width: 16px; height: 16px;
+                x: root.compact ? 0px : 12px; y: (root.message-font-size * 1.375 - 16px) / 2 + 1px; width: 16px; height: 16px;
                 source: message.notice == "pin" ? @image-url("icons/pin.svg")
                     : message.notice == "join" ? @image-url("icons/user-plus.svg")
                     : message.notice == "thread" ? @image-url("icons/thread.svg")
@@ -3025,14 +3103,14 @@ export component MessageContent inherits VerticalLayout {
                     : @image-url("icons/chart-bar.svg");
                 colorize: message.notice == "join" || message.notice == "call" ? Theme.live : Theme.muted;
             }
-            if message.first && message.notice == "": Avatar {
+            if message.first && message.notice == "" && !root.compact: Avatar {
                 x: 0px; y: root.header ? 24px : 2px;
                 initial: message.initial; tint: message.tint; picture: message.picture; picture-url: message.picture-url;
                 decoration-url: message.decoration-url; animate: root.active-item == message.item;
             }
             // Clicking the author's avatar shows their card beside it;
             // a right click opens their menu. Their name does the same.
-            if message.first && message.notice == "" && message.sender != "": TouchArea {
+            if message.first && message.notice == "" && message.sender != "" && !root.compact: TouchArea {
                 x: 0px; y: root.header ? 24px : 2px; width: 40px; height: 40px;
                 mouse-cursor: MouseCursor.pointer;
                 clicked => { root.author-card(message.item, message.sender, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
@@ -3043,9 +3121,12 @@ export component MessageContent inherits VerticalLayout {
                 }
             }
             // Right-aligned to the avatar's edge; a time with seconds runs
-            // further left, into the padding.
-            if !message.first && root.active-item == message.item: Text {
-                width: max(40px, self.preferred-width); x: 40px - self.width; y: 4px;
+            // further left, into the padding. The compact display shows every
+            // message's, as Discord's does.
+            if (!message.first && root.active-item == message.item) || root.compact: Text {
+                width: max(root.gutter, self.preferred-width); x: root.gutter - self.width;
+                // Level with the text's first line, under a reply's or a command's own.
+                y: root.compact ? (root.header ? 22px + ClientStyle.message-gap : 0px) + (root.message-font-size * 1.3 - self.preferred-height) / 2 + 1px : 4px;
                 text: message.short-time; color: Theme.muted; font-size: 12px; font-weight: 500;
                 horizontal-alignment: right; overflow: elide;
             }
@@ -3061,7 +3142,7 @@ export component MessageContent inherits VerticalLayout {
                 accessible-action-default => { if message.reply-item != "" { root.jump-to(message.reply-item); } }
                 HorizontalLayout {
                     spacing: 6px;
-                    if message.reply-author != "": Middle { Avatar { size: 16px; initial: message.reply-initial; tint: message.reply-tint; picture: message.reply-picture; picture-url: message.reply-picture-url; } }
+                    if message.reply-author != "" && !root.compact: Middle { Avatar { size: 16px; initial: message.reply-initial; tint: message.reply-tint; picture: message.reply-picture; picture-url: message.reply-picture-url; } }
                     if message.reply-author != "": Text {
                         // Discord quotes "@Name" in the author's role colour, regular weight.
                         text: ClientStyle.enabled ? "@" + message.reply-author : message.reply-author;
@@ -3083,7 +3164,7 @@ export component MessageContent inherits VerticalLayout {
             // As Discord's client heads an app's answer: "Ann used /ping".
             if message.has-command && !message.has-reply: HorizontalLayout {
                 height: 22px; spacing: 4px;
-                Middle { Avatar { size: 16px; initial: message.command-initial; tint: message.command-tint; picture-url: message.command-picture-url; } }
+                if !root.compact: Middle { Avatar { size: 16px; initial: message.command-initial; tint: message.command-tint; picture-url: message.command-picture-url; } }
                 Text {
                     text: message.command-user; font-size: 14px; font-weight: 500; vertical-alignment: center;
                     color: message.command-has-color ? message.command-color : Theme.secondary;
@@ -3119,49 +3200,65 @@ export component MessageContent inherits VerticalLayout {
             if message.first && message.notice == "": HorizontalLayout {
                 spacing: 8px;
                 // Discord's name line is 22px tall, a little over the text's.
-                padding-bottom: ClientStyle.enabled ? 2px : 0px;
-                Rectangle {
-                    min-width: author-name.min-width; preferred-width: ClientStyle.enabled || message.name-style.length > 0 ? author-plain.preferred-width : author-name.preferred-width;
-                    preferred-height: author-name.preferred-height; horizontal-stretch: 0;
-                    // Discord's names are medium weight, a step under bold.
-                    author-plain := Text {
-                        width: parent.width; height: parent.height; visible: ClientStyle.enabled && message.name-style.length == 0;
-                        text: message.author; color: message.has-color ? message.color : Theme.text;
-                        font-size: root.message-font-size; vertical-alignment: center; overflow: elide;
-                        // A styled name measures in its own font.
-                        font-family: message.name-style[0].family;
-                        font-weight: message.name-style[0].family != "" ? message.name-style[0].weight : 500;
-                    }
-                    author-name := StyledText {
-                        width: parent.width; height: parent.height; visible: !ClientStyle.enabled && message.name-style.length == 0;
-                        text: message.author-styled; link-color: Theme.link; default-color: message.has-color ? message.color : Theme.text; default-font-size: root.message-font-size; max-lines: 1; vertical-alignment: center;
-                    }
-                    if message.name-style.length > 0: StyledName {
-                        width: parent.width; height: parent.height;
-                        text: message.author; styles: message.name-style; ink: message.has-color ? message.color : Theme.text; font-size: root.message-font-size; font-weight: 500;
-                    }
-                    // Underlined while pointed at, as a link is.
-                    if author-touch.has-hover: Rectangle {
-                        y: (parent.height + root.message-font-size) / 2 + 1px; height: 1px;
-                        background: message.has-color ? message.color : Theme.text;
-                    }
-                    author-touch := TouchArea {
-                        enabled: message.sender != "";
-                        mouse-cursor: self.enabled ? MouseCursor.pointer : MouseCursor.default;
-                        clicked => { root.author-card(message.item, message.sender, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
-                        pointer-event(event) => {
-                            if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
-                                root.author-menu(message.item, message.sender, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+                padding-bottom: ClientStyle.enabled && !root.compact ? 2px : 0px;
+                // The name and its badges keep their own height, so text beside
+                // them, which may run to many lines, doesn't centre them.
+                VerticalLayout {
+                    alignment: start; horizontal-stretch: 0;
+                    // A long name gives way to the text beside it.
+                    max-width: root.inline-body ? max(120px, root.message-font-size * 11) : 100000px;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Rectangle {
+                            min-width: author-name.min-width; preferred-width: ClientStyle.enabled || message.name-style.length > 0 ? author-plain.preferred-width : author-name.preferred-width;
+                            preferred-height: author-name.preferred-height; horizontal-stretch: 0;
+                            // Discord's names are medium weight, a step under bold.
+                            author-plain := Text {
+                                width: parent.width; height: parent.height; visible: ClientStyle.enabled && message.name-style.length == 0;
+                                text: message.author; color: message.has-color ? message.color : Theme.text;
+                                font-size: root.message-font-size; vertical-alignment: center; overflow: elide;
+                                // A styled name measures in its own font.
+                                font-family: message.name-style[0].family;
+                                font-weight: message.name-style[0].family != "" ? message.name-style[0].weight : 500;
+                            }
+                            author-name := StyledText {
+                                width: parent.width; height: parent.height; visible: !ClientStyle.enabled && message.name-style.length == 0;
+                                text: message.author-styled; link-color: Theme.link; default-color: message.has-color ? message.color : Theme.text; default-font-size: root.message-font-size; max-lines: 1; vertical-alignment: center;
+                            }
+                            if message.name-style.length > 0: StyledName {
+                                width: parent.width; height: parent.height;
+                                text: message.author; styles: message.name-style; ink: message.has-color ? message.color : Theme.text; font-size: root.message-font-size; font-weight: 500;
+                            }
+                            // Underlined while pointed at, as a link is.
+                            if author-touch.has-hover: Rectangle {
+                                y: (parent.height + root.message-font-size) / 2 + 1px; height: 1px;
+                                background: message.has-color ? message.color : Theme.text;
+                            }
+                            author-touch := TouchArea {
+                                enabled: message.sender != "";
+                                mouse-cursor: self.enabled ? MouseCursor.pointer : MouseCursor.default;
+                                clicked => { root.author-card(message.item, message.sender, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
+                                pointer-event(event) => {
+                                    if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                                        root.author-menu(message.item, message.sender, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+                                    }
+                                }
                             }
                         }
+                        if message.tag != "": Middle { ServerTagChip { text: message.tag; badge: message.tag-badge; server: message.tag-server; font-size: root.message-font-size * 0.72; } }
+                        if message.bot: Middle { BotTag { } }
+                        // Whole on one line: given less, it broke after the date and
+                        // showed no time at all.
+                        if !root.compact: StyledText { text: message.time-styled; link-color: Theme.link; default-color: Theme.muted; default-font-size: root.message-font-size - (ClientStyle.enabled ? 4px : 3px); max-lines: 1; vertical-alignment: center; min-width: self.preferred-width; }
                     }
                 }
-                if message.tag != "": Middle { ServerTagChip { text: message.tag; badge: message.tag-badge; server: message.tag-server; font-size: root.message-font-size * 0.72; } }
-                if message.bot: Middle { BotTag { } }
-                // Whole on one line: given less, it broke after the date and
-                // showed no time at all.
-                StyledText { text: message.time-styled; link-color: Theme.link; default-color: Theme.muted; default-font-size: root.message-font-size - (ClientStyle.enabled ? 4px : 3px); max-lines: 1; vertical-alignment: center; min-width: self.preferred-width; }
-                Rectangle { horizontal-stretch: 1; }
+                if root.inline-body: MessageBody {
+                    horizontal-stretch: 1;
+                    message: message; message-font-size: root.message-font-size; collapse-long: root.collapse-long;
+                    link-clicked(link) => { root.link-clicked(link); }
+                    fold(item, whole) => { root.fold(item, whole, root.absolute-position.y); }
+                }
+                if !root.inline-body: Rectangle { horizontal-stretch: 1; }
             }
             // As Discord's client marks a forward, above what it carries.
             if message.forwarded: HorizontalLayout {
@@ -3169,60 +3266,12 @@ export component MessageContent inherits VerticalLayout {
                 Image { source: @image-url("icons/forward.svg"); width: 16px; image-fit: contain; colorize: Theme.muted; }
                 Text { text: @tr("Forwarded"); color: Theme.muted; font-size: 14px; font-italic: true; vertical-alignment: center; }
             }
-            // The body, cut off at its folded height while it folds, with
-            // Show more under it. The view keeps the message's top.
             if root.editing: InlineEditor { message-font-size: root.message-font-size; }
-            if message.body != "" && !root.editing: body-fold := VerticalLayout {
-                property <bool> long: root.collapse-long && body.preferred-height > root.line-height * 15;
-                property <bool> folded: self.long && !message.expanded;
-                Rectangle {
-                    height: body-fold.folded ? root.line-height * 12 : body.preferred-height;
-                    clip: body-fold.folded;
-                    body := VerticalLayout {
-                        y: 0px; height: self.preferred-height;
-                        if message.blocks.length == 0: StyledText {
-                            // An overlong word breaks, as in Discord's client, rather than widening the row.
-                            min-width: 0px;
-                            text: message.styled; link-color: Theme.link;
-                            default-color: message.deleted || message.delivery != "" ? Theme.muted : message.notice != "" ? Theme.secondary : Theme.text;
-                            // Discord's large emoji are 48 pixels where text's are 22.
-                            default-font-size: message.jumbo ? root.message-font-size * 2.2 : root.message-font-size;
-                            // A mention's card opens beside the pointer.
-                            link-clicked(link) => { root.link-clicked(link); }
-                            accessible-role: text; accessible-label: @tr("Message from {}: {}", message.author, message.body);
-                        }
-                        if message.blocks.length > 0: Rectangle {
-                            accessible-role: text; accessible-label: @tr("Message from {}: {}", message.author, message.body);
-                            TextBlocks {
-                                blocks: message.blocks; font-size: root.message-font-size;
-                                color: message.deleted || message.delivery != "" ? Theme.muted : Theme.text;
-                                open-link(link) => { root.link-clicked(link); }
-                            }
-                        }
-                    }
-                }
-                // Made only while long messages fold. It's there for a short
-                // body too, empty, as a row that came and went with the
-                // body's length would change the width it's measured at.
-                if root.collapse-long: HorizontalLayout {
-                    alignment: start;
-                    // 3px below the body, as the parts of a message are.
-                    height: body-fold.long ? self.preferred-height + 3px : 0px;
-                    visible: body-fold.long;
-                    Text {
-                        vertical-alignment: bottom;
-                        text: message.expanded ? @tr("Show less") : @tr("Show more");
-                        color: fold-touch.has-hover ? Theme.text : Theme.link;
-                        animate color { duration: Theme.quick; }
-                        font-size: root.message-font-size * 0.875; font-weight: 600;
-                        accessible-role: button; accessible-label: self.text;
-                        accessible-action-default => { root.fold(message.item, !message.expanded, root.absolute-position.y); }
-                        fold-touch := TouchArea {
-                            mouse-cursor: MouseCursor.pointer;
-                            clicked => { root.fold(message.item, !message.expanded, root.absolute-position.y); }
-                        }
-                    }
-                }
+            // The view keeps the message's top while it folds.
+            if message.body != "" && !root.editing && !root.inline-body: MessageBody {
+                message: message; message-font-size: root.message-font-size; collapse-long: root.collapse-long;
+                link-clicked(link) => { root.link-clicked(link); }
+                fold(item, whole) => { root.fold(item, whole, root.absolute-position.y); }
             }
             // An app's answer still to come, as Discord's client words it.
             if message.thinking: Text {

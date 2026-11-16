@@ -1886,6 +1886,55 @@ fn the_renderer_setting_is_remembered() {
 }
 
 #[test]
+fn the_compact_message_display_is_remembered_and_cozy_until_chosen() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let open = || {
+        let window = YapfastWindow::new().unwrap();
+        let adapter = Adapter::new(
+            Arc::new(BackgroundRuntime::new().unwrap()),
+            directory.path().into(),
+            &window,
+        )
+        .unwrap();
+        bind_callbacks(&window, &adapter);
+        (window, adapter)
+    };
+    let (window, _adapter) = open();
+    let style = window.global::<ClientStyle>();
+    let cozy_gap = style.get_message_group_gap();
+    assert!(!window.get_compact_messages() && !style.get_compact_messages());
+    assert!(!Layout::read(directory.path()).compact_messages);
+    // The settings' choice reaches the style the rows read, and tightens the
+    // space between groups, which has no avatar to clear.
+    window.set_compact_messages(true);
+    assert!(style.get_compact_messages());
+    assert!(style.get_message_group_gap() < cozy_gap);
+    window.invoke_preferences_changed();
+    assert!(Layout::read(directory.path()).compact_messages);
+    let (window, _adapter) = open();
+    Layout::read(directory.path()).apply(&window);
+    assert!(
+        window.get_compact_messages(),
+        "compact again at the next start"
+    );
+    // A layout from before the choice existed is cozy.
+    let old: Layout = serde_json::from_str("{}").unwrap();
+    assert!(!old.compact_messages);
+}
+
+#[test]
+fn the_thread_beside_leaves_room_for_the_compact_gutter() {
+    i_slint_backend_testing::init_no_event_loop();
+    let window = YapfastWindow::new().unwrap();
+    let gutter = window.global::<ClientStyle>().get_compact_gutter() as i32;
+    // The start padding, the gutter and its space, and the end padding, as
+    // `MessageContent` lays them out; cozy's gutter is the avatar's 40 pixels.
+    assert_eq!(refresh::aside_gutter(true), 16 + gutter + 8 + 16);
+    assert_eq!(refresh::aside_gutter(false), 16 + 40 + 16 + 16);
+}
+
+#[test]
 fn developer_mode_is_off_until_turned_on_and_remembered() {
     i_slint_backend_testing::init_no_event_loop();
     let directory = tempfile::tempdir().unwrap();

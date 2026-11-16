@@ -1322,6 +1322,10 @@ struct Layout {
     date_format: Option<i32>,
     /// Message text: 0 small, 1 default, 2 large.
     text_size: Option<i32>,
+    /// Messages without avatars, each with its time before it and a group's
+    /// author beside its first line, as Discord's compact display shows them;
+    /// cozy, with avatars, unless chosen.
+    compact_messages: bool,
     /// Link previews under messages; on unless turned off.
     link_previews: Option<bool>,
     /// A gem by each server booster in the member list; on unless turned off.
@@ -1735,6 +1739,7 @@ impl Layout {
         window.set_date_format(self.date_format.unwrap_or(-1));
         self.apply_date_format();
         window.set_text_size(self.text_size.unwrap_or(1).clamp(0, 2));
+        window.set_compact_messages(self.compact_messages);
         window.set_link_previews(self.link_previews.unwrap_or(true));
         window.set_boost_gems(self.boost_gems.unwrap_or(true));
         window.set_reply_ping_default(self.reply_ping.unwrap_or(true));

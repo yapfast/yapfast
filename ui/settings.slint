@@ -1639,6 +1639,8 @@ export component MessageSettings inherits VerticalLayout {
     in-out property <int> date-format: -1;
     /// Message text: 0 small, 1 default, 2 large.
     in-out property <int> text-size;
+    /// Message display: cozy with avatars, or compact.
+    in-out property <bool> compact-messages;
     in-out property <bool> link-previews;
     in-out property <bool> collapse-long;
     in-out property <bool> boost-gems;
@@ -1658,18 +1660,39 @@ export component MessageSettings inherits VerticalLayout {
         border-radius: 8px; border-width: 1px; border-color: Theme.line;
         accessible-role: groupbox; accessible-label: @tr("Preview");
         HorizontalLayout {
-            padding: 16px; spacing: 16px;
-            VerticalLayout { alignment: start; Avatar { initial: "S"; tint: #c0679a; } }
+            padding: 16px; spacing: root.compact-messages ? 8px : 16px;
+            if !root.compact-messages: VerticalLayout { alignment: start; Avatar { initial: "S"; tint: #c0679a; } }
+            if root.compact-messages: Text {
+                width: ClientStyle.compact-gutter; horizontal-alignment: right; vertical-alignment: top;
+                text: (root.twelve-hour-clock ? "9:41" : "21:41") + (root.clock-seconds ? ":05" : "");
+                color: Theme.muted; font-size: 12px; font-weight: 500;
+            }
             VerticalLayout {
                 spacing: 3px; horizontal-stretch: 1;
-                HorizontalLayout {
+                if !root.compact-messages: HorizontalLayout {
                     spacing: 8px;
                     Text { text: "Sam"; color: Theme.text; font-size: root.message-font-size; font-weight: 700; }
                     Text { text: (root.twelve-hour-clock ? "9:41" : "21:41") + (root.clock-seconds ? ":05" : "") + (root.twelve-hour-clock ? " PM" : ""); color: Theme.muted; font-size: root.message-font-size - 3px; vertical-alignment: center; }
                     Rectangle { horizontal-stretch: 1; }
                 }
-                Text { text: @tr("Thinking co-op after nine, if people are up for it."); color: Theme.text; font-size: root.message-font-size; wrap: word-wrap; }
+                if !root.compact-messages: Text { text: @tr("Thinking co-op after nine, if people are up for it."); color: Theme.text; font-size: root.message-font-size; wrap: word-wrap; }
+                // The name starts the text's first line, which goes on under it.
+                if root.compact-messages: HorizontalLayout {
+                    spacing: 8px;
+                    Text { text: "Sam"; color: Theme.text; font-size: root.message-font-size; font-weight: 700; vertical-alignment: top; }
+                    Text { text: @tr("Thinking co-op after nine, if people are up for it."); color: Theme.text; font-size: root.message-font-size; wrap: word-wrap; horizontal-stretch: 1; vertical-alignment: top; }
+                }
             }
+        }
+    }
+    VerticalLayout {
+        spacing: 8px;
+        SettingsHeading { text: @tr("MESSAGE DISPLAY"); }
+        Choices {
+            wrap: true;
+            label: @tr("Message display"); options: [@tr("Cozy"), @tr("Compact")];
+            current: root.compact-messages ? 1 : 0;
+            chosen(index) => { root.compact-messages = index == 1; root.preferences-changed(); }
         }
     }
     VerticalLayout {
