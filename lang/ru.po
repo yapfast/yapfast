@@ -4654,6 +4654,9 @@ msgstr "Упоминать того, кому вы отвечаете"
 msgid "Mentionable"
 msgstr "Можно упоминать"
 
+msgid "MENTIONS"
+msgstr "УПОМИНАНИЯ"
+
 msgid "Mentions"
 msgstr "Упоминания"
 

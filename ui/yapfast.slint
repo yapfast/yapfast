@@ -909,6 +909,7 @@ export component YapfastWindow inherits Window {
         if !self.switcher-open { root.focus-composer(); }
     }
     in property <[PlaceRow]> switcher-places;
+    in property <int> switcher-mentions;
     in-out property <string> switcher-query;
     /// The platform's color emoji font, so reactions do not fall back to outline glyphs.
     in property <string> emoji-font;
@@ -5501,7 +5502,7 @@ export component YapfastWindow inherits Window {
     switcher-motion := PopupMotion { open: root.switcher-open; }
     if switcher-motion.shown: QuickSwitcher {
         motion: switcher-motion.amount;
-        switcher-places: root.switcher-places; switcher-query <=> root.switcher-query;
+        switcher-places: root.switcher-places; switcher-mentions: root.switcher-mentions; switcher-query <=> root.switcher-query;
         switcher-search(query) => { root.switcher-search(query); }
         switch-to(id) => { root.switch-to(id); }
         close-switcher => { root.close-switcher(); }

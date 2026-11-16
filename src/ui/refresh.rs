@@ -3903,10 +3903,11 @@ impl Adapter {
         {
             window.set_switcher_query(query.as_str().into());
         }
+        let (places, mentions) = state.switcher_list();
+        window.set_switcher_mentions(mentions as i32);
         update_model(
             &self.models.switcher_places,
-            state
-                .switcher_places()
+            places
                 .into_iter()
                 .map(|place| match place {
                     Place::Room(room) => PlaceRow {

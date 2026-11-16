@@ -4,8 +4,9 @@
 //! Forward To lists those chosen, and both then list the conversations
 //! opened lately, then those this account uses most as Discord's clients
 //! count it, fifteen at most, without the message's own conversation or the
-//! one open. A search ranks every place by how well its name matches,
-//! raised by how much it's used, and ties by name. A Matrix message's
+//! one open; the quick switcher puts the places with mentions first. A
+//! search ranks every place by how well its name matches, raised by how much
+//! it's used, and ties by name. A Matrix message's
 //! Forward To lists its rooms as the sidebar does, those whose name holds
 //! the search.
 
@@ -18,6 +19,9 @@ use crate::network::Network;
 
 /// The most places listed before a search.
 const LISTED: usize = 15;
+/// The most places with mentions the quick switcher lists first, so the
+/// conversations opened lately keep room among the [`LISTED`].
+const MENTIONED: usize = 10;
 /// The conversations opened lately that are listed, and that are kept.
 const VISITED: usize = 8;
 const VISITED_KEPT: usize = 16;
@@ -297,6 +301,7 @@ impl<'a> Ranking<'a> {
         &self,
         places: impl Iterator<Item = &'b ChatRoom>,
         first: &[&str],
+        limit: usize,
     ) -> Vec<&'b ChatRoom> {
         let places: Vec<&ChatRoom> = places.collect();
         let visited: Vec<&str> = self
@@ -328,7 +333,7 @@ impl<'a> Ranking<'a> {
         listed.sort_by_key(|(at, _)| *at);
         listed
             .into_iter()
-            .take(LISTED)
+            .take(limit)
             .map(|(_, room)| room)
             .collect()
     }
@@ -456,7 +461,7 @@ impl AppState {
             let own = |room: &ChatRoom| {
                 room.id == forwarding.room && !forwarding.chosen.contains(&room.id)
             };
-            return ranking.unsearched(places.filter(|room| !own(room)), &first);
+            return ranking.unsearched(places.filter(|room| !own(room)), &first, LISTED);
         }
         let (only, query) = Only::of(&query, false);
         found(
@@ -466,14 +471,22 @@ impl AppState {
     }
 
     /// Where the quick switcher goes, in the order it lists them: with
-    /// nothing searched for, the conversations opened lately but the one
-    /// open, then those used most; otherwise the conversations and servers
-    /// that match, the best first, up to [`FOUND`]. Conversations this
-    /// account may not read stay out, and so do message requests, as the DM
-    /// list leaves them out.
+    /// nothing searched for, the places with mentions of this account, the
+    /// most mentioned first and [`MENTIONED`] at most, as Discord lists them
+    /// under their own heading; then the conversations opened lately, then
+    /// those used most, [`LISTED`] in all and none of them the one open.
+    /// Otherwise the conversations and servers that match, the best first,
+    /// up to [`FOUND`]. Conversations this account may not read stay out,
+    /// and so do message requests, as the DM list leaves them out.
     pub fn switcher_places(&self) -> Vec<Place<'_>> {
+        self.switcher_list().0
+    }
+
+    /// [`Self::switcher_places`], and how many of its first are the places
+    /// with mentions, which the quick switcher sets apart.
+    pub fn switcher_list(&self) -> (Vec<Place<'_>>, usize) {
         let Some(query) = &self.switcher else {
-            return vec![];
+            return (vec![], 0);
         };
         let places = self.rooms.iter().map(Arc::as_ref).filter(|room| {
             !room.locked && room.category != discord::REQUESTS && room.category != discord::SPAM
@@ -482,12 +495,27 @@ impl AppState {
         let query = query.trim().to_lowercase();
         if query.is_empty() {
             let open = self.selected.as_deref();
-            let places = places.filter(|room| Some(room.id.as_str()) != open);
-            return ranking
-                .unsearched(places, &[])
-                .into_iter()
-                .map(Place::Room)
+            let places: Vec<&ChatRoom> = places
+                .filter(|room| Some(room.id.as_str()) != open)
                 .collect();
+            let mut mentioned: Vec<&ChatRoom> = places
+                .iter()
+                .copied()
+                .filter(|room| room.mentions > 0)
+                .collect();
+            mentioned.sort_by(|a, b| {
+                b.mentions
+                    .cmp(&a.mentions)
+                    .then_with(|| lower(&a.name).cmp(lower(&b.name)))
+            });
+            mentioned.truncate(MENTIONED);
+            let others = places
+                .into_iter()
+                .filter(|room| !mentioned.iter().any(|m| m.id == room.id));
+            let mentions = mentioned.len();
+            let rest = ranking.unsearched(others, &[], LISTED - mentions);
+            let listed = mentioned.into_iter().chain(rest).map(Place::Room);
+            return (listed.collect(), mentions);
         }
         let (only, query) = Only::of(&query, true);
         let rooms = places.map(|room| (ranking.room(room, only, query), Place::Room(room)));
@@ -498,7 +526,7 @@ impl AppState {
             .map(|server| (ranking.server(server, query), Place::Server(server)));
         let mut found = found(rooms.chain(servers), Place::name);
         found.truncate(FOUND);
-        found
+        (found, 0)
     }
 }
 

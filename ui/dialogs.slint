@@ -363,6 +363,9 @@ export component ForwardDialog inherits Rectangle {
 // The arrow keys choose, Enter goes, and clicking outside or Escape closes.
 export component QuickSwitcher inherits Rectangle {
     in property <[PlaceRow]> switcher-places;
+    /// How many of the first places have mentions, and sit under their own
+    /// heading before a search.
+    in property <int> switcher-mentions;
     in-out property <string> switcher-query;
     callback switcher-search(string);
     callback switch-to(string);
@@ -373,12 +376,26 @@ export component QuickSwitcher inherits Rectangle {
     property <int> chosen: 0;
     property <int> current: min(root.chosen, root.switcher-places.length - 1);
     property <length> pitch: 40px;
+    property <length> head: 28px;
+    /// Whether the list has its headings: before a search.
+    property <bool> headed: root.switcher-query == "";
+    /// Whether the row at `index` starts a section.
+    pure function starts(index: int) -> bool {
+        return root.headed && (index == 0 || (root.switcher-mentions > 0 && index == root.switcher-mentions));
+    }
+    /// Where the row at `index` starts in the list, below its headings.
+    pure function row-y(index: int) -> length {
+        return index * root.pitch + (!root.headed ? 0px : (root.switcher-mentions > 0 && index >= root.switcher-mentions ? 2 : 1) * root.head);
+    }
+    /// The top of what the chosen place shows: its heading, if it's the
+    /// first of a section.
+    property <length> top: root.row-y(root.current) - (root.starts(root.current) ? root.head : 0px);
     /// Scrolls the chosen place into view.
     function reveal() {
-        if root.current * root.pitch + list.content-y < 0 {
-            list.content-y = -root.current * root.pitch;
-        } else if (root.current + 1) * root.pitch + list.content-y > list.visible-height {
-            list.content-y = list.visible-height - (root.current + 1) * root.pitch;
+        if root.top + list.content-y < 0 {
+            list.content-y = -root.top;
+        } else if root.row-y(root.current) + root.pitch + list.content-y > list.visible-height {
+            list.content-y = list.visible-height - root.row-y(root.current) - root.pitch;
         }
     }
     background: rgba(0, 0, 0, 0.6 * root.motion);
@@ -427,14 +444,20 @@ export component QuickSwitcher inherits Rectangle {
                         root.switcher-search(text);
                     }
                 }
-                if root.switcher-query == "" && root.switcher-places.length > 0: Text {
-                    text: @tr("PREVIOUS CHANNELS"); color: Theme.muted; font-size: 12px; font-weight: 700;
-                }
                 list := ScrollView {
                     vertical-stretch: 1;
                     VerticalLayout {
                         alignment: start;
-                        for place[index] in root.switcher-places: Rectangle {
+                        for place[index] in root.switcher-places: VerticalLayout {
+                          if root.starts(index): Rectangle {
+                            height: root.head;
+                            Text {
+                                x: 8px; vertical-alignment: center;
+                                text: index == 0 && root.switcher-mentions > 0 ? @tr("MENTIONS") : @tr("PREVIOUS CHANNELS");
+                                color: Theme.muted; font-size: 12px; font-weight: 700;
+                            }
+                          }
+                          Rectangle {
                             height: root.pitch; border-radius: 6px;
                             // The arrow keys move the chosen row at once; only the pointer's fill fades.
                             background: index == root.current ? Theme.active : transparent;
@@ -473,6 +496,7 @@ export component QuickSwitcher inherits Rectangle {
                                     }
                                 }
                             }
+                          }
                         }
                         if root.switcher-places.length == 0 && root.switcher-query != "": HorizontalLayout {
                             padding: 8px;

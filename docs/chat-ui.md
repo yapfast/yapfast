@@ -43,9 +43,13 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   Discord, wherever the focus is, but not over the settings or a dialog;
   Ctrl+K again, Escape or a click outside closes it, and the composer has
   the focus again. A keyboard layout without Latin letters uses the key in
-  K's place. Before a search it lists the last eight conversations opened
-  this session, of either network, then the Discord places this account
-  uses most, fifteen at most and not the one open. A search lists up to 50
+  K's place. Before a search it lists, under "MENTIONS", the places with
+  mentions of this account, the most mentioned first and ten at most; then,
+  under "PREVIOUS CHANNELS", the last eight conversations opened this
+  session, of either network, then the Discord places this account uses
+  most, fifteen in all and not the one open. The window knows how many of
+  the first rows are mentions (`switcher-mentions`); the headings sit in the
+  list and scroll with it, and `reveal()` counts them. A search lists up to 50
   conversations and servers, ranked as Forward To ranks them
   ([Forwarding](discord/messages.md#forwarding)), and those as good by name;
   `@` finds people, `#` text channels, `!` voice channels and `*` servers.

@@ -707,6 +707,73 @@ fn the_quick_switcher_finds_places_as_discords_does() {
 }
 
 #[test]
+fn the_quick_switcher_lists_places_with_mentions_first() {
+    let mut app = connected();
+    let channel = |id: u32, mentions: u64| ChatRoom {
+        id: crate::discord::room_id("10", &id.to_string()),
+        name: format!("c{id:02}"),
+        network: Network::Discord,
+        capabilities: Network::Discord.capabilities(),
+        mentions,
+        ..preview_room("x", "x", false, 3)
+    };
+    // Twelve places with mentions, one of them the open one, a locked one,
+    // and others without.
+    let mut rooms: Vec<ChatRoom> = (11..=22).map(|id| channel(id, id as u64 - 10)).collect();
+    rooms.extend((23..=30).map(|id| channel(id, 0)));
+    rooms.push(ChatRoom {
+        locked: true,
+        ..channel(31, 5)
+    });
+    app.state.rooms = rooms.into_iter().map(Arc::new).collect();
+    app.state.discord_online = true;
+    app.state.selected = Some(crate::discord::room_id("10", "22"));
+    app.state
+        .places_used
+        .visit(&crate::discord::room_id("10", "30"), crate::clock::now_ms());
+    app.dispatch(Action::ToggleSwitcher);
+    let (places, mentions) = app.state.switcher_list();
+    let names: Vec<&str> = places.iter().map(|place| place.name()).collect();
+    // Ten at most, the most mentioned first; not the open one nor the
+    // locked one. The rest of the fifteen are the places opened lately.
+    assert_eq!(mentions, 10);
+    assert_eq!(
+        names[..10],
+        [
+            "c21", "c20", "c19", "c18", "c17", "c16", "c15", "c14", "c13", "c12"
+        ]
+    );
+    assert_eq!(names[10], "c30");
+    assert_eq!(names.len(), 11);
+    // A search lists no section.
+    app.dispatch(Action::SearchSwitcher("c1".into()));
+    assert_eq!(app.state.switcher_list().1, 0);
+    // With fewer, those without mentions follow, and a place isn't listed twice.
+    app.state.rooms = app
+        .state
+        .rooms
+        .iter()
+        .map(|room| {
+            let mentions = if room.name == "c11" || room.name == "c30" {
+                room.mentions.max(1)
+            } else {
+                0
+            };
+            Arc::new(ChatRoom {
+                mentions,
+                ..(**room).clone()
+            })
+        })
+        .collect();
+    app.dispatch(Action::SearchSwitcher(String::new()));
+    let (places, mentions) = app.state.switcher_list();
+    let names: Vec<&str> = places.iter().map(|place| place.name()).collect();
+    assert_eq!(mentions, 2);
+    assert_eq!(names[..2], ["c11", "c30"]);
+    assert_eq!(names.iter().filter(|name| **name == "c30").count(), 1);
+}
+
+#[test]
 fn discord_forwards_list_eight_places_opened_lately_that_can_take_them() {
     let mut app = connected();
     let channel = |id: u32| ChatRoom {
