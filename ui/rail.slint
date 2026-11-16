@@ -1033,7 +1033,7 @@ export component ServerRail inherits Rectangle {
         padding-top: ClientStyle.enabled ? 8px : 12px; padding-bottom: 12px; spacing: 8px;
         RailItem {
             // The app's icon, as Discord puts its logo here.
-            picture: @image-url("../packaging/icon.png");
+            picture: @image-url("icons/anomi-small.png");
             label: @tr("Direct messages") + (root.dms-badge != "" ? @tr(", {} waiting", root.dms-badge) : root.dms-unread ? @tr(", unread") : "");
             tip: @tr("Direct messages");
             selected: root.dms-selected; unread: root.dms-unread; badge: root.dms-badge;

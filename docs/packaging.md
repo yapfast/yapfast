@@ -297,24 +297,21 @@ changes what it serves.
 
 This fork, Anomi, has its owner's pictures, as optimised PNGs:
 
-- `packaging/icon.png`, 256 pixels: the app icon, the picture in its frame
-  with the corners cut away. The window, the desktop entry, the AppImage and
-  the larger sizes of the Windows icon use it, and the window shows it as it
-  is, never coloured by the theme, rounded to its place: the Home tile at the
-  top of the server rail, the sign-in screen and About. Its own black ground
-  reads the same on dark and light themes.
-- `ui/icons/anomi-small.png`, 64 pixels: the picture drawn plainer and
-  brighter to read at 16 to 32 pixels. The tray icon is drawn from it
-  (`src/tray.rs`), with the unread dot cut into its corner, and so are the
-  Windows icon's sizes up to 32.
-- `docs/images/anomi.png`, 320 pixels: the picture without its frame, on a
-  transparent ground, for the README. Small, its dark face sinks into a dark
-  theme, so the window doesn't use it.
+- `packaging/icon.png`, 256 pixels: the app icon, the picture without a
+  frame on a transparent ground, as the owner chose for every place. The
+  window, the desktop entry, the AppImage and the larger sizes of the Windows
+  icon use it, and the window shows it as it is, never coloured by the theme:
+  the Home tile at the top of the server rail, the sign-in screen and About.
+- `ui/icons/anomi-small.png`, 64 pixels: the same picture made brighter, for
+  16 to 32 pixels, where its dark face would sink into a dark panel. The tray
+  icon is drawn from it (`src/tray.rs`), with the unread dot cut into its
+  corner, and so are the Windows icon's sizes up to 32.
+- `docs/images/anomi.png`, 320 pixels: the same picture for the README.
 
 They're drawn from the owner's 1100-pixel originals, which aren't in the
 repository, with ImageMagick's Lanczos filter and libimagequant's palette (as
 pngquant does), which keeps each under half its size with no change the eye
-sees. The binary holds `icon.png` twice, about 39 KB each: once for Rust
+sees. The binary holds `icon.png` twice, about 7 KB each: once for Rust
 (`src/icon.rs`, which `src/desktop_entry.rs` shares) and once for the Slint
 interface, which embeds its own pictures; and `anomi-small.png` once.
 
