@@ -7,6 +7,10 @@ publish = false
 license = "GPL-3.0-or-later"
 description = "No code: scripts/check --matrix selects it with Matrix alone, so Slint and the UI crate resolve as in the build with both networks and compile once"
 
+# These dependencies intentionally enable features without Rust imports.
+[package.metadata.cargo-machete]
+ignored = ["arrayvec", "bitflags", "chrono", "getrandom", "idna", "indexmap", "itertools", "phf_shared", "pulldown-cmark", "serde", "serde_core", "smallvec", "thiserror", "url", "zerocopy"]
+
 [lib]
 doctest = false
 test = false

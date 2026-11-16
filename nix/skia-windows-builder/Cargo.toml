@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 
+# Its build script exports the archive consumed by prepare-windows-skia.py.
+[package.metadata.cargo-machete]
+ignored = ["skia-bindings"]
+
 [workspace]
 
 [dependencies]

@@ -7,6 +7,10 @@ edition = "2024"
 license = "AGPL-3.0-only OR LicenseRef-Element-Commercial"
 publish = false
 
+# Used by the matrix-sdk feature to forward unstable-msc4354 to SDK UI.
+[package.metadata.cargo-machete]
+ignored = ["matrix-sdk-ui"]
+
 [dependencies]
 matrix-rtc-core = { git = "https://github.com/element-hq/matrix-rust-rtc", rev = "5831af899f1e1744c21332613cdc9578a98c604f" }
 matrix-rtc-bridge = { git = "https://github.com/element-hq/matrix-rust-rtc", rev = "5831af899f1e1744c21332613cdc9578a98c604f" }

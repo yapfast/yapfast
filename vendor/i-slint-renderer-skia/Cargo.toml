@@ -108,9 +108,6 @@ version = "1.13.1"
 [dependencies.clru]
 version = "0.6.0"
 
-[dependencies.const-field-offset]
-version = "0.2.1"
-
 [dependencies.glow]
 version = "0.18"
 
@@ -130,24 +127,13 @@ features = [
 ]
 default-features = false
 
-[dependencies.i-slint-core-macros]
-version = "=1.19.0"
-features = ["default"]
-default-features = false
-
 [dependencies.lyon_path]
 version = "1.0"
 default-features = false
 
-[dependencies.pin-weak]
-version = "1"
-
 [dependencies.raw-window-handle]
 version = "0.6"
 features = ["std"]
-
-[dependencies.scoped-tls-hkt]
-version = "0.1"
 
 [dependencies.skia-safe]
 version = "0.157.0"
@@ -156,9 +142,6 @@ features = ["gl"]
 [dependencies.spin_on]
 version = "0.1"
 optional = true
-
-[dependencies.unicode-segmentation]
-version = "1.12.0"
 
 [dependencies.vtable]
 version = "0.5.1"

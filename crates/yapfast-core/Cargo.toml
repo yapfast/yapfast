@@ -16,7 +16,7 @@ default = ["discord"]
 # Matrix: sign-in, encrypted rooms and MatrixRTC voice.
 matrix = ["dep:keyring", "dep:matrix-sdk", "dep:matrix-sdk-ui", "dep:matrix-sdk-crypto", "dep:matrix-rtc-livekit", "dep:matrix-rtc-core", "dep:matrix-rtc-media", "dep:mime", "dep:url"]
 # Discord through the account linked on this device; see docs/discord/README.md.
-discord = ["dep:yapfast-discord", "dep:rand", "dep:base64", "dep:nnnoiseless", "dep:deep_filter", "dep:ndarray", "dep:x264-src", "dep:ffmpeg-src", "dep:thorvg-sys"]
+discord = ["dep:yapfast-discord", "dep:rand", "dep:base64", "dep:nnnoiseless", "dep:df", "dep:ndarray", "dep:x264-src", "dep:ffmpeg-src", "dep:thorvg-sys"]
 # Sample states other crates' tests start from, such as a Discord server
 # whose member menu they check.
 test-fixtures = []
@@ -30,7 +30,7 @@ base64 = { version = "0.22", optional = true }
 # voice's noise suppression. crates.io only has 0.2.5, from before DeepFilterNet
 # 3, so this is the repository's last commit. `default-model` builds the model's
 # weights (MIT/Apache-2.0, 8 MB) into Yapfast.
-deep_filter = { git = "https://github.com/Rikorose/DeepFilterNet", rev = "d375b2d8309e0935d165700c91da9de862a99c31", default-features = false, features = ["tract", "default-model"], optional = true }
+df = { package = "deep_filter", git = "https://github.com/Rikorose/DeepFilterNet", rev = "d375b2d8309e0935d165700c91da9de862a99c31", default-features = false, features = ["tract", "default-model"], optional = true }
 directories.workspace = true
 futures-util.workspace = true
 # Decode received images with bounded dimensions before the UI sees them.
