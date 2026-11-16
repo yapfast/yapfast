@@ -133,7 +133,7 @@ fn a_server_tags_card_shows_its_server_and_goes_there() {
         })
     };
     let _ = app.update(open());
-    assert!(app.tag_card.is_open());
+    assert!(app.win.tag_card.is_open());
     for words in ["UFO", name.as_str(), "Go to Server"] {
         assert!(shows(&app, words), "{words}, before Discord answers");
     }
@@ -152,12 +152,12 @@ fn a_server_tags_card_shows_its_server_and_goes_there() {
     app.client.app.state.tag_server = Some((id.clone(), Err("out of reach".into())));
     assert!(shows(&app, "Unable to load server profile"));
     escape(&mut app);
-    assert!(!app.tag_card.is_open(), "Escape closes the card");
+    assert!(!app.win.tag_card.is_open(), "Escape closes the card");
     let _ = app.update(open());
     interact(&mut app, |ui| {
         ui.click("Go to Server").expect("Go to Server");
     });
-    assert!(!app.tag_card.is_open(), "the card closes");
+    assert!(!app.win.tag_card.is_open(), "the card closes");
     assert_eq!(app.client.state().navigation, Navigation::Server(id));
 }
 
@@ -176,7 +176,7 @@ fn an_activitys_menu_shows_all_activity_or_its_privacy() {
         .expect("Riley in the preview");
     let _ = app.open_card(user, Point::new(500.0, 200.0));
     let rows = |app: &crate::app::App| -> Vec<String> {
-        let menu = app.menu.as_ref().expect("a menu");
+        let menu = app.win.menu.as_ref().expect("a menu");
         menu.rows.iter().map(|row| row.label.to_string()).collect()
     };
     let _ = app.update(Message::Profile(crate::profile::Event::ActivityMenu(false)));
@@ -199,7 +199,7 @@ fn an_activitys_menu_shows_all_activity_or_its_privacy() {
         None,
     );
     assert!(app.client.state().profile.is_none());
-    assert!(app.settings.is_open(), "Game Activity's settings");
+    assert!(app.win.settings.is_open(), "Game Activity's settings");
 }
 
 #[test]
@@ -232,7 +232,11 @@ fn a_profile_without_a_banner_takes_its_avatars_colour() {
     view.profile.avatar = Some("avatar:red".into());
     let _ = app.sync();
     let shown = app.profiles.shown.as_ref().expect("shown");
-    assert_eq!(app.banner_ground(shown), None, "until the avatar comes");
+    assert_eq!(
+        app.ctx().banner_ground(shown),
+        None,
+        "until the avatar comes"
+    );
     let red: Vec<u8> = (0..16).flat_map(|_| [200, 20, 20, 255]).collect();
     app.client.app.state.pictures.insert(
         "avatar:red".into(),
@@ -244,7 +248,7 @@ fn a_profile_without_a_banner_takes_its_avatars_colour() {
         }),
     );
     let shown = app.profiles.shown.as_ref().expect("shown");
-    assert_eq!(app.banner_ground(shown), Some(0xC8_14_14));
+    assert_eq!(app.ctx().banner_ground(shown), Some(0xC8_14_14));
 }
 
 #[test]

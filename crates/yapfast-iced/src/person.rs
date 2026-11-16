@@ -105,7 +105,7 @@ impl App {
         if rows.is_empty() {
             return Task::none();
         }
-        self.menu = Some(Menu {
+        self.win.menu = Some(Menu {
             place: Some(user.to_owned()),
             location,
             ..Menu::new(at, rows).width(crate::menus::FIELD_WIDTH)
@@ -198,8 +198,8 @@ impl App {
             MenuChoice::Mention => {
                 self.client.dispatch(Action::MentionPerson(user));
                 let draft = self.client.state().draft().to_owned();
-                self.draft.reset(&draft);
-                self.draft_known = draft;
+                self.composer.draft.reset(&draft);
+                self.composer.draft_known = draft;
                 return Task::batch([self.sync(), operation::focus(crate::composer::COMPOSER)]);
             }
             MenuChoice::CopyLink => return iced::clipboard::write(network_link(&user)),

@@ -22,7 +22,7 @@ use yapfast_core::{application::Action, chat::NameStyle};
 
 use super::{Event as ProfileEvent, Shown, editor::Event as EditorEvent};
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{self, Kind, action, lights, placed},
     ctx::Cx,
     fonts::{BOLD, SEMIBOLD, name_font},
@@ -470,17 +470,62 @@ pub(super) fn escape(editor: &mut super::editor::Editor) -> bool {
     true
 }
 
-impl App {
+/// The weight a font's tile shows it in: its own face's, or the usual
+/// font's tile weight.
+fn face_weight(font: u8) -> u16 {
+    if family(font).is_some() {
+        looks::weight(font)
+    } else {
+        DEFAULT_WEIGHT
+    }
+}
+
+/// Tiles four to a row, 8 px apart.
+fn grid(tiles: Vec<Element<'_, Message>>) -> Element<'_, Message> {
+    let mut rows = column![].spacing(TILE_GAP);
+    let mut tiles = tiles.into_iter().peekable();
+    while tiles.peek().is_some() {
+        rows = rows.push(row(tiles.by_ref().take(4)).spacing(TILE_GAP));
+    }
+    rows.into()
+}
+
+/// A preset's swatch: its colours across it, or gummy's stripes, as each
+/// of its letters takes one whole.
+fn swatch(key: &str, stripes: bool) -> Background {
+    let mut fill = Linear::new(iced::Degrees(90.0));
+    if stripes {
+        let colours = colours(key);
+        for index in 0..4 {
+            let colour = hex(colours
+                .get(index % colours.len().max(1))
+                .copied()
+                .unwrap_or(0));
+            let from = index as f32 / 4.0;
+            // A stop at the same place would replace the one before.
+            fill = fill
+                .add_stop(if index == 0 { 0.0 } else { from + 0.001 }, colour)
+                .add_stop(from + 0.25, colour);
+        }
+    } else {
+        for (index, colour) in spread(&colours(key)).into_iter().enumerate() {
+            fill = fill.add_stop(index as f32 / 4.0, hex(colour));
+        }
+    }
+    Background::Gradient(fill.into())
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
     /// The window over the editor dimmed by half; a click on the dim
     /// closes it.
-    pub(super) fn name_style_view<'a>(
-        &'a self,
+    pub(super) fn name_style_view(
+        self,
         window: &'a Window,
         shown: &'a Shown,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let width = WIDTH.min(self.window.width - ROOM);
-        let height = HEIGHT.min(self.window.height - ROOM);
+        let theme = self.look.theme;
+        let width = WIDTH.min(self.look.window.width - ROOM);
+        let height = HEIGHT.min(self.look.window.height - ROOM);
         let body = row![
             self.style_choices(window),
             self.style_previews(window, shown, width - CHOICES, height - 1.0 - FOOT),
@@ -514,7 +559,7 @@ impl App {
         .clip(true)
         .style(move |_| rounded(ground, 16).shadow(crate::style::window_shadow()));
         let close = self
-            .look()
+            .look
             .icon_button(Icon::X, "Close", message(Event::Close))
             .size(32.0, 20)
             .below();
@@ -537,8 +582,8 @@ impl App {
     }
 
     /// The choices' column: the fonts, the effects and the colours.
-    fn style_choices<'a>(&'a self, window: &'a Window) -> Element<'a, Message> {
-        let theme = &self.theme;
+    fn style_choices(self, window: &'a Window) -> Element<'a, Message> {
+        let theme = self.look.theme;
         let label =
             |words: &'static str| text(words).size(13).font(SEMIBOLD).color(theme.secondary);
         let faces = FACES.map(|(font, label)| {
@@ -587,13 +632,13 @@ impl App {
 
     /// A font's or an effect's tile: raised, lit under the pointer, the
     /// chosen one in the accent's wash and edge.
-    fn style_tile<'a>(
-        &self,
+    fn style_tile(
+        self,
         face: Element<'a, Message>,
         chosen: bool,
         pressed: Message,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.look.theme;
         let (raised, hover, accent) = (theme.raised, theme.hover, theme.accent);
         button(container(face).center(Length::Fill))
             .padding(0)
@@ -622,8 +667,8 @@ impl App {
     }
 
     /// A name drawn in a style, kept while the window shows it.
-    fn style_name<'a>(
-        &self,
+    fn style_name(
+        self,
         window: &Window,
         font: u8,
         effect: u8,
@@ -631,7 +676,7 @@ impl App {
         name: &str,
         (size, weight): (f32, u16),
     ) -> Element<'a, Message> {
-        let dark = self.theme.dark;
+        let dark = self.look.theme.dark;
         let stamp = (dark, font_system().read().expect("font system").version());
         let mut names = window.names.borrow_mut();
         if names.stamp != Some(stamp) {
@@ -659,8 +704,8 @@ impl App {
     /// The colours: one's own (the eyedropper), or the bar of a gradient's
     /// or prism's handles; then the effect's presets. The pad opens over
     /// the row.
-    fn colour_choices<'a>(&'a self, window: &'a Window) -> Element<'a, Message> {
-        let theme = &self.theme;
+    fn colour_choices(self, window: &'a Window) -> Element<'a, Message> {
+        let theme = self.look.theme;
         let mut line = row![].spacing(8).height(SWATCH);
         if window.bar() {
             line = line.push(self.handle_bar(window));
@@ -669,7 +714,8 @@ impl App {
             let (raised, hover) = (theme.raised, theme.hover);
             line = line.push(
                 button(
-                    self.glyph(Icon::Eyedropper, 16, theme.text)
+                    self.look
+                        .glyph(Icon::Eyedropper, 16, theme.text)
                         .boxed(SWATCH as u32),
                 )
                 .padding(0)
@@ -728,7 +774,7 @@ impl App {
 
     /// One's own gradient or prism: the colours across a bar, a handle on
     /// each, the open one's edge thicker.
-    fn handle_bar<'a>(&self, window: &Window) -> Element<'a, Message> {
+    fn handle_bar(self, window: &Window) -> Element<'a, Message> {
         let codes = window.handles();
         let count = codes.len();
         let colours: Vec<Color> = codes
@@ -783,14 +829,14 @@ impl App {
     /// How it looks, laid out as Discord's, each over the one before: the
     /// profile's card, a message, a member row; the light or dark choice
     /// and the note in the corner.
-    fn style_previews<'a>(
-        &'a self,
+    fn style_previews(
+        self,
         window: &'a Window,
         shown: &'a Shown,
         width: f32,
         height: f32,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.look.theme;
         let profile = shown.look.profile();
         let name = profile.name.as_str();
         let (font, effect, key) = (window.font, window.effect, window.paint.key.as_str());
@@ -938,7 +984,7 @@ impl App {
     }
 
     /// Dark or light, for the message and the member row.
-    fn light_choice<'a>(&self, light: bool) -> Element<'a, Message> {
+    fn light_choice(self, light: bool) -> Element<'a, Message> {
         let mut choice = row![].spacing(4).padding(4);
         for (mode, icon) in [(false, Icon::Moon), (true, Icon::Sun)] {
             let chosen = light == mode;
@@ -948,7 +994,7 @@ impl App {
                 faded(Color::WHITE, 0.65)
             };
             choice = choice.push(
-                button(self.glyph(icon, 16, ink).boxed(32))
+                button(self.look.glyph(icon, 16, ink).boxed(32))
                     .padding(0)
                     .width(32)
                     .height(32)
@@ -986,51 +1032,6 @@ impl App {
             })
             .into()
     }
-}
-
-/// The weight a font's tile shows it in: its own face's, or the usual
-/// font's tile weight.
-fn face_weight(font: u8) -> u16 {
-    if family(font).is_some() {
-        looks::weight(font)
-    } else {
-        DEFAULT_WEIGHT
-    }
-}
-
-/// Tiles four to a row, 8 px apart.
-fn grid(tiles: Vec<Element<'_, Message>>) -> Element<'_, Message> {
-    let mut rows = column![].spacing(TILE_GAP);
-    let mut tiles = tiles.into_iter().peekable();
-    while tiles.peek().is_some() {
-        rows = rows.push(row(tiles.by_ref().take(4)).spacing(TILE_GAP));
-    }
-    rows.into()
-}
-
-/// A preset's swatch: its colours across it, or gummy's stripes, as each
-/// of its letters takes one whole.
-fn swatch(key: &str, stripes: bool) -> Background {
-    let mut fill = Linear::new(iced::Degrees(90.0));
-    if stripes {
-        let colours = colours(key);
-        for index in 0..4 {
-            let colour = hex(colours
-                .get(index % colours.len().max(1))
-                .copied()
-                .unwrap_or(0));
-            let from = index as f32 / 4.0;
-            // A stop at the same place would replace the one before.
-            fill = fill
-                .add_stop(if index == 0 { 0.0 } else { from + 0.001 }, colour)
-                .add_stop(from + 0.25, colour);
-        }
-    } else {
-        for (index, colour) in spread(&colours(key)).into_iter().enumerate() {
-            fill = fill.add_stop(index as f32 / 4.0, hex(colour));
-        }
-    }
-    Background::Gradient(fill.into())
 }
 
 #[cfg(test)]

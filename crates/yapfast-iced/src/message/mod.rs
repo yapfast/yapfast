@@ -68,15 +68,60 @@ const BAR_BUTTON: f32 = 32.0;
 const EPHEMERAL: u64 = 1 << 6;
 
 impl App {
+    /// A message's avatar or author was clicked: the card opens beside the
+    /// avatar, as the Slint client's `beside`.
+    pub fn open_author(&mut self, index: usize) -> iced::Task<Message> {
+        let Some(message) = self.row_message(index) else {
+            return iced::Task::none();
+        };
+        let (lane, _) = self.ctx().lane_place(index);
+        // The avatar's top: moved down under a reply's line.
+        let header = message.reply.is_some() || message.used.is_some();
+        let y = self.ctx().row_body_top(index) + CONTENT_PAD + if header { 24.0 } else { 2.0 };
+        let x = lane.left + (GUTTER - AVATAR) / 2.0;
+        let width = crate::profile::WIDTH;
+        let beside = if x + AVATAR + 8.0 + width <= self.window.width - 8.0 {
+            x + AVATAR + 8.0
+        } else {
+            (x - width - 8.0).max(8.0)
+        };
+        let user = message.sender.clone();
+        self.open_card(user, Point::new(beside, y - 8.0))
+    }
+}
+
+/// What `revealed` holds for a blocked person's message shown.
+pub fn blocked_key(item: &str) -> String {
+    format!("{item}/blocked")
+}
+
+/// What `revealed` holds for a long message shown whole.
+pub fn fold_key(item: &str) -> String {
+    format!("{item}/more")
+}
+
+/// What `revealed` holds for a message's attachment shown past its
+/// spoiler's cover, as the Slint client keeps it.
+pub fn reveal_key(item: &str, index: usize) -> String {
+    format!("{item}/a{index}")
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
     /// Row `index`'s message, beside its gutter.
-    pub fn message_content<'a>(&'a self, index: usize, look: &'a RowLook) -> Element<'a, Message> {
+    pub fn message_content(self, index: usize, look: &'a RowLook) -> Element<'a, Message> {
         let Some(message) = self.row_message(index) else {
             return Space::new().into();
         };
-        if message.blocked && !self.revealed.contains(&blocked_key(&message.item)) {
+        if message.blocked
+            && !self
+                .lanes
+                .timeline
+                .revealed
+                .contains(&blocked_key(&message.item))
+        {
             return self.blocked_row(look);
         }
-        let theme = &self.theme;
+        let theme = self.look.theme;
         let header = message.reply.is_some() || message.used.is_some();
         let mut content = column![].width(Length::Fill);
         if let Some(reply) = &message.reply {
@@ -93,7 +138,7 @@ impl App {
         if message.forwarded {
             content = content.push(
                 row![
-                    self.glyph(Icon::Forward, 16, theme.muted),
+                    self.look.glyph(Icon::Forward, 16, theme.muted),
                     text("Forwarded").size(14).font(ITALIC).color(theme.muted)
                 ]
                 .spacing(4)
@@ -107,7 +152,7 @@ impl App {
         } else {
             theme.text
         };
-        let editing = self.editing.as_deref() == Some(message.item.as_str());
+        let editing = self.composer.editing.as_deref() == Some(message.item.as_str());
         if editing {
             content = content.push(self.inline_edit());
         } else if !look.body.parts.is_empty() && !look.body.plain().is_empty() {
@@ -167,7 +212,11 @@ impl App {
             }
         } else if let Some(hidden) = embed::hidden_card(message) {
             // A bot's card can be the whole message: say it's there.
-            content = content.push(text(hidden).size(self.text_size()).color(self.theme.muted));
+            content = content.push(
+                text(hidden)
+                    .size(self.text_size())
+                    .color(self.look.theme.muted),
+            );
         }
         for (place, card) in message.cards.iter().enumerate() {
             if let Some(bodies) = look.body.cards.get(place) {
@@ -204,7 +253,7 @@ impl App {
         }
         // The spine from the line above down to the avatar, over the
         // gutter's edge and the space after it.
-        let spine = self.glyph(Icon::ReplySpine, SPINE, theme.reply_spine);
+        let spine = self.look.glyph(Icon::ReplySpine, SPINE, theme.reply_spine);
         stack![
             shown,
             placed(spine, (GUTTER - AVATAR) / 2.0 + 19.0, CONTENT_PAD + 11.0)
@@ -215,8 +264,8 @@ impl App {
     /// A message from someone this account blocked, as Discord shows it
     /// until asked: "Blocked user" by a blank face, and "Blocked message."
     /// with Show it.
-    fn blocked_row<'a>(&'a self, look: &RowLook) -> Element<'a, Message> {
-        let theme = &self.theme;
+    fn blocked_row(self, look: &RowLook) -> Element<'a, Message> {
+        let theme = self.look.theme;
         let mut content = column![].width(Length::Fill);
         let mut gutter =
             stack![
@@ -270,14 +319,14 @@ impl App {
     /// What's left of a message: its author's avatar, a notice's icon, the
     /// clock time of a grouped message under the pointer, and the spine
     /// that leads a reply's line to its avatar.
-    fn gutter<'a>(
-        &'a self,
+    fn gutter(
+        self,
         index: usize,
         message: &'a ChatMessage,
         look: &RowLook,
         header: bool,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.look.theme;
         let mut layers =
             stack![
                 Space::new()
@@ -297,14 +346,13 @@ impl App {
                 NoticeKind::PollResult => (Icon::ChartBar, theme.muted),
             };
             layers = layers.push(placed(
-                self.glyph(icon, 16, ink),
+                self.look.glyph(icon, 16, ink),
                 12.0,
                 (self.text_size() * 1.375 - 16.0) / 2.0 + 1.0,
             ));
         } else if look.first {
             let decoration = self
-                .client
-                .state()
+                .state
                 .cosmetics
                 .decoration(message.decoration.as_deref());
             let face = self.face(
@@ -344,8 +392,8 @@ impl App {
 
     /// The quote a reply leads with: its author's avatar and "@name" in
     /// their colour, its text on one line; a click jumps to it.
-    fn reply_line<'a>(&'a self, reply: &'a chat::Reply) -> Element<'a, Message> {
-        let theme = &self.theme;
+    fn reply_line(self, reply: &'a chat::Reply) -> Element<'a, Message> {
+        let theme = self.look.theme;
         let mut line = row![].spacing(6).align_y(Alignment::Center);
         if !reply.author.is_empty() {
             line = line
@@ -390,8 +438,8 @@ impl App {
     }
 
     /// An app's answer's line: "Ann used /ping".
-    fn used_line<'a>(&'a self, used: &'a chat::UsedCommand) -> Element<'a, Message> {
-        let theme = &self.theme;
+    fn used_line(self, used: &'a chat::UsedCommand) -> Element<'a, Message> {
+        let theme = self.look.theme;
         let mut line = row![
             self.face(Face::new(used.avatar.as_deref(), &used.user, HEADER_AVATAR)),
             text(used.user.as_str())
@@ -417,13 +465,13 @@ impl App {
     }
 
     /// Messages' text size, as Messages' settings chose it.
-    pub fn text_size(&self) -> f32 {
+    pub fn text_size(self) -> f32 {
         crate::settings::message_size(self.layout.prefs.text_size)
     }
 
     /// When the message at `index` was sent, on the clock Messages'
     /// settings chose.
-    fn sent_time<'a>(&'a self, index: usize, message: &'a ChatMessage) -> &'a str {
+    fn sent_time(self, index: usize, message: &'a ChatMessage) -> &'a str {
         self.row_look(index)
             .map_or(message.time.as_str(), |look| look.time.as_str())
     }
@@ -431,9 +479,9 @@ impl App {
     /// A message's author line, as the Slint client's with its Discord
     /// look: the name in its style's font (only the font, in a server) and
     /// role colour, the server tag chip, APP for a bot, the time.
-    fn author_line<'a>(&'a self, index: usize, message: &'a ChatMessage) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let cosmetics = self.client.state().cosmetics;
+    fn author_line(self, index: usize, message: &'a ChatMessage) -> Element<'a, Message> {
+        let theme = self.look.theme;
+        let cosmetics = self.state.cosmetics;
         let style = looks::name_look(
             cosmetics.style(message.style.as_deref()),
             &message.author,
@@ -470,13 +518,17 @@ impl App {
         .size(self.text_size(), AUTHOR_LINE)
         .color(color)
         .starts(false)
-        .selection(self.selected(index, 0), self.selecting, theme.selection);
+        .selection(
+            self.selected(index, 0),
+            self.lanes.timeline.selecting,
+            theme.selection,
+        );
         let mut line = row![mouse_area(name).on_press(Message::OpenAuthor(self.row_item(index)))]
             .spacing(8)
             .align_y(Alignment::Center);
         if let Some(tag) = cosmetics.tag(message.tag.as_ref()) {
             let size = self.text_size() * 0.72;
-            let chip = self.ctx().tag_chip(
+            let chip = self.tag_chip(
                 &tag.text,
                 tag.badge.as_deref(),
                 Chip {
@@ -493,7 +545,7 @@ impl App {
             line = line.push(crate::tag_card::opens(chip, tag));
         }
         if message.bot {
-            line = line.push(self.ctx().bot_tag(1.0));
+            line = line.push(self.bot_tag(1.0));
         }
         let time = Piece::new(
             vec![span(self.sent_time(index, message))],
@@ -505,17 +557,21 @@ impl App {
         .item(Some(self.row_item(index)))
         .size(self.text_size() - 4.0, 16.0)
         .color(theme.muted)
-        .selection(self.selected(index, 1), self.selecting, theme.selection);
+        .selection(
+            self.selected(index, 1),
+            self.lanes.timeline.selecting,
+            theme.selection,
+        );
         line.push(time).height(AUTHOR_LINE).into()
     }
 
     /// A body that folds, as the Slint client's when long messages fold:
     /// once it's a few lines past twelve, so Show more never uncovers only
     /// a line or two, it's cut to twelve with Show more under it.
-    fn folding<'a>(&'a self, index: usize, body: Element<'a, Message>) -> Element<'a, Message> {
+    fn folding(self, index: usize, body: Element<'a, Message>) -> Element<'a, Message> {
         let item = self.row_item(index);
-        let whole = self.revealed.contains(&fold_key(&item));
-        let theme = &self.theme;
+        let whole = self.lanes.timeline.revealed.contains(&fold_key(&item));
+        let theme = self.look.theme;
         let more = button(
             text(if whole { "Show less" } else { "Show more" })
                 .size(self.text_size() * 0.875)
@@ -536,8 +592,8 @@ impl App {
     /// The thread a message started, as the Slint client's `ThreadChip`:
     /// its name, how many messages it has and whether it's archived, and a
     /// click that opens it beside the channel.
-    fn thread_chip<'a>(&'a self, thread: &'a chat::ThreadLink) -> Element<'a, Message> {
-        let theme = &self.theme;
+    fn thread_chip(self, thread: &'a chat::ThreadLink) -> Element<'a, Message> {
+        let theme = self.look.theme;
         let count = match thread.messages {
             None => None,
             Some(0) => Some("No messages yet".to_owned()),
@@ -564,9 +620,9 @@ impl App {
             words = words.push(text(detail).size(14).color(theme.link));
         }
         let face = row![
-            self.glyph(Icon::Thread, 18, theme.muted),
+            self.look.glyph(Icon::Thread, 18, theme.muted),
             container(words).width(Length::Fill),
-            self.glyph(Icon::ChevronRight, 16, theme.muted),
+            self.look.glyph(Icon::ChevronRight, 16, theme.muted),
         ]
         .spacing(10)
         .align_y(Alignment::Center);
@@ -585,9 +641,9 @@ impl App {
     /// How a message of one's own is going, under it, as the Slint
     /// client's: "Sending..." with Cancel while its files go, "Not sent
     /// yet" while the connection is down, or "Not sent" with Retry.
-    fn delivery_line(&self, message: &ChatMessage) -> Option<Element<'_, Message>> {
+    fn delivery_line(self, message: &ChatMessage) -> Option<Element<'a, Message>> {
         use crate::composer::Event;
-        let theme = &self.theme;
+        let theme = self.look.theme;
         let (words, retry, cancel) = match message.delivery {
             chat::Delivery::Sent => return None,
             chat::Delivery::Sending if message.attachments.is_empty() => return None,
@@ -637,9 +693,9 @@ impl App {
     }
 
     /// As Discord's client marks an answer only this account sees.
-    fn ephemeral_line(&self, message: &ChatMessage) -> Element<'_, Message> {
-        let theme = &self.theme;
-        let preview = self.client.state().preview;
+    fn ephemeral_line(self, message: &ChatMessage) -> Element<'a, Message> {
+        let theme = self.look.theme;
+        let preview = self.state.preview;
         let dismiss = button(text("Dismiss message").size(12))
             .padding(0)
             .on_press_maybe(
@@ -651,7 +707,7 @@ impl App {
                 theme.text,
             ));
         row![
-            self.glyph(Icon::Eye, 16, theme.muted),
+            self.look.glyph(Icon::Eye, 16, theme.muted),
             text("Only you can see this ·").size(12).color(theme.muted),
             dismiss,
         ]
@@ -662,45 +718,8 @@ impl App {
 
     /// The room row `row`'s content has across: its timeline's width but
     /// the gutter and the room kept for its actions.
-    pub fn content_width_of(&self, row: usize) -> f32 {
+    pub fn content_width_of(self, row: usize) -> f32 {
         let (lane, _) = self.lane_place(row);
         (lane.width - GUTTER - END_PAD).max(0.0)
     }
-
-    /// A message's avatar or author was clicked: the card opens beside the
-    /// avatar, as the Slint client's `beside`.
-    pub fn open_author(&mut self, index: usize) -> iced::Task<Message> {
-        let Some(message) = self.row_message(index) else {
-            return iced::Task::none();
-        };
-        let (lane, _) = self.lane_place(index);
-        // The avatar's top: moved down under a reply's line.
-        let header = message.reply.is_some() || message.used.is_some();
-        let y = self.row_body_top(index) + CONTENT_PAD + if header { 24.0 } else { 2.0 };
-        let x = lane.left + (GUTTER - AVATAR) / 2.0;
-        let width = crate::profile::WIDTH;
-        let beside = if x + AVATAR + 8.0 + width <= self.window.width - 8.0 {
-            x + AVATAR + 8.0
-        } else {
-            (x - width - 8.0).max(8.0)
-        };
-        let user = message.sender.clone();
-        self.open_card(user, Point::new(beside, y - 8.0))
-    }
-}
-
-/// What `revealed` holds for a blocked person's message shown.
-pub fn blocked_key(item: &str) -> String {
-    format!("{item}/blocked")
-}
-
-/// What `revealed` holds for a long message shown whole.
-pub fn fold_key(item: &str) -> String {
-    format!("{item}/more")
-}
-
-/// What `revealed` holds for a message's attachment shown past its
-/// spoiler's cover, as the Slint client keeps it.
-pub fn reveal_key(item: &str, index: usize) -> String {
-    format!("{item}/a{index}")
 }

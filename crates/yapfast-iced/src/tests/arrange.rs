@@ -45,7 +45,8 @@ fn arranging() -> (App, tempfile::TempDir) {
 }
 
 fn place(app: &App, room: &str) -> usize {
-    app.side_places
+    app.sidebar
+        .places
         .ids
         .iter()
         .position(|id| id == room)
@@ -56,7 +57,7 @@ fn place(app: &App, room: &str) -> usize {
 fn a_channel_clicked_opens_and_pressed_and_moved_is_dragged() {
     let (mut app, _folder) = arranging();
     assert_eq!(
-        app.side_places.ids,
+        app.sidebar.places.ids,
         [
             "discord:10:4",
             "discord:10:11",
@@ -91,7 +92,7 @@ fn a_channel_clicked_opens_and_pressed_and_moved_is_dragged() {
         });
     };
     press(&mut app, 3.0, true);
-    assert!(app.arranging.is_none());
+    assert!(app.sidebar.arranging.is_none());
     assert_eq!(
         app.client.state().selected.as_deref(),
         Some("discord:10:11")
@@ -101,12 +102,12 @@ fn a_channel_clicked_opens_and_pressed_and_moved_is_dragged() {
     let _ = app.sync();
     // Moved 5 px, it's dragged instead.
     press(&mut app, 5.0, false);
-    let dragged = app.arranging.as_ref().expect("dragging #general");
+    let dragged = app.sidebar.arranging.as_ref().expect("dragging #general");
     assert_eq!(dragged.dragged, place(&app, "discord:10:11"));
     // Let go where it was, it stays, and nothing opens.
     let selected = app.client.state().selected.clone();
     let _ = app.arrange_event(Event::Drop);
-    assert!(app.arranging.is_none());
+    assert!(app.sidebar.arranging.is_none());
     assert_eq!(app.client.state().selected, selected);
 }
 
@@ -115,14 +116,18 @@ fn a_channel_dropped_into_a_category_asks_to_take_its_permissions() {
     let (mut app, _folder) = arranging();
     let (general, later) = (place(&app, "discord:10:11"), place(&app, "discord:10:5"));
     let _ = app.update(Message::Arrange(Event::Start(general, 10.0)));
-    assert!(app.arranging.is_some());
+    assert!(app.sidebar.arranging.is_some());
     assert!(
-        app.arrange_dimmed(None, true),
+        app.sidebar.arrange_dimmed(None, true),
         "the Lounge dims under a text channel"
     );
-    assert!(!app.arrange_dimmed(None, false));
+    assert!(!app.sidebar.arrange_dimmed(None, false));
     let _ = app.update(Message::Arrange(Event::Over(later, true)));
-    assert_eq!(app.drop_line(Some(later)), Some(true), "below Later");
+    assert_eq!(
+        app.sidebar.drop_line(Some(later)),
+        Some(true),
+        "below Later"
+    );
     let _ = app.update(Message::Arrange(Event::Drop));
     let asked = app.client.state().move_sync.as_ref().expect("asked");
     assert_eq!(
@@ -146,13 +151,14 @@ fn without_manage_channels_nothing_drags() {
         .dispatch(Action::Navigate(Navigation::Server(SERVER.into())));
     let _ = app.sync();
     let general = app
-        .side_places
+        .sidebar
+        .places
         .ids
         .iter()
         .position(|id| id == "discord:10:11")
         .expect("#general has a place");
     let _ = app.update(Message::Arrange(Event::Start(general, 10.0)));
-    assert!(app.arranging.is_none());
+    assert!(app.sidebar.arranging.is_none());
 }
 
 /// The server of the core's members fixture open, Alice in `roles`; Dave
@@ -184,7 +190,8 @@ fn someone_dragged_onto_another_voice_channel_moves_as_move_to_does() {
     // Alice is Staff, who may move members.
     let (mut app, _folder) = voice_server(&["30"]);
     let targets = |app: &App| -> Option<Vec<String>> {
-        app.moving_person
+        app.sidebar
+            .moving_person
             .as_ref()
             .map(|moving| moving.targets.iter().cloned().collect())
     };
@@ -209,14 +216,15 @@ fn someone_dragged_onto_another_voice_channel_moves_as_move_to_does() {
         })]);
     });
     assert_eq!(targets(&app), Some(vec![DEN.to_owned()]));
-    assert!(!app.arrange_dimmed(Some(DEN), true));
+    assert!(!app.sidebar.arrange_dimmed(Some(DEN), true));
     assert!(
-        app.arrange_dimmed(Some(LOUNGE), true) && app.arrange_dimmed(Some("discord:10:11"), false)
+        app.sidebar.arrange_dimmed(Some(LOUNGE), true)
+            && app.sidebar.arrange_dimmed(Some("discord:10:11"), false)
     );
     assert!(shows(&app, "Dave"), "he follows the pointer");
     // Let go on a channel he can't go to, nothing is sent.
     drop_on(&mut app, "discord:10:11");
-    assert!(app.moving_person.is_none());
+    assert!(app.sidebar.moving_person.is_none());
     assert!(app.client.state().notice.is_none());
     // Escape stops it.
     let take = |app: &mut App, user: &str| {
@@ -224,7 +232,7 @@ fn someone_dragged_onto_another_voice_channel_moves_as_move_to_does() {
     };
     take(&mut app, "4");
     let _ = app.update(Message::Arrange(Event::Cancel));
-    assert!(app.moving_person.is_none());
+    assert!(app.sidebar.moving_person.is_none());
     // Let go beside the list, over Den, nothing moves either.
     take(&mut app, "4");
     let _ = app.update(Message::Arrange(Event::At(Point::new(900.0, 300.0))));
@@ -234,16 +242,16 @@ fn someone_dragged_onto_another_voice_channel_moves_as_move_to_does() {
     // Dropped on Den, the move goes out, as from his menu; here, with no
     // Discord connection, it fails.
     take(&mut app, "4");
-    assert!(!app.move_aimed(DEN), "not over it yet");
+    assert!(!app.sidebar.move_aimed(DEN), "not over it yet");
     drop_on(&mut app, DEN);
-    assert!(app.moving_person.is_none());
+    assert!(app.sidebar.moving_person.is_none());
     assert!(app.client.state().notice.is_some());
     // Another list showing, with nowhere to drop him, stops it.
     take(&mut app, "4");
     app.client
         .dispatch(Action::Navigate(Navigation::DirectMessages));
     let _ = app.sync();
-    assert!(app.moving_person.is_none());
+    assert!(app.sidebar.moving_person.is_none());
     app.client
         .dispatch(Action::Navigate(Navigation::Server(SERVER.into())));
     let _ = app.sync();
@@ -260,5 +268,5 @@ fn someone_dragged_onto_another_voice_channel_moves_as_move_to_does() {
     // Without Move Members, Dave stays put.
     let (mut app, _folder) = voice_server(&["20"]);
     take(&mut app, "4");
-    assert!(app.moving_person.is_none());
+    assert!(app.sidebar.moving_person.is_none());
 }

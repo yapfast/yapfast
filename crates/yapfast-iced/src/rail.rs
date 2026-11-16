@@ -30,6 +30,35 @@ use crate::{
     widgets::{Pic, Rows},
 };
 
+/// The server rail: its DM home, its rows and its viewport.
+pub struct Rail {
+    pub home: Home,
+    pub items: Vec<RailItem>,
+    pub scroll: crate::sync::Scroll,
+}
+
+/// The rail, down the window's left edge.
+pub fn view<'a>(rail: &'a Rail, cx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
+    View { s: rail, cx }.rail_view()
+}
+
+/// The rail's view: its rows and the view context.
+#[derive(Clone, Copy)]
+struct View<'a> {
+    s: &'a Rail,
+    cx: crate::ctx::Ctx<'a>,
+}
+
+impl Rail {
+    pub fn new(height: f32) -> Self {
+        Self {
+            home: Home::default(),
+            items: Vec::new(),
+            scroll: crate::sync::Scroll::new(height),
+        }
+    }
+}
+
 pub const WIDTH: f32 = 72.0;
 /// A server's tile, a folder's, and the gap after each, as Discord's.
 pub const TILE: f32 = 40.0;
@@ -342,7 +371,7 @@ impl App {
     pub fn rail_event(&mut self, event: Event) -> Task<Message> {
         match event {
             Event::Scrolled(viewport) => {
-                self.rail_scroll = Scroll::of(viewport);
+                self.rail.scroll = Scroll::of(viewport);
                 return self.ask();
             }
             Event::Point(id, entered) => {
@@ -365,7 +394,7 @@ impl App {
                     "open_folders",
                     &self.layout.open_folders,
                 );
-                self.rail = rail(self.client.state(), &self.layout.open_folders);
+                self.rail.items = rail(self.client.state(), &self.layout.open_folders);
                 return self.ask();
             }
             Event::Dm(id) => self.client.dispatch(Action::Open(id)),
@@ -373,19 +402,22 @@ impl App {
         }
         self.sync()
     }
+}
 
-    pub fn rail_view(&self) -> Element<'_, Message> {
-        let theme = &self.theme;
-        let viewport = self.rail_scroll;
+impl<'a> View<'a> {
+    pub fn rail_view(self) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let viewport = self.s.scroll;
         let mut top = 0.0;
         let mut rows = Rows::new(
-            self.rail
+            self.s
+                .items
                 .iter()
                 .enumerate()
                 .map(|(i, item)| item.height(i))
                 .sum(),
         );
-        for (index, item) in self.rail.iter().enumerate() {
+        for (index, item) in self.s.items.iter().enumerate() {
             let height = item.height(index);
             let at = top;
             top += height;
@@ -410,7 +442,7 @@ impl App {
         let mut items = column![self.home_tile(), line, list]
             .spacing(GAP)
             .width(WIDTH);
-        let state = self.client.state();
+        let state = self.cx.state;
         if state.discord_online || state.preview {
             items = items.push(self.action_tile(
                 "+",
@@ -429,9 +461,9 @@ impl App {
     }
 
     /// The DM home: the app's logo, as Discord puts its own there.
-    fn home_tile(&self) -> Element<'_, Message> {
-        let home = &self.rail_home;
-        let pointed = self.pointed.rail.as_deref() == Some("");
+    fn home_tile(self) -> Element<'a, Message> {
+        let home = &self.s.home;
+        let pointed = self.cx.pointed.rail.as_deref() == Some("");
         let face = self.glyph_tile(Icon::Logo, home.selected || pointed);
         let marks = Marks {
             selected: home.selected,
@@ -455,14 +487,16 @@ impl App {
 
     /// A tile with one of the icons on the raised ground, in the accent;
     /// lit, on the accent.
-    fn glyph_tile(&self, icon: Icon, lit: bool) -> Element<'_, Message> {
-        let theme = &self.theme;
+    fn glyph_tile(self, icon: Icon, lit: bool) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         let (ground, ink) = if lit {
             (theme.accent, theme.on_accent)
         } else {
             (theme.raised, theme.accent)
         };
-        self.glyph(icon, 24, ink)
+        self.cx
+            .look
+            .glyph(icon, 24, ink)
             .boxed(TILE)
             .style(move |_| rounded(ground, RADIUS))
             .into()
@@ -471,13 +505,13 @@ impl App {
     /// A tile at the rail's foot that does something rather than open a
     /// place.
     fn action_tile(
-        &self,
+        self,
         id: &'static str,
         icon: Icon,
         tip: &'static str,
         message: Message,
-    ) -> Element<'_, Message> {
-        let pointed = self.pointed.rail.as_deref() == Some(id);
+    ) -> Element<'a, Message> {
+        let pointed = self.cx.pointed.rail.as_deref() == Some(id);
         let face = self.glyph_tile(icon, pointed);
         let marks = Marks {
             pointed,
@@ -490,14 +524,14 @@ impl App {
 
     /// A server's or a DM's face: its picture, else its initials on the
     /// raised ground (the accent while lit); faded while out of reach.
-    fn server_face(&self, item: &RailItem, lit: bool) -> Element<'_, Message> {
-        let theme = &self.theme;
+    fn server_face(self, item: &RailItem, lit: bool) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         let side = TILE as u32;
         let opacity = if item.unavailable { 0.5 } else { 1.0 };
         if let Some(picture) = item
             .icon
             .as_deref()
-            .and_then(|url| self.picture(url, side, side, true))
+            .and_then(|url| self.cx.picture(url, side, side, true))
         {
             return Pic::square(picture, TILE)
                 .radius(RADIUS)
@@ -522,34 +556,39 @@ impl App {
     /// A closed folder's face: its colour, with its first four servers'
     /// icons in a square; open, the folder's own icon in its colour.
     fn folder_face(
-        &self,
+        self,
         open: bool,
         tint: u32,
         preview: &[(String, Option<String>)],
         pointed: bool,
-    ) -> Element<'_, Message> {
+    ) -> Element<'a, Message> {
         let tint = hex(tint);
         if open {
-            return self.glyph(Icon::Folder, 24, tint).boxed(FOLDER).into();
+            return self
+                .cx
+                .look
+                .glyph(Icon::Folder, 24, tint)
+                .boxed(FOLDER)
+                .into();
         }
         const SMALL: f32 = 19.0;
         const STEP: f32 = 21.0;
-        let raised = self.theme.raised;
+        let raised = self.cx.look.theme.raised;
         let mut faces = stack![];
         for (index, (initial, icon)) in preview.iter().enumerate() {
             // Each one's outer corner is round, as the folder's.
             let mut radius = [4.0; 4];
             radius[[0, 1, 3, 2][index]] = 13.0;
-            let face: Element<'_, Message> = match icon
+            let face: Element<'a, Message> = match icon
                 .as_deref()
-                .and_then(|url| self.picture(url, SMALL as u32, SMALL as u32, true))
+                .and_then(|url| self.cx.picture(url, SMALL as u32, SMALL as u32, true))
             {
                 Some(picture) => Pic::square(picture, SMALL).radius_each(radius).into(),
                 None => container(
                     text(initial.clone())
                         .size(8)
                         .font(BOLD)
-                        .color(self.theme.text),
+                        .color(self.cx.look.theme.text),
                 )
                 .center(SMALL)
                 .style(move |_| rounded(raised, corners(radius)))
@@ -572,18 +611,17 @@ impl App {
             .into()
     }
 
-    fn rail_row<'a>(
-        &'a self,
-        index: usize,
-        item: &'a RailItem,
-        height: f32,
-    ) -> Element<'a, Message> {
-        let pointed = self.pointed.rail.as_deref() == Some(item.id.as_str());
+    fn rail_row(self, index: usize, item: &'a RailItem, height: f32) -> Element<'a, Message> {
+        let pointed = self.cx.pointed.rail.as_deref() == Some(item.id.as_str());
         if item.kind == Kind::Divider {
             return if index == 0 {
                 Space::new().into()
             } else {
-                controls::placed(bar(self.theme.outline, 32, 1), (WIDTH - 32.0) / 2.0, ABOVE)
+                controls::placed(
+                    bar(self.cx.look.theme.outline, 32, 1),
+                    (WIDTH - 32.0) / 2.0,
+                    ABOVE,
+                )
             };
         }
         let lit = item.selected || pointed;
@@ -658,16 +696,16 @@ impl App {
     /// A tile of `side` in its cell across the rail, `above` px under the
     /// cell's top: the pill at the rail's edge, the tile under the pointer's
     /// watch, its badge and speaker, its tooltip.
-    fn tile_cell<'a>(
-        &'a self,
+    fn tile_cell(
+        self,
         id: String,
         tip: &'a str,
         face: Element<'a, Message>,
         (side, above): (f32, f32),
-        marks: Marks<'_>,
+        marks: Marks<'a>,
         message: Message,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let left = (WIDTH - side) / 2.0;
         let pill = if marks.open_folder {
             0.0
@@ -722,16 +760,16 @@ impl App {
     /// A call going on: a white speaker on green, on a ring of the rail's
     /// colour, with a dark copy a pixel lower as its shadow, which the light
     /// green needs at this size.
-    fn call_bubble(&self) -> Element<'_, Message> {
-        let theme = &self.theme;
+    fn call_bubble(self) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         let (rail, live) = (theme.rail, theme.live);
         let shadow = Color {
             a: 0.45,
             ..Color::BLACK
         };
         let speaker = stack![
-            controls::placed(self.glyph(Icon::Speaker, 12, shadow), 0.0, 1.0),
-            self.glyph(Icon::Speaker, 12, Color::WHITE),
+            controls::placed(self.cx.look.glyph(Icon::Speaker, 12, shadow), 0.0, 1.0),
+            self.cx.look.glyph(Icon::Speaker, 12, Color::WHITE),
         ];
         container(
             container(speaker)

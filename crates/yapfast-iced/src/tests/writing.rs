@@ -90,7 +90,11 @@ fn escape_in_the_composer_cancels_a_reply_and_keeps_the_draft() {
         app.client.state().compose().is_none(),
         "Escape cancels the reply"
     );
-    assert_eq!(app.draft.text(), "on my way", "and keeps the draft");
+    assert_eq!(
+        app.composer.draft.text(),
+        "on my way",
+        "and keeps the draft"
+    );
 }
 
 #[test]
@@ -100,17 +104,21 @@ fn up_in_an_empty_composer_edits_ones_last_message_in_its_row() {
         ui.click(Id::new(COMPOSER)).expect("the composer");
         ui.tap_key(keyboard::Key::Named(key::Named::ArrowUp));
     });
-    let item = app.editing.clone().expect("an edit started");
+    let item = app.composer.editing.clone().expect("an edit started");
     let own = app.client.state().message(&item).expect("the message");
     assert!(own.own, "the last of this account's own");
     let before = own.body.clone();
-    assert_eq!(app.edit.text(), before, "the edit starts with its text");
+    assert_eq!(
+        app.composer.edit.text(),
+        before,
+        "the edit starts with its text"
+    );
     // Escape cancels it, and the text stays.
     interact(&mut app, |ui| {
         ui.click(Id::new(EDIT)).expect("the edit's field");
         ui.tap_key(keyboard::Key::Named(key::Named::Escape));
     });
-    assert!(app.editing.is_none());
+    assert!(app.composer.editing.is_none());
     // Again, and Enter saves what was added at its end.
     interact(&mut app, |ui| {
         ui.click(Id::new(COMPOSER)).expect("the composer");
@@ -123,7 +131,7 @@ fn up_in_an_empty_composer_edits_ones_last_message_in_its_row() {
         ui.typewrite(" Now?");
         ui.tap_key(keyboard::Key::Named(key::Named::Enter));
     });
-    assert!(app.editing.is_none(), "Enter saves and ends it");
+    assert!(app.composer.editing.is_none(), "Enter saves and ends it");
     let saved = app.client.state().message(&item).expect("the message");
     assert_eq!(saved.body, format!("{before} Now?"));
 }
@@ -135,18 +143,21 @@ fn a_colon_word_suggests_emoji_and_enter_takes_the_first() {
         ui.click(Id::new(COMPOSER)).expect("the composer");
         ui.typewrite("nice :thumbsu");
     });
-    assert!(!app.suggest.emoji.is_empty(), "emoji are suggested");
+    assert!(
+        !app.composer.suggest.emoji.is_empty(),
+        "emoji are suggested"
+    );
     interact(&mut app, |ui| {
         ui.click(Id::new(COMPOSER)).expect("the composer");
         ui.tap_key(keyboard::Key::Named(key::Named::End));
         ui.tap_key(keyboard::Key::Named(key::Named::Enter));
     });
     assert!(
-        app.draft.text().starts_with("nice 👍"),
+        app.composer.draft.text().starts_with("nice 👍"),
         "the emoji took the word's place: {:?}",
-        app.draft.text()
+        app.composer.draft.text()
     );
-    assert!(app.suggest.emoji.is_empty(), "and the list closed");
+    assert!(app.composer.suggest.emoji.is_empty(), "and the list closed");
 }
 
 #[test]
@@ -157,12 +168,13 @@ fn up_on_the_first_suggestion_goes_round_to_the_last() {
         ui.typewrite("nice :smil");
     });
     let last = app
+        .composer
         .suggest
         .emoji
         .last()
         .expect("emoji are suggested")
         .clone();
-    assert!(app.suggest.emoji.len() > 1, "more than one");
+    assert!(app.composer.suggest.emoji.len() > 1, "more than one");
     interact(&mut app, |ui| {
         ui.click(Id::new(COMPOSER)).expect("the composer");
         ui.tap_key(keyboard::Key::Named(key::Named::End));
@@ -170,12 +182,12 @@ fn up_on_the_first_suggestion_goes_round_to_the_last() {
         ui.tap_key(keyboard::Key::Named(key::Named::Enter));
     });
     assert!(
-        app.draft.text().starts_with(&format!(
+        app.composer.draft.text().starts_with(&format!(
             "nice {}",
             yapfast_core::emoji::composer_text(&last.key)
         )),
         "the last took the word's place: {:?}",
-        app.draft.text()
+        app.composer.draft.text()
     );
 }
 
@@ -183,7 +195,7 @@ fn up_on_the_first_suggestion_goes_round_to_the_last() {
 fn the_emoji_pickers_search_puts_its_first_match_in_the_composer() {
     let (mut app, _folder) = preview();
     let _ = app.update(Message::OpenPicker(Target::Composer, Tab::Emoji));
-    assert!(app.picker.is_open());
+    assert!(app.win.picker.is_open());
     interact(&mut app, |ui| {
         ui.click(Id::new(FIELD)).expect("the picker's search");
         ui.typewrite("grinning face");
@@ -192,8 +204,12 @@ fn the_emoji_pickers_search_puts_its_first_match_in_the_composer() {
         ui.click(Id::new(FIELD)).expect("the picker's search");
         ui.tap_key(keyboard::Key::Named(key::Named::Enter));
     });
-    assert!(app.picker.get().is_none(), "picking closes the picker");
-    assert!(app.draft.text().contains('😀'), "{:?}", app.draft.text());
+    assert!(app.win.picker.get().is_none(), "picking closes the picker");
+    assert!(
+        app.composer.draft.text().contains('😀'),
+        "{:?}",
+        app.composer.draft.text()
+    );
 }
 
 #[test]
@@ -226,7 +242,7 @@ fn alt_up_steps_into_the_messages_and_r_replies_to_the_one_stepped_on() {
         ui.click(Id::new(COMPOSER)).expect("the composer");
         chord(ui, key::Named::ArrowUp, keyboard::Modifiers::ALT);
     });
-    let newest = app.messages.last().expect("messages").item.clone();
+    let newest = app.timeline.messages.last().expect("messages").item.clone();
     assert_eq!(
         app.keyed.as_ref(),
         Some(&newest),
@@ -280,7 +296,7 @@ fn typing_with_nothing_focused_goes_to_the_composer() {
     window_chord(&mut app, letter("x"), keyboard::Modifiers::CTRL);
     window_key(&mut app, keyboard::Key::Named(key::Named::ArrowDown));
     window_key(&mut app, keyboard::Key::Named(key::Named::Enter));
-    assert_eq!(app.draft.text(), "Hello");
+    assert_eq!(app.composer.draft.text(), "Hello");
     assert!(
         app.client
             .state()
@@ -294,9 +310,9 @@ fn typing_with_nothing_focused_goes_to_the_composer() {
     window_key(&mut app, letter("w"));
     window_key(&mut app, keyboard::Key::Named(key::Named::Backspace));
     window_key(&mut app, letter("Y"));
-    assert_eq!(app.draft.text(), "Hello Y");
+    assert_eq!(app.composer.draft.text(), "Hello Y");
     assert_eq!(app.client.state().draft(), "Hello Y");
-    assert_eq!(app.draft.caret(), "Hello Y".len());
+    assert_eq!(app.composer.draft.caret(), "Hello Y".len());
 }
 
 #[test]
@@ -309,10 +325,10 @@ fn stepping_through_the_messages_only_letters_and_digits_leave_them() {
     assert!(app.keyed.is_some());
     window_key(&mut app, keyboard::Key::Character("?".into()));
     assert!(app.keyed.is_some(), "a sign stays");
-    assert_eq!(app.draft.text(), "");
+    assert_eq!(app.composer.draft.text(), "");
     window_key(&mut app, keyboard::Key::Character("x".into()));
     assert!(app.keyed.is_none(), "a letter leaves");
-    assert_eq!(app.draft.text(), "x");
+    assert_eq!(app.composer.draft.text(), "x");
 }
 
 #[test]
@@ -345,7 +361,9 @@ fn show_more_under_a_long_message_unfolds_it() {
         ui.click("Show more").expect("Show more");
     });
     assert!(
-        app.revealed.contains(&crate::message::fold_key("long")),
+        app.timeline
+            .revealed
+            .contains(&crate::message::fold_key("long")),
         "unfolded"
     );
     // Laid out again at its whole height, as the rows measure it.
@@ -373,7 +391,7 @@ fn an_at_words_suggestions_follow_the_members_as_they_change() {
             members.push(zoe);
         }
     });
-    assert!(app.suggesting(crate::composer::Writing::Draft));
+    assert!(app.ctx().suggesting(crate::composer::Writing::Draft));
     assert!(shows(&app, "Zoe"), "suggested once she's a member");
 }
 
@@ -408,9 +426,9 @@ fn push_to_talks_own_key_types_nothing_in_a_call_and_the_others_do() {
     press(&mut app, "h", key::Code::KeyH);
     press(&mut app, "v", key::Code::KeyV);
     press(&mut app, "i", key::Code::KeyI);
-    assert_eq!(app.draft.text(), "hi");
+    assert_eq!(app.composer.draft.text(), "hi");
     // Muted, it sends nothing, so it types.
     super::change(&mut app, |state| state.voice.muted = true);
     press(&mut app, "v", key::Code::KeyV);
-    assert_eq!(app.draft.text(), "hiv");
+    assert_eq!(app.composer.draft.text(), "hiv");
 }

@@ -11,7 +11,7 @@ use yapfast_core::{
 };
 
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{Kind, action, lights},
     fonts::SEMIBOLD,
     form,
@@ -27,11 +27,11 @@ pub(super) fn parse_colour(code: &str) -> Option<u32> {
     yapfast_core::application::parse_colour(code).ok().flatten()
 }
 
-impl App {
+impl<'a> crate::ctx::Ctx<'a> {
     /// The banner colour, opened by a click on the banner: its swatch, its
     /// code, Default, and a few to pick from.
-    pub(super) fn banner_colour<'a>(&'a self, core: &'a ProfileEditor) -> Element<'a, Message> {
-        let theme = &self.theme;
+    pub(super) fn banner_colour(self, core: &'a ProfileEditor) -> Element<'a, Message> {
+        let theme = self.look.theme;
         let colour = core.accent();
         let wrong = colour.is_err();
         let swatch_fill = colour.ok().flatten().map_or(theme.raised, hex);
@@ -128,8 +128,8 @@ impl App {
     }
 
     /// A theme colour's handle on its tile, which opens its code.
-    pub(super) fn theme_handle<'a>(
-        &'a self,
+    pub(super) fn theme_handle(
+        self,
         editor: &'a Editor,
         core: &'a ProfileEditor,
         pop: Pop,
@@ -153,7 +153,7 @@ impl App {
             Pop::Top => (ProfileText::ThemeTop, core.theme_top.as_str()),
             _ => (ProfileText::ThemeBottom, core.theme_bottom.as_str()),
         };
-        let theme = &self.theme;
+        let theme = self.look.theme;
         let code = open.then(|| {
             form::colour_card(
                 theme,

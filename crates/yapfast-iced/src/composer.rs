@@ -44,6 +44,25 @@ pub const BUTTON_INSET: f32 = 13.0;
 const HINT: f32 = 22.0;
 
 /// Which field is written in: the room's draft, or a message's edit.
+/// The composer, the edit in its row and the suggestions over them.
+#[derive(Default)]
+pub struct Composer {
+    /// The composer's text and history: the core's draft for the open room.
+    pub draft: crate::field::Draft,
+    /// The draft the core last had, to tell its own changes from ours.
+    pub draft_known: String,
+    /// Whether the composer's field has the keys, which its outline shows.
+    pub focused: bool,
+    /// The message being edited in its row (the core's `edit`), and the
+    /// edit's own field.
+    pub editing: Option<String>,
+    pub edit: crate::field::Draft,
+    /// The suggestions over the field typed in last.
+    pub suggest: crate::suggest::Suggest,
+    /// The composer written in last, the channel's or the thread's.
+    pub writing_last: Writing,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Writing {
     #[default]
@@ -120,10 +139,527 @@ pub fn reply_label(compose: Option<&Compose>) -> Option<(String, bool)> {
 }
 
 impl App {
+    /// The composer box's top in the window, where what opens over it sits.
+    /// The top of the composer's buttons, which stay on its last line:
+    /// the expression picker opens 8 px over them.
+    pub fn composer_buttons_top(&self) -> f32 {
+        self.window.height - self.composer_foot() - BUTTON_INSET - 32.0
+    }
+
+    /// The room under the composer's box: its hint, or the gutter.
+    fn composer_foot(&self) -> f32 {
+        if self.ctx().composer_look().hint.is_empty() {
+            GUTTER
+        } else {
+            HINT
+        }
+    }
+
+    pub fn composer_top(&self) -> f32 {
+        let foot = self.composer_foot();
+        let tray = if self.client.state().staged().is_empty() {
+            0.0
+        } else {
+            crate::uploads::TRAY
+        };
+        self.window.height - foot - self.composer.draft.height().max(HEIGHT) - tray
+    }
+
+    pub fn write_event(&mut self, event: Event) -> Task<Message> {
+        match event {
+            Event::Field(which, event) => self.field_event(which, event),
+            Event::Pasted(which, pasted) => {
+                if pasted.is_some() {
+                    let draft = self.ctx().writing(which);
+                    draft.act(MenuEdit::Paste, pasted);
+                    let (text, caret) = (draft.text(), draft.caret());
+                    self.edited(which, text, caret);
+                }
+                Task::none()
+            }
+            Event::Suggestion(index) => {
+                // The keys go back to the field the suggestion was for: a
+                // side composer's, the form's, the edit's or the channel's.
+                let which = self.composer.suggest.field;
+                self.composer.suggest.set_index(index);
+                Task::batch([
+                    self.choose_suggestion(which),
+                    operation::focus(crate::thread::field_id(which)),
+                ])
+            }
+            Event::CancelReply => {
+                self.client.dispatch(Action::CancelCompose);
+                Task::batch([self.sync(), self.refocus()])
+            }
+            Event::TogglePing => {
+                self.client
+                    .dispatch(Action::ToggleReplyPing { aside: false });
+                Task::batch([self.sync(), self.refocus()])
+            }
+            Event::Answer(accept) => {
+                self.client.dispatch(Action::AnswerRequest(accept));
+                Task::batch([self.sync(), self.refocus()])
+            }
+            Event::Plus => self.plus(),
+            Event::CancelEdit => {
+                self.client.dispatch(Action::CancelEdit);
+                Task::batch([self.sync(), operation::focus(COMPOSER)])
+            }
+            Event::SaveEdit => self.save_edit(),
+            Event::EditEmoji => self.open_picker(Target::Edit, Tab::Emoji),
+            Event::Retry(item) => {
+                self.client.dispatch(Action::Retry(item));
+                self.sync()
+            }
+            Event::CancelSend(item) => {
+                self.client.dispatch(Action::CancelSend(item));
+                self.sync()
+            }
+            Event::Dismiss(item) => {
+                self.client.dispatch(Action::DismissEphemeral(item));
+                self.sync()
+            }
+            Event::Uploads(event) => self.uploads_event(event),
+            Event::CommandOption(index) => Task::batch([self.focus_option(index), self.refocus()]),
+            Event::CommandFile(index) => self.command_file(index),
+            Event::CommandFileChosen(index, value) => {
+                self.client
+                    .dispatch(Action::SetCommandOption { index, value });
+                self.sync()
+            }
+        }
+    }
+
+    /// The keys go back to the field being written in: the edit while one
+    /// is open, else the composer; not while a server's or a channel's
+    /// settings cover it, as after a member's profile from Members.
+    pub fn refocus(&self) -> Task<Message> {
+        // A screen or dialog over the window keeps the keys itself.
+        if self.server_screen.is_open()
+            || self.channel_screen.is_open()
+            || crate::server_dialogs::is_open(self.client.state())
+            || crate::link_dialogs::is_open(self.client.state())
+        {
+            return Task::none();
+        }
+        // The picture viewer keeps them from the fields under it.
+        if self.client.state().viewer.is_some() {
+            return operation::focus(crate::app::NOBODY);
+        }
+        // A popover's field, while it's open.
+        if self.client.state().thread_list().is_some() {
+            return operation::focus(crate::popovers::THREADS_SEARCH);
+        }
+        if self.popover_open() {
+            return operation::focus(crate::popovers::PEOPLE_FIELD);
+        }
+        operation::focus(if self.composer.editing.is_some() {
+            EDIT
+        } else if self.writing_aside() {
+            crate::thread::COMPOSER
+        } else if self.client.state().new_post().is_some() {
+            // A forum has no composer: its New Post's body has the keys.
+            crate::forum::BODY
+        } else {
+            COMPOSER
+        })
+    }
+
+    /// A key nothing took, as the Slint client's `type-into-composer`:
+    /// one that writes goes on the end of the composer written in last
+    /// (the thread beside's or the channel's), which takes the keys, as
+    /// Discord's window sends typing anywhere to its composer; Tab only
+    /// gives it the keys. Not under a card or a popup, nor push to talk's
+    /// own key in a call; stepping through the messages, only letters and
+    /// digits leave them.
+    pub fn type_anywhere(
+        &mut self,
+        key: &keyboard::Key,
+        modifiers: keyboard::Modifiers,
+    ) -> Task<Message> {
+        let typed = field::Typed::of(key, modifiers);
+        let tab = *key == keyboard::Key::Named(keyboard::key::Named::Tab)
+            && !modifiers.command()
+            && !modifiers.alt();
+        if (typed.is_none() && !tab) || self.composer_covered() {
+            return Task::none();
+        }
+        if self.keyed.is_some() {
+            let letters = matches!(&typed, Some(field::Typed::Text(text))
+                if text.chars().all(char::is_alphanumeric));
+            if !letters {
+                return Task::none();
+            }
+            self.leave_messages();
+        }
+        // Holding the key to talk shouldn't also write it, as the Slint
+        // client's: only that key, by where it is, while it sends.
+        let voice = &self.client.state().voice;
+        if self.talk_pressed && voice.active() && !voice.muted {
+            return Task::none();
+        }
+        let (which, field) = if self.writing_aside() {
+            let Some(aside) = &self.aside else {
+                return Task::none();
+            };
+            if !self.client.state().can_write_in(&aside.room) {
+                return Task::none();
+            }
+            (Writing::Aside, crate::thread::COMPOSER)
+        } else {
+            if !self.ctx().composer_look().enabled || self.composer.editing.is_some() {
+                return Task::none();
+            }
+            (Writing::Draft, COMPOSER)
+        };
+        if let Some(typed) = typed {
+            let draft = self.ctx().writing(which);
+            draft.type_at_end(&typed);
+            let (text, caret) = (draft.text(), draft.caret());
+            self.edited(which, text, caret);
+        }
+        operation::focus(field)
+    }
+
+    /// Something over the window that keys typed with nothing focused
+    /// aren't for: a card, a popup, the picker or a full view.
+    fn composer_covered(&self) -> bool {
+        let state = self.client.state();
+        self.profiles.card.is_some()
+            || self.profiles.shown.is_some()
+            || self.cards.server.is_some()
+            || self.cards.expression.is_some()
+            || state.role.is_some()
+            || self.win.picker.is_open()
+            || self.call.popup.is_some()
+            || self.playback.clip_full
+            || self.full_shown()
+            || self.inbox.is_some()
+            || state.select_menu.is_some()
+            || state.forwarding.is_some()
+            || state.viewer.is_some()
+    }
+
+    /// The thread beside the channel's composer was written in last, and
+    /// shows: keys typed anywhere go to it, and Escape cancels its reply.
+    pub fn writing_aside(&self) -> bool {
+        self.composer.writing_last == Writing::Aside && self.aside.is_some() && self.aside_shown()
+    }
+
+    fn field_event(&mut self, which: Writing, event: field::Event) -> Task<Message> {
+        // The keys come back to the composer written in last: the thread's
+        // or the channel's.
+        if matches!(which, Writing::Draft | Writing::Aside) {
+            self.composer.writing_last = which;
+        }
+        match event {
+            field::Event::Edited(text, caret) => {
+                self.edited(which, text, caret);
+                Task::none()
+            }
+            field::Event::Moved(caret) => {
+                let text = self.ctx().writing(which).text();
+                self.caret_moved(which, &text, caret);
+                Task::none()
+            }
+            field::Event::Send => match which {
+                Writing::Draft => self.send(),
+                Writing::Edit => self.save_edit(),
+                Writing::Aside => self.thread_event(crate::thread::Event::Send),
+                Writing::NewThread => self.thread_event(crate::thread::Event::Create),
+                Writing::NewPost => self.forum_event(crate::forum::Event::Create),
+            },
+            field::Event::Step(step) => {
+                let count = self.suggestion_count();
+                self.composer.suggest.step(step, count);
+                Task::none()
+            }
+            field::Event::Choose => self.choose_suggestion(which),
+            field::Event::Escape => {
+                if self.dismiss_suggestions() {
+                    return Task::none();
+                }
+                // Under a server's or a channel's settings, Escape is
+                // theirs: it comes to them as a key.
+                if self.server_screen.is_open() || self.channel_screen.is_open() {
+                    return Task::none();
+                }
+                // Escape in the thread's composer cancels its reply first.
+                if which == Writing::Aside && self.client.state().aside_compose().is_some() {
+                    return self.thread_event(crate::thread::Event::CancelReply);
+                }
+                if matches!(
+                    which,
+                    Writing::Aside | Writing::NewThread | Writing::NewPost
+                ) {
+                    return self.escape();
+                }
+                // Escape in the edit's field ends the edit.
+                if which == Writing::Edit {
+                    self.client.dispatch(Action::CancelEdit);
+                    return Task::batch([self.sync(), operation::focus(COMPOSER)]);
+                }
+                self.escape()
+            }
+            field::Event::Emoji => match which {
+                Writing::Draft => self.open_picker(Target::Composer, Tab::Emoji),
+                Writing::Edit => self.open_picker(Target::Edit, Tab::Emoji),
+                _ => Task::none(),
+            },
+            // Ctrl+G opens the GIFs, as Discord's; again, it closes them.
+            field::Event::Gifs
+                if which == Writing::Draft && self.client.state().can_pick_gifs() =>
+            {
+                self.open_picker(Target::Composer, Tab::Gifs)
+            }
+            field::Event::Gifs => Task::none(),
+            field::Event::Menu(at) => {
+                let row = MenuRow::new;
+                let mut rows = Vec::new();
+                if self.ctx().writing(which).selection().is_some() {
+                    rows.push(row(
+                        MenuAct::Field(which, MenuEdit::Cut),
+                        "Cut",
+                        Icon::Scissors,
+                    ));
+                    rows.push(row(
+                        MenuAct::Field(which, MenuEdit::Copy),
+                        "Copy",
+                        Icon::Copy,
+                    ));
+                }
+                rows.push(row(
+                    MenuAct::Field(which, MenuEdit::Paste),
+                    "Paste",
+                    Icon::Paste,
+                ));
+                rows.push(row(
+                    MenuAct::Field(which, MenuEdit::SelectAll),
+                    "Select All",
+                    Icon::TextSelect,
+                ));
+                self.win.menu = Some(Menu::new(at, rows).width(crate::menus::FIELD_WIDTH));
+                operation::focus(NOBODY)
+            }
+            // Up in an empty composer edits the last message of one's own,
+            // as the Slint client's `edit-last`: the core's rule, which
+            // leaves Up to a command being written.
+            field::Event::UpFromEmpty => {
+                if which != Writing::Draft {
+                    return Task::none();
+                }
+                self.client.dispatch(Action::EditLast);
+                self.take_edit()
+            }
+            field::Event::UpToMessages => self.step_into_messages(),
+            field::Event::Paste => self.paste(which),
+            field::Event::Focus(focused) => {
+                if which == Writing::Draft {
+                    self.composer.focused = focused;
+                }
+                if focused {
+                    self.leave_messages();
+                }
+                Task::none()
+            }
+            field::Event::Tab(back) => self.command_tab(back),
+            field::Event::BackFromEmpty => {
+                if self.close_command(true) {
+                    return self.sync();
+                }
+                Task::none()
+            }
+        }
+    }
+
+    /// Ctrl+V and the menu's Paste: in the composer, files copied in a
+    /// file manager or a picture go with the message, as the Slint client's
+    /// `paste` finds them, and otherwise the text is pasted; the edit's
+    /// field takes text alone.
+    fn paste(&mut self, which: Writing) -> Task<Message> {
+        use crate::uploads::Event as Uploads;
+        if matches!(which, Writing::Draft | Writing::Aside)
+            && (if which == Writing::Aside {
+                self.client.state().aside_can_attach()
+            } else {
+                self.client.state().can_attach()
+            })
+            && let Some(read) = crate::paste_reader()
+        {
+            return Task::perform(
+                async move { tokio::task::spawn_blocking(read).await.ok().flatten() },
+                move |files| {
+                    Message::Write(Event::Uploads(if which == Writing::Aside {
+                        Uploads::ClipboardAside(files)
+                    } else {
+                        Uploads::Clipboard(files)
+                    }))
+                },
+            );
+        }
+        iced::clipboard::read().map(move |text| Message::Write(Event::Pasted(which, text)))
+    }
+
+    /// The + opens Discord's menu where threads or polls can start, and the
+    /// file dialog elsewhere.
+    fn plus(&mut self) -> Task<Message> {
+        let look = self.ctx().composer_look();
+        if !look.plus {
+            return self.attach();
+        }
+        let mut rows = vec![MenuRow {
+            disabled: !look.attach,
+            subtitle: None,
+            check: crate::controls::Check::None,
+            ..MenuRow::new(MenuAct::Upload, "Upload a File", Icon::File)
+        }];
+        if self.client.app.can_start_threads() {
+            rows.push(MenuRow {
+                disabled: false,
+                subtitle: None,
+                check: crate::controls::Check::None,
+                ..MenuRow::new(MenuAct::NewThread, "Create Thread", Icon::Thread)
+            });
+        }
+        if self.client.app.can_create_polls() {
+            rows.push(MenuRow {
+                disabled: false,
+                subtitle: None,
+                check: crate::controls::Check::None,
+                ..MenuRow::new(MenuAct::NewPoll, "Create Poll", Icon::ChartBar)
+            });
+        }
+        let at = iced::Point::new(self.chat_left() + GUTTER + 10.0, self.composer_top() - 8.0);
+        self.win.menu = Some(Menu::new(at, rows).anchor(crate::widgets::Anchor::Bottom));
+        operation::focus(NOBODY)
+    }
+
+    /// Enter: the draft sent. The core empties the draft once the message is
+    /// sent; `sync` follows it.
+    fn send(&mut self) -> Task<Message> {
+        if self.client.state().selected.is_none() {
+            return Task::none();
+        }
+        if let Some(task) = self.command_enter() {
+            return task;
+        }
+        let commanding = self.client.state().command_draft().is_some();
+        if !commanding {
+            self.client
+                .dispatch(Action::SetDraft(self.composer.draft.text()));
+        }
+        // Sending goes to the newest message, as Discord does, so the sent
+        // one shows; from a window of older messages, once the newest have
+        // replaced it.
+        let mut to_end = Task::none();
+        if self.client.state().can_send() {
+            if self.client.state().detached {
+                self.timeline.latest_due = true;
+            } else {
+                to_end = self.go_to_end();
+            }
+        }
+        self.client.dispatch(Action::Send);
+        self.composer.suggest.clear(&mut self.client);
+        Task::batch([to_end, self.sync()])
+    }
+
+    /// A field's menu chose Cut, Copy, Paste or Select All.
+    pub fn field_menu(&mut self, which: Writing, edit: MenuEdit) -> Task<Message> {
+        self.win.menu = None;
+        let focus = operation::focus(crate::thread::field_id(which));
+        if edit == MenuEdit::Paste {
+            return Task::batch([focus, self.paste(which)]);
+        }
+        let draft = self.ctx().writing(which);
+        let copied = draft.act(edit, None);
+        if edit == MenuEdit::Cut {
+            let (text, caret) = (draft.text(), draft.caret());
+            self.edited(which, text, caret);
+        }
+        match copied {
+            Some(copied) => Task::batch([focus, iced::clipboard::write(copied)]),
+            None => focus,
+        }
+    }
+
+    /// A field's text changed: the core's draft or edit follows, as the
+    /// Slint composer's `edited` does, and so do the suggestions. A draft
+    /// changed tells the room this account is typing (the core's).
+    pub fn edited(&mut self, which: Writing, text: String, caret: usize) {
+        self.keep_text(which, text.clone());
+        // The core may have kept something else: the field shows that.
+        let kept = self.ctx().writing(which).text();
+        let caret = if kept == text {
+            caret
+        } else {
+            self.ctx().writing(which).caret()
+        };
+        self.caret_moved(which, &kept, caret);
+    }
+
+    /// The core's draft or edit takes a field's text.
+    fn keep_text(&mut self, which: Writing, text: String) {
+        match which {
+            Writing::Edit => self.client.dispatch(Action::SetEditText(text)),
+            Writing::Draft if self.client.state().selected.is_some() => {
+                self.client.dispatch(Action::SetDraft(text.clone()));
+                self.composer.draft_known = self.client.state().draft().to_owned();
+                // The core took the text as something else, as a command's
+                // name and a space picks it: the field shows what it kept.
+                if self.composer.draft_known != text {
+                    self.composer.draft.reset(&self.composer.draft_known);
+                }
+            }
+            Writing::Draft => {}
+            Writing::Aside => {
+                self.client.dispatch(Action::SetAsideDraft(text));
+                self.drafts.aside_known = self.client.state().aside_draft().to_owned();
+            }
+            Writing::NewThread => {
+                self.client.dispatch(Action::WriteNewThread {
+                    name: None,
+                    body: Some(text.clone()),
+                });
+                self.drafts.first_known = text;
+            }
+            Writing::NewPost => self.forum_body(text),
+        }
+    }
+
+    /// Puts `text` in a field with the caret at `caret`, and in the core's
+    /// draft or edit with it.
+    pub fn replace_text(&mut self, which: Writing, text: String, caret: usize) {
+        self.ctx().writing(which).replace(&text, caret);
+        self.keep_text(which, text);
+    }
+
+    /// An emoji's text goes in at the field's caret, as the Slint client's
+    /// `insert-emoji` puts it.
+    pub fn insert(&mut self, which: Writing, inserted: &str) {
+        let draft = self.ctx().writing(which);
+        let text = draft.text();
+        let at = draft.caret().min(text.len());
+        let text = format!("{}{inserted}{}", &text[..at], &text[at..]);
+        let caret = at + inserted.len();
+        self.replace_text(which, text.clone(), caret);
+        self.caret_moved(which, &text, caret);
+    }
+}
+
+/// A composer button, kept off the box's foot by the Slint client's inset,
+/// so it stays on the last line as the field grows.
+fn lift<'a>(button: Element<'a, Message>) -> Element<'a, Message> {
+    container(button)
+        .padding(Padding::ZERO.bottom(BUTTON_INSET))
+        .into()
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
     /// What the composer shows for the open room, as the Slint client's
     /// `show_composer` works it out.
-    pub fn composer_look(&self) -> Look {
-        let state = self.client.state();
+    pub fn composer_look(self) -> Look {
+        let state = self.state;
         let room = state.selected_room();
         let discord = room.is_some_and(|room| room.network == Network::Discord);
         let enabled = state.room_ready
@@ -179,17 +715,52 @@ impl App {
             hint,
             request,
             attach: state.can_attach(),
-            plus: self.client.app.can_start_threads() || self.client.app.can_create_polls(),
+            plus: self.app.can_start_threads() || self.app.can_create_polls(),
         }
     }
+}
 
-    pub fn composer_view(&self) -> Element<'_, Message> {
+impl<'a> crate::ctx::Ctx<'a> {
+    /// An icon button tinted as the Slint client's `IconButton` with `tint`,
+    /// greyed without a message.
+    pub fn composer_button(
+        self,
+        icon: Icon,
+        label: &'static str,
+        glyph: u32,
+        tint: iced::Color,
+        message: Option<Message>,
+    ) -> Element<'static, Message> {
+        let tint = if message.is_some() {
+            tint
+        } else {
+            faded(tint, 0.45)
+        };
+        let face = self.look.glyph(icon, glyph, tint).boxed(32);
+        let face = button(face)
+            .padding(0)
+            .width(32)
+            .height(32)
+            .on_press_maybe(message)
+            .style(lit_style(None, self.look.theme.wash(0.1), 6.0));
+        tooltip(
+            face,
+            controls::tip(self.look.theme, label),
+            tooltip::Position::Top,
+        )
+        .gap(6)
+        .into()
+    }
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
+    pub fn composer_view(self) -> Element<'a, Message> {
         let look = self.composer_look();
         let mut compose = column![];
         if let Some(title) = &look.request {
             compose = compose.push(self.request_bar(title));
         } else {
-            if let Some((label, ping)) = reply_label(self.client.state().compose()) {
+            if let Some((label, ping)) = reply_label(self.state.compose()) {
                 compose = compose.push(self.reply_bar(label, ping));
             }
             compose = compose.push(if look.locked {
@@ -198,10 +769,10 @@ impl App {
                 self.composer_box(&look)
             });
         }
-        let foot: Element<'_, Message> = if look.hint.is_empty() {
+        let foot: Element<'a, Message> = if look.hint.is_empty() {
             Space::new().height(GUTTER).into()
         } else {
-            container(text(look.hint).size(13).color(self.theme.muted))
+            container(text(look.hint).size(13).color(self.look.theme.muted))
                 .height(HINT)
                 .padding(Padding::ZERO.left(4))
                 .align_y(Alignment::Center)
@@ -213,10 +784,10 @@ impl App {
     }
 
     /// The box with the field and its buttons, and the suggestions over it.
-    fn composer_box(&self, look: &Look) -> Element<'_, Message> {
-        let theme = &self.theme;
-        let header = &self.header;
-        let replying = self.client.state().compose().is_some();
+    fn composer_box(self, look: &Look) -> Element<'a, Message> {
+        let theme = self.look.theme;
+        let header = self.header;
+        let replying = self.state.compose().is_some();
         // Discord's words: `Message @sam` in a DM, `Message #general` in a
         // channel, and a group's or thread's own name as it is.
         let name = &header.name;
@@ -229,10 +800,10 @@ impl App {
                 _ => format!("Message {name}"),
             }
         };
-        let commanding = self.client.state().command_draft().is_some();
+        let commanding = self.state.command_draft().is_some();
         let placeholder = self.command_placeholder().unwrap_or(placeholder);
         let field = Field::new(
-            &self.draft,
+            &self.composer.draft,
             Id::new(COMPOSER),
             placeholder,
             |event| Message::Write(Event::Field(Writing::Draft, event)),
@@ -262,7 +833,6 @@ impl App {
         // the emoji picker alone is open over the composer.
         let shown = self
             .picker
-            .get()
             .filter(|picker| picker.target == Target::Composer)
             .map(|picker| picker.tab);
         let tint = |tab: Tab| {
@@ -290,7 +860,7 @@ impl App {
         // As Discord's: the GIFs, the stickers, then the emoji, in one
         // picker, in a Discord room.
         let mut buttons = row![].spacing(6).align_y(Alignment::End);
-        let state = self.client.state();
+        let state = self.state;
         if state.can_pick_gifs() {
             buttons = buttons.push(lift(self.composer_button(
                 Icon::Gif,
@@ -326,7 +896,7 @@ impl App {
             theme.field
         };
         // Discord's outline: faint, and a notch lighter with the keys.
-        let edge = if self.composer_focused {
+        let edge = if self.composer.focused {
             faded(theme.muted, 0.55)
         } else {
             theme.outline_field
@@ -353,40 +923,9 @@ impl App {
         Popover::new(frame, self.suggestions_view(Writing::Draft), Side::Above).into()
     }
 
-    /// An icon button tinted as the Slint client's `IconButton` with `tint`,
-    /// greyed without a message.
-    pub fn composer_button(
-        &self,
-        icon: Icon,
-        label: &'static str,
-        glyph: u32,
-        tint: iced::Color,
-        message: Option<Message>,
-    ) -> Element<'static, Message> {
-        let tint = if message.is_some() {
-            tint
-        } else {
-            faded(tint, 0.45)
-        };
-        let face = self.glyph(icon, glyph, tint).boxed(32);
-        let face = button(face)
-            .padding(0)
-            .width(32)
-            .height(32)
-            .on_press_maybe(message)
-            .style(lit_style(None, self.theme.wash(0.1), 6.0));
-        tooltip(
-            face,
-            controls::tip(&self.theme, label),
-            tooltip::Position::Top,
-        )
-        .gap(6)
-        .into()
-    }
-
     /// The bar over the field while replying: who to, the mention's toggle,
     /// and the cancel.
-    fn reply_bar(&self, label: String, ping: bool) -> Element<'_, Message> {
+    fn reply_bar(self, label: String, ping: bool) -> Element<'a, Message> {
         self.reply_bar_for(
             label,
             ping,
@@ -398,13 +937,13 @@ impl App {
     /// A reply's bar over a composer: who to, the mention's toggle
     /// (`toggle`) and the cancel (`cancel`).
     pub fn reply_bar_for(
-        &self,
+        self,
         label: String,
         ping: bool,
         toggle: Message,
         cancel: Message,
-    ) -> Element<'_, Message> {
-        let theme = &self.theme;
+    ) -> Element<'a, Message> {
+        let theme = self.look.theme;
         let ground = theme.sidebar;
         let ink = if ping { theme.accent } else { theme.muted };
         let toggle = button(
@@ -425,14 +964,14 @@ impl App {
         .gap(6);
         container(
             row![
-                self.glyph(Icon::Reply, 16, theme.muted),
+                self.look.glyph(Icon::Reply, 16, theme.muted),
                 text(label)
                     .size(14)
                     .color(theme.secondary)
                     .wrapping(text::Wrapping::None)
                     .width(Length::Fill),
                 toggle,
-                self.look()
+                self.look
                     .icon_button(Icon::X, "Cancel reply", cancel)
                     .size(28.0, 16),
             ]
@@ -449,8 +988,8 @@ impl App {
 
     /// Discord's bar in place of the composer where this account may not
     /// write.
-    fn locked_bar(&self) -> Element<'_, Message> {
-        let theme = &self.theme;
+    fn locked_bar(self) -> Element<'a, Message> {
+        let theme = self.look.theme;
         let (ground, edge) = (theme.field, theme.outline_field);
         container(
             text("You do not have permission to send messages in this channel.")
@@ -468,8 +1007,8 @@ impl App {
     }
 
     /// A message request's answer, as the Slint client's `RequestBar`.
-    fn request_bar(&self, title: &str) -> Element<'_, Message> {
-        let theme = &self.theme;
+    fn request_bar(self, title: &str) -> Element<'a, Message> {
+        let theme = self.look.theme;
         let ground = theme.field;
         let words = column![
             text(title.to_owned())
@@ -515,528 +1054,14 @@ impl App {
         .into()
     }
 
-    /// The composer box's top in the window, where what opens over it sits.
-    /// The top of the composer's buttons, which stay on its last line:
-    /// the expression picker opens 8 px over them.
-    pub fn composer_buttons_top(&self) -> f32 {
-        self.window.height - self.composer_foot() - BUTTON_INSET - 32.0
-    }
-
-    /// The room under the composer's box: its hint, or the gutter.
-    fn composer_foot(&self) -> f32 {
-        if self.composer_look().hint.is_empty() {
-            GUTTER
-        } else {
-            HINT
-        }
-    }
-
-    pub fn composer_top(&self) -> f32 {
-        let foot = self.composer_foot();
-        let tray = if self.client.state().staged().is_empty() {
-            0.0
-        } else {
-            crate::uploads::TRAY
-        };
-        self.window.height - foot - self.draft.height().max(HEIGHT) - tray
-    }
-
-    pub fn write_event(&mut self, event: Event) -> Task<Message> {
-        match event {
-            Event::Field(which, event) => self.field_event(which, event),
-            Event::Pasted(which, pasted) => {
-                if pasted.is_some() {
-                    let draft = self.writing(which);
-                    draft.act(MenuEdit::Paste, pasted);
-                    let (text, caret) = (draft.text(), draft.caret());
-                    self.edited(which, text, caret);
-                }
-                Task::none()
-            }
-            Event::Suggestion(index) => {
-                // The keys go back to the field the suggestion was for: a
-                // side composer's, the form's, the edit's or the channel's.
-                let which = self.suggest.field;
-                self.suggest.set_index(index);
-                Task::batch([
-                    self.choose_suggestion(which),
-                    operation::focus(crate::thread::field_id(which)),
-                ])
-            }
-            Event::CancelReply => {
-                self.client.dispatch(Action::CancelCompose);
-                Task::batch([self.sync(), self.refocus()])
-            }
-            Event::TogglePing => {
-                self.client
-                    .dispatch(Action::ToggleReplyPing { aside: false });
-                Task::batch([self.sync(), self.refocus()])
-            }
-            Event::Answer(accept) => {
-                self.client.dispatch(Action::AnswerRequest(accept));
-                Task::batch([self.sync(), self.refocus()])
-            }
-            Event::Plus => self.plus(),
-            Event::CancelEdit => {
-                self.client.dispatch(Action::CancelEdit);
-                Task::batch([self.sync(), operation::focus(COMPOSER)])
-            }
-            Event::SaveEdit => self.save_edit(),
-            Event::EditEmoji => self.open_picker(Target::Edit, Tab::Emoji),
-            Event::Retry(item) => {
-                self.client.dispatch(Action::Retry(item));
-                self.sync()
-            }
-            Event::CancelSend(item) => {
-                self.client.dispatch(Action::CancelSend(item));
-                self.sync()
-            }
-            Event::Dismiss(item) => {
-                self.client.dispatch(Action::DismissEphemeral(item));
-                self.sync()
-            }
-            Event::Uploads(event) => self.uploads_event(event),
-            Event::CommandOption(index) => Task::batch([self.focus_option(index), self.refocus()]),
-            Event::CommandFile(index) => self.command_file(index),
-            Event::CommandFileChosen(index, value) => {
-                self.client
-                    .dispatch(Action::SetCommandOption { index, value });
-                self.sync()
-            }
-        }
-    }
-
     /// The draft's or the edit's text field.
-    pub fn writing(&self, which: Writing) -> &field::Draft {
+    pub fn writing(self, which: Writing) -> &'a field::Draft {
         match which {
-            Writing::Draft => &self.draft,
-            Writing::Edit => &self.edit,
+            Writing::Draft => &self.composer.draft,
+            Writing::Edit => &self.composer.edit,
             Writing::Aside => &self.drafts.aside,
             Writing::NewThread => &self.drafts.first,
             Writing::NewPost => &self.forum_post.body,
         }
     }
-
-    /// The keys go back to the field being written in: the edit while one
-    /// is open, else the composer; not while a server's or a channel's
-    /// settings cover it, as after a member's profile from Members.
-    pub fn refocus(&self) -> Task<Message> {
-        // A screen or dialog over the window keeps the keys itself.
-        if self.server_screen.is_open()
-            || self.channel_screen.is_open()
-            || crate::server_dialogs::is_open(self.client.state())
-            || crate::link_dialogs::is_open(self.client.state())
-        {
-            return Task::none();
-        }
-        // The picture viewer keeps them from the fields under it.
-        if self.client.state().viewer.is_some() {
-            return operation::focus(crate::app::NOBODY);
-        }
-        // A popover's field, while it's open.
-        if self.client.state().thread_list().is_some() {
-            return operation::focus(crate::popovers::THREADS_SEARCH);
-        }
-        if self.popover_open() {
-            return operation::focus(crate::popovers::PEOPLE_FIELD);
-        }
-        operation::focus(if self.editing.is_some() {
-            EDIT
-        } else if self.writing_aside() {
-            crate::thread::COMPOSER
-        } else if self.client.state().new_post().is_some() {
-            // A forum has no composer: its New Post's body has the keys.
-            crate::forum::BODY
-        } else {
-            COMPOSER
-        })
-    }
-
-    /// A key nothing took, as the Slint client's `type-into-composer`:
-    /// one that writes goes on the end of the composer written in last
-    /// (the thread beside's or the channel's), which takes the keys, as
-    /// Discord's window sends typing anywhere to its composer; Tab only
-    /// gives it the keys. Not under a card or a popup, nor push to talk's
-    /// own key in a call; stepping through the messages, only letters and
-    /// digits leave them.
-    pub fn type_anywhere(
-        &mut self,
-        key: &keyboard::Key,
-        modifiers: keyboard::Modifiers,
-    ) -> Task<Message> {
-        let typed = field::Typed::of(key, modifiers);
-        let tab = *key == keyboard::Key::Named(keyboard::key::Named::Tab)
-            && !modifiers.command()
-            && !modifiers.alt();
-        if (typed.is_none() && !tab) || self.composer_covered() {
-            return Task::none();
-        }
-        if self.keyed.is_some() {
-            let letters = matches!(&typed, Some(field::Typed::Text(text))
-                if text.chars().all(char::is_alphanumeric));
-            if !letters {
-                return Task::none();
-            }
-            self.leave_messages();
-        }
-        // Holding the key to talk shouldn't also write it, as the Slint
-        // client's: only that key, by where it is, while it sends.
-        let voice = &self.client.state().voice;
-        if self.talk_pressed && voice.active() && !voice.muted {
-            return Task::none();
-        }
-        let (which, field) = if self.writing_aside() {
-            let Some(aside) = &self.aside else {
-                return Task::none();
-            };
-            if !self.client.state().can_write_in(&aside.room) {
-                return Task::none();
-            }
-            (Writing::Aside, crate::thread::COMPOSER)
-        } else {
-            if !self.composer_look().enabled || self.editing.is_some() {
-                return Task::none();
-            }
-            (Writing::Draft, COMPOSER)
-        };
-        if let Some(typed) = typed {
-            let draft = self.writing(which);
-            draft.type_at_end(&typed);
-            let (text, caret) = (draft.text(), draft.caret());
-            self.edited(which, text, caret);
-        }
-        operation::focus(field)
-    }
-
-    /// Something over the window that keys typed with nothing focused
-    /// aren't for: a card, a popup, the picker or a full view.
-    fn composer_covered(&self) -> bool {
-        let state = self.client.state();
-        self.profiles.card.is_some()
-            || self.profiles.shown.is_some()
-            || self.cards.server.is_some()
-            || self.cards.expression.is_some()
-            || state.role.is_some()
-            || self.picker.is_open()
-            || self.call.popup.is_some()
-            || self.clip_full
-            || self.full_shown()
-            || self.inbox.is_some()
-            || state.select_menu.is_some()
-            || state.forwarding.is_some()
-            || state.viewer.is_some()
-    }
-
-    /// The thread beside the channel's composer was written in last, and
-    /// shows: keys typed anywhere go to it, and Escape cancels its reply.
-    pub fn writing_aside(&self) -> bool {
-        self.writing_last == Writing::Aside && self.aside.is_some() && self.aside_shown()
-    }
-
-    fn field_event(&mut self, which: Writing, event: field::Event) -> Task<Message> {
-        // The keys come back to the composer written in last: the thread's
-        // or the channel's.
-        if matches!(which, Writing::Draft | Writing::Aside) {
-            self.writing_last = which;
-        }
-        match event {
-            field::Event::Edited(text, caret) => {
-                self.edited(which, text, caret);
-                Task::none()
-            }
-            field::Event::Moved(caret) => {
-                let text = self.writing(which).text();
-                self.caret_moved(which, &text, caret);
-                Task::none()
-            }
-            field::Event::Send => match which {
-                Writing::Draft => self.send(),
-                Writing::Edit => self.save_edit(),
-                Writing::Aside => self.thread_event(crate::thread::Event::Send),
-                Writing::NewThread => self.thread_event(crate::thread::Event::Create),
-                Writing::NewPost => self.forum_event(crate::forum::Event::Create),
-            },
-            field::Event::Step(step) => {
-                let count = self.suggestion_count();
-                self.suggest.step(step, count);
-                Task::none()
-            }
-            field::Event::Choose => self.choose_suggestion(which),
-            field::Event::Escape => {
-                if self.dismiss_suggestions() {
-                    return Task::none();
-                }
-                // Under a server's or a channel's settings, Escape is
-                // theirs: it comes to them as a key.
-                if self.server_screen.is_open() || self.channel_screen.is_open() {
-                    return Task::none();
-                }
-                // Escape in the thread's composer cancels its reply first.
-                if which == Writing::Aside && self.client.state().aside_compose().is_some() {
-                    return self.thread_event(crate::thread::Event::CancelReply);
-                }
-                if matches!(
-                    which,
-                    Writing::Aside | Writing::NewThread | Writing::NewPost
-                ) {
-                    return self.escape();
-                }
-                // Escape in the edit's field ends the edit.
-                if which == Writing::Edit {
-                    self.client.dispatch(Action::CancelEdit);
-                    return Task::batch([self.sync(), operation::focus(COMPOSER)]);
-                }
-                self.escape()
-            }
-            field::Event::Emoji => match which {
-                Writing::Draft => self.open_picker(Target::Composer, Tab::Emoji),
-                Writing::Edit => self.open_picker(Target::Edit, Tab::Emoji),
-                _ => Task::none(),
-            },
-            // Ctrl+G opens the GIFs, as Discord's; again, it closes them.
-            field::Event::Gifs
-                if which == Writing::Draft && self.client.state().can_pick_gifs() =>
-            {
-                self.open_picker(Target::Composer, Tab::Gifs)
-            }
-            field::Event::Gifs => Task::none(),
-            field::Event::Menu(at) => {
-                let row = MenuRow::new;
-                let mut rows = Vec::new();
-                if self.writing(which).selection().is_some() {
-                    rows.push(row(
-                        MenuAct::Field(which, MenuEdit::Cut),
-                        "Cut",
-                        Icon::Scissors,
-                    ));
-                    rows.push(row(
-                        MenuAct::Field(which, MenuEdit::Copy),
-                        "Copy",
-                        Icon::Copy,
-                    ));
-                }
-                rows.push(row(
-                    MenuAct::Field(which, MenuEdit::Paste),
-                    "Paste",
-                    Icon::Paste,
-                ));
-                rows.push(row(
-                    MenuAct::Field(which, MenuEdit::SelectAll),
-                    "Select All",
-                    Icon::TextSelect,
-                ));
-                self.menu = Some(Menu::new(at, rows).width(crate::menus::FIELD_WIDTH));
-                operation::focus(NOBODY)
-            }
-            // Up in an empty composer edits the last message of one's own,
-            // as the Slint client's `edit-last`: the core's rule, which
-            // leaves Up to a command being written.
-            field::Event::UpFromEmpty => {
-                if which != Writing::Draft {
-                    return Task::none();
-                }
-                self.client.dispatch(Action::EditLast);
-                self.take_edit()
-            }
-            field::Event::UpToMessages => self.step_into_messages(),
-            field::Event::Paste => self.paste(which),
-            field::Event::Focus(focused) => {
-                if which == Writing::Draft {
-                    self.composer_focused = focused;
-                }
-                if focused {
-                    self.leave_messages();
-                }
-                Task::none()
-            }
-            field::Event::Tab(back) => self.command_tab(back),
-            field::Event::BackFromEmpty => {
-                if self.close_command(true) {
-                    return self.sync();
-                }
-                Task::none()
-            }
-        }
-    }
-
-    /// Ctrl+V and the menu's Paste: in the composer, files copied in a
-    /// file manager or a picture go with the message, as the Slint client's
-    /// `paste` finds them, and otherwise the text is pasted; the edit's
-    /// field takes text alone.
-    fn paste(&mut self, which: Writing) -> Task<Message> {
-        use crate::uploads::Event as Uploads;
-        if matches!(which, Writing::Draft | Writing::Aside)
-            && (if which == Writing::Aside {
-                self.client.state().aside_can_attach()
-            } else {
-                self.client.state().can_attach()
-            })
-            && let Some(read) = crate::paste_reader()
-        {
-            return Task::perform(
-                async move { tokio::task::spawn_blocking(read).await.ok().flatten() },
-                move |files| {
-                    Message::Write(Event::Uploads(if which == Writing::Aside {
-                        Uploads::ClipboardAside(files)
-                    } else {
-                        Uploads::Clipboard(files)
-                    }))
-                },
-            );
-        }
-        iced::clipboard::read().map(move |text| Message::Write(Event::Pasted(which, text)))
-    }
-
-    /// The + opens Discord's menu where threads or polls can start, and the
-    /// file dialog elsewhere.
-    fn plus(&mut self) -> Task<Message> {
-        let look = self.composer_look();
-        if !look.plus {
-            return self.attach();
-        }
-        let mut rows = vec![MenuRow {
-            disabled: !look.attach,
-            subtitle: None,
-            check: crate::controls::Check::None,
-            ..MenuRow::new(MenuAct::Upload, "Upload a File", Icon::File)
-        }];
-        if self.client.app.can_start_threads() {
-            rows.push(MenuRow {
-                disabled: false,
-                subtitle: None,
-                check: crate::controls::Check::None,
-                ..MenuRow::new(MenuAct::NewThread, "Create Thread", Icon::Thread)
-            });
-        }
-        if self.client.app.can_create_polls() {
-            rows.push(MenuRow {
-                disabled: false,
-                subtitle: None,
-                check: crate::controls::Check::None,
-                ..MenuRow::new(MenuAct::NewPoll, "Create Poll", Icon::ChartBar)
-            });
-        }
-        let at = iced::Point::new(self.chat_left() + GUTTER + 10.0, self.composer_top() - 8.0);
-        self.menu = Some(Menu::new(at, rows).anchor(crate::widgets::Anchor::Bottom));
-        operation::focus(NOBODY)
-    }
-
-    /// Enter: the draft sent. The core empties the draft once the message is
-    /// sent; `sync` follows it.
-    fn send(&mut self) -> Task<Message> {
-        if self.client.state().selected.is_none() {
-            return Task::none();
-        }
-        if let Some(task) = self.command_enter() {
-            return task;
-        }
-        let commanding = self.client.state().command_draft().is_some();
-        if !commanding {
-            self.client.dispatch(Action::SetDraft(self.draft.text()));
-        }
-        // Sending goes to the newest message, as Discord does, so the sent
-        // one shows; from a window of older messages, once the newest have
-        // replaced it.
-        let mut to_end = Task::none();
-        if self.client.state().can_send() {
-            if self.client.state().detached {
-                self.latest_due = true;
-            } else {
-                to_end = self.go_to_end();
-            }
-        }
-        self.client.dispatch(Action::Send);
-        self.suggest.clear(&mut self.client);
-        Task::batch([to_end, self.sync()])
-    }
-
-    /// A field's menu chose Cut, Copy, Paste or Select All.
-    pub fn field_menu(&mut self, which: Writing, edit: MenuEdit) -> Task<Message> {
-        self.menu = None;
-        let focus = operation::focus(crate::thread::field_id(which));
-        if edit == MenuEdit::Paste {
-            return Task::batch([focus, self.paste(which)]);
-        }
-        let draft = self.writing(which);
-        let copied = draft.act(edit, None);
-        if edit == MenuEdit::Cut {
-            let (text, caret) = (draft.text(), draft.caret());
-            self.edited(which, text, caret);
-        }
-        match copied {
-            Some(copied) => Task::batch([focus, iced::clipboard::write(copied)]),
-            None => focus,
-        }
-    }
-
-    /// A field's text changed: the core's draft or edit follows, as the
-    /// Slint composer's `edited` does, and so do the suggestions. A draft
-    /// changed tells the room this account is typing (the core's).
-    pub fn edited(&mut self, which: Writing, text: String, caret: usize) {
-        self.keep_text(which, text.clone());
-        // The core may have kept something else: the field shows that.
-        let kept = self.writing(which).text();
-        let caret = if kept == text {
-            caret
-        } else {
-            self.writing(which).caret()
-        };
-        self.caret_moved(which, &kept, caret);
-    }
-
-    /// The core's draft or edit takes a field's text.
-    fn keep_text(&mut self, which: Writing, text: String) {
-        match which {
-            Writing::Edit => self.client.dispatch(Action::SetEditText(text)),
-            Writing::Draft if self.client.state().selected.is_some() => {
-                self.client.dispatch(Action::SetDraft(text.clone()));
-                self.draft_known = self.client.state().draft().to_owned();
-                // The core took the text as something else, as a command's
-                // name and a space picks it: the field shows what it kept.
-                if self.draft_known != text {
-                    self.draft.reset(&self.draft_known);
-                }
-            }
-            Writing::Draft => {}
-            Writing::Aside => {
-                self.client.dispatch(Action::SetAsideDraft(text));
-                self.drafts.aside_known = self.client.state().aside_draft().to_owned();
-            }
-            Writing::NewThread => {
-                self.client.dispatch(Action::WriteNewThread {
-                    name: None,
-                    body: Some(text.clone()),
-                });
-                self.drafts.first_known = text;
-            }
-            Writing::NewPost => self.forum_body(text),
-        }
-    }
-
-    /// Puts `text` in a field with the caret at `caret`, and in the core's
-    /// draft or edit with it.
-    pub fn replace_text(&mut self, which: Writing, text: String, caret: usize) {
-        self.writing(which).replace(&text, caret);
-        self.keep_text(which, text);
-    }
-
-    /// An emoji's text goes in at the field's caret, as the Slint client's
-    /// `insert-emoji` puts it.
-    pub fn insert(&mut self, which: Writing, inserted: &str) {
-        let draft = self.writing(which);
-        let text = draft.text();
-        let at = draft.caret().min(text.len());
-        let text = format!("{}{inserted}{}", &text[..at], &text[at..]);
-        let caret = at + inserted.len();
-        self.replace_text(which, text.clone(), caret);
-        self.caret_moved(which, &text, caret);
-    }
-}
-
-/// A composer button, kept off the box's foot by the Slint client's inset,
-/// so it stays on the last line as the field grows.
-fn lift<'a>(button: Element<'a, Message>) -> Element<'a, Message> {
-    container(button)
-        .padding(Padding::ZERO.bottom(BUTTON_INSET))
-        .into()
 }

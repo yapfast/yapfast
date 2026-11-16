@@ -169,7 +169,8 @@ fn the_effect_worn_shows_on_its_tile() {
     // The tile is the effect's still over a little card, its picture
     // asked for; only an effect the client hasn't fetched says it's on.
     assert!(
-        app.profile_pictures()
+        app.ctx()
+            .profile_pictures()
             .iter()
             .any(|url| url == "effect-still")
     );

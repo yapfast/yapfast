@@ -22,7 +22,7 @@ use crate::{
 impl App {
     /// Alt+Up in the composer: the newest message is the one stepped on.
     pub fn step_into_messages(&mut self) -> Task<Message> {
-        let Some(last) = self.messages.len().checked_sub(1) else {
+        let Some(last) = self.timeline.messages.len().checked_sub(1) else {
             return Task::none();
         };
         Task::batch([operation::focus(NOBODY), self.step_to(last)])
@@ -31,14 +31,15 @@ impl App {
     /// The message stepped on, by its place, while there is one.
     fn keyed_index(&self) -> Option<usize> {
         let item = self.keyed.as_ref()?;
-        self.messages
+        self.timeline
+            .messages
             .iter()
             .position(|message| message.item == *item)
     }
 
     fn step_to(&mut self, index: usize) -> Task<Message> {
-        let index = index.min(self.messages.len().saturating_sub(1));
-        let Some(message) = self.messages.get(index) else {
+        let index = index.min(self.timeline.messages.len().saturating_sub(1));
+        let Some(message) = self.timeline.messages.get(index) else {
             return Task::none();
         };
         self.keyed = Some(message.item.clone());
@@ -64,7 +65,7 @@ impl App {
             Key::Named(named) => Some(*named),
             _ => None,
         };
-        let last = self.messages.len().saturating_sub(1);
+        let last = self.timeline.messages.len().saturating_sub(1);
         let step = match named {
             Some(Named::ArrowUp) => Some(index.saturating_sub(1)),
             Some(Named::ArrowDown) => Some(index + 1),
@@ -81,13 +82,13 @@ impl App {
             self.leave_messages();
             return Some(self.refocus());
         }
-        let message = self.messages.get(index)?.clone();
+        let message = self.timeline.messages.get(index)?.clone();
         if message.deleted || message.delivery != Delivery::default() {
             return None;
         }
         let item = message.item.clone();
-        let at = self.bar_menu_at(index);
-        let writes = self.composer_look().enabled;
+        let at = self.ctx().bar_menu_at(index);
+        let writes = self.ctx().composer_look().enabled;
         let letter = match key.as_ref() {
             Key::Character(text) => text.to_lowercase(),
             _ => String::new(),

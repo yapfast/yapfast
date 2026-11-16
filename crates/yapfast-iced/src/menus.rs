@@ -290,7 +290,7 @@ impl App {
         let row = MenuRow::new;
         let mut rows = Vec::new();
         let state = self.client.state();
-        let writes = self.composer_look().enabled;
+        let writes = self.ctx().composer_look().enabled;
         let sent = message.delivery == yapfast_core::chat::Delivery::default();
         if message.can_react {
             rows.push(row(MenuAct::AddReaction, "Add reaction", Icon::SmilePlus));
@@ -370,7 +370,7 @@ impl App {
         if rows.is_empty() {
             return Task::none();
         }
-        self.menu = Some(Menu {
+        self.win.menu = Some(Menu {
             item: Some(message.item.clone()),
             apps_due,
             reactions: if message.can_react {
@@ -410,13 +410,13 @@ impl App {
     /// rest of the menu (a picture's rows, the light, an open submenu)
     /// stays as it is.
     pub fn menu_apps_sync(&mut self) -> Task<Message> {
-        if !self.menu.as_ref().is_some_and(|menu| menu.apps_due) {
+        if !self.win.menu.as_ref().is_some_and(|menu| menu.apps_due) {
             return Task::none();
         }
         let Some(apps) = self.apps_row() else {
             return Task::none();
         };
-        let Some(menu) = &mut self.menu else {
+        let Some(menu) = &mut self.win.menu else {
             return Task::none();
         };
         // Before Mark Unread, Copy Message Link and what's set apart.
@@ -442,7 +442,7 @@ impl App {
     /// The pointer came onto a row: it's lit, and its submenu opens, or
     /// another's closes.
     pub fn menu_light(&mut self, index: usize) -> Task<Message> {
-        if let Some(menu) = &mut self.menu {
+        if let Some(menu) = &mut self.win.menu {
             menu.lit = Some(index);
             let opens = menu
                 .rows
@@ -460,6 +460,7 @@ impl App {
     pub fn choose(&mut self, index: usize) -> Task<Message> {
         // A greyed row does nothing, and the menu stays.
         let Some(row) = self
+            .win
             .menu
             .as_ref()
             .and_then(|menu| menu.rows.get(index))
@@ -480,7 +481,7 @@ impl App {
                     return self.pick(row, None);
                 }
                 None => {
-                    if let Some(menu) = &mut self.menu {
+                    if let Some(menu) = &mut self.win.menu {
                         menu.sub = Some(index);
                         menu.lit = Some(index);
                     }
@@ -494,6 +495,7 @@ impl App {
     /// A row of the open submenu was chosen.
     pub fn choose_sub(&mut self, index: usize) -> Task<Message> {
         let Some(row) = self
+            .win
             .menu
             .as_ref()
             .and_then(|menu| menu.rows.get(menu.sub?)?.submenu.get(index))
@@ -503,7 +505,7 @@ impl App {
             return Task::none();
         };
         if let crate::controls::Check::Box(ticked) = row.check {
-            if let Some(menu) = &mut self.menu
+            if let Some(menu) = &mut self.win.menu
                 && let Some(sub) = menu.sub
                 && let Some(row) = menu.rows[sub].submenu.get_mut(index)
             {
@@ -518,7 +520,12 @@ impl App {
     /// the menu stays; anything else closes it.
     fn pick(&mut self, row: MenuRow, index: Option<usize>) -> Task<Message> {
         if let (crate::controls::Check::Box(ticked), Some(index)) = (row.check, index) {
-            if let Some(shown) = self.menu.as_mut().and_then(|menu| menu.rows.get_mut(index)) {
+            if let Some(shown) = self
+                .win
+                .menu
+                .as_mut()
+                .and_then(|menu| menu.rows.get_mut(index))
+            {
                 shown.check = crate::controls::Check::Box(!ticked);
             }
             return self.carry_out(&row, Some(!ticked), true);
@@ -530,9 +537,9 @@ impl App {
     /// checkbox's new state, and `stays` keeps the menu open.
     fn carry_out(&mut self, row: &MenuRow, ticked: Option<bool>, stays: bool) -> Task<Message> {
         let Some(menu) = (if stays {
-            self.menu.as_ref().map(Menu::context)
+            self.win.menu.as_ref().map(Menu::context)
         } else {
-            self.menu.take().map(|menu| menu.context())
+            self.win.menu.take().map(|menu| menu.context())
         }) else {
             return Task::none();
         };
@@ -698,7 +705,7 @@ impl App {
     /// Enter or Space chooses it, Right opens its submenu and Left leaves
     /// it, Escape closes the submenu, then the menu.
     pub fn menu_key(&mut self, named: Option<key::Named>) -> Task<Message> {
-        let Some(menu) = &mut self.menu else {
+        let Some(menu) = &mut self.win.menu else {
             return Task::none();
         };
         // In a submenu the keys move through its rows.

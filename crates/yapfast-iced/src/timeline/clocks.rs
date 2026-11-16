@@ -62,9 +62,9 @@ impl Clock {
 impl App {
     /// Whether something on screen shows minutes.
     pub(super) fn minutes_shown(&self) -> bool {
-        self.clocks.calls
-            || self.clocks.polls
-            || (self.members_shown() && !self.activity_cards.is_empty())
+        self.timeline.clocks.calls
+            || self.timeline.clocks.polls
+            || (self.members_shown() && !self.roster.activity_cards.is_empty())
             || self.active_now_minutes()
             || self.popover_playing()
     }
@@ -74,13 +74,13 @@ impl App {
     /// no interval running for nothing.
     pub fn arm_clocks(&mut self) -> Task<Message> {
         let mut tasks = Vec::new();
-        if !self.clocks.minute_armed && self.minutes_shown() {
-            self.clocks.minute_armed = true;
+        if !self.timeline.clocks.minute_armed && self.minutes_shown() {
+            self.timeline.clocks.minute_armed = true;
             self.minute = yapfast_core::clock::now_ms() / 1000 / 60 * 60;
             tasks.push(crate::after(to_next_minute(), Message::Minute));
         }
-        if !self.clocks.day_armed && !self.messages.is_empty() {
-            self.clocks.day_armed = true;
+        if !self.timeline.clocks.day_armed && !self.timeline.messages.is_empty() {
+            self.timeline.clocks.day_armed = true;
             tasks.push(crate::after(to_next_midnight(), Message::Day));
         }
         Task::batch(tasks)
@@ -88,9 +88,9 @@ impl App {
 
     /// The minute turned: the clocks that show it move on.
     pub fn minute_turned(&mut self) -> Task<Message> {
-        self.clocks.minute_armed = false;
+        self.timeline.clocks.minute_armed = false;
         self.minute = yapfast_core::clock::now_ms() / 1000 / 60 * 60;
-        self.clocks.polls = crate::polls::open_poll(&self.messages, self.minute);
+        self.timeline.clocks.polls = crate::polls::open_poll(&self.timeline.messages, self.minute);
         self.make_activity_cards();
         self.arm_clocks()
     }
@@ -99,14 +99,19 @@ impl App {
     /// today's read as yesterday's, as the Slint client restyles its
     /// timeline at midnight. The rows keep their text and heights.
     pub fn day_turned(&mut self) -> Task<Message> {
-        self.clocks.day_armed = false;
+        self.timeline.clocks.day_armed = false;
         let prefs = &self.layout.prefs;
         let clock = Clock {
             twelve_hour: prefs.twelve_hour_clock,
             seconds: prefs.clock_seconds,
         };
         let now = yapfast_core::clock::now_ms() / 1000;
-        for (look, message) in self.looks.iter_mut().zip(self.messages.iter()) {
+        for (look, message) in self
+            .timeline
+            .looks
+            .iter_mut()
+            .zip(self.timeline.messages.iter())
+        {
             look.time = clock.sent(message, now);
         }
         if let Some(aside) = &mut self.aside {

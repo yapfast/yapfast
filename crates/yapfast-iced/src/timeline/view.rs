@@ -12,7 +12,7 @@ use iced::{
 use yapfast_core::chat::ChatMessage;
 
 use crate::{
-    app::{App, Message, key},
+    app::{Message, key},
     controls::bar,
     fonts::{BOLD, MEDIUM, SEMIBOLD},
     pictures::{Face, Icon},
@@ -50,29 +50,32 @@ pub fn unread_label(unread: &[Arc<ChatMessage>], more: bool) -> String {
     }
 }
 
-impl App {
-    pub(crate) fn timeline(&self) -> Element<'_, Message> {
-        if self.messages.is_empty() {
+impl<'a> crate::ctx::Ctx<'a> {
+    pub(crate) fn timeline(self) -> Element<'a, Message> {
+        if self.lanes.timeline.messages.is_empty() {
             return self.conversation_start();
         }
-        let (first, last) = self.in_view(crate::sync::MARGIN);
+        let (first, last) = self.lanes.timeline.in_view(crate::sync::MARGIN);
         // While someone reads earlier ones, the row at the view's top: it
         // and those after it keep their tops as they're measured.
-        let pivot = (!self.at_end).then(|| {
-            let top = self.view_top();
+        let pivot = (!self.lanes.timeline.at_end).then(|| {
+            let top = self.lanes.timeline.view_top();
             (first..last)
-                .position(|index| self.tops[index + 1] > top)
+                .position(|index| self.lanes.timeline.tops[index + 1] > top)
                 .unwrap_or(last - first)
         });
-        let mut rows =
-            Rows::new(self.total_height()).measured(Message::Measured, self.found.clone(), pivot);
+        let mut rows = Rows::new(self.lanes.timeline.total_height()).measured(
+            Message::Measured,
+            self.lanes.timeline.found.clone(),
+            pivot,
+        );
         // A short history is held down, its newest message over the composer.
-        let lead = (self.timeline_height - self.total_height()).max(0.0);
+        let lead = (self.lanes.timeline.height - self.lanes.timeline.total_height()).max(0.0);
         for index in first..last {
             rows.push(
-                key(&self.messages[index].item),
-                self.tops[index],
-                self.heights[index],
+                key(&self.lanes.timeline.messages[index].item),
+                self.lanes.timeline.tops[index],
+                self.lanes.timeline.heights[index],
                 self.timeline_row(index),
             );
         }
@@ -82,7 +85,7 @@ impl App {
             .on_scroll(Message::Timeline)
             .width(Length::Fill)
             .height(Length::Fill)
-            .style(scrollbar(&self.theme));
+            .style(scrollbar(self.look.theme));
         // Its scroll reports build the view again only when they matter.
         let list = Settle::new(list, |message| match message {
             Message::Timeline(viewport) => Some(viewport),
@@ -91,8 +94,12 @@ impl App {
         // A press on no text clears the selection; letting go ends a drag.
         let list = Watch::new(
             list,
-            self.selection.is_some().then_some(Message::SelectClear),
-            self.selecting.then_some(Message::SelectEnd),
+            self.lanes
+                .timeline
+                .selection
+                .is_some()
+                .then_some(Message::SelectClear),
+            self.lanes.timeline.selecting.then_some(Message::SelectEnd),
         );
         let mut layers = stack![list].width(Length::Fill).height(Length::Fill);
         if let Some(typing) = self.typing_view() {
@@ -106,7 +113,7 @@ impl App {
                     .align_x(Alignment::Center),
             );
         }
-        if self.client.state().detached {
+        if self.state.detached {
             layers = layers.push(
                 container(self.present_bar())
                     .width(Length::Fill)
@@ -120,16 +127,16 @@ impl App {
 
     /// One row: the history's edge above the first, a divider above a new
     /// day or the first unread message, then the message on its tint.
-    pub fn timeline_row(&self, index: usize) -> Element<'_, Message> {
+    pub fn timeline_row(self, index: usize) -> Element<'a, Message> {
         let (Some(message), Some(look)) = (self.row_message(index), self.row_look(index)) else {
             return Space::new().into();
         };
-        let theme = &self.theme;
+        let theme = self.look.theme;
         let aside = index >= ASIDE;
         let edge = if aside {
-            index == ASIDE && self.aside.as_ref().is_some_and(|aside| aside.ready)
+            index == ASIDE && self.lanes.aside.is_some_and(|aside| aside.ready)
         } else {
-            index == 0 && self.edge.ready
+            index == 0 && self.lanes.timeline.edge.ready
         };
         let head = edge || look.divided();
         let mut whole = column![].width(Length::Fill);
@@ -148,8 +155,8 @@ impl App {
             ));
         }
         let pointed = self.pointed.message.as_deref() == Some(message.item.as_str());
-        let jumped = self.jump_lit.as_deref() == Some(message.item.as_str());
-        let edited = self.editing.as_deref() == Some(message.item.as_str());
+        let jumped = self.lanes.timeline.jump_lit.as_deref() == Some(message.item.as_str());
+        let edited = self.composer.editing.as_deref() == Some(message.item.as_str());
         let ground = if edited {
             // Discord's edit tint (#29292d on its dark theme).
             Some(crate::theme::mix(theme.active, theme.chat, 0.79))
@@ -203,8 +210,11 @@ impl App {
         }
         // A window of older messages ends with what's after it: newer
         // messages loading, or a way to load them.
-        if !aside && index + 1 == self.messages.len() && self.edge.foot() > 0.0 {
-            let edge = &self.edge;
+        if !aside
+            && index + 1 == self.lanes.timeline.messages.len()
+            && self.lanes.timeline.edge.foot() > 0.0
+        {
+            let edge = &self.lanes.timeline.edge;
             whole = whole.push(
                 container(self.edge_button(
                     edge.loading_later,
@@ -227,8 +237,8 @@ impl App {
 
     /// A new day's date, and the "New" divider in marigold, in the middle
     /// of one line, together when both are here.
-    pub(super) fn divider<'a>(&'a self, look: &'a RowLook) -> Element<'a, Message> {
-        let theme = &self.theme;
+    pub(super) fn divider(self, look: &'a RowLook) -> Element<'a, Message> {
+        let theme = self.look.theme;
         let ink = if look.unread_start {
             theme.accent
         } else {
@@ -275,18 +285,18 @@ impl App {
     /// The history's edge, as the Slint client's `HistoryEdge`: Discord's
     /// welcome at a server channel's start, a line at another's, else the
     /// Earlier messages button, loading or failed.
-    pub(super) fn history_edge(&self) -> Element<'_, Message> {
-        if self.edge.welcome() {
+    pub(super) fn history_edge(self) -> Element<'a, Message> {
+        if self.lanes.timeline.edge.welcome() {
             return self.welcome();
         }
-        self.edge_line(&self.edge, Message::Earlier)
+        self.edge_line(&self.lanes.timeline.edge, Message::Earlier)
     }
 
     /// The history's edge of a timeline whose start has no welcome: where
     /// it starts, or Earlier messages (`earlier`), loading, or failed.
-    pub fn edge_line(&self, edge: &Edge, earlier: Message) -> Element<'_, Message> {
-        let theme = &self.theme;
-        let shown: Element<'_, Message> = if edge.start {
+    pub fn edge_line(self, edge: &Edge, earlier: Message) -> Element<'a, Message> {
+        let theme = self.look.theme;
+        let shown: Element<'a, Message> = if edge.start {
             let words = if edge.direct {
                 format!("This is the beginning of your messages with {}.", edge.name)
             } else if edge.thread {
@@ -314,13 +324,13 @@ impl App {
     /// Earlier messages, or with `newer` Newer messages, as a pill that
     /// loads them (`load`): loading, or failed and offering a retry.
     pub(super) fn edge_button(
-        &self,
+        self,
         loading: bool,
         failed: bool,
         newer: bool,
         load: Message,
-    ) -> Element<'_, Message> {
-        let theme = &self.theme;
+    ) -> Element<'a, Message> {
+        let theme = self.look.theme;
         let which = if newer { "newer" } else { "earlier" };
         let (icon, ink, words) = if loading {
             (
@@ -344,12 +354,12 @@ impl App {
             )
         };
         let face = row![
-            self.glyph(icon, 16, ink),
+            self.look.glyph(icon, 16, ink),
             text(words).size(14).font(MEDIUM).color(theme.secondary)
         ]
         .spacing(6)
         .align_y(Alignment::Center);
-        let enabled = !loading && !self.client.state().preview;
+        let enabled = !loading && !self.state.preview;
         let (rest, lit) = (theme.raised, theme.active);
         button(
             container(face)
@@ -369,9 +379,9 @@ impl App {
 
     /// Discord's welcome: a server's in two lines over its line of text, a
     /// channel's under a hash in a circle.
-    pub(super) fn welcome(&self) -> Element<'_, Message> {
-        let edge = &self.edge;
-        let theme = &self.theme;
+    pub(super) fn welcome(self) -> Element<'a, Message> {
+        let edge = &self.lanes.timeline.edge;
+        let theme = self.look.theme;
         let title = |words: String, weight| {
             text(words)
                 .size(32)
@@ -399,7 +409,7 @@ impl App {
                 let field = theme.field;
                 block = block
                     .push(
-                        container(self.glyph(Icon::Hash, 40, theme.text))
+                        container(self.look.glyph(Icon::Hash, 40, theme.text))
                             .center(68)
                             .style(move |_| rounded(field, 34)),
                     )
@@ -411,17 +421,17 @@ impl App {
         block
             .push(Space::new().height(8))
             .push(note.color(theme.secondary).height(20))
-            .height(self.edge.height())
+            .height(self.lanes.timeline.edge.height())
             .into()
     }
 
     /// An empty conversation's opening, as the Slint client's
     /// `ConversationStart`.
-    pub(super) fn conversation_start(&self) -> Element<'_, Message> {
-        let edge = &self.edge;
-        let theme = &self.theme;
+    pub(super) fn conversation_start(self) -> Element<'a, Message> {
+        let edge = &self.lanes.timeline.edge;
+        let theme = self.look.theme;
         let mut start = column![].spacing(8).padding(24).width(Length::Fill);
-        if self.client.state().selected.is_some() && edge.ready {
+        if self.state.selected.is_some() && edge.ready {
             if edge.direct {
                 start = start.push(self.face(Face::new(
                     self.header.avatar.as_deref(),
@@ -432,7 +442,7 @@ impl App {
                 let raised = theme.raised;
                 let icon = self.header.icon.unwrap_or(Icon::Hash);
                 start = start.push(
-                    container(self.glyph(icon, 36, theme.text))
+                    container(self.look.glyph(icon, 36, theme.text))
                         .center(68)
                         .style(move |_| rounded(raised, 34)),
                 );
@@ -468,21 +478,24 @@ impl App {
 
     /// While the "New" divider is out of view, until the newest message is
     /// read, a bar that jumps to it, saying how much is new.
-    pub(super) fn unread_bar(&self) -> Option<Element<'_, Message>> {
-        let state = self.client.state();
+    pub(super) fn unread_bar(self) -> Option<Element<'a, Message>> {
+        let state = self.state;
         if state.caught_up {
             return None;
         }
-        let index = self.unread_index()?;
-        let view_top = (self.total_height() - self.timeline_height - self.from_end).max(0.0);
-        let view_bottom = view_top + self.timeline_height;
-        let top = self.tops[index];
+        let index = self.lanes.timeline.unread_index(self.state)?;
+        let view_top = (self.lanes.timeline.total_height()
+            - self.lanes.timeline.height
+            - self.lanes.timeline.from_end)
+            .max(0.0);
+        let view_bottom = view_top + self.lanes.timeline.height;
+        let top = self.lanes.timeline.tops[index];
         let above = top < view_top - 20.0;
         if !above && top <= view_bottom {
             return None;
         }
-        let theme = &self.theme;
-        let label = unread_label(&self.messages[index..], state.detached);
+        let theme = self.look.theme;
+        let label = unread_label(&self.lanes.timeline.messages[index..], state.detached);
         let chevron = if above {
             Icon::ChevronUp
         } else {
@@ -490,7 +503,7 @@ impl App {
         };
         let face = row![
             text(label).size(14).font(BOLD).color(theme.on_accent),
-            self.glyph(chevron, 16, theme.on_accent)
+            self.look.glyph(chevron, 16, theme.on_accent)
         ]
         .spacing(8)
         .align_y(Alignment::Center);
@@ -517,8 +530,8 @@ impl App {
     }
 
     /// A window of older messages says so over its end, with the way back.
-    pub(super) fn present_bar(&self) -> Element<'_, Message> {
-        let theme = &self.theme;
+    pub(super) fn present_bar(self) -> Element<'a, Message> {
+        let theme = self.look.theme;
         let face = row![
             text("You're viewing older messages")
                 .size(14)
@@ -529,7 +542,7 @@ impl App {
                 .size(14)
                 .font(BOLD)
                 .color(theme.accent),
-            self.glyph(Icon::ChevronDown, 16, theme.accent),
+            self.look.glyph(Icon::ChevronDown, 16, theme.accent),
         ]
         .spacing(8)
         .align_y(Alignment::Center);

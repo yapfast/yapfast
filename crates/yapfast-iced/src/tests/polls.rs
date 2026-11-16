@@ -38,7 +38,7 @@ fn with_poll(multiselect: bool) -> (crate::app::App, tempfile::TempDir) {
 }
 
 fn picked(app: &crate::app::App) -> [bool; 2] {
-    [1, 2].map(|answer| app.revealed.contains(&pick_key("poll", answer)))
+    [1, 2].map(|answer| app.timeline.revealed.contains(&pick_key("poll", answer)))
 }
 
 #[test]

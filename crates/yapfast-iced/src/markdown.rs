@@ -28,7 +28,7 @@ use yapfast_core::{
 };
 
 use crate::{
-    app::{App, Message},
+    app::Message,
     fonts::{BOLD, REGULAR},
     select::Piece,
 };
@@ -664,12 +664,12 @@ pub struct Look {
 
 pub use crate::piece::FIRST_PART;
 
-impl App {
+impl<'c> crate::ctx::Ctx<'c> {
     /// A run as a span: its weight and slant, code in monospace on its
     /// ground, a link or mention in its colour, a covered spoiler blank on
     /// its cover.
-    pub fn run_span<'a>(&self, run: &'a Run, ink: Color) -> Span<'a, &'a str, Font> {
-        let theme = &self.theme;
+    pub fn run_span<'a>(self, run: &'a Run, ink: Color) -> Span<'a, &'a str, Font> {
+        let theme = self.look.theme;
         let font = if run.code {
             Font::MONOSPACE
         } else {
@@ -729,14 +729,14 @@ impl App {
     /// quoted parts behind a bar. Each part is a piece of the timeline's
     /// selection in `row`, from `first` ([`FIRST_PART`] for a message's
     /// own text).
-    pub fn body_view<'a>(
-        &'a self,
-        body: &'a Body,
+    pub fn body_view(
+        self,
+        body: &'c Body,
         row: usize,
         first: crate::select::PartNo,
         look: Look,
-    ) -> Element<'a, Message> {
-        let theme = &self.theme;
+    ) -> Element<'c, Message> {
+        let theme = self.look.theme;
         let mut parts = column![].width(Length::Fill);
         for (index, part) in body.parts.iter().enumerate() {
             let number = first.saturating_add(
@@ -776,7 +776,7 @@ impl App {
                 .collect();
             let piece = Piece::new(spans, row, number, Message::Link, Message::Select)
                 .unlined(yapfast_core::emoji::card::LINK)
-                .item(self.row_look(row).map(|look| look.item.clone()))
+                .item(self.lanes.row_look(row).map(|look| look.item.clone()))
                 .pictures(pictures)
                 .size(size, (size * ratio).round())
                 .color(ink)
@@ -784,9 +784,13 @@ impl App {
                 // Text in no timeline's row (a found card's) selects
                 // nothing: a press on it is the card's.
                 .starts(row != usize::MAX)
-                .selection(self.selected(row, number), self.selecting, theme.selection)
-                .spot(&self.link_spot);
-            let shown: Element<'_, Message> = if part.shape == Shape::Code {
+                .selection(
+                    self.lanes.selected(row, number),
+                    self.lanes.timeline.selecting,
+                    theme.selection,
+                )
+                .spot(self.link_spot);
+            let shown: Element<'c, Message> = if part.shape == Shape::Code {
                 let (ground, line) = (theme.panel, theme.line);
                 container(piece)
                     .padding(size / 2.0)
@@ -805,7 +809,7 @@ impl App {
                 left: if part.quoted { QUOTE_INSET } else { 0.0 },
                 ..Padding::ZERO
             });
-            let shown: Element<'_, Message> = if part.quoted {
+            let shown: Element<'c, Message> = if part.quoted {
                 let spine = theme.reply_spine;
                 let radius = Radius {
                     top_left: if part.quote_start { 2.0 } else { 0.0 },

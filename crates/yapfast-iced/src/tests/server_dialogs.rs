@@ -310,7 +310,7 @@ fn browse_channels_opens_from_a_community_servers_list_and_searches() {
             .expect("the search");
         ui.typewrite("lou");
     });
-    assert_eq!(app.browse_filter, "lou");
+    assert_eq!(app.sidebar.browse_filter, "lou");
     assert!(!shows(&app, "Say hi"));
     assert!(shows(&app, "Join"));
 }

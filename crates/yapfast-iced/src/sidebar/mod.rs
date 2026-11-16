@@ -31,6 +31,124 @@ mod voice;
 
 pub use rows::{Room, SideHeader, SideRow, room_icon, side_header, sidebar};
 
+/// The sidebar: its header and rows, its viewport, what's dragged in it,
+/// and the filters typed into it and into Browse Channels.
+pub struct Sidebar {
+    pub header: SideHeader,
+    pub rows: Vec<SideRow>,
+    pub scroll: crate::sync::Scroll,
+    /// The busy voice channel's card under the pointer was put away by a
+    /// click or its menu, until the pointer leaves the row.
+    pub voice_card_off: bool,
+    /// The rows' places to drag a channel or category among, and the drag
+    /// going on.
+    pub places: crate::arrange::Places,
+    pub arranging: Option<crate::arrange::Arranging>,
+    /// Someone being dragged from a voice channel to another.
+    pub moving_person: Option<crate::arrange::Moving>,
+    /// The DM search's filter, and where the rail went last, so the filter
+    /// goes when it goes elsewhere, as the Slint client's.
+    pub filter: String,
+    pub filtered_in: Option<yapfast_core::application::Navigation>,
+    /// Browse Channels' search.
+    pub browse_filter: String,
+}
+
+/// The sidebar beside the rail.
+pub fn view<'a>(sidebar: &'a Sidebar, cx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
+    View { s: sidebar, cx }.sidebar_view()
+}
+
+/// The sidebar's view: its rows and what's dragged in it, and the view
+/// context.
+#[derive(Clone, Copy)]
+pub(crate) struct View<'a> {
+    pub(crate) s: &'a Sidebar,
+    pub(crate) cx: crate::ctx::Ctx<'a>,
+}
+
+impl Sidebar {
+    pub fn new(height: f32) -> Self {
+        Self {
+            header: SideHeader::default(),
+            rows: Vec::new(),
+            scroll: crate::sync::Scroll::new(height),
+            voice_card_off: false,
+            places: Default::default(),
+            arranging: None,
+            moving_person: None,
+            filter: String::new(),
+            filtered_in: None,
+            browse_filter: String::new(),
+        }
+    }
+}
+
+impl Sidebar {
+    /// The rows that aren't the dragged one's kind dim: all of them under
+    /// a category, and voice and text channels under each other; while
+    /// someone is dragged, all but the voice channels they may drop on.
+    pub fn arrange_dimmed(&self, room: Option<&str>, voice: bool) -> bool {
+        if let Some(moving) = &self.moving_person {
+            return !room.is_some_and(|room| moving.targets.contains(room));
+        }
+        self.arranging
+            .as_ref()
+            .is_some_and(|arranging| arranging.category || voice != arranging.voice)
+    }
+
+    /// Whether someone dragged would drop on this voice channel.
+    pub fn move_aimed(&self, room: &str) -> bool {
+        self.moving_person.as_ref().is_some_and(|moving| {
+            moving.hovered.as_deref() == Some(room) && moving.targets.contains(room)
+        })
+    }
+
+    /// A drag of either kind is on, and the rows follow it.
+    pub fn dragging(&self) -> bool {
+        self.arranging.is_some() || self.moving_person.is_some()
+    }
+
+    /// Whether the line showing where the dragged row would land is at the
+    /// row at `place`, and whether below it (dragged down) or above.
+    pub fn drop_line(&self, place: Option<usize>) -> Option<bool> {
+        let arranging = self.arranging.as_ref()?;
+        let place = place?;
+        (arranging.hovered == Some(place)
+            && place != arranging.dragged
+            && arranging.droppable.get(place) == Some(&true))
+        .then_some(place > arranging.dragged)
+    }
+
+    /// How tall the sidebar's top is over its list: the header (taller
+    /// with a banner), the boost goal and the events row.
+    /// Where the list of rows starts and ends in the window, `above` the
+    /// content's top: under the header, as tall as its viewport.
+    pub fn list_span(&self, above: f32) -> (f32, f32) {
+        let top = above + self.top_height();
+        (top, top + self.scroll.height)
+    }
+
+    pub fn top_height(&self) -> f32 {
+        let head = &self.header;
+        if head.server.is_none() {
+            return HEADER;
+        }
+        HEADER
+            + if head.banner.is_some() { BANNER } else { 0.0 }
+            + if head.boosts.is_some() {
+                BOOST_ROW
+            } else {
+                0.0
+            }
+            + if head.events.is_some() {
+                EVENTS_ROW
+            } else {
+                0.0
+            }
+    }
+}
+
 /// The sidebar's width, as the Slint client's Discord look sets it.
 pub const WIDTH: f32 = 304.0;
 /// Its header, the line under it included.
@@ -115,12 +233,12 @@ impl App {
     pub fn sidebar_event(&mut self, event: Event) -> Task<Message> {
         match event {
             Event::Scrolled(viewport) => {
-                self.side_scroll = Scroll::of(viewport);
+                self.sidebar.scroll = Scroll::of(viewport);
                 return self.ask();
             }
             Event::Point(id, entered) => {
                 if !entered {
-                    self.voice_card_off = false;
+                    self.sidebar.voice_card_off = false;
                 }
                 crate::app::point(&mut self.pointed.side, id, entered);
                 // A DM's nameplate and moving decoration come as it's
@@ -131,7 +249,7 @@ impl App {
             // As the Slint client: the core's `SelectRoom` joins a voice
             // channel's call first, and shows it once in it.
             Event::Voice(id) => {
-                self.voice_card_off = true;
+                self.sidebar.voice_card_off = true;
                 self.client.dispatch(Action::SelectRoom(id));
             }
             Event::Toggle(fold) => {
@@ -150,7 +268,7 @@ impl App {
             }
             Event::Filter(filter) => {
                 self.lists_shown = None;
-                self.filter = filter;
+                self.sidebar.filter = filter;
             }
             Event::Friends => self
                 .client
@@ -160,18 +278,18 @@ impl App {
                 .dispatch(Action::OpenDmScreen(DmScreen::Requests)),
             Event::Browse => self.client.dispatch(Action::BrowseChannels),
             Event::Header => {
-                let Some(server) = self.side_header.server.clone() else {
+                let Some(server) = self.sidebar.header.server.clone() else {
                     return Task::none();
                 };
-                if self.menu.as_ref().is_some_and(|menu| menu.header) {
-                    self.menu = None;
+                if self.win.menu.as_ref().is_some_and(|menu| menu.header) {
+                    self.win.menu = None;
                     return Task::none();
                 }
                 let at = Point::new(crate::rail::WIDTH + INSET, HEADER - 4.0);
                 return self.open_place_menu(&server, at, true);
             }
             Event::Invite => {
-                let Some(server) = self.side_header.server.clone() else {
+                let Some(server) = self.sidebar.header.server.clone() else {
                     return Task::none();
                 };
                 self.client.dispatch(Action::OpenInvite(server));
@@ -181,15 +299,15 @@ impl App {
                 ]);
             }
             Event::Events => {
-                let Some(server) = self.side_header.server.clone() else {
+                let Some(server) = self.sidebar.header.server.clone() else {
                     return Task::none();
                 };
-                let top = self.side_top_height() - EVENTS_ROW;
+                let top = self.sidebar.top_height() - EVENTS_ROW;
                 let at = Point::new(crate::rail::WIDTH + INSET, top + EVENTS_ROW - INSET);
                 return self.open_events_menu(&server, at);
             }
             Event::Menu(id, at) => {
-                self.voice_card_off = true;
+                self.sidebar.voice_card_off = true;
                 return self.open_place_menu(&id, at, false);
             }
             Event::Wave(user) => self.client.dispatch(Action::MessageFromProfile {
@@ -207,14 +325,16 @@ impl App {
         }
         self.sync()
     }
+}
 
-    pub fn sidebar_view(&self) -> Element<'_, Message> {
-        let theme = &self.theme;
-        let total: f32 = self.side.iter().map(SideRow::height).sum::<f32>() + END - GAP;
-        let viewport = self.side_scroll;
+impl<'a> View<'a> {
+    pub fn sidebar_view(self) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let total: f32 = self.s.rows.iter().map(SideRow::height).sum::<f32>() + END - GAP;
+        let viewport = self.s.scroll;
         let mut rows = Rows::new(total);
         let mut top = 0.0;
-        for (index, row) in self.side.iter().enumerate() {
+        for (index, row) in self.s.rows.iter().enumerate() {
             let height = row.height();
             let at = top;
             top += height;
@@ -223,7 +343,7 @@ impl App {
             {
                 continue;
             }
-            let place = self.side_places.of_row.get(index).copied().flatten();
+            let place = self.s.places.of_row.get(index).copied().flatten();
             rows.push(key(&row.key()), at, height, self.side_row(row, place));
         }
         let list = scroll_view(rows)
@@ -233,11 +353,11 @@ impl App {
             .style(scrollbar(theme));
         // What's dragged follows the pointer, faint, over the list;
         // someone dragged from a voice channel, below it.
-        let list: Element<'_, Message> = match self.moving_view() {
+        let list: Element<'a, Message> = match self.moving_view() {
             Some((ghost, y)) => stack![list, controls::placed(ghost, 40.0, y)].into(),
             None => list.into(),
         };
-        let list: Element<'_, Message> = match self.arranged_view() {
+        let list: Element<'a, Message> = match self.arranged_view() {
             Some((ghost, y)) => stack![
                 list,
                 controls::placed(
@@ -252,16 +372,18 @@ impl App {
         let ground = theme.sidebar;
         let mut top = column![self.side_header_view()];
         if let Some(boosts) = self
-            .side_header
+            .s
+            .header
             .boosts
-            .filter(|_| self.side_header.server.is_some())
+            .filter(|_| self.s.header.server.is_some())
         {
             top = top.push(self.boost_goal(boosts));
         }
         if let Some(events) = self
-            .side_header
+            .s
+            .header
             .events
-            .filter(|_| self.side_header.server.is_some())
+            .filter(|_| self.s.header.server.is_some())
         {
             top = top.push(self.events_row(events));
         }
@@ -271,26 +393,5 @@ impl App {
             .clip(true)
             .style(move |_| rounded(ground, corners([12.0, 0.0, 0.0, 0.0])))
             .into()
-    }
-
-    /// How tall the sidebar's top is over its list: the header (taller
-    /// with a banner), the boost goal and the events row.
-    pub fn side_top_height(&self) -> f32 {
-        let head = &self.side_header;
-        if head.server.is_none() {
-            return HEADER;
-        }
-        HEADER
-            + if head.banner.is_some() { BANNER } else { 0.0 }
-            + if head.boosts.is_some() {
-                BOOST_ROW
-            } else {
-                0.0
-            }
-            + if head.events.is_some() {
-                EVENTS_ROW
-            } else {
-                0.0
-            }
     }
 }

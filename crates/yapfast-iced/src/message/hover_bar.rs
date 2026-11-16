@@ -7,19 +7,14 @@ use iced::{
 };
 use yapfast_core::chat::{self};
 
-use crate::{
-    app::{App, Message},
-    controls,
-    menus::MenuAct,
-    pictures::Icon,
-};
+use crate::{app::Message, controls, menus::MenuAct, pictures::Icon};
 
 use super::BAR_BUTTON;
 
-impl App {
+impl<'a> crate::ctx::Ctx<'a> {
     /// Where the picker and the menu of row `index`'s message open, from
     /// its hover bar or the keys: under the bar's right end.
-    pub fn bar_menu_at(&self, index: usize) -> Point {
+    pub fn bar_menu_at(self, index: usize) -> Point {
         let (lane, _) = self.lane_place(index);
         Point::new(
             lane.left + lane.width - 16.0 - 200.0,
@@ -33,12 +28,12 @@ impl App {
     /// Holding Shift swaps the reactions for Pin and, on one's own message,
     /// Reply, and More for a Delete that doesn't ask, as Discord's client
     /// does; not while the message's menu or picker is open.
-    pub fn hover_bar(&self, index: usize) -> Option<Element<'_, Message>> {
+    pub fn hover_bar(self, index: usize) -> Option<Element<'a, Message>> {
         let message = self.row_message(index)?;
         if message.deleted || message.delivery != chat::Delivery::default() {
             return None;
         }
-        let theme = &self.theme;
+        let theme = self.look.theme;
         let at = self.bar_menu_at(index);
         // The thread beside the channel is narrower: two quick reactions.
         let quick_reactions = if index >= crate::timeline::ASIDE {
@@ -55,17 +50,15 @@ impl App {
         };
         let open_here = self
             .menu
-            .as_ref()
             .is_some_and(|menu| menu.item.as_ref() == Some(item))
             || self
                 .picker
-                .get()
                 .is_some_and(|picker| matches!(&picker.target, crate::picker::Target::React(on, _) if on == item));
         let quick = self.modifiers.shift() && !open_here;
         let deletes = quick && message.can_delete && writes;
         let act = |act: MenuAct| Message::Act(act, item.clone(), at);
         let button = |icon: Icon, label: &'static str, message: Message| {
-            self.look()
+            self.look
                 .icon_button(icon, label, message)
                 .size(BAR_BUTTON, 20)
         };
@@ -82,8 +75,8 @@ impl App {
         }
         if message.can_react {
             if !quick {
-                for key in self.client.app.frequent_reactions(quick_reactions) {
-                    buttons = buttons.push(self.ctx().emoji_button(
+                for key in self.app.frequent_reactions(quick_reactions) {
+                    buttons = buttons.push(self.emoji_button(
                         &key,
                         20,
                         BAR_BUTTON,
@@ -109,12 +102,12 @@ impl App {
             buttons = buttons.push(button(Icon::Reply, "Reply", act(MenuAct::Reply)));
         }
         // Beside Reply, as in Discord, whether or not Shift is held.
-        if message.can_forward && crate::forward::allowed(self.client.state()) {
+        if message.can_forward && crate::forward::allowed(self.state) {
             buttons = buttons.push(button(Icon::Forward, "Forward", act(MenuAct::Forward)));
         }
         buttons = buttons.push(if deletes {
-            self.look().face_button(
-                self.glyph(Icon::Trash, 20, theme.danger),
+            self.look.face_button(
+                self.look.glyph(Icon::Trash, 20, theme.danger),
                 BAR_BUTTON,
                 "Delete",
                 act(MenuAct::DeleteNow),
@@ -131,7 +124,7 @@ impl App {
         // over the row above: the bar keeps its moves from that row, and
         // from its own row's saying the pointer left. Not while a drag
         // selects, whose moves the text under it follows.
-        Some(if self.selecting {
+        Some(if self.lanes.timeline.selecting {
             bar.into()
         } else {
             crate::widgets::Holds::new(bar).into()

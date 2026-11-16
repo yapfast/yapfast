@@ -146,7 +146,7 @@ impl App {
 
     /// An update downloads: About shows how far, a few times a second.
     pub fn updates_installing(&self) -> bool {
-        self.settings.is_open()
+        self.win.settings.is_open()
             && desktop::desktop()
                 .updates()
                 .is_some_and(|updates| updates.installing())

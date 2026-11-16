@@ -27,7 +27,8 @@ const RILEYS: &str = "Yep. I should be free after dinner.";
 
 /// The labels of the open menu's rows.
 fn menu_rows(app: &App) -> Vec<String> {
-    app.menu
+    app.win
+        .menu
         .as_ref()
         .expect("a menu")
         .rows
@@ -67,7 +68,7 @@ fn a_profiles_more_menu_is_the_persons_own_and_asks_before_a_block() {
     let _ = app.open_person_menu("4", Point::new(300.0, 200.0), person::CONTEXT_MENU);
     let from_list = menu_rows(&app);
     assert!(from_list.iter().any(|row| row == "Block"));
-    app.menu = None;
+    app.win.menu = None;
     let _ = app.update(Message::Profile(profile::Event::More("4".into())));
     assert_eq!(
         menu_rows(&app),
@@ -515,7 +516,7 @@ fn a_cards_effect_plays_only_under_the_pointer_and_its_frame_shows() {
             front: true,
         }]);
     });
-    let wanted = |app: &App, url: &str| app.profile_pictures().iter().any(|got| got == url);
+    let wanted = |app: &App, url: &str| app.ctx().profile_pictures().iter().any(|got| got == url);
     assert!(wanted(&app, "effect-still"), "its still at rest");
     assert!(!wanted(&app, "effect-layer"), "no layers at rest");
     assert!(wanted(&app, "frame-staple"));
@@ -622,7 +623,8 @@ fn a_boosters_gem_in_the_member_list_says_since_when() {
 
 /// The member list's names, in order.
 fn member_names(app: &App) -> Vec<String> {
-    app.lines
+    app.roster
+        .lines
         .iter()
         .filter_map(|line| match line {
             crate::looks::MemberLine::Member(look) => Some(look.name.clone()),
@@ -642,7 +644,7 @@ fn a_room_opened_during_the_member_lists_pause_shows_its_own_members() {
             Arc::make_mut(members)[0].name = "Changed".into();
         }
     });
-    assert!(app.roster_waiting, "held for the pause");
+    assert!(app.roster.waiting, "held for the pause");
     // ...then another room, with its own members, before it's over.
     change(&mut app, |state| {
         let other = state
@@ -779,10 +781,10 @@ fn view_full_bio_shows_when_the_bio_is_taller_than_three_lines_as_laid_out() {
 fn a_hidden_member_list_keeps_no_lines_and_builds_them_again_when_shown() {
     let (mut app, _folder) = preview();
     app.show_roster(false);
-    assert!(!app.lines.is_empty(), "the list shows");
+    assert!(!app.roster.lines.is_empty(), "the list shows");
     let _ = app.update(Message::ToggleMembers);
     assert!(!app.members_shown());
-    assert!(app.lines.is_empty(), "hidden, its lines go");
+    assert!(app.roster.lines.is_empty(), "hidden, its lines go");
     // The roster churns meanwhile: nothing is built.
     change(&mut app, |state| {
         for members in state.members.iter_mut().flatten() {
@@ -793,10 +795,10 @@ fn a_hidden_member_list_keeps_no_lines_and_builds_them_again_when_shown() {
             members.insert(0, first);
         }
     });
-    assert!(app.lines.is_empty(), "nor while the roster changes");
+    assert!(app.roster.lines.is_empty(), "nor while the roster changes");
     let _ = app.update(Message::ToggleMembers);
     assert!(
-        app.lines.iter().any(|line| matches!(
+        app.roster.lines.iter().any(|line| matches!(
             line,
             crate::looks::MemberLine::Member(look) if look.name == "Aaron"
         )),

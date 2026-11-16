@@ -184,7 +184,7 @@ impl App {
             Layer::ConfirmDelete => state.confirm_delete.is_some(),
             Layer::SelectMenu => state.select_menu.is_some(),
             Layer::Modal => state.interaction_modal.is_some() && state.select_menu.is_none(),
-            Layer::Viewer => state.viewer.is_some() && self.menu.is_none(),
+            Layer::Viewer => state.viewer.is_some() && self.win.menu.is_none(),
             Layer::Switcher => state.switcher.is_some(),
             Layer::NewDm => state.new_dm.is_some(),
             Layer::Poll => state.poll_draft.is_some(),
@@ -194,7 +194,7 @@ impl App {
             Layer::AccountPopover => self.status.popover.is_some(),
             Layer::HeaderPopover => self.popover_open(),
             Layer::ProfileEditor => self.editor_open(),
-            Layer::Settings => self.settings.is_open(),
+            Layer::Settings => self.win.settings.is_open(),
             Layer::ServerSettings => self.server_screen.is_open(),
             Layer::ChannelSettings => self.channel_screen.is_open(),
             Layer::Forwarding => state.forwarding.is_some(),
@@ -203,20 +203,20 @@ impl App {
             Layer::Reactions => state.reactions.is_some(),
             Layer::AddFriend => state.add_friend.is_some(),
             Layer::Leaving => self.leaving.is_some(),
-            Layer::Menu => self.menu.is_some(),
+            Layer::Menu => self.win.menu.is_some(),
             Layer::CallPopup => self.call.popup.is_some() || self.call.share_listing.is_some(),
-            Layer::ClipFull => self.clip_full,
+            Layer::ClipFull => self.playback.clip_full,
             Layer::FullCall => self.full_shown(),
-            Layer::Picker => self.picker.is_open(),
+            Layer::Picker => self.win.picker.is_open(),
             Layer::ServerCard => self.cards.server.is_some(),
             Layer::ExpressionCard => self.cards.expression.is_some(),
-            Layer::TagCard => self.tag_card.is_open(),
+            Layer::TagCard => self.win.tag_card.is_open(),
             Layer::Card => self.profiles.card.is_some() || self.profiles.shown.is_some(),
             Layer::RoleCard => state.role.is_some(),
-            Layer::Selection => self.selection.is_some(),
+            Layer::Selection => self.timeline.selection.is_some(),
             Layer::TagsMenu => self.forum_post.tags_menu,
             Layer::Search => self.search_shown(),
-            Layer::Editing => self.editing.is_some(),
+            Layer::Editing => self.composer.editing.is_some(),
             Layer::Compose => state.compose().is_some(),
             Layer::AsideForm => self.aside_shown() && state.new_thread().is_some(),
             Layer::AsideReply => self.aside_shown() && state.aside_compose().is_some(),
@@ -335,7 +335,7 @@ impl App {
             }
             Layer::NewDm => self.switcher_event(crate::switcher::Event::CloseNewDm),
             // The picker over a poll or the status editor goes first.
-            Layer::Poll | Layer::StatusEditor if self.picker.is_open() => self.close_picker(),
+            Layer::Poll | Layer::StatusEditor if self.win.picker.is_open() => self.close_picker(),
             Layer::Poll => self.switcher_event(crate::switcher::Event::ClosePoll),
             Layer::StatusEditor => self.status_event(crate::status::Event::Cancel),
             Layer::AccountPopover => self.status_event(crate::status::Event::Close),
@@ -357,7 +357,7 @@ impl App {
             Layer::AddFriend => self.friends_event(crate::friends::Event::CloseAdd),
             Layer::Leaving => self.leave(false),
             Layer::Menu => {
-                self.menu = None;
+                self.win.menu = None;
                 self.refocus()
             }
             Layer::CallPopup => {
@@ -376,7 +376,7 @@ impl App {
             }
             Layer::RoleCard => self.info_event(crate::info_cards::Event::CloseRole),
             Layer::Selection => {
-                self.selection = None;
+                self.timeline.selection = None;
                 Task::none()
             }
             Layer::TagsMenu => self.forum_event(crate::forum::Event::TagsMenu(false)),

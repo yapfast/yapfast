@@ -216,7 +216,7 @@ impl App {
             ));
         }
         if !clip {
-            self.clip_time = None;
+            self.playback.clip_time = None;
         }
         self.video.set(sources);
     }
@@ -225,7 +225,7 @@ impl App {
     /// video's, how far it's got.
     pub fn frames_found(&mut self, clip_time: Option<u64>) {
         if clip_time.is_some() {
-            self.clip_time = clip_time;
+            self.playback.clip_time = clip_time;
         }
     }
 
@@ -268,8 +268,8 @@ impl App {
         let theme = &self.theme;
         let stage = (theme.stage != theme.chat).then_some(theme.stage);
         // The banners show over the call too, under the header.
-        let column = column![self.header_view(), line]
-            .extend(self.banners())
+        let column = column![self.ctx().header_view(), line]
+            .extend(self.ctx().banners())
             .push(body);
         container(column)
             .width(Length::Fill)
@@ -359,7 +359,7 @@ impl App {
         let state = self.client.state();
         let id = state.selected.clone().unwrap_or_default();
         let raised = theme.raised;
-        let badge = container(self.glyph(Icon::Volume, 38, theme.secondary))
+        let badge = container(self.look().glyph(Icon::Volume, 38, theme.secondary))
             .center(80)
             .style(move |_| rounded(raised, 40));
         let mut panel = column![
@@ -503,7 +503,7 @@ impl App {
                 } else {
                     on_press = Message::Call(Event::Watch(person.id.clone()));
                     let column = column![
-                        self.glyph(Icon::ScreenShare, 30, NOTE),
+                        self.look().glyph(Icon::ScreenShare, 30, NOTE),
                         tile::pill("Watch stream", theme.danger, theme.on_danger),
                     ]
                     .spacing(10)
@@ -545,7 +545,7 @@ impl App {
                     // last.
                     let side = (size.height * 0.45).min(80.0).round();
                     let opacity = if person.connected { 1.0 } else { 0.5 };
-                    let avatar = self.avatar(
+                    let avatar = self.ctx().avatar(
                         person.avatar.as_deref(),
                         &person.user,
                         side,
@@ -669,7 +669,7 @@ impl App {
         let ready = voice_ready(voice);
         let when = |message: Message| ready.then_some(message);
         let alert = faded(theme.danger, 0.18);
-        let face = |icon| self.glyph(icon, ROUND_GLYPH, theme.text);
+        let face = |icon| self.look().glyph(icon, ROUND_GLYPH, theme.text);
         let mut controls = row![
             controls::round_button(
                 face(if voice.muted { Icon::MicOff } else { Icon::Mic }),
@@ -693,7 +693,7 @@ impl App {
         .spacing(12)
         .align_y(Alignment::Center);
         if voice.soundboard.is_some() {
-            controls = controls.push(self.spot(controls::round_button(
+            controls = controls.push(self.ctx().spot(controls::round_button(
                 face(Icon::Soundboard),
                 "Open Soundboard",
                 theme.raised,
@@ -723,7 +723,7 @@ impl App {
             ));
         }
         let sharing = voice.sharing.is_some();
-        if self.can_share() || sharing {
+        if self.ctx().can_share() || sharing {
             let share = controls::round_button(
                 face(if sharing {
                     Icon::ScreenShareOff
@@ -747,13 +747,14 @@ impl App {
                     Event::Open(Popup::Share)
                 })),
             );
-            controls = controls.push(self.spot(share));
+            controls = controls.push(self.ctx().spot(share));
         }
         let leaving = voice.phase == voice::Phase::Leaving;
         let (danger, danger_hover) = (theme.danger, theme.danger_hover);
         let opacity = if leaving { 0.5 } else { 1.0 };
         let leave = button(
-            self.glyph(Icon::PhoneOff, ROUND_GLYPH, theme.on_danger)
+            self.look()
+                .glyph(Icon::PhoneOff, ROUND_GLYPH, theme.on_danger)
                 .boxed(Length::Fill),
         )
         .width(76)
@@ -791,23 +792,6 @@ impl App {
             .center_x(Length::Fill)
             .height(CONTROLS_HEIGHT)
             .into()
-    }
-
-    /// A control that opens a popup above itself: where it is is kept as
-    /// it's pressed.
-    pub fn spot<'a>(&'a self, child: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
-        Spot::new(child, &self.call.spot).into()
-    }
-
-    /// Sharing a screen can start: Discord's call, connected.
-    pub fn can_share(&self) -> bool {
-        let state = self.client.state();
-        let voice = &state.voice;
-        !state.preview
-            && voice.phase == voice::Phase::Connected
-            && voice.room.as_deref().is_some_and(|room| {
-                yapfast_core::network::Network::of(room) == yapfast_core::network::Network::Discord
-            })
     }
 }
 
@@ -871,4 +855,25 @@ pub fn viewers<'a>(
         .gap(6)
         .into(),
     )
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
+    /// A control that opens a popup above itself: where it is is kept as
+    /// it's pressed.
+    pub fn spot(self, child: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
+        Spot::new(child, &self.call.spot).into()
+    }
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
+    /// Sharing a screen can start: Discord's call, connected.
+    pub fn can_share(self) -> bool {
+        let state = self.state;
+        let voice = &state.voice;
+        !state.preview
+            && voice.phase == voice::Phase::Connected
+            && voice.room.as_deref().is_some_and(|room| {
+                yapfast_core::network::Network::of(room) == yapfast_core::network::Network::Discord
+            })
+    }
 }

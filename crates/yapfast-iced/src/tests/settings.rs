@@ -46,7 +46,7 @@ fn a_theme_chosen_in_appearance_shows_at_once_and_is_kept() {
         Key::Named(key::Named::Escape),
         Default::default(),
     ));
-    assert!(!app.settings.is_open());
+    assert!(!app.win.settings.is_open());
     assert_eq!(start(&folder, true).theme.id, "nord", "the next start too");
 }
 
@@ -145,7 +145,7 @@ fn preferences_are_kept_across_a_restart() {
     });
     assert!(app.layout.prefs.twelve_hour_clock && app.layout.prefs.clock_seconds);
     // The timeline's times follow at once: 9:41:05 PM, say.
-    let time = &app.looks.last().expect("a message").time;
+    let time = &app.timeline.looks.last().expect("a message").time;
     assert!(
         time.matches(':').count() == 2 && (time.ends_with("AM") || time.ends_with("PM")),
         "{time}"
@@ -195,7 +195,7 @@ fn a_device_chosen_in_voice_settings_is_the_one_used() {
         Some("mic-b")
     );
     assert!(
-        app.settings.get().is_some_and(|s| s.open.is_none()),
+        app.win.settings.get().is_some_and(|s| s.open.is_none()),
         "closed"
     );
 }
@@ -214,7 +214,8 @@ fn the_soundboard_volume_moves_with_its_drag() {
     // with, and the slider shows the core's volume again.
     let _ = app.update(voice(VoiceEvent::SoundboardVolume(80, true)));
     assert!(
-        app.settings
+        app.win
+            .settings
             .get()
             .is_some_and(|settings| settings.voice.soundboard.is_none())
     );
@@ -405,7 +406,7 @@ fn closing_settings_lets_go_of_an_edited_theme() {
     ));
     assert!(!app.theme.dark, "shown while edited");
     let _ = app.update(Message::Settings(Event::Close));
-    assert!(!app.settings.is_open());
+    assert!(!app.win.settings.is_open());
     assert_eq!(app.theme.id, "bonfire", "the theme from before");
 }
 
@@ -482,7 +483,7 @@ fn a_theme_switch_lays_the_timelines_text_out_in_the_new_inks() {
         })]);
     });
     let ink = |app: &crate::app::App| {
-        app.looks[0].body.parts[0]
+        app.timeline.looks[0].body.parts[0]
             .runs
             .iter()
             .find(|run| run.text.contains("Ann"))

@@ -21,7 +21,7 @@ impl App {
     pub fn ctx(&self) -> Ctx<'_> {
         Ctx {
             look: self.look(),
-            pictures: &self.pictures,
+            pictures: &self.win.pictures,
             app: &self.client.app,
             state: self.client.state(),
             plays: self.plays(),
@@ -39,6 +39,35 @@ impl App {
                 .as_ref()
                 .is_some_and(|tray| tray.available()),
             sign_in: &self.sign_in,
+            lanes: self.lanes(),
+            link_spot: &self.link_spot,
+            profiles: &self.profiles,
+            minute: self.minute,
+            pointed: &self.pointed,
+            pressed: &self.pressed,
+            menu: self.win.menu.as_ref(),
+            picker: self.win.picker.get(),
+            above: self.shell.frame.height - self.window.height,
+            composer: &self.composer,
+            playback: &self.playback,
+            modifiers: self.modifiers,
+            in_server: self.in_server,
+            header: &self.header,
+            drafts: &self.drafts,
+            forum_post: &self.forum_post,
+            uploads: &self.uploads,
+            searching: &self.searching,
+            call: &self.call,
+            header_spot: &self.header_spot,
+            friends: &self.friends,
+            active_now: &self.active_now,
+            account_pointed: self.account_pointed,
+            browse_filter: &self.sidebar.browse_filter,
+            aside_width: self.aside_width(),
+            open: crate::ctx::Open {
+                members: self.members_shown(),
+                aside: self.aside_shown(),
+            },
         }
     }
 
@@ -46,7 +75,7 @@ impl App {
     /// already open.
     pub fn open_settings(&mut self, section: Section) -> Task<Message> {
         let mut cx = cx!(self);
-        let settings = self.settings.open(|| Settings::open(&mut cx));
+        let settings = self.win.settings.open(|| Settings::open(&mut cx));
         let task = settings.show(section, &mut cx);
         Task::batch([task, self.settle()])
     }
@@ -57,7 +86,7 @@ impl App {
 
     pub fn close_settings_for(&mut self, why: Why) -> Task<Message> {
         let mut cx = cx!(self);
-        if !self.settings.close(&mut cx, why) {
+        if !self.win.settings.close(&mut cx, why) {
             return Task::none();
         }
         self.settle()
@@ -70,7 +99,7 @@ impl App {
             return self.open_settings(section);
         }
         let mut cx = cx!(self);
-        let Some(settings) = self.settings.get_mut() else {
+        let Some(settings) = self.win.settings.get_mut() else {
             return Task::none();
         };
         let task = settings.update(event, &mut cx);
@@ -79,7 +108,7 @@ impl App {
 
     pub fn settings_escape(&mut self) -> Task<Message> {
         let mut cx = cx!(self);
-        if let Some(settings) = self.settings.get_mut() {
+        if let Some(settings) = self.win.settings.get_mut() {
             settings.escape(&mut cx);
         }
         self.settle()
@@ -87,12 +116,12 @@ impl App {
 
     /// Whether a keybind is being recorded, so the keys go to it.
     pub fn recording_keybind(&self) -> bool {
-        self.settings.get().is_some_and(Settings::recording)
+        self.win.settings.get().is_some_and(Settings::recording)
     }
 
     /// The camera Voice's settings try, for the window's video sources.
     pub fn camera_test(&self) -> Option<&yapfast_core::picture::Feed> {
-        self.settings.get()?.camera_test().0
+        self.win.settings.get()?.camera_test().0
     }
 
     /// After each message: what the screens asked is done (a screen
@@ -113,6 +142,7 @@ impl App {
             tasks.push(self.settle_pass());
         }
         let videos = self
+            .win
             .settings
             .get()
             .map(|settings| settings.camera_test())
@@ -144,14 +174,17 @@ impl App {
             for request in std::mem::take(&mut self.requests) {
                 match request {
                     Request::Close(screen) => self.close_screen(screen, Why::User),
-                    Request::CloseMenus => self.menu = None,
+                    Request::CloseMenus => self.win.menu = None,
                     Request::ClosePopups => {
                         self.close_popup();
                         // They cover the signal, whose touch says nothing
                         // as it's covered.
                         self.call.details.pointed = false;
                     }
-                    Request::Focus(to) => focus = Some(to),
+                    Request::Focus(to) => {
+                        self.focus_asked = true;
+                        focus = Some(to);
+                    }
                     Request::Changed(pref) => {
                         if !heard.contains(&pref) {
                             heard.push(pref);
@@ -188,18 +221,33 @@ impl App {
         Task::batch(tasks)
     }
 
+    /// Where the keys go stays explicit (`Request::Focus`), since about a
+    /// dozen updates refocus with nothing opened or closed and some
+    /// layers keep the keys where they are on purpose. This is the
+    /// derived rule's backstop: an update that changed what's on top and
+    /// asked nothing through `Request::Focus` is logged at debug, for
+    /// finding one that leaves the keys in a field that's gone. Updates
+    /// not yet on the contract focus with a task of their own and show
+    /// here too.
+    pub(super) fn focus_backstop(&self, top: Option<super::layers::Layer>) {
+        let now = self.layers().next();
+        if now != top && !self.focus_asked {
+            tracing::debug!(from = ?top, to = ?now, "the top layer changed with no focus asked");
+        }
+    }
+
     /// Closes a screen the window opened, running its close.
     fn close_screen(&mut self, screen: Screen, why: Why) {
         let mut cx = cx!(self);
         match screen {
             Screen::Settings => {
-                self.settings.close(&mut cx, why);
+                self.win.settings.close(&mut cx, why);
             }
             Screen::Picker => {
-                self.picker.close(&mut cx, why);
+                self.win.picker.close(&mut cx, why);
             }
             Screen::TagCard => {
-                self.tag_card.close(&mut cx, why);
+                self.win.tag_card.close(&mut cx, why);
             }
         }
     }
@@ -219,6 +267,7 @@ impl App {
             Pref::Idle => self.idle_setting_changed(),
             Pref::Theme => {
                 let shown = self
+                    .win
                     .settings
                     .get()
                     .and_then(Settings::preview)
@@ -234,7 +283,7 @@ impl App {
             }
         }
         let mut cx = cx!(self);
-        if let Some(settings) = self.settings.get_mut() {
+        if let Some(settings) = self.win.settings.get_mut() {
             settings.changed(pref, &mut cx);
         }
         task

@@ -29,7 +29,7 @@ impl App {
         let (Select::Start(mark, item) | Select::To(mark, item)) = &select;
         // A selection stays in the timeline it started in.
         let aside = mark.row >= crate::timeline::ASIDE;
-        if let (Select::To(..), Some((from, _))) = (&select, &self.selection)
+        if let (Select::To(..), Some((from, _))) = (&select, &self.timeline.selection)
             && from.aside != aside
         {
             return;
@@ -47,12 +47,12 @@ impl App {
         };
         match select {
             Select::Start(..) => {
-                self.selection = Some((at.clone(), at));
-                self.selecting = true;
+                self.timeline.selection = Some((at.clone(), at));
+                self.timeline.selecting = true;
             }
             Select::To(..) => {
-                if self.selecting
-                    && let Some((_, to)) = &mut self.selection
+                if self.timeline.selecting
+                    && let Some((_, to)) = &mut self.timeline.selection
                 {
                     *to = at;
                 }
@@ -62,26 +62,38 @@ impl App {
 
     /// The button let go: a press that selected nothing selects nothing.
     pub fn select_end(&mut self) {
-        self.selecting = false;
-        if self.selection.as_ref().is_some_and(|(from, to)| from == to) {
-            self.selection = None;
+        self.timeline.selecting = false;
+        if self
+            .timeline
+            .selection
+            .as_ref()
+            .is_some_and(|(from, to)| from == to)
+        {
+            self.timeline.selection = None;
         }
     }
 
+    pub fn copied(&self) -> Option<String> {
+        self.lanes().copied()
+    }
+}
+
+impl crate::timeline::Lanes<'_> {
     /// The selection's two ends in timeline order, by the messages' places
     /// now.
-    pub fn marks(&self) -> Option<(Mark, Mark)> {
-        let (a, b) = self.selection.as_ref()?;
+    pub fn marks(self) -> Option<(Mark, Mark)> {
+        let (a, b) = self.timeline.selection.as_ref()?;
         let place = |sel: &Sel| {
             let row = if sel.aside {
-                let aside = self.aside.as_ref()?;
                 crate::timeline::ASIDE
-                    + aside
+                    + self
+                        .aside?
                         .messages
                         .iter()
                         .position(|message| message.item == sel.item)?
             } else {
-                self.messages
+                self.timeline
+                    .messages
                     .iter()
                     .position(|message| message.item == sel.item)?
             };
@@ -97,14 +109,14 @@ impl App {
     }
 
     /// The part of the selection in a message's piece.
-    pub fn selected(&self, row: usize, part: PartNo) -> Part {
+    pub fn selected(self, row: usize, part: PartNo) -> Part {
         self.marks()
             .map_or(Part::None, |(from, to)| Part::of(from, to, row, part))
     }
 
     /// The timeline's selection as text: each message's author and time on
     /// a line, then its text, as far as the selection reaches.
-    pub fn copied(&self) -> Option<String> {
+    pub fn copied(self) -> Option<String> {
         let (from, to) = self.marks()?;
         let mut out = String::new();
         for row in from.row..=to.row {

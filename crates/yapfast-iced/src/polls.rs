@@ -80,20 +80,99 @@ fn time_left(seconds: u64) -> String {
 }
 
 impl App {
+    /// What a poll's card asked for.
+    pub fn poll_event(&mut self, event: Event) -> Task<Message> {
+        match event {
+            Event::Pick(item, answer) => {
+                let multiselect = self
+                    .client
+                    .state()
+                    .message(&item)
+                    .and_then(|message| message.poll.as_ref())
+                    .is_some_and(|poll| poll.multiselect);
+                let key = pick_key(&item, answer);
+                if !self.timeline.revealed.remove(&key) {
+                    if !multiselect {
+                        let picks = format!("{item}/pick");
+                        self.timeline
+                            .revealed
+                            .retain(|kept| !kept.starts_with(&picks));
+                    }
+                    self.timeline.revealed.insert(key);
+                }
+                Task::none()
+            }
+            Event::ShowResults(item) => {
+                self.timeline.revealed.insert(results_key(&item));
+                Task::none()
+            }
+            Event::EndPoll => {
+                self.client.dispatch(Action::EndPoll);
+                Task::batch([self.sync(), self.refocus()])
+            }
+            Event::KeepPoll => {
+                self.client.dispatch(Action::CancelEndPoll);
+                Task::batch([self.sync(), self.refocus()])
+            }
+            Event::BackToVote(item) => {
+                self.timeline.revealed.remove(&results_key(&item));
+                Task::none()
+            }
+            Event::Vote(item) => {
+                let picks = format!("{item}/pick");
+                let answers = self
+                    .timeline
+                    .revealed
+                    .iter()
+                    .filter_map(|kept| kept.strip_prefix(&picks)?.parse().ok())
+                    .collect();
+                self.client.dispatch(Action::Vote { item, answers });
+                self.sync()
+            }
+            // Taking the vote back starts the poll afresh.
+            Event::RemoveVote(item) => {
+                let picks = format!("{item}/pick");
+                let results = results_key(&item);
+                self.timeline
+                    .revealed
+                    .retain(|kept| !kept.starts_with(&picks) && *kept != results);
+                self.client.dispatch(Action::Vote {
+                    item,
+                    answers: Vec::new(),
+                });
+                self.sync()
+            }
+        }
+    }
+}
+
+/// Whether a timeline shows a poll still open at `now`, whose time left
+/// goes down.
+pub fn open_poll(messages: &[std::sync::Arc<ChatMessage>], now: u64) -> bool {
+    messages.iter().any(|message| {
+        message
+            .poll
+            .as_ref()
+            .is_some_and(|poll| poll.expiry.is_some() && !poll.closed(now))
+    })
+}
+
+/// A poll's height, for estimates.
+pub fn estimate(poll: &Poll) -> f32 {
+    16.0 * 2.0 + 24.0 + 20.0 + poll.answers.len() as f32 * (ANSWER + 8.0) + 40.0
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
     /// A message's poll's card.
-    pub fn poll_view<'a>(
-        &'a self,
-        message: &'a ChatMessage,
-        poll: &'a Poll,
-    ) -> Element<'a, Message> {
-        let theme = &self.theme;
+    pub fn poll_view(self, message: &'a ChatMessage, poll: &'a Poll) -> Element<'a, Message> {
+        let theme = self.look.theme;
         let item = &message.item;
         let now = self.minute;
         let closed = poll.closed(now);
         let voted = poll.voted();
-        let shown = self.revealed.contains(&results_key(item));
+        let shown = self.lanes.timeline.revealed.contains(&results_key(item));
         let results = closed || voted || shown;
-        let picked = |id: u64| self.revealed.contains(&pick_key(item, id));
+        let picked = |id: u64| self.lanes.timeline.revealed.contains(&pick_key(item, id));
         let total: usize = poll.answers.iter().map(|answer| answer.votes).sum();
         let most = poll.answers.iter().map(|answer| answer.votes).max();
         let mut card = column![
@@ -137,7 +216,7 @@ impl App {
             );
             if results {
                 if answer.mine {
-                    line = line.push(self.glyph(Icon::Check, 16, theme.accent));
+                    line = line.push(self.look.glyph(Icon::Check, 16, theme.accent));
                 }
                 line = line
                     .push(
@@ -222,14 +301,14 @@ impl App {
     }
 
     /// The votes so far, the time left, and the card's buttons.
-    fn poll_footer<'a>(
-        &'a self,
+    fn poll_footer(
+        self,
         item: &str,
         poll: &Poll,
         (closed, voted, shown, results): (bool, bool, bool, bool),
         total: usize,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.look.theme;
         let left = if closed {
             "Poll closed".to_owned()
         } else {
@@ -270,10 +349,12 @@ impl App {
             Some(Act::Vote)
         };
         if let Some(act) = act {
-            let any_picked = poll
-                .answers
-                .iter()
-                .any(|answer| self.revealed.contains(&pick_key(item, answer.id)));
+            let any_picked = poll.answers.iter().any(|answer| {
+                self.lanes
+                    .timeline
+                    .revealed
+                    .contains(&pick_key(item, answer.id))
+            });
             let enabled = voted || shown || any_picked;
             let (label, kind, event) = match act {
                 Act::Vote => ("Vote", Kind::Primary, Event::Vote(item.to_owned())),
@@ -293,7 +374,7 @@ impl App {
         }
         // Closing it before its time, once made sure of from the message's
         // menu.
-        if self.client.state().confirm_end_poll.as_deref() != Some(item) {
+        if self.state.confirm_end_poll.as_deref() != Some(item) {
             return footer.into();
         }
         let ask = column![
@@ -326,12 +407,12 @@ impl App {
     }
 
     /// A radio button, or for several answers a checkbox, picked or not.
-    fn poll_mark(&self, on: bool, multiselect: bool) -> Element<'_, Message> {
-        let theme = &self.theme;
+    fn poll_mark(self, on: bool, multiselect: bool) -> Element<'a, Message> {
+        let theme = self.look.theme;
         let (muted, accent) = (theme.muted, theme.accent);
         let radius = if multiselect { 5.0 } else { 10.0 };
-        let inner: Element<'_, Message> = match (on, multiselect) {
-            (true, true) => self.glyph(Icon::Check, 14, theme.on_accent).into(),
+        let inner: Element<'a, Message> = match (on, multiselect) {
+            (true, true) => self.look.glyph(Icon::Check, 14, theme.on_accent).into(),
             (true, false) => {
                 let dot = theme.on_accent;
                 container(Space::new())
@@ -357,7 +438,7 @@ impl App {
     }
 
     /// An answer's emoji: a Unicode one's picture, or a custom one's.
-    fn poll_emoji(&self, message: &ChatMessage, key: Option<&str>) -> Option<Element<'_, Message>> {
+    fn poll_emoji(self, message: &ChatMessage, key: Option<&str>) -> Option<Element<'a, Message>> {
         let key = key?;
         let picture = match emojis::get(key) {
             Some(emoji) => self.emoji_picture(emoji.as_str(), ANSWER_EMOJI),
@@ -374,81 +455,4 @@ impl App {
             None => text(key.to_owned()).size(18).into(),
         })
     }
-
-    /// What a poll's card asked for.
-    pub fn poll_event(&mut self, event: Event) -> Task<Message> {
-        match event {
-            Event::Pick(item, answer) => {
-                let multiselect = self
-                    .client
-                    .state()
-                    .message(&item)
-                    .and_then(|message| message.poll.as_ref())
-                    .is_some_and(|poll| poll.multiselect);
-                let key = pick_key(&item, answer);
-                if !self.revealed.remove(&key) {
-                    if !multiselect {
-                        let picks = format!("{item}/pick");
-                        self.revealed.retain(|kept| !kept.starts_with(&picks));
-                    }
-                    self.revealed.insert(key);
-                }
-                Task::none()
-            }
-            Event::ShowResults(item) => {
-                self.revealed.insert(results_key(&item));
-                Task::none()
-            }
-            Event::EndPoll => {
-                self.client.dispatch(Action::EndPoll);
-                Task::batch([self.sync(), self.refocus()])
-            }
-            Event::KeepPoll => {
-                self.client.dispatch(Action::CancelEndPoll);
-                Task::batch([self.sync(), self.refocus()])
-            }
-            Event::BackToVote(item) => {
-                self.revealed.remove(&results_key(&item));
-                Task::none()
-            }
-            Event::Vote(item) => {
-                let picks = format!("{item}/pick");
-                let answers = self
-                    .revealed
-                    .iter()
-                    .filter_map(|kept| kept.strip_prefix(&picks)?.parse().ok())
-                    .collect();
-                self.client.dispatch(Action::Vote { item, answers });
-                self.sync()
-            }
-            // Taking the vote back starts the poll afresh.
-            Event::RemoveVote(item) => {
-                let picks = format!("{item}/pick");
-                let results = results_key(&item);
-                self.revealed
-                    .retain(|kept| !kept.starts_with(&picks) && *kept != results);
-                self.client.dispatch(Action::Vote {
-                    item,
-                    answers: Vec::new(),
-                });
-                self.sync()
-            }
-        }
-    }
-}
-
-/// Whether a timeline shows a poll still open at `now`, whose time left
-/// goes down.
-pub fn open_poll(messages: &[std::sync::Arc<ChatMessage>], now: u64) -> bool {
-    messages.iter().any(|message| {
-        message
-            .poll
-            .as_ref()
-            .is_some_and(|poll| poll.expiry.is_some() && !poll.closed(now))
-    })
-}
-
-/// A poll's height, for estimates.
-pub fn estimate(poll: &Poll) -> f32 {
-    16.0 * 2.0 + 24.0 + 20.0 + poll.answers.len() as f32 * (ANSWER + 8.0) + 40.0
 }

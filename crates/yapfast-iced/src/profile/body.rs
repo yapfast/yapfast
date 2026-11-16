@@ -19,7 +19,7 @@ use super::{
     look::{Inks, Offer, Tab},
 };
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{self, Kind, action, lit_style, placed},
     fonts::{BOLD, MEDIUM, REGULAR, SEMIBOLD},
     looks::{self, Chip},
@@ -74,13 +74,49 @@ impl Mode {
     }
 }
 
-impl App {
+/// A section's title on a card, as Discord writes it: small, bold, in the
+/// card's ink.
+fn title<'a>(words: &'a str, ink: Color) -> Element<'a, Message> {
+    text(words).size(12).font(BOLD).color(ink).into()
+}
+
+/// A thought's bubble over a profile's top: two dots, each `(x, y,
+/// side)`, rising from the avatar to `content` at `at`, in the bubble's
+/// inks. A stack is the size of its first child, which lays out the rest:
+/// the whole top, so the second dot and the bubble have room.
+pub(crate) fn thought<'a>(
+    inks: &Inks,
+    dots: [(f32, f32, f32); 2],
+    at: Point,
+    content: Element<'a, Message>,
+) -> Element<'a, Message> {
+    let (bubble, edge) = (inks.bubble, inks.bubble_edge);
+    let dot = move |(x, y, side): (f32, f32, f32)| {
+        placed(
+            container(Space::new())
+                .width(side)
+                .height(side)
+                .style(move |_| crate::style::outlined(bubble, edge, side / 2.0)),
+            x,
+            y,
+        )
+    };
+    stack![
+        Space::new().width(Length::Fill).height(Length::Fill),
+        dot(dots[0]),
+        dot(dots[1]),
+        placed(content, at.x, at.y),
+    ]
+    .into()
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
     /// A profile's card in `mode`; `pointed` plays its decoration.
     /// `width` is the profile's across: the card's, the docked panel's
     /// inside its inset, or the full profile's side column's, which grows
     /// with the window.
-    pub(super) fn profile_body<'a>(
-        &'a self,
+    pub(super) fn profile_body(
+        self,
         shown: &'a Shown,
         mode: Mode,
         width: f32,
@@ -90,7 +126,7 @@ impl App {
         let profile = look.profile();
         let inks = self.inks(look, mode);
         let metrics = mode.metrics();
-        let theme = &self.theme;
+        let theme = self.look.theme;
         let mut body = column![].spacing(12).padding([0.0, metrics.pad]);
         let mut names = column![self.profile_name(shown, metrics.name, inks.ink)].spacing(2);
         if let Some(line) = self.handle_line(shown, &inks) {
@@ -108,8 +144,8 @@ impl App {
         if !mode.large() && !look.activities.is_empty() {
             let mut activities = column![].spacing(12);
             for activity in &look.activities {
-                let menu = (mode == Mode::Card && !look.bot && !self.client.state().preview)
-                    .then_some(look.own);
+                let menu =
+                    (mode == Mode::Card && !look.bot && !self.state.preview).then_some(look.own);
                 activities = activities.push(self.activity_card_view(activity, &inks, menu));
             }
             body = body.push(activities);
@@ -158,7 +194,7 @@ impl App {
             body = body.push(text(look.note.as_str()).size(13).color(inks.ink3));
         }
         if mode == Mode::Card && look.own {
-            let pencil = self.icon(Icon::Pencil, 18, rgb(theme.on_accent));
+            let pencil = self.look.icon(Icon::Pencil, 18, rgb(theme.on_accent));
             body = body.push(
                 action(
                     theme,
@@ -190,8 +226,8 @@ impl App {
     /// The banner, with the avatar over its lower edge on a ring of the
     /// card's ground, the status's bubble beside it, and on the card the
     /// friend and More buttons over its top right corner.
-    fn profile_top<'a>(
-        &'a self,
+    fn profile_top(
+        self,
         shown: &'a Shown,
         mode: Mode,
         width: f32,
@@ -221,7 +257,7 @@ impl App {
             .banner_ground(shown)
             .map(hex)
             .or(inks.themed.then_some(inks.primary))
-            .unwrap_or(self.theme.raised);
+            .unwrap_or(self.look.theme.raised);
         let mut banner = stack![
             container(Space::new())
                 .width(Length::Fill)
@@ -271,8 +307,8 @@ impl App {
     }
 
     /// The avatar on its ring, with its decoration and presence.
-    pub(super) fn profile_avatar<'a>(
-        &'a self,
+    pub(super) fn profile_avatar(
+        self,
         shown: &'a Shown,
         size: f32,
         pointed: bool,
@@ -288,7 +324,7 @@ impl App {
                 .height(ring)
                 .style(move |_| rounded(ground, ring / 2.0))
         ];
-        let face: Element<'_, Message> = match profile
+        let face: Element<'a, Message> = match profile
             .avatar
             .as_deref()
             .and_then(|url| self.profile_picture(shown, url, size as u32, size as u32, true))
@@ -303,8 +339,7 @@ impl App {
         };
         avatar = avatar.push(face);
         if let Some(decoration) = self
-            .client
-            .state()
+            .state
             .cosmetics
             .decoration(profile.decoration.as_deref())
         {
@@ -346,8 +381,8 @@ impl App {
 
     /// What they're up to, a thought beside the picture: two lines at most,
     /// all of it while pointed at, as Discord's.
-    fn thought_bubble<'a>(
-        &'a self,
+    fn thought_bubble(
+        self,
         shown: &'a Shown,
         mode: Mode,
         width: f32,
@@ -411,7 +446,7 @@ impl App {
 
     /// The friend request and the person's menu, over the banner's top
     /// right corner, as in Discord.
-    fn banner_buttons<'a>(&'a self, shown: &'a Shown) -> Element<'a, Message> {
+    fn banner_buttons(self, shown: &'a Shown) -> Element<'a, Message> {
         let look = &shown.look;
         let id = look.profile().id.clone();
         let round = |icon: Icon, label: &'static str, message: Option<Message>| {
@@ -424,9 +459,10 @@ impl App {
                 a: 0.7,
                 ..Color::BLACK
             };
-            let glyph = self
-                .glyph(icon, 18, Color::WHITE)
-                .opacity(if enabled { 1.0 } else { 0.5 });
+            let glyph =
+                self.look
+                    .glyph(icon, 18, Color::WHITE)
+                    .opacity(if enabled { 1.0 } else { 0.5 });
             let face = button(glyph.boxed(32))
                 .padding(0)
                 .width(32)
@@ -447,7 +483,7 @@ impl App {
             Element::from(
                 tooltip(
                     face,
-                    controls::tip(&self.theme, label),
+                    controls::tip(self.look.theme, label),
                     tooltip::Position::Top,
                 )
                 .gap(6),
@@ -469,16 +505,11 @@ impl App {
 
     /// The name, with its whole style drawn once while the profile shows,
     /// or in plain bold.
-    pub(crate) fn profile_name(
-        &self,
-        shown: &Shown,
-        size: f32,
-        ink: Color,
-    ) -> Element<'_, Message> {
-        let state = self.client.state();
+    pub(crate) fn profile_name(self, shown: &Shown, size: f32, ink: Color) -> Element<'a, Message> {
+        let state = self.state;
         let profile = shown.look.profile();
         let style = state.cosmetics.style(profile.style.as_deref());
-        let dark = self.theme.dark;
+        let dark = self.look.theme.dark;
         let Some(style) = looks::name_look(style, &profile.name, false, dark) else {
             return text(profile.name.clone())
                 .size(size)
@@ -510,9 +541,9 @@ impl App {
     }
 
     /// The username and pronouns, and the server tag's chip.
-    fn handle_line<'a>(&'a self, shown: &'a Shown, inks: &Inks) -> Option<Element<'a, Message>> {
+    fn handle_line(self, shown: &'a Shown, inks: &Inks) -> Option<Element<'a, Message>> {
         let profile = shown.look.profile();
-        let tag = self.client.state().cosmetics.tag(profile.tag.as_ref());
+        let tag = self.state.cosmetics.tag(profile.tag.as_ref());
         if profile.handle.is_empty() && tag.is_none() {
             return None;
         }
@@ -538,7 +569,7 @@ impl App {
             } else {
                 crate::style::MEMBER_HOVER
             };
-            let chip = self.ctx().tag_chip(
+            let chip = self.tag_chip(
                 &tag.text,
                 tag.badge.as_deref(),
                 Chip {
@@ -551,7 +582,7 @@ impl App {
                     ink: if inks.themed {
                         inks.ink
                     } else {
-                        self.theme.text
+                        self.look.theme.text
                     },
                 },
                 1.0,
@@ -564,15 +595,11 @@ impl App {
     /// The full profile's actions under the name: the friend button, the
     /// message button and the menu, as Discord sets them; one's own has
     /// Edit Profile in their place.
-    fn profile_actions<'a>(
-        &'a self,
-        shown: &'a Shown,
-        inks: &Inks,
-    ) -> Option<Element<'a, Message>> {
+    fn profile_actions(self, shown: &'a Shown, inks: &Inks) -> Option<Element<'a, Message>> {
         let look = &shown.look;
-        let theme = &self.theme;
+        let theme = self.look.theme;
         if look.own {
-            let pencil = self.icon(Icon::Pencil, 16, rgb(theme.on_accent));
+            let pencil = self.look.icon(Icon::Pencil, 16, rgb(theme.on_accent));
             return Some(
                 action(
                     theme,
@@ -601,7 +628,7 @@ impl App {
                 button(
                     container(
                         row![
-                            self.glyph(icon, 16, face_ink),
+                            self.look.glyph(icon, 16, face_ink),
                             text(label).size(14).font(MEDIUM).color(face_ink),
                         ]
                         .spacing(6)
@@ -632,7 +659,7 @@ impl App {
             );
         }
         let round = |icon: Icon, message: Message| {
-            button(self.glyph(icon, 18, ink).boxed(32))
+            button(self.look.glyph(icon, 18, ink).boxed(32))
                 .padding(0)
                 .width(32)
                 .height(32)
@@ -654,7 +681,7 @@ impl App {
     /// Someone's badges as Discord's profile sets them: twelve to a row,
     /// 20 px icons 2 px apart, each row a pill of its own; a badge's name
     /// shows over it, and a click opens its page when it has one.
-    pub(crate) fn badge_rows<'a>(&'a self, shown: &'a Shown) -> Element<'a, Message> {
+    pub(crate) fn badge_rows(self, shown: &'a Shown) -> Element<'a, Message> {
         let profile = shown.look.profile();
         let mut rows = column![].spacing(4);
         for chunk in profile.badges.chunks(12) {
@@ -677,7 +704,7 @@ impl App {
                 // after the pointer rests on it, as Discord's waits.
                 let tip = match &badge.level {
                     Some(level) => self.badge_level_tip(shown, level),
-                    None => controls::tip(&self.theme, badge.description.as_str()),
+                    None => controls::tip(self.look.theme, badge.description.as_str()),
                 };
                 pill = pill.push(
                     tooltip(face, tip, tooltip::Position::Top)
@@ -704,12 +731,12 @@ impl App {
     /// (the Slint client's `BadgeTipCard`): 200 px wide on the tooltip's
     /// ground, the level's picture 64 px high, then the kind, the level in
     /// capitals and the progress.
-    fn badge_level_tip<'a>(
-        &'a self,
+    fn badge_level_tip(
+        self,
         shown: &'a Shown,
         level: &'a chat::ProfileBadgeLevel,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.look.theme;
         let mut card = column![].spacing(16).padding(Padding {
             left: 12.0,
             right: 12.0,
@@ -722,8 +749,7 @@ impl App {
         });
         // As wide as the picture's shape makes it at its height.
         let picture = self
-            .client
-            .state()
+            .state
             .pictures
             .get(&level.picture)
             .filter(|picture| picture.height > 0)
@@ -771,12 +797,7 @@ impl App {
 
     /// What is shared, with a few of the faces: "5 Mutual Friends", a
     /// bullet, "2 Mutual Servers", each opening the full profile on its tab.
-    fn mutual_line<'a>(
-        &'a self,
-        shown: &'a Shown,
-        inks: &Inks,
-        mode: Mode,
-    ) -> Element<'a, Message> {
+    fn mutual_line(self, shown: &'a Shown, inks: &Inks, mode: Mode) -> Element<'a, Message> {
         let look = &shown.look;
         let profile = look.profile();
         let panel = mode == Mode::Docked;
@@ -837,8 +858,8 @@ impl App {
 
     /// The bio: three lines and "View full bio" on the card, whole
     /// elsewhere.
-    pub(super) fn bio_view<'a>(
-        &'a self,
+    pub(super) fn bio_view(
+        self,
         bio: &'a markdown::Body,
         inks: &Inks,
         mode: Mode,
@@ -877,17 +898,13 @@ impl App {
     /// Member Since's dates in one row, as Discord's: the Discord logo and
     /// the account's date, then a bullet, the server's icon and the date of
     /// joining it.
-    pub(super) fn member_since<'a>(
-        &'a self,
-        shown: &'a Shown,
-        inks: &Inks,
-    ) -> Element<'a, Message> {
+    pub(super) fn member_since(self, shown: &'a Shown, inks: &Inks) -> Element<'a, Message> {
         let profile = shown.look.profile();
         let ink = inks.ink2;
         let mut line = row![].spacing(8).align_y(Alignment::Center);
         if let Some(created) = &profile.created {
             line = line
-                .push(self.glyph(Icon::Discord, 16, ink))
+                .push(self.look.glyph(Icon::Discord, 16, ink))
                 .push(text(created.as_str()).size(14).color(ink));
         }
         if profile.created.is_some() && profile.joined.is_some() {
@@ -901,7 +918,7 @@ impl App {
             {
                 Some(picture) => Pic::square(picture, 16.0).radius(4.0).into(),
                 None => {
-                    let raised = self.theme.raised;
+                    let raised = self.look.theme.raised;
                     container(
                         text(crate::pictures::initials(&profile.server_name))
                             .size(8)
@@ -921,10 +938,10 @@ impl App {
     }
 
     /// Their roles as chips: the role's colour in a dot, its name.
-    fn role_chips<'a>(&'a self, shown: &'a Shown, inks: &Inks) -> Element<'a, Message> {
+    fn role_chips(self, shown: &'a Shown, inks: &Inks) -> Element<'a, Message> {
         let profile = shown.look.profile();
         let ink = inks.ink;
-        let faint = self.theme.faint;
+        let faint = self.look.theme.faint;
         let mut chips = row![].spacing(4);
         for role in &profile.roles {
             let dot = role.color.map_or(faint, hex);
@@ -962,7 +979,7 @@ impl App {
 
     /// Their accounts on other services: each one's name, verified, and
     /// where it opens.
-    fn connections<'a>(&'a self, shown: &'a Shown, inks: &Inks) -> Element<'a, Message> {
+    fn connections(self, shown: &'a Shown, inks: &Inks) -> Element<'a, Message> {
         let profile = shown.look.profile();
         let mut list = column![title("Connections", inks.ink)].spacing(8);
         for connection in &profile.connections {
@@ -976,10 +993,10 @@ impl App {
             .spacing(4)
             .align_y(Alignment::Center);
             if connection.verified {
-                name = name.push(self.glyph(Icon::Check, 14, inks.ink2));
+                name = name.push(self.look.glyph(Icon::Check, 14, inks.ink2));
             }
             if connection.url.is_some() {
-                name = name.push(self.glyph(Icon::Link, 14, inks.ink2));
+                name = name.push(self.look.glyph(Icon::Link, 14, inks.ink2));
             }
             let mut words = column![name];
             if let Some(since) = &connection.since {
@@ -989,7 +1006,7 @@ impl App {
                         .color(inks.ink3),
                 );
             }
-            let entry = row![self.glyph(Icon::Chain, 24, inks.ink2), words]
+            let entry = row![self.look.glyph(Icon::Chain, 24, inks.ink2), words]
                 .spacing(8)
                 .align_y(Alignment::Center);
             list = list.push(match &connection.url {
@@ -1007,8 +1024,8 @@ impl App {
 
     /// The note this account keeps on them, saved on Enter or as the full
     /// profile closes.
-    fn note_editor<'a>(&'a self, inks: &Inks) -> Element<'a, Message> {
-        let (ground, ink, hint, accent) = (inks.field, inks.ink, inks.ink3, self.theme.accent);
+    fn note_editor(self, inks: &Inks) -> Element<'a, Message> {
+        let (ground, ink, hint, accent) = (inks.field, inks.ink, inks.ink3, self.look.theme.accent);
         let field = text_input("Click to add a note", &self.profiles.note)
             .id(iced::widget::Id::new(NOTE_FIELD))
             .size(14)
@@ -1037,8 +1054,9 @@ impl App {
     }
 
     /// The card's box that messages them in their DM, its smile at the end.
-    fn message_box<'a>(&'a self, shown: &'a Shown, inks: &Inks) -> Element<'a, Message> {
-        let (ground, ink, hint, accent) = (inks.message, inks.ink, inks.ink2, self.theme.accent);
+    fn message_box(self, shown: &'a Shown, inks: &Inks) -> Element<'a, Message> {
+        let (ground, ink, hint, accent) =
+            (inks.message, inks.ink, inks.ink2, self.look.theme.accent);
         let field = text_input(&shown.look.message_hint, &self.profiles.field)
             .id(iced::widget::Id::new(MESSAGE_FIELD))
             .size(14)
@@ -1060,7 +1078,7 @@ impl App {
             });
         stack![
             field,
-            container(self.glyph(Icon::Smile, 20, inks.ink2))
+            container(self.look.glyph(Icon::Smile, 20, inks.ink2))
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .align_x(Alignment::End)
@@ -1069,40 +1087,4 @@ impl App {
         ]
         .into()
     }
-}
-
-/// A section's title on a card, as Discord writes it: small, bold, in the
-/// card's ink.
-fn title<'a>(words: &'a str, ink: Color) -> Element<'a, Message> {
-    text(words).size(12).font(BOLD).color(ink).into()
-}
-
-/// A thought's bubble over a profile's top: two dots, each `(x, y,
-/// side)`, rising from the avatar to `content` at `at`, in the bubble's
-/// inks. A stack is the size of its first child, which lays out the rest:
-/// the whole top, so the second dot and the bubble have room.
-pub(crate) fn thought<'a>(
-    inks: &Inks,
-    dots: [(f32, f32, f32); 2],
-    at: Point,
-    content: Element<'a, Message>,
-) -> Element<'a, Message> {
-    let (bubble, edge) = (inks.bubble, inks.bubble_edge);
-    let dot = move |(x, y, side): (f32, f32, f32)| {
-        placed(
-            container(Space::new())
-                .width(side)
-                .height(side)
-                .style(move |_| crate::style::outlined(bubble, edge, side / 2.0)),
-            x,
-            y,
-        )
-    };
-    stack![
-        Space::new().width(Length::Fill).height(Length::Fill),
-        dot(dots[0]),
-        dot(dots[1]),
-        placed(content, at.x, at.y),
-    ]
-    .into()
 }

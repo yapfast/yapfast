@@ -219,26 +219,31 @@ impl Status {
     }
 }
 
-impl App {
-    /// The popover over the account card, its foot 4 px above it.
-    pub fn popover_view(&self) -> Option<Element<'_, Message>> {
-        let popover = self.status.popover.as_ref()?;
-        let theme = &self.theme;
-        let state = self.client.state();
-        let account = &self.account;
+/// The popover over the account card, its foot 4 px above it.
+pub fn popover_view<'a>(status: &'a Status, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
+    View { s: status, cx }.popover()
+}
+
+impl<'a> View<'a> {
+    fn popover(self) -> Option<Element<'a, Message>> {
+        let popover = self.s.popover.as_ref()?;
+        let theme = self.cx.look.theme;
+        let state = self.cx.state;
+        let account = self.cx.account;
         let profile = state.account_profile.as_deref();
         let inks = crate::profile::look::Inks::new(
             theme,
             profile.and_then(|profile| profile.theme),
             theme.panel,
         );
-        let card = self.profiles.account.as_ref().map(|(_, shown)| shown);
+        let card = self.cx.profiles.account.as_ref().map(|(_, shown)| shown);
         let header = self.popover_header(card, &inks);
         let status = state.discord_presence.as_deref().unwrap_or("online");
         let mut header = column![header];
         // Its badges, in Discord's pills.
         if let Some(shown) = card.filter(|shown| !shown.look.profile().badges.is_empty()) {
-            header = header.push(container(self.badge_rows(shown)).padding(Padding::ZERO.left(16)));
+            header =
+                header.push(container(self.cx.badge_rows(shown)).padding(Padding::ZERO.left(16)));
         }
         let mut body = column![].spacing(12).padding(Padding {
             top: 8.0,
@@ -248,8 +253,10 @@ impl App {
         });
         let custom = state.custom_status.is_some();
         if custom {
-            body = body
-                .push(self.status_line(&account.status, StatusInk::under_name(&self.theme, 1.0)));
+            body = body.push(self.cx.status_line(
+                &account.status,
+                StatusInk::under_name(self.cx.look.theme, 1.0),
+            ));
         }
         if let Some(playing) = &state.discord_playing {
             body = body.push(self.playing_card(playing));
@@ -296,7 +303,8 @@ impl App {
         let card = container(column![header, body])
             .width(POPOVER)
             .style(crate::profile::frame_style(inks, theme.line, 8.0, true));
-        let bottom = self.window.height - crate::account::HEIGHT - crate::account::INSET - 4.0;
+        let bottom =
+            self.cx.look.window.height - crate::account::HEIGHT - crate::account::INSET - 4.0;
         Some(
             Place::new(opaque(card), Point::new(crate::account::INSET, bottom), 8.0)
                 .anchor(Anchor::Bottom)
@@ -308,17 +316,17 @@ impl App {
     /// its colour, the theme's, the avatar's or the sunken grey), the
     /// avatar with its decoration and status on a ring of the card's
     /// ground, and the name in its style with the server tag.
-    fn popover_header<'a>(
-        &'a self,
+    fn popover_header(
+        self,
         card: Option<&'a crate::profile::Shown>,
         inks: &crate::profile::look::Inks,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let state = self.client.state();
-        let account = &self.account;
+        let theme = self.cx.look.theme;
+        let state = self.cx.state;
+        let account = self.cx.account;
         let profile = card.map(|shown| shown.look.profile());
         let ground = card
-            .and_then(|shown| self.banner_ground(shown))
+            .and_then(|shown| self.cx.banner_ground(shown))
             .map(hex)
             .or(inks.themed.then_some(inks.primary))
             .unwrap_or(theme.sunken);
@@ -332,7 +340,8 @@ impl App {
         if let Some(picture) = card
             .zip(profile.and_then(|profile| profile.banner.as_deref()))
             .and_then(|(shown, url)| {
-                self.profile_picture(shown, url, POPOVER as u32, BANNER as u32, true)
+                self.cx
+                    .profile_picture(shown, url, POPOVER as u32, BANNER as u32, true)
             })
         {
             banner = banner.push(
@@ -347,7 +356,7 @@ impl App {
                 .height(88)
                 .style(move |_| rounded(ring, 44)),
             container(
-                self.face(
+                self.cx.face(
                     crate::pictures::Face::new(account.avatar.as_deref(), &account.name, 80.0)
                         .decoration(state.account_decoration.as_deref(), true)
                 )
@@ -355,11 +364,11 @@ impl App {
             .padding(4),
         ];
         let status = state.discord_presence.as_deref().unwrap_or("online");
-        if let Some(dot) = self.mark(Mark::Dot(presence(status), rgb(ring))) {
+        if let Some(dot) = self.cx.mark(Mark::Dot(presence(status), rgb(ring))) {
             face = face.push(placed(Pic::square(dot, DOT), 66.0, 65.0));
         }
         let mut name = row![match card {
-            Some(shown) => self.profile_name(shown, 20.0, inks.ink),
+            Some(shown) => self.cx.profile_name(shown, 20.0, inks.ink),
             None => text(account.name.as_str())
                 .size(20)
                 .font(BOLD)
@@ -370,7 +379,7 @@ impl App {
         .spacing(6)
         .align_y(Alignment::Center);
         if let Some(tag) = profile.and_then(|profile| state.cosmetics.tag(profile.tag.as_ref())) {
-            name = name.push(self.ctx().tag_chip(
+            name = name.push(self.cx.tag_chip(
                 &tag.text,
                 tag.badge.as_deref(),
                 crate::looks::Chip {
@@ -404,8 +413,8 @@ impl App {
 
     /// The game this account plays, as Discord's popover shows it: what,
     /// and for how long when the game says when it started.
-    fn playing_card<'a>(&self, playing: &'a yapfast_core::chat::Playing) -> Element<'a, Message> {
-        let theme = &self.theme;
+    fn playing_card(self, playing: &'a yapfast_core::chat::Playing) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         let mut lines = column![
             text("Playing").size(12).font(BOLD).color(theme.secondary),
             crate::elide::elide(playing.name.as_str())
@@ -415,7 +424,7 @@ impl App {
         ]
         .spacing(4);
         if let Some(started) = playing.started_ms {
-            let lasted = played_for(self.minute.saturating_mul(1000).saturating_sub(started));
+            let lasted = played_for(self.cx.minute.saturating_mul(1000).saturating_sub(started));
             lines = lines.push(text(lasted).size(12).color(theme.live));
         }
         let raised = theme.raised;
@@ -428,26 +437,9 @@ impl App {
             .into()
     }
 
-    /// Whether the popover shows how long a game has run, which the
-    /// minute's clock keeps up to date.
-    pub fn popover_playing(&self) -> bool {
-        self.status.popover.is_some()
-            && self
-                .client
-                .state()
-                .discord_playing
-                .as_ref()
-                .is_some_and(|playing| playing.started_ms.is_some())
-    }
-
     /// A row of the popover's: its icon, its words.
-    fn popover_row<'a>(
-        &self,
-        label: &'a str,
-        icon: Icon,
-        pressed: Message,
-    ) -> Element<'a, Message> {
-        self.menu_item_sized(
+    fn popover_row(self, label: &'a str, icon: Icon, pressed: Message) -> Element<'a, Message> {
+        self.cx.look.menu_item_sized(
             Item {
                 label: label.into(),
                 icon: Some(icon),
@@ -464,14 +456,14 @@ impl App {
     }
 
     /// The status as it is, which shows the others to choose.
-    fn status_row(&self, status: &str, expanded: bool) -> Element<'_, Message> {
-        let theme = &self.theme;
+    fn status_row(self, status: &str, expanded: bool) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         let name = STATUSES
             .iter()
             .find(|(key, ..)| *key == status)
             .map_or("Online", |(_, name, _)| name);
         let mut line = row![].spacing(8).align_y(Alignment::Center);
-        if let Some(dot) = self.mark(Mark::Dot(presence(status), rgb(theme.raised))) {
+        if let Some(dot) = self.cx.mark(Mark::Dot(presence(status), rgb(theme.raised))) {
             line = line.push(Pic::square(dot, 16.0));
         }
         line = line
@@ -481,7 +473,7 @@ impl App {
                     .color(theme.secondary)
                     .width(Length::Fill),
             )
-            .push(self.glyph(
+            .push(self.cx.look.glyph(
                 if expanded {
                     Icon::ChevronDown
                 } else {
@@ -510,14 +502,14 @@ impl App {
 
     /// One of Discord's statuses: its dot, its name and what it means, a
     /// tick on the one chosen.
-    fn status_option<'a>(
-        &self,
+    fn status_option(
+        self,
         key: &'static str,
         name: &'a str,
         note: &'a str,
         checked: bool,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let mut words = column![
             text(name)
                 .size(15)
@@ -530,12 +522,12 @@ impl App {
             words = words.push(text(note).size(12).color(theme.muted));
         }
         let mut line = row![].spacing(10).align_y(Alignment::Center);
-        if let Some(dot) = self.mark(Mark::Dot(presence(key), rgb(theme.raised))) {
+        if let Some(dot) = self.cx.mark(Mark::Dot(presence(key), rgb(theme.raised))) {
             line = line.push(Pic::square(dot, 16.0));
         }
         line = line.push(words);
         if checked {
-            line = line.push(self.glyph(Icon::Check, 16, theme.accent));
+            line = line.push(self.cx.look.glyph(Icon::Check, 16, theme.accent));
         }
         let active = theme.active;
         button(line)
@@ -548,6 +540,20 @@ impl App {
                 ..Default::default()
             })
             .into()
+    }
+}
+
+impl App {
+    /// Whether the popover shows how long a game has run, which the
+    /// minute's clock keeps up to date.
+    pub fn popover_playing(&self) -> bool {
+        self.status.popover.is_some()
+            && self
+                .client
+                .state()
+                .discord_playing
+                .as_ref()
+                .is_some_and(|playing| playing.started_ms.is_some())
     }
 }
 

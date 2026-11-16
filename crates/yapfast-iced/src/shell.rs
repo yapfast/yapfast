@@ -160,7 +160,7 @@ impl App {
                 // Closed by the desktop rather than by Yapfast.
                 if self.shell.window == Some(id) {
                     self.shell.window = None;
-                    return self.forget_window();
+                    return self.forget_window(crate::app::Keep::default());
                 }
                 Task::none()
             }
@@ -396,36 +396,58 @@ impl App {
 
     /// Drops the window, keeping its size for the next.
     pub fn drop_window(&mut self) -> Task<Message> {
+        self.drop_window_keeping(crate::app::Keep::default())
+    }
+
+    /// Drops the window, keeping its size and `keep` for the next.
+    pub fn drop_window_keeping(&mut self, keep: crate::app::Keep) -> Task<Message> {
         let Some(id) = self.shell.window.take() else {
             return Task::none();
         };
         self.shell.size = Some(self.shell.frame);
-        let forgot = self.forget_window();
+        let forgot = self.forget_window(keep);
         tracing::info!("window closed");
         Task::batch([forgot, window::close(id)])
     }
 
     /// What only the window used goes with it; the core's state stays, so
-    /// the next window shows it without asking again. Settings close as
-    /// their own button closes them, letting go of what they ran; the
-    /// call's popup goes with the microphone it may have open; the call's
-    /// videos stop being made for tiles nobody sees.
-    fn forget_window(&mut self) -> Task<Message> {
+    /// the next window shows it without asking again. Everything in
+    /// `app::Window` is named here, so a field added there says what
+    /// becomes of it. Settings close as their own button closes them,
+    /// letting go of what they ran, unless `keep` keeps them; the call's
+    /// popup goes with the microphone it may have open; the call's videos
+    /// stop being made for tiles nobody sees.
+    fn forget_window(&mut self, keep: crate::app::Keep) -> Task<Message> {
+        use crate::slot::Why;
         self.shell.focused = false;
         self.close_popup();
         self.call.details.pointed = false;
-        self.menu = None;
-        {
-            let mut cx = crate::ctx::cx!(self);
-            self.picker.close(&mut cx, crate::slot::Why::Window);
-            self.tag_card.close(&mut cx, crate::slot::Why::Window);
-        }
         self.profiles.card = None;
-        let settings = self.close_settings_for(crate::slot::Why::Window);
+        let mut cx = crate::ctx::cx!(self);
+        let crate::app::Window {
+            menu,
+            picker,
+            tag_card,
+            settings,
+            // Let go of last, once what Settings' close asked is done.
+            pictures: _,
+            icons: _,
+        } = &mut self.win;
+        *menu = None;
+        picker.close(&mut cx, Why::Window);
+        tag_card.close(&mut cx, Why::Window);
+        let settings_closed = !keep.settings && settings.close(&mut cx, Why::Window);
+        // What Settings' close asked is done before the pictures go, as
+        // their own button does it.
+        let settled = if settings_closed {
+            self.settle()
+        } else {
+            Task::none()
+        };
         self.place_videos();
-        self.pictures.forget();
-        self.icons.forget();
-        settings
+        self.win.pictures.forget();
+        self.win.icons.forget();
+        settled
     }
 
     /// Ends Yapfast: the icon goes first, rather than when the desktop next

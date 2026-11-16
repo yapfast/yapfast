@@ -7,7 +7,7 @@ use iced::{
 };
 
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{bar, lit_style},
     elide::elide,
     fonts::{MEDIUM, SEMIBOLD},
@@ -21,18 +21,18 @@ use super::{
     INSET, INVITE, WIDTH,
 };
 
-impl App {
+impl<'a> super::View<'a> {
     /// The sidebar's top: a server's name (with Invite people beside it),
     /// or the DMs' search field, over the outline; with a banner, the
     /// header grows over it, shaded at its top, with no line under it.
-    pub(super) fn side_header_view(&self) -> Element<'_, Message> {
-        let theme = &self.theme;
-        let head = &self.side_header;
-        let inner: Element<'_, Message> = match &head.server {
+    pub(super) fn side_header_view(self) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let head = &self.s.header;
+        let inner: Element<'a, Message> = match &head.server {
             None => {
                 let (ground, ink, hint, selection) =
                     (theme.field, theme.text, theme.muted, theme.selection);
-                text_input("Find a conversation", &self.filter)
+                text_input("Find a conversation", &self.s.filter)
                     .id(FILTER)
                     .on_input(|filter| Message::Side(Event::Filter(filter)))
                     .size(13)
@@ -51,7 +51,8 @@ impl App {
                 let mut line = row![self.server_name_button()].spacing(INSET);
                 if head.invite {
                     line = line.push(
-                        self.look()
+                        self.cx
+                            .look
                             .icon_button(
                                 Icon::UserPlus,
                                 "Invite people",
@@ -74,7 +75,7 @@ impl App {
         };
         let height = HEADER + BANNER;
         let mut layers = stack![];
-        if let Some(picture) = self.picture(banner, WIDTH as u32, height as u32, true) {
+        if let Some(picture) = self.cx.picture(banner, WIDTH as u32, height as u32, true) {
             layers = layers.push(
                 Pic::new(picture, iced::Size::new(WIDTH, height))
                     .radius_each([12.0, 0.0, 0.0, 0.0]),
@@ -104,8 +105,8 @@ impl App {
     /// Discord's boost goal under the server's name: a pill whose pink
     /// fill is the share of the goal the boosts reach, "Boost Goal" and
     /// how many of the goal's boosts, with a line under the row.
-    pub(super) fn boost_goal(&self, boosts: u32) -> Element<'_, Message> {
-        let theme = &self.theme;
+    pub(super) fn boost_goal(self, boosts: u32) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         let share = (boosts as f32 / BOOST_GOAL as f32).min(1.0);
         let fill = Background::Gradient(
             iced::gradient::Linear::new(iced::Degrees(270.0))
@@ -161,7 +162,7 @@ impl App {
                 .font(MEDIUM)
                 .color(faded(theme.text, 0.7))
                 .wrapping(text::Wrapping::None),
-            self.glyph(Icon::ChevronRight, 16, theme.muted),
+            self.cx.look.glyph(Icon::ChevronRight, 16, theme.muted),
         ]
         .spacing(10)
         .padding([0, 8])
@@ -191,8 +192,8 @@ impl App {
 
     /// Discord's "N Events" row under the server's name, which opens the
     /// server's scheduled events under it.
-    pub(super) fn events_row(&self, events: usize) -> Element<'_, Message> {
-        let theme = &self.theme;
+    pub(super) fn events_row(self, events: usize) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         let label = match events {
             0 => "Events".to_owned(),
             1 => "1 Event".to_owned(),
@@ -201,7 +202,7 @@ impl App {
         let (hover, muted) = (theme.hover, theme.muted);
         let face = button(
             row![
-                self.glyph(Icon::Calendar, 20, muted),
+                self.cx.look.glyph(Icon::Calendar, 20, muted),
                 text(label)
                     .size(14)
                     .font(MEDIUM)
@@ -234,10 +235,10 @@ impl App {
     /// A server's name at the top of its channels, as the Slint client's
     /// `ServerHeader`: its Community badge, the name and a chevron, lit
     /// under the pointer or while its menu is open, when the chevron turns.
-    pub(super) fn server_name_button(&self) -> Element<'_, Message> {
-        let theme = &self.theme;
-        let head = &self.side_header;
-        let open = self.menu.as_ref().is_some_and(|menu| menu.header);
+    pub(super) fn server_name_button(self) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let head = &self.s.header;
+        let open = self.cx.menu.is_some_and(|menu| menu.header);
         // Over the banner, in white.
         let on_banner = head.banner.is_some();
         let (ink, chevron) = if on_banner {
@@ -249,14 +250,14 @@ impl App {
         // Discord marks a verified server with its green badge, and one
         // that is only a Community server with the Community badge.
         if head.verified {
-            face = face.push(self.drawn(Icon::Verified, 16));
+            face = face.push(self.cx.look.drawn(Icon::Verified, 16));
         } else if head.community {
-            face = face.push(self.glyph(Icon::Community, 16, ink));
+            face = face.push(self.cx.look.glyph(Icon::Community, 16, ink));
         }
         face = face.push(
             row![
                 elide(head.name.as_str()).size(15).font(SEMIBOLD).color(ink),
-                self.glyph(
+                self.cx.look.glyph(
                     if open {
                         Icon::ChevronUp
                     } else {

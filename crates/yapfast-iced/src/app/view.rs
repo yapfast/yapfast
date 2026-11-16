@@ -24,7 +24,7 @@ const ZOOM_NOTE_TOP: f32 = 12.0;
 impl App {
     pub fn view(&self) -> Element<'_, Message> {
         // Whatever this returns, what it no longer shows goes at its end.
-        let _viewing = self.pictures.view();
+        let _viewing = self.win.pictures.view();
         if !self.workspace() {
             return self.frame_layers(crate::signin::view(self.ctx())).into();
         }
@@ -33,12 +33,16 @@ impl App {
         // across the foot of both.
         let rail = self.theme.rail;
         let mut foot = column![];
-        if let Some(dock) = self.dock_view() {
+        if let Some(dock) = self.ctx().dock_view() {
             foot = foot.push(dock);
         }
         let navigation = container(column![
-            row![self.rail_view(), self.sidebar_view()].height(Length::Fill),
-            foot.push(self.account_view()),
+            row![
+                crate::rail::view(&self.rail, self.ctx()),
+                crate::sidebar::view(&self.sidebar, self.ctx())
+            ]
+            .height(Length::Fill),
+            foot.push(self.ctx().account_view()),
         ])
         .width(crate::conversation::NAVIGATION)
         .height(Length::Fill)
@@ -56,14 +60,14 @@ impl App {
         {
             layers = layers.extend(role);
         }
-        if let Some(card) = self.card_view() {
+        if let Some(card) = self.ctx().card_view() {
             layers = layers
                 .push(outside(Message::CloseProfile, false))
                 .push(card);
         }
         // The picker for a dialog's emoji opens over the dialog.
         let mut over_dialogs = None;
-        if let Some(picker) = self.picker.get() {
+        if let Some(picker) = self.win.picker.get() {
             let shown = picker::view(picker, self.ctx());
             let size = picker.size();
             let place = match &picker.target {
@@ -99,12 +103,12 @@ impl App {
         if let Some(viewer) = self.clip_viewer() {
             layers = layers.push(viewer);
         }
-        if let Some(popup) = self.call_popup_view() {
+        if let Some(popup) = self.ctx().call_popup_view() {
             layers = layers
                 .push(outside(Message::Call(crate::call::Event::Close), false))
                 .push(popup);
         }
-        if let Some(settings) = self.settings.get() {
+        if let Some(settings) = self.win.settings.get() {
             layers = layers.push(crate::settings::view(settings, self.ctx()));
         }
         if let Some(settings) = self
@@ -122,10 +126,10 @@ impl App {
             layers = layers.push(settings);
         }
         // Over the settings, as a member's from Members.
-        if let Some(full) = self.full_profile_view() {
+        if let Some(full) = self.ctx().full_profile_view() {
             layers = layers.push(full);
         }
-        if let Some(editor) = self.profile_editor_view() {
+        if let Some(editor) = self.ctx().profile_editor_view() {
             layers = layers.push(editor);
         }
         // A mutual server's, over the profile that lists it.
@@ -140,10 +144,10 @@ impl App {
             layers = layers.extend(expression);
         }
         // A server tag's, over the profile or the messages it's on.
-        if let Some(card) = self.tag_card.get() {
+        if let Some(card) = self.win.tag_card.get() {
             layers = layers.extend(crate::tag_card::layers(card, self.ctx()));
         }
-        if let Some(popover) = self.popover_view() {
+        if let Some(popover) = crate::status::popover_view(&self.status, self.ctx()) {
             layers = layers
                 .push(outside(Message::Status(crate::status::Event::Close), false))
                 .push(popover);
@@ -168,16 +172,18 @@ impl App {
                 .push(outside(Message::Picker(picker::Event::Close), false))
                 .push(place);
         }
-        if let Some(popover) = self.popover_layer() {
+        if let Some(popover) = crate::popovers::view(&self.popovers, &self.header.name, self.ctx())
+        {
             layers = layers.push(popover);
         }
-        if let Some(modal) = self.modal_view() {
+        if let Some(modal) = crate::modal::view(&self.modal, self.ctx()) {
             layers = layers.push(modal);
         }
         if let Some(viewer) = crate::image_viewer::view(&self.viewer, self.ctx()) {
             layers = layers.push(viewer);
         }
         if let Some(menu) = self
+            .win
             .menu
             .as_ref()
             .and_then(|menu| crate::menus::view(menu, self.ctx()))
@@ -193,7 +199,7 @@ impl App {
         if let Some(dialog) = crate::person::view(&self.person, self.ctx()) {
             layers = layers.push(dialog);
         }
-        if let Some(dialog) = self.add_friend_view() {
+        if let Some(dialog) = self.ctx().add_friend_view() {
             layers = layers.push(dialog);
         }
         if let Some(forward) = crate::forward::view(&self.forward, self.ctx()) {
@@ -202,7 +208,7 @@ impl App {
         if let Some(leaving) = crate::dialogs::leaving_view(self.leaving.as_deref(), self.ctx()) {
             layers = layers.push(leaving);
         }
-        if let Some(drop) = self.drop_view() {
+        if let Some(drop) = self.ctx().drop_view() {
             layers = layers.push(drop);
         }
         if let Some(prompt) = crate::mfa::view(&self.mfa, self.ctx()) {
@@ -216,7 +222,10 @@ impl App {
             crate::widgets::CtrlWheel::new(content, zoom_turn, yapfast_core::zoom::Wheel::reset);
         // A middle click scrolls the list under it towards the pointer.
         let theme = &self.theme;
-        let arrow = |icon| self.icon(icon, 10, crate::theme::rgb(theme.secondary));
+        let arrow = |icon| {
+            self.look()
+                .icon(icon, 10, crate::theme::rgb(theme.secondary))
+        };
         let content = crate::widgets::Autoscroll::new(
             content,
             &[crate::timeline::TIMELINE, crate::thread::LIST],
@@ -311,8 +320,8 @@ impl App {
             return;
         }
         let old = std::mem::replace(&mut self.theme, theme);
-        self.pictures.marks.borrow_mut().clear();
-        self.icons.forget();
+        self.win.pictures.marks.borrow_mut().clear();
+        self.win.icons.forget();
         self.show_roster(false);
         // Text laid out in the old theme's inks: the rows' again now, the
         // rest as each is next taken in.

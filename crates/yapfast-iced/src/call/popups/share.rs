@@ -237,13 +237,15 @@ impl App {
         }
         Task::none()
     }
+}
 
+impl<'a> crate::ctx::Ctx<'a> {
     /// The share menu: what to share (screens as pictures two to a row,
     /// windows, the system's dialog, cameras), then the quality, and Go
     /// Live; while sharing, what to switch to, and Switch. The choices
     /// scroll in a window too short for them, over the button, which stays.
-    pub(super) fn share_menu<'a>(&'a self, share: &'a Share, width: f32) -> Element<'a, Message> {
-        let theme = &self.theme;
+    pub(super) fn share_menu(self, share: &'a Share, width: f32) -> Element<'a, Message> {
+        let theme = self.look.theme;
         let pick = |index: usize| Message::Call(Event::Share(ShareEvent::Pick(index)));
         let checked = |index: usize| {
             if share.pick == index {
@@ -375,13 +377,16 @@ impl App {
                 ));
         }
         let label = if share.switching { "Switch" } else { "Go Live" };
-        let start: Element<'_, Message> = controls::action(
+        let start: Element<'a, Message> = controls::action(
             theme,
             label,
             controls::Kind::Primary,
             Some(Message::Call(Event::Share(ShareEvent::Go))),
         )
-        .icon(self.icon(Icon::ScreenShare, 18, crate::theme::rgb(theme.on_accent)))
+        .icon(
+            self.look
+                .icon(Icon::ScreenShare, 18, crate::theme::rgb(theme.on_accent)),
+        )
         .wide(38.0)
         .into();
         // The tallest the choices get: from the window's top margin to
@@ -403,15 +408,15 @@ impl App {
 
     /// A screen in the share menu: its picture, once taken, over its name,
     /// as the Slint client's `ScreenCard`.
-    pub(super) fn screen_card<'a>(
-        &'a self,
+    pub(super) fn screen_card(
+        self,
         title: &'a str,
         picture: Option<&Handle>,
         width: f32,
         checked: bool,
         press: Message,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.look.theme;
         let inner = width - 8.0;
         let height = inner * 9.0 / 16.0;
         let shown: Element<'a, Message> = match picture {
@@ -420,7 +425,7 @@ impl App {
                 .height(height)
                 .content_fit(iced::ContentFit::Contain)
                 .into(),
-            None => container(self.glyph(Icon::ScreenShare, 24, theme.faint))
+            None => container(self.look.glyph(Icon::ScreenShare, 24, theme.faint))
                 .center(Length::Fill)
                 .into(),
         };

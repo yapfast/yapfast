@@ -1262,6 +1262,27 @@ it couldn't, and Close, or Cancel beside its main button.
 
 ## How it's built
 
+The client is two crates. `crates/yapfast-iced-kit` knows nothing of the
+core or the app: the theme's struct, styles, fonts, icons and the
+widgets (see The kit). `crates/yapfast-iced` is the app: what knows the
+core, and every screen.
+
+The app is one `App` (`app/mod.rs`) and one `Message` type. `App` holds
+the shell (the window, the tray, the desktop's parts: `shell::Shell`),
+what lives only as long as the window (`app::Window`), a struct for each
+of the window's main areas, a `Slot` for each screen the core opens, and
+what every update works through: the core (`Client`), what
+`layout.json` keeps, the themes and the theme shown, and the requests
+made of the root. Those are plain fields of `App`, which `ctx::cx!`
+borrows apart from the rest, so a screen's slot and the `Cx` its update
+takes are held at once. A message goes through `App::update`:
+`handle_message` hands it to its area or screen by one arm each, then
+`App::settle` does what the update asked (closes, preferences, the
+focus) and syncs if anything changed (see Screens). The view is
+built again from the top after each message (`app/view.rs`): the window's
+layers stacked, each area and screen drawn from its own state and a
+`ctx::Ctx`, which `App::ctx` makes once per view.
+
 iced builds the whole view again after every message and lays it out, so
 what costs is kept out of the view:
 
@@ -1333,10 +1354,37 @@ what costs is kept out of the view:
   only a source's first frame (which brings its tile's face) or a
   message's video (whose bar shows its time) builds the view again.
 
-Each part of the window has its module: `signin`, `mfa`, `rail`,
-`sidebar`, `account`, `header`, `banners`, `timeline`, `message`, `cards`, `bot_select`, `browse`, `browse_channels`, `found`, `popovers`, `search`, `tag_card`, `info_cards`, `thread`, `image_viewer`, `composer`, `edit`, `suggest`, `commands`, `typing`, `uploads`, `forward`, `members`,
-`people`, `person`, `profile` (with `editor`), `friends`, `active_now`, `reactions`, `picker` (with its tabs `emoji`, `gifs`, `stickers`), `menus`, `places`, `dialogs`, `call` (with `stage`, `dock`, `popups`, `dm`, `corner`), `settings` (with `pages`, `voice`, `appearance`, `updates`), `shell` and `window_bar` (with `desktop`, the desktop's parts), `server_settings` (with `profile`, `roles`, `people`, `moderation`, `expressions`, `ownership`), `channel_settings`, `server_dialogs`, `status`, `switcher`; `form` and `sheet` are the settings' kit; `theme` holds
-the colours and `layout` what's kept in `layout.json`.
+Each part of the window has its module:
+
+- signing in: `signin`, `mfa`;
+- the sides: `rail`, `sidebar` (with `arrange`), `account`, `members`,
+  `browse`, `browse_channels`, `places`;
+- the conversation: `conversation` (what takes the timeline's place),
+  `header`, `banners`, `timeline` (with `view`), `message`, `media`,
+  `polls`, `cards`, `found`, `popovers`, `search`, `thread`, `forum`,
+  `composer`, `edit`, `suggest`, `commands`, `typing`, `uploads`,
+  `playback`, `links` (where a link goes);
+- people: `people`, `person`, `profile` (with `editor`), `friends`,
+  `active_now`, `reactions`, `info_cards`, `tag_card`, `looks` (what
+  people wear);
+- what opens over the window: `picker` (with its tabs `emoji`, `gifs`,
+  `stickers`), `menus`, `dialogs`, `bot_select`, `forward`,
+  `image_viewer`, `server_dialogs`, `link_dialogs`, `status`,
+  `switcher`, `modal`;
+- calls: `call` (with `stage`, `dock`, `details`, `popups`, `dm`,
+  `corner`);
+- settings: `settings` (with `pages`, `voice`, `appearance`, `keybinds`,
+  `updates`), `server_settings` (with `profile`, `roles`, `people`,
+  `moderation`, `expressions`, `ownership`), `channel_settings`;
+- the window: `shell`, `window_bar` and `desktop` (the desktop's
+  parts), `browser`, and `control` (the command file the test display
+  drives);
+- what runs with no screen open: `keybinds` (the keybinds' watcher),
+  `away` (whether someone is using Yapfast), `updates` (the update
+  check).
+
+`themes` makes the kit's theme from the core's palette, and `layout`
+holds what's kept in `layout.json`.
 `app` holds the window's state and what each message does (its
 messages in `app::message`, what it listens to in `app::subscription`, the
 layers the view stacks in `app::view`); `sync.rs` takes in what changed
@@ -1358,9 +1406,20 @@ A screen (Settings, a server's and a channel's settings, the profile
 editor, sign-in and the two-factor prompt, the dialogs, the switcher,
 the custom status, the picture viewer, the profile and info cards, the
 picker, the header's popovers and search, a server tag's card, and the
-menus' view; the main areas are moving to it) keeps its own state in a type of its own and works on the
+menus' view) keeps its own state in a type of its own and works on the
 app's state only through what it's handed, so its code is its own and
-not the app's:
+not the app's. The window's main areas keep their state in a struct each
+too, which the app holds: the rail (`rail::Rail`), the sidebar
+(`sidebar::Sidebar`), the member list (`members::Roster`), the timeline
+(`timeline::Timeline`), the composer (`composer::Composer`), the files
+waiting (`uploads::Uploads`) and what plays in the timeline
+(`playback::Playback`); the rail, the sidebar and the member list are
+drawn by a view of their own state and a `Ctx` (`rail::view`,
+`sidebar::view`, `members::view`), and the conversation's parts, its
+header, timeline, rows, composer, thread, forum, friends and the call's
+dock and popups by `Ctx` methods. The call's stage and corner and the
+window's bar are still drawn by the app, as they read where the window
+lays them out.
 
 - Its state lives in a `slot::Slot` on the app while it's open, and goes
   only through `Slot::close`, which runs its `Closes::close` with why
@@ -1369,7 +1428,12 @@ not the app's:
   settings, the profile editor: the core holds what they edit) follows the core with `Slot::follow` as the
   window syncs: made as the core's state appears, closed with `Why::Core`
   as it goes. The root's glue for each screen, its message, Escape and
-  follow, is in `app/screens.rs`. One whose state is small and kept
+  follow, is in `app/screens.rs`. What lives only as long as the window
+  (the menu, the picker, a tag's card, Settings, the pictures and icons
+  made to draw) is `app::Window`, which closing the window tears down in
+  one place, `App::forget_window`, naming each field; the title bar's
+  switch, which makes the window again from inside Settings, keeps them
+  open (`app::Keep`). One whose state is small and kept
   whether it shows or not (sign-in's fields, the two-factor prompt's
   wait) is a plain field of the app instead, its `sync` handed the
   core's state.
@@ -1388,11 +1452,16 @@ not the app's:
   the theme, noise suppression).
 - Its view is a free function of its state and a `ctx::Ctx`
   (`settings::view`), with its parts on a view type of its own
-  (`settings::Page`) rather than on the app. The profile card's and the
-  profile editor's, the account popover's, the header's popovers', the
-  search's results and an app form's views are still the app's, as they
-  draw with the message body's or a found card's parts, which are too.
-  A menu's acts stay the root's: it opens one for whoever asks, and what
+  (`settings::Page`) rather than on the app. Parts several screens draw
+  are `Ctx` methods: message text (`Ctx::body_view`, which reads the rows'
+  looks and the selection through `timeline::Lanes`), a message's row,
+  found cards, faces and pictures, and the profile card's parts. `Ctx`
+  is references to what views read, made once per view
+  (`App::ctx`): the core's state, the theme and pictures, the areas'
+  state, what the pointer is on and where it was pressed, the menu and
+  picker open, and an `Open` record the root works out of what shows
+  beside the conversation (the member list, the thread), so a view
+  doesn't decide that from other screens' state. A menu's acts stay the root's: it opens one for whoever asks, and what
   its rows do reaches across the window. What a screen hands back to the root (Ctrl+K over Settings,
   an emoji's button opening the picker, a picture's menu) is decided in
   its glue in `app/screens.rs` before its update runs.
@@ -1410,6 +1479,82 @@ not the app's:
   window's video sources take the camera being tried
   (`Settings::camera_test`). With nothing asked, the pass touches
   nothing.
+- Where the keys go stays explicit: a screen asks with
+  `Request::Focus`, the last ask wins, and nothing works it out from
+  what's open, since a dozen updates refocus with nothing opened or
+  closed and some layers leave the keys where they are on purpose. With
+  `YAPFAST_LOG=debug`, an update that changed the top layer and asked
+  nothing through `Request::Focus` is logged ("the top layer changed with
+  no focus asked", with both layers), which finds one that leaves the
+  keys in a field that's gone. Updates that focus with a task of their
+  own show there too.
+
+## Adding a screen
+
+A screen opened over the window, as Settings, the picker or a tag's card
+are, takes these, and the compiler asks for the rest:
+
+1. A module with its state struct (which exists only while it's open),
+   its `Event`, and `open`, `update` and `escape` taking a `&mut Cx`, a
+   `close` through `slot::Closes`, and a free `view(state, ctx)`. Pages
+   or parts in their own files are free functions there, or a view type
+   of their own (`settings::Page`), so each compiles in its own unit.
+2. One variant in `app::Message`, wrapping its `Event`, and one arm for
+   it in `App::handle_message`; its glue (open, the message, Escape) in
+   `app/screens.rs`, or `app/settle.rs` for Settings, whom the shell and
+   the tray open. If the window opens it, one `Slot` field in
+   `app::Window` and one variant in `ctx::Screen`; `App::forget_window`
+   and `App::close_screen` then fail to build until they say what
+   becomes of it. If the core opens it, a `Slot` on the app that follows
+   the core's state in `sync` (`Slot::follow`).
+3. If it opens over the window: one `Layer`, one line in `LAYERS` at its
+   place in the order (topmost first), and one line in `app/view.rs`'s
+   stack. `is_open` and `shut` (what Escape does to it) then ask for its
+   arm; `takes_keys`, `field_keeps_escape` and `layer_key` (the keys it
+   takes) are lists to add it to when it differs from their default.
+4. Its view builds from the kit with `ctx.look`: colours from the theme,
+   sizes from named constants, and corners, borders and shadows from
+   `style`'s helpers (`style::rounded`, `style::edge`, `style::outlined`,
+   `style::panel`), never a literal in the screen.
+5. It reaches the core with `cx.dispatch`, keeps what `layout.json` holds
+   with `cx.keep`, and asks anything of the rest of the window with
+   `cx.request`. A need `Request` doesn't cover is a new variant, never a
+   reference back to the app. It never syncs: dispatching or `cx.touch()`
+   marks the window, and `App::settle` syncs once after the message.
+6. A test in `tests/` that opens it, clicks or types through
+   `App::update`, and reads what reached the core (`client.sent`) or what
+   it shows.
+
+Keybinds, the first part written to this, shows each of these on a
+smaller scale, as a section of Settings rather than a screen of its own
+(`settings/keybinds.rs`):
+
+- Its state is Settings', so it goes with them: the keybind being
+  recorded (`Settings::record`) and the action menu open. What a keybind
+  is and how its keys are recorded is the core's
+  (`yapfast_core::keybinds`), and the keybinds themselves are kept in
+  `layout.json`.
+- Its `Event` (Add, Remove, an action chosen) is wrapped as
+  `settings::Event::Keybind`, so it adds no `Message` and no arm at the
+  root. Settings' `update` hands it to `keybind_event`.
+- `keybind_event` changes `cx.layout.keybinds`, keeps them with
+  `cx.keep("keybinds", ..)`, and asks
+  `cx.request(Request::Changed(Pref::Keybinds))`. It touches nothing
+  outside Settings.
+- What outlives Settings isn't Settings': the watcher that makes the
+  keys work with Settings closed is the root's (`crate::keybinds`, its
+  reports as `Message::Keybinds`). `App::settle` hears
+  `Pref::Keybinds` and watches the keybinds again, and each open screen's
+  `changed` hears it too.
+- What the window shows is worked out, not set: keybinds rest while one
+  records because `settle` asks `Settings::recording` after every
+  message, so closing Settings by any path, the tray included, wakes
+  them.
+- Its view is `Page::keybinds_page`, built from `form` and `controls`
+  with the theme's colours and named widths (`ACTION_WIDTH`,
+  `KEYS_WIDTH`).
+- `tests/settings.rs`'s `keybinds_are_added_chosen_recorded_and_removed`
+  goes through it as a person would and reads what `layout.json` kept.
 
 ## The kit
 

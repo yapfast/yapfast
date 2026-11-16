@@ -26,15 +26,45 @@ use crate::{
 const LEAD: f32 = 64.0;
 
 impl App {
+    /// The call's clock starts as it connects and stops as it ends, by
+    /// its room.
+    pub fn time_call(&mut self) {
+        let voice = &self.client.state().voice;
+        let timed = matches!(voice.phase, Phase::Connected | Phase::Reconnecting)
+            .then(|| voice.room.clone())
+            .flatten();
+        let same = match (&self.call.since, &timed) {
+            (Some((room, _)), Some(timed)) => room == timed,
+            (None, None) => true,
+            _ => false,
+        };
+        if !same {
+            self.call.since = timed.map(|room| (room, Instant::now()));
+        }
+    }
+}
+
+/// `0:42`, `12:05`, or `1:02:03`.
+fn elapsed(time: Duration) -> String {
+    let seconds = time.as_secs();
+    let (hours, minutes, seconds) = (seconds / 3600, seconds / 60 % 60, seconds % 60);
+    if hours > 0 {
+        format!("{hours}:{minutes:02}:{seconds:02}")
+    } else {
+        format!("{minutes}:{seconds:02}")
+    }
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
     /// The dock, while there's a call or what went wrong with the last.
-    pub fn dock_view(&self) -> Option<Element<'_, Message>> {
-        let state = self.client.state();
+    pub fn dock_view(self) -> Option<Element<'a, Message>> {
+        let state = self.state;
         let voice = &state.voice;
         let active = voice.active();
         if !active && voice.error.is_none() {
             return None;
         }
-        let theme = &self.theme;
+        let theme = self.look.theme;
         let ready = voice_ready(voice);
         let tone = match voice.phase {
             Phase::Connected => theme.live,
@@ -52,13 +82,13 @@ impl App {
         let measured = active && voice.link.is_some() && ready;
         let lead: Pic = if measured {
             let quality = voice.link_quality;
-            self.glyph(
+            self.look.glyph(
                 super::signal_icon(quality),
                 24,
                 super::signal_ink(theme, quality),
             )
         } else {
-            self.glyph(Icon::Volume, 24, tone)
+            self.look.glyph(Icon::Volume, 24, tone)
         };
         let mut head = row![
             text(status)
@@ -148,7 +178,7 @@ impl App {
                 ..Padding::ZERO
             });
             let when = |message: Message| ready.then_some(message);
-            let face = |icon| self.glyph(icon, 20, theme.secondary);
+            let face = |icon| self.look.glyph(icon, 20, theme.secondary);
             if voice.soundboard.is_some() {
                 buttons = buttons.push(self.spot(controls::dock_button(
                     face(Icon::Soundboard),
@@ -214,7 +244,7 @@ impl App {
             ));
         }
         if !active {
-            let dismiss: Element<'_, Message> = controls::action(
+            let dismiss: Element<'a, Message> = controls::action(
                 theme,
                 "Dismiss",
                 Kind::Ghost,
@@ -239,9 +269,9 @@ impl App {
     /// The call's channel and how it's secured; a click opens the call, as
     /// Discord's link under "Voice Connected" does, underlined while the
     /// pointer is on it.
-    fn detail_line(&self) -> Element<'_, Message> {
-        let theme = &self.theme;
-        let state = self.client.state();
+    fn detail_line(self) -> Element<'a, Message> {
+        let theme = self.look.theme;
+        let state = self.state;
         let voice = &state.voice;
         let detail = if state.preview {
             format!("{} · Sample", voice.name)
@@ -265,7 +295,7 @@ impl App {
             ..Default::default()
         });
         let underline = self.call.detail_lit;
-        let line: Element<'_, Message> = if underline {
+        let line: Element<'a, Message> = if underline {
             column![line, controls::bar(lit, Length::Fill, 1)]
                 .width(Length::Shrink)
                 .into()
@@ -280,12 +310,12 @@ impl App {
 
     /// This account's screen in the dock: LIVE, or how it's starting, and
     /// whom it streams to; and stopping it.
-    fn sharing_line<'a>(
-        &'a self,
+    fn sharing_line(
+        self,
         voice: &'a voice::State,
         sharing: &'a voice::Sharing,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.look.theme;
         let live = sharing.phase == voice::SharePhase::Live;
         let lead: Element<'a, Message> = if live {
             container(controls::live_pill(theme, None))
@@ -295,7 +325,7 @@ impl App {
                 })
                 .into()
         } else {
-            container(self.glyph(Icon::ScreenShare, 20, theme.accent))
+            container(self.look.glyph(Icon::ScreenShare, 20, theme.accent))
                 .padding(Padding {
                     left: 26.0,
                     ..Padding::ZERO
@@ -340,14 +370,14 @@ impl App {
     /// `IconButton`: `ink` at rest, the text's under the pointer, or the
     /// danger colour on its faint wash for a `danger` one.
     fn dock_icon(
-        &self,
+        self,
         icon: Icon,
         label: &'static str,
         ink: Color,
         danger: bool,
         message: Option<Message>,
-    ) -> Element<'_, Message> {
-        let theme = &self.theme;
+    ) -> Element<'a, Message> {
+        let theme = self.look.theme;
         let enabled = message.is_some();
         let rest = if enabled { ink } else { theme.faint };
         let lit_ink = if danger { theme.danger } else { theme.text };
@@ -357,8 +387,8 @@ impl App {
             crate::theme::mix(theme.panel, theme.overlay, 0.9)
         };
         // The icon in both inks, the lit one shown under the pointer.
-        let faces = iced::widget::stack![self.glyph(icon, 20, rest).boxed(32),];
-        let lit_face = self.glyph(icon, 20, lit_ink).boxed(32);
+        let faces = iced::widget::stack![self.look.glyph(icon, 20, rest).boxed(32),];
+        let lit_face = self.look.glyph(icon, 20, lit_ink).boxed(32);
         let face = crate::widgets::Hover::new(faces, lit_face);
         let face = button(face)
             .padding(0)
@@ -377,34 +407,6 @@ impl App {
         )
         .gap(6)
         .into()
-    }
-
-    /// The call's clock starts as it connects and stops as it ends, by
-    /// its room.
-    pub fn time_call(&mut self) {
-        let voice = &self.client.state().voice;
-        let timed = matches!(voice.phase, Phase::Connected | Phase::Reconnecting)
-            .then(|| voice.room.clone())
-            .flatten();
-        let same = match (&self.call.since, &timed) {
-            (Some((room, _)), Some(timed)) => room == timed,
-            (None, None) => true,
-            _ => false,
-        };
-        if !same {
-            self.call.since = timed.map(|room| (room, Instant::now()));
-        }
-    }
-}
-
-/// `0:42`, `12:05`, or `1:02:03`.
-fn elapsed(time: Duration) -> String {
-    let seconds = time.as_secs();
-    let (hours, minutes, seconds) = (seconds / 3600, seconds / 60 % 60, seconds % 60);
-    if hours > 0 {
-        format!("{hours}:{minutes:02}:{seconds:02}")
-    } else {
-        format!("{minutes}:{seconds:02}")
     }
 }
 

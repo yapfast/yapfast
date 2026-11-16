@@ -17,10 +17,7 @@ use iced::{
     window,
 };
 
-use crate::{
-    app::{App, Message},
-    fonts::MEDIUM,
-};
+use crate::{app::Message, fonts::MEDIUM};
 
 type Renderer = iced::Renderer;
 
@@ -29,41 +26,6 @@ const LINE: f32 = 20.0;
 const DOTS: f32 = 32.0;
 /// How often the dots move: a gentle wave needs no more.
 const FRAME: Duration = Duration::from_millis(50);
-
-impl App {
-    /// The typing line, or none while nobody else types.
-    pub fn typing_view(&self) -> Option<Element<'_, Message>> {
-        let line = self.client.state().typing_line();
-        if line.is_empty() {
-            return None;
-        }
-        let theme = &self.theme;
-        let chat = theme.chat;
-        let words = container(
-            text(line)
-                .size(13)
-                .font(MEDIUM)
-                .color(theme.text)
-                .wrapping(text::Wrapping::None),
-        )
-        .padding([0, 4])
-        .height(LINE)
-        .clip(true)
-        .align_y(Alignment::Center)
-        .style(move |_| crate::style::fill(chat));
-        let dots = container(Dots { ink: theme.muted }).style(move |_| crate::style::fill(chat));
-        // The dots centred under the avatars' 72 px gutter, the words where
-        // the messages' text starts.
-        Some(
-            container(row![dots, words].spacing(68.0 - 20.0 - DOTS))
-                .padding(Padding::ZERO.left(20))
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .align_y(Alignment::End)
-                .into(),
-        )
-    }
-}
 
 /// Three dots in a row, rising in turn.
 struct Dots {
@@ -146,5 +108,40 @@ impl Widget<Message, Theme, Renderer> for Dots {
 impl<'a> From<Dots> for Element<'a, Message> {
     fn from(dots: Dots) -> Self {
         Element::new(dots)
+    }
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
+    /// The typing line, or none while nobody else types.
+    pub fn typing_view(self) -> Option<Element<'a, Message>> {
+        let line = self.state.typing_line();
+        if line.is_empty() {
+            return None;
+        }
+        let theme = self.look.theme;
+        let chat = theme.chat;
+        let words = container(
+            text(line)
+                .size(13)
+                .font(MEDIUM)
+                .color(theme.text)
+                .wrapping(text::Wrapping::None),
+        )
+        .padding([0, 4])
+        .height(LINE)
+        .clip(true)
+        .align_y(Alignment::Center)
+        .style(move |_| crate::style::fill(chat));
+        let dots = container(Dots { ink: theme.muted }).style(move |_| crate::style::fill(chat));
+        // The dots centred under the avatars' 72 px gutter, the words where
+        // the messages' text starts.
+        Some(
+            container(row![dots, words].spacing(68.0 - 20.0 - DOTS))
+                .padding(Padding::ZERO.left(20))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_y(Alignment::End)
+                .into(),
+        )
     }
 }

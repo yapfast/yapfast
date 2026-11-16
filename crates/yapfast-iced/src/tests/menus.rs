@@ -28,7 +28,8 @@ const TALK: &str = "discord:10:4";
 
 /// The open menu's rows: each one's label, subtitle and tick.
 fn rows(app: &App) -> Vec<(String, String, Check)> {
-    app.menu
+    app.win
+        .menu
         .as_ref()
         .expect("a menu")
         .rows
@@ -46,7 +47,7 @@ fn labels(app: &App) -> Vec<String> {
 
 /// The labels of the submenu of the row labelled `label`, and their ticks.
 fn submenu(app: &App, label: &str) -> Vec<(String, Check)> {
-    let menu = app.menu.as_ref().expect("a menu");
+    let menu = app.win.menu.as_ref().expect("a menu");
     let row = menu
         .rows
         .iter()
@@ -138,7 +139,7 @@ fn a_servers_menu_shows_and_changes_its_notifications() {
 
     // Clicked itself, Mute server mutes until it's turned back on.
     let _ = app.update(Message::MenuChoose(1));
-    assert!(app.menu.is_none());
+    assert!(app.win.menu.is_none());
     assert_eq!(
         changes(&mut app),
         [(SERVER.into(), NotificationChange::Mute(Muting::Always))]
@@ -159,7 +160,7 @@ fn a_servers_menu_shows_and_changes_its_notifications() {
     // Hide muted channels does in the menu itself.
     let _ = app.open_place_menu(SERVER, Point::new(100.0, 100.0), false);
     let _ = app.update(Message::MenuChoose(2));
-    assert_eq!(app.menu.as_ref().and_then(|menu| menu.sub), Some(2));
+    assert_eq!(app.win.menu.as_ref().and_then(|menu| menu.sub), Some(2));
     let _ = app.update(Message::SubChoose(4));
     assert_eq!(
         submenu(&app, "Notification settings")[4].1,
@@ -169,7 +170,7 @@ fn a_servers_menu_shows_and_changes_its_notifications() {
     assert_eq!(rows(&app)[3].2, Check::Box(false));
     let _ = app.update(Message::MenuChoose(2));
     let _ = app.update(Message::SubChoose(2));
-    assert!(app.menu.is_none());
+    assert!(app.win.menu.is_none());
     assert_eq!(
         changes(&mut app),
         [
@@ -256,7 +257,7 @@ fn a_submenu_opens_beside_its_row_and_follows_the_keys() {
     );
     // The pointer onto another row closes it.
     let _ = app.update(Message::MenuLight(4));
-    assert_eq!(app.menu.as_ref().and_then(|menu| menu.sub), None);
+    assert_eq!(app.win.menu.as_ref().and_then(|menu| menu.sub), None);
 
     // In a window too short for it the menu scrolls, and says how far...
     let frame = app.shell.frame;
@@ -299,16 +300,16 @@ fn a_submenu_opens_beside_its_row_and_follows_the_keys() {
     key(&mut app, key::Named::ArrowDown);
     key(&mut app, key::Named::ArrowDown);
     key(&mut app, key::Named::ArrowRight);
-    let menu = app.menu.as_ref().expect("open");
+    let menu = app.win.menu.as_ref().expect("open");
     assert_eq!((menu.sub, menu.sub_lit), (Some(1), Some(0)));
     key(&mut app, key::Named::ArrowDown);
-    assert_eq!(app.menu.as_ref().and_then(|menu| menu.sub_lit), Some(1));
+    assert_eq!(app.win.menu.as_ref().and_then(|menu| menu.sub_lit), Some(1));
     key(&mut app, key::Named::ArrowLeft);
-    let menu = app.menu.as_ref().expect("open");
+    let menu = app.win.menu.as_ref().expect("open");
     assert_eq!((menu.sub, menu.lit), (None, Some(1)));
     key(&mut app, key::Named::ArrowRight);
     key(&mut app, key::Named::Enter);
-    assert!(app.menu.is_none());
+    assert!(app.win.menu.is_none());
     assert_eq!(
         changes(&mut app),
         [(SERVER.into(), NotificationChange::Mute(Muting::Minutes(15)))]
@@ -402,8 +403,8 @@ fn a_servers_top_shows_its_boost_goal_and_events_as_discords_does() {
         )]
     );
     // The menu opens under the row, inside the sidebar.
-    let menu = app.menu.as_ref().expect("the events menu");
-    assert!(menu.at.y >= app.side_top_height() - 8.0, "{:?}", menu.at);
+    let menu = app.win.menu.as_ref().expect("the events menu");
+    assert!(menu.at.y >= app.sidebar.top_height() - 8.0, "{:?}", menu.at);
 }
 
 #[test]
@@ -419,7 +420,7 @@ fn a_community_without_events_says_so_and_a_server_without_a_bar_shows_none() {
     interact(&mut app, |ui| {
         ui.click("Events").expect("the events row");
     });
-    let menu = app.menu.as_ref().expect("the events menu");
+    let menu = app.win.menu.as_ref().expect("the events menu");
     assert!(menu.rows[0].disabled);
     assert_eq!(labels(&app), ["No upcoming events"]);
 }
@@ -459,7 +460,7 @@ fn a_messages_menu_takes_its_apps_in_place_once_they_come() {
     });
     let _ = app.open_menu(1, Point::new(400.0, 300.0));
     assert_eq!(
-        app.menu.as_ref().and_then(|menu| menu.item.as_deref()),
+        app.win.menu.as_ref().and_then(|menu| menu.item.as_deref()),
         Some("m1")
     );
     let before = rows(&app);
@@ -491,7 +492,7 @@ fn a_messages_menu_takes_its_apps_in_place_once_they_come() {
         index: Ok(Arc::new(notes)),
     });
     let _ = app.sync();
-    let menu = app.menu.as_ref().expect("still open");
+    let menu = app.win.menu.as_ref().expect("still open");
     assert_eq!(menu.item.as_deref(), Some("m1"), "the same message's");
     assert_eq!(menu.lit, Some(0), "its light kept");
     let after = rows(&app);
@@ -504,5 +505,5 @@ fn a_messages_menu_takes_its_apps_in_place_once_they_come() {
     // Once in, it isn't built again on the next batch.
     let _ = app.menu_light(apps);
     let _ = app.sync();
-    assert_eq!(app.menu.as_ref().expect("open").sub, Some(apps));
+    assert_eq!(app.win.menu.as_ref().expect("open").sub, Some(apps));
 }

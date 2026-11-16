@@ -91,7 +91,7 @@ fn a_voice_messages_volume_opens_over_its_mute_and_the_wheel_turns_it() {
     let _ = app.voice_event(Event::VolumeHover("v".into(), true));
     let _ = app.voice_event(Event::VolumeHover("v".into(), true));
     let _ = app.voice_event(Event::VolumeHover("v".into(), false));
-    assert!(app.voice_volume.is_some());
+    assert!(app.playback.voice_volume.is_some());
     let _ = app.voice_event(Event::VolumeHover("v".into(), false));
-    assert!(app.voice_volume.is_none());
+    assert!(app.playback.voice_volume.is_none());
 }

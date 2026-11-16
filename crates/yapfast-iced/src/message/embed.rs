@@ -8,7 +8,7 @@ use iced::{
 use yapfast_core::chat::{self, ChatMessage, Placement};
 
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls,
     fonts::{MEDIUM, SEMIBOLD},
     markdown::Look,
@@ -44,20 +44,20 @@ pub(super) fn hidden_card(message: &ChatMessage) -> Option<String> {
     })
 }
 
-impl App {
+impl<'a> crate::ctx::Ctx<'a> {
     /// A link preview or bot card, as the Slint client's `EmbedView`:
     /// behind a bar of its colour, its site, author, title (a link to its
     /// page), description, fields (inline ones sharing a row), its large
     /// picture and its footer.
-    pub(super) fn embed<'a>(
-        &'a self,
+    pub(super) fn embed(
+        self,
         index: usize,
         message: &'a ChatMessage,
         place: usize,
         embed: &'a chat::Embed,
         laid: &'a EmbedText,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.look.theme;
         let small = |size: f32, ink: Color| Look {
             size,
             line_height: (size * 1.3).round(),
@@ -163,7 +163,11 @@ impl App {
                         .radius(PICTURE_RADIUS)
                         .covered(
                             attachment.spoiler
-                                && !self.revealed.contains(&reveal_key(&message.item, at)),
+                                && !self
+                                    .lanes
+                                    .timeline
+                                    .revealed
+                                    .contains(&reveal_key(&message.item, at)),
                         ),
                 ),
             );

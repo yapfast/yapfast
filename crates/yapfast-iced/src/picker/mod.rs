@@ -393,7 +393,7 @@ impl App {
     /// Opens the picker for the composer, the edit or a reaction, on a tab;
     /// the same again closes it.
     pub fn open_picker(&mut self, target: Target, tab: Tab) -> Task<Message> {
-        self.menu = None;
+        self.win.menu = None;
         let tabs = target == Target::Composer && self.client.state().can_pick_gifs();
         let tab = if tabs { tab } else { Tab::Emoji };
         let width = if tabs {
@@ -405,15 +405,16 @@ impl App {
             WIDTH
         };
         let mut cx = cx!(self);
-        let task = match self.picker.get_mut() {
+        let task = match self.win.picker.get_mut() {
             Some(picker) if picker.target == target && picker.tab == tab => {
-                self.picker.close(&mut cx, Why::User);
+                self.win.picker.close(&mut cx, Why::User);
                 Task::none()
             }
             Some(picker) if picker.target == target => picker.switch_tab(tab, &mut cx),
             _ => {
-                self.picker.close(&mut cx, Why::User);
-                self.picker
+                self.win.picker.close(&mut cx, Why::User);
+                self.win
+                    .picker
                     .open(|| Picker::open(target, tab, tabs, width, &mut cx));
                 cx.touch();
                 // After the keys the closed one gave back.
@@ -427,7 +428,7 @@ impl App {
     /// The picker closes, if it's open.
     pub fn close_picker(&mut self) -> Task<Message> {
         let mut cx = cx!(self);
-        self.picker.close(&mut cx, Why::User);
+        self.win.picker.close(&mut cx, Why::User);
         self.settle()
     }
 
@@ -435,7 +436,7 @@ impl App {
     pub fn picker_event(&mut self, event: Event) -> Task<Message> {
         let room = self.picker_room();
         let mut cx = cx!(self);
-        let Some(picker) = self.picker.get_mut() else {
+        let Some(picker) = self.win.picker.get_mut() else {
             return Task::none();
         };
         match event {

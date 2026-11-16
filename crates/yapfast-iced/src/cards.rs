@@ -14,7 +14,7 @@ use iced::{
 use yapfast_core::chat::{Beside, ButtonStyle, Card, CardButton, CardRow, ChatMessage, Placement};
 
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{self, Kind, action},
     markdown::{Body, FIRST_PART, Look},
     media::{Fit, Gallery, Shot},
@@ -69,22 +69,83 @@ pub fn estimate(card: &Card) -> f32 {
         + 4.0
 }
 
-impl App {
+/// A card's pieces in the selection start after the message's own.
+const _: () = assert!(CARD_PARTS > FIRST_PART);
+
+impl<'a> crate::ctx::Ctx<'a> {
+    /// A menu's box, as the Slint client's `BotSelectBox`: what it picked,
+    /// or its placeholder, and a chevron.
+    pub fn select_box(
+        self,
+        shown: impl text::IntoFragment<'a>,
+        picked: bool,
+        enabled: bool,
+        open: Option<Message>,
+    ) -> Element<'a, Message> {
+        let theme = self.look.theme;
+        let (ground, edge) = (theme.field, theme.edge);
+        let face = row![
+            text(shown)
+                .font(crate::fonts::MEDIUM)
+                .color(if picked { theme.text } else { theme.secondary })
+                .wrapping(text::Wrapping::None)
+                .width(Length::Fill),
+            self.look.glyph(Icon::ChevronDown, 18, theme.secondary),
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center);
+        let opacity = if enabled { 1.0 } else { 0.5 };
+        let lit = theme.secondary;
+        container(
+            iced::widget::button(
+                container(face)
+                    .height(Length::Fill)
+                    .width(Length::Fill)
+                    .align_y(Alignment::Center)
+                    .clip(true),
+            )
+            .padding([0, 12])
+            .height(40)
+            .width(Length::Fill)
+            .on_press_maybe(open)
+            .style(move |_, status| iced::widget::button::Style {
+                background: Some(crate::style::faded(ground, opacity).into()),
+                border: Border {
+                    color: crate::style::faded(
+                        if enabled && controls::lights(status) {
+                            lit
+                        } else {
+                            edge
+                        },
+                        opacity,
+                    ),
+                    width: 1.0,
+                    radius: 8.0.into(),
+                },
+                ..Default::default()
+            }),
+        )
+        .max_width(SELECT)
+        .into()
+    }
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
     /// A message's card at `place`, its text laid out in `bodies`.
-    pub fn app_card<'a>(
-        &'a self,
+    pub fn app_card(
+        self,
         index: usize,
         message: &'a ChatMessage,
         card: &'a Card,
         bodies: &'a [Body],
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let state = self.client.state();
+        let theme = self.look.theme;
+        let state = self.state;
         let busy = state.interactions.newest_busy() == Some(message.item.as_str());
         let mut rows = column![].spacing(8).width(Length::Fill);
         let mut texts = bodies.iter().enumerate();
         for each in &card.rows {
-            let shown: Element<'_, Message> = match each {
+            let shown: Element<'a, Message> = match each {
                 CardRow::Text { beside, .. } => {
                     let Some((place, body)) = texts.next() else {
                         continue;
@@ -119,6 +180,8 @@ impl App {
                                         .covered(
                                             attachment.spoiler
                                                 && !self
+                                                    .lanes
+                                                    .timeline
                                                     .revealed
                                                     .contains(&reveal_key(&message.item, at)),
                                         ),
@@ -207,10 +270,10 @@ impl App {
             };
             rows = rows.push(shown);
         }
-        let shown: Element<'_, Message> = if card.framed {
+        let shown: Element<'a, Message> = if card.framed {
             let (ground, edge) = (theme.sidebar, theme.edge);
             let inner = container(rows).padding(16).width(Length::Fill);
-            let inner: Element<'_, Message> = match card.color {
+            let inner: Element<'a, Message> = match card.color {
                 Some(color) => iced::widget::stack![
                     inner,
                     controls::bar(crate::style::hex(color), 4, Length::Fill)
@@ -233,13 +296,13 @@ impl App {
     /// with its icon opens its page, a store's offers to open in Discord,
     /// one that asks its app does, unless another of the message's is
     /// waiting for its app.
-    fn card_button<'a>(
-        &'a self,
+    fn card_button(
+        self,
         message: &ChatMessage,
         card_button: &'a CardButton,
         busy: bool,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.look.theme;
         let kind = match card_button.style {
             ButtonStyle::Primary => Kind::Primary,
             ButtonStyle::Success => Kind::Success,
@@ -271,79 +334,23 @@ impl App {
         };
         let mut face = action(theme, label, kind, press).small();
         if card_button.style == ButtonStyle::Link {
-            face = face.icon(self.icon(Icon::Link, 16, rgb(theme.text)));
+            face = face.icon(self.look.icon(Icon::Link, 16, rgb(theme.text)));
         }
         face.into()
     }
 
-    /// A menu's box, as the Slint client's `BotSelectBox`: what it picked,
-    /// or its placeholder, and a chevron.
-    pub fn select_box<'a>(
-        &'a self,
-        shown: impl text::IntoFragment<'a>,
-        picked: bool,
-        enabled: bool,
-        open: Option<Message>,
-    ) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let (ground, edge) = (theme.field, theme.edge);
-        let face = row![
-            text(shown)
-                .font(crate::fonts::MEDIUM)
-                .color(if picked { theme.text } else { theme.secondary })
-                .wrapping(text::Wrapping::None)
-                .width(Length::Fill),
-            self.glyph(Icon::ChevronDown, 18, theme.secondary),
-        ]
-        .spacing(8)
-        .align_y(Alignment::Center);
-        let opacity = if enabled { 1.0 } else { 0.5 };
-        let lit = theme.secondary;
-        container(
-            iced::widget::button(
-                container(face)
-                    .height(Length::Fill)
-                    .width(Length::Fill)
-                    .align_y(Alignment::Center)
-                    .clip(true),
-            )
-            .padding([0, 12])
-            .height(40)
-            .width(Length::Fill)
-            .on_press_maybe(open)
-            .style(move |_, status| iced::widget::button::Style {
-                background: Some(crate::style::faded(ground, opacity).into()),
-                border: Border {
-                    color: crate::style::faded(
-                        if enabled && controls::lights(status) {
-                            lit
-                        } else {
-                            edge
-                        },
-                        opacity,
-                    ),
-                    width: 1.0,
-                    radius: 8.0.into(),
-                },
-                ..Default::default()
-            }),
-        )
-        .max_width(SELECT)
-        .into()
-    }
-
     /// Why the last control of the message's used failed, under its
     /// controls, as Discord's client says.
-    pub fn bot_failed(&self, message: &ChatMessage) -> Option<Element<'_, Message>> {
-        let (item, why) = self.client.state().interaction_failed.as_ref()?;
+    pub fn bot_failed(self, message: &ChatMessage) -> Option<Element<'a, Message>> {
+        let (item, why) = self.state.interaction_failed.as_ref()?;
         if *item != message.item {
             return None;
         }
-        let theme = &self.theme;
+        let theme = self.look.theme;
         Some(
             container(
                 row![
-                    self.glyph(Icon::TriangleAlert, 16, theme.danger),
+                    self.look.glyph(Icon::TriangleAlert, 16, theme.danger),
                     crate::form::error(theme, why.as_str()).width(Length::Fill)
                 ]
                 .spacing(6),
@@ -353,6 +360,3 @@ impl App {
         )
     }
 }
-
-/// A card's pieces in the selection start after the message's own.
-const _: () = assert!(CARD_PARTS > FIRST_PART);

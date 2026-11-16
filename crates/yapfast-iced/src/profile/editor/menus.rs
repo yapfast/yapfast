@@ -9,7 +9,7 @@ use iced::{
 use yapfast_core::{application::ProfileEditor, chat::ProfilePicture};
 
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{self, Check, Item, Light, lights},
     form,
     pictures::Icon,
@@ -36,10 +36,10 @@ pub(super) fn item<'a>(
     }
 }
 
-impl App {
+impl<'a> crate::ctx::Ctx<'a> {
     /// A picture's menu, Change and Remove (Reset in a server), under it.
-    pub(super) fn picture_menu<'a>(
-        &'a self,
+    pub(super) fn picture_menu(
+        self,
         editor: &'a Editor,
         core: &'a ProfileEditor,
         kind: ProfilePicture,
@@ -78,23 +78,23 @@ impl App {
     }
 
     /// A menu's rows in its panel.
-    pub(super) fn menu_list<'a>(&'a self, rows: Vec<(Item<'a>, Message)>) -> Element<'a, Message> {
+    pub(super) fn menu_list(self, rows: Vec<(Item<'a>, Message)>) -> Element<'a, Message> {
         let mut list = column![].spacing(2);
         for (entry, pressed) in rows {
-            list = list.push(self.menu_item(entry, Light::Pointer, pressed));
+            list = list.push(self.look.menu_item(entry, Light::Pointer, pressed));
         }
         opaque(
             container(list)
                 .padding(6)
                 .width(Length::Fill)
-                .style(controls::menu_panel(&self.theme)),
+                .style(controls::menu_panel(self.look.theme)),
         )
     }
 
     /// The pencil, or the lock where Nitro is wanted, on a dark disc.
-    pub(super) fn edit_badge(&self, locked: bool) -> Element<'_, Message> {
+    pub(super) fn edit_badge(self, locked: bool) -> Element<'a, Message> {
         let icon = if locked { Icon::Lock } else { Icon::Pencil };
-        container(self.glyph(icon, 16, Color::WHITE))
+        container(self.look.glyph(icon, 16, Color::WHITE))
             .center(32)
             .style(|_| {
                 rounded(
@@ -109,18 +109,18 @@ impl App {
     }
 
     /// The server tag worn, which opens the servers whose tags can be.
-    pub(super) fn tag_picker<'a>(
-        &'a self,
+    pub(super) fn tag_picker(
+        self,
         editor: &'a Editor,
         inks: &crate::profile::look::Inks,
     ) -> Element<'a, Message> {
-        let state = self.client.state();
+        let state = self.state;
         let profile = editor.shown.look.profile();
         let tag = state.cosmetics.tag(profile.tag.as_ref());
         let ink2 = inks.ink2;
         let mut face = row![].spacing(5).align_y(Alignment::Center);
         face = match tag {
-            Some(tag) => face.push(self.ctx().tag_chip(
+            Some(tag) => face.push(self.tag_chip(
                 &tag.text,
                 tag.badge.as_deref(),
                 crate::looks::Chip {
@@ -139,7 +139,7 @@ impl App {
                 ..iced::Font::default()
             })),
         };
-        face = face.push(self.glyph(Icon::ChevronDown, 14, ink2));
+        face = face.push(self.look.glyph(Icon::ChevronDown, 14, ink2));
         let ink = inks.ink;
         let chip = button(face)
             .padding(Padding {
@@ -165,16 +165,16 @@ impl App {
 
     /// The servers whose tags can be worn, found by name or tag, under No
     /// Server Tag.
-    pub(super) fn tag_list<'a>(&'a self, editor: &'a Editor) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let state = self.client.state();
+    pub(super) fn tag_list(self, editor: &'a Editor) -> Element<'a, Message> {
+        let theme = self.look.theme;
+        let state = self.state;
         let chosen = state
             .profile_editor
             .as_ref()
             .and_then(|core| core.chosen_tag.clone())
             .flatten();
         let query = editor.tag_query.trim().to_lowercase();
-        let mut rows = column![self.menu_item(
+        let mut rows = column![self.look.menu_item(
             item("No Server Tag".into(), None, false),
             Light::Pointer,
             message(Event::Tag(String::new())),
@@ -195,7 +195,7 @@ impl App {
             if chosen.as_deref() == Some(id) {
                 entry.check = Check::Current;
             }
-            rows = rows.push(self.menu_item(
+            rows = rows.push(self.look.menu_item(
                 entry,
                 Light::Pointer,
                 message(Event::Tag(id.to_owned())),

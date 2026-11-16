@@ -26,14 +26,15 @@ impl App {
                 text,
                 badge,
             } => {
-                self.tag_card.close(&mut cx, Why::User);
-                self.tag_card
+                self.win.tag_card.close(&mut cx, Why::User);
+                self.win
+                    .tag_card
                     .open(|| Shown::open(server, text, badge, at, &mut cx));
                 // After the keys the closed one gave back: Escape reaches it.
                 cx.request(Request::Focus(Focus::Nobody));
                 Task::none()
             }
-            event => match self.tag_card.get_mut() {
+            event => match self.win.tag_card.get_mut() {
                 Some(card) => card.update(event, &mut cx),
                 None => Task::none(),
             },
@@ -70,7 +71,7 @@ impl App {
     /// Escape in a server's settings: a member's menu or profile over them,
     /// from Members, closes first; then the settings' own.
     pub fn server_settings_escape(&mut self) -> Task<Message> {
-        if self.menu.take().is_some() {
+        if self.win.menu.take().is_some() {
             return Task::none();
         }
         if self
@@ -127,7 +128,7 @@ impl App {
     pub fn switcher_event(&mut self, event: crate::switcher::Event) -> Task<Message> {
         use crate::switcher::Event;
         match event {
-            Event::Toggle if self.settings.is_open() => Task::none(),
+            Event::Toggle if self.win.settings.is_open() => Task::none(),
             Event::PollEmoji(index) => {
                 let at = self.pressed.get();
                 self.open_picker(
@@ -198,7 +199,7 @@ impl App {
                     ));
                 }
                 let at = self.pressed.get();
-                self.menu = Some(
+                self.win.menu = Some(
                     crate::menus::Menu::new(iced::Point::new(at.x + 4.0, at.y - 8.0), rows)
                         .width(crate::profile::ACTIVITY_MENU),
                 );

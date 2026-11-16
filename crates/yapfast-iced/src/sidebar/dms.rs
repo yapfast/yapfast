@@ -7,7 +7,7 @@ use iced::{
 };
 
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{self, ROW_COUNT, count_pill},
     fonts::{BOLD, MEDIUM, SEMIBOLD},
     people::StatusInk,
@@ -18,15 +18,15 @@ use crate::{
 
 use super::{DM_ROW, Event, Room};
 
-impl App {
+impl<'a> super::View<'a> {
     /// A DM's row: the person's face with its decoration and presence, the
     /// name in its style with the server tag or OFFICIAL, what they're up
     /// to or the voice channel they're in, Wave for a DM nobody wrote in
     /// yet, the call, pin and mentions; the nameplate behind it while it's
     /// pointed at or selected, as Discord's client draws it only then.
-    pub(super) fn dm_row<'a>(&'a self, room: &'a Room) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let pointed = self.pointed.side.as_deref() == Some(room.id.as_str());
+    pub(super) fn dm_row(self, room: &'a Room) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let pointed = self.cx.pointed.side.as_deref() == Some(room.id.as_str());
         let (ink, opacity) = self.row_ink(room, pointed);
         let row_ground = if room.selected {
             theme.active
@@ -46,14 +46,14 @@ impl App {
                     Point::new(20.0, 20.0),
                 )
             }));
-        let mut name = row![self.person_name(
+        let mut name = row![self.cx.person_name(
             &room.name,
             NameInk::new(15.0, 500, ink).style(room.style.as_ref()),
         )]
         .spacing(4)
         .align_y(Alignment::Center);
         if let Some((letters, badge)) = &room.tag {
-            name = name.push(self.ctx().tag_chip(
+            name = name.push(self.cx.tag_chip(
                 letters,
                 badge.as_deref(),
                 crate::looks::Chip {
@@ -80,11 +80,13 @@ impl App {
             .map(|(id, channel, server)| (id.as_str(), channel.as_str(), server.as_str()));
         let mut line = row![].spacing(4).align_y(Alignment::Center);
         if let Some(spot) = spot {
-            line = line.push(self.voice_spot(spot, 12.0, !room.status.is_empty()));
+            line = line.push(self.cx.voice_spot(spot, 12.0, !room.status.is_empty()));
         }
         if !room.status.is_empty() {
-            line = line
-                .push(self.status_line(&room.status, StatusInk::under_name(&self.theme, opacity)));
+            line = line.push(self.cx.status_line(
+                &room.status,
+                StatusInk::under_name(self.cx.look.theme, opacity),
+            ));
         } else if room.official && spot.is_none() {
             line = line.push(
                 text("Official Discord Message")
@@ -96,22 +98,22 @@ impl App {
         if spot.is_some() || !room.status.is_empty() || room.official {
             person = person.sub(line);
         }
-        let mut face = self.person(person);
+        let mut face = self.cx.person(person);
         if let Some(user) = room.wave.as_ref().filter(|_| pointed || room.selected) {
             face = face.push(self.wave_button(user));
         }
         if room.call {
-            face = face.push(self.glyph(Icon::Phone, 16, theme.live));
+            face = face.push(self.cx.look.glyph(Icon::Phone, 16, theme.live));
         }
         if room.pinned {
-            face = face.push(self.glyph(Icon::Pin, 14, theme.faint));
+            face = face.push(self.cx.look.glyph(Icon::Pin, 14, theme.faint));
         }
         if !room.badge.is_empty() {
             face = face.push(count_pill(theme, &room.badge, ROW_COUNT, None));
         }
         let plated: Element<'a, Message> = match &room.nameplate {
             Some((url, palette)) if pointed || room.selected => {
-                let plate = self.nameplate(url, DM_ROW, pointed, room.selected, 1.0);
+                let plate = self.cx.nameplate(url, DM_ROW, pointed, room.selected, 1.0);
                 crate::widgets::PlateRow::new(
                     face,
                     plate,
@@ -136,12 +138,12 @@ impl App {
 
     /// Discord's OFFICIAL badge by its own account's name: blurple, a
     /// check and the word.
-    pub(super) fn official_tag(&self) -> Element<'_, Message> {
-        let theme = &self.theme;
+    pub(super) fn official_tag(self) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         let accent = theme.accent;
         container(
             row![
-                self.glyph(Icon::Check, 12, theme.on_accent),
+                self.cx.look.glyph(Icon::Check, 12, theme.on_accent),
                 text("OFFICIAL").size(10).font(BOLD).color(theme.on_accent),
             ]
             .spacing(2)
@@ -156,13 +158,13 @@ impl App {
 
     /// Wave, which Discord offers in a DM nobody has written in yet: it
     /// sends a waving hand.
-    pub(super) fn wave_button(&self, user: &str) -> Element<'_, Message> {
-        let theme = &self.theme;
+    pub(super) fn wave_button(self, user: &str) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         let (rest, lit, on) = (theme.accent, theme.accent_hover, theme.on_accent);
         button(
             container(
                 row![
-                    self.glyph(Icon::Hand, 14, on),
+                    self.cx.look.glyph(Icon::Hand, 14, on),
                     text("Wave").size(12).font(MEDIUM).color(on),
                 ]
                 .spacing(4)

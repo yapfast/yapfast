@@ -48,7 +48,7 @@ fn a_right_click_opens_the_menu_of_its_message_after_the_rows_moved() {
     for message in clicked {
         let _ = app.update(message);
     }
-    let menu = app.menu.as_ref().expect("a menu");
+    let menu = app.win.menu.as_ref().expect("a menu");
     assert_eq!(
         menu.item.as_deref(),
         Some("long-78"),
@@ -60,7 +60,7 @@ fn a_right_click_opens_the_menu_of_its_message_after_the_rows_moved() {
 fn a_click_on_an_author_opens_that_messages_author_after_the_rows_moved() {
     let (mut app, _folder) = preview();
     long_history(&mut app, 80);
-    let sender = app.messages[78].sender.clone();
+    let sender = app.timeline.messages[78].sender.clone();
     let clicked = sent(&app, |ui| {
         // The author's name over the message clicked.
         let body = ui.find("Message number 78").expect("the message");
@@ -141,7 +141,7 @@ fn a_selection_starts_on_its_message_after_the_rows_moved() {
     for message in pressed {
         let _ = app.update(message);
     }
-    let (from, _) = app.marks().expect("a selection");
+    let (from, _) = app.lanes().marks().expect("a selection");
     assert_eq!(from.row, app.row_of("long-78").expect("still there"));
 }
 
@@ -149,7 +149,7 @@ fn a_selection_starts_on_its_message_after_the_rows_moved() {
 fn a_right_click_on_an_activity_card_opens_its_menu_at_the_pointer() {
     let (mut app, _folder) = preview();
     app.show_roster(false);
-    app.activity_cards = vec![crate::members::ActivityCard {
+    app.roster.activity_cards = vec![crate::members::ActivityCard {
         id: "riley".into(),
         name: "Riley".into(),
         avatar: None,
@@ -205,7 +205,10 @@ fn the_hover_bar_of_a_grouped_message_keeps_it_where_it_reaches_over_the_row_abo
             said("g1", "Second of the group", 1_700_000_060),
         ]);
     });
-    assert!(!app.looks[1].first, "the second continues the group");
+    assert!(
+        !app.timeline.looks[1].first,
+        "the second continues the group"
+    );
     let text = {
         let mut ui = Simulator::with_size(Settings::default(), app.shell.frame, app.view());
         ui.find("Second of the group")
@@ -276,7 +279,10 @@ fn a_rows_menu_and_its_authors_card_open_by_its_message_under_any_head() {
             said("c", "Cat", 1_700_200_000),
         ]);
     });
-    assert!(app.looks[2].day.is_some(), "the third under a divider");
+    assert!(
+        app.timeline.looks[2].day.is_some(),
+        "the third under a divider"
+    );
     let names: Vec<f32> = {
         let mut ui = Simulator::with_size(Settings::default(), app.shell.frame, app.view());
         ["Ann", "Ben", "Cat"]
@@ -300,7 +306,7 @@ fn a_rows_menu_and_its_authors_card_open_by_its_message_under_any_head() {
         "each card as far from its author's name: {cards:?}"
     );
     let menus: Vec<f32> = (0..3)
-        .map(|row| app.bar_menu_at(row).y - names[row])
+        .map(|row| app.ctx().bar_menu_at(row).y - names[row])
         .collect();
     assert!(
         menus.iter().all(|menu| (menu - menus[1]).abs() < 0.5),

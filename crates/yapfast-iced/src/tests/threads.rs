@@ -51,7 +51,10 @@ fn a_thread_beside_shows_its_messages_and_writes_in_its_own_room() {
     });
     let state = app.client.state();
     assert_eq!(state.aside_draft(), "see you there");
-    assert!(app.draft.is_empty(), "the channel's draft stays its own");
+    assert!(
+        app.composer.draft.is_empty(),
+        "the channel's draft stays its own"
+    );
 }
 
 #[test]
@@ -99,6 +102,7 @@ fn escape_from_anywhere_cancels_the_channels_reply_then_the_threads() {
     use yapfast_core::application::Action;
     let (mut app, _folder) = thread_beside();
     let channels = app
+        .timeline
         .messages
         .last()
         .expect("the channel's messages")
@@ -137,7 +141,7 @@ fn typing_with_nothing_focused_goes_to_the_composer_used_last() {
     // The thread's from when it opens.
     letter(&mut app, "a");
     assert_eq!(app.client.state().aside_draft(), "a");
-    assert!(app.draft.is_empty());
+    assert!(app.composer.draft.is_empty());
     // The channel's once it's written in.
     interact(&mut app, |ui| {
         ui.click(Id::new(crate::composer::COMPOSER))
@@ -145,7 +149,7 @@ fn typing_with_nothing_focused_goes_to_the_composer_used_last() {
         ui.typewrite("b");
     });
     letter(&mut app, "c");
-    assert_eq!(app.draft.text(), "bc");
+    assert_eq!(app.composer.draft.text(), "bc");
     assert_eq!(app.client.state().aside_draft(), "a");
 }
 
@@ -166,7 +170,7 @@ fn files_dropped_over_the_thread_go_to_it() {
     let width = app.shell.frame.width;
     let _ = app.uploads_event(Event::Hovered);
     let _ = app.uploads_event(Event::Moved(iced::Point::new(width - 50.0, 300.0)));
-    assert!(app.drop.aside);
+    assert!(app.uploads.drop.aside);
     let _ = app.uploads_event(Event::Dropped(file.clone()));
     let _ = app.uploads_event(Event::Drop);
     assert_eq!(
@@ -209,7 +213,7 @@ fn files_dropped_where_search_hides_the_thread_go_to_the_channel() {
     let width = app.shell.frame.width;
     let _ = app.uploads_event(Event::Hovered);
     let _ = app.uploads_event(Event::Moved(iced::Point::new(width - 50.0, 300.0)));
-    assert!(!app.drop.aside, "not over a thread that shows");
+    assert!(!app.uploads.drop.aside, "not over a thread that shows");
     let _ = app.uploads_event(Event::Dropped(file));
     let _ = app.uploads_event(Event::Drop);
     assert!(app.client.state().aside_staged().is_empty());
@@ -228,11 +232,11 @@ fn the_thread_besides_composer_suggests_over_itself() {
         ui.typewrite("hi :smi");
     });
     assert!(
-        app.suggesting(crate::composer::Writing::Aside),
+        app.ctx().suggesting(crate::composer::Writing::Aside),
         "emoji suggested for the thread's draft"
     );
     assert!(shows(&app, "EMOJI MATCHING :smi"));
-    assert!(!app.suggesting(crate::composer::Writing::Draft));
+    assert!(!app.ctx().suggesting(crate::composer::Writing::Draft));
 }
 
 /// The platform's pointer as X11's and Windows' are asked, at a point set
@@ -262,7 +266,7 @@ fn where_winit_says_nothing_of_a_drag_the_platforms_pointer_says_where() {
     let pointer = Arc::new(Pointer(std::sync::Mutex::new((500.0, 300.0))));
     let _ = app.uploads_event(Event::Hovered);
     let _ = app.uploads_event(Event::Pointer(Following(Some(pointer.clone()))));
-    assert!(!app.drop.aside, "over the channel");
+    assert!(!app.uploads.drop.aside, "over the channel");
     assert!(
         app.follow_subscription().is_some(),
         "asked while they hover"
@@ -314,7 +318,7 @@ fn a_pictures_menu_in_the_thread_beside_opens_with_its_messages_rows() {
         }];
     });
     let _ = app.update(Message::Image(Event::Menu("t0".into(), 0, false)));
-    let menu = app.menu.as_ref().expect("a menu");
+    let menu = app.win.menu.as_ref().expect("a menu");
     assert_eq!(menu.item.as_deref(), Some("t0"));
     assert!(
         menu.rows.iter().any(|row| row.label == "Copy Link"),
@@ -339,14 +343,14 @@ fn a_sent_threads_picture_lets_go_of_its_preview_beside_a_channels_file() {
     let _ = app.uploads_event(Event::Chosen(vec![notes]));
     let _ = app.uploads_event(Event::ChosenAside(vec![picture.clone()]));
     assert!(
-        app.thumbnails.contains_key(&picture),
+        app.uploads.thumbnails.contains_key(&picture),
         "its preview asked for"
     );
     // One staged in each place, one preview: as many as the channel has.
     let _ = app.uploads_event(Event::UnstageAside(0));
     assert!(app.client.state().aside_staged().is_empty());
     assert!(
-        !app.thumbnails.contains_key(&picture),
+        !app.uploads.thumbnails.contains_key(&picture),
         "the thread's picture's preview let go"
     );
 }

@@ -190,7 +190,7 @@ impl App {
     /// Something full screen covers the window and the bar, or the window
     /// is full screen itself.
     fn full_screen(&self) -> bool {
-        self.shell.full_screen || self.clip_full || self.full_shown()
+        self.shell.full_screen || self.playback.clip_full || self.full_shown()
     }
 
     /// Asks the window whether it's maximized or full screen, as its size
@@ -209,7 +209,7 @@ impl App {
     pub fn bar_event(&mut self, event: Event) -> Task<Message> {
         let id = self.shell.window;
         match event {
-            Event::Back | Event::Forward if !self.workspace() || self.settings.is_open() => {
+            Event::Back | Event::Forward if !self.workspace() || self.win.settings.is_open() => {
                 Task::none()
             }
             Event::Back | Event::Forward => {
@@ -315,9 +315,7 @@ impl App {
         // desktop draws none winit draws its own, and a maximized window
         // taking it or losing it grows or shrinks past the screen.
         // Settings, which the switch is in, stay open as they are.
-        let settings = std::mem::take(&mut self.settings);
-        let closed = self.drop_window();
-        self.settings = settings;
+        let closed = self.drop_window_keeping(crate::app::Keep { settings: true });
         let opened = self.open_window();
         Task::batch([closed, opened])
     }
@@ -377,13 +375,13 @@ impl App {
         let theme = &self.theme;
         let workspace = self.workspace();
         let state = self.client.state();
-        let settings_open = self.settings.is_open();
+        let settings_open = self.win.settings.is_open();
         let place = if !workspace {
             "Yapfast".to_owned()
-        } else if self.side_header.server.is_none() {
+        } else if self.sidebar.header.server.is_none() {
             "Direct Messages".to_owned()
         } else {
-            self.side_header.name.clone()
+            self.sidebar.header.name.clone()
         };
         let ink = if self.shell.focused {
             theme.secondary
@@ -391,7 +389,7 @@ impl App {
             theme.faint
         };
         let middle = row![
-            self.glyph(Icon::Dm, 16, theme.secondary).boxed(16.0),
+            self.look().glyph(Icon::Dm, 16, theme.secondary).boxed(16.0),
             elide(place).size(12).font(BOLD).color(ink).shrink()
         ]
         .spacing(8)
@@ -495,9 +493,9 @@ impl App {
         } else {
             theme.secondary
         };
-        let base = self.glyph(icon, 16, rest_ink).boxed(16.0);
+        let base = self.look().glyph(icon, 16, rest_ink).boxed(16.0);
         let face: Element<'_, Message> = if enabled && !active {
-            Hover::new(base, self.glyph(icon, 16, theme.text).boxed(16.0)).into()
+            Hover::new(base, self.look().glyph(icon, 16, theme.text).boxed(16.0)).into()
         } else {
             base.into()
         };
@@ -528,11 +526,16 @@ impl App {
     /// `CaptionButton`: close lights red.
     fn caption_button(&self, icon: Icon, event: Event, close: bool) -> Element<'_, Message> {
         let theme = &self.theme;
-        let base = self.glyph(icon, CAPTION_GLYPH, theme.secondary).boxed(12.0);
+        let base = self
+            .look()
+            .glyph(icon, CAPTION_GLYPH, theme.secondary)
+            .boxed(12.0);
         let face: Element<'_, Message> = if close {
             Hover::new(
                 base,
-                self.glyph(icon, CAPTION_GLYPH, theme.on_danger).boxed(12.0),
+                self.look()
+                    .glyph(icon, CAPTION_GLYPH, theme.on_danger)
+                    .boxed(12.0),
             )
             .into()
         } else {
@@ -732,7 +735,7 @@ impl App {
             names = names.push(elide(entry.place.as_str()).size(12).color(theme.muted));
         }
         let mut line = row![
-            self.avatar_tinted(
+            self.ctx().avatar_tinted(
                 entry.picture.as_deref(),
                 &entry.avatar_name,
                 &entry.id,

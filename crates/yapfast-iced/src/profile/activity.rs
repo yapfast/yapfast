@@ -9,7 +9,7 @@ use iced::{
 
 use super::look::{ActivityLook, Inks, clock};
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{Kind, action, ink_style},
     fonts::{BOLD, SEMIBOLD},
     looks::Status,
@@ -24,10 +24,47 @@ const SMALL: f32 = 22.0;
 const RING: f32 = 26.0;
 const RING_AT: f32 = 44.0;
 
-impl App {
+/// Now, in Unix seconds, as the activities' times count.
+fn now_seconds() -> u64 {
+    yapfast_core::clock::now_ms() / 1000
+}
+
+/// A song's bar: its `track` across `bounds`, `share` of it filled with
+/// `ink`, both round at their ends.
+fn progress(
+    renderer: &mut crate::widgets::Renderer,
+    bounds: Rectangle,
+    share: f32,
+    track: Color,
+    ink: Color,
+) {
+    use iced::advanced::{Renderer as _, renderer::Quad};
+    let round = iced::Border::default().rounded(bounds.height / 2.0);
+    renderer.fill_quad(
+        Quad {
+            bounds,
+            border: round,
+            ..Default::default()
+        },
+        track,
+    );
+    let width = bounds.width * share.clamp(0.0, 1.0);
+    if width > 0.0 {
+        renderer.fill_quad(
+            Quad {
+                bounds: Rectangle { width, ..bounds },
+                border: round,
+                ..Default::default()
+            },
+            ink,
+        );
+    }
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
     /// An activity's card; its times move as the clock does.
-    pub fn activity_card_view<'a>(
-        &'a self,
+    pub fn activity_card_view(
+        self,
         activity: &'a ActivityLook,
         inks: &Inks,
         menu: Option<bool>,
@@ -45,8 +82,10 @@ impl App {
         // Discord's more menu, on anyone's card but a bot's; on one's own
         // game it offers its privacy too.
         if let Some(own) = menu {
-            let face = self.glyph(crate::pictures::Icon::Ellipsis, 14, inks.ink2);
-            head = head.push(self.look().face_button(
+            let face = self
+                .look
+                .glyph(crate::pictures::Icon::Ellipsis, 14, inks.ink2);
+            head = head.push(self.look.face_button(
                 face,
                 20.0,
                 "More",
@@ -69,7 +108,7 @@ impl App {
             )
             .padding(0)
             .on_press(Message::Link(link.clone(), Point::ORIGIN))
-            .style(ink_style(inks.ink, self.theme.link))
+            .style(ink_style(inks.ink, self.look.theme.link))
             .into(),
             None => {
                 let status = Status {
@@ -102,7 +141,7 @@ impl App {
                 let track = if inks.themed {
                     Color { a: 0.2, ..inks.ink }
                 } else {
-                    self.theme.raised
+                    self.look.theme.raised
                 };
                 let ink = inks.ink;
                 let filled = crate::widgets::gauge(second, move |renderer, bounds| {
@@ -147,7 +186,7 @@ impl App {
         if let Some(url) = &activity.url {
             card = card.push(
                 action(
-                    &self.theme,
+                    self.look.theme,
                     "Watch stream",
                     Kind::Plain,
                     Some(Message::Link(url.clone(), Point::ORIGIN)),
@@ -160,13 +199,8 @@ impl App {
 
     /// The large picture, with the small one on a ring of the card's ground
     /// at its corner.
-    fn activity_art<'a>(
-        &self,
-        large: &str,
-        small: Option<&str>,
-        inks: &Inks,
-    ) -> Element<'a, Message> {
-        let raised = self.theme.raised;
+    fn activity_art(self, large: &str, small: Option<&str>, inks: &Inks) -> Element<'a, Message> {
+        let raised = self.look.theme.raised;
         let square = Size::new(LARGE, LARGE);
         let mut pictures = stack![
             container(Space::new())
@@ -200,42 +234,5 @@ impl App {
             }
         }
         container(pictures).width(LARGE).height(LARGE).into()
-    }
-}
-
-/// Now, in Unix seconds, as the activities' times count.
-fn now_seconds() -> u64 {
-    yapfast_core::clock::now_ms() / 1000
-}
-
-/// A song's bar: its `track` across `bounds`, `share` of it filled with
-/// `ink`, both round at their ends.
-fn progress(
-    renderer: &mut crate::widgets::Renderer,
-    bounds: Rectangle,
-    share: f32,
-    track: Color,
-    ink: Color,
-) {
-    use iced::advanced::{Renderer as _, renderer::Quad};
-    let round = iced::Border::default().rounded(bounds.height / 2.0);
-    renderer.fill_quad(
-        Quad {
-            bounds,
-            border: round,
-            ..Default::default()
-        },
-        track,
-    );
-    let width = bounds.width * share.clamp(0.0, 1.0);
-    if width > 0.0 {
-        renderer.fill_quad(
-            Quad {
-                bounds: Rectangle { width, ..bounds },
-                border: round,
-                ..Default::default()
-            },
-            ink,
-        );
     }
 }

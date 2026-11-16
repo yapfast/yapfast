@@ -1622,7 +1622,7 @@ mod windows {
 
     /// Only for the tests, which run the hook procedures on their own
     /// thread.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "desktop"))]
     fn hooked_here(matcher: Matcher, sink: Sink) {
         HOOKED.set(Some(Hooked {
             matcher,

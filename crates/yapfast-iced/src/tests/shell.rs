@@ -66,8 +66,11 @@ fn closing_with_a_tray_drops_the_window_and_the_tray_brings_it_back() {
     let _picture = super::a_picture_shown(&mut app);
     let _ = app.update(Message::Shell(Event::CloseRequested(first)));
     assert!(app.shell.window.is_none(), "closed to the tray");
-    assert!(app.pictures.is_empty(), "every picture made for it went");
-    assert!(app.icons.is_empty(), "and every icon");
+    assert!(
+        app.win.pictures.is_empty(),
+        "every picture made for it went"
+    );
+    assert!(app.win.icons.is_empty(), "and every icon");
     assert!(app.shell.tray.is_some(), "still running");
     assert_eq!(app.shell.size, Some(app.shell.frame), "its size kept");
     heard(&mut app, Heard::Tray(TrayChoice::Open));
@@ -121,7 +124,7 @@ fn closing_to_the_tray_lets_go_of_the_microphone_settings_and_the_videos() {
     assert!(app.shell.window.is_none(), "closed to the tray");
     assert!(!app.metering(), "the microphone let go");
     assert_eq!(app.call.popup, None);
-    assert!(!app.settings.is_open());
+    assert!(!app.win.settings.is_open());
     assert_eq!(app.theme.chat, before, "the edited theme cancelled");
     assert_eq!(feed.shown_at(), None, "no frames made for nobody");
     assert!(!app.stage_shown());
@@ -174,7 +177,7 @@ fn a_notification_click_opens_its_conversation_over_settings() {
     let (mut app, _folder) = preview();
     let before = editing_a_theme(&mut app);
     heard(&mut app, Heard::Opened("riley".into()));
-    assert!(!app.settings.is_open());
+    assert!(!app.win.settings.is_open());
     assert_eq!(app.theme.chat, before, "closed as their own button would");
     let state = app.client.state();
     assert_eq!(state.navigation, Navigation::DirectMessages);
@@ -185,7 +188,7 @@ fn a_notification_click_opens_its_conversation_over_settings() {
 fn the_release_notification_opens_about() {
     let (mut app, _folder) = preview();
     heard(&mut app, Heard::Opened(ABOUT.into()));
-    let settings = app.settings.get().expect("settings");
+    let settings = app.win.settings.get().expect("settings");
     assert_eq!(settings.section, Some(Section::About));
 }
 
@@ -320,7 +323,7 @@ fn a_saved_zoom_too_large_for_the_window_comes_down_to_its_room() {
 fn ctrl_and_the_wheel_zoom_and_nothing_scrolls() {
     use iced::mouse;
     let (mut app, _folder) = preview();
-    let scrolled = app.from_end;
+    let scrolled = app.timeline.from_end;
     interact(&mut app, |ui| {
         ui.point_at(iced::Point::new(600.0, 300.0));
         ui.simulate([
@@ -337,7 +340,7 @@ fn ctrl_and_the_wheel_zoom_and_nothing_scrolls() {
         ]);
     });
     assert!((app.shell.zoom - 1.05).abs() < 0.001, "{}", app.shell.zoom);
-    assert_eq!(app.from_end, scrolled, "the timeline stays put");
+    assert_eq!(app.timeline.from_end, scrolled, "the timeline stays put");
 }
 
 #[test]

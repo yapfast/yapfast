@@ -38,7 +38,7 @@ pub enum Event {
 impl App {
     pub fn browse_channels_event(&mut self, event: Event) -> Task<Message> {
         match event {
-            Event::Filter(filter) => self.browse_filter = filter,
+            Event::Filter(filter) => self.sidebar.browse_filter = filter,
             Event::Follow(room, follow) => {
                 self.client.dispatch(Action::BrowseFollow { room, follow })
             }
@@ -46,14 +46,16 @@ impl App {
         }
         self.sync()
     }
+}
 
+impl<'a> crate::ctx::Ctx<'a> {
     /// Browse Channels, while it's open.
-    pub fn browse_channels(&self) -> Option<Element<'_, Message>> {
-        let browse = self.client.state().browse.as_ref()?;
-        let theme = &self.theme;
+    pub fn browse_channels(self) -> Option<Element<'a, Message>> {
+        let browse = self.state.browse.as_ref()?;
+        let theme = self.look.theme;
         let head = container(
             row![
-                self.glyph(Icon::Hash, 22, theme.muted),
+                self.look.glyph(Icon::Hash, 22, theme.muted),
                 text("Browse Channels")
                     .size(16)
                     .font(BOLD)
@@ -70,7 +72,7 @@ impl App {
             theme,
             FILTER,
             "Search channels",
-            &self.browse_filter,
+            self.browse_filter,
             false,
             true,
         )
@@ -130,7 +132,7 @@ impl App {
     }
 
     /// A category's heading with its Follow category switch.
-    fn browse_heading<'a>(&'a self, category: &'a BrowsedChannel) -> Element<'a, Message> {
+    fn browse_heading(self, category: &'a BrowsedChannel) -> Element<'a, Message> {
         let switch = form::switch(
             "Follow category",
             category.followed,
@@ -139,13 +141,13 @@ impl App {
                 !category.followed,
             ))),
         )
-        .view(self.look());
+        .view(self.look);
         row![
             container(
                 elide(category.name.as_str())
                     .size(17)
                     .font(BOLD)
-                    .color(self.theme.text)
+                    .color(self.look.theme.text)
             )
             .width(Length::Fill),
             container(switch).width(172),
@@ -159,8 +161,8 @@ impl App {
 
     /// A channel: its icon, name and topic, its button, and its box; a
     /// click ticks the box or clears it, unless its category follows it.
-    fn browse_row<'a>(&'a self, channel: &'a BrowsedChannel) -> Element<'a, Message> {
-        let theme = &self.theme;
+    fn browse_row(self, channel: &'a BrowsedChannel) -> Element<'a, Message> {
+        let theme = self.look.theme;
         let icon = match channel.kind {
             BrowsedKind::Voice => Icon::Voice,
             BrowsedKind::Forum => Icon::Forum,
@@ -184,7 +186,7 @@ impl App {
             _ => "View",
         };
         let content = row![
-            self.glyph(icon, 20, theme.muted),
+            self.look.glyph(icon, 20, theme.muted),
             container(words).width(Length::Fill),
             controls::action(
                 theme,
@@ -193,7 +195,7 @@ impl App {
                 Some(Message::BrowseChannels(Event::View(channel.id.clone()))),
             )
             .small(),
-            self.checkbox(channel.followed, false),
+            self.look.checkbox(channel.followed, false),
         ]
         .spacing(12)
         .align_y(Alignment::Center);

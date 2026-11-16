@@ -288,32 +288,82 @@ impl App {
         urls
     }
 
+    /// Lets go of the guidelines, laid out in the old theme's inks.
+    pub fn forget_guidelines(&mut self) {
+        self.forum_post.guidelines = None;
+    }
+}
+
+/// A post's card from what the core lists of it.
+fn card(post: &ForumPost, info: &ForumInfo, now: u64) -> Card {
+    let thread = &post.thread;
+    let starter = post.starter.as_ref();
+    let first = starter.and_then(Option::as_ref);
+    let (person, words) = match starter {
+        Some(Some(first)) => (Some(&first.author), first.text.as_str()),
+        Some(None) => (None, "Original message was deleted"),
+        None => (None, ""),
+    };
+    let reaction = match first.and_then(|first| first.reaction.as_ref()) {
+        Some((emoji, count)) => Some((emoji.clone(), count.to_string())),
+        // A post without reactions offers the forum's own.
+        None if first.is_some() => info.reaction.clone().map(|emoji| (emoji, String::new())),
+        None => None,
+    };
+    let at = if info.by_creation {
+        thread.created_ms
+    } else {
+        thread.active_ms
+    };
+    Card {
+        room: thread.room.clone(),
+        heading: None,
+        name: thread.name.clone(),
+        pinned: thread.pinned,
+        new: post.new,
+        unread: thread.unread,
+        tags: post
+            .tags
+            .iter()
+            .take(SHOWN_TAGS)
+            .map(|tag| (tag.name.clone(), tag.emoji.clone()))
+            .collect(),
+        more_tags: post.tags.len().saturating_sub(SHOWN_TAGS),
+        person: person.map(|person| (person.name.clone(), person.color)),
+        text: words.to_owned(),
+        reaction,
+        replies: thread.replies,
+        time: crate::popovers::ago(at, now),
+        picture: first.and_then(|first| first.picture.clone().map(|url| (url, first.spoiler))),
+    }
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
     /// The forum, in place of the timeline and composer.
-    pub fn forum_view(&self) -> Option<Element<'_, Message>> {
-        let state = self.client.state();
+    pub fn forum_view(self) -> Option<Element<'a, Message>> {
+        let state = self.state;
         let forum = state.forum()?;
         if state.new_post().is_some() {
             return Some(self.new_post_view());
         }
-        let theme = &self.theme;
-        let app = &self.client.app;
+        let theme = self.look.theme;
+        let app = &self.app;
         let searchable = app.may(&forum.list.room, Permission::ReadHistory);
         let can_post = app.can_post();
         let mut top = row![].spacing(8).align_y(Alignment::Center);
         if searchable {
             // The header's search box, across the room New Post leaves.
             top = top.push(
-                self.ctx()
-                    .search_field(
-                        SEARCH,
-                        "Search posts",
-                        &self.forum_post.query,
-                        |query| Message::Forum(Event::Query(query)),
-                        Message::Forum(Event::Search),
-                        Message::Forum(Event::Query(String::new())),
-                    )
-                    .width(Length::Fill)
-                    .height(SEARCH_HEIGHT),
+                self.search_field(
+                    SEARCH,
+                    "Search posts",
+                    &self.forum_post.query,
+                    |query| Message::Forum(Event::Query(query)),
+                    Message::Forum(Event::Search),
+                    Message::Forum(Event::Query(String::new())),
+                )
+                .width(Length::Fill)
+                .height(SEARCH_HEIGHT),
             );
         } else {
             top = top.push(Space::new().width(Length::Fill));
@@ -326,7 +376,7 @@ impl App {
                     Kind::Primary,
                     Some(Message::Forum(Event::NewPost)),
                 )
-                .icon(self.icon(Icon::Thread, 18, rgb(theme.text))),
+                .icon(self.look.icon(Icon::Thread, 18, rgb(theme.text))),
             );
         }
         let mut page = column![];
@@ -348,7 +398,7 @@ impl App {
             page = page.push(
                 container(
                     column![
-                        self.glyph(Icon::Thread, 48, theme.faint),
+                        self.look.glyph(Icon::Thread, 48, theme.faint),
                         text(words).size(17).font(BOLD).color(theme.text),
                     ]
                     .spacing(8)
@@ -395,7 +445,7 @@ impl App {
     }
 
     /// A tag's or reaction's emoji: Twemoji's, or a custom one's picture.
-    fn post_emoji(&self, emoji: &ShownEmoji, size: u32) -> Element<'_, Message> {
+    fn post_emoji(self, emoji: &ShownEmoji, size: u32) -> Element<'a, Message> {
         let handle = match &emoji.picture {
             Some(url) => self.picture(url, size, size, false),
             None => {
@@ -409,8 +459,8 @@ impl App {
     }
 
     /// A tag on a card, as a pill.
-    fn tag_pill<'a>(&'a self, name: &'a str, emoji: Option<&ShownEmoji>) -> Element<'a, Message> {
-        let theme = &self.theme;
+    fn tag_pill(self, name: &'a str, emoji: Option<&ShownEmoji>) -> Element<'a, Message> {
+        let theme = self.look.theme;
         let mut pill = row![].spacing(4).align_y(Alignment::Center);
         if let Some(emoji) = emoji {
             pill = pill.push(self.post_emoji(emoji, 12));
@@ -426,14 +476,14 @@ impl App {
     }
 
     /// A post's card, as the Slint client's `PostCard`.
-    fn post_card<'a>(&'a self, card: &'a Card) -> Element<'a, Message> {
-        let theme = &self.theme;
+    fn post_card(self, card: &'a Card) -> Element<'a, Message> {
+        let theme = self.look.theme;
         let has_tags = card.pinned || !card.tags.is_empty();
         let mut words = column![].spacing(6).width(Length::Fill);
         if has_tags {
             let mut tags = row![].spacing(6).align_y(Alignment::Center).height(20);
             if card.pinned {
-                tags = tags.push(self.glyph(Icon::Pin, 14, theme.muted));
+                tags = tags.push(self.look.glyph(Icon::Pin, 14, theme.muted));
             }
             for (name, emoji) in &card.tags {
                 tags = tags.push(self.tag_pill(name, emoji.as_ref()));
@@ -507,7 +557,7 @@ impl App {
             );
         }
         foot = foot
-            .push(self.glyph(Icon::MessageCircle, 14, theme.muted))
+            .push(self.look.glyph(Icon::MessageCircle, 14, theme.muted))
             .push(
                 text(card.replies.to_string())
                     .size(13)
@@ -523,12 +573,12 @@ impl App {
             let handle = (!spoiler)
                 .then(|| self.picture(url, PICTURE as u32, PICTURE as u32, true))
                 .flatten();
-            let picture: Element<'_, Message> = match handle {
+            let picture: Element<'a, Message> = match handle {
                 Some(handle) => Pic::new(handle, Size::new(PICTURE, PICTURE))
                     .radius(8.0)
                     .into(),
                 None => {
-                    let words: Element<'_, Message> = if *spoiler {
+                    let words: Element<'a, Message> = if *spoiler {
                         text("SPOILER")
                             .size(10)
                             .font(BOLD)
@@ -564,18 +614,18 @@ impl App {
     }
 
     /// The form for a post, as the Slint client's `NewPostForm`.
-    fn new_post_view(&self) -> Element<'_, Message> {
-        let theme = &self.theme;
-        let app = &self.client.app;
-        let state = self.client.state();
+    fn new_post_view(self) -> Element<'a, Message> {
+        let theme = self.look.theme;
+        let app = &self.app;
+        let state = self.state;
         let Some(post) = state.new_post() else {
             return Space::new().into();
         };
         let posting = post.posting;
         let head = self.panel_head(row![
-            self.glyph(Icon::Thread, 18, theme.muted),
+            self.look.glyph(Icon::Thread, 18, theme.muted),
             container(text("New Post").size(15).font(BOLD).color(theme.text)).width(Length::Fill),
-            self.look()
+            self.look
                 .icon_button(Icon::X, "Close", Message::Forum(Event::Close))
                 .below(),
         ]);
@@ -607,7 +657,7 @@ impl App {
                 Kind::Ghost,
                 (!posting && more).then_some(Message::Forum(Event::TagsMenu(true))),
             )
-            .icon(self.icon(Icon::CirclePlus, 16, rgb(theme.text)))
+            .icon(self.look.icon(Icon::CirclePlus, 16, rgb(theme.text)))
             .small();
             let menu = self
                 .forum_post
@@ -649,7 +699,7 @@ impl App {
             ))
             .align_right(Length::Fill),
         );
-        let form: Element<'_, Message> = column![
+        let form: Element<'a, Message> = column![
             head,
             scroll_view(fields)
                 .height(Length::Fill)
@@ -669,14 +719,9 @@ impl App {
         }
     }
 
-    /// Lets go of the guidelines, laid out in the old theme's inks.
-    pub fn forget_guidelines(&mut self) {
-        self.forum_post.guidelines = None;
-    }
-
     /// The forum's post guidelines, folding away.
-    fn guidelines_view<'a>(&'a self, guidelines: &'a Body) -> Element<'a, Message> {
-        let theme = &self.theme;
+    fn guidelines_view(self, guidelines: &'a Body) -> Element<'a, Message> {
+        let theme = self.look.theme;
         let shown = !self.forum_post.guidelines_hidden;
         let (icon, label) = if shown {
             (Icon::ChevronDown, "Hide post guidelines")
@@ -692,7 +737,7 @@ impl App {
                         .color(theme.text)
                 )
                 .width(Length::Fill),
-                self.look()
+                self.look
                     .icon_button(icon, label, Message::Forum(Event::Guidelines))
                     .size(24.0, 16)
                     .below(),
@@ -723,8 +768,8 @@ impl App {
     }
 
     /// A tag chosen for the post: a click takes it away.
-    fn chosen_tag(&self, tag: &ForumTag, posting: bool) -> Element<'_, Message> {
-        let theme = &self.theme;
+    fn chosen_tag(self, tag: &ForumTag, posting: bool) -> Element<'a, Message> {
+        let theme = self.look.theme;
         let mut chip = row![].spacing(4).align_y(Alignment::Center);
         if let Some(emoji) = &tag.emoji {
             chip = chip.push(self.post_emoji(emoji, 14));
@@ -736,7 +781,7 @@ impl App {
                     .font(SEMIBOLD)
                     .color(theme.text),
             )
-            .push(self.glyph(Icon::X, 14, theme.muted));
+            .push(self.look.glyph(Icon::X, 14, theme.muted));
         button(
             container(chip)
                 .padding(Padding::ZERO.left(10).right(6))
@@ -750,13 +795,13 @@ impl App {
     }
 
     /// The menu of the forum's tags, each with its box.
-    fn tags_menu<'a>(
-        &'a self,
+    fn tags_menu(
+        self,
         choices: &[ForumTag],
         chosen: &[String],
         more: bool,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.look.theme;
         let mut list = column![
             container(
                 text("Select up to 5 tags")
@@ -778,7 +823,7 @@ impl App {
             let ink = if enabled { theme.text } else { theme.faint };
             line = line
                 .push(container(text(tag.name.clone()).size(14).color(ink)).width(Length::Fill))
-                .push(self.checkbox(ticked, false));
+                .push(self.look.checkbox(ticked, false));
             list = list.push(
                 button(
                     container(line)
@@ -795,50 +840,6 @@ impl App {
         container(list.padding(6))
             .style(controls::menu_panel(theme))
             .into()
-    }
-}
-
-/// A post's card from what the core lists of it.
-fn card(post: &ForumPost, info: &ForumInfo, now: u64) -> Card {
-    let thread = &post.thread;
-    let starter = post.starter.as_ref();
-    let first = starter.and_then(Option::as_ref);
-    let (person, words) = match starter {
-        Some(Some(first)) => (Some(&first.author), first.text.as_str()),
-        Some(None) => (None, "Original message was deleted"),
-        None => (None, ""),
-    };
-    let reaction = match first.and_then(|first| first.reaction.as_ref()) {
-        Some((emoji, count)) => Some((emoji.clone(), count.to_string())),
-        // A post without reactions offers the forum's own.
-        None if first.is_some() => info.reaction.clone().map(|emoji| (emoji, String::new())),
-        None => None,
-    };
-    let at = if info.by_creation {
-        thread.created_ms
-    } else {
-        thread.active_ms
-    };
-    Card {
-        room: thread.room.clone(),
-        heading: None,
-        name: thread.name.clone(),
-        pinned: thread.pinned,
-        new: post.new,
-        unread: thread.unread,
-        tags: post
-            .tags
-            .iter()
-            .take(SHOWN_TAGS)
-            .map(|tag| (tag.name.clone(), tag.emoji.clone()))
-            .collect(),
-        more_tags: post.tags.len().saturating_sub(SHOWN_TAGS),
-        person: person.map(|person| (person.name.clone(), person.color)),
-        text: words.to_owned(),
-        reaction,
-        replies: thread.replies,
-        time: crate::popovers::ago(at, now),
-        picture: first.and_then(|first| first.picture.clone().map(|url| (url, first.spoiler))),
     }
 }
 

@@ -164,16 +164,65 @@ impl App {
         self.friends.add_sent = sent;
     }
 
+    /// The pictures the friends and requests screens show: the avatars of
+    /// the friends in view, the requests', and Active Now's.
+    pub fn friends_pictures(&self) -> Vec<String> {
+        let mut urls = Vec::new();
+        match self.dm_screen() {
+            Some(DmScreen::Friends) => {
+                let shown = self.ctx().friends_shown();
+                let scroll = self
+                    .friends
+                    .scroll
+                    .unwrap_or(Scroll::new(self.window.height));
+                let (first, last) = scroll.range(shown.len(), ROW, 0.0);
+                urls.extend(
+                    shown[first..last]
+                        .iter()
+                        .filter_map(|friend| friend.avatar.clone()),
+                );
+                urls.extend(self.active_now_pictures());
+            }
+            Some(DmScreen::Requests) => {
+                let rows = request_rows(self.client.state());
+                for request in rows.incoming.iter().chain(&rows.sent).chain(&rows.spam) {
+                    urls.extend(request.avatar.map(str::to_owned));
+                }
+            }
+            None => {}
+        }
+        urls
+    }
+}
+
+/// A friend counts as around unless offline.
+fn around(friend: &Friend) -> bool {
+    friend
+        .presence
+        .is_some_and(|presence| presence != Presence::Offline)
+}
+
+/// A presence in words, as the friends list says it.
+fn presence_word(presence: Presence) -> &'static str {
+    match presence {
+        Presence::DoNotDisturb => "Do Not Disturb",
+        Presence::Idle => "Idle",
+        Presence::Online | Presence::Mobile => "Online",
+        _ => "Offline",
+    }
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
     /// The header over the friends list or the requests: the screen's icon
     /// and name, and on the friends list its tabs and Add Friend.
-    pub fn friends_header(&self, screen: DmScreen) -> Element<'_, Message> {
-        let theme = &self.theme;
+    pub fn friends_header(self, screen: DmScreen) -> Element<'a, Message> {
+        let theme = self.look.theme;
         let (icon, name) = match screen {
             DmScreen::Friends => (Icon::Users, "Friends"),
             DmScreen::Requests => (Icon::Inbox, "Requests"),
         };
         let mut head = row![
-            self.glyph(icon, 22, theme.muted),
+            self.look.glyph(icon, 22, theme.muted),
             text(name).size(16).font(BOLD).color(theme.text)
         ]
         .spacing(10)
@@ -203,8 +252,8 @@ impl App {
     }
 
     /// A tab in the friends header, as the Slint client's `HeaderTab`.
-    fn header_tab(&self, label: &'static str, chosen: bool, event: Event) -> Element<'_, Message> {
-        let theme = &self.theme;
+    fn header_tab(self, label: &'static str, chosen: bool, event: Event) -> Element<'a, Message> {
+        let theme = self.look.theme;
         let (text_ink, secondary, active, hover) =
             (theme.text, theme.secondary, theme.active, theme.hover);
         button(
@@ -233,21 +282,8 @@ impl App {
         .into()
     }
 
-    /// The friends shown: those around, or all, whose names hold the
-    /// search's text.
-    fn friends_shown(&self) -> Vec<&Friend> {
-        let query = self.friends.filter.trim().to_lowercase();
-        self.client
-            .state()
-            .friends
-            .iter()
-            .filter(|friend| self.friends.all || around(friend))
-            .filter(|friend| query.is_empty() || friend.name.to_lowercase().contains(&query))
-            .collect()
-    }
-
     /// The friends list, beside Active Now when there's room for it.
-    pub fn friends_screen(&self) -> Element<'_, Message> {
+    pub fn friends_screen(self) -> Element<'a, Message> {
         let wide = self.active_now_fits();
         let list = self.friends_list();
         if !wide {
@@ -260,11 +296,11 @@ impl App {
         .into()
     }
 
-    fn friends_list(&self) -> Element<'_, Message> {
-        let theme = &self.theme;
-        let state = self.client.state();
+    fn friends_list(self) -> Element<'a, Message> {
+        let theme = self.look.theme;
+        let state = self.state;
         if state.friends.is_empty() {
-            return self.look().empty_screen(
+            return self.look.empty_screen(
                 Icon::Users,
                 "No friends yet",
                 "Add someone with their Discord username.",
@@ -306,7 +342,7 @@ impl App {
         let scroll = self
             .friends
             .scroll
-            .unwrap_or(Scroll::new(self.window.height));
+            .unwrap_or(Scroll::new(self.look.window.height));
         let (first, last) = scroll.range(shown.len(), ROW, 0.0);
         let total = shown.len() as f32 * ROW + 16.0;
         let spots = voice_spots(state);
@@ -329,12 +365,12 @@ impl App {
 
     /// A friend in the list, as the Slint client's `FriendItem`: ruled from
     /// the one above unless pointed at; a click opens their DM.
-    fn friend_row<'a>(
-        &'a self,
+    fn friend_row(
+        self,
         friend: &'a Friend,
         spot: Option<(&'a str, &'a str, &'a str)>,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.look.theme;
         let pointed = self.pointed.member.as_deref() == Some(friend.id.as_str());
         let surface = if pointed { theme.hover } else { theme.chat };
         let presence = friend.presence.unwrap_or(Presence::Offline);
@@ -369,7 +405,8 @@ impl App {
         let message = Message::Friends(Event::Message(friend.id.clone()));
         let (raised, hover) = (theme.raised, theme.active);
         let send = button(
-            self.glyph(Icon::MessageCircle, 20, theme.secondary)
+            self.look
+                .glyph(Icon::MessageCircle, 20, theme.secondary)
                 .boxed(36),
         )
         .padding(0)
@@ -407,10 +444,10 @@ impl App {
     }
 
     /// The dialog that adds a Discord friend by username.
-    pub fn add_friend_view(&self) -> Option<Element<'_, Message>> {
-        let dialog_state = self.client.state().add_friend.as_ref()?;
-        let theme = &self.theme;
-        let close = button(self.glyph(Icon::X, 18, theme.secondary).boxed(28))
+    pub fn add_friend_view(self) -> Option<Element<'a, Message>> {
+        let dialog_state = self.state.add_friend.as_ref()?;
+        let theme = self.look.theme;
+        let close = button(self.look.glyph(Icon::X, 18, theme.secondary).boxed(28))
             .padding(0)
             .on_press(Message::Friends(Event::CloseAdd))
             .style(lit_style(None, theme.hover, 6.0));
@@ -461,7 +498,7 @@ impl App {
         if !note.is_empty() {
             body = body.push(text(note).size(14).color(ink));
         }
-        let width = ADD_WIDTH.min(self.window.width - 48.0);
+        let width = ADD_WIDTH.min(self.look.window.width - 48.0);
         Some(dialog(
             theme,
             body.into(),
@@ -469,51 +506,18 @@ impl App {
             Message::Friends(Event::CloseAdd),
         ))
     }
-
-    /// The pictures the friends and requests screens show: the avatars of
-    /// the friends in view, the requests', and Active Now's.
-    pub fn friends_pictures(&self) -> Vec<String> {
-        let mut urls = Vec::new();
-        match self.dm_screen() {
-            Some(DmScreen::Friends) => {
-                let shown = self.friends_shown();
-                let scroll = self
-                    .friends
-                    .scroll
-                    .unwrap_or(Scroll::new(self.window.height));
-                let (first, last) = scroll.range(shown.len(), ROW, 0.0);
-                urls.extend(
-                    shown[first..last]
-                        .iter()
-                        .filter_map(|friend| friend.avatar.clone()),
-                );
-                urls.extend(self.active_now_pictures());
-            }
-            Some(DmScreen::Requests) => {
-                let rows = request_rows(self.client.state());
-                for request in rows.incoming.iter().chain(&rows.sent).chain(&rows.spam) {
-                    urls.extend(request.avatar.map(str::to_owned));
-                }
-            }
-            None => {}
-        }
-        urls
-    }
 }
 
-/// A friend counts as around unless offline.
-fn around(friend: &Friend) -> bool {
-    friend
-        .presence
-        .is_some_and(|presence| presence != Presence::Offline)
-}
-
-/// A presence in words, as the friends list says it.
-fn presence_word(presence: Presence) -> &'static str {
-    match presence {
-        Presence::DoNotDisturb => "Do Not Disturb",
-        Presence::Idle => "Idle",
-        Presence::Online | Presence::Mobile => "Online",
-        _ => "Offline",
+impl<'a> crate::ctx::Ctx<'a> {
+    /// The friends shown: those around, or all, whose names hold the
+    /// search's text.
+    fn friends_shown(self) -> Vec<&'a Friend> {
+        let query = self.friends.filter.trim().to_lowercase();
+        self.state
+            .friends
+            .iter()
+            .filter(|friend| self.friends.all || around(friend))
+            .filter(|friend| query.is_empty() || friend.name.to_lowercase().contains(&query))
+            .collect()
     }
 }

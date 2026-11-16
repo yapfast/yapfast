@@ -99,8 +99,13 @@ impl App {
         let theme = &self.theme;
         let mut faces = row![].spacing(8);
         for person in &room.people {
-            faces =
-                faces.push(self.avatar(person.avatar.as_deref(), &person.name, 56.0, 28.0, 1.0));
+            faces = faces.push(self.ctx().avatar(
+                person.avatar.as_deref(),
+                &person.name,
+                56.0,
+                28.0,
+                1.0,
+            ));
         }
         let incoming = room.incoming;
         let note = match (incoming, room.people.is_empty()) {
@@ -112,7 +117,7 @@ impl App {
         let mut buttons = row![].spacing(16);
         if incoming {
             buttons = buttons.push(call_button(
-                self.glyph(Icon::PhoneOff, 22, iced::Color::WHITE),
+                self.look().glyph(Icon::PhoneOff, 22, iced::Color::WHITE),
                 "Decline",
                 theme.danger,
                 theme,
@@ -120,7 +125,7 @@ impl App {
             ));
         }
         buttons = buttons.push(call_button(
-            self.glyph(Icon::Phone, 22, iced::Color::WHITE),
+            self.look().glyph(Icon::Phone, 22, iced::Color::WHITE),
             if incoming { "Accept" } else { "Join the call" },
             theme.live,
             theme,
@@ -158,7 +163,11 @@ impl App {
         };
         // A ring that pulses while it rings.
         let ring = Pulse::new(
-            container(self.avatar(room.avatar.as_deref(), &room.name, 72.0, 36.0, 1.0)).center(92),
+            container(
+                self.ctx()
+                    .avatar(room.avatar.as_deref(), &room.name, 72.0, 36.0, 1.0),
+            )
+            .center(92),
             theme.live,
             3.0,
         );
@@ -180,14 +189,14 @@ impl App {
             container(
                 row![
                     call_button(
-                        self.glyph(Icon::PhoneOff, 22, iced::Color::WHITE),
+                        self.look().glyph(Icon::PhoneOff, 22, iced::Color::WHITE),
                         "Decline",
                         theme.danger,
                         theme,
                         Some(answer(false)),
                     ),
                     call_button(
-                        self.glyph(Icon::Phone, 22, iced::Color::WHITE),
+                        self.look().glyph(Icon::Phone, 22, iced::Color::WHITE),
                         "Accept",
                         theme.live,
                         theme,
@@ -271,7 +280,7 @@ impl App {
         let (prompt, joins) = self.switch_prompt()?;
         let theme = &self.theme;
         let soft = theme.accent_soft;
-        let badge = container(self.glyph(Icon::Volume, 20, theme.accent))
+        let badge = container(self.look().glyph(Icon::Volume, 20, theme.accent))
             .center(40)
             .style(move |_| rounded(soft, 20));
         let body = column![

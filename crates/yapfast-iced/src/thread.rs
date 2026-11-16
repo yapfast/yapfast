@@ -341,7 +341,7 @@ impl App {
         {
             self.aside = Some(Box::new(Aside::new(core.room.clone(), width)));
             // Keys typed anywhere go to it from when it opens.
-            self.writing_last = Writing::Aside;
+            self.composer.writing_last = Writing::Aside;
             let draft = state.aside_draft().to_owned();
             self.drafts.aside.reset(&draft);
             self.drafts.aside_known = draft;
@@ -556,18 +556,11 @@ impl App {
         }
     }
 
-    /// Whether this account can write in the thread beside.
-    pub fn aside_writes(&self) -> bool {
-        self.aside
-            .as_ref()
-            .is_some_and(|aside| self.client.state().can_write_in(&aside.room))
-    }
-
     fn send_aside(&mut self) -> Task<Message> {
         self.client
             .dispatch(Action::SetAsideDraft(self.drafts.aside.text()));
         self.client.dispatch(Action::SendAside);
-        self.suggest.clear(&mut self.client);
+        self.composer.suggest.clear(&mut self.client);
         let to_end = operation::scroll_to(
             LIST,
             scrollable::AbsoluteOffset {
@@ -594,309 +587,6 @@ impl App {
     /// The panel's width, as dragged and kept.
     pub fn aside_width(&self) -> f32 {
         self.aside_room(self.layout.aside_width.unwrap_or(WIDTH))
-    }
-
-    /// The thread beside the channel, or the New Thread form.
-    pub fn aside_view(&self) -> Option<Element<'_, Message>> {
-        if let Some(form) = self.new_thread_view() {
-            return Some(self.panel(form));
-        }
-        let aside = self.aside.as_ref()?;
-        let theme = &self.theme;
-        let head = row![
-            self.glyph(Icon::Thread, 18, theme.muted),
-            container(
-                elide(aside.name.as_str())
-                    .size(15)
-                    .font(BOLD)
-                    .color(theme.text)
-            )
-            .width(Length::Fill),
-            self.look()
-                .icon_button(Icon::Ellipsis, "More", Message::Thread(Event::More))
-                .below(),
-            self.look()
-                .icon_button(
-                    Icon::Maximize,
-                    "Open in full view",
-                    Message::Thread(Event::Expand)
-                )
-                .below(),
-            self.look()
-                .icon_button(Icon::X, "Close thread", Message::Thread(Event::Close))
-                .below(),
-        ];
-        let body = column![
-            self.panel_head(head),
-            self.aside_list(aside),
-            self.aside_composer(aside),
-        ];
-        Some(self.panel(body.into()))
-    }
-
-    /// The panel's frame: the edge on its left, its ground.
-    fn panel<'a>(&'a self, body: Element<'a, Message>) -> Element<'a, Message> {
-        let ground = self.theme.chat;
-        let theme = &self.theme;
-        // Its edge drags it wider or narrower, as the Slint client's.
-        let edge = crate::widgets::Splitter::new(
-            theme.edge,
-            theme.line,
-            theme.faint,
-            |by| Message::Thread(Event::Resize(by)),
-            Message::Thread(Event::Resized),
-            Message::Thread(Event::ResetWidth),
-        );
-        row![
-            edge,
-            container(body)
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .style(move |_| crate::style::fill(ground)),
-        ]
-        .width(self.aside_width())
-        .height(Length::Fill)
-        .into()
-    }
-
-    /// A panel's header: its row, and the line under it.
-    pub fn panel_head<'a>(&'a self, head: iced::widget::Row<'a, Message>) -> Element<'a, Message> {
-        column![
-            container(head.spacing(8).align_y(Alignment::Center))
-                .padding(Padding::ZERO.left(16).right(10))
-                .height(HEAD - 1.0)
-                .align_y(Alignment::Center),
-            bar(self.theme.line, Length::Fill, 1),
-        ]
-        .into()
-    }
-
-    fn aside_list<'a>(&'a self, aside: &'a Aside) -> Element<'a, Message> {
-        let theme = &self.theme;
-        if aside.messages.is_empty() {
-            let words: Element<'_, Message> = if aside.ready {
-                text(format!("This is the start of the {} thread.", aside.name))
-                    .size(14)
-                    .color(theme.muted)
-                    .center()
-                    .into()
-            } else {
-                text("Loading...").size(14).color(theme.muted).into()
-            };
-            return container(words)
-                .padding([0, 16])
-                .center(Length::Fill)
-                .into();
-        }
-        let (first, last) = aside.in_view(MARGIN);
-        let mut rows = Rows::new(aside.total_height()).measured(
-            |heights| Message::Thread(Event::Measured(heights)),
-            aside.found.clone(),
-            None,
-        );
-        let lead = (aside.height - aside.total_height()).max(0.0);
-        for index in first..last {
-            rows.push(
-                key(&aside.messages[index].item),
-                aside.tops[index],
-                aside.heights[index],
-                self.timeline_row(ASIDE + index),
-            );
-        }
-        let list = scroll_view(column![Space::new().height(lead), rows])
-            .id(LIST)
-            .anchor_bottom()
-            .on_scroll(|viewport| Message::Thread(Event::Scrolled(viewport)))
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .style(scrollbar(theme));
-        Watch::new(
-            list,
-            self.selection.is_some().then_some(Message::SelectClear),
-            self.selecting.then_some(Message::SelectEnd),
-        )
-        .into()
-    }
-
-    /// The thread's history edge, at its first row.
-    pub fn aside_edge(&self) -> Element<'_, Message> {
-        match &self.aside {
-            Some(aside) => self.edge_line(&aside.edge(), Message::Thread(Event::Earlier)),
-            None => Space::new().into(),
-        }
-    }
-
-    /// The thread's composer: the reply's bar over it, the files waiting,
-    /// Attach, the field and Send.
-    fn aside_composer<'a>(&'a self, aside: &'a Aside) -> Element<'a, Message> {
-        let state = self.client.state();
-        let writes = state.can_write_in(&aside.room);
-        let reply = crate::composer::reply_label(state.aside_compose());
-        let placeholder = if reply.is_some() {
-            "Write a reply".to_owned()
-        } else {
-            format!("Message {}", aside.name)
-        };
-        let can_send = state.can_send_in(&aside.room);
-        let sending = state.sending.is_some();
-        let mut composer = SideComposer::new(Writing::Aside, placeholder)
-            .enabled(writes)
-            .send(
-                if sending { "Sending..." } else { "Send" },
-                can_send.then_some(Message::Thread(Event::Send)),
-                can_send,
-            );
-        if let Some((label, ping)) = reply {
-            composer = composer.reply(label, ping);
-        }
-        if let Some(tray) = self.aside_tray() {
-            composer = composer.tray(tray);
-        }
-        composer = composer.attach(
-            state
-                .aside_can_attach()
-                .then_some(Message::Thread(Event::Attach)),
-        );
-        composer.view(self)
-    }
-
-    /// Discord's New Thread form, beside the channel.
-    fn new_thread_view(&self) -> Option<Element<'_, Message>> {
-        let form = self.client.state().new_thread()?;
-        let theme = &self.theme;
-        let head = row![
-            self.glyph(Icon::Thread, 18, theme.muted),
-            container(elide("New Thread").size(15).font(BOLD).color(theme.text))
-                .width(Length::Fill),
-            self.look()
-                .icon_button(Icon::X, "Close", Message::Thread(Event::CloseForm))
-                .below(),
-        ];
-        let mut fields = column![].spacing(16).padding(16).width(Length::Fill);
-        if let Some(starter) = &self.drafts.starter {
-            fields = fields.push(self.found_view(
-                starter,
-                Message::Thread(Event::Jump(starter.message.item.clone())),
-            ));
-        }
-        let placeholder = if form.default_name.is_empty() {
-            "New Thread"
-        } else {
-            form.default_name.as_str()
-        };
-        let mut name = form::entry(theme, NAME, placeholder, &self.drafts.name);
-        if !form.starting {
-            name = name
-                .on_input(|name| Message::Thread(Event::Name(name)))
-                .on_submit(Message::Focus(FIRST));
-        }
-        fields = fields.push(
-            column![
-                form::heading(
-                    theme,
-                    if form.message.is_some() {
-                        "THREAD NAME (OPTIONAL)"
-                    } else {
-                        "THREAD NAME"
-                    }
-                ),
-                name,
-            ]
-            .spacing(8),
-        );
-        if form.can_private {
-            let words = if form.private {
-                "Only people you invite and moderators can see. You can invite new people by @mentioning them."
-            } else {
-                "Only people you invite and moderators can see"
-            };
-            fields = fields.push(
-                form::switch(
-                    "Private Thread",
-                    form.private,
-                    (!form.only_private && !form.starting)
-                        .then_some(Message::Thread(Event::Private(!form.private))),
-                )
-                .description(words)
-                .view(self.look()),
-            );
-        }
-        if let Some(error) = &form.error {
-            fields = fields.push(form::error(theme, error.as_str()));
-        }
-        let composer = SideComposer::new(
-            Writing::NewThread,
-            "Enter a message to start the conversation!".to_owned(),
-        )
-        .enabled(!form.starting)
-        .send(
-            if form.starting {
-                "Creating..."
-            } else {
-                "Create Thread"
-            },
-            (!form.starting).then_some(Message::Thread(Event::Create)),
-            !form.starting && !self.drafts.first.is_empty(),
-        )
-        .view(self);
-        let body: Element<'_, Message> = column![
-            self.panel_head(head),
-            scroll_view(fields)
-                .height(Length::Fill)
-                .style(scrollbar(theme)),
-            composer,
-        ]
-        .into();
-        if !form.leaving {
-            return Some(body);
-        }
-        Some(
-            stack![
-                body,
-                self.leave_question(Message::Thread(Event::Stay), Message::Thread(Event::Leave))
-            ]
-            .into(),
-        )
-    }
-
-    /// Discord's question before leaving what was written: Back to editing,
-    /// or Exit, over the panel or form it's about.
-    pub fn leave_question(&self, stay: Message, leave: Message) -> Element<'_, Message> {
-        let theme = &self.theme;
-        let (ground, edge) = (theme.sidebar, theme.edge);
-        let card = container(
-            column![
-                text("Are you sure you want to go?")
-                    .size(17)
-                    .font(BOLD)
-                    .color(theme.text),
-                text("Any changes you made will be lost if you exit now.")
-                    .size(14)
-                    .color(theme.secondary),
-                container(
-                    row![
-                        controls::action(theme, "Back to editing", Kind::Ghost, Some(stay)),
-                        controls::action(theme, "Exit", Kind::Danger, Some(leave)),
-                    ]
-                    .spacing(8)
-                )
-                .width(Length::Fill)
-                .padding(Padding::ZERO.top(6))
-                .align_x(Alignment::End),
-            ]
-            .spacing(10),
-        )
-        .padding(16)
-        .max_width(440)
-        .style(move |_| crate::style::outlined(ground, edge, 10.0));
-        mouse_area(
-            container(card)
-                .padding([0, 16])
-                .center(Length::Fill)
-                .style(|_| crate::style::fill(DIM)),
-        )
-        .on_press(Message::Nothing)
-        .into()
     }
 }
 
@@ -958,9 +648,9 @@ impl<'a> SideComposer<'a> {
         self
     }
 
-    pub fn view(self, app: &'a App) -> Element<'a, Message> {
-        let theme = &app.theme;
-        let draft = app.writing(self.which);
+    pub fn view(self, cx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
+        let theme = cx.look.theme;
+        let draft = cx.writing(self.which);
         let field = Field::new(
             draft,
             Id::new(field_id(self.which)),
@@ -980,10 +670,10 @@ impl<'a> SideComposer<'a> {
             left: 6.0,
         })
         .enabled(self.enabled)
-        .suggesting(app.suggesting(self.which));
+        .suggesting(cx.suggesting(self.which));
         // Ctrl+V takes files and pictures where the thread takes them, as
         // the channel's composer does.
-        let field = if self.which == Writing::Aside && app.client.state().aside_can_attach() {
+        let field = if self.which == Writing::Aside && cx.state.aside_can_attach() {
             field.pastes()
         } else {
             field
@@ -993,7 +683,7 @@ impl<'a> SideComposer<'a> {
         };
         let mut line = row![].spacing(6).align_y(Alignment::End);
         if let Some(attach) = self.attach {
-            line = line.push(lift(app.composer_button(
+            line = line.push(lift(cx.composer_button(
                 Icon::CirclePlus,
                 "Attach files",
                 22,
@@ -1004,7 +694,7 @@ impl<'a> SideComposer<'a> {
         line = line.push(field);
         if let Some((label, message, lit)) = self.send {
             let tint = if lit { theme.accent } else { theme.secondary };
-            line = line.push(lift(app.composer_button(
+            line = line.push(lift(cx.composer_button(
                 Icon::Send,
                 label,
                 20,
@@ -1026,10 +716,10 @@ impl<'a> SideComposer<'a> {
         let frame = container(inside.push(container(line).padding(Padding::ZERO.left(8).right(8))))
             .width(Length::Fill)
             .style(move |_| rounded(ground, radius));
-        let frame = Popover::new(frame, app.suggestions_view(self.which), Side::Above);
+        let frame = Popover::new(frame, cx.suggestions_view(self.which), Side::Above);
         let mut compose = column![];
         if let Some((label, ping)) = self.reply {
-            compose = compose.push(app.reply_bar_for(
+            compose = compose.push(cx.reply_bar_for(
                 label,
                 ping,
                 Message::Thread(Event::TogglePing),
@@ -1073,5 +763,325 @@ pub fn start_from(from: ThreadFrom) -> Action {
     Action::NewThread {
         message: None,
         from,
+    }
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
+    /// Whether this account can write in the thread beside.
+    pub fn aside_writes(self) -> bool {
+        self.lanes
+            .aside
+            .is_some_and(|aside| self.state.can_write_in(&aside.room))
+    }
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
+    /// The thread's history edge, at its first row.
+    pub fn aside_edge(self) -> Element<'a, Message> {
+        match self.lanes.aside {
+            Some(aside) => self.edge_line(&aside.edge(), Message::Thread(Event::Earlier)),
+            None => Space::new().into(),
+        }
+    }
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
+    /// The thread beside the channel, or the New Thread form.
+    pub fn aside_view(self) -> Option<Element<'a, Message>> {
+        if let Some(form) = self.new_thread_view() {
+            return Some(self.panel(form));
+        }
+        let aside = self.lanes.aside?;
+        let theme = self.look.theme;
+        let head = row![
+            self.look.glyph(Icon::Thread, 18, theme.muted),
+            container(
+                elide(aside.name.as_str())
+                    .size(15)
+                    .font(BOLD)
+                    .color(theme.text)
+            )
+            .width(Length::Fill),
+            self.look
+                .icon_button(Icon::Ellipsis, "More", Message::Thread(Event::More))
+                .below(),
+            self.look
+                .icon_button(
+                    Icon::Maximize,
+                    "Open in full view",
+                    Message::Thread(Event::Expand)
+                )
+                .below(),
+            self.look
+                .icon_button(Icon::X, "Close thread", Message::Thread(Event::Close))
+                .below(),
+        ];
+        let body = column![
+            self.panel_head(head),
+            self.aside_list(aside),
+            self.aside_composer(aside),
+        ];
+        Some(self.panel(body.into()))
+    }
+
+    /// The panel's frame: the edge on its left, its ground.
+    fn panel(self, body: Element<'a, Message>) -> Element<'a, Message> {
+        let ground = self.look.theme.chat;
+        let theme = self.look.theme;
+        // Its edge drags it wider or narrower, as the Slint client's.
+        let edge = crate::widgets::Splitter::new(
+            theme.edge,
+            theme.line,
+            theme.faint,
+            |by| Message::Thread(Event::Resize(by)),
+            Message::Thread(Event::Resized),
+            Message::Thread(Event::ResetWidth),
+        );
+        row![
+            edge,
+            container(body)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .style(move |_| crate::style::fill(ground)),
+        ]
+        .width(self.aside_width)
+        .height(Length::Fill)
+        .into()
+    }
+
+    /// A panel's header: its row, and the line under it.
+    pub fn panel_head(self, head: iced::widget::Row<'a, Message>) -> Element<'a, Message> {
+        column![
+            container(head.spacing(8).align_y(Alignment::Center))
+                .padding(Padding::ZERO.left(16).right(10))
+                .height(HEAD - 1.0)
+                .align_y(Alignment::Center),
+            bar(self.look.theme.line, Length::Fill, 1),
+        ]
+        .into()
+    }
+
+    fn aside_list(self, aside: &'a Aside) -> Element<'a, Message> {
+        let theme = self.look.theme;
+        if aside.messages.is_empty() {
+            let words: Element<'a, Message> = if aside.ready {
+                text(format!("This is the start of the {} thread.", aside.name))
+                    .size(14)
+                    .color(theme.muted)
+                    .center()
+                    .into()
+            } else {
+                text("Loading...").size(14).color(theme.muted).into()
+            };
+            return container(words)
+                .padding([0, 16])
+                .center(Length::Fill)
+                .into();
+        }
+        let (first, last) = aside.in_view(MARGIN);
+        let mut rows = Rows::new(aside.total_height()).measured(
+            |heights| Message::Thread(Event::Measured(heights)),
+            aside.found.clone(),
+            None,
+        );
+        let lead = (aside.height - aside.total_height()).max(0.0);
+        for index in first..last {
+            rows.push(
+                key(&aside.messages[index].item),
+                aside.tops[index],
+                aside.heights[index],
+                self.timeline_row(ASIDE + index),
+            );
+        }
+        let list = scroll_view(column![Space::new().height(lead), rows])
+            .id(LIST)
+            .anchor_bottom()
+            .on_scroll(|viewport| Message::Thread(Event::Scrolled(viewport)))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(scrollbar(theme));
+        Watch::new(
+            list,
+            self.lanes
+                .timeline
+                .selection
+                .is_some()
+                .then_some(Message::SelectClear),
+            self.lanes.timeline.selecting.then_some(Message::SelectEnd),
+        )
+        .into()
+    }
+
+    /// The thread's composer: the reply's bar over it, the files waiting,
+    /// Attach, the field and Send.
+    fn aside_composer(self, aside: &'a Aside) -> Element<'a, Message> {
+        let state = self.state;
+        let writes = state.can_write_in(&aside.room);
+        let reply = crate::composer::reply_label(state.aside_compose());
+        let placeholder = if reply.is_some() {
+            "Write a reply".to_owned()
+        } else {
+            format!("Message {}", aside.name)
+        };
+        let can_send = state.can_send_in(&aside.room);
+        let sending = state.sending.is_some();
+        let mut composer = SideComposer::new(Writing::Aside, placeholder)
+            .enabled(writes)
+            .send(
+                if sending { "Sending..." } else { "Send" },
+                can_send.then_some(Message::Thread(Event::Send)),
+                can_send,
+            );
+        if let Some((label, ping)) = reply {
+            composer = composer.reply(label, ping);
+        }
+        if let Some(tray) = self.aside_tray() {
+            composer = composer.tray(tray);
+        }
+        composer = composer.attach(
+            state
+                .aside_can_attach()
+                .then_some(Message::Thread(Event::Attach)),
+        );
+        composer.view(self)
+    }
+
+    /// Discord's New Thread form, beside the channel.
+    fn new_thread_view(self) -> Option<Element<'a, Message>> {
+        let form = self.state.new_thread()?;
+        let theme = self.look.theme;
+        let head = row![
+            self.look.glyph(Icon::Thread, 18, theme.muted),
+            container(elide("New Thread").size(15).font(BOLD).color(theme.text))
+                .width(Length::Fill),
+            self.look
+                .icon_button(Icon::X, "Close", Message::Thread(Event::CloseForm))
+                .below(),
+        ];
+        let mut fields = column![].spacing(16).padding(16).width(Length::Fill);
+        if let Some(starter) = &self.drafts.starter {
+            fields = fields.push(self.found_view(
+                starter,
+                Message::Thread(Event::Jump(starter.message.item.clone())),
+            ));
+        }
+        let placeholder = if form.default_name.is_empty() {
+            "New Thread"
+        } else {
+            form.default_name.as_str()
+        };
+        let mut name = form::entry(theme, NAME, placeholder, &self.drafts.name);
+        if !form.starting {
+            name = name
+                .on_input(|name| Message::Thread(Event::Name(name)))
+                .on_submit(Message::Focus(FIRST));
+        }
+        fields = fields.push(
+            column![
+                form::heading(
+                    theme,
+                    if form.message.is_some() {
+                        "THREAD NAME (OPTIONAL)"
+                    } else {
+                        "THREAD NAME"
+                    }
+                ),
+                name,
+            ]
+            .spacing(8),
+        );
+        if form.can_private {
+            let words = if form.private {
+                "Only people you invite and moderators can see. You can invite new people by @mentioning them."
+            } else {
+                "Only people you invite and moderators can see"
+            };
+            fields = fields.push(
+                form::switch(
+                    "Private Thread",
+                    form.private,
+                    (!form.only_private && !form.starting)
+                        .then_some(Message::Thread(Event::Private(!form.private))),
+                )
+                .description(words)
+                .view(self.look),
+            );
+        }
+        if let Some(error) = &form.error {
+            fields = fields.push(form::error(theme, error.as_str()));
+        }
+        let composer = SideComposer::new(
+            Writing::NewThread,
+            "Enter a message to start the conversation!".to_owned(),
+        )
+        .enabled(!form.starting)
+        .send(
+            if form.starting {
+                "Creating..."
+            } else {
+                "Create Thread"
+            },
+            (!form.starting).then_some(Message::Thread(Event::Create)),
+            !form.starting && !self.drafts.first.is_empty(),
+        )
+        .view(self);
+        let body: Element<'a, Message> = column![
+            self.panel_head(head),
+            scroll_view(fields)
+                .height(Length::Fill)
+                .style(scrollbar(theme)),
+            composer,
+        ]
+        .into();
+        if !form.leaving {
+            return Some(body);
+        }
+        Some(
+            stack![
+                body,
+                self.leave_question(Message::Thread(Event::Stay), Message::Thread(Event::Leave))
+            ]
+            .into(),
+        )
+    }
+
+    /// Discord's question before leaving what was written: Back to editing,
+    /// or Exit, over the panel or form it's about.
+    pub fn leave_question(self, stay: Message, leave: Message) -> Element<'a, Message> {
+        let theme = self.look.theme;
+        let (ground, edge) = (theme.sidebar, theme.edge);
+        let card = container(
+            column![
+                text("Are you sure you want to go?")
+                    .size(17)
+                    .font(BOLD)
+                    .color(theme.text),
+                text("Any changes you made will be lost if you exit now.")
+                    .size(14)
+                    .color(theme.secondary),
+                container(
+                    row![
+                        controls::action(theme, "Back to editing", Kind::Ghost, Some(stay)),
+                        controls::action(theme, "Exit", Kind::Danger, Some(leave)),
+                    ]
+                    .spacing(8)
+                )
+                .width(Length::Fill)
+                .padding(Padding::ZERO.top(6))
+                .align_x(Alignment::End),
+            ]
+            .spacing(10),
+        )
+        .padding(16)
+        .max_width(440)
+        .style(move |_| crate::style::outlined(ground, edge, 10.0));
+        mouse_area(
+            container(card)
+                .padding([0, 16])
+                .center(Length::Fill)
+                .style(|_| crate::style::fill(DIM)),
+        )
+        .on_press(Message::Nothing)
+        .into()
     }
 }

@@ -21,7 +21,7 @@ use yapfast_core::{
 use crate::{
     app::{App, Message},
     controls::{self, Kind, bar, placed},
-    ctx::{Cx, Focus, Request},
+    ctx::{Ctx, Cx, Focus, Request},
     elide::elide,
     fonts::{BOLD, MEDIUM, SEMIBOLD},
     found::Found,
@@ -467,36 +467,59 @@ impl App {
         );
         urls
     }
+}
 
-    /// The open popover, placed under its button.
-    pub fn popover_layer(&self) -> Option<Element<'_, Message>> {
-        if let Some(topic) = &self.popovers.topic {
+/// The open popover, placed under its button.
+pub fn view<'a>(
+    popovers: &'a Popovers,
+    name: &'a str,
+    cx: Ctx<'a>,
+) -> Option<Element<'a, Message>> {
+    View {
+        s: popovers,
+        name,
+        cx,
+    }
+    .layer()
+}
+
+/// The popovers' view: their state, the open room's name and the view
+/// context.
+#[derive(Clone, Copy)]
+struct View<'a> {
+    s: &'a Popovers,
+    name: &'a str,
+    cx: Ctx<'a>,
+}
+
+impl<'a> View<'a> {
+    fn layer(self) -> Option<Element<'a, Message>> {
+        if let Some(topic) = &self.s.topic {
             return Some(self.topic_layer(topic));
         }
-        let (panel, width, most) = if pins_open(self.client.state()) {
+        let (panel, width, most) = if pins_open(self.cx.state) {
             (self.pins_view(), PINS_WIDTH, PINS_MOST)
-        } else if self.client.state().thread_list().is_some() {
+        } else if self.cx.state.thread_list().is_some() {
             // As Discord's: 35% of the window wide, from 480 to 600 px.
-            let width = (self.window.width * 0.35).clamp(480.0, 600.0);
+            let width = (self.cx.look.window.width * 0.35).clamp(480.0, 600.0);
             (self.threads_view(), width, self.threads_height())
-        } else if people_open(self.client.state()) {
+        } else if people_open(self.cx.state) {
             (self.people_view(), PEOPLE_WIDTH, PEOPLE_MOST)
         } else {
             return None;
         };
-        let width = width.min(self.window.width - 2.0 * MARGIN);
+        let width = width.min(self.cx.look.window.width - 2.0 * MARGIN);
         let top = crate::header::HEIGHT + GAP;
-        let x = (self.popovers.right - width)
-            .min(self.window.width - width - MARGIN)
+        let x = (self.s.right - width)
+            .min(self.cx.look.window.width - width - MARGIN)
             .max(MARGIN);
-        let height = most.min(self.window.height - top - 2.0 * MARGIN);
+        let height = most.min(self.cx.look.window.height - top - 2.0 * MARGIN);
         let panel = container(panel).width(width).max_height(height);
-        let panel =
-            if self.client.state().thread_list().is_some() || people_open(self.client.state()) {
-                panel.height(height)
-            } else {
-                panel
-            };
+        let panel = if self.cx.state.thread_list().is_some() || people_open(self.cx.state) {
+            panel.height(height)
+        } else {
+            panel
+        };
         Some(
             stack![
                 controls::outside(Message::Popover(Event::Close), false),
@@ -509,8 +532,8 @@ impl App {
     /// A popover's frame, as the Slint client's `Popover`: its icon,
     /// heading and detail over a line, Close, and what it holds; as tall
     /// as what it holds, or as its place with `fill`.
-    pub fn popover_frame<'a>(
-        &'a self,
+    pub fn frame(
+        self,
         fill_place: bool,
         icon: Icon,
         heading: Element<'a, Message>,
@@ -518,14 +541,14 @@ impl App {
         end: Option<Element<'a, Message>>,
         body: Element<'a, Message>,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let tall = detail.is_some();
         let mut words = column![heading].spacing(2);
         if let Some(detail) = detail {
             words = words.push(elide(detail).size(13).color(theme.muted));
         }
         let mut head = row![
-            self.glyph(icon, 20, theme.secondary),
+            self.cx.look.glyph(icon, 20, theme.secondary),
             container(words).width(Length::Fill),
         ]
         .spacing(10)
@@ -534,7 +557,8 @@ impl App {
             head = head.push(end);
         }
         head = head.push(
-            self.look()
+            self.cx
+                .look
                 .icon_button(Icon::X, "Close", Message::Popover(Event::Close))
                 .below(),
         );
@@ -569,20 +593,20 @@ impl App {
         iced::widget::opaque(controls::edged(panel, edge, RADIUS))
     }
 
-    fn popover_heading<'a>(&self, words: &'a str) -> Element<'a, Message> {
+    fn heading(self, words: &'a str) -> Element<'a, Message> {
         elide(words)
             .size(16)
             .font(BOLD)
-            .color(self.theme.text)
+            .color(self.cx.look.theme.text)
             .into()
     }
 
     /// A note in a popover's place: while it loads, why it failed.
-    fn popover_note<'a>(&self, icon: Option<Icon>, note: String) -> Element<'a, Message> {
-        let theme = &self.theme;
+    fn note(self, icon: Option<Icon>, note: String) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         let mut note_column = column![].spacing(12).align_x(Alignment::Center);
         if let Some(icon) = icon {
-            note_column = note_column.push(self.glyph(icon, 40, theme.faint));
+            note_column = note_column.push(self.cx.look.glyph(icon, 40, theme.faint));
         }
         note_column = note_column.push(text(note).size(14).color(theme.muted).center());
         container(note_column)
@@ -594,8 +618,8 @@ impl App {
             .into()
     }
 
-    fn pins_view(&self) -> Element<'_, Message> {
-        let state = self.client.state();
+    fn pins_view(self) -> Element<'a, Message> {
+        let state = self.cx.state;
         let pins = state.pins.as_ref().map(|pins| &pins.messages);
         let note = match pins {
             Some(None) => Some("Loading pinned messages...".to_owned()),
@@ -611,23 +635,23 @@ impl App {
             _ => None,
         };
         let body = match note {
-            Some(note) => self.popover_note(Some(Icon::Pin), note),
+            Some(note) => self.note(Some(Icon::Pin), note),
             None => {
-                let cards = self.popovers.pins.iter().map(|found| {
-                    self.found_view(
+                let cards = self.s.pins.iter().map(|found| {
+                    self.cx.found_view(
                         found,
                         Message::Popover(Event::Jump(found.message.item.clone())),
                     )
                 });
                 scroll_view(column(cards).spacing(8).padding(12))
-                    .style(scrollbar(&self.theme))
+                    .style(scrollbar(self.cx.look.theme))
                     .into()
             }
         };
-        self.popover_frame(
+        self.frame(
             false,
             Icon::Pin,
-            self.popover_heading("Pinned Messages"),
+            self.heading("Pinned Messages"),
             None,
             None,
             body,
@@ -637,29 +661,29 @@ impl App {
     /// The topic in full, under its line, its left edge level with the
     /// line's, as the Slint client's `TopicPopover`; its text scrolls past
     /// 400 px or the window's room.
-    fn topic_layer<'a>(&'a self, topic: &'a TopicShown) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let width = TOPIC_WIDTH.min(self.window.width - 2.0 * MARGIN);
+    fn topic_layer(self, topic: &'a TopicShown) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let width = TOPIC_WIDTH.min(self.cx.look.window.width - 2.0 * MARGIN);
         let x = topic
             .under
             .x
-            .min(self.window.width - width - MARGIN)
+            .min(self.cx.look.window.width - width - MARGIN)
             .max(MARGIN);
         let top = topic.under.y + topic.under.height + GAP;
-        let most = TOPIC_MOST.min(self.window.height - top - 16.0);
+        let most = TOPIC_MOST.min(self.cx.look.window.height - top - 16.0);
         let look = crate::markdown::Look {
             size: TOPIC_TEXT,
             line_height: TOPIC_LINE,
             ink: theme.text,
         };
         let body =
-            scroll_view(container(self.body_view(&topic.body, usize::MAX, 0, look)).padding(16))
+            scroll_view(container(self.cx.body_view(&topic.body, usize::MAX, 0, look)).padding(16))
                 .style(scrollbar(theme));
-        let name = self.header.name.as_str();
-        let panel = self.popover_frame(
+        let name = self.name;
+        let panel = self.frame(
             false,
             Icon::Hash,
-            self.popover_heading(name),
+            self.heading(name),
             None,
             None,
             body.into(),
@@ -671,10 +695,10 @@ impl App {
         .into()
     }
 
-    fn threads_view(&self) -> Element<'_, Message> {
-        let theme = &self.theme;
-        let app = &self.client.app;
-        let state = self.client.state();
+    fn threads_view(self) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let app = &self.cx.app;
+        let state = self.cx.state;
         let Some(list) = state.thread_list() else {
             return Space::new().into();
         };
@@ -687,10 +711,10 @@ impl App {
         if searchable {
             heading = heading
                 .push(bar(theme.line, 1, 24))
-                .push(self.ctx().search_field(
+                .push(self.cx.search_field(
                     THREADS_SEARCH,
                     "Search for Thread Name",
-                    &self.popovers.threads_query,
+                    &self.s.threads_query,
                     |query| Message::Popover(Event::ThreadsQuery(query)),
                     Message::Popover(Event::SearchThreads),
                     Message::Popover(Event::ThreadsQuery(String::new())),
@@ -706,7 +730,7 @@ impl App {
             .small()
             .into()
         });
-        let sections_empty = self.popovers.threads.is_empty();
+        let sections_empty = self.s.threads.is_empty();
         let found = list.search.as_ref().map(|search| &search.found);
         let note = match found {
             Some(None) => Some("Searching...".to_owned()),
@@ -716,11 +740,11 @@ impl App {
             None if sections_empty => list.error.clone(),
             None => None,
         };
-        let body: Element<'_, Message> = if let Some(note) = note {
-            self.popover_note(None, note)
+        let body: Element<'a, Message> = if let Some(note) = note {
+            self.note(None, note)
         } else if sections_empty {
             let mut empty = column![
-                self.glyph(Icon::Thread, 48, theme.faint),
+                self.cx.look.glyph(Icon::Thread, 48, theme.faint),
                 text("There are no threads.")
                     .size(17)
                     .font(BOLD)
@@ -746,7 +770,7 @@ impl App {
             container(empty).padding(32).center_x(Length::Fill).into()
         } else {
             let mut rows = column![];
-            for (index, entry) in self.popovers.threads.iter().enumerate() {
+            for (index, entry) in self.s.threads.iter().enumerate() {
                 if let Some(heading) = &entry.heading {
                     let above = if index == 0 { 8.0 } else { 40.0 };
                     rows = rows.push(
@@ -783,19 +807,15 @@ impl App {
                 .style(scrollbar(theme))
                 .into()
         };
-        self.popover_frame(true, Icon::Thread, heading.into(), None, create, body)
+        self.frame(true, Icon::Thread, heading.into(), None, create, body)
     }
 
     /// The threads list's height, as Discord's: as tall as its rows, from
     /// 400 px to 80% of the window.
-    fn threads_height(&self) -> f32 {
-        let rows = &self.popovers.threads;
+    fn threads_height(self) -> f32 {
+        let rows = &self.s.threads;
         let headings = rows.iter().filter(|row| row.heading.is_some()).count();
-        let loading = self
-            .client
-            .state()
-            .thread_list()
-            .is_some_and(|list| list.loading);
+        let loading = self.cx.state.thread_list().is_some_and(|list| list.loading);
         let fit = HEAD
             + 1.0
             + if headings > 0 {
@@ -805,15 +825,15 @@ impl App {
             }
             + rows.len() as f32 * THREAD_SLOT
             + if loading { 34.0 } else { 0.0 };
-        fit.max(400.0).min(self.window.height * 0.8)
+        fit.max(400.0).min(self.cx.look.window.height * 0.8)
     }
 
     /// A thread's card in the list, as the Slint client's `ThreadEntry`.
-    fn thread_card<'a>(&'a self, entry: &'a ThreadRow) -> Element<'a, Message> {
-        let theme = &self.theme;
+    fn thread_card(self, entry: &'a ThreadRow) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         let mut name = row![].spacing(6).align_y(Alignment::Center);
         if entry.private {
-            name = name.push(self.glyph(Icon::Lock, 14, theme.muted));
+            name = name.push(self.cx.look.glyph(Icon::Lock, 14, theme.muted));
         }
         name = name.push(
             elide(entry.name.as_str())
@@ -823,7 +843,7 @@ impl App {
         );
         let mut line = row![].align_y(Alignment::Center);
         if let Some((person, avatar, _)) = &entry.person {
-            line = line.push(self.face(Face::new(
+            line = line.push(self.cx.face(Face::new(
                 (!avatar.is_empty()).then_some(avatar.as_str()),
                 person,
                 16.0,
@@ -831,7 +851,7 @@ impl App {
             line = line.push(Space::new().width(6));
         } else if entry.archived {
             line = line
-                .push(self.glyph(Icon::Thread, 14, theme.muted))
+                .push(self.cx.look.glyph(Icon::Thread, 14, theme.muted))
                 .push(Space::new().width(6));
         }
         if !entry.lead.is_empty() {
@@ -871,7 +891,7 @@ impl App {
             ];
             for (index, avatar) in entry.avatars.iter().enumerate() {
                 faces = faces.push(placed(
-                    self.face(Face::new(Some(avatar.as_str()), "", 18.0)),
+                    self.cx.face(Face::new(Some(avatar.as_str()), "", 18.0)),
                     index as f32 * 12.0 + 1.0,
                     1.0,
                 ));
@@ -911,9 +931,9 @@ impl App {
             .into()
     }
 
-    fn people_view(&self) -> Element<'_, Message> {
-        let theme = &self.theme;
-        let state = self.client.state();
+    fn people_view(self) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let state = self.cx.state;
         let Some(picker) = state.add_people.as_ref() else {
             return Space::new().into();
         };
@@ -929,7 +949,7 @@ impl App {
             theme,
             PEOPLE_FIELD,
             "Type the name of a friend",
-            &self.popovers.people_query,
+            &self.s.people_query,
             false,
             true,
         )
@@ -942,12 +962,12 @@ impl App {
             field
         };
         let mut list = column![].spacing(2);
-        for person in &self.popovers.people {
+        for person in &self.s.people {
             let can_choose = !picker.adding && (person.chosen || chosen < room);
             list = list.push(self.pick_row(person, can_choose));
         }
-        if self.popovers.people.is_empty() {
-            let words = if self.popovers.people_query.is_empty() {
+        if self.s.people.is_empty() {
+            let words = if self.s.people_query.is_empty() {
                 "All your friends are here already."
             } else {
                 "No friends match."
@@ -981,10 +1001,10 @@ impl App {
             )
             .wide(38.0),
         );
-        self.popover_frame(
+        self.frame(
             true,
             Icon::UserPlus,
-            self.popover_heading("Select Friends"),
+            self.heading("Select Friends"),
             Some(detail),
             None,
             body.height(Length::Fill).into(),
@@ -993,9 +1013,9 @@ impl App {
 
     /// A friend to choose, as the Slint client's row: avatar with presence,
     /// name, and a box ticked once chosen.
-    fn pick_row<'a>(&'a self, person: &'a PickRow, can_choose: bool) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let face = self.face(
+    fn pick_row(self, person: &'a PickRow, can_choose: bool) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let face = self.cx.face(
             Face::new(person.avatar.as_deref(), &person.name, 32.0).dot(
                 person
                     .presence
@@ -1019,7 +1039,7 @@ impl App {
                 }
             ))
             .width(Length::Fill),
-            self.checkbox(person.chosen, false),
+            self.cx.look.checkbox(person.chosen, false),
         ]
         .spacing(12)
         .align_y(Alignment::Center);

@@ -10,7 +10,7 @@ use iced::{
 use yapfast_core::{chat::ChatRoom, discord};
 
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{self, Kind, action},
     fonts::{BOLD, MEDIUM},
     pictures::Icon,
@@ -131,14 +131,14 @@ pub(super) fn request_rows(state: &yapfast_core::application::AppState) -> Reque
     rows
 }
 
-impl App {
+impl<'a> crate::ctx::Ctx<'a> {
     /// Friend requests and message requests, a person's together, then
     /// those this account sent, and spam folded away.
-    pub fn requests_screen(&self) -> Element<'_, Message> {
-        let state = self.client.state();
+    pub fn requests_screen(self) -> Element<'a, Message> {
+        let state = self.state;
         let rows = request_rows(state);
         if rows.incoming.is_empty() && rows.sent.is_empty() && rows.spam.is_empty() {
-            return self.look().empty_screen(
+            return self.look.empty_screen(
                 Icon::Inbox,
                 "No requests",
                 "Friend requests and messages from people you don't know show up here.",
@@ -164,7 +164,7 @@ impl App {
             list = list.push(self.request_item(request, false));
         }
         if !rows.spam.is_empty() {
-            let theme = &self.theme;
+            let theme = self.look.theme;
             let open = self.friends.spam_open;
             let (muted, secondary) = (theme.muted, theme.secondary);
             let chevron = if open {
@@ -178,7 +178,7 @@ impl App {
                         text(format!("SPAM — {}", rows.spam.len()))
                             .size(12)
                             .font(BOLD),
-                        self.glyph(chevron, 14, muted),
+                        self.look.glyph(chevron, 14, muted),
                     ]
                     .spacing(4)
                     .align_y(Alignment::Center),
@@ -203,19 +203,15 @@ impl App {
         }
         scroll_view(list)
             .height(Length::Fill)
-            .style(scrollbar(&self.theme))
+            .style(scrollbar(self.look.theme))
             .into()
     }
 
     /// Someone waiting for an answer, as the Slint client's `RequestItem`:
     /// their friend request, answered here, and their message request's
     /// latest message under it, which opens the conversation.
-    pub(super) fn request_item<'a>(
-        &'a self,
-        request: Request<'a>,
-        spam: bool,
-    ) -> Element<'a, Message> {
-        let theme = &self.theme;
+    pub(super) fn request_item(self, request: Request<'a>, spam: bool) -> Element<'a, Message> {
+        let theme = self.look.theme;
         let messaged = request.room.is_some();
         let about = match (spam, request.friend, messaged) {
             (true, _, _) => "Maybe spam",
@@ -241,7 +237,7 @@ impl App {
         let mut top = row![words].spacing(8).align_y(Alignment::Center);
         let id = request.id.to_owned();
         if request.friend == Some(true) {
-            let check = self.icon(Icon::Check, 16, rgb(theme.on_accent));
+            let check = self.look.icon(Icon::Check, 16, rgb(theme.on_accent));
             top = top.push(
                 action(
                     theme,
@@ -254,7 +250,7 @@ impl App {
             );
         }
         if let Some(incoming) = request.friend {
-            let x = self.icon(Icon::X, 16, rgb(theme.text));
+            let x = self.look.icon(Icon::X, 16, rgb(theme.text));
             top = top.push(
                 action(
                     theme,
@@ -295,12 +291,12 @@ impl App {
 
     /// A message request's latest message, under who sent it; a click
     /// opens the conversation.
-    pub(super) fn request_message<'a>(
-        &'a self,
+    pub(super) fn request_message(
+        self,
         request: &Request<'a>,
         room: &'a str,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.look.theme;
         let unread = request.unread;
         let (words, ink) = match request.message {
             Some(message) if !message.is_empty() => {
@@ -322,7 +318,7 @@ impl App {
         if !request.time.is_empty() {
             end = end.push(text(request.time.clone()).size(12).color(theme.muted));
         }
-        end = end.push(self.glyph(Icon::ChevronRight, 16, theme.muted));
+        end = end.push(self.look.glyph(Icon::ChevronRight, 16, theme.muted));
         let accent = theme.accent;
         let mark: Element<'a, Message> = if unread {
             container(Space::new())
@@ -334,7 +330,7 @@ impl App {
             Space::new().width(0).into()
         };
         let content = row![
-            container(self.glyph(
+            container(self.look.glyph(
                 Icon::MessageCircle,
                 16,
                 if unread { theme.accent } else { theme.muted }

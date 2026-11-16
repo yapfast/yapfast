@@ -126,12 +126,12 @@ impl App {
     fn make_lists(&mut self) {
         let state = self.client.state();
         let rail = rail(state, &self.layout.open_folders);
-        if self.rail != rail {
-            self.rail = rail;
+        if self.rail.items != rail {
+            self.rail.items = rail;
         }
         let home = crate::rail::home(state);
-        if self.rail_home != home {
-            self.rail_home = home;
+        if self.rail.home != home {
+            self.rail.home = home;
         }
         let categories = match &state.navigation {
             Navigation::Server(server) => self.client.app.categories(server),
@@ -142,11 +142,11 @@ impl App {
             state,
             &categories,
             &self.layout.collapsed,
-            &self.filter,
+            &self.sidebar.filter,
             self.theme.dark,
         );
-        if self.side != side {
-            self.side = side;
+        if self.sidebar.rows != side {
+            self.sidebar.rows = side;
         }
         let discord = match &state.navigation {
             Navigation::Server(server) => state
@@ -155,29 +155,30 @@ impl App {
                 .any(|known| known.discord && &known.id == server),
             Navigation::DirectMessages => false,
         };
-        let places = crate::arrange::places(&self.side, discord, !self.filter.is_empty());
-        if self.side_places != places {
-            self.side_places = places;
+        let places =
+            crate::arrange::places(&self.sidebar.rows, discord, !self.sidebar.filter.is_empty());
+        if self.sidebar.places != places {
+            self.sidebar.places = places;
             // What's dragged may have gone, or moved to another place.
-            self.arranging = None;
+            self.sidebar.arranging = None;
         }
         let head = crate::sidebar::side_header(&self.client.app);
-        if self.side_header != head {
-            self.side_header = head;
+        if self.sidebar.header != head {
+            self.sidebar.header = head;
         }
         let header = crate::header::header(state, &self.header, rgb(self.theme.mention));
         if self.header != header {
             self.header = header;
         }
         let edge = Edge::of(state);
-        if self.edge != edge {
-            self.edge = edge;
-            self.edge_changed = true;
+        if self.timeline.edge != edge {
+            self.timeline.edge = edge;
+            self.timeline.edge_changed = true;
         }
         // Someone dragged may drop where their menu's Move to offers, of
         // the channels listed now.
         self.moving_targets();
-        self.clocks.calls = self.side.iter().any(
+        self.timeline.clocks.calls = self.sidebar.rows.iter().any(
             |row| matches!(row, crate::sidebar::SideRow::Room(room) if room.started.is_some()),
         );
         // The open inbox follows the rooms' unread marks, as Slint's.
@@ -190,10 +191,10 @@ impl App {
         let state = self.client.state();
         // The DM search's filter is the DM home's: it goes as the rail
         // goes to a server, or back home.
-        if self.filtered_in.as_ref() != Some(&state.navigation) {
-            self.filtered_in = Some(state.navigation.clone());
-            if !self.filter.is_empty() {
-                self.filter.clear();
+        if self.sidebar.filtered_in.as_ref() != Some(&state.navigation) {
+            self.sidebar.filtered_in = Some(state.navigation.clone());
+            if !self.sidebar.filter.is_empty() {
+                self.sidebar.filter.clear();
                 self.lists_shown = None;
             }
         }
@@ -223,31 +224,31 @@ impl App {
         }
         let state = self.client.state();
         let switched = self.selected != state.selected;
-        if switched && self.editing.is_some() {
+        if switched && self.composer.editing.is_some() {
             self.client
                 .dispatch(yapfast_core::application::Action::CancelEdit);
         }
         let state = self.client.state();
         // The edit ended (saved, cancelled, or its room left): its field
         // goes.
-        if self.editing.is_some() && state.edit().is_none() {
-            self.editing = None;
-            self.edit.reset("");
+        if self.composer.editing.is_some() && state.edit().is_none() {
+            self.composer.editing = None;
+            self.composer.edit.reset("");
         }
         if switched {
             self.selected = state.selected.clone();
-            self.from_end = 0.0;
-            self.at_end = true;
-            self.latest_due = false;
+            self.timeline.from_end = 0.0;
+            self.timeline.at_end = true;
+            self.timeline.latest_due = false;
             // The composer shows the room's own draft, as the Slint client's.
-            self.draft.reset(state.draft());
-            self.draft_known = state.draft().to_owned();
-            self.selection = None;
-            self.selecting = false;
-            self.menu = None;
+            self.composer.draft.reset(state.draft());
+            self.composer.draft_known = state.draft().to_owned();
+            self.timeline.selection = None;
+            self.timeline.selecting = false;
+            self.win.menu = None;
             // An emoji's or sticker's card was on the room left.
             self.cards.expression = None;
-            self.suggest.clear(&mut self.client);
+            self.composer.suggest.clear(&mut self.client);
             tasks.push(operation::scroll_to(
                 TIMELINE,
                 AbsoluteOffset {
@@ -258,10 +259,10 @@ impl App {
         }
         // The core changed the draft itself, as when a message it sent went.
         let state = self.client.state();
-        if !switched && state.draft() != self.draft_known {
-            self.draft_known = state.draft().to_owned();
-            if self.draft_known != self.draft.text() {
-                self.draft.reset(&self.draft_known);
+        if !switched && state.draft() != self.composer.draft_known {
+            self.composer.draft_known = state.draft().to_owned();
+            if self.composer.draft_known != self.composer.draft.text() {
+                self.composer.draft.reset(&self.composer.draft_known);
             }
         }
         let seen = {
@@ -274,45 +275,45 @@ impl App {
                 aside.len(),
             ]
         };
-        if seen != self.staged_seen {
-            self.staged_seen = seen;
+        if seen != self.uploads.staged_seen {
+            self.uploads.staged_seen = seen;
             tasks.push(self.previews());
         }
         tasks.push(self.roster(switched));
         // The feed came or changed whom it may show.
         let state = self.client.state();
         let people = state.activity_people.as_ref().map(|(_, people)| people);
-        let (feed, made_from) = &self.activity_for;
+        let (feed, made_from) = &self.roster.activity_for;
         if !Arc::ptr_eq(feed, &state.activity_feed)
             || made_from.as_ref().map(Arc::as_ptr) != people.map(Arc::as_ptr)
         {
-            self.activity_for = (state.activity_feed.clone(), people.cloned());
+            self.roster.activity_for = (state.activity_feed.clone(), people.cloned());
             self.make_activity_cards();
         }
         let state = self.client.state();
         let marks = (state.first_unread.clone(), state.seen.clone());
-        let edge_changed = std::mem::take(&mut self.edge_changed);
-        let messages_changed = !Arc::ptr_eq(&self.messages, &self.client.state().messages);
-        if messages_changed || edge_changed || self.marks_for != marks {
-            self.marks_for = marks;
+        let edge_changed = std::mem::take(&mut self.timeline.edge_changed);
+        let messages_changed = !Arc::ptr_eq(&self.timeline.messages, &self.client.state().messages);
+        if messages_changed || edge_changed || self.timeline.marks_for != marks {
+            self.timeline.marks_for = marks;
             // While someone reads earlier messages, what they read stays
             // put as messages come, go or change around it.
             let reading = if switched { None } else { self.reading() };
             let messages = self.client.state().messages.clone();
-            let old = std::mem::replace(&mut self.messages, messages);
+            let old = std::mem::replace(&mut self.timeline.messages, messages);
             self.measure(&old, edge_changed);
             tasks.push(self.keep_reading(reading));
             // Sent from a window of older messages, or Jump to present: the
             // newest show at the end once they've replaced the window.
-            if messages_changed && !self.client.state().detached && self.latest_due {
-                self.latest_due = false;
+            if messages_changed && !self.client.state().detached && self.timeline.latest_due {
+                self.timeline.latest_due = false;
                 tasks.push(self.go_to_end());
             }
             tasks.push(self.report());
         }
         tasks.push(self.follow_jumps());
         // Images of pictures the core let go of go too.
-        self.pictures.prune();
+        self.win.pictures.prune();
         self.call_sync();
         {
             let mut cx = crate::ctx::cx!(self);
@@ -324,12 +325,12 @@ impl App {
         self.forum_sync();
         self.modal.sync(self.client.state(), &self.theme);
         tasks.push(self.menu_apps_sync());
-        if self.client.state().browse.is_none() && !self.browse_filter.is_empty() {
-            self.browse_filter.clear();
+        if self.client.state().browse.is_none() && !self.sidebar.browse_filter.is_empty() {
+            self.sidebar.browse_filter.clear();
         }
         {
             let mut cx = crate::ctx::cx!(self);
-            if let Some(picker) = self.picker.get_mut() {
+            if let Some(picker) = self.win.picker.get_mut() {
                 picker.sync(&mut cx);
             }
         }
@@ -382,7 +383,7 @@ impl App {
     /// pause after it together at its end. A new room shows at once.
     fn roster(&mut self, switched: bool) -> Task<Message> {
         let members = self.roster_source();
-        let same = match (&members, &self.members) {
+        let same = match (&members, &self.roster.members) {
             (Some(new), Some(old)) => Arc::ptr_eq(new, old),
             (None, None) => true,
             _ => false,
@@ -393,19 +394,19 @@ impl App {
             self.show_roster(false);
             return Task::none();
         }
-        if same || self.roster_waiting {
+        if same || self.roster.waiting {
             return Task::none();
         }
-        let since = self.roster_shown.map(|shown| shown.elapsed());
+        let since = self.roster.shown.map(|shown| shown.elapsed());
         // Shown or hidden at once; only churn waits.
-        if self.members.is_none()
+        if self.roster.members.is_none()
             || members.is_none()
             || since.is_none_or(|since| since >= looks::ROSTER_PAUSE)
         {
             self.show_roster(false);
             return Task::none();
         }
-        self.roster_waiting = true;
+        self.roster.waiting = true;
         after(
             looks::ROSTER_PAUSE - since.unwrap_or_default(),
             Message::Roster,
@@ -427,32 +428,30 @@ impl App {
     pub fn show_roster(&mut self, held: bool) {
         let members = self.roster_source();
         let state = self.client.state();
-        if held && members.as_ref().map(Arc::as_ptr) == self.members.as_ref().map(Arc::as_ptr) {
+        if held
+            && members.as_ref().map(Arc::as_ptr) == self.roster.members.as_ref().map(Arc::as_ptr)
+        {
             return;
         }
         let owner = self.client.server_owner();
         let made = looks::LooksMadeWith::of(state, owner.clone(), self.theme.dark);
         // The looks of members who didn't change stay as made.
         let before = self
+            .roster
             .members
             .as_deref()
-            .filter(|_| self.roster_made.as_ref() == Some(&made))
-            .map(|members| (members.as_slice(), self.lines.as_slice()));
-        self.lines = match &members {
+            .filter(|_| self.roster.made.as_ref() == Some(&made))
+            .map(|members| (members.as_slice(), self.roster.lines.as_slice()));
+        self.roster.lines = match &members {
             Some(members) => {
                 looks::member_lines(state, members, owner.as_deref(), self.theme.dark, before)
             }
             None => Vec::new(),
         };
-        self.roster_made = members.is_some().then_some(made);
-        self.members = members;
-        self.roster_shown = Some(Instant::now());
+        self.roster.made = members.is_some().then_some(made);
+        self.roster.members = members;
+        self.roster.shown = Some(Instant::now());
         self.make_activity_cards();
-    }
-
-    /// The timeline's whole height.
-    pub fn total_height(&self) -> f32 {
-        self.tops.last().copied().unwrap_or(0.0)
     }
 
     /// Works out the rows' looks and heights for the current messages,
@@ -467,18 +466,18 @@ impl App {
         };
         let (looks, heights) = self.measured_rows(Measuring {
             old,
-            old_looks: &self.looks,
-            old_heights: &self.heights,
-            messages: &self.messages,
+            old_looks: &self.timeline.looks,
+            old_heights: &self.timeline.heights,
+            messages: &self.timeline.messages,
             marks,
-            width: self.width,
-            edge: self.edge.height(),
+            width: self.timeline.width,
+            edge: self.timeline.edge.height(),
             edge_changed,
-            foot: self.edge.foot(),
+            foot: self.timeline.edge.foot(),
         });
-        self.looks = looks;
-        self.heights = heights;
-        self.clocks.polls = crate::polls::open_poll(&self.messages, self.minute);
+        self.timeline.looks = looks;
+        self.timeline.heights = heights;
+        self.timeline.clocks.polls = crate::polls::open_poll(&self.timeline.messages, self.minute);
         self.place_rows();
     }
 
@@ -539,7 +538,7 @@ impl App {
             rgb(self.theme.text),
             rgb(self.theme.muted),
         );
-        let revealed = &self.revealed;
+        let revealed = &self.timeline.revealed;
         let prefs = &self.layout.prefs;
         let clock = timeline::Clock {
             twelve_hour: prefs.twelve_hour_clock,
@@ -593,58 +592,48 @@ impl App {
 
     /// Where each row starts, from the rows' heights.
     pub fn place_rows(&mut self) {
-        self.tops.clear();
-        self.tops.reserve(self.heights.len() + 1);
+        self.timeline.tops.clear();
+        self.timeline.tops.reserve(self.timeline.heights.len() + 1);
         let mut top = 0.0;
-        self.tops.push(top);
-        for height in &self.heights {
+        self.timeline.tops.push(top);
+        for height in &self.timeline.heights {
             top += height;
-            self.tops.push(top);
+            self.timeline.tops.push(top);
         }
     }
 
     /// The timeline's viewport moved or changed size.
     pub fn timeline_scrolled(&mut self, viewport: Viewport) -> Task<Message> {
-        self.from_end = viewport.absolute_offset().y;
-        self.timeline_height = viewport.bounds().height;
-        self.at_end = self.from_end <= 2.0;
+        self.timeline.from_end = viewport.absolute_offset().y;
+        self.timeline.height = viewport.bounds().height;
+        self.timeline.at_end = self.timeline.from_end <= 2.0;
         let width = viewport.bounds().width;
-        if (width - self.width).abs() > 1.0 {
-            self.width = width;
-            self.heights.clear();
-            let same = self.messages.clone();
+        if (width - self.timeline.width).abs() > 1.0 {
+            self.timeline.width = width;
+            self.timeline.heights.clear();
+            let same = self.timeline.messages.clone();
             self.measure(&same, true);
         }
         Task::batch([self.report(), self.ask()])
     }
 
-    /// The timeline's rows in view, and `margin` beyond.
-    pub fn in_view(&self, margin: f32) -> (usize, usize) {
-        let top = (self.total_height() - self.timeline_height - self.from_end).max(0.0);
-        let bottom = top + self.timeline_height;
-        let count = self.heights.len();
-        // The first row ending below the top, the last starting above the bottom.
-        let first = self.tops[1..].partition_point(|end| *end <= top - margin);
-        let last = self.tops[..count].partition_point(|start| *start < bottom + margin);
-        (first.min(count), last.max(first).min(count))
-    }
-
     /// Tells the core which rows are in view, at most every 50 ms.
     pub fn report(&mut self) -> Task<Message> {
-        if self.reporting || self.messages.is_empty() {
+        if self.reporting || self.timeline.messages.is_empty() {
             return Task::none();
         }
-        let (first, last) = self.in_view(0.0);
-        if !self
-            .client
-            .visible(first, last.saturating_sub(1).max(first), self.at_end)
-        {
+        let (first, last) = self.timeline.in_view(0.0);
+        if !self.client.visible(
+            first,
+            last.saturating_sub(1).max(first),
+            self.timeline.at_end,
+        ) {
             self.reporting = true;
             return after(REPORT_EVERY, Message::Report);
         }
         // What the report changed (earlier history asked for) shows later,
         // through events; the state it set is taken in here.
-        if Arc::ptr_eq(&self.messages, &self.client.state().messages) {
+        if Arc::ptr_eq(&self.timeline.messages, &self.client.state().messages) {
             Task::none()
         } else {
             self.sync()
@@ -668,7 +657,7 @@ impl App {
                 urls.push(url.to_owned());
             }
         };
-        for item in &self.rail {
+        for item in &self.rail.items {
             want(item.icon.as_deref());
             if let crate::rail::Kind::Folder {
                 open: false,
@@ -683,10 +672,10 @@ impl App {
         }
         let mut top = 0.0;
         let (from, to) = (
-            self.side_scroll.offset - MARGIN,
-            self.side_scroll.offset + self.side_scroll.height + MARGIN,
+            self.sidebar.scroll.offset - MARGIN,
+            self.sidebar.scroll.offset + self.sidebar.scroll.height + MARGIN,
         );
-        for row in &self.side {
+        for row in &self.sidebar.rows {
             let height = row.height();
             if let crate::sidebar::SideRow::Room(room) = row
                 && top + height >= from
@@ -717,7 +706,7 @@ impl App {
         for url in self.cards.pictures(&self.client.app, &self.profiles) {
             want(Some(&url));
         }
-        if let Some(card) = self.tag_card.get() {
+        if let Some(card) = self.win.tag_card.get() {
             for url in card.pictures(self.client.state()) {
                 want(Some(&url));
             }
@@ -726,6 +715,7 @@ impl App {
             want(Some(&url));
         }
         for url in self
+            .win
             .picker
             .get()
             .map(crate::picker::Picker::pictures)
@@ -734,10 +724,10 @@ impl App {
             want(Some(&url));
         }
         // A custom emoji among the reactions the hover bar and menus offer.
-        if self.pointed.message.is_some() || self.menu.is_some() {
+        if self.pointed.message.is_some() || self.win.menu.is_some() {
             for key in self.client.app.frequent_reactions(crate::menus::QUICK) {
                 if let Some((_, id)) = key.split_once(':') {
-                    want(self.custom_emoji(id).as_deref());
+                    want(self.ctx().custom_emoji(id).as_deref());
                 }
             }
         }
@@ -757,13 +747,18 @@ impl App {
             want(plate.map(looks::animated_url).as_deref());
         }
         // The open server's banner, over its channels.
-        if self.side_header.server.is_some() {
-            want(self.side_header.banner.as_deref());
+        if self.sidebar.header.server.is_some() {
+            want(self.sidebar.header.banner.as_deref());
         }
         want(self.header.avatar.as_deref());
         want(self.account.status.emoji.as_deref());
-        let (first, last) = self.in_view(MARGIN);
-        let main = (first..last).map(|index| (&self.messages[index], self.looks.get(index)));
+        let (first, last) = self.timeline.in_view(MARGIN);
+        let main = (first..last).map(|index| {
+            (
+                &self.timeline.messages[index],
+                self.timeline.looks.get(index),
+            )
+        });
         let aside = self.aside.iter().flat_map(|aside| {
             self.aside_rows_in_view()
                 .map(move |index| (&aside.messages[index], aside.looks.get(index)))
@@ -793,8 +788,11 @@ impl App {
                 want(decoration.map(looks::animated_url).as_deref());
             }
         }
-        let (first, last) = self.member_scroll.range(self.lines.len(), PITCH, TOP);
-        for line in &self.lines[first..last] {
+        let (first, last) = self
+            .roster
+            .scroll
+            .range(self.roster.lines.len(), PITCH, TOP);
+        for line in &self.roster.lines[first..last] {
             match line {
                 MemberLine::Heading { icon, .. } => want(icon.as_deref()),
                 MemberLine::Member(look) => {
@@ -836,7 +834,7 @@ impl App {
                 want(person.avatar.as_deref());
             }
         }
-        for url in self.profile_pictures() {
+        for url in self.ctx().profile_pictures() {
             want(Some(&url));
         }
         for url in self.friends_pictures() {

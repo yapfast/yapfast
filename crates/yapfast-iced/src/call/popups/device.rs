@@ -126,13 +126,15 @@ impl App {
             crate::layout::store(self.client.root(), key, value);
         }
     }
+}
 
+impl<'a> crate::ctx::Ctx<'a> {
     /// A device menu: the device in use, which opens the list of them; how
     /// loud; for the microphone its level and noise suppression; Voice
     /// Settings.
-    pub(super) fn device_menu(&self, input: bool) -> Element<'_, Message> {
-        let theme = &self.theme;
-        let voice = &self.client.state().voice;
+    pub(super) fn device_menu(self, input: bool) -> Element<'a, Message> {
+        let theme = self.look.theme;
+        let voice = &self.state.voice;
         let (devices, chosen) = if input {
             (&voice.microphones, voice.microphone.as_deref())
         } else {
@@ -159,7 +161,7 @@ impl App {
                 .width(Length::Fill),
             ]
             .push(
-                container(self.glyph(Icon::ChevronRight, 24, theme.text))
+                container(self.look.glyph(Icon::ChevronRight, 24, theme.text))
                     .height(44)
                     .align_y(Alignment::Center)
             )
@@ -210,7 +212,7 @@ impl App {
         );
         if input {
             menu = menu.push(separator(theme)).push(self.input_level());
-            if self.client.state().discord_user.is_some() {
+            if self.state.discord_user.is_some() {
                 let current = match self.layout.voice.noise_suppression {
                     Suppressor::DeepFilterNet => 0,
                     Suppressor::RNNoise => 1,
@@ -256,9 +258,9 @@ impl App {
     /// The microphone's level as a row of segments, as the Slint client's
     /// `InputLevel`: muted, it still shows, in a faded green, heard here and
     /// sent nowhere.
-    pub(super) fn input_level(&self) -> Element<'_, Message> {
-        let theme = &self.theme;
-        let voice = &self.client.state().voice;
+    pub(super) fn input_level(self) -> Element<'a, Message> {
+        let theme = self.look.theme;
+        let voice = &self.state.voice;
         let muted = voice.muted;
         let (line, lit) = if muted {
             (theme.line, crate::style::faded(theme.live, 0.4))

@@ -265,9 +265,10 @@ inherits = "measure"
 [profile.fast.package.yapfast-ui]
 opt-level = 0
 
-# The iced client unoptimized too, while its screens are methods of one type:
-# rustc builds them as one unit, so an edit to any rebuilt it in 9.3 s at
-# opt-level 3 and 3.4 s at 0. Its crowd scene takes about 40% of a core
-# rather than 23%; measurements use `measure`.
+# The iced client unoptimized too: with its screens split into units of
+# their own, an edit rebuilt it in 3.3 s to 4.8 s at opt-level 3 (the
+# timeline, the root view and the member list over 4 s) and 2.9 s to 3.4 s
+# at 0. Its crowd scene takes about 40% of a core rather than 23%;
+# measurements use `measure`.
 [profile.fast.package.yapfast-iced]
 opt-level = 0

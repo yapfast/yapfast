@@ -359,7 +359,7 @@ impl App {
             if rows.is_empty() {
                 return Task::none();
             }
-            self.menu = Some(Menu {
+            self.win.menu = Some(Menu {
                 item: Some(item),
                 ..Menu::new(at, rows)
             });
@@ -371,7 +371,7 @@ impl App {
             return Task::none();
         };
         let task = self.open_menu(row, at);
-        if let Some(menu) = &mut self.menu {
+        if let Some(menu) = &mut self.win.menu {
             let mut extra = rows.into_iter();
             if let Some(first) = extra.next() {
                 // Before Delete and Copy Message ID, as Slint's.

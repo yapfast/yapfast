@@ -269,7 +269,10 @@ fn the_composer_sends_on_enter() {
     let messages = &app.client.state().messages;
     assert_eq!(messages.len(), before + 1);
     assert_eq!(messages.last().expect("sent").body, "hello there");
-    assert!(app.draft.is_empty(), "the core empties the draft once sent");
+    assert!(
+        app.composer.draft.is_empty(),
+        "the core empties the draft once sent"
+    );
     assert!(shows(&app, "hello there"));
 }
 
@@ -306,7 +309,7 @@ fn a_member_clicked_in_the_list_shows_their_card_until_a_click_outside() {
         let mut ui = Simulator::with_size(
             iced::Settings::default(),
             app.window,
-            app.card_view().expect("the card"),
+            app.ctx().card_view().expect("the card"),
         );
         assert!(ui.find("Riley").is_ok(), "on the card");
     }
@@ -323,7 +326,7 @@ fn a_messages_menu_replies_to_it() {
     let (mut app, _folder) = preview();
     let text = "Yep. I should be free after dinner.";
     interact(&mut app, |ui| right_click(ui, text));
-    assert!(app.menu.is_some(), "the menu opened");
+    assert!(app.win.menu.is_some(), "the menu opened");
     assert!(
         !shows(&app, "Delete message"),
         "Riley's message isn't ours to delete"
@@ -331,7 +334,7 @@ fn a_messages_menu_replies_to_it() {
     interact(&mut app, |ui| {
         ui.click("Reply").expect("Reply");
     });
-    assert!(app.menu.is_none());
+    assert!(app.win.menu.is_none());
     match app.client.state().compose() {
         Some(Compose::Reply { author, .. }) => assert_eq!(author, "Riley"),
         _ => panic!("not replying"),
@@ -590,9 +593,12 @@ fn a_picture_shown(app: &mut App) -> Arc<yapfast_core::chat::Picture> {
         })]);
     });
     drop(app.view());
-    app.pictures.fitter.borrow_mut().make_asked(&picture);
+    app.win.pictures.fitter.borrow_mut().make_asked(&picture);
     drop(app.view());
-    assert!(!app.pictures.fitter.borrow().is_empty(), "the copy kept");
+    assert!(
+        !app.win.pictures.fitter.borrow().is_empty(),
+        "the copy kept"
+    );
     picture
 }
 
@@ -603,7 +609,7 @@ fn the_sign_in_screen_lets_go_of_the_timelines_pictures() {
     change(&mut app, |state| state.preview = false);
     assert!(!app.workspace());
     drop(app.view());
-    assert!(app.pictures.fitter.borrow().is_empty(), "the copy went");
+    assert!(app.win.pictures.fitter.borrow().is_empty(), "the copy went");
 }
 
 /// Marks a room unread with `mentions` of this account.
@@ -625,20 +631,23 @@ fn an_unread_dm_shows_on_the_rail_above_the_servers_and_opens() {
     use crate::rail::{Event, Kind};
     let (mut app, _folder) = preview();
     let servers = app.client.state().servers.len();
-    assert_eq!(app.rail.len(), servers + 1);
+    assert_eq!(app.rail.items.len(), servers + 1);
     assert_eq!(
-        app.rail[0].kind,
+        app.rail.items[0].kind,
         Kind::Divider,
         "the line leads the servers"
     );
     unread(&mut app, "riley", 2);
-    assert_eq!(app.rail[0].kind, Kind::Dm);
+    assert_eq!(app.rail.items[0].kind, Kind::Dm);
     assert_eq!(
-        (app.rail[0].name.as_str(), app.rail[0].badge.as_str()),
+        (
+            app.rail.items[0].name.as_str(),
+            app.rail.items[0].badge.as_str()
+        ),
         ("Riley", "2")
     );
-    assert_eq!(app.rail[1].kind, Kind::Divider);
-    assert_eq!(app.rail_home.badge, "2", "the DM home counts its mentions");
+    assert_eq!(app.rail.items[1].kind, Kind::Divider);
+    assert_eq!(app.rail.home.badge, "2", "the DM home counts its mentions");
     let _ = app.update(Message::Rail(Event::Dm("riley".into())));
     let state = app.client.state();
     assert_eq!(state.navigation, Navigation::DirectMessages);
@@ -649,7 +658,12 @@ fn an_unread_dm_shows_on_the_rail_above_the_servers_and_opens() {
 fn a_voice_channels_chat_marks_its_server_only_by_mentions() {
     let (mut app, _folder) = preview();
     let friends = |app: &App| {
-        let row = app.rail.iter().find(|item| item.id == "friends").unwrap();
+        let row = app
+            .rail
+            .items
+            .iter()
+            .find(|item| item.id == "friends")
+            .unwrap();
         (row.unread, row.badge.clone())
     };
     let discord = |app: &mut App, discord: bool| {
@@ -695,6 +709,7 @@ fn a_folder_on_the_rail_holds_its_servers_until_opened_and_stays_so() {
     });
     let kinds = |app: &App| -> Vec<(String, bool)> {
         app.rail
+            .items
             .iter()
             .map(|item| (item.id.clone(), matches!(item.kind, Kind::Nested { .. })))
             .collect()
@@ -702,11 +717,11 @@ fn a_folder_on_the_rail_holds_its_servers_until_opened_and_stays_so() {
     let closed = kinds(&app);
     assert_eq!(closed.len(), 2, "the line, and the folder");
     assert_eq!(
-        app.rail[1].name, "Friends, Co-op crew",
+        app.rail.items[1].name, "Friends, Co-op crew",
         "named by its servers"
     );
     assert!(
-        app.rail[1].selected,
+        app.rail.items[1].selected,
         "closed, it shows a server of its is open"
     );
     let _ = app.update(Message::Rail(Event::Folder("discord-folder:7".into())));
@@ -730,7 +745,7 @@ fn a_folder_on_the_rail_holds_its_servers_until_opened_and_stays_so() {
 fn a_server_on_the_rail_opens_its_channels() {
     let (mut app, _folder) = preview();
     let _ = app.update(Message::Rail(crate::rail::Event::Server("coop".into())));
-    assert_eq!(app.side_header.name, "Co-op crew");
+    assert_eq!(app.sidebar.header.name, "Co-op crew");
     assert!(shows(&app, "looking-for-group"));
     assert!(!shows(&app, "games"));
 }
@@ -762,13 +777,14 @@ fn opening_an_unread_channel_clears_its_mark() {
     let (mut app, _folder) = preview();
     unread(&mut app, "games", 1);
     let marked = |app: &App| {
-        app.side.iter().any(|row| {
+        app.sidebar.rows.iter().any(|row| {
             matches!(row, SideRow::Room(room) if room.id == "games" && room.unread && room.badge == "1")
         })
     };
     assert!(marked(&app));
     assert!(
         app.rail
+            .items
             .iter()
             .any(|item| item.id == "friends" && item.badge == "1")
     );
@@ -786,6 +802,7 @@ fn opening_an_unread_channel_clears_its_mark() {
     assert!(!marked(&app));
     assert!(
         app.rail
+            .items
             .iter()
             .any(|item| item.id == "friends" && item.badge.is_empty() && !item.unread)
     );
@@ -860,7 +877,10 @@ fn switching_channels_shows_each_ones_messages_header_and_topic() {
     });
     assert_eq!(app.header.name, general);
     assert!(!shows(&app, "What are we playing next?"));
-    assert_eq!(app.from_end, 0.0, "a channel opens at its newest message");
+    assert_eq!(
+        app.timeline.from_end, 0.0,
+        "a channel opens at its newest message"
+    );
 }
 
 #[test]
@@ -878,7 +898,7 @@ fn the_history_edge_offers_earlier_messages_then_shows_them_loading() {
     change(&mut app, |state| state.loading_history = true);
     assert!(shows(&app, "Loading earlier messages..."));
     // The page comes: older messages above, the newest still in view.
-    let newest = app.messages.last().expect("messages").body.clone();
+    let newest = app.timeline.messages.last().expect("messages").body.clone();
     change(&mut app, |state| {
         let mut older = (*state.messages[0]).clone();
         older.id = "older".into();
@@ -917,12 +937,12 @@ fn the_preview_says_so_and_a_notice_shows_until_dismissed() {
 #[test]
 fn a_window_of_older_messages_ends_with_newer_messages_loading_or_failed() {
     let (mut app, _folder) = preview();
-    let height = *app.heights.last().expect("rows");
+    let height = *app.timeline.heights.last().expect("rows");
     assert!(!shows(&app, "Newer messages"));
     change(&mut app, |state| state.detached = true);
     assert!(shows(&app, "Newer messages"));
     assert_eq!(
-        *app.heights.last().expect("rows"),
+        *app.timeline.heights.last().expect("rows"),
         height + crate::timeline::EDGE,
         "the last row makes room for it"
     );
@@ -939,7 +959,7 @@ fn a_window_of_older_messages_ends_with_newer_messages_loading_or_failed() {
         state.detached = false;
     });
     assert!(!shows(&app, "Newer messages"));
-    assert_eq!(*app.heights.last().expect("rows"), height);
+    assert_eq!(*app.timeline.heights.last().expect("rows"), height);
 }
 
 #[test]
@@ -964,7 +984,7 @@ fn the_unread_bar_jumps_to_the_new_divider_out_of_view() {
     // doesn't run here, so the list itself stays where it was.
     assert!(present(&app, "Message number 10"), "the view went to it");
     assert!(present(&app, "New"));
-    assert!(app.from_end > 0.0);
+    assert!(app.timeline.from_end > 0.0);
 }
 
 #[test]
@@ -976,7 +996,7 @@ fn a_menus_keys_pass_over_greyed_rows_and_clicks_on_them_do_nothing() {
         disabled,
         ..MenuRow::new(MenuAct::Place(choice), "row", crate::pictures::Icon::Id)
     };
-    app.menu = Some(Menu {
+    app.win.menu = Some(Menu {
         place: Some("nowhere".into()),
         ..Menu::new(
             Point::new(200.0, 120.0),
@@ -997,11 +1017,11 @@ fn a_menus_keys_pass_over_greyed_rows_and_clicks_on_them_do_nothing() {
     let mut lit = Vec::new();
     for _ in 0..4 {
         let _ = app.update(down());
-        lit.push(app.menu.as_ref().expect("the menu stays").lit);
+        lit.push(app.win.menu.as_ref().expect("the menu stays").lit);
     }
     assert_eq!(lit, [Some(0), Some(2), Some(0), Some(2)]);
     let _ = app.update(Message::MenuChoose(1));
-    assert!(app.menu.is_some(), "a greyed row keeps the menu open");
+    assert!(app.win.menu.is_some(), "a greyed row keeps the menu open");
 }
 
 #[test]
@@ -1091,7 +1111,10 @@ fn new_messages_leave_the_earlier_ones_being_read_where_they_are() {
     let (mut app, _folder) = preview();
     long_history(&mut app, 80);
     scroll_up(&mut app, 900.0);
-    assert!(!app.at_end && app.from_end > 0.0, "the wheel went up");
+    assert!(
+        !app.timeline.at_end && app.timeline.from_end > 0.0,
+        "the wheel went up"
+    );
     let read = at_top(&app);
     // Three come; then three more as the oldest three go, as the core
     // keeps only so many.
@@ -1120,7 +1143,7 @@ fn sending_while_reading_earlier_messages_goes_to_the_newest() {
     let (mut app, _folder) = preview();
     long_history(&mut app, 80);
     scroll_up(&mut app, 1500.0);
-    assert!(!app.at_end);
+    assert!(!app.timeline.at_end);
     assert!(!shows(&app, "Message number 79"));
     interact(&mut app, |ui| {
         ui.click(Id::new(COMPOSER)).expect("the composer");
@@ -1128,20 +1151,25 @@ fn sending_while_reading_earlier_messages_goes_to_the_newest() {
         ui.tap_key(keyboard::Key::Named(key::Named::Enter));
     });
     assert!(
-        app.at_end && app.from_end == 0.0,
+        app.timeline.at_end && app.timeline.from_end == 0.0,
         "the view went to the end"
     );
     // The preview's room takes its own history back as it sends.
     assert!(shows(&app, "back to the present"));
-    let (_, last) = app.in_view(0.0);
-    assert_eq!(last, app.messages.len(), "the newest is in view");
+    let (_, last) = app.timeline.in_view(0.0);
+    assert_eq!(last, app.timeline.messages.len(), "the newest is in view");
 }
 
 #[test]
 fn messages_the_core_makes_anew_keep_their_text_laid_out() {
     let (mut app, _folder) = preview();
     long_history(&mut app, 40);
-    let laid: Vec<_> = app.looks.iter().map(|look| look.body.clone()).collect();
+    let laid: Vec<_> = app
+        .timeline
+        .looks
+        .iter()
+        .map(|look| look.body.clone())
+        .collect();
     // As when a name or a role changes: every message anew, one with
     // another author and one with other words.
     change(&mut app, |state| {
@@ -1154,7 +1182,7 @@ fn messages_the_core_makes_anew_keep_their_text_laid_out() {
         Arc::make_mut(&mut messages[38]).body = "Other words".into();
         state.messages = Arc::new(messages);
     });
-    for (index, (look, before)) in app.looks.iter().zip(&laid).enumerate() {
+    for (index, (look, before)) in app.timeline.looks.iter().zip(&laid).enumerate() {
         assert_eq!(Arc::ptr_eq(&look.body, before), index != 38, "row {index}");
     }
     assert!(shows(&app, "Other words"));
@@ -1192,30 +1220,33 @@ fn now_ms() -> u64 {
 fn at_midnight_the_message_times_are_worked_out_again() {
     let (mut app, _folder) = preview();
     assert!(
-        app.clocks.day_armed,
+        app.timeline.clocks.day_armed,
         "a timer to midnight while a timeline shows"
     );
-    let time = app.looks[0].time.clone();
-    app.looks[0].time = "as at noon yesterday".into();
+    let time = app.timeline.looks[0].time.clone();
+    app.timeline.looks[0].time = "as at noon yesterday".into();
     let _ = app.update(Message::Day);
-    assert_eq!(app.looks[0].time, time, "worked out for now");
-    assert!(app.clocks.day_armed, "and the next midnight's armed");
+    assert_eq!(app.timeline.looks[0].time, time, "worked out for now");
+    assert!(
+        app.timeline.clocks.day_armed,
+        "and the next midnight's armed"
+    );
 }
 
 #[test]
 fn the_minute_timer_runs_only_while_something_shows_minutes() {
     let (mut app, _folder) = preview();
     // Nothing in the preview shows minutes: no timer.
-    app.activity_cards.clear();
-    app.clocks = Default::default();
+    app.roster.activity_cards.clear();
+    app.timeline.clocks = Default::default();
     let _ = app.arm_clocks();
-    assert!(!app.clocks.minute_armed);
+    assert!(!app.timeline.clocks.minute_armed);
     // A call's length in the sidebar does.
-    app.clocks.calls = true;
+    app.timeline.clocks.calls = true;
     let _ = app.arm_clocks();
-    assert!(app.clocks.minute_armed);
+    assert!(app.timeline.clocks.minute_armed);
     // The minute turns; with nothing left to show it, none is armed again.
-    app.clocks.calls = false;
+    app.timeline.clocks.calls = false;
     let _ = app.update(Message::Minute);
-    assert!(!app.clocks.minute_armed);
+    assert!(!app.timeline.clocks.minute_armed);
 }

@@ -53,6 +53,12 @@ For a Discord feature, follow
 it layer by layer. Look up the endpoint, payload or gateway event on
 https://docs.discord.food, and give the fake the same shape.
 
+The iced client (`crates/yapfast-iced`, built with
+`--no-default-features --features iced`) is laid out in
+[iced client](docs/iced-client.md#how-its-built): one struct per screen and
+area, and the kit they build from. A new screen or dialog follows
+[Adding a screen](docs/iced-client.md#adding-a-screen).
+
 To see a Discord change, run your build against the fake, with the fake in one
 terminal and Yapfast in another:
 

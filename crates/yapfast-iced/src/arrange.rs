@@ -66,10 +66,10 @@ pub struct Arranging {
     y: f32,
     /// The place the pointer is over.
     pub hovered: Option<usize>,
-    droppable: Vec<bool>,
+    pub(crate) droppable: Vec<bool>,
     /// A category is dragged, or a voice channel.
-    category: bool,
-    voice: bool,
+    pub(crate) category: bool,
+    pub(crate) voice: bool,
     /// What the faint copy following the pointer shows.
     name: String,
     icon: Icon,
@@ -162,7 +162,7 @@ impl App {
             Event::Start(place, grab) => return self.start_arranging(place, grab),
             Event::Take(place, user) => self.start_moving(place, user),
             Event::Onto(room, over) => {
-                if let Some(moving) = &mut self.moving_person {
+                if let Some(moving) = &mut self.sidebar.moving_person {
                     if over {
                         moving.hovered = Some(room);
                     } else if moving.hovered.as_ref() == Some(&room) {
@@ -170,9 +170,9 @@ impl App {
                     }
                 }
             }
-            Event::Cancel => self.moving_person = None,
+            Event::Cancel => self.sidebar.moving_person = None,
             Event::Over(place, over) => {
-                if let Some(arranging) = &mut self.arranging {
+                if let Some(arranging) = &mut self.sidebar.arranging {
                     if over {
                         arranging.hovered = Some(place);
                     } else if arranging.hovered == Some(place) {
@@ -181,14 +181,14 @@ impl App {
                 }
             }
             Event::At(at) => {
-                if let Some(arranging) = &mut self.arranging {
+                if let Some(arranging) = &mut self.sidebar.arranging {
                     arranging.y = at.y;
                 }
-                if let Some(moving) = &mut self.moving_person {
+                if let Some(moving) = &mut self.sidebar.moving_person {
                     moving.at = at;
                 }
             }
-            Event::Drop if self.moving_person.is_some() => return self.finish_moving(),
+            Event::Drop if self.sidebar.moving_person.is_some() => return self.finish_moving(),
             Event::Drop => return self.finish_arranging(),
             Event::Scroll => {
                 let Some(y) = self.drag_y() else {
@@ -210,21 +210,22 @@ impl App {
 
     /// Starts dragging the row at `place`, if this account may move it.
     fn start_arranging(&mut self, place: usize, grab: f32) -> Task<Message> {
-        let Some(room) = self.side_places.ids.get(place) else {
+        let Some(room) = self.sidebar.places.ids.get(place) else {
             return Task::none();
         };
-        if self.arranging.is_some()
-            || self.moving_person.is_some()
+        if self.sidebar.arranging.is_some()
+            || self.sidebar.moving_person.is_some()
             || !self.client.app.draggable(room)
         {
             return Task::none();
         }
         let Some(row) = self
-            .side_places
+            .sidebar
+            .places
             .of_row
             .iter()
             .position(|known| *known == Some(place))
-            .and_then(|index| self.side.get(index))
+            .and_then(|index| self.sidebar.rows.get(index))
         else {
             return Task::none();
         };
@@ -249,8 +250,8 @@ impl App {
             ),
             _ => return Task::none(),
         };
-        let droppable = self.client.app.droppable(&self.side_places.ids, place);
-        self.arranging = Some(Arranging {
+        let droppable = self.client.app.droppable(&self.sidebar.places.ids, place);
+        self.sidebar.arranging = Some(Arranging {
             dragged: place,
             grab,
             y: self.pressed.get().y,
@@ -264,13 +265,13 @@ impl App {
             height,
         });
         // A busy voice channel's card would cover the list.
-        self.voice_card_off = true;
+        self.sidebar.voice_card_off = true;
         Task::none()
     }
 
     /// Drops what's dragged on the place it's over, if it may land there.
     fn finish_arranging(&mut self) -> Task<Message> {
-        let Some(arranging) = self.arranging.take() else {
+        let Some(arranging) = self.sidebar.arranging.take() else {
             return Task::none();
         };
         let Some(onto) = arranging
@@ -279,7 +280,7 @@ impl App {
         else {
             return Task::none();
         };
-        let places = &self.side_places.ids;
+        let places = &self.sidebar.places.ids;
         let landing = self.client.app.landing(places, arranging.dragged, onto);
         if let Some(landing) = landing {
             let room = places[arranging.dragged].clone();
@@ -291,14 +292,14 @@ impl App {
     /// Starts dragging `user` from the voice channel `place`, if their
     /// menu's Move to offers a channel listed.
     fn start_moving(&mut self, place: String, user: String) {
-        if self.arranging.is_some() || self.moving_person.is_some() {
+        if self.sidebar.arranging.is_some() || self.sidebar.moving_person.is_some() {
             return;
         }
         let Some(person) = self.voice_person_listed(&place, &user) else {
             return;
         };
         let (name, avatar) = (person.name.clone(), person.avatar.clone());
-        self.moving_person = Some(Moving {
+        self.sidebar.moving_person = Some(Moving {
             place,
             user,
             targets: HashSet::new(),
@@ -309,14 +310,14 @@ impl App {
         });
         self.moving_targets();
         // A busy voice channel's card would cover the list.
-        if self.moving_person.is_some() {
-            self.voice_card_off = true;
+        if self.sidebar.moving_person.is_some() {
+            self.sidebar.voice_card_off = true;
         }
     }
 
     /// Who is listed under the voice channel `place`, by their id.
     fn voice_person_listed(&self, place: &str, user: &str) -> Option<&VoicePerson> {
-        self.side.iter().find_map(|row| match row {
+        self.sidebar.rows.iter().find_map(|row| match row {
             SideRow::Room(room) if room.id == place => {
                 room.people.iter().find(|person| person.id == user)
             }
@@ -328,7 +329,7 @@ impl App {
     /// as the list changes; the drag stops once there's none, as when they
     /// left the channel or another list shows.
     pub fn moving_targets(&mut self) {
-        let Some(moving) = &self.moving_person else {
+        let Some(moving) = &self.sidebar.moving_person else {
             return;
         };
         let offered = self.client.app.move_targets(&moving.place, &moving.user);
@@ -336,7 +337,8 @@ impl App {
             .into_iter()
             .map(|(room, _)| room)
             .filter(|room| {
-                self.side
+                self.sidebar
+                    .rows
                     .iter()
                     .any(|row| matches!(row, SideRow::Room(listed) if listed.id == *room))
             })
@@ -344,16 +346,16 @@ impl App {
         let listed = self
             .voice_person_listed(&moving.place, &moving.user)
             .is_some();
-        match &mut self.moving_person {
+        match &mut self.sidebar.moving_person {
             Some(moving) if listed && !targets.is_empty() => moving.targets = targets,
-            _ => self.moving_person = None,
+            _ => self.sidebar.moving_person = None,
         }
     }
 
     /// Drops whoever is dragged on the voice channel the pointer is over,
     /// within the list, if they may go there.
     fn finish_moving(&mut self) -> Task<Message> {
-        let Some(moving) = self.moving_person.take() else {
+        let Some(moving) = self.sidebar.moving_person.take() else {
             return Task::none();
         };
         let (top, bottom) = self.side_list_span();
@@ -375,10 +377,15 @@ impl App {
 
     /// The pointer's height in the window while a drag is on.
     fn drag_y(&self) -> Option<f32> {
-        self.arranging
+        self.sidebar
+            .arranging
             .as_ref()
             .map(|arranging| arranging.y)
-            .or(self.moving_person.as_ref().map(|moving| moving.at.y))
+            .or(self
+                .sidebar
+                .moving_person
+                .as_ref()
+                .map(|moving| moving.at.y))
     }
 
     /// The pointer's moves and the button's release while a drag is on,
@@ -410,42 +417,21 @@ impl App {
     /// Where the sidebar's list is in the window, from its top to its
     /// bottom.
     fn side_list_span(&self) -> (f32, f32) {
-        let top = self.shell.frame.height - self.window.height + self.side_top_height();
-        (top, top + self.side_scroll.height)
+        self.sidebar
+            .list_span(self.shell.frame.height - self.window.height)
     }
+}
 
-    /// The rows that aren't the dragged one's kind dim: all of them under
-    /// a category, and voice and text channels under each other; while
-    /// someone is dragged, all but the voice channels they may drop on.
-    pub fn arrange_dimmed(&self, room: Option<&str>, voice: bool) -> bool {
-        if let Some(moving) = &self.moving_person {
-            return !room.is_some_and(|room| moving.targets.contains(room));
-        }
-        self.arranging
-            .as_ref()
-            .is_some_and(|arranging| arranging.category || voice != arranging.voice)
-    }
-
-    /// Whether someone dragged would drop on this voice channel.
-    pub fn move_aimed(&self, room: &str) -> bool {
-        self.moving_person.as_ref().is_some_and(|moving| {
-            moving.hovered.as_deref() == Some(room) && moving.targets.contains(room)
-        })
-    }
-
-    /// A drag of either kind is on, and the rows follow it.
-    pub fn dragging(&self) -> bool {
-        self.arranging.is_some() || self.moving_person.is_some()
-    }
-
+impl<'a> crate::sidebar::View<'a> {
     /// Who is dragged, just below the pointer so the channel they'd drop
     /// on stays readable, and how far down the list.
-    pub fn moving_view(&self) -> Option<(Element<'_, Message>, f32)> {
-        let moving = self.moving_person.as_ref()?;
-        let theme = &self.theme;
+    pub fn moving_view(self) -> Option<(Element<'a, Message>, f32)> {
+        let moving = self.s.moving_person.as_ref()?;
+        let theme = self.cx.look.theme;
         // Faint all through, as Slint's opacity on the whole row.
         let face = row![
-            self.avatar(moving.avatar.as_deref(), &moving.name, 22.0, 11.0, GHOST),
+            self.cx
+                .avatar(moving.avatar.as_deref(), &moving.name, 22.0, 11.0, GHOST),
             elide(moving.name.as_str())
                 .size(15)
                 .font(MEDIUM)
@@ -464,24 +450,13 @@ impl App {
             .height(30)
             .align_y(Alignment::Center)
             .style(move |_| rounded(ground, 4));
-        let (top, _) = self.side_list_span();
+        let (top, _) = self.s.list_span(self.cx.above);
         Some((ghost.into(), moving.at.y - top + 12.0))
     }
 
-    /// Whether the line showing where the dragged row would land is at the
-    /// row at `place`, and whether below it (dragged down) or above.
-    pub fn drop_line(&self, place: Option<usize>) -> Option<bool> {
-        let arranging = self.arranging.as_ref()?;
-        let place = place?;
-        (arranging.hovered == Some(place)
-            && place != arranging.dragged
-            && arranging.droppable.get(place) == Some(&true))
-        .then_some(place > arranging.dragged)
-    }
-
     /// The line itself, as the Slint client's `DropLine`.
-    pub fn drop_line_view(&self) -> Element<'_, Message> {
-        let live = self.theme.live;
+    pub fn drop_line_view(self) -> Element<'a, Message> {
+        let live = self.cx.look.theme.live;
         container(iced::widget::Space::new())
             .width(Length::Fill)
             .height(LINE)
@@ -497,14 +472,14 @@ impl App {
     }
 
     /// The dragged row's faint copy, and how far down the list it is.
-    pub fn arranged_view(&self) -> Option<(Element<'_, Message>, f32)> {
-        let arranging = self.arranging.as_ref()?;
-        let theme = &self.theme;
+    pub fn arranged_view(self) -> Option<(Element<'a, Message>, f32)> {
+        let arranging = self.s.arranging.as_ref()?;
+        let theme = self.cx.look.theme;
         // Faint all through, as Slint's opacity on the whole row.
         let (secondary, ink) = (faded(theme.secondary, GHOST), faded(theme.text, GHOST));
-        let face: Element<'_, Message> = if arranging.category {
+        let face: Element<'a, Message> = if arranging.category {
             row![
-                self.glyph(
+                self.cx.look.glyph(
                     if arranging.collapsed {
                         Icon::ChevronRight
                     } else {
@@ -524,7 +499,7 @@ impl App {
             .into()
         } else {
             row![
-                self.glyph(arranging.icon, 20, secondary),
+                self.cx.look.glyph(arranging.icon, 20, secondary),
                 elide(arranging.name.as_str())
                     .size(16)
                     .font(MEDIUM)
@@ -542,7 +517,7 @@ impl App {
             .height(arranging.height)
             .align_y(Alignment::Center)
             .style(move |_| rounded(ground, radius));
-        let (top, _) = self.side_list_span();
+        let (top, _) = self.s.list_span(self.cx.above);
         Some((ghost.into(), arranging.y - top - arranging.grab))
     }
 }

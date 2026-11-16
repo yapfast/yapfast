@@ -20,13 +20,13 @@ impl App {
     /// web address opens in the browser (a masked one once asked).
     pub fn follow_link(&mut self, link: &str, at: iced::Point) -> Task<Message> {
         if let Some((item, index)) = yapfast_core::spoiler::target(link) {
-            self.revealed.insert(format!("{item}/{index}"));
+            self.timeline.revealed.insert(format!("{item}/{index}"));
             let found =
                 |messages: &Messages| messages.iter().position(|message| message.item == item);
-            if let Some(row) = found(&self.messages)
+            if let Some(row) = found(&self.timeline.messages)
                 && let Some(body) = self.body_for(row)
             {
-                self.looks[row].body = Arc::new(body);
+                self.timeline.looks[row].body = Arc::new(body);
             } else if let Some(index) = self.aside.as_ref().and_then(|aside| found(&aside.messages))
                 && let Some(body) = self.body_for(crate::timeline::ASIDE + index)
                 && let Some(aside) = self.aside.as_mut()

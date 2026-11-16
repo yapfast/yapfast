@@ -14,12 +14,7 @@ use iced::{
 };
 use yapfast_core::chat::{self, Attachment, Picture, Placement};
 
-use crate::{
-    app::{App, Message},
-    fonts::BOLD,
-    style::rounded,
-    widgets::Pic,
-};
+use crate::{app::Message, fonts::BOLD, style::rounded, widgets::Pic};
 
 /// A gallery's square tiles and the gap between them, as Discord's client
 /// lays out several pictures.
@@ -199,13 +194,6 @@ pub fn coming_size(attachment: &Attachment) -> Size {
     Size::new(side(width), side(height))
 }
 
-impl App {
-    /// [`Ctx::shot`](crate::ctx::Ctx::shot).
-    pub fn shot(&self, shot: Shot<'_>) -> Element<'_, Message> {
-        self.ctx().shot(shot)
-    }
-}
-
 impl<'a> crate::ctx::Ctx<'a> {
     /// A picture in its box: the core's own pixels when it fills the box
     /// at its own size, else a copy at the box's size (made off the window's
@@ -324,3 +312,5 @@ impl<'a> crate::ctx::Ctx<'a> {
         .into()
     }
 }
+
+impl<'a> crate::ctx::Ctx<'a> {}

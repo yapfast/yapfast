@@ -177,13 +177,15 @@ impl App {
         }
         self.sync()
     }
+}
 
+impl<'a> crate::ctx::Ctx<'a> {
     /// The card, inset from the rail's and the sidebar's edges.
-    pub fn account_view(&self) -> Element<'_, Message> {
-        let theme = &self.theme;
-        let account = &self.account;
+    pub fn account_view(self) -> Element<'a, Message> {
+        let theme = self.look.theme;
+        let account = self.account;
         let pointed = self.account_pointed;
-        let state = self.client.state();
+        let state = self.state;
         let decoration = state
             .cosmetics
             .decoration(state.account_decoration.as_deref());
@@ -196,14 +198,14 @@ impl App {
                         .map(|presence| (presence, rgb(theme.panel), Point::new(26.0, 26.0))),
                 ),
         );
-        let second: Element<'_, Message> = if pointed && !account.username.is_empty() {
+        let second: Element<'a, Message> = if pointed && !account.username.is_empty() {
             text(account.username.as_str())
                 .size(13)
                 .color(theme.muted)
                 .wrapping(text::Wrapping::None)
                 .into()
         } else {
-            self.status_line(&account.status, StatusInk::under_name(&self.theme, 1.0))
+            self.status_line(&account.status, StatusInk::under_name(self.look.theme, 1.0))
         };
         let lit = theme.wash(0.08);
         let names = mouse_area(
@@ -280,7 +282,7 @@ impl App {
         // client's `DeviceToggle`; the menu opens above it.
         let caret = |label, popup| {
             self.spot(
-                self.look()
+                self.look
                     .icon_button(
                         Icon::ChevronDown,
                         label,
@@ -315,7 +317,7 @@ impl App {
         .spacing(5)
         .align_y(Alignment::Center);
         // Offline, Reconnect before Settings, as the Slint client's.
-        let state = self.client.state();
+        let state = self.state;
         let controls = if !state.preview && !state.online {
             controls.push(self.tinted_button(
                 Icon::Refresh,
@@ -360,7 +362,7 @@ impl App {
         .align_y(Alignment::Center);
         // The account's nameplate fills the card, brighter and playing
         // under the pointer.
-        let card: Element<'_, Message> = match self.account_plate(HEIGHT, pointed, pointed) {
+        let card: Element<'a, Message> = match self.account_plate(HEIGHT, pointed, pointed) {
             Some((plate, palette)) => PlateRow::new(card, Some(plate), palette, ground, 0.0, 1.0)
                 .account()
                 .into(),
@@ -379,19 +381,17 @@ impl App {
         })
         .into()
     }
-}
 
-impl App {
     /// An icon button of the card's, 32 px, its glyph in `ink`.
     fn tinted_button(
-        &self,
+        self,
         icon: Icon,
         label: &'static str,
         ink: iced::Color,
         glyph: u32,
         message: Message,
-    ) -> Element<'_, Message> {
-        let face = Pic::square(self.icon(icon, glyph, rgb(ink)), glyph as f32);
-        self.look().face_button(face, 32.0, label, message).into()
+    ) -> Element<'a, Message> {
+        let face = Pic::square(self.look.icon(icon, glyph, rgb(ink)), glyph as f32);
+        self.look.face_button(face, 32.0, label, message).into()
     }
 }

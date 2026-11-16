@@ -277,9 +277,9 @@ fn someones_tile_right_clicked_sets_their_volume_and_keeps_it() {
     // One's own tile has nothing to set in the preview.
     let you = app.client.state().voice.participants[0].person.clone();
     let _ = app.call_event(Event::Person(room.clone(), you, Point::new(400.0, 300.0)));
-    assert!(app.menu.is_none());
+    assert!(app.win.menu.is_none());
     let _ = app.call_event(Event::Person(room, "bob".into(), Point::new(400.0, 300.0)));
-    let volumes = app.menu.as_ref().and_then(|menu| menu.volumes.as_ref());
+    let volumes = app.win.menu.as_ref().and_then(|menu| menu.volumes.as_ref());
     assert_eq!(volumes.map(|volumes| volumes.name.as_str()), Some("Bob"));
     assert!(shows(&app, "User volume"));
     assert!(!shows(&app, "Stream volume"), "Bob isn't streaming");
@@ -301,7 +301,7 @@ fn someones_tile_right_clicked_sets_their_volume_and_keeps_it() {
 fn the_signal_opens_the_connections_details_with_their_tabs() {
     use crate::call::{LinkEvent, LinkTab};
     let (mut app, _folder, _) = in_call();
-    assert!(!app.link_measured(), "the preview doesn't measure");
+    assert!(!app.ctx().link_measured(), "the preview doesn't measure");
     let stats = voice::LinkStats {
         pings: vec![40, 80],
         loss: Some(1.5),
@@ -320,7 +320,7 @@ fn the_signal_opens_the_connections_details_with_their_tabs() {
     };
     app.client.app.state.voice.link = Some(voice::Link::new(move || stats.clone()));
     let _ = app.sync();
-    assert!(app.link_measured());
+    assert!(app.ctx().link_measured());
     // The pointer on the signal reads the ping for its tooltip.
     let _ = app.call_event(Event::Link(LinkEvent::Pointed(true)));
     assert!(app.call.details.stats.is_some());

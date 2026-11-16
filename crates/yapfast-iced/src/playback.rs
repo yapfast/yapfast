@@ -35,6 +35,26 @@ const BAR: f32 = 3.0;
 const BAR_PITCH: f32 = 6.0;
 const BAR_TALL: f32 = 24.0;
 
+/// What the timeline's voice messages and videos show of their playing,
+/// beyond what the core says of it.
+#[derive(Default)]
+pub struct Playback {
+    /// A voice message's volume is open over its mute, by its item, while
+    /// the pointer is on the button or the slider (counted, as they
+    /// overlap).
+    pub voice_volume: Option<(String, u8)>,
+    /// The voice message paused while its waveform is held.
+    pub voice_held: Option<String>,
+    /// How far into the message's video playing its last frame is, in
+    /// milliseconds.
+    pub clip_time: Option<u64>,
+    /// A message's video full screen; the size its cell asked for its
+    /// frames at; the pointer on its volume's button or slider.
+    pub clip_full: bool,
+    pub clip_cell: (u32, u32),
+    pub clip_volume: u8,
+}
+
 /// What a voice message's card asks for.
 #[derive(Clone, Debug)]
 pub enum Event {
@@ -133,14 +153,149 @@ fn bars(waveform: &[u8]) -> impl Iterator<Item = f32> + '_ {
 }
 
 impl App {
+    /// What a voice message's card asked for.
+    pub fn voice_event(&mut self, event: Event) -> Task<Message> {
+        match event {
+            Event::Toggle(item) => self.client.dispatch(Action::ToggleVoiceMessage(item)),
+            Event::Seek(item, at) => {
+                // Playing, it pauses while held and plays on once let go.
+                let playing = self
+                    .client
+                    .state()
+                    .voice_message
+                    .as_ref()
+                    .is_some_and(|playback| playback.item == item && playback.playing);
+                if playing && self.playback.voice_held.is_none() {
+                    self.playback.voice_held = Some(item.clone());
+                    self.client
+                        .dispatch(Action::ToggleVoiceMessage(item.clone()));
+                }
+                self.client.dispatch(Action::MoveVoiceMessage(item, at));
+            }
+            Event::Released(item) => {
+                if self.playback.voice_held.take().is_some() {
+                    self.client.dispatch(Action::ToggleVoiceMessage(item));
+                }
+            }
+            Event::Speed => self.client.dispatch(Action::CycleVoiceMessageSpeed),
+            Event::Mute(muted) => self.client.dispatch(Action::MuteVoiceMessages(muted)),
+            Event::Volume(volume) => self
+                .client
+                .dispatch(Action::VoiceMessageVolume(volume.clamp(0.0, 1.0))),
+            Event::Turn(up) => {
+                let tuning = self.client.state().voice_tuning;
+                let shown = if tuning.muted { 0.0 } else { tuning.volume };
+                let turned = shown + if up > 0.0 { VOICE_TURN } else { -VOICE_TURN };
+                self.client
+                    .dispatch(Action::VoiceMessageVolume(turned.clamp(0.0, 1.0)));
+            }
+            Event::VolumeHover(item, entered) => {
+                let count = match &self.playback.voice_volume {
+                    Some((open, count)) if *open == item => *count,
+                    _ => 0,
+                };
+                let count = if entered {
+                    count.saturating_add(1)
+                } else {
+                    count.saturating_sub(1)
+                };
+                self.playback.voice_volume = (count > 0).then_some((item, count));
+                return Task::none();
+            }
+            Event::Point(item, entered) => {
+                crate::app::point(&mut self.pointed.voice, item, entered);
+                return Task::none();
+            }
+        }
+        self.sync()
+    }
+}
+
+impl App {
+    /// What a video's cell asked for.
+    pub fn clip_event(&mut self, clip: Clip) -> Task<Message> {
+        let video = self.client.state().video.as_ref();
+        match clip {
+            Clip::Play(item, index, size) => {
+                // In the window's pixels, as the Slint client asks.
+                let scale = self.device_scale();
+                let pixels = |side: f32| ((side * scale).round() as u32).max(1);
+                self.playback.clip_time = None;
+                self.playback.clip_cell = (pixels(size.width), pixels(size.height));
+                self.client.dispatch(Action::PlayVideo {
+                    item,
+                    index,
+                    width: pixels(size.width),
+                    height: pixels(size.height),
+                });
+            }
+            Clip::Toggle => {
+                let command = if video.is_some_and(|video| video.playing) {
+                    VideoCommand::Pause
+                } else {
+                    VideoCommand::Play
+                };
+                self.client.dispatch(Action::Video(command));
+            }
+            Clip::Seek(at) => {
+                let Some(duration) = video.and_then(|video| video.duration_ms) else {
+                    return Task::none();
+                };
+                let at = (f64::from(at.clamp(0.0, 1.0)) * duration as f64) as u64;
+                self.client.dispatch(Action::Video(VideoCommand::Seek(at)));
+            }
+            Clip::Mute(muted) => self
+                .client
+                .dispatch(Action::Video(VideoCommand::Mute(muted))),
+            Clip::Volume(volume) => self
+                .client
+                .dispatch(Action::Video(VideoCommand::Volume(volume.clamp(0.0, 1.0)))),
+            Clip::VolumeHover(entered) => {
+                self.playback.clip_volume = if entered {
+                    self.playback.clip_volume.saturating_add(1)
+                } else {
+                    self.playback.clip_volume.saturating_sub(1)
+                };
+                return Task::none();
+            }
+            // Full screen, its pictures come at the viewer's size; back in
+            // its cell, at the cell's.
+            Clip::Full(full) => {
+                self.playback.clip_full = full && video.is_some();
+                self.playback.clip_volume = 0;
+                let (width, height) = if self.playback.clip_full {
+                    let size =
+                        crate::viewer::fitted(self.window, video.and_then(|video| video.size));
+                    let scale = self.device_scale();
+                    ((size.width * scale) as u32, (size.height * scale) as u32)
+                } else {
+                    self.playback.clip_cell
+                };
+                self.client
+                    .dispatch(Action::Video(VideoCommand::Size { width, height }));
+                return Task::batch([self.sync(), self.refocus()]);
+            }
+            Clip::Point(key, entered) => {
+                crate::app::point(&mut self.pointed.clip, key, entered);
+                return Task::none();
+            }
+        }
+        self.sync()
+    }
+}
+
+/// A voice message's card's height, with the room above it.
+pub const VOICE_CARD: f32 = PILL + 4.0;
+
+impl<'a> crate::ctx::Ctx<'a> {
     /// A voice message's card.
-    pub fn voice_card<'a>(
-        &'a self,
+    pub fn voice_card(
+        self,
         message: &'a ChatMessage,
         voice: &'a VoiceMessage,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let state = self.client.state();
+        let theme = self.look.theme;
+        let state = self.state;
         let item = &message.item;
         let playback = state
             .voice_message
@@ -158,7 +313,7 @@ impl App {
         // The accent shading towards the bottom right.
         let accent = theme.accent;
         let light = crate::theme::mix(Color::WHITE, accent, 0.2);
-        let face = container(self.glyph(
+        let face = container(self.look.glyph(
             if playing { Icon::Pause } else { Icon::Play },
             17,
             Color::WHITE,
@@ -202,7 +357,7 @@ impl App {
             );
         }
         let wave = container(wave).height(PILL).align_y(Alignment::Center);
-        let wave: Element<'_, Message> = if enabled {
+        let wave: Element<'a, Message> = if enabled {
             let (seek, released) = (item.clone(), item.clone());
             Scrub::new(wave, move |at| {
                 Message::Voice(Event::Seek(seek.clone(), at))
@@ -241,6 +396,7 @@ impl App {
         .align_y(Alignment::Center);
         // Speed and mute, while the pointer is on it or its volume.
         let volume_open = self
+            .playback
             .voice_volume
             .as_ref()
             .is_some_and(|(open, count)| open == item && *count > 0);
@@ -261,7 +417,7 @@ impl App {
                 border: iced::Border::default().rounded(11),
                 ..button::Style::default()
             });
-            let mute = self.look().icon_button(
+            let mute = self.look.icon_button(
                 if tuning.muted {
                     Icon::VolumeOff
                 } else {
@@ -318,12 +474,12 @@ impl App {
     /// A voice message's volume, as the Slint client's popup over its
     /// mute: an upright slider on the raised ground with its edge and
     /// shadow; the wheel on it turns it 5 % a step.
-    fn voice_volume_slider<'a>(
-        &'a self,
+    fn voice_volume_slider(
+        self,
         item: &str,
         tuning: yapfast_core::chat::VoiceTuning,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.look.theme;
         let shown = if tuning.muted { 0.0 } else { tuning.volume };
         let (fill, rest, knob) = (theme.accent, theme.line, theme.text);
         let slider = iced::widget::vertical_slider(0.0..=1.0, shown, |volume| {
@@ -369,75 +525,16 @@ impl App {
             .into()
     }
 
-    /// What a voice message's card asked for.
-    pub fn voice_event(&mut self, event: Event) -> Task<Message> {
-        match event {
-            Event::Toggle(item) => self.client.dispatch(Action::ToggleVoiceMessage(item)),
-            Event::Seek(item, at) => {
-                // Playing, it pauses while held and plays on once let go.
-                let playing = self
-                    .client
-                    .state()
-                    .voice_message
-                    .as_ref()
-                    .is_some_and(|playback| playback.item == item && playback.playing);
-                if playing && self.voice_held.is_none() {
-                    self.voice_held = Some(item.clone());
-                    self.client
-                        .dispatch(Action::ToggleVoiceMessage(item.clone()));
-                }
-                self.client.dispatch(Action::MoveVoiceMessage(item, at));
-            }
-            Event::Released(item) => {
-                if self.voice_held.take().is_some() {
-                    self.client.dispatch(Action::ToggleVoiceMessage(item));
-                }
-            }
-            Event::Speed => self.client.dispatch(Action::CycleVoiceMessageSpeed),
-            Event::Mute(muted) => self.client.dispatch(Action::MuteVoiceMessages(muted)),
-            Event::Volume(volume) => self
-                .client
-                .dispatch(Action::VoiceMessageVolume(volume.clamp(0.0, 1.0))),
-            Event::Turn(up) => {
-                let tuning = self.client.state().voice_tuning;
-                let shown = if tuning.muted { 0.0 } else { tuning.volume };
-                let turned = shown + if up > 0.0 { VOICE_TURN } else { -VOICE_TURN };
-                self.client
-                    .dispatch(Action::VoiceMessageVolume(turned.clamp(0.0, 1.0)));
-            }
-            Event::VolumeHover(item, entered) => {
-                let count = match &self.voice_volume {
-                    Some((open, count)) if *open == item => *count,
-                    _ => 0,
-                };
-                let count = if entered {
-                    count.saturating_add(1)
-                } else {
-                    count.saturating_sub(1)
-                };
-                self.voice_volume = (count > 0).then_some((item, count));
-                return Task::none();
-            }
-            Event::Point(item, entered) => {
-                crate::app::point(&mut self.pointed.voice, item, entered);
-                return Task::none();
-            }
-        }
-        self.sync()
-    }
-}
-
-impl App {
     /// A message's video in its gallery cell: `poster` with a play mark
     /// until it plays, then its frames with the controls.
-    pub fn clip_cell<'a>(
-        &'a self,
+    pub fn clip_cell(
+        self,
         message: &'a ChatMessage,
         index: usize,
         size: Size,
         poster: Element<'a, Message>,
     ) -> Element<'a, Message> {
-        let state = self.client.state();
+        let state = self.state;
         let key = format!("{}/{index}", message.item);
         let playing = state
             .video
@@ -448,8 +545,7 @@ impl App {
         let source = format!("clip:{key}");
         let mut layers = stack![poster].width(size.width).height(size.height);
         if failed.is_none() && playing.is_some() && self.video.has(&source) {
-            layers = layers
-                .push(Video::new(&self.video, source, Color::BLACK).scale(self.device_scale()));
+            layers = layers.push(Video::new(self.video, source, Color::BLACK).scale(self.scale));
         }
         let ended = playing.is_some_and(|video| video.ended);
         if playing.is_none() || failed.is_some() || (ended && !pointed) {
@@ -488,7 +584,7 @@ impl App {
                     )
                     .center(Length::Fill),
                 );
-            } else if (pointed || !video.playing) && !self.clip_full {
+            } else if (pointed || !video.playing) && !self.playback.clip_full {
                 layers = layers.push(
                     container(self.clip_controls(video, size.width, false))
                         .height(Length::Fill)
@@ -515,13 +611,13 @@ impl App {
     /// it, mute with a slider over it for how loud, and full screen. A
     /// narrow video leaves out the time, then mute. Full screen, it's
     /// under the video, on no shade.
-    pub fn clip_controls<'a>(
-        &'a self,
+    pub fn clip_controls(
+        self,
         video: &'a yapfast_core::chat::Video,
         width: f32,
         full: bool,
     ) -> Element<'a, Message> {
-        let at = self.clip_time.unwrap_or(0);
+        let at = self.playback.clip_time.unwrap_or(0);
         let at = match video.duration_ms {
             Some(duration) if video.ended => duration,
             _ => at,
@@ -538,8 +634,8 @@ impl App {
         let show_time =
             width >= fixed + if show_mute { 34.0 } else { 0.0 } + time.len() as f32 * 7.0 + 6.0;
         let button = |icon, label, message| {
-            self.look().face_button(
-                self.glyph(icon, 16, Color::WHITE),
+            self.look.face_button(
+                self.look.glyph(icon, 16, Color::WHITE),
                 CLIP_BUTTON,
                 label,
                 message,
@@ -585,7 +681,7 @@ impl App {
         ));
         if show_mute {
             // Its tip would cover the slider over it while that's open.
-            let open = self.clip_volume > 0;
+            let open = self.playback.clip_volume > 0;
             let mute = if video.muted {
                 button(
                     Icon::VolumeOff,
@@ -599,7 +695,7 @@ impl App {
                     Message::Clip(Clip::Mute(true)),
                 )
             };
-            let mute: Element<'a, Message> = if self.clip_volume > 0 {
+            let mute: Element<'a, Message> = if self.playback.clip_volume > 0 {
                 iced::widget::stack![
                     mute,
                     crate::widgets::Corner::new(self.volume_slider(video), 0.0, -VOLUME_RISE),
@@ -642,7 +738,7 @@ impl App {
 
     /// How loud the video plays, as the Slint client's slider over its
     /// mute: a 4 px track filled in white to a 12 px knob, on dark glass.
-    fn volume_slider<'a>(&'a self, video: &'a yapfast_core::chat::Video) -> Element<'a, Message> {
+    fn volume_slider(self, video: &'a yapfast_core::chat::Video) -> Element<'a, Message> {
         let shown = if video.muted { 0.0 } else { video.volume };
         let slider = iced::widget::vertical_slider(0.0..=1.0, shown, |volume| {
             Message::Clip(Clip::Volume(volume))
@@ -673,78 +769,4 @@ impl App {
         .on_exit(Message::Clip(Clip::VolumeHover(false)))
         .into()
     }
-
-    /// What a video's cell asked for.
-    pub fn clip_event(&mut self, clip: Clip) -> Task<Message> {
-        let video = self.client.state().video.as_ref();
-        match clip {
-            Clip::Play(item, index, size) => {
-                // In the window's pixels, as the Slint client asks.
-                let scale = self.device_scale();
-                let pixels = |side: f32| ((side * scale).round() as u32).max(1);
-                self.clip_time = None;
-                self.clip_cell = (pixels(size.width), pixels(size.height));
-                self.client.dispatch(Action::PlayVideo {
-                    item,
-                    index,
-                    width: pixels(size.width),
-                    height: pixels(size.height),
-                });
-            }
-            Clip::Toggle => {
-                let command = if video.is_some_and(|video| video.playing) {
-                    VideoCommand::Pause
-                } else {
-                    VideoCommand::Play
-                };
-                self.client.dispatch(Action::Video(command));
-            }
-            Clip::Seek(at) => {
-                let Some(duration) = video.and_then(|video| video.duration_ms) else {
-                    return Task::none();
-                };
-                let at = (f64::from(at.clamp(0.0, 1.0)) * duration as f64) as u64;
-                self.client.dispatch(Action::Video(VideoCommand::Seek(at)));
-            }
-            Clip::Mute(muted) => self
-                .client
-                .dispatch(Action::Video(VideoCommand::Mute(muted))),
-            Clip::Volume(volume) => self
-                .client
-                .dispatch(Action::Video(VideoCommand::Volume(volume.clamp(0.0, 1.0)))),
-            Clip::VolumeHover(entered) => {
-                self.clip_volume = if entered {
-                    self.clip_volume.saturating_add(1)
-                } else {
-                    self.clip_volume.saturating_sub(1)
-                };
-                return Task::none();
-            }
-            // Full screen, its pictures come at the viewer's size; back in
-            // its cell, at the cell's.
-            Clip::Full(full) => {
-                self.clip_full = full && video.is_some();
-                self.clip_volume = 0;
-                let (width, height) = if self.clip_full {
-                    let size =
-                        crate::viewer::fitted(self.window, video.and_then(|video| video.size));
-                    let scale = self.device_scale();
-                    ((size.width * scale) as u32, (size.height * scale) as u32)
-                } else {
-                    self.clip_cell
-                };
-                self.client
-                    .dispatch(Action::Video(VideoCommand::Size { width, height }));
-                return Task::batch([self.sync(), self.refocus()]);
-            }
-            Clip::Point(key, entered) => {
-                crate::app::point(&mut self.pointed.clip, key, entered);
-                return Task::none();
-            }
-        }
-        self.sync()
-    }
 }
-
-/// A voice message's card's height, with the room above it.
-pub const VOICE_CARD: f32 = PILL + 4.0;

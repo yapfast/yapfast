@@ -45,7 +45,7 @@ pub struct Found {
 impl App {
     /// `message` found, laid out once for its card.
     pub fn found(&self, message: Arc<ChatMessage>) -> Found {
-        let revealed = &self.revealed;
+        let revealed = &self.timeline.revealed;
         let body = crate::timeline::body_of(
             &message,
             crate::theme::rgb(self.theme.mention),
@@ -70,10 +70,12 @@ impl App {
             when,
         }
     }
+}
 
+impl<'a> crate::ctx::Ctx<'a> {
     /// A found message's card; a click on it sends `jump`.
-    pub fn found_view<'a>(&'a self, found: &'a Found, jump: Message) -> Element<'a, Message> {
-        let theme = &self.theme;
+    pub fn found_view(self, found: &'a Found, jump: Message) -> Element<'a, Message> {
+        let theme = self.look.theme;
         let message = &found.message;
         let name_ink = message.color.map_or(theme.text, hex);
         let mut words = column![
@@ -125,7 +127,7 @@ impl App {
                         .radius(crate::message::PICTURE_RADIUS)
                         .covered(attachment.spoiler),
                 );
-                let shot: Element<'_, Message> = if attachment.video && !attachment.spoiler {
+                let shot: Element<'a, Message> = if attachment.video && !attachment.spoiler {
                     stack![shot, container(self.play_badge()).center(Length::Fill)].into()
                 } else {
                     shot
@@ -137,7 +139,7 @@ impl App {
         if let Some(poll) = &message.poll {
             words = words.push(
                 row![
-                    self.glyph(Icon::ChartBar, 14, theme.muted),
+                    self.look.glyph(Icon::ChartBar, 14, theme.muted),
                     elide(poll.question.as_str())
                         .size(14)
                         .color(theme.secondary),
@@ -158,7 +160,7 @@ impl App {
         if !files.is_empty() {
             words = words.push(
                 row![
-                    self.glyph(Icon::File, 14, theme.muted),
+                    self.look.glyph(Icon::File, 14, theme.muted),
                     elide(files.join(", ")).size(13).color(theme.muted),
                 ]
                 .spacing(6)

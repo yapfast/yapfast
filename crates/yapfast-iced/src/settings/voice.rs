@@ -872,7 +872,7 @@ fn entrance_servers(state: &AppState) -> Vec<Option<String>> {
 impl App {
     /// The entrance sounds' pictures, while Choose's soundboard is open.
     pub fn entrance_pictures(&self) -> Vec<String> {
-        let open = self.settings.get().is_some_and(|settings| {
+        let open = self.win.settings.get().is_some_and(|settings| {
             settings.open == Some(Drop::Start)
                 && settings.section() == crate::settings::Section::Voice
         });

@@ -168,7 +168,7 @@ impl App {
         if rows.is_empty() {
             return Task::none();
         }
-        self.menu = Some(Menu {
+        self.win.menu = Some(Menu {
             place: Some(id.to_owned()),
             header,
             ..Menu::new(at, rows).width(crate::menus::FIELD_WIDTH)
@@ -197,7 +197,7 @@ impl App {
             first.separated = true;
         }
         rows.extend(levels);
-        self.menu = Some(Menu {
+        self.win.menu = Some(Menu {
             place: Some(room),
             ..Menu::new(at, rows).width(crate::menus::FIELD_WIDTH)
         });
@@ -241,7 +241,7 @@ impl App {
                 ..MenuRow::plain(MenuAct::Event, "No upcoming events")
             });
         }
-        self.menu = Some(Menu {
+        self.win.menu = Some(Menu {
             place: Some(server.to_owned()),
             ..Menu::new(at, rows).width(crate::menus::FIELD_WIDTH)
         });

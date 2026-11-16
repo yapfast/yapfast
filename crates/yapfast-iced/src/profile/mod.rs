@@ -423,14 +423,107 @@ impl App {
         Task::none()
     }
 
+    /// The account's own card while its popover shows: made again only
+    /// when the core's profile of it changes, and let go as it closes.
+    fn account_card_sync(&mut self, link: u32) {
+        let state = self.client.state();
+        let Some(profile) = state
+            .account_profile
+            .as_ref()
+            .filter(|_| self.status.popover.is_some())
+        else {
+            self.profiles.account = None;
+            return;
+        };
+        if let Some((kept, _)) = &self.profiles.account
+            && Arc::ptr_eq(kept, profile)
+        {
+            return;
+        }
+        let view = Arc::new(ProfileView {
+            profile: chat::Profile::clone(profile),
+            ..Default::default()
+        });
+        let look = Look::new(state, &view, None, &[], link);
+        self.profiles.account = Some((profile.clone(), Shown::new(look)));
+    }
+}
+
+/// The card's frame: its ground (a theme's gradient, or plain), corners and
+/// outline, and the shadow of one that floats.
+pub(crate) fn frame_style(
+    inks: look::Inks,
+    edge: iced::Color,
+    radius: f32,
+    floats: bool,
+) -> impl Fn(&iced::Theme) -> container::Style {
+    move |_| {
+        let background: iced::Background = if inks.themed {
+            iced::gradient::Linear::new(iced::Radians(std::f32::consts::PI))
+                .add_stop(0.0, inks.start)
+                .add_stop(1.0, inks.end)
+                .into()
+        } else {
+            inks.ground.into()
+        };
+        container::Style {
+            background: Some(background),
+            border: iced::Border {
+                color: edge,
+                width: if inks.themed { 0.0 } else { 1.0 },
+                radius: radius.into(),
+            },
+            shadow: if floats {
+                card_shadow()
+            } else {
+                iced::Shadow::default()
+            },
+            ..Default::default()
+        }
+    }
+}
+
+/// A profile's look for `view`, made again only when the view changed; the
+/// same person's pictures and name stay drawn.
+fn make_shown(
+    app: &yapfast_core::application::Application,
+    shown: Option<Shown>,
+    view: Option<&Arc<ProfileView>>,
+    live: Option<look::Live>,
+    link: u32,
+) -> Option<Shown> {
+    let view = view?;
+    // The core shares a view while it stays the same.
+    let same = |shown: &Shown| {
+        Arc::ptr_eq(&shown.look.view, view)
+            && shown.look.relation == app.state.relation(&view.profile.id)
+            && shown.look.live == live
+    };
+    if shown.as_ref().is_some_and(same) {
+        return shown;
+    }
+    let look = || {
+        let choices = app.person_choices(&view.profile.id);
+        Look::new(&app.state, view, live, &choices, link)
+    };
+    Some(match shown {
+        Some(mut shown) if shown.look.view.profile.id == view.profile.id => {
+            shown.look = look();
+            shown
+        }
+        _ => Shown::new(look()),
+    })
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
     /// The tab the full profile shows.
-    pub fn profile_tab(&self, look: &Look) -> Tab {
+    pub fn profile_tab(self, look: &Look) -> Tab {
         self.profiles.tab_for(look)
     }
 
     /// The floating card, beside its list or message, as far up as the
     /// window lets it; it scrolls once it's taller than the window.
-    pub fn card_view(&self) -> Option<Element<'_, Message>> {
+    pub fn card_view(self) -> Option<Element<'a, Message>> {
         let card = self.profiles.card.as_ref()?;
         let shown = self
             .profiles
@@ -438,8 +531,8 @@ impl App {
             .as_ref()
             .filter(|shown| !shown.look.view.large)?;
         let body = self.profile_body(shown, Mode::Card, WIDTH, self.profiles.pointed);
-        let limit = self.window.height - 16.0;
-        let content = container(scroll_view(body).style(scrollbar(&self.theme)))
+        let limit = self.look.window.height - 16.0;
+        let content = container(scroll_view(body).style(scrollbar(self.look.theme)))
             .width(WIDTH)
             .max_height(limit);
         let content = self.dressed(shown, Mode::Card, WIDTH, content.into());
@@ -451,13 +544,13 @@ impl App {
 
     /// The full profile over the window, dimmed under it; a click outside
     /// closes it.
-    pub fn full_profile_view(&self) -> Option<Element<'_, Message>> {
+    pub fn full_profile_view(self) -> Option<Element<'a, Message>> {
         let shown = self
             .profiles
             .shown
             .as_ref()
             .filter(|shown| shown.look.view.large)?;
-        let (window_width, window_height) = (self.window.width, self.window.height);
+        let (window_width, window_height) = (self.look.window.width, self.look.window.height);
         let width = (window_width * 0.7).max(720.0).min(window_width - 32.0);
         let height = (window_height * 0.75).max(520.0).min(window_height - 32.0);
         let modal = self.full_view(shown, width, height);
@@ -470,9 +563,9 @@ impl App {
 
     /// The profile docked beside a one-to-one DM, filling its height, with
     /// View Full Profile at its foot.
-    pub fn profile_panel_view(&self) -> Option<Element<'_, Message>> {
+    pub fn profile_panel_view(self) -> Option<Element<'a, Message>> {
         let shown = self.profiles.panel.as_ref()?;
-        let theme = &self.theme;
+        let theme = self.look.theme;
         let inks = self.inks(&shown.look, Mode::Docked);
         let body = self.profile_body(
             shown,
@@ -517,41 +610,10 @@ impl App {
         )
     }
 
-    /// The account's own card while its popover shows: made again only
-    /// when the core's profile of it changes, and let go as it closes.
-    fn account_card_sync(&mut self, link: u32) {
-        let state = self.client.state();
-        let Some(profile) = state
-            .account_profile
-            .as_ref()
-            .filter(|_| self.status.popover.is_some())
-        else {
-            self.profiles.account = None;
-            return;
-        };
-        if let Some((kept, _)) = &self.profiles.account
-            && Arc::ptr_eq(kept, profile)
-        {
-            return;
-        }
-        let view = Arc::new(ProfileView {
-            profile: chat::Profile::clone(profile),
-            ..Default::default()
-        });
-        let look = Look::new(state, &view, None, &[], link);
-        self.profiles.account = Some((profile.clone(), Shown::new(look)));
-    }
-
-    /// Whether the profile panel shows beside the open DM.
-    pub fn panel_shown(&self) -> bool {
-        self.header.profile_available && self.profiles.panel.is_some()
-    }
-
-    /// A picture for a profile at its size, made once while it's shown.
     /// The colour behind a banner: the accent, else, with no banner and
     /// no theme, the avatar's dominant colour once it has arrived, as
     /// Discord tints it.
-    pub(crate) fn banner_ground(&self, shown: &Shown) -> Option<u32> {
+    pub(crate) fn banner_ground(self, shown: &Shown) -> Option<u32> {
         let profile = shown.look.profile();
         if shown.look.accent.is_some() || profile.banner.is_some() || profile.theme.is_some() {
             return shown.look.accent;
@@ -567,7 +629,7 @@ impl App {
         let picked = shown.picked.borrow().get(url).cloned();
         let picture = match &picked {
             Some(picture) => picture,
-            None => self.client.state().pictures.get(url)?,
+            None => self.state.pictures.get(url)?,
         };
         let order = crate::pictures::byte_order(picture);
         let colour = yapfast_core::dominant_colour::dominant(&picture.rgba, order)?;
@@ -575,8 +637,9 @@ impl App {
         Some(colour)
     }
 
+    /// A picture for a profile at its size, made once while it's shown.
     pub(crate) fn profile_picture(
-        &self,
+        self,
         shown: &Shown,
         url: &str,
         width: u32,
@@ -594,7 +657,7 @@ impl App {
         let picked = shown.picked.borrow().get(url).cloned();
         let picture = match &picked {
             Some(picture) => picture,
-            None => self.client.state().pictures.get(url)?,
+            None => self.state.pictures.get(url)?,
         };
         if picture.width == 0 || picture.height == 0 {
             return None;
@@ -621,8 +684,8 @@ impl App {
 
     /// The pictures the profiles on screen show, and the moving ones of
     /// those under the pointer.
-    pub fn profile_pictures(&self) -> Vec<String> {
-        let state = self.client.state();
+    pub fn profile_pictures(self) -> Vec<String> {
+        let state = self.state;
         let cosmetics = state.cosmetics;
         let mut urls = self.editor_pictures();
         if let Some((_, shown)) = &self.profiles.account {
@@ -727,78 +790,19 @@ impl App {
     }
 
     /// The profile's ink, ground and the rest, from its theme or Yapfast's.
-    pub fn inks(&self, look: &Look, mode: Mode) -> look::Inks {
+    pub fn inks(self, look: &Look, mode: Mode) -> look::Inks {
         let plain = if mode == Mode::Docked {
-            self.theme.panel
+            self.look.theme.panel
         } else {
-            self.theme.sidebar
+            self.look.theme.sidebar
         };
-        look::Inks::new(&self.theme, look.profile().theme, plain)
+        look::Inks::new(self.look.theme, look.profile().theme, plain)
     }
 }
 
-/// The card's frame: its ground (a theme's gradient, or plain), corners and
-/// outline, and the shadow of one that floats.
-pub(crate) fn frame_style(
-    inks: look::Inks,
-    edge: iced::Color,
-    radius: f32,
-    floats: bool,
-) -> impl Fn(&iced::Theme) -> container::Style {
-    move |_| {
-        let background: iced::Background = if inks.themed {
-            iced::gradient::Linear::new(iced::Radians(std::f32::consts::PI))
-                .add_stop(0.0, inks.start)
-                .add_stop(1.0, inks.end)
-                .into()
-        } else {
-            inks.ground.into()
-        };
-        container::Style {
-            background: Some(background),
-            border: iced::Border {
-                color: edge,
-                width: if inks.themed { 0.0 } else { 1.0 },
-                radius: radius.into(),
-            },
-            shadow: if floats {
-                card_shadow()
-            } else {
-                iced::Shadow::default()
-            },
-            ..Default::default()
-        }
+impl App {
+    /// Whether the profile panel shows beside the open DM.
+    pub fn panel_shown(&self) -> bool {
+        self.header.profile_available && self.profiles.panel.is_some()
     }
-}
-
-/// A profile's look for `view`, made again only when the view changed; the
-/// same person's pictures and name stay drawn.
-fn make_shown(
-    app: &yapfast_core::application::Application,
-    shown: Option<Shown>,
-    view: Option<&Arc<ProfileView>>,
-    live: Option<look::Live>,
-    link: u32,
-) -> Option<Shown> {
-    let view = view?;
-    // The core shares a view while it stays the same.
-    let same = |shown: &Shown| {
-        Arc::ptr_eq(&shown.look.view, view)
-            && shown.look.relation == app.state.relation(&view.profile.id)
-            && shown.look.live == live
-    };
-    if shown.as_ref().is_some_and(same) {
-        return shown;
-    }
-    let look = || {
-        let choices = app.person_choices(&view.profile.id);
-        Look::new(&app.state, view, live, &choices, link)
-    };
-    Some(match shown {
-        Some(mut shown) if shown.look.view.profile.id == view.profile.id => {
-            shown.look = look();
-            shown
-        }
-        _ => Shown::new(look()),
-    })
 }

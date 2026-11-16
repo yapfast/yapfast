@@ -22,7 +22,7 @@ use yapfast_core::{
 
 use super::{Event, Mode, Profiles, Shown};
 use crate::{
-    app::{App, Message},
+    app::Message,
     widgets::{FrameAnchor, FrameKind, FrameLayer, Framed, Pic},
 };
 
@@ -195,11 +195,11 @@ impl Profiles {
     }
 }
 
-impl App {
+impl<'a> crate::ctx::Ctx<'a> {
     /// The card `card`, `width` wide, with its effect over it and its frame
     /// round it, as `mode` shows them.
-    pub(super) fn dressed<'a>(
-        &'a self,
+    pub(super) fn dressed(
+        self,
         shown: &'a Shown,
         mode: Mode,
         width: f32,
@@ -215,7 +215,7 @@ impl App {
         };
         let framed = match mode {
             Mode::Card => true,
-            Mode::Side => self.window.height > FRAME_ROOM,
+            Mode::Side => self.look.window.height > FRAME_ROOM,
             Mode::Docked => false,
         };
         match framed.then(|| self.frame_art(shown, mode, width)) {
@@ -235,16 +235,15 @@ impl App {
     /// showing `since` it began to play while pictures play and until it
     /// has played out.
     fn effect_view(
-        &self,
+        self,
         shown: &Shown,
         width: f32,
         since: Option<Instant>,
-    ) -> Option<Element<'_, Message>> {
-        let effect =
-            worn_effect(self.client.state(), shown).filter(|effect| !effect.layers.is_empty())?;
-        let pictures = &self.client.state().pictures;
+    ) -> Option<Element<'a, Message>> {
+        let effect = worn_effect(self.state, shown).filter(|effect| !effect.layers.is_empty())?;
+        let pictures = &self.state.pictures;
         let time = since.map(|since| since.elapsed().as_millis() as u64);
-        let playing = self.plays() && time.is_some_and(|time| !finished(effect, time));
+        let playing = self.plays && time.is_some_and(|time| !finished(effect, time));
         let tall = |url: &str| {
             let picture = pictures.get(url)?;
             (picture.width > 0)
@@ -292,8 +291,8 @@ impl App {
     /// The editor's tile of the effect worn: its still over a little
     /// card, as Discord's tile shows it (a light panel, the name's and
     /// bio's bars at the lower left), `size` big.
-    pub(super) fn effect_tile(&self, shown: &Shown, size: Size) -> Option<Element<'_, Message>> {
-        let effect = worn_effect(self.client.state(), shown)?;
+    pub(super) fn effect_tile(self, shown: &Shown, size: Size) -> Option<Element<'a, Message>> {
+        let effect = worn_effect(self.state, shown)?;
         if effect.still.is_none() && effect.layers.is_empty() {
             return None;
         }
@@ -314,7 +313,7 @@ impl App {
             bar(0.19, 0.9, 0.26, 0.07, 1.0, 0x414255),
         ];
         let still = effect.still.as_deref().and_then(|url| {
-            let picture = self.client.state().pictures.get(url)?;
+            let picture = self.state.pictures.get(url)?;
             let height = (size.width * picture.height as f32 / picture.width.max(1) as f32).round();
             let handle = self.picture(url, size.width as u32, height as u32, false)?;
             Some(Pic::new(handle, Size::new(size.width, height)))
@@ -328,8 +327,8 @@ impl App {
     /// The frame's layers at the width it's drawn, `side` past each of the
     /// card's sides; the full profile leaves out the staple at the foot,
     /// as Discord's does.
-    fn frame_art(&self, shown: &Shown, mode: Mode, width: f32) -> Vec<FrameLayer> {
-        let state = self.client.state();
+    fn frame_art(self, shown: &Shown, mode: Mode, width: f32) -> Vec<FrameLayer> {
+        let state = self.state;
         let profile = shown.look.profile();
         let Some(frame) = state.cosmetics.frame(Some(&profile.frame)) else {
             return Vec::new();

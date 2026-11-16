@@ -15,7 +15,7 @@ use iced::{
 use yapfast_core::{application::AppState, chat::ChatRoom};
 
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{self, ink_style},
     elide::elide,
     fonts::{BOLD, REGULAR, shown_name, style_font},
@@ -121,82 +121,6 @@ impl<'a> NameInk<'a> {
     }
 }
 
-impl App {
-    /// [`Ctx::status_line`](crate::ctx::Ctx::status_line).
-    pub fn status_line<'a>(
-        &'a self,
-        status: impl Into<Cow<'a, Status>>,
-        look: StatusInk,
-    ) -> Element<'a, Message> {
-        self.ctx().status_line(status, look)
-    }
-
-    /// [`Ctx::person`](crate::ctx::Ctx::person).
-    pub fn person<'a>(&'a self, person: Person<'a>) -> iced::widget::Row<'a, Message> {
-        self.ctx().person(person)
-    }
-
-    /// A name on one line, in its style's font and, outside a server, its
-    /// style's first colour, as the lists draw a styled name.
-    pub fn person_name<'a>(&self, name: &'a str, ink: NameInk<'_>) -> Element<'a, Message> {
-        let color = match ink.style {
-            Some(style) if !style.colors.is_empty() => {
-                crate::style::hex(style.main).scale_alpha(ink.color.a)
-            }
-            _ => ink.color,
-        };
-        crate::elide::elide(shown_name(name, ink.style.and_then(NameLook::font)))
-            .size(ink.size)
-            .font(style_font(ink.style.and_then(NameLook::font), ink.weight))
-            .color(color)
-            .into()
-    }
-
-    /// The voice channel someone is in, as the Slint client's `VoiceSpot`:
-    /// a speaker in the live green and the channel with its server, which
-    /// brightens under the pointer; compact, the speaker alone, the place
-    /// in its tooltip. A click goes there.
-    pub fn voice_spot<'a>(
-        &self,
-        (room, channel, server): (&str, &str, &str),
-        size: f32,
-        compact: bool,
-    ) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let place = format!("{channel} — {server}");
-        let speaker = self.glyph(Icon::Volume, (size + 1.0) as u32, theme.live);
-        let go = Message::Side(crate::sidebar::Event::Select(room.to_owned()));
-        if compact {
-            let spot = button(speaker)
-                .padding(0)
-                .on_press(go)
-                .style(ink_style(theme.muted, theme.text));
-            return tooltip(spot, controls::tip(theme, place), tooltip::Position::Top)
-                .gap(6)
-                .into();
-        }
-        button(
-            row![speaker, crate::elide::elide(place).size(size)]
-                .spacing(4)
-                .align_y(Alignment::Center),
-        )
-        .padding(0)
-        .on_press(go)
-        .style(ink_style(theme.muted, theme.text))
-        .into()
-    }
-
-    /// A list's small heading, as the Slint client's `RequestsHeading`:
-    /// 12 px bold capitals in the muted ink, 36 px tall.
-    pub fn list_heading<'a>(&self, heading: String) -> Element<'a, Message> {
-        container(text(heading).size(12).font(BOLD).color(self.theme.muted))
-            .padding([0, 8])
-            .height(36)
-            .align_y(Alignment::Center)
-            .into()
-    }
-}
-
 /// Where each person in a voice channel of the account's servers is, by
 /// their id: the channel's room id, its name, and its server's name, as the
 /// DMs and friends mark them.
@@ -281,5 +205,74 @@ impl<'a> crate::ctx::Ctx<'a> {
         row![self.face(person.face), lines]
             .spacing(person.gap)
             .align_y(Alignment::Center)
+    }
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
+    /// A name on one line, in its style's font and, outside a server, its
+    /// style's first colour, as the lists draw a styled name.
+    pub fn person_name(self, name: &'a str, ink: NameInk<'a>) -> Element<'a, Message> {
+        let color = match ink.style {
+            Some(style) if !style.colors.is_empty() => {
+                crate::style::hex(style.main).scale_alpha(ink.color.a)
+            }
+            _ => ink.color,
+        };
+        crate::elide::elide(shown_name(name, ink.style.and_then(NameLook::font)))
+            .size(ink.size)
+            .font(style_font(ink.style.and_then(NameLook::font), ink.weight))
+            .color(color)
+            .into()
+    }
+
+    /// The voice channel someone is in, as the Slint client's `VoiceSpot`:
+    /// a speaker in the live green and the channel with its server, which
+    /// brightens under the pointer; compact, the speaker alone, the place
+    /// in its tooltip. A click goes there.
+    pub fn voice_spot(
+        self,
+        (room, channel, server): (&str, &str, &str),
+        size: f32,
+        compact: bool,
+    ) -> Element<'a, Message> {
+        let theme = self.look.theme;
+        let place = format!("{channel} — {server}");
+        let speaker = self
+            .look
+            .glyph(Icon::Volume, (size + 1.0) as u32, theme.live);
+        let go = Message::Side(crate::sidebar::Event::Select(room.to_owned()));
+        if compact {
+            let spot = button(speaker)
+                .padding(0)
+                .on_press(go)
+                .style(ink_style(theme.muted, theme.text));
+            return tooltip(spot, controls::tip(theme, place), tooltip::Position::Top)
+                .gap(6)
+                .into();
+        }
+        button(
+            row![speaker, crate::elide::elide(place).size(size)]
+                .spacing(4)
+                .align_y(Alignment::Center),
+        )
+        .padding(0)
+        .on_press(go)
+        .style(ink_style(theme.muted, theme.text))
+        .into()
+    }
+
+    /// A list's small heading, as the Slint client's `RequestsHeading`:
+    /// 12 px bold capitals in the muted ink, 36 px tall.
+    pub fn list_heading(self, heading: String) -> Element<'a, Message> {
+        container(
+            text(heading)
+                .size(12)
+                .font(BOLD)
+                .color(self.look.theme.muted),
+        )
+        .padding([0, 8])
+        .height(36)
+        .align_y(Alignment::Center)
+        .into()
     }
 }

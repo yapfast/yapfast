@@ -15,7 +15,7 @@ use super::{
     look::{Inks, Tab, time_ago},
 };
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{Kind, action, lit_style, placed},
     fonts::{BOLD, MEDIUM, SEMIBOLD},
     pictures::{Icon, Mark, initials},
@@ -24,10 +24,51 @@ use crate::{
     widgets::Pic,
 };
 
-impl App {
+/// A line of the card's words, wrapped.
+fn note<'a>(ink: Color, words: &'a str) -> Element<'a, Message> {
+    text(words).size(13).color(ink).into()
+}
+
+/// A mutual server or friend; a click goes there.
+fn list_row<'a>(
+    face: Element<'a, Message>,
+    name: &'a str,
+    detail: Option<&'a str>,
+    inks: &Inks,
+    message: Message,
+) -> Element<'a, Message> {
+    let mut words = column![
+        text(name)
+            .size(15)
+            .font(MEDIUM)
+            .color(inks.ink)
+            .wrapping(text::Wrapping::None)
+    ];
+    if let Some(detail) = detail {
+        words = words.push(text(detail).size(12).color(inks.ink3));
+    }
+    let hover = inks.hover;
+    let height = if detail.is_some() { 46.0 } else { 40.0 };
+    mouse_area(
+        button(
+            row![face, words.width(Length::Fill)]
+                .spacing(12)
+                .align_y(Alignment::Center),
+        )
+        .padding([0, 8])
+        .height(height)
+        .width(Length::Fill)
+        .on_press(message)
+        .style(crate::controls::lit_style(None, hover, 6.0)),
+    )
+    .interaction(iced::mouse::Interaction::Pointer)
+    .into()
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
     /// The full profile at its size.
-    pub(super) fn full_view<'a>(
-        &'a self,
+    pub(super) fn full_view(
+        self,
         shown: &'a Shown,
         width: f32,
         height: f32,
@@ -38,12 +79,12 @@ impl App {
         let side = container(
             scroll_view(self.profile_body(shown, Mode::Side, side_width, true))
                 .height(Length::Fill)
-                .style(scrollbar(&self.theme)),
+                .style(scrollbar(self.look.theme)),
         )
         .width(side_width)
         .height(Length::Fill)
         .clip(true)
-        .style(super::frame_style(inks, self.theme.edge, 12.0, true));
+        .style(super::frame_style(inks, self.look.theme.edge, 12.0, true));
         let side = mouse_area(self.dressed(shown, Mode::Side, side_width, side.into()))
             .on_enter(Message::Profile(Event::Pointed(true)))
             .on_exit(Message::Profile(Event::Pointed(false)));
@@ -71,7 +112,7 @@ impl App {
             );
             tabs = tabs.push(face);
         }
-        let close = button(self.glyph(Icon::X, 18, inks.ink2).boxed(32))
+        let close = button(self.look.glyph(Icon::X, 18, inks.ink2).boxed(32))
             .padding(0)
             .width(32)
             .height(32)
@@ -88,7 +129,7 @@ impl App {
         let rule_ink = if inks.themed {
             faded(inks.ink, 0.12)
         } else {
-            self.theme.line
+            self.look.theme.line
         };
         let rule = container(Space::new())
             .width(Length::Fill)
@@ -105,7 +146,7 @@ impl App {
             })
             .width(Length::Fill)
             .height(Length::Fill);
-        let edge = self.theme.edge;
+        let edge = self.look.theme.edge;
         container(row![side, right].spacing(8).padding(8))
             .width(width)
             .height(height)
@@ -115,12 +156,7 @@ impl App {
 
     /// A tab's page: rows the shape of what's coming while Discord hasn't
     /// said, its words while there's nothing, else what it shows.
-    pub(super) fn tab_page<'a>(
-        &'a self,
-        shown: &'a Shown,
-        tab: Tab,
-        inks: &Inks,
-    ) -> Element<'a, Message> {
+    pub(super) fn tab_page(self, shown: &'a Shown, tab: Tab, inks: &Inks) -> Element<'a, Message> {
         let look = &shown.look;
         let profile = look.profile();
         let blank = match tab {
@@ -184,14 +220,14 @@ impl App {
         };
         scroll_view(content)
             .height(Length::Fill)
-            .style(scrollbar(&self.theme))
+            .style(scrollbar(self.look.theme))
             .into()
     }
 
     /// Rows the shape of what's coming, as Discord's client shows while it
     /// waits: round faces for people, rounded squares for servers.
-    fn skeleton_rows<'a>(&self, servers: bool) -> Element<'a, Message> {
-        let shimmer = self.theme.shimmer;
+    fn skeleton_rows(self, servers: bool) -> Element<'a, Message> {
+        let shimmer = self.look.theme.shimmer;
         let bone = move |width: f32, height: f32, radius: f32| {
             container(Space::new())
                 .width(width)
@@ -217,7 +253,7 @@ impl App {
 
     /// Discord's words for an empty tab; a bot's profile words its servers
     /// as the client's does.
-    fn empty_tab<'a>(&'a self, shown: &'a Shown, tab: Tab, inks: &Inks) -> Element<'a, Message> {
+    fn empty_tab(self, shown: &'a Shown, tab: Tab, inks: &Inks) -> Element<'a, Message> {
         let look = &shown.look;
         let profile = look.profile();
         let (heading, body) = match tab {
@@ -256,11 +292,13 @@ impl App {
                 .align_x(Alignment::Center),
         );
         if tab == Tab::Activity && !look.own && look.can_message {
-            let icon = self.icon(Icon::MessageCircle, 16, rgb(self.theme.text));
+            let icon = self
+                .look
+                .icon(Icon::MessageCircle, 16, rgb(self.look.theme.text));
             words = words.push(
                 container(
                     action(
-                        &self.theme,
+                        self.look.theme,
                         "Message",
                         Kind::Plain,
                         Some(Message::Profile(Event::Message(profile.id.clone()))),
@@ -283,7 +321,7 @@ impl App {
     }
 
     /// What they're doing, and what they did lately from Discord's outbox.
-    fn activity_tab<'a>(&'a self, shown: &'a Shown, inks: &Inks) -> Element<'a, Message> {
+    fn activity_tab(self, shown: &'a Shown, inks: &Inks) -> Element<'a, Message> {
         let look = &shown.look;
         let profile = look.profile();
         let mut list = column![].spacing(8);
@@ -352,7 +390,7 @@ impl App {
     }
 
     /// Their board's widgets, each with its games.
-    fn board_tab<'a>(&'a self, shown: &'a Shown, inks: &Inks) -> Element<'a, Message> {
+    fn board_tab(self, shown: &'a Shown, inks: &Inks) -> Element<'a, Message> {
         let profile = shown.look.profile();
         if profile.board_asked && !profile.board_named {
             return note(inks.ink2, "Loading the board...");
@@ -410,7 +448,7 @@ impl App {
     }
 
     /// Their wishlist, three to a row.
-    fn wishlist_tab<'a>(&'a self, shown: &'a Shown, inks: &Inks) -> Element<'a, Message> {
+    fn wishlist_tab(self, shown: &'a Shown, inks: &Inks) -> Element<'a, Message> {
         let look = &shown.look;
         let profile = look.profile();
         let mut list = column![].spacing(12);
@@ -468,8 +506,8 @@ impl App {
 
     /// A picture on the Board, Wishlist or Activity tab; what has none
     /// shows its name's first letter.
-    fn showcase<'a>(
-        &'a self,
+    fn showcase(
+        self,
         shown: &'a Shown,
         url: Option<&str>,
         name: &str,
@@ -496,8 +534,8 @@ impl App {
 
     /// A mutual friend's round face with their presence, or a server's
     /// rounded square.
-    fn list_face<'a>(
-        &'a self,
+    fn list_face(
+        self,
         url: Option<&str>,
         name: &str,
         person: bool,
@@ -516,45 +554,4 @@ impl App {
             .height(36)
             .into()
     }
-}
-
-/// A line of the card's words, wrapped.
-fn note<'a>(ink: Color, words: &'a str) -> Element<'a, Message> {
-    text(words).size(13).color(ink).into()
-}
-
-/// A mutual server or friend; a click goes there.
-fn list_row<'a>(
-    face: Element<'a, Message>,
-    name: &'a str,
-    detail: Option<&'a str>,
-    inks: &Inks,
-    message: Message,
-) -> Element<'a, Message> {
-    let mut words = column![
-        text(name)
-            .size(15)
-            .font(MEDIUM)
-            .color(inks.ink)
-            .wrapping(text::Wrapping::None)
-    ];
-    if let Some(detail) = detail {
-        words = words.push(text(detail).size(12).color(inks.ink3));
-    }
-    let hover = inks.hover;
-    let height = if detail.is_some() { 46.0 } else { 40.0 };
-    mouse_area(
-        button(
-            row![face, words.width(Length::Fill)]
-                .spacing(12)
-                .align_y(Alignment::Center),
-        )
-        .padding([0, 8])
-        .height(height)
-        .width(Length::Fill)
-        .on_press(message)
-        .style(crate::controls::lit_style(None, hover, 6.0)),
-    )
-    .interaction(iced::mouse::Interaction::Pointer)
-    .into()
 }

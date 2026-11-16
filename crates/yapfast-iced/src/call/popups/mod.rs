@@ -98,9 +98,11 @@ impl App {
         self.call.listing = false;
         self.call.meter = None;
     }
+}
 
+impl<'a> crate::ctx::Ctx<'a> {
     /// The popup open from a control, above it.
-    pub fn call_popup_view(&self) -> Option<Element<'_, Message>> {
+    pub fn call_popup_view(self) -> Option<Element<'a, Message>> {
         let popup = self.call.popup?;
         let (panel, width) = match popup {
             Popup::Input => (self.device_menu(true), DEVICE_WIDTH),
@@ -127,7 +129,9 @@ impl App {
             }
         };
         let spot = self.call.spot.get();
-        let panel = container(panel).width(width).style(menu_panel(&self.theme));
+        let panel = container(panel)
+            .width(width)
+            .style(menu_panel(self.look.theme));
         Some(
             Place::new(opaque(panel), Point::new(spot.x - 6.0, spot.y - 6.0), 8.0)
                 .anchor(Anchor::Bottom)
@@ -137,8 +141,8 @@ impl App {
 
     /// A row of a popup, as the Slint client's `MenuItem`, lit under the
     /// pointer.
-    fn popup_row<'a>(
-        &self,
+    fn popup_row(
+        self,
         label: impl Into<Cow<'a, str>>,
         subtitle: Option<Cow<'a, str>>,
         icon: Option<Icon>,
@@ -154,6 +158,7 @@ impl App {
             subtitle,
             check,
         };
-        self.menu_item(item, Light::Pointer, press.unwrap_or(Message::Nothing))
+        self.look
+            .menu_item(item, Light::Pointer, press.unwrap_or(Message::Nothing))
     }
 }

@@ -44,10 +44,11 @@ impl App {
             return Task::none();
         };
         let (item, text) = (edit.item.clone(), edit.text.clone());
-        self.editing = Some(item.clone());
-        self.edit.reset(&text);
-        self.suggest.clear(&mut self.client);
+        self.composer.editing = Some(item.clone());
+        self.composer.edit.reset(&text);
+        self.composer.suggest.clear(&mut self.client);
         let reveal = self
+            .timeline
             .messages
             .iter()
             .position(|message| message.item == item)
@@ -58,9 +59,10 @@ impl App {
     /// Enter in the edit, or the hint's save: the core saves it, or asks
     /// whether to delete a message emptied.
     pub fn save_edit(&mut self) -> Task<Message> {
-        self.client.dispatch(Action::SetEditText(self.edit.text()));
+        self.client
+            .dispatch(Action::SetEditText(self.composer.edit.text()));
         self.client.dispatch(Action::SaveEdit);
-        self.suggest.clear(&mut self.client);
+        self.composer.suggest.clear(&mut self.client);
         let focus = if self.client.state().confirm_delete.is_some() {
             self.confirm_focus = true;
             operation::focus(NOBODY)
@@ -72,32 +74,57 @@ impl App {
 
     /// Scrolls row `index` into view, with room under it for its edit.
     pub(crate) fn reveal_row(&mut self, index: usize) -> Task<Message> {
-        let total = self.total_height();
-        let view_top = self.view_top();
-        let view_bottom = view_top + self.timeline_height;
-        let (top, bottom) = (self.tops[index], self.tops[index + 1] + EDIT_ROOM);
-        self.from_end = if bottom > view_bottom {
+        let total = self.timeline.total_height();
+        let view_top = self.timeline.view_top();
+        let view_bottom = view_top + self.timeline.height;
+        let (top, bottom) = (
+            self.timeline.tops[index],
+            self.timeline.tops[index + 1] + EDIT_ROOM,
+        );
+        self.timeline.from_end = if bottom > view_bottom {
             (total - bottom).max(0.0)
         } else if top < view_top {
-            (total - self.timeline_height - top).max(0.0)
+            (total - self.timeline.height - top).max(0.0)
         } else {
             return Task::none();
         };
-        self.at_end = self.from_end <= 2.0;
+        self.timeline.at_end = self.timeline.from_end <= 2.0;
         operation::scroll_to(
             TIMELINE,
             AbsoluteOffset {
                 x: None,
-                y: Some(self.from_end),
+                y: Some(self.timeline.from_end),
             },
         )
     }
+}
 
+impl App {
+    /// The edit's field's top in the window, roughly: its row's foot less
+    /// the hint, the field and what follows the text.
+    pub fn edit_top(&self) -> Option<f32> {
+        let index = self
+            .timeline
+            .messages
+            .iter()
+            .position(|message| Some(&message.item) == self.composer.editing.as_ref())?;
+        let foot =
+            crate::header::HEIGHT + 1.0 + self.timeline.tops[index + 1] - self.timeline.view_top();
+        let reactions = if self.timeline.messages[index].reactions.is_empty() {
+            0.0
+        } else {
+            30.0
+        };
+        Some(foot - 4.0 - 17.0 - 5.0 - 4.0 - reactions - self.composer.edit.height())
+    }
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
     /// The field in place of a message's text while it's edited.
-    pub fn inline_edit(&self) -> Element<'_, Message> {
-        let theme = &self.theme;
+    pub fn inline_edit(self) -> Element<'a, Message> {
+        let theme = self.look.theme;
         let field = Field::new(
-            &self.edit,
+            &self.composer.edit,
             Id::new(EDIT),
             String::new(),
             |event| Message::Write(Event::Field(Writing::Edit, event)),
@@ -115,7 +142,7 @@ impl App {
             left: 6.0,
         })
         .suggesting(self.suggesting(Writing::Edit));
-        let tint = match self.picker.get() {
+        let tint = match self.picker {
             Some(picker) if picker.target == Target::Edit => theme.text,
             _ => theme.secondary,
         };
@@ -158,23 +185,5 @@ impl App {
             .spacing(5)
             .padding(Padding::ZERO.bottom(4))
             .into()
-    }
-}
-
-impl App {
-    /// The edit's field's top in the window, roughly: its row's foot less
-    /// the hint, the field and what follows the text.
-    pub fn edit_top(&self) -> Option<f32> {
-        let index = self
-            .messages
-            .iter()
-            .position(|message| Some(&message.item) == self.editing.as_ref())?;
-        let foot = crate::header::HEIGHT + 1.0 + self.tops[index + 1] - self.view_top();
-        let reactions = if self.messages[index].reactions.is_empty() {
-            0.0
-        } else {
-            30.0
-        };
-        Some(foot - 4.0 - 17.0 - 5.0 - 4.0 - reactions - self.edit.height())
     }
 }

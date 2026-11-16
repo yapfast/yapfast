@@ -169,104 +169,103 @@ impl App {
             });
         }
     }
+}
 
-    /// What the search found, beside the conversation.
-    pub fn search_view(&self) -> Option<Element<'_, Message>> {
-        let state = self.client.state();
-        let search = state.search_shown()?;
-        let theme = &self.theme;
-        let server = discord::parse_server(&search.place).is_some();
-        let heading = match search {
-            search if search.results.is_empty() && search.loading => "Searching...".to_owned(),
-            search if search.results.is_empty() && search.error.is_some() => "Search".to_owned(),
-            search if search.total == 1 => "1 Result".to_owned(),
-            search => format!("{} Results", search.total),
-        };
-        let note = match &search.error {
-            Some(error) => Some(error.as_str()),
-            None if !search.loading && search.results.is_empty() => Some(if server {
-                "Nothing in this server matches. Try other words."
-            } else {
-                "Nothing in this conversation matches. Try other words."
-            }),
-            None => None,
-        };
-        let head = column![
-            container(
-                row![
-                    container(elide(heading).size(15).font(BOLD).color(theme.text))
-                        .width(Length::Fill),
-                    self.look()
-                        .icon_button(Icon::X, "Close search", Message::Search(Event::Clear))
-                        .below(),
-                ]
-                .spacing(10)
-                .align_y(Alignment::Center),
-            )
-            .padding(Padding::ZERO.left(16).right(10))
-            .height(HEAD - 1.0)
+/// What the search found, beside the conversation.
+pub fn view<'a>(searching: &'a Searching, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
+    let state = cx.state;
+    let search = state.search_shown()?;
+    let theme = cx.look.theme;
+    let server = discord::parse_server(&search.place).is_some();
+    let heading = match search {
+        search if search.results.is_empty() && search.loading => "Searching...".to_owned(),
+        search if search.results.is_empty() && search.error.is_some() => "Search".to_owned(),
+        search if search.total == 1 => "1 Result".to_owned(),
+        search => format!("{} Results", search.total),
+    };
+    let note = match &search.error {
+        Some(error) => Some(error.as_str()),
+        None if !search.loading && search.results.is_empty() => Some(if server {
+            "Nothing in this server matches. Try other words."
+        } else {
+            "Nothing in this conversation matches. Try other words."
+        }),
+        None => None,
+    };
+    let head = column![
+        container(
+            row![
+                container(elide(heading).size(15).font(BOLD).color(theme.text)).width(Length::Fill),
+                cx.look
+                    .icon_button(Icon::X, "Close search", Message::Search(Event::Clear))
+                    .below(),
+            ]
+            .spacing(10)
             .align_y(Alignment::Center),
-            bar(theme.line, Length::Fill, 1),
-        ];
-        let mut list = column![].spacing(8).padding(12);
-        for result in &self.searching.results {
-            let mut entry = column![].spacing(6);
-            if let Some(channel) = &result.heading {
-                entry = entry.push(
-                    row![
-                        self.glyph(Icon::Hash, 14, theme.muted),
-                        elide(channel.as_str())
-                            .size(13)
-                            .font(BOLD)
-                            .color(theme.secondary),
-                    ]
-                    .spacing(4)
-                    .align_y(Alignment::Center)
-                    .padding(Padding::ZERO.top(6)),
-                );
-            }
-            let jump = Message::Search(Event::Jump(
-                result.room.clone(),
-                result.found.message.item.clone(),
-            ));
-            entry = entry.push(self.found_view(&result.found, jump));
-            list = list.push(entry);
-        }
-        if search.more() {
-            let (label, message) = if search.loading {
-                ("Loading...", None)
-            } else {
-                ("Show more", Some(Message::Search(Event::More)))
-            };
-            list = list.push(
-                container(controls::action(theme, label, Kind::Plain, message).small())
-                    .padding(Padding::ZERO.top(4))
-                    .center_x(Length::Fill),
+        )
+        .padding(Padding::ZERO.left(16).right(10))
+        .height(HEAD - 1.0)
+        .align_y(Alignment::Center),
+        bar(theme.line, Length::Fill, 1),
+    ];
+    let mut list = column![].spacing(8).padding(12);
+    for result in &searching.results {
+        let mut entry = column![].spacing(6);
+        if let Some(channel) = &result.heading {
+            entry = entry.push(
+                row![
+                    cx.look.glyph(Icon::Hash, 14, theme.muted),
+                    elide(channel.as_str())
+                        .size(13)
+                        .font(BOLD)
+                        .color(theme.secondary),
+                ]
+                .spacing(4)
+                .align_y(Alignment::Center)
+                .padding(Padding::ZERO.top(6)),
             );
         }
-        let mut body = column![head];
-        if let Some(note) = note {
-            body = body.push(container(text(note).size(14).color(theme.secondary)).padding(16));
-        }
-        body = body.push(
-            scroll_view(list)
-                .height(Length::Fill)
-                .style(scrollbar(theme)),
-        );
-        let ground = theme.sidebar;
-        Some(
-            row![
-                bar(theme.edge, 1, Length::Fill),
-                container(body)
-                    .width(Length::Fill)
-                    .height(Length::Fill)
-                    .style(move |_| fill(ground)),
-            ]
-            .width(WIDTH)
-            .height(Length::Fill)
-            .into(),
-        )
+        let jump = Message::Search(Event::Jump(
+            result.room.clone(),
+            result.found.message.item.clone(),
+        ));
+        entry = entry.push(cx.found_view(&result.found, jump));
+        list = list.push(entry);
     }
+    if search.more() {
+        let (label, message) = if search.loading {
+            ("Loading...", None)
+        } else {
+            ("Show more", Some(Message::Search(Event::More)))
+        };
+        list = list.push(
+            container(controls::action(theme, label, Kind::Plain, message).small())
+                .padding(Padding::ZERO.top(4))
+                .center_x(Length::Fill),
+        );
+    }
+    let mut body = column![head];
+    if let Some(note) = note {
+        body = body.push(container(text(note).size(14).color(theme.secondary)).padding(16));
+    }
+    body = body.push(
+        scroll_view(list)
+            .height(Length::Fill)
+            .style(scrollbar(theme)),
+    );
+    let ground = theme.sidebar;
+    Some(
+        row![
+            bar(theme.edge, 1, Length::Fill),
+            container(body)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .style(move |_| fill(ground)),
+        ]
+        .width(WIDTH)
+        .height(Length::Fill)
+        .into(),
+    )
 }
 
 impl<'a> Ctx<'a> {

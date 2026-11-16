@@ -32,29 +32,98 @@ const SHOWN: usize = 8;
 const PILL: f32 = 26.0;
 
 impl App {
-    /// The list's rows and heading, while it's open: the commands of the
-    /// `/` picker (perhaps none, with why), or the focused option's values.
-    pub fn command_list(&self) -> Option<(Vec<CommandRow>, String)> {
-        let rows = self.client.app.command_rows();
-        let heading = self.client.app.command_heading(&rows);
-        let open = if self.client.state().command_draft().is_some() {
-            !rows.is_empty()
-        } else {
-            !heading.is_empty()
-        };
-        open.then_some((rows, heading))
+    /// Enter with a command being written: a file option without its file
+    /// asks for one; otherwise the core runs it (`Action::Send`).
+    pub fn command_enter(&mut self) -> Option<Task<Message>> {
+        let command = self.client.state().command_draft()?;
+        let focused = command.focused;
+        let option = command.options.get(focused);
+        if option.is_some_and(|option| option.is_attachment() && option.file.is_none()) {
+            return Some(self.command_file(focused));
+        }
+        None
     }
 
+    /// Tab or Shift+Tab: the next or the last option.
+    pub fn command_tab(&mut self, back: bool) -> Task<Message> {
+        let Some(command) = self.client.state().command_draft() else {
+            return Task::none();
+        };
+        let count = command.options.len();
+        if count == 0 {
+            return Task::none();
+        }
+        let next = if back {
+            (command.focused + count - 1) % count
+        } else {
+            (command.focused + 1) % count
+        };
+        self.focus_option(next)
+    }
+
+    /// The composer writes option `index`, the caret at its text's end.
+    pub fn focus_option(&mut self, index: usize) -> Task<Message> {
+        self.composer.suggest.set_index(0);
+        self.client.dispatch(Action::FocusCommandOption(index));
+        self.sync()
+    }
+
+    /// A file option's file, from the same dialog as the composer's files.
+    pub fn command_file(&mut self, index: usize) -> Task<Message> {
+        Task::perform(
+            async {
+                rfd::AsyncFileDialog::new()
+                    .set_title("Choose a file")
+                    .pick_file()
+                    .await
+                    .map(|file| file.path().to_string_lossy().into_owned())
+            },
+            move |path| match path {
+                Some(path) => Message::Write(Event::CommandFileChosen(index, path)),
+                None => Message::Nothing,
+            },
+        )
+    }
+
+    /// Escape or Backspace at the first option's start: the list closes,
+    /// then the command stops being written (with `back`, its name goes
+    /// back in the composer). Whether there was a command or a list.
+    pub fn close_command(&mut self, back: bool) -> bool {
+        let state = self.client.state();
+        if state.command_draft().is_none() && state.slash_query().is_none() {
+            return false;
+        }
+        if back
+            && state
+                .command_draft()
+                .is_none_or(|command| command.focused != 0)
+        {
+            return false;
+        }
+        self.client.dispatch(Action::CloseCommand(back));
+        true
+    }
+
+    /// The pictures the list shows: apps' icons, people's avatars.
+    pub fn command_pictures(&self) -> Vec<String> {
+        self.ctx()
+            .command_list()
+            .map(|(rows, _)| rows.into_iter().filter_map(|row| row.icon).collect())
+            .unwrap_or_default()
+    }
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
     /// The list over the composer, lit at `lit`; the eight rows around the
     /// lit one show.
     pub fn command_list_view(
-        &self,
+        self,
         rows: &[CommandRow],
         heading: String,
         lit: usize,
-    ) -> iced::widget::Column<'_, Message> {
-        let theme = &self.theme;
-        let commands = self.client.state().command_draft().is_none();
+    ) -> iced::widget::Column<'a, Message> {
+        let theme = self.look.theme;
+        let commands = self.state.command_draft().is_none();
         let mut list = column![
             container(text(heading).size(11).font(BOLD).color(theme.muted))
                 .padding([0, 6])
@@ -125,16 +194,33 @@ impl App {
         }
         list
     }
+}
 
+impl<'a> crate::ctx::Ctx<'a> {
+    /// The list's rows and heading, while it's open: the commands of the
+    /// `/` picker (perhaps none, with why), or the focused option's values.
+    pub fn command_list(self) -> Option<(Vec<CommandRow>, String)> {
+        let rows = self.app.command_rows();
+        let heading = self.app.command_heading(&rows);
+        let open = if self.state.command_draft().is_some() {
+            !rows.is_empty()
+        } else {
+            !heading.is_empty()
+        };
+        open.then_some((rows, heading))
+    }
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
     /// The command's name and its options' pills over the composer's
     /// text, wrapping onto as many rows as they take; an empty row without
     /// a command.
-    pub fn command_pills(&self) -> Element<'_, Message> {
-        let state = self.client.state();
+    pub fn command_pills(self) -> Element<'a, Message> {
+        let state = self.state;
         let Some(command) = state.command_draft() else {
             return container(row![].wrap()).into();
         };
-        let theme = &self.theme;
+        let theme = self.look.theme;
         let errors = state.option_errors(command);
         let soft = theme.accent_soft;
         let mut pills = row![
@@ -156,7 +242,7 @@ impl App {
             let value = option.shown();
             let mut face = row![].spacing(4).align_y(Alignment::Center);
             if option.is_attachment() {
-                face = face.push(self.glyph(Icon::File, 14, theme.muted));
+                face = face.push(self.look.glyph(Icon::File, 14, theme.muted));
             }
             face = face.push(
                 text(format!("{}:", option.name))
@@ -212,8 +298,8 @@ impl App {
     }
 
     /// What the empty field says while a command is written.
-    pub fn command_placeholder(&self) -> Option<String> {
-        let command = self.client.state().command_draft()?;
+    pub fn command_placeholder(self) -> Option<String> {
+        let command = self.state.command_draft()?;
         Some(match command.options.get(command.focused) {
             None => format!("Press Enter to run /{}", command.name),
             Some(option) if option.is_attachment() => {
@@ -221,84 +307,5 @@ impl App {
             }
             Some(option) => option.description.clone(),
         })
-    }
-
-    /// Enter with a command being written: a file option without its file
-    /// asks for one; otherwise the core runs it (`Action::Send`).
-    pub fn command_enter(&mut self) -> Option<Task<Message>> {
-        let command = self.client.state().command_draft()?;
-        let focused = command.focused;
-        let option = command.options.get(focused);
-        if option.is_some_and(|option| option.is_attachment() && option.file.is_none()) {
-            return Some(self.command_file(focused));
-        }
-        None
-    }
-
-    /// Tab or Shift+Tab: the next or the last option.
-    pub fn command_tab(&mut self, back: bool) -> Task<Message> {
-        let Some(command) = self.client.state().command_draft() else {
-            return Task::none();
-        };
-        let count = command.options.len();
-        if count == 0 {
-            return Task::none();
-        }
-        let next = if back {
-            (command.focused + count - 1) % count
-        } else {
-            (command.focused + 1) % count
-        };
-        self.focus_option(next)
-    }
-
-    /// The composer writes option `index`, the caret at its text's end.
-    pub fn focus_option(&mut self, index: usize) -> Task<Message> {
-        self.suggest.set_index(0);
-        self.client.dispatch(Action::FocusCommandOption(index));
-        self.sync()
-    }
-
-    /// A file option's file, from the same dialog as the composer's files.
-    pub fn command_file(&mut self, index: usize) -> Task<Message> {
-        Task::perform(
-            async {
-                rfd::AsyncFileDialog::new()
-                    .set_title("Choose a file")
-                    .pick_file()
-                    .await
-                    .map(|file| file.path().to_string_lossy().into_owned())
-            },
-            move |path| match path {
-                Some(path) => Message::Write(Event::CommandFileChosen(index, path)),
-                None => Message::Nothing,
-            },
-        )
-    }
-
-    /// Escape or Backspace at the first option's start: the list closes,
-    /// then the command stops being written (with `back`, its name goes
-    /// back in the composer). Whether there was a command or a list.
-    pub fn close_command(&mut self, back: bool) -> bool {
-        let state = self.client.state();
-        if state.command_draft().is_none() && state.slash_query().is_none() {
-            return false;
-        }
-        if back
-            && state
-                .command_draft()
-                .is_none_or(|command| command.focused != 0)
-        {
-            return false;
-        }
-        self.client.dispatch(Action::CloseCommand(back));
-        true
-    }
-
-    /// The pictures the list shows: apps' icons, people's avatars.
-    pub fn command_pictures(&self) -> Vec<String> {
-        self.command_list()
-            .map(|(rows, _)| rows.into_iter().filter_map(|row| row.icon).collect())
-            .unwrap_or_default()
     }
 }

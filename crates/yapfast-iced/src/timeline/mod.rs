@@ -101,13 +101,121 @@ pub struct LanePlace {
     pub top: f32,
 }
 
-impl App {
+/// The channel's timeline: its rows and what each shows, where it's
+/// scrolled, and the selection across its messages and the thread's.
+pub struct Timeline {
+    pub messages: crate::app::Messages,
+    /// Each row's height and, one longer, where each row starts; what each
+    /// row shows beyond its message; the history's edge above the first.
+    pub heights: Vec<f32>,
+    pub tops: Vec<f32>,
+    pub looks: Vec<RowLook>,
+    pub edge: Edge,
+    /// Heights the timeline's last layout found, not yet taken in.
+    pub found: crate::widgets::Found,
+    /// Spoilers clicked, as `item/index`, while Yapfast runs.
+    pub revealed: std::collections::HashSet<String>,
+    /// The core's last jump and jump to the first unread message that the
+    /// timeline went to, and the message tinted for it.
+    pub jumped: Option<(String, u64)>,
+    pub unread_jumped: u64,
+    pub jump_lit: Option<String>,
+    /// The "New" divider's message and the last read, as the looks were
+    /// worked out for.
+    pub marks_for: (Option<String>, Option<String>),
+    /// The history's edge changed since the rows' heights were worked out.
+    pub edge_changed: bool,
+    /// The viewport: its distance from the end, which the scrollable
+    /// (anchored to the bottom) keeps as rows come, its height and width,
+    /// and whether it's at the end.
+    pub from_end: f32,
+    pub height: f32,
+    pub width: f32,
+    pub at_end: bool,
+    /// Sent from a window of older messages, or Jump to present: the view
+    /// goes to the newest once they've replaced the window.
+    pub latest_due: bool,
+    /// The selection, where it started and where it goes to, and whether
+    /// the button is still down.
+    pub selection: Option<(crate::select::Sel, crate::select::Sel)>,
+    pub selecting: bool,
+    /// The times the rows show, and their timers.
+    pub clocks: Clocks,
+}
+
+impl Timeline {
+    /// The rows in view, and `margin` beyond.
+    pub fn in_view(&self, margin: f32) -> (usize, usize) {
+        let top = self.view_top();
+        let bottom = top + self.height;
+        let count = self.heights.len();
+        // The first row ending below the top, the last starting above the bottom.
+        let first = self.tops[1..].partition_point(|end| *end <= top - margin);
+        let last = self.tops[..count].partition_point(|start| *start < bottom + margin);
+        (first.min(count), last.max(first).min(count))
+    }
+
+    /// Where the "New" divider is, when its message is loaded.
+    pub fn unread_index(&self, state: &yapfast_core::application::AppState) -> Option<usize> {
+        let item = state.first_unread.as_deref()?;
+        self.messages
+            .iter()
+            .position(|message| message.item == item)
+    }
+
+    /// The timeline's whole height.
+    pub fn total_height(&self) -> f32 {
+        self.tops.last().copied().unwrap_or(0.0)
+    }
+
+    /// Where the view's top is among the rows.
+    pub fn view_top(&self) -> f32 {
+        (self.total_height() - self.height - self.from_end).max(0.0)
+    }
+
+    /// An empty timeline in a viewport `height` tall and `width` wide.
+    pub fn new(height: f32, width: f32) -> Self {
+        Self {
+            messages: Default::default(),
+            heights: Vec::new(),
+            tops: vec![0.0],
+            looks: Vec::new(),
+            edge: Edge::default(),
+            found: Default::default(),
+            revealed: Default::default(),
+            jumped: None,
+            unread_jumped: 0,
+            jump_lit: None,
+            marks_for: (None, None),
+            edge_changed: false,
+            from_end: 0.0,
+            height,
+            width,
+            at_end: true,
+            latest_due: false,
+            selection: None,
+            selecting: false,
+            clocks: Clocks::default(),
+        }
+    }
+}
+
+/// The channel's timeline and the thread's beside it, as views and the
+/// selection read them: row `row` is the channel's below [`ASIDE`] and the
+/// thread's from it up.
+#[derive(Clone, Copy)]
+pub struct Lanes<'a> {
+    pub timeline: &'a Timeline,
+    pub aside: Option<&'a crate::thread::Aside>,
+}
+
+impl<'a> Lanes<'a> {
     /// Row `row`'s message, in the channel's timeline or the thread's
     /// beside it ([`ASIDE`]).
-    pub fn row_message(&self, row: usize) -> Option<&Arc<ChatMessage>> {
+    pub fn row_message(self, row: usize) -> Option<&'a Arc<ChatMessage>> {
         match row.checked_sub(ASIDE) {
-            Some(index) => self.aside.as_ref()?.messages.get(index),
-            None => self.messages.get(row),
+            Some(index) => self.aside?.messages.get(index),
+            None => self.timeline.messages.get(row),
         }
     }
 
@@ -115,13 +223,14 @@ impl App {
     /// or the thread's beside it, numbered from [`ASIDE`]. What a click on
     /// a row sends names its message, and is placed here when it's handled,
     /// as a batch handled first may have moved every row.
-    pub fn row_of(&self, item: &str) -> Option<usize> {
-        self.messages
+    pub fn row_of(self, item: &str) -> Option<usize> {
+        self.timeline
+            .messages
             .iter()
             .rposition(|message| message.item == item)
             .or_else(|| {
-                let aside = self.aside.as_ref()?;
-                let index = aside
+                let index = self
+                    .aside?
                     .messages
                     .iter()
                     .rposition(|message| message.item == item)?;
@@ -130,59 +239,39 @@ impl App {
     }
 
     /// Row `row`'s message's item, shared, for what its parts send.
-    pub fn row_item(&self, row: usize) -> Arc<str> {
+    pub fn row_item(self, row: usize) -> Arc<str> {
         self.row_look(row)
             .map_or_else(|| Arc::from(""), |look| look.item.clone())
     }
 
-    /// Row `row`'s look, as [`App::row_message`] finds its message.
-    pub fn row_look(&self, row: usize) -> Option<&RowLook> {
+    /// Row `row`'s look, as [`Lanes::row_message`] finds its message.
+    pub fn row_look(self, row: usize) -> Option<&'a RowLook> {
         match row.checked_sub(ASIDE) {
-            Some(index) => self.aside.as_ref()?.looks.get(index),
-            None => self.looks.get(row),
+            Some(index) => self.aside?.looks.get(index),
+            None => self.timeline.looks.get(row),
+        }
+    }
+}
+
+impl App {
+    /// The channel's timeline and the thread's, for what reads rows.
+    pub fn lanes(&self) -> Lanes<'_> {
+        Lanes {
+            timeline: &self.timeline,
+            aside: self.aside.as_deref(),
         }
     }
 
-    /// Where row `row`'s timeline is in the window, and the row's top in
-    /// it: among the rows, under the space a short history is held down
-    /// by, less the view's.
-    pub fn lane_place(&self, row: usize) -> (LanePlace, f32) {
-        match (row.checked_sub(ASIDE), self.aside.as_ref()) {
-            (Some(index), Some(aside)) => (
-                LanePlace {
-                    left: self.window.width - aside.width,
-                    width: aside.width,
-                    top: crate::header::HEIGHT + 1.0 + crate::thread::HEAD + 1.0,
-                },
-                aside.tops.get(index).copied().unwrap_or(0.0)
-                    + (aside.height - aside.total_height()).max(0.0)
-                    - aside.view_top(),
-            ),
-            _ => (
-                LanePlace {
-                    left: self.chat_left(),
-                    width: self.width,
-                    top: crate::header::HEIGHT + 1.0,
-                },
-                self.tops.get(row).copied().unwrap_or(0.0)
-                    + (self.timeline_height - self.total_height()).max(0.0)
-                    - self.view_top(),
-            ),
-        }
+    pub fn row_message(&self, row: usize) -> Option<&Arc<ChatMessage>> {
+        self.lanes().row_message(row)
     }
 
-    /// Where row `row`'s message starts in the window, under its head (the
-    /// history's edge over the first, a divider) and the space above it:
-    /// the top of its hover bar's row and its avatar's padding.
-    pub fn row_body_top(&self, row: usize) -> f32 {
-        let (lane, top) = self.lane_place(row);
-        let edge = match row.checked_sub(ASIDE) {
-            Some(0) if self.aside.as_ref().is_some_and(|aside| aside.ready) => EDGE,
-            Some(_) => 0.0,
-            None if row == 0 => self.edge.height(),
-            None => 0.0,
-        };
-        lane.top + top + edge + self.row_look(row).map_or(0.0, top_space)
+    pub fn row_of(&self, item: &str) -> Option<usize> {
+        self.lanes().row_of(item)
+    }
+
+    pub fn row_item(&self, row: usize) -> Arc<str> {
+        self.lanes().row_item(row)
     }
 
     /// A theme switch: the text laid out in the old theme's inks (its
@@ -195,13 +284,18 @@ impl App {
             return;
         }
         let (mention, ink, muted) = (rgb(theme.mention), rgb(theme.text), rgb(theme.muted));
-        let revealed = &self.revealed;
+        let revealed = &self.timeline.revealed;
         let lay = |message: &ChatMessage| {
             Arc::new(body_of(message, mention, ink, muted, |spoiler| {
                 revealed.contains(&format!("{}/{spoiler}", message.item))
             }))
         };
-        for (look, message) in self.looks.iter_mut().zip(self.messages.iter()) {
+        for (look, message) in self
+            .timeline
+            .looks
+            .iter_mut()
+            .zip(self.timeline.messages.iter())
+        {
             look.body = lay(message);
         }
         if let Some(aside) = &mut self.aside {
@@ -213,7 +307,8 @@ impl App {
 
     /// A spoiler over a message's attachment was clicked: it shows.
     pub fn reveal(&mut self, item: &str, attachment: usize) -> Task<Message> {
-        self.revealed
+        self.timeline
+            .revealed
             .insert(crate::message::reveal_key(item, attachment));
         Task::none()
     }
@@ -221,8 +316,8 @@ impl App {
     /// A long message shows whole, or folds again.
     pub fn unfold(&mut self, item: &str) -> Task<Message> {
         let key = crate::message::fold_key(item);
-        if !self.revealed.remove(&key) {
-            self.revealed.insert(key);
+        if !self.timeline.revealed.remove(&key) {
+            self.timeline.revealed.insert(key);
         }
         Task::none()
     }
@@ -230,7 +325,7 @@ impl App {
     /// Row `index`'s text laid out, as it shows now.
     pub fn body_for(&self, index: usize) -> Option<Laid> {
         let message = self.row_message(index)?;
-        let revealed = &self.revealed;
+        let revealed = &self.timeline.revealed;
         Some(body_of(
             message,
             rgb(self.theme.mention),
@@ -238,5 +333,69 @@ impl App {
             rgb(self.theme.muted),
             |spoiler| revealed.contains(&format!("{}/{spoiler}", message.item)),
         ))
+    }
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
+    /// [`Lanes::row_message`].
+    pub fn row_message(self, row: usize) -> Option<&'a Arc<ChatMessage>> {
+        self.lanes.row_message(row)
+    }
+
+    /// [`Lanes::row_item`].
+    pub fn row_item(self, row: usize) -> Arc<str> {
+        self.lanes.row_item(row)
+    }
+
+    /// [`Lanes::row_look`].
+    pub fn row_look(self, row: usize) -> Option<&'a RowLook> {
+        self.lanes.row_look(row)
+    }
+
+    /// [`Lanes::selected`].
+    pub fn selected(self, row: usize, part: crate::select::PartNo) -> crate::select::Part {
+        self.lanes.selected(row, part)
+    }
+
+    /// Where row `row`'s timeline is in the window, and the row's top in
+    /// it: among the rows, under the space a short history is held down
+    /// by, less the view's.
+    pub fn lane_place(self, row: usize) -> (LanePlace, f32) {
+        match (row.checked_sub(ASIDE), self.lanes.aside) {
+            (Some(index), Some(aside)) => (
+                LanePlace {
+                    left: self.look.window.width - aside.width,
+                    width: aside.width,
+                    top: crate::header::HEIGHT + 1.0 + crate::thread::HEAD + 1.0,
+                },
+                aside.tops.get(index).copied().unwrap_or(0.0)
+                    + (aside.height - aside.total_height()).max(0.0)
+                    - aside.view_top(),
+            ),
+            _ => (
+                LanePlace {
+                    left: crate::conversation::NAVIGATION,
+                    width: self.lanes.timeline.width,
+                    top: crate::header::HEIGHT + 1.0,
+                },
+                self.lanes.timeline.tops.get(row).copied().unwrap_or(0.0)
+                    + (self.lanes.timeline.height - self.lanes.timeline.total_height()).max(0.0)
+                    - self.lanes.timeline.view_top(),
+            ),
+        }
+    }
+
+    /// Where row `row`'s message starts in the window, under its head (the
+    /// history's edge over the first, a divider) and the space above it:
+    /// the top of its hover bar's row and its avatar's padding.
+    pub fn row_body_top(self, row: usize) -> f32 {
+        let (lane, top) = self.lane_place(row);
+        let edge = match row.checked_sub(ASIDE) {
+            Some(0) if self.lanes.aside.is_some_and(|aside| aside.ready) => EDGE,
+            Some(_) => 0.0,
+            None if row == 0 => self.lanes.timeline.edge.height(),
+            None => 0.0,
+        };
+        lane.top + top + edge + self.row_look(row).map_or(0.0, top_space)
     }
 }

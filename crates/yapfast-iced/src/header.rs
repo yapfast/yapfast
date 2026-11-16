@@ -183,9 +183,32 @@ fn one_line(topic: &Topic, link: u32) -> Body {
 }
 
 impl App {
-    pub fn header_view(&self) -> Element<'_, Message> {
-        let header = &self.header;
-        let theme = &self.theme;
+    /// Whether the member list shows beside the timeline.
+    pub fn members_shown(&self) -> bool {
+        self.header.members_available
+            && !self.roster.hidden
+            && !self.aside_shown()
+            && !self.search_shown()
+    }
+}
+
+/// Discord's small round dot between a name and its topic, with room
+/// either side.
+fn dot(theme: &crate::theme::Theme) -> Element<'static, Message> {
+    let ink = iced::Color {
+        a: theme.faint.a * 0.75,
+        ..theme.faint
+    };
+    container(container(Space::new().width(3).height(3)).style(move |_| rounded(ink, 2)))
+        .padding([0, 2])
+        .width(9)
+        .into()
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
+    pub fn header_view(self) -> Element<'a, Message> {
+        let header = self.header;
+        let theme = self.look.theme;
         let mut head = row![].spacing(10).align_y(Alignment::Center);
         if header.direct {
             head =
@@ -200,17 +223,17 @@ impl App {
         if let Some((id, name, forum)) = &header.parent {
             let icon = if *forum { Icon::ForumPost } else { Icon::Hash };
             head = head
-                .push(self.glyph(icon, ROOM_ICON, theme.muted))
+                .push(self.look.glyph(icon, ROOM_ICON, theme.muted))
                 .push(
                     button(text(name.as_str()).size(16).font(BOLD))
                         .padding(0)
                         .on_press(Message::Side(crate::sidebar::Event::Select(id.clone())))
                         .style(controls::ink_style(theme.secondary, theme.text)),
                 )
-                .push(self.glyph(Icon::ChevronRight, 16, theme.faint));
+                .push(self.look.glyph(Icon::ChevronRight, 16, theme.faint));
         }
         if let Some(icon) = header.icon {
-            head = head.push(self.glyph(icon, ROOM_ICON, theme.muted));
+            head = head.push(self.look.glyph(icon, ROOM_ICON, theme.muted));
         }
         let fills = header.topic.is_none() && header.activity.is_empty();
         let name = container(
@@ -240,9 +263,10 @@ impl App {
         } else if !header.activity.is_empty() {
             head = head.push(
                 container(
-                    container(
-                        self.status_line(&header.activity, StatusInk::under_name(&self.theme, 1.0)),
-                    )
+                    container(self.status_line(
+                        &header.activity,
+                        StatusInk::under_name(self.look.theme, 1.0),
+                    ))
                     .padding([0, 10])
                     .height(24)
                     .align_y(Alignment::Center)
@@ -261,8 +285,8 @@ impl App {
     }
 
     /// The topic's one line, in the muted ink.
-    fn topic_line<'a>(&'a self, topic: &'a Body) -> Element<'a, Message> {
-        let ink = self.theme.muted;
+    fn topic_line(self, topic: &'a Body) -> Element<'a, Message> {
+        let ink = self.look.theme.muted;
         let spans = topic
             .parts
             .iter()
@@ -281,37 +305,37 @@ impl App {
     /// open, and where it is as it's pressed, which what it opens opens
     /// from.
     fn header_icon_button(
-        &self,
+        self,
         icon: Icon,
         label: &'static str,
         message: Message,
         lit: bool,
-    ) -> Element<'_, Message> {
+    ) -> Element<'a, Message> {
         let ink = if lit {
-            self.theme.text
+            self.look.theme.text
         } else {
-            self.theme.secondary
+            self.look.theme.secondary
         };
         Spot::new(
-            self.look()
-                .face_button(self.glyph(icon, GLYPH, ink), BUTTON, label, message)
+            self.look
+                .face_button(self.look.glyph(icon, GLYPH, ink), BUTTON, label, message)
                 .below(),
-            &self.header_spot,
+            self.header_spot,
         )
         .into()
     }
 
     /// The buttons after the name, as the Slint client orders them.
-    fn header_buttons(&self) -> Vec<Element<'_, Message>> {
-        let header = &self.header;
-        let theme = &self.theme;
-        let shown = self.members_shown();
+    fn header_buttons(self) -> Vec<Element<'a, Message>> {
+        let header = self.header;
+        let theme = self.look.theme;
+        let shown = self.open.members;
         let members = if shown {
             "Hide member list"
         } else {
             "Show member list"
         };
-        let mut buttons: Vec<Element<'_, Message>> = Vec::new();
+        let mut buttons: Vec<Element<'a, Message>> = Vec::new();
         // Add Friend, or Accept Friend Request in the accent, first.
         if let Some((person, incoming)) = &header.befriend {
             let (words, kind) = if *incoming {
@@ -334,7 +358,7 @@ impl App {
                     ))),
                 )
                 .small()
-                .icon(self.icon(Icon::UserPlus, 16, ink))
+                .icon(self.look.icon(Icon::UserPlus, 16, ink))
                 .into(),
             );
         }
@@ -346,9 +370,9 @@ impl App {
                 (Icon::Forum, "Open chat")
             };
             buttons.push(
-                self.look()
+                self.look
                     .face_button(
-                        self.glyph(icon, GLYPH, theme.secondary),
+                        self.look.glyph(icon, GLYPH, theme.secondary),
                         BUTTON,
                         label,
                         Message::Side(crate::sidebar::Event::VoiceChat(!chat)),
@@ -373,7 +397,7 @@ impl App {
             }
         }
         if header.can_threads {
-            let open = self.client.state().thread_list().is_some();
+            let open = self.state.thread_list().is_some();
             push(
                 Icon::Thread,
                 "Threads",
@@ -435,7 +459,7 @@ impl App {
             );
         }
         if header.profile_available {
-            let open = self.client.state().profile_panel;
+            let open = self.state.profile_panel;
             let label = if open { "Hide profile" } else { "Show profile" };
             push(
                 Icon::User,
@@ -449,15 +473,15 @@ impl App {
         }
         if let Some(placeholder) = &header.search {
             buttons.push(crate::search::header_search(
-                &self.searching,
+                self.searching,
                 placeholder,
-                self.ctx(),
+                self,
             ));
         }
         if !header.members_available && !header.profile_available && !header.members.is_empty() {
             buttons.push(
                 row![
-                    self.glyph(Icon::Users, 18, theme.muted),
+                    self.look.glyph(Icon::Users, 18, theme.muted),
                     text(header.members.as_str())
                         .size(14)
                         .font(MEDIUM)
@@ -473,28 +497,28 @@ impl App {
 
     /// The call's signal in the conversation it's in, once it's
     /// connected and measured: its ping under it, the details on a click.
-    fn header_signal(&self) -> Option<Element<'_, Message>> {
-        let state = self.client.state();
+    fn header_signal(self) -> Option<Element<'a, Message>> {
+        let state = self.state;
         let voice = &state.voice;
         let here = voice.room.is_some() && voice.room == state.selected;
         if !here || !crate::call::voice_ready(voice) || !self.link_measured() {
             return None;
         }
-        let face = self.glyph(
+        let face = self.look.glyph(
             crate::call::signal_icon(voice.link_quality),
             GLYPH,
-            crate::call::signal_ink(&self.theme, voice.link_quality),
+            crate::call::signal_ink(self.look.theme, voice.link_quality),
         );
         Some(self.link_touch(face.boxed(BUTTON), true))
     }
 
     /// A group DM's member list toggle: its icon and count, as Slint's
     /// `HeaderToggle`.
-    fn members_toggle(&self, label: &'static str, open: bool) -> Element<'_, Message> {
-        let theme = &self.theme;
+    fn members_toggle(self, label: &'static str, open: bool) -> Element<'a, Message> {
+        let theme = self.look.theme;
         let ink = if open { theme.text } else { theme.secondary };
         let face = row![
-            self.glyph(Icon::Users, GLYPH, ink),
+            self.look.glyph(Icon::Users, GLYPH, ink),
             text(self.header.members.as_str())
                 .size(14)
                 .font(MEDIUM)
@@ -515,25 +539,4 @@ impl App {
             .gap(6)
             .into()
     }
-
-    /// Whether the member list shows beside the timeline.
-    pub fn members_shown(&self) -> bool {
-        self.header.members_available
-            && !self.hide_members
-            && !self.aside_shown()
-            && !self.search_shown()
-    }
-}
-
-/// Discord's small round dot between a name and its topic, with room
-/// either side.
-fn dot(theme: &crate::theme::Theme) -> Element<'static, Message> {
-    let ink = iced::Color {
-        a: theme.faint.a * 0.75,
-        ..theme.faint
-    };
-    container(container(Space::new().width(3).height(3)).style(move |_| rounded(ink, 2)))
-        .padding([0, 2])
-        .width(9)
-        .into()
 }

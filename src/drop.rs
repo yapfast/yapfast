@@ -5,6 +5,13 @@
 use std::path::PathBuf;
 
 /// A drag of files over the window.
+#[cfg_attr(
+    all(windows, not(feature = "desktop")),
+    allow(
+        dead_code,
+        reason = "the iced client on Windows has iced's own drag events and asks only where the pointer is"
+    )
+)]
 pub enum Drag {
     /// Files came over the window.
     Entered,

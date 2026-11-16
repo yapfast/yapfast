@@ -367,7 +367,7 @@ impl App {
         self.call.ready = ready;
         // The signal goes as the call stops measuring, its touch telling
         // nothing of the pointer leaving it.
-        if !self.link_measured() {
+        if !self.ctx().link_measured() {
             self.call.details.pointed = false;
         }
         let voice = &self.client.state().voice;

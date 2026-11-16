@@ -335,22 +335,6 @@ pub enum Mark {
 pub use crate::icons::Icon;
 
 impl App {
-    /// [`Ctx::picture`](crate::ctx::Ctx::picture).
-    pub fn picture(&self, url: &str, width: u32, height: u32, cover: bool) -> Option<Handle> {
-        self.ctx().picture(url, width, height, cover)
-    }
-
-    /// [`Ctx::fit`](crate::ctx::Ctx::fit).
-    pub fn fit(
-        &self,
-        picture: &Arc<Picture>,
-        width: u32,
-        height: u32,
-        cover: bool,
-    ) -> Option<Handle> {
-        self.ctx().fit(picture, width, height, cover)
-    }
-
     /// Whether moving pictures play, as Messages' Animate choice and the
     /// window's focus say (the Slint client's `Motion.playing`), and not
     /// while nobody is using Yapfast, whatever Animate says
@@ -365,73 +349,6 @@ impl App {
             crate::layout::Animate::Always => true,
             crate::layout::Animate::Never => false,
         }
-    }
-
-    /// [`Ctx::moving`](crate::ctx::Ctx::moving).
-    pub fn moving(
-        &self,
-        url: &str,
-        size: Size,
-        at: Rectangle,
-        cover: bool,
-    ) -> Option<Animated<'_>> {
-        self.ctx().moving(url, size, at, cover)
-    }
-
-    /// [`Ctx::mark`](crate::ctx::Ctx::mark).
-    pub fn mark(&self, mark: Mark) -> Option<Handle> {
-        self.ctx().mark(mark)
-    }
-
-    /// [`Look::icon`](crate::look::Look::icon).
-    pub fn icon(&self, icon: Icon, size: u32, color: u32) -> Handle {
-        self.look().icon(icon, size, color)
-    }
-
-    /// [`Look::glyph`](crate::look::Look::glyph).
-    pub fn glyph(&self, icon: Icon, size: u32, color: Color) -> Pic {
-        self.look().glyph(icon, size, color)
-    }
-
-    /// [`Look::drawn`](crate::look::Look::drawn).
-    pub fn drawn(&self, icon: Icon, size: u32) -> Pic {
-        self.look().drawn(icon, size)
-    }
-
-    /// [`Ctx::emoji_picture`](crate::ctx::Ctx::emoji_picture).
-    pub fn emoji_picture(&self, key: &'static str, size: u32) -> Option<Handle> {
-        self.ctx().emoji_picture(key, size)
-    }
-
-    /// [`Ctx::avatar`](crate::ctx::Ctx::avatar).
-    pub fn avatar(
-        &self,
-        url: Option<&str>,
-        name: &str,
-        size: f32,
-        radius: f32,
-        opacity: f32,
-    ) -> Element<'_, Message> {
-        self.ctx().avatar(url, name, size, radius, opacity)
-    }
-
-    /// [`Ctx::avatar_tinted`](crate::ctx::Ctx::avatar_tinted).
-    pub fn avatar_tinted(
-        &self,
-        url: Option<&str>,
-        name: &str,
-        key: &str,
-        size: f32,
-        radius: f32,
-        opacity: f32,
-    ) -> Element<'_, Message> {
-        self.ctx()
-            .avatar_tinted(url, name, key, size, radius, opacity)
-    }
-
-    /// [`Ctx::face`](crate::ctx::Ctx::face).
-    pub fn face(&self, face: Face<'_>) -> Element<'_, Message> {
-        self.ctx().face(face)
     }
 }
 

@@ -18,9 +18,9 @@ use iced::{
 use yapfast_core::application::{Action, AppState, ModalField};
 
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{self, Kind},
-    ctx::Cx,
+    ctx::{Ctx, Cx},
     dialog::dialog,
     elide::elide,
     fonts::{BOLD, MEDIUM},
@@ -154,11 +154,22 @@ impl Shown {
     }
 }
 
-impl App {
-    /// The form over the dimmed window, while one is open.
-    pub fn modal_view(&self) -> Option<Element<'_, Message>> {
-        let modal = self.client.state().interaction_modal.as_ref()?;
-        let theme = &self.theme;
+/// The form over the dimmed window, while one is open.
+pub fn view<'a>(shown: &'a Shown, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
+    View { s: shown, cx }.form()
+}
+
+/// The form's view: what the window keeps of it, and the view context.
+#[derive(Clone, Copy)]
+struct View<'a> {
+    s: &'a Shown,
+    cx: Ctx<'a>,
+}
+
+impl<'a> View<'a> {
+    fn form(self) -> Option<Element<'a, Message>> {
+        let modal = self.cx.state.interaction_modal.as_ref()?;
+        let theme = self.cx.look.theme;
         let saving = modal.saving();
         let close = (!saving).then_some(Message::Modal(Event::Close));
         let head = row![
@@ -171,7 +182,7 @@ impl App {
             .width(Length::Fill),
             match close.clone() {
                 Some(close) =>
-                    Element::from(self.look().icon_button(Icon::X, "Close", close).below()),
+                    Element::from(self.cx.look.icon_button(Icon::X, "Close", close).below()),
                 None => Space::new().width(28).into(),
             },
         ]
@@ -211,8 +222,8 @@ impl App {
             ]
             .spacing(8),
         );
-        let width = WIDTH.min(self.window.width - 40.0);
-        let body = container(body).max_height(self.window.height - 48.0);
+        let width = WIDTH.min(self.cx.look.window.width - 40.0);
+        let body = container(body).max_height(self.cx.look.window.height - 48.0);
         Some(dialog(
             theme,
             body.into(),
@@ -222,13 +233,13 @@ impl App {
     }
 
     /// One part of the form, by its kind.
-    fn modal_field<'a>(
-        &'a self,
+    fn modal_field(
+        self,
         index: usize,
         field: &'a ModalField,
         saving: bool,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let mut part = column![].spacing(8);
         // A checkbox's label is its row's.
         if !field.label.is_empty() && field.kind != CHECKBOX {
@@ -250,8 +261,8 @@ impl App {
         }
         let edited = move |value: String| Message::Modal(Event::Edited(index, value));
         let shown: Element<'a, Message> = match field.kind {
-            TEXT_DISPLAY => match self.modal.texts.get(index).and_then(Option::as_ref) {
-                Some((_, body)) => self.body_view(
+            TEXT_DISPLAY => match self.s.texts.get(index).and_then(Option::as_ref) {
+                Some((_, body)) => self.cx.body_view(
                     body,
                     usize::MAX,
                     FIRST_PART,
@@ -288,26 +299,26 @@ impl App {
                 } else {
                     "Make a selection".to_owned()
                 };
-                let boxed = self.select_box(
+                let boxed = self.cx.select_box(
                     shown,
                     picked,
                     !saving,
                     (!saving).then_some(Message::Modal(Event::OpenSelect(index))),
                 );
                 let open = self
-                    .client
-                    .state()
+                    .cx
+                    .state
                     .select_menu
                     .as_ref()
                     .is_some_and(|select| select.modal_field == Some(index));
-                Popover::new(boxed, open.then(|| self.ctx().dropdown()), Side::Below)
+                Popover::new(boxed, open.then(|| self.cx.dropdown()), Side::Below)
                     .width(Width::Same)
                     .gap(4.0)
                     .outside(Message::BotSelect(crate::bot_select::Event::Close))
                     .into()
             }
             TEXT_INPUT if field.paragraph => {
-                match self.modal.paragraphs.get(index).and_then(Option::as_ref) {
+                match self.s.paragraphs.get(index).and_then(Option::as_ref) {
                     Some(content) => {
                         let (ground, ink, selection, accent) =
                             (theme.sunken, theme.text, theme.selection, theme.accent);
@@ -383,13 +394,13 @@ impl App {
 
     /// A file upload: the files chosen, each with Remove, and the box that
     /// chooses more while there's room.
-    fn upload_field<'a>(
-        &'a self,
+    fn upload_field(
+        self,
         index: usize,
         field: &'a ModalField,
         saving: bool,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let mut files = column![].spacing(6);
         for (place, path) in field.files.iter().enumerate() {
             let name = path
@@ -398,10 +409,11 @@ impl App {
                 .to_string_lossy()
                 .into_owned();
             let ground = theme.sunken;
-            let remove: Element<'_, Message> = if saving {
+            let remove: Element<'a, Message> = if saving {
                 Space::new().width(28).into()
             } else {
-                self.look()
+                self.cx
+                    .look
                     .icon_button(
                         Icon::X,
                         "Remove",
@@ -414,7 +426,7 @@ impl App {
             files = files.push(
                 container(
                     row![
-                        self.glyph(Icon::File, 18, theme.secondary),
+                        self.cx.look.glyph(Icon::File, 18, theme.secondary),
                         container(elide(name).size(14).color(theme.text)).width(Length::Fill),
                         remove,
                     ]
@@ -430,7 +442,7 @@ impl App {
         if field.files.len() < field.max_values {
             let (ground, edge, accent) = (theme.sunken, theme.edge, theme.accent);
             let face = row![
-                self.glyph(Icon::CirclePlus, 20, theme.secondary),
+                self.cx.look.glyph(Icon::CirclePlus, 20, theme.secondary),
                 text("Choose files").size(14).font(MEDIUM).color(theme.text),
                 text(format!("Up to {}", field.max_values))
                     .size(13)
@@ -468,23 +480,23 @@ impl App {
 
     /// An option of a radio or checkbox group, or a checkbox's own row, as
     /// the Slint client's `MarkRow`: its mark, label and description.
-    fn mark_row<'a>(
-        &'a self,
+    fn mark_row(
+        self,
         label: String,
         description: &'a str,
         on: bool,
         round: bool,
         message: Option<Message>,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let (accent, edge) = (theme.accent, theme.secondary);
-        let inner: Element<'_, Message> = match (on, round) {
+        let inner: Element<'a, Message> = match (on, round) {
             (true, true) => container(Space::new())
                 .width(10)
                 .height(10)
                 .style(move |_| rounded(accent, 5))
                 .into(),
-            (true, false) => self.glyph(Icon::Check, 14, theme.on_accent).into(),
+            (true, false) => self.cx.look.glyph(Icon::Check, 14, theme.on_accent).into(),
             (false, _) => Space::new().into(),
         };
         let mark = container(inner)

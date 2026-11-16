@@ -14,7 +14,7 @@ use yapfast_core::{
 
 use crate::profile::Mode;
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{Kind, action, lights, placed},
     field::{self, Field},
     fonts::{BOLD, MEDIUM, SEMIBOLD},
@@ -30,16 +30,16 @@ use super::{
     item, link_text, message,
 };
 
-impl App {
+impl<'a> crate::ctx::Ctx<'a> {
     /// The card's middle: the banner and avatar, then each text, then the
     /// bar asking to save.
-    pub(super) fn editor_middle<'a>(
-        &'a self,
+    pub(super) fn editor_middle(
+        self,
         editor: &'a Editor,
         core: &'a ProfileEditor,
         inks: &crate::profile::look::Inks,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.look.theme;
         let main = core.main();
         let ready = !core.loading() && !core.saving;
         let pad = if main { 32.0 } else { 24.0 };
@@ -133,8 +133,8 @@ impl App {
 
     /// The banner with the avatar hanging over its lower edge, the status's
     /// thought beside it, and on a server's what it edits and its close.
-    pub(super) fn editor_top<'a>(
-        &'a self,
+    pub(super) fn editor_top(
+        self,
         editor: &'a Editor,
         core: &'a ProfileEditor,
         inks: &crate::profile::look::Inks,
@@ -155,7 +155,7 @@ impl App {
         let ground = self.banner_ground(shown).map(hex).unwrap_or(if main {
             Color::TRANSPARENT
         } else {
-            self.theme.raised
+            self.look.theme.raised
         });
         let top_corners = [12.0, 12.0, 0.0, 0.0];
         let mut banner = stack![
@@ -257,7 +257,7 @@ impl App {
                 16.0,
                 16.0,
             ));
-            let close = button(self.glyph(Icon::X, 18, Color::WHITE).boxed(36))
+            let close = button(self.look.glyph(Icon::X, 18, Color::WHITE).boxed(36))
                 .padding(0)
                 .width(36)
                 .height(36)
@@ -285,8 +285,8 @@ impl App {
 
     /// The avatar on its ring, the pencil (or a lock) over it while pointed
     /// at, and its menu.
-    pub(super) fn editor_avatar<'a>(
-        &'a self,
+    pub(super) fn editor_avatar(
+        self,
         editor: &'a Editor,
         core: &'a ProfileEditor,
         inks: &crate::profile::look::Inks,
@@ -343,8 +343,8 @@ impl App {
 
     /// The custom status as a thought beside the avatar, or the offer to set
     /// one; a click opens its dialog.
-    pub(super) fn status_thought<'a>(
-        &'a self,
+    pub(super) fn status_thought(
+        self,
         inks: &crate::profile::look::Inks,
         x: f32,
         y: f32,
@@ -385,14 +385,14 @@ impl App {
 
     /// The name, then the username with the pronouns and the server tag,
     /// the badges, and what's too long.
-    pub(super) fn editor_names<'a>(
-        &'a self,
+    pub(super) fn editor_names(
+        self,
         editor: &'a Editor,
         core: &'a ProfileEditor,
         inks: &crate::profile::look::Inks,
         ready: bool,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.look.theme;
         let main = core.main();
         let shown = &editor.shown;
         let profile = shown.look.profile();
@@ -416,7 +416,7 @@ impl App {
             } else {
                 self.profile_name(shown, if main { 24.0 } else { 26.0 }, inks.ink)
             };
-            let pencil = self.glyph(Icon::Pen, 15, inks.ink3);
+            let pencil = self.look.glyph(Icon::Pen, 15, inks.ink3);
             let enabled = ready && core.may_write(ProfileText::Name);
             names = names.push(hover_edit(
                 row![name, Hover::new(Space::new().width(15), pencil)]
@@ -497,11 +497,11 @@ impl App {
 
     /// What others would press on one's own profile: Message can't be sent
     /// to oneself; the shop; More with Copy User ID.
-    pub(super) fn own_actions<'a>(&'a self, editor: &'a Editor) -> Element<'a, Message> {
-        let theme = &self.theme;
+    pub(super) fn own_actions(self, editor: &'a Editor) -> Element<'a, Message> {
+        let theme = self.look.theme;
         let square = |icon: Icon, pressed: Message| {
             let (ground, lit) = (theme.raised, theme.hover);
-            button(self.glyph(icon, 18, theme.text).boxed(34))
+            button(self.look.glyph(icon, 18, theme.text).boxed(34))
                 .padding(0)
                 .width(34)
                 .height(34)
@@ -536,12 +536,12 @@ impl App {
     }
 
     /// Discord's offer, over what Nitro unlocks in a server.
-    pub(super) fn nitro_offer<'a>(&'a self, core: &'a ProfileEditor) -> Element<'a, Message> {
-        let theme = &self.theme;
+    pub(super) fn nitro_offer(self, core: &'a ProfileEditor) -> Element<'a, Message> {
+        let theme = self.look.theme;
         let sunken = theme.sunken;
         container(
             row![
-                self.glyph(Icon::Lock, 20, theme.accent),
+                self.look.glyph(Icon::Lock, 20, theme.accent),
                 column![
                     text("Make unique profiles for each server")
                         .size(14)
@@ -576,14 +576,14 @@ impl App {
 
     /// The bio, as it shows or in its field, with what's left of Discord's
     /// limit.
-    pub(super) fn editor_bio<'a>(
-        &'a self,
+    pub(super) fn editor_bio(
+        self,
         editor: &'a Editor,
         core: &'a ProfileEditor,
         inks: &crate::profile::look::Inks,
         ready: bool,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.look.theme;
         let main = core.main();
         let enabled = core.may_write(ProfileText::Bio);
         let placeholder = if main {
@@ -595,7 +595,7 @@ impl App {
             .spacing(6)
             .align_y(Alignment::Center);
         if !enabled && !core.loading() {
-            head = head.push(self.glyph(Icon::Lock, 13, inks.ink3));
+            head = head.push(self.look.glyph(Icon::Lock, 13, inks.ink3));
         }
         let left = BIO_LIMIT as i64 - core.bio.chars().count() as i64;
         let count = if left < 0 {

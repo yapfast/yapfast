@@ -17,12 +17,19 @@ use crate::{
 };
 
 impl App {
+    pub fn dismiss_notice(&mut self) -> iced::Task<Message> {
+        self.client.dispatch(Action::DismissNotice);
+        self.sync()
+    }
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
     /// The preview's note, Matrix's verification and the core's notice,
     /// as the Slint client stacks them over the conversation or the call.
-    pub fn banners(&self) -> impl Iterator<Item = Element<'_, Message>> {
+    pub fn banners(self) -> impl Iterator<Item = Element<'a, Message>> {
         [
             self.preview_banner(),
-            crate::signin::verify_banner(self.ctx()),
+            crate::signin::verify_banner(self),
             self.notice_banner(),
         ]
         .into_iter()
@@ -30,21 +37,21 @@ impl App {
     }
 
     /// The core's notice, while there's one.
-    pub fn notice_banner(&self) -> Option<Element<'_, Message>> {
-        let notice = self.client.state().notice.as_deref()?;
+    pub fn notice_banner(self) -> Option<Element<'a, Message>> {
+        let notice = self.state.notice.as_deref()?;
         Some(self.banner(notice, Message::DismissNotice))
     }
 
     /// The preview's note, which stays.
-    pub fn preview_banner(&self) -> Option<Element<'_, Message>> {
-        if !self.client.state().preview {
+    pub fn preview_banner(self) -> Option<Element<'a, Message>> {
+        if !self.state.preview {
             return None;
         }
-        let theme = &self.theme;
+        let theme = self.look.theme;
         let raised = theme.raised;
         let note = container(
             row![
-                self.glyph(Icon::TriangleAlert, 16, theme.accent),
+                self.look.glyph(Icon::TriangleAlert, 16, theme.accent),
                 text("Local preview: sample data. Nothing leaves this computer.")
                     .size(14)
                     .font(MEDIUM)
@@ -62,12 +69,12 @@ impl App {
     }
 
     /// A notice with its Dismiss button (`dismissed`).
-    pub fn banner<'a>(&'a self, words: &'a str, dismissed: Message) -> Element<'a, Message> {
-        let theme = &self.theme;
+    pub fn banner(self, words: &'a str, dismissed: Message) -> Element<'a, Message> {
+        let theme = self.look.theme;
         let raised = theme.raised;
         container(
             row![
-                self.glyph(Icon::TriangleAlert, 18, theme.accent),
+                self.look.glyph(Icon::TriangleAlert, 18, theme.accent),
                 text(words).size(15).color(theme.text).width(Length::Fill),
                 action(theme, "Dismiss", Kind::Ghost, Some(dismissed)).small(),
             ]
@@ -83,10 +90,5 @@ impl App {
         .width(Length::Fill)
         .style(move |_| fill(raised))
         .into()
-    }
-
-    pub fn dismiss_notice(&mut self) -> iced::Task<Message> {
-        self.client.dispatch(Action::DismissNotice);
-        self.sync()
     }
 }

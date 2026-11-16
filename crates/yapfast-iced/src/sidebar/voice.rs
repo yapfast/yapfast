@@ -7,7 +7,7 @@ use iced::{
 use yapfast_core::chat::VoicePerson;
 
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{self},
     elide::elide,
     fonts::{BOLD, MEDIUM},
@@ -18,16 +18,13 @@ use crate::{
 
 use super::{Event, PERSON, VOICE_CARD_PEOPLE, VOICE_CARD_WIDTH};
 
-impl App {
+impl<'a> super::View<'a> {
     /// Who is in a busy voice channel, as the Slint client's
     /// `VoiceCardView` beside its row: a line summing them up, then each
     /// person with their camera and LIVE, the first eight and how many
     /// more. This account on another client is dimmed, without its marks.
-    pub(super) fn voice_channel_card<'a>(
-        &'a self,
-        people: &'a [VoicePerson],
-    ) -> Element<'a, Message> {
-        let theme = &self.theme;
+    pub(super) fn voice_channel_card(self, people: &'a [VoicePerson]) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         let summary = yapfast_core::voice_roster::Roster::of(people).summary();
         let mut card = column![elide(summary).size(12).font(BOLD).color(theme.secondary)]
             .spacing(4)
@@ -39,7 +36,8 @@ impl App {
         for person in people.iter().take(VOICE_CARD_PEOPLE) {
             let opacity = if person.elsewhere { 0.5 } else { 1.0 };
             let mut line = row![
-                self.avatar(person.avatar.as_deref(), &person.name, 20.0, 10.0, opacity),
+                self.cx
+                    .avatar(person.avatar.as_deref(), &person.name, 20.0, 10.0, opacity),
                 elide(person.name.as_str())
                     .size(14)
                     .font(MEDIUM)
@@ -50,7 +48,7 @@ impl App {
             .align_y(Alignment::Center);
             if !person.elsewhere {
                 if person.video {
-                    line = line.push(self.glyph(Icon::Video, 16, theme.muted));
+                    line = line.push(self.cx.look.glyph(Icon::Video, 16, theme.muted));
                 }
                 if person.streaming {
                     line = line.push(controls::live_pill(theme, None));
@@ -70,15 +68,15 @@ impl App {
     /// headphone marks. In the call this account is in, `live` says who
     /// speaks, ringed and bold, and who lost their connection, faint. A
     /// right click opens their voice menu.
-    pub(super) fn voice_person<'a>(
-        &'a self,
+    pub(super) fn voice_person(
+        self,
         room: &str,
         person: &'a VoicePerson,
         live: Option<&yapfast_core::voice::Participant>,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let id = format!("person:{room}:{}", person.id);
-        let pointed = self.pointed.side.as_deref() == Some(id.as_str());
+        let pointed = self.cx.pointed.side.as_deref() == Some(id.as_str());
         let opacity = if person.elsewhere && !pointed {
             0.5
         } else {
@@ -92,7 +90,9 @@ impl App {
         } else {
             theme.secondary
         };
-        let avatar = self.avatar(person.avatar.as_deref(), &person.name, 22.0, 11.0, opacity);
+        let avatar = self
+            .cx
+            .avatar(person.avatar.as_deref(), &person.name, 22.0, 11.0, opacity);
         // The ring of someone speaking, round the avatar, outside it.
         let avatar: Element<'a, Message> =
             if speaking {
@@ -131,7 +131,7 @@ impl App {
         .align_y(Alignment::Center);
         if !person.elsewhere {
             if person.video {
-                face = face.push(self.glyph(Icon::Video, 16, theme.muted));
+                face = face.push(self.cx.look.glyph(Icon::Video, 16, theme.muted));
             }
             if person.streaming {
                 let local = live.is_some_and(|live| live.local);
@@ -149,7 +149,7 @@ impl App {
                 } else {
                     theme.muted
                 };
-                face = face.push(self.glyph(Icon::MicOff, 16, ink));
+                face = face.push(self.cx.look.glyph(Icon::MicOff, 16, ink));
             }
             if person.deafened {
                 let ink = if person.server_deafened {
@@ -157,7 +157,7 @@ impl App {
                 } else {
                     theme.muted
                 };
-                face = face.push(self.glyph(Icon::HeadphoneOff, 16, ink));
+                face = face.push(self.cx.look.glyph(Icon::HeadphoneOff, 16, ink));
             }
         }
         let ground = if pointed {
@@ -180,7 +180,7 @@ impl App {
         .on_enter(Message::Side(Event::Point(id.clone(), true)))
         .on_exit(Message::Side(Event::Point(id, false)));
         let (room, user) = (room.to_owned(), person.id.clone());
-        let spot = &self.pressed;
+        let spot = self.cx.pressed;
         let menu = {
             let (room, user) = (room.clone(), user.clone());
             RightPress::new(area, move |_| {

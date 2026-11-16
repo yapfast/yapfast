@@ -217,7 +217,7 @@ impl App {
     /// its name and Exit full screen over it, the video fitted between,
     /// its controls under it.
     pub fn clip_viewer(&self) -> Option<Element<'_, Message>> {
-        if !self.clip_full {
+        if !self.playback.clip_full {
             return None;
         }
         let video = self.client.state().video.as_ref()?;
@@ -268,7 +268,7 @@ impl App {
         let close: Element<'_, Message> = self
             .look()
             .face_button(
-                self.glyph(Icon::X, 20, Color::WHITE),
+                self.look().glyph(Icon::X, 20, Color::WHITE),
                 32.0,
                 "Exit full screen",
                 Message::Clip(crate::playback::Clip::Full(false)),
@@ -284,7 +284,7 @@ impl App {
                 Message::Clip(crate::playback::Clip::Full(false)),
             )
             .title(name, vec![close])
-            .foot(column![self.clip_controls(video, width, true)].padding(Padding::ZERO))
+            .foot(column![self.ctx().clip_controls(video, width, true)].padding(Padding::ZERO))
             .view(self.look()),
         )
     }

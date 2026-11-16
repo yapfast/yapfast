@@ -10,7 +10,7 @@ use yapfast_core::voice::{self};
 
 use crate::call::Event;
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{self},
     fonts::BOLD,
     pictures::Icon,
@@ -25,32 +25,6 @@ pub(super) const SOUNDBOARD_TALLEST: f32 = 440.0;
 pub(super) const SOUND_ROW: f32 = 42.0;
 
 pub(super) const SOUND: f32 = 36.0;
-
-impl App {
-    /// Discord's soundboard in the call: the favourites, the call's
-    /// server's sounds, others', Discord's own, three to a row. A click
-    /// plays one for everyone; the pointer on one offers hearing it first
-    /// and starring it. While deafened or server muted, why none plays.
-    pub(super) fn soundboard(&self) -> Element<'_, Message> {
-        let voice = &self.client.state().voice;
-        let server_muted = voice
-            .participants
-            .iter()
-            .any(|person| person.local && person.server_muted);
-        let note = if voice.deafened {
-            Some("Soundboard disabled when deafened")
-        } else if server_muted {
-            Some("Soundboard disabled when server muted")
-        } else {
-            None
-        };
-        let groups = voice.soundboard.as_deref().unwrap_or(&[]);
-        self.ctx()
-            .sound_board("Soundboard", groups, note, true, |sound| {
-                Message::Call(Event::Play(sound.id.clone()))
-            })
-    }
-}
 
 impl<'a> crate::ctx::Ctx<'a> {
     /// A board of sounds, as the Slint client's `Soundboard`: `title`, a
@@ -259,5 +233,30 @@ impl<'a> crate::ctx::Ctx<'a> {
             .into(),
         );
         mouse_area(Hover::new(base, over)).into()
+    }
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
+    /// Discord's soundboard in the call: the favourites, the call's
+    /// server's sounds, others', Discord's own, three to a row. A click
+    /// plays one for everyone; the pointer on one offers hearing it first
+    /// and starring it. While deafened or server muted, why none plays.
+    pub(super) fn soundboard(self) -> Element<'a, Message> {
+        let voice = &self.state.voice;
+        let server_muted = voice
+            .participants
+            .iter()
+            .any(|person| person.local && person.server_muted);
+        let note = if voice.deafened {
+            Some("Soundboard disabled when deafened")
+        } else if server_muted {
+            Some("Soundboard disabled when server muted")
+        } else {
+            None
+        };
+        let groups = voice.soundboard.as_deref().unwrap_or(&[]);
+        self.sound_board("Soundboard", groups, note, true, |sound| {
+            Message::Call(Event::Play(sound.id.clone()))
+        })
     }
 }

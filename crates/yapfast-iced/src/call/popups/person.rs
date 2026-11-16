@@ -34,7 +34,12 @@ impl App {
     /// kept.
     pub(in crate::call) fn person_volume(&mut self, stream: bool, value: u32, done: bool) {
         use yapfast_core::volume::{self, Kind};
-        let Some(volumes) = self.menu.as_mut().and_then(|menu| menu.volumes.as_mut()) else {
+        let Some(volumes) = self
+            .win
+            .menu
+            .as_mut()
+            .and_then(|menu| menu.volumes.as_mut())
+        else {
             return;
         };
         if stream {
@@ -152,7 +157,7 @@ impl App {
         if rows.is_empty() && volumes.is_none() {
             return Task::none();
         }
-        self.menu = Some(Menu {
+        self.win.menu = Some(Menu {
             place: Some(person.clone()),
             voice: Some((room, person)),
             volumes,

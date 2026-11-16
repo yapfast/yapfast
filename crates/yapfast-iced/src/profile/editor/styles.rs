@@ -13,7 +13,7 @@ use yapfast_core::{
 
 use crate::profile::Mode;
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{self, lights},
     fonts::{BOLD, SEMIBOLD},
     pictures::Icon,
@@ -23,15 +23,15 @@ use crate::{
 
 use super::{Editor, Event, Pop, SHOP, SIDE, TILE, message};
 
-impl App {
+impl<'a> crate::ctx::Ctx<'a> {
     /// What the main profile wears, down the card's left, in the order
     /// Discord's editor has it; what only Discord's shop sets opens it.
-    pub(super) fn customize<'a>(
-        &'a self,
+    pub(super) fn customize(
+        self,
         editor: &'a Editor,
         core: &'a ProfileEditor,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.look.theme;
         let shown = &editor.shown;
         let profile = shown.look.profile();
         let ready = !core.loading() && !core.saving && core.reading.is_none();
@@ -39,7 +39,7 @@ impl App {
         let banner_enabled = ready && core.may_picture(ProfilePicture::Banner);
         let look_enabled = core.may_write(ProfileText::ThemeTop);
         let shop = || Some(Message::Link(SHOP.into(), Point::ORIGIN));
-        let plus = || Element::from(self.glyph(Icon::Plus, 26, Color::WHITE));
+        let plus = || Element::from(self.look.glyph(Icon::Plus, 26, Color::WHITE));
         let group = |title: &'a str, body: Element<'a, Message>| {
             column![text(title).size(13).font(SEMIBOLD).color(theme.text), body].spacing(8)
         };
@@ -79,7 +79,7 @@ impl App {
                         let hover = theme.hover;
                         move |_| rounded(hover, 6)
                     }),
-                self.glyph(Icon::Plus, 22, Color::WHITE),
+                self.look.glyph(Icon::Plus, 22, Color::WHITE),
             ]
             .spacing(8)
             .padding([0, 8])
@@ -169,7 +169,7 @@ impl App {
                 .font(SEMIBOLD)
                 .color(theme.text)
                 .width(Length::Fill),
-            self.look()
+            self.look
                 .icon_button(
                     Icon::ChevronsRight,
                     "Hide Styles",
@@ -219,14 +219,14 @@ impl App {
 
     /// A tile of the styles column: raised, lit under the pointer while it
     /// does something, filled with a colour or a gradient's two.
-    pub(super) fn cell<'a>(
-        &self,
+    pub(super) fn cell(
+        self,
         content: Element<'a, Message>,
         height: f32,
         fill: Option<(Color, Color)>,
         pressed: Option<Message>,
     ) -> Element<'a, Message> {
-        let (raised, hover) = (self.theme.raised, self.theme.hover);
+        let (raised, hover) = (self.look.theme.raised, self.look.theme.hover);
         let enabled = pressed.is_some();
         button(container(content).center(Length::Fill).clip(true))
             .padding(0)
@@ -255,9 +255,9 @@ impl App {
     }
 
     /// Show Styles: a tab on the card's left edge once the column has gone.
-    pub(super) fn show_styles(&self) -> Element<'_, Message> {
-        let edge = self.theme.edge;
-        let face = button(self.glyph(Icon::Brush, 18, Color::WHITE).boxed(36))
+    pub(super) fn show_styles(self) -> Element<'a, Message> {
+        let edge = self.look.theme.edge;
+        let face = button(self.look.glyph(Icon::Brush, 18, Color::WHITE).boxed(36))
             .padding(Padding {
                 left: 7.0,
                 ..Padding::ZERO
@@ -272,7 +272,7 @@ impl App {
             });
         iced::widget::tooltip(
             face,
-            controls::tip(&self.theme, "Show Styles"),
+            controls::tip(self.look.theme, "Show Styles"),
             iced::widget::tooltip::Position::Top,
         )
         .gap(6)

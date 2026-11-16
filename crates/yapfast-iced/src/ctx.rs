@@ -49,6 +49,67 @@ pub struct Ctx<'a> {
     /// Linking Discord's form, which the sign-in screen and Settings'
     /// Discord page show.
     pub sign_in: &'a crate::signin::SignIn,
+    /// The channel's timeline and the thread's: their rows' looks and the
+    /// selection, which message text draws itself with.
+    pub lanes: crate::timeline::Lanes<'a>,
+    /// Where a link in message text was last pressed, for what opens under
+    /// it.
+    pub link_spot: &'a std::cell::Cell<iced::Rectangle>,
+    /// The profiles shown (the card, the full profile, the DM's panel, the
+    /// editor), which several areas draw.
+    pub profiles: &'a crate::profile::Profiles,
+    /// The minute now, as clocks that show minutes read it.
+    pub minute: u64,
+    /// What the pointer is on: a member, a message, a row.
+    pub pointed: &'a crate::app::Pointed,
+    /// Where the pointer was last pressed, for what opens there, and the
+    /// menu open, if any, which its button shows lit.
+    pub pressed: &'a std::cell::Cell<iced::Point>,
+    pub menu: Option<&'a crate::menus::Menu>,
+    /// The expression picker, while it's open.
+    pub picker: Option<&'a crate::picker::Picker>,
+    /// How far the content starts below the window's top: the title bar
+    /// Yapfast draws, when it does.
+    pub above: f32,
+    /// The composer and the edit in its row, and what the timeline's voice
+    /// messages and videos show of their playing.
+    pub composer: &'a crate::composer::Composer,
+    pub playback: &'a crate::playback::Playback,
+    /// The keys held, which a message's hover bar swaps its actions by.
+    pub modifiers: iced::keyboard::Modifiers,
+    /// The open room is in a server, and what the conversation's header
+    /// shows of it.
+    pub in_server: bool,
+    pub header: &'a crate::header::Header,
+    /// The thread's and the forum's drafts, the files waiting, the search,
+    /// and the call.
+    pub drafts: &'a crate::thread::Drafts,
+    pub forum_post: &'a crate::forum::Post,
+    pub uploads: &'a crate::uploads::Uploads,
+    pub searching: &'a crate::search::Searching,
+    pub call: &'a crate::call::Call,
+    /// Where the header's button was last pressed.
+    pub header_spot: &'a std::cell::Cell<iced::Rectangle>,
+    /// The friends list and Active Now's cards, the account's card's
+    /// pointer, and Browse Channels' search.
+    pub friends: &'a crate::friends::Friends,
+    pub active_now: &'a [crate::active_now::Card],
+    pub account_pointed: bool,
+    pub browse_filter: &'a str,
+    /// The thread's width beside the conversation, as dragged and kept.
+    pub aside_width: f32,
+    /// What shows beside and over the conversation, as the root decides.
+    pub open: Open,
+}
+
+/// What shows beside and over the conversation, which the root works out
+/// from what's open, so a view doesn't read other screens' state.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Open {
+    /// The member list, and the thread or the New Thread form beside the
+    /// conversation.
+    pub members: bool,
+    pub aside: bool,
 }
 
 /// What a screen asks of the root, after its update: the whole list of

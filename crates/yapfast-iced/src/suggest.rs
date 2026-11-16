@@ -154,48 +154,21 @@ enum Shown<'a> {
 }
 
 impl App {
-    /// Whether suggestions over `which` take its arrow keys.
-    pub fn suggesting(&self, which: Writing) -> bool {
-        self.suggest.field == which
-            && match self.shown_suggestions() {
-                Some(Shown::Commands(rows, _)) => !rows.is_empty(),
-                shown => shown.is_some(),
-            }
-    }
-
     /// How many suggestions show, for the arrows to go round.
     pub fn suggestion_count(&self) -> usize {
-        match self.shown_suggestions() {
+        match self.ctx().shown_suggestions() {
             Some(Shown::Commands(rows, _)) => rows.len(),
             Some(Shown::Mentions(found)) => found.len(),
-            Some(Shown::Emoji) => self.suggest.emoji.len(),
+            Some(Shown::Emoji) => self.composer.suggest.emoji.len(),
             None => 0,
         }
-    }
-
-    fn shown_suggestions(&self) -> Option<Shown<'_>> {
-        let suggest = &self.suggest;
-        // The `/` list over the composer comes first, and with a command
-        // being written, it's the only one.
-        if suggest.field == Writing::Draft {
-            if let Some((rows, heading)) = self.command_list() {
-                return Some(Shown::Commands(rows, heading));
-            }
-            if self.client.state().command_draft().is_some() {
-                return None;
-            }
-        }
-        if suggest.mention_at.is_some() && !suggest.mentions.is_empty() {
-            return Some(Shown::Mentions(&suggest.mentions));
-        }
-        (suggest.emoji_word.is_some() && !suggest.emoji.is_empty()).then_some(Shown::Emoji)
     }
 
     /// The caret moved in `which`: the `@`, `#` or `:name` word at it, as
     /// the Slint client's `composer_caret` finds them, unless Escape closed
     /// its suggestions.
     pub fn caret_moved(&mut self, which: Writing, text: &str, caret: usize) {
-        let suggest = &mut self.suggest;
+        let suggest = &mut self.composer.suggest;
         if suggest.field != which {
             suggest.field = which;
             suggest.mention_dismissed = None;
@@ -241,7 +214,7 @@ impl App {
         suggest.mention_at = found.map(|(at, ..)| at);
         let query = found.map(|(_, sigil, query)| (sigil, query.to_owned()));
         if self.client.state().mention_query != query {
-            self.suggest.index = 0;
+            self.composer.suggest.index = 0;
             self.client.dispatch(Action::MentionQuery(query));
         }
         self.mentions_sync();
@@ -251,13 +224,14 @@ impl App {
     /// changed; on each sync and as the caret moves.
     pub fn mentions_sync(&mut self) {
         let state = self.client.state();
-        if self.suggest.mention_at.is_none() || state.mention_query.is_none() {
-            self.suggest.mentions.clear();
-            self.suggest.mentions_for = None;
+        if self.composer.suggest.mention_at.is_none() || state.mention_query.is_none() {
+            self.composer.suggest.mentions.clear();
+            self.composer.suggest.mentions_for = None;
             return;
         }
         let from = MentionsFrom::of(state);
         if self
+            .composer
             .suggest
             .mentions_for
             .as_ref()
@@ -265,25 +239,26 @@ impl App {
         {
             return;
         }
-        self.suggest.mentions = state.mention_suggestions();
-        self.suggest.mentions_for = Some(from);
+        self.composer.suggest.mentions = state.mention_suggestions();
+        self.composer.suggest.mentions_for = Some(from);
     }
 
     /// Escape with suggestions open closes them until their word is left;
     /// whether it did.
     pub fn dismiss_suggestions(&mut self) -> bool {
-        match self.shown_suggestions() {
+        match self.ctx().shown_suggestions() {
             Some(Shown::Commands(..)) => self.close_command(false),
             Some(Shown::Mentions(_)) => {
-                self.suggest.mention_dismissed = self.suggest.mention_at.take();
+                self.composer.suggest.mention_dismissed = self.composer.suggest.mention_at.take();
                 self.client.dispatch(Action::MentionQuery(None));
                 self.mentions_sync();
                 true
             }
             Some(Shown::Emoji) => {
-                self.suggest.emoji_dismissed = self.suggest.emoji_word.take().map(|(at, _)| at);
-                self.suggest.emoji.clear();
-                self.suggest.emoji_pictures.clear();
+                self.composer.suggest.emoji_dismissed =
+                    self.composer.suggest.emoji_word.take().map(|(at, _)| at);
+                self.composer.suggest.emoji.clear();
+                self.composer.suggest.emoji_pictures.clear();
                 true
             }
             None => false,
@@ -294,41 +269,44 @@ impl App {
     /// after it, as the Slint client's `mention-chosen` and
     /// `emoji-suggestion-chosen` write them.
     pub fn choose_suggestion(&mut self, which: Writing) -> Task<Message> {
-        let text = self.writing(which).text();
-        let (at, end, inserted) = match self.shown_suggestions() {
+        let text = self.ctx().writing(which).text();
+        let (at, end, inserted) = match self.ctx().shown_suggestions() {
             Some(Shown::Commands(rows, _)) => {
                 if rows.is_empty() {
                     return Task::none();
                 }
-                let lit = self.suggest.lit(rows.len());
-                self.suggest.set_index(0);
+                let lit = self.composer.suggest.lit(rows.len());
+                self.composer.suggest.set_index(0);
                 self.client.dispatch(Action::PickCommand(lit));
                 return self.sync();
             }
             Some(Shown::Mentions(found)) => {
                 let state = self.client.state();
-                let (Some(at), Some((sigil, query))) =
-                    (self.suggest.mention_at, state.mention_query.clone())
-                else {
+                let (Some(at), Some((sigil, query))) = (
+                    self.composer.suggest.mention_at,
+                    state.mention_query.clone(),
+                ) else {
                     return Task::none();
                 };
-                let chosen = found[self.suggest.lit(found.len())].clone();
+                let chosen = found[self.composer.suggest.lit(found.len())].clone();
                 let end = at + 1 + query.len();
                 if text.get(at..end) != Some(format!("{sigil}{query}").as_str()) {
                     return Task::none();
                 }
-                self.suggest.mention_at = None;
+                self.composer.suggest.mention_at = None;
                 self.client.dispatch(Action::MentionQuery(None));
                 self.mentions_sync();
                 (at, end, format!("{}{} ", chosen.sigil(), chosen.name))
             }
             Some(Shown::Emoji) => {
-                let Some((at, name)) = self.suggest.emoji_word.take() else {
+                let Some((at, name)) = self.composer.suggest.emoji_word.take() else {
                     return Task::none();
                 };
-                let chosen = self.suggest.emoji[self.suggest.lit(self.suggest.emoji.len())].clone();
-                self.suggest.emoji.clear();
-                self.suggest.emoji_pictures.clear();
+                let chosen = self.composer.suggest.emoji
+                    [self.composer.suggest.lit(self.composer.suggest.emoji.len())]
+                .clone();
+                self.composer.suggest.emoji.clear();
+                self.composer.suggest.emoji_pictures.clear();
                 let end = at + 1 + name.len();
                 if text.get(at..end) != Some(format!(":{name}").as_str()) {
                     return Task::none();
@@ -342,176 +320,10 @@ impl App {
         Task::none()
     }
 
-    /// The suggestions over `which`, as wide as it, in the Slint client's
-    /// `SuggestionFrame`; none while they're for the other field.
-    pub fn suggestions_view(&self, which: Writing) -> Option<Element<'_, Message>> {
-        if self.suggest.field != which {
-            return None;
-        }
-        let theme = &self.theme;
-        let mut list = column![].padding(6);
-        match self.shown_suggestions()? {
-            Shown::Commands(rows, heading) => {
-                list = self.command_list_view(&rows, heading, self.suggest.lit(rows.len()));
-            }
-            Shown::Mentions(found) => {
-                let lit = self.suggest.lit(found.len());
-                for (index, candidate) in found.iter().enumerate() {
-                    if index == 0 || found[index - 1].group != candidate.group {
-                        list = list.push(heading(
-                            theme,
-                            match (candidate.group, candidate.channel) {
-                                (false, _) => "MEMBERS".to_owned(),
-                                (true, false) => "ROLES".to_owned(),
-                                (true, true) => "CHANNELS".to_owned(),
-                            },
-                        ));
-                    }
-                    list = list.push(self.mention_row(index, candidate, index == lit));
-                }
-            }
-            Shown::Emoji => {
-                let query = self
-                    .suggest
-                    .emoji_word
-                    .as_ref()
-                    .map(|(_, name)| name.as_str())
-                    .unwrap_or_default();
-                list = list.push(heading(theme, format!("EMOJI MATCHING :{query}")));
-                let lit = self.suggest.lit(self.suggest.emoji.len());
-                let pictures = &self.suggest.emoji_pictures;
-                for (index, found) in self.suggest.emoji.iter().enumerate() {
-                    let face = match pictures.get(index).and_then(Option::as_deref) {
-                        Some(url) => self.picture_face(url, EMOJI),
-                        None => self.emoji_face(&found.key, EMOJI),
-                    };
-                    let face = container(face).width(24).center_x(24);
-                    list = list.push(self.suggestion_row(
-                        index,
-                        row![
-                            face,
-                            text(found.name.clone())
-                                .size(14)
-                                .font(SEMIBOLD)
-                                .color(theme.text)
-                                .wrapping(text::Wrapping::None),
-                        ],
-                        index == lit,
-                    ));
-                }
-            }
-        }
-        let (ground, edge) = (theme.raised, theme.edge);
-        Some(
-            container(list)
-                .width(Length::Fill)
-                .style(move |_| crate::style::panel(ground, edge, 8.0))
-                .into(),
-        )
-    }
-
-    fn mention_row<'a>(
-        &'a self,
-        index: usize,
-        candidate: &mention::Candidate,
-        lit: bool,
-    ) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let color = candidate.color.map(hex);
-        let mark: Element<'_, Message> = if candidate.group {
-            let ink = color.unwrap_or(theme.secondary);
-            let ground = faded(color.unwrap_or(theme.muted), 0.2);
-            let face: Element<'_, Message> = if candidate.voice {
-                self.glyph(Icon::Volume, 14, theme.secondary).into()
-            } else {
-                text(candidate.sigil().to_string())
-                    .size(13)
-                    .font(BOLD)
-                    .color(ink)
-                    .into()
-            };
-            container(face)
-                .center(24)
-                .style(move |_| crate::style::rounded(ground, 12))
-                .into()
-        } else {
-            self.avatar(
-                candidate.avatar.as_deref(),
-                &candidate.name,
-                24.0,
-                12.0,
-                1.0,
-            )
-        };
-        let detail = match candidate.mention.as_str() {
-            "@everyone" => "Everyone in this channel".to_owned(),
-            "@here" => "Everyone online here".to_owned(),
-            _ => candidate.username.clone().unwrap_or_default(),
-        };
-        self.suggestion_row(
-            index,
-            row![
-                mark,
-                text(candidate.name.clone())
-                    .size(14)
-                    .font(SEMIBOLD)
-                    .color(color.unwrap_or(theme.text))
-                    .wrapping(text::Wrapping::None),
-                text(detail)
-                    .size(13)
-                    .color(theme.muted)
-                    .wrapping(text::Wrapping::None),
-            ],
-            lit,
-        )
-    }
-
-    /// A row of the list: lit by the keys, or lighter under the pointer.
-    fn suggestion_row<'a>(
-        &self,
-        index: usize,
-        face: iced::widget::Row<'a, Message>,
-        lit: bool,
-    ) -> Element<'a, Message> {
-        let (active, hover) = (self.theme.active, self.theme.hover);
-        button(face.spacing(10).align_y(Alignment::Center))
-            .padding(Padding::ZERO.left(8).right(10))
-            .width(Length::Fill)
-            .height(ROW)
-            .clip(true)
-            .on_press(Message::Write(Event::Suggestion(index)))
-            .style(lit_style(
-                lit.then_some(active),
-                if lit { active } else { hover },
-                6.0,
-            ))
-            .into()
-    }
-
-    /// [`Ctx::emoji_face`](crate::ctx::Ctx::emoji_face).
-    pub fn emoji_face(&self, key: &str, size: u32) -> Element<'_, Message> {
-        self.ctx().emoji_face(key, size)
-    }
-
-    /// A picture by its address, `size` square once it has come (a quiet
-    /// square until then).
-    fn picture_face(&self, url: &str, size: u32) -> Element<'_, Message> {
-        let side = size as f32;
-        match self.picture(url, size, size, false) {
-            Some(handle) => Pic::square(handle, side).into(),
-            None => Space::new().width(side).height(side).into(),
-        }
-    }
-
-    /// [`Ctx::custom_emoji`](crate::ctx::Ctx::custom_emoji).
-    pub fn custom_emoji(&self, id: &str) -> Option<String> {
-        self.ctx().custom_emoji(id)
-    }
-
     /// The pictures the suggestions show, to ask for.
     pub fn suggestion_pictures(&self) -> Vec<String> {
         let mut urls = Vec::new();
-        match self.shown_suggestions() {
+        match self.ctx().shown_suggestions() {
             Some(Shown::Commands(..)) => urls.extend(self.command_pictures()),
             Some(Shown::Mentions(found)) => {
                 urls.extend(
@@ -520,9 +332,14 @@ impl App {
                         .filter_map(|candidate| candidate.avatar.clone()),
                 );
             }
-            Some(Shown::Emoji) => {
-                urls.extend(self.suggest.emoji_pictures.iter().flatten().cloned())
-            }
+            Some(Shown::Emoji) => urls.extend(
+                self.composer
+                    .suggest
+                    .emoji_pictures
+                    .iter()
+                    .flatten()
+                    .cloned(),
+            ),
             None => {}
         }
         urls
@@ -584,5 +401,194 @@ impl<'a> crate::ctx::Ctx<'a> {
             .into_iter()
             .next()
             .map(|emoji| emoji.picture)
+    }
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
+    /// Whether suggestions over `which` take its arrow keys.
+    pub fn suggesting(self, which: Writing) -> bool {
+        self.composer.suggest.field == which
+            && match self.shown_suggestions() {
+                Some(Shown::Commands(rows, _)) => !rows.is_empty(),
+                shown => shown.is_some(),
+            }
+    }
+
+    /// The suggestions over `which`, as wide as it, in the Slint client's
+    /// `SuggestionFrame`; none while they're for the other field.
+    pub fn suggestions_view(self, which: Writing) -> Option<Element<'a, Message>> {
+        if self.composer.suggest.field != which {
+            return None;
+        }
+        let theme = self.look.theme;
+        let mut list = column![].padding(6);
+        match self.shown_suggestions()? {
+            Shown::Commands(rows, heading) => {
+                list =
+                    self.command_list_view(&rows, heading, self.composer.suggest.lit(rows.len()));
+            }
+            Shown::Mentions(found) => {
+                let lit = self.composer.suggest.lit(found.len());
+                for (index, candidate) in found.iter().enumerate() {
+                    if index == 0 || found[index - 1].group != candidate.group {
+                        list = list.push(heading(
+                            theme,
+                            match (candidate.group, candidate.channel) {
+                                (false, _) => "MEMBERS".to_owned(),
+                                (true, false) => "ROLES".to_owned(),
+                                (true, true) => "CHANNELS".to_owned(),
+                            },
+                        ));
+                    }
+                    list = list.push(self.mention_row(index, candidate, index == lit));
+                }
+            }
+            Shown::Emoji => {
+                let query = self
+                    .composer
+                    .suggest
+                    .emoji_word
+                    .as_ref()
+                    .map(|(_, name)| name.as_str())
+                    .unwrap_or_default();
+                list = list.push(heading(theme, format!("EMOJI MATCHING :{query}")));
+                let lit = self.composer.suggest.lit(self.composer.suggest.emoji.len());
+                let pictures = &self.composer.suggest.emoji_pictures;
+                for (index, found) in self.composer.suggest.emoji.iter().enumerate() {
+                    let face = match pictures.get(index).and_then(Option::as_deref) {
+                        Some(url) => self.picture_face(url, EMOJI),
+                        None => self.emoji_face(&found.key, EMOJI),
+                    };
+                    let face = container(face).width(24).center_x(24);
+                    list = list.push(self.suggestion_row(
+                        index,
+                        row![
+                            face,
+                            text(found.name.clone())
+                                .size(14)
+                                .font(SEMIBOLD)
+                                .color(theme.text)
+                                .wrapping(text::Wrapping::None),
+                        ],
+                        index == lit,
+                    ));
+                }
+            }
+        }
+        let (ground, edge) = (theme.raised, theme.edge);
+        Some(
+            container(list)
+                .width(Length::Fill)
+                .style(move |_| crate::style::panel(ground, edge, 8.0))
+                .into(),
+        )
+    }
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
+    fn shown_suggestions(self) -> Option<Shown<'a>> {
+        let suggest = &self.composer.suggest;
+        // The `/` list over the composer comes first, and with a command
+        // being written, it's the only one.
+        if suggest.field == Writing::Draft {
+            if let Some((rows, heading)) = self.command_list() {
+                return Some(Shown::Commands(rows, heading));
+            }
+            if self.state.command_draft().is_some() {
+                return None;
+            }
+        }
+        if suggest.mention_at.is_some() && !suggest.mentions.is_empty() {
+            return Some(Shown::Mentions(&suggest.mentions));
+        }
+        (suggest.emoji_word.is_some() && !suggest.emoji.is_empty()).then_some(Shown::Emoji)
+    }
+
+    fn mention_row(
+        self,
+        index: usize,
+        candidate: &mention::Candidate,
+        lit: bool,
+    ) -> Element<'a, Message> {
+        let theme = self.look.theme;
+        let color = candidate.color.map(hex);
+        let mark: Element<'a, Message> = if candidate.group {
+            let ink = color.unwrap_or(theme.secondary);
+            let ground = faded(color.unwrap_or(theme.muted), 0.2);
+            let face: Element<'a, Message> = if candidate.voice {
+                self.look.glyph(Icon::Volume, 14, theme.secondary).into()
+            } else {
+                text(candidate.sigil().to_string())
+                    .size(13)
+                    .font(BOLD)
+                    .color(ink)
+                    .into()
+            };
+            container(face)
+                .center(24)
+                .style(move |_| crate::style::rounded(ground, 12))
+                .into()
+        } else {
+            self.avatar(
+                candidate.avatar.as_deref(),
+                &candidate.name,
+                24.0,
+                12.0,
+                1.0,
+            )
+        };
+        let detail = match candidate.mention.as_str() {
+            "@everyone" => "Everyone in this channel".to_owned(),
+            "@here" => "Everyone online here".to_owned(),
+            _ => candidate.username.clone().unwrap_or_default(),
+        };
+        self.suggestion_row(
+            index,
+            row![
+                mark,
+                text(candidate.name.clone())
+                    .size(14)
+                    .font(SEMIBOLD)
+                    .color(color.unwrap_or(theme.text))
+                    .wrapping(text::Wrapping::None),
+                text(detail)
+                    .size(13)
+                    .color(theme.muted)
+                    .wrapping(text::Wrapping::None),
+            ],
+            lit,
+        )
+    }
+
+    /// A row of the list: lit by the keys, or lighter under the pointer.
+    fn suggestion_row(
+        self,
+        index: usize,
+        face: iced::widget::Row<'a, Message>,
+        lit: bool,
+    ) -> Element<'a, Message> {
+        let (active, hover) = (self.look.theme.active, self.look.theme.hover);
+        button(face.spacing(10).align_y(Alignment::Center))
+            .padding(Padding::ZERO.left(8).right(10))
+            .width(Length::Fill)
+            .height(ROW)
+            .clip(true)
+            .on_press(Message::Write(Event::Suggestion(index)))
+            .style(lit_style(
+                lit.then_some(active),
+                if lit { active } else { hover },
+                6.0,
+            ))
+            .into()
+    }
+
+    /// A picture by its address, `size` square once it has come (a quiet
+    /// square until then).
+    fn picture_face(self, url: &str, size: u32) -> Element<'a, Message> {
+        let side = size as f32;
+        match self.picture(url, size, size, false) {
+            Some(handle) => Pic::square(handle, side).into(),
+            None => Space::new().width(side).height(side).into(),
+        }
     }
 }

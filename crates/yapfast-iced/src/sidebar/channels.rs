@@ -7,7 +7,7 @@ use iced::{
 };
 
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::{self, ROW_COUNT, bar, count_pill},
     elide::elide,
     fonts::{BOLD, MEDIUM, SEMIBOLD},
@@ -18,13 +18,9 @@ use crate::{
 
 use super::{CHAT_BUTTON, Event, GAP, HEADING, INSET, ROW, Room, SideRow, VOICE_CARD_GAP};
 
-impl App {
-    pub(super) fn side_row<'a>(
-        &'a self,
-        row: &'a SideRow,
-        place: Option<usize>,
-    ) -> Element<'a, Message> {
-        let theme = &self.theme;
+impl<'a> super::View<'a> {
+    pub(super) fn side_row(self, row: &'a SideRow, place: Option<usize>) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         let inner: Element<'a, Message> = match row {
             SideRow::Screens {
                 friends,
@@ -57,7 +53,8 @@ impl App {
                     .font(SEMIBOLD)
                     .color(theme.muted)
                     .width(Length::Fill),
-                self.look()
+                self.cx
+                    .look
                     .icon_button(
                         Icon::UserPlus,
                         "Add a friend",
@@ -65,7 +62,8 @@ impl App {
                     )
                     .size(24.0, 16)
                     .below(),
-                self.look()
+                self.cx
+                    .look
                     .icon_button(
                         Icon::SquarePen,
                         "New message",
@@ -129,7 +127,7 @@ impl App {
             .width(Length::Fill);
         // A row that may be dragged: where it would land marked by a line
         // across its top (dragged up) or its foot (dragged down).
-        let inset: Element<'a, Message> = match self.drop_line(place) {
+        let inset: Element<'a, Message> = match self.s.drop_line(place) {
             Some(below) => {
                 // From 8 px into the row to its end, as Slint's.
                 let line = container(self.drop_line_view()).padding(Padding {
@@ -149,7 +147,7 @@ impl App {
         // Where someone dragged from a voice channel would drop: outlined
         // in the drop line's green.
         let inset: Element<'a, Message> = match row {
-            SideRow::Room(room) if self.move_aimed(&room.id) => {
+            SideRow::Room(room) if self.s.move_aimed(&room.id) => {
                 let live = theme.live;
                 let outline = container(Space::new())
                     .width(Length::Fill)
@@ -181,7 +179,7 @@ impl App {
             SideRow::Room(room) if room.voice => Some(room.id.as_str()),
             _ => None,
         };
-        let moving = self.moving_person.is_some();
+        let moving = self.s.moving_person.is_some();
         let over = move |place: Option<usize>, over: bool| match (onto, place) {
             (Some(room), _) if moving => {
                 Message::Arrange(crate::arrange::Event::Onto(room.to_owned(), over))
@@ -209,7 +207,7 @@ impl App {
                     .click(click)
                     .head(head)
                     .drag(move |grab| Message::Arrange(crate::arrange::Event::Start(place, grab)))
-                    .tracking(self.dragging(), move |on| over(Some(place), on))
+                    .tracking(self.s.dragging(), move |on| over(Some(place), on))
                     .into()
             }
             None if onto.is_some() => Drags::new(inset)
@@ -240,30 +238,30 @@ impl App {
     /// above its name, the chevron after it turned while folded; a click
     /// folds it or opens it, and a Discord category's opens its menu on a
     /// right click.
-    pub(super) fn heading<'a>(
-        &'a self,
+    pub(super) fn heading(
+        self,
         name: &'a str,
         fold: &'a str,
         collapsed: bool,
         place: Option<usize>,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.cx.look.theme;
         let id = format!("heading:{fold}");
-        let pointed = self.pointed.side.as_deref() == Some(id.as_str());
+        let pointed = self.cx.pointed.side.as_deref() == Some(id.as_str());
         let ink = if pointed {
             theme.secondary
         } else {
             theme.muted
         };
         // While a drag is on, as a text channel's row.
-        let ink = if self.arrange_dimmed(None, false) {
+        let ink = if self.s.arrange_dimmed(None, false) {
             faded(ink, crate::arrange::DIM)
         } else {
             ink
         };
         let face = row![
             elide(name).size(14).font(SEMIBOLD).color(ink),
-            self.glyph(
+            self.cx.look.glyph(
                 if collapsed {
                     Icon::ChevronRight
                 } else {
@@ -278,9 +276,10 @@ impl App {
         let mut face = row![face, Space::new().width(Length::Fill)].align_y(Alignment::Center);
         // Discord's "+", while the pointer is over a category this account
         // may make channels in.
-        if pointed && self.client.app.may_create_channel(fold) {
+        if pointed && self.cx.app.may_create_channel(fold) {
             face = face.push(
-                self.look()
+                self.cx
+                    .look
                     .icon_button(
                         Icon::Add,
                         "Create Channel",
@@ -310,12 +309,12 @@ impl App {
         } else {
             area
         };
-        if !self.client.state().is_category(fold) {
+        if !self.cx.state.is_category(fold) {
             return area.into();
         }
         // Where in the window it was pressed: the list's own space is under
         // the header, and scrolled.
-        let (room, spot) = (fold.to_owned(), &self.pressed);
+        let (room, spot) = (fold.to_owned(), self.cx.pressed);
         RightPress::new(area, move |_| {
             Message::Side(Event::Menu(room.clone(), spot.get()))
         })
@@ -323,8 +322,8 @@ impl App {
     }
 
     /// A row that opens one of the DM home's screens or Browse Channels.
-    pub(super) fn link_row<'a>(
-        &'a self,
+    pub(super) fn link_row(
+        self,
         id: &'static str,
         icon: Icon,
         label: &'static str,
@@ -332,8 +331,8 @@ impl App {
         badge: &str,
         message: Message,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let pointed = self.pointed.side.as_deref() == Some(id);
+        let theme = self.cx.look.theme;
+        let pointed = self.cx.pointed.side.as_deref() == Some(id);
         let ink = if selected {
             theme.text
         } else if pointed {
@@ -343,7 +342,7 @@ impl App {
         };
         let icon_ink = if selected { theme.text } else { theme.faint };
         let mut face = row![
-            self.glyph(icon, 20, icon_ink),
+            self.cx.look.glyph(icon, 20, icon_ink),
             text(label)
                 .size(15)
                 .font(MEDIUM)
@@ -360,8 +359,8 @@ impl App {
 
     /// A row's face: lit while selected or pointed at, a press (unless a
     /// click is the row's `Drags`) and a right click on it.
-    pub(super) fn row_face<'a>(
-        &'a self,
+    pub(super) fn row_face(
+        self,
         id: String,
         face: Element<'a, Message>,
         height: f32,
@@ -369,8 +368,8 @@ impl App {
         message: Option<Message>,
         menu: Option<String>,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
-        let pointed = self.pointed.side.as_deref() == Some(id.as_str());
+        let theme = self.cx.look.theme;
+        let pointed = self.cx.pointed.side.as_deref() == Some(id.as_str());
         let ground = if selected {
             theme.active
         } else if pointed {
@@ -395,7 +394,7 @@ impl App {
         };
         match menu {
             Some(room) => {
-                let spot = &self.pressed;
+                let spot = self.cx.pressed;
                 RightPress::new(area, move |_| {
                     Message::Side(Event::Menu(room.clone(), spot.get()))
                 })
@@ -407,11 +406,7 @@ impl App {
 
     /// A conversation's row, with its thread line, and who is in it for a
     /// busy voice channel.
-    pub(super) fn room_rows<'a>(
-        &'a self,
-        room: &'a Room,
-        place: Option<usize>,
-    ) -> Element<'a, Message> {
+    pub(super) fn room_rows(self, room: &'a Room, place: Option<usize>) -> Element<'a, Message> {
         let line = self.room_row(room, place.is_some());
         let line: Element<'a, Message> = if room.thread {
             row![self.thread_line(room.thread_continues), line].into()
@@ -428,7 +423,7 @@ impl App {
         });
         // The call this account is in shows who speaks, in the call's
         // order: this account first, as the Slint client lists it.
-        let voice = &self.client.state().voice;
+        let voice = &self.cx.state.voice;
         let call = voice.active() && voice.room.as_deref() == Some(room.id.as_str());
         let mut listed: Vec<_> = room
             .people
@@ -457,8 +452,8 @@ impl App {
 
     /// The line from a channel to its thread, 28 px wide: down from the
     /// channel and round into the thread, on down while another follows.
-    pub(super) fn thread_line(&self, continues: bool) -> Element<'_, Message> {
-        let faint = self.theme.faint;
+    pub(super) fn thread_line(self, continues: bool) -> Element<'a, Message> {
+        let faint = self.cx.look.theme.faint;
         let down = bar(faint, 1.5, if continues { ROW + GAP } else { 13.0 + GAP });
         let round = container(Space::new())
             .width(10.75)
@@ -482,15 +477,15 @@ impl App {
 
     /// A conversation's row, as the Slint client's `ChannelRow`; one that
     /// may be `dragged` is clicked through its `Drags`.
-    pub(super) fn room_row<'a>(&'a self, room: &'a Room, dragged: bool) -> Element<'a, Message> {
+    pub(super) fn room_row(self, room: &'a Room, dragged: bool) -> Element<'a, Message> {
         if room.direct {
             return self.dm_row(room);
         }
-        let theme = &self.theme;
-        let pointed = self.pointed.side.as_deref() == Some(room.id.as_str());
+        let theme = self.cx.look.theme;
+        let pointed = self.cx.pointed.side.as_deref() == Some(room.id.as_str());
         let (ink, opacity) = self.row_ink(room, pointed);
         // While a drag is on, rows it can't land among dim.
-        let (ink, opacity) = if self.arrange_dimmed(Some(&room.id), room.voice) {
+        let (ink, opacity) = if self.s.arrange_dimmed(Some(&room.id), room.voice) {
             (
                 faded(ink, crate::arrange::DIM),
                 opacity * crate::arrange::DIM,
@@ -507,12 +502,12 @@ impl App {
             } else {
                 theme.faint
             };
-            face = face.push(self.glyph(room.icon, 20, faded(icon_ink, opacity)));
+            face = face.push(self.cx.look.glyph(room.icon, 20, faded(icon_ink, opacity)));
         }
         let name = elide(room.name.as_str()).size(15).font(MEDIUM).color(ink);
         face = face.push(column![name].width(Length::Fill));
         if let Some(started) = room.started {
-            let lasted = yapfast_core::clock::lasted(started, self.minute);
+            let lasted = yapfast_core::clock::lasted(started, self.cx.minute);
             face = face.push(text(lasted).size(12).color(theme.muted));
         }
         if !room.badge.is_empty() {
@@ -522,7 +517,8 @@ impl App {
         // shown under the pointer or while it's selected, as in Discord.
         if room.chat && (pointed || room.selected) {
             face = face.push(
-                self.look()
+                self.cx
+                    .look
                     .icon_button(
                         Icon::Forum,
                         "Open chat",
@@ -545,7 +541,7 @@ impl App {
             Some(room.id.clone()),
         );
         // A busy voice channel's card beside it, under the pointer.
-        if pointed && room.voice && !room.people.is_empty() && !self.voice_card_off {
+        if pointed && room.voice && !room.people.is_empty() && !self.s.voice_card_off {
             return iced::widget::tooltip(
                 row,
                 self.voice_channel_card(&room.people),
@@ -560,8 +556,8 @@ impl App {
 
     /// A row's ink, and its opacity: a muted one is faint until it's
     /// selected or pointed at.
-    pub(super) fn row_ink(&self, room: &Room, pointed: bool) -> (Color, f32) {
-        let theme = &self.theme;
+    pub(super) fn row_ink(self, room: &Room, pointed: bool) -> (Color, f32) {
+        let theme = self.cx.look.theme;
         let ink = if room.locked {
             if room.selected {
                 theme.muted

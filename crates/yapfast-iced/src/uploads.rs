@@ -100,6 +100,18 @@ impl std::fmt::Debug for Following {
 const FOLLOW: std::time::Duration = std::time::Duration::from_millis(40);
 
 /// What files over the window would do, and why a drop didn't.
+/// Files waiting to go and dragged over the window.
+#[derive(Default)]
+pub struct Uploads {
+    /// Previews of the staged pictures, by path (none while being made),
+    /// and files dragged over the window.
+    pub thumbnails: std::collections::HashMap<PathBuf, Option<Arc<Picture>>>,
+    /// The staged lists the previews were last made for, by place and
+    /// length: the channel's and the thread's.
+    pub staged_seen: [usize; 4],
+    pub drop: Drop,
+}
+
 #[derive(Default)]
 pub struct Drop {
     pub dragging: bool,
@@ -137,10 +149,16 @@ impl App {
     /// The drop's mark follows the pointer: over the thread beside, or
     /// the channel.
     fn follow_drop(&mut self) {
-        if let Some((x, y)) = self.drop.pointer.as_ref().and_then(|pointer| pointer.at()) {
+        if let Some((x, y)) = self
+            .uploads
+            .drop
+            .pointer
+            .as_ref()
+            .and_then(|pointer| pointer.at())
+        {
             let zoom = f64::from(self.shell.zoom);
             let at = iced::Point::new((x / zoom) as f32, (y / zoom) as f32);
-            self.drop.aside = self.over_aside(at);
+            self.uploads.drop.aside = self.over_aside(at);
         }
     }
 
@@ -186,24 +204,24 @@ impl App {
             }
             Event::Preview(path, picture) => {
                 // Unless it was taken out meanwhile.
-                if let Some(slot) = self.thumbnails.get_mut(&path) {
+                if let Some(slot) = self.uploads.thumbnails.get_mut(&path) {
                     *slot = picture;
                 }
                 Task::none()
             }
             Event::Hovered => {
-                self.drop.dragging = true;
-                self.drop.refusal = None;
+                self.uploads.drop.dragging = true;
+                self.uploads.drop.refusal = None;
                 self.follow_pointer()
             }
             Event::Moved(at) => {
-                self.drop.aside = self.over_aside(at);
+                self.uploads.drop.aside = self.over_aside(at);
                 Task::none()
             }
             Event::Pointer(Following(pointer)) => {
                 // Unless the drag ended meanwhile.
-                if self.drop.dragging {
-                    self.drop.pointer = pointer;
+                if self.uploads.drop.dragging {
+                    self.uploads.drop.pointer = pointer;
                     self.follow_drop();
                 }
                 Task::none()
@@ -215,24 +233,24 @@ impl App {
             Event::Dropped(path) => {
                 // Where it was let go.
                 self.follow_drop();
-                self.drop.dragging = false;
-                self.drop.pointer = None;
-                self.drop.asked = false;
-                self.drop.gathered.push(path);
-                if self.drop.gathered.len() == 1 {
+                self.uploads.drop.dragging = false;
+                self.uploads.drop.pointer = None;
+                self.uploads.drop.asked = false;
+                self.uploads.drop.gathered.push(path);
+                if self.uploads.drop.gathered.len() == 1 {
                     return after(DROP_GATHER, Message::Write(Write::Uploads(Event::Drop)));
                 }
                 Task::none()
             }
             Event::Drop => self.dropped(),
             Event::Left => {
-                self.drop.dragging = false;
-                self.drop.pointer = None;
-                self.drop.asked = false;
+                self.uploads.drop.dragging = false;
+                self.uploads.drop.pointer = None;
+                self.uploads.drop.asked = false;
                 Task::none()
             }
             Event::Understood => {
-                self.drop.refusal = None;
+                self.uploads.drop.refusal = None;
                 Task::none()
             }
         }
@@ -241,13 +259,13 @@ impl App {
     /// The files of a drop go with the next message, all of them, or none
     /// and why, as in Discord's client.
     fn dropped(&mut self) -> Task<Message> {
-        let paths = std::mem::take(&mut self.drop.gathered);
+        let paths = std::mem::take(&mut self.uploads.drop.gathered);
         if paths.is_empty() {
             return Task::none();
         }
         let state = self.client.state();
         // Over the thread beside the channel, they go to it.
-        let aside = self.drop.aside && self.thread_shown();
+        let aside = self.uploads.drop.aside && self.ctx().thread_shown();
         let (can_attach, refusal) = if aside {
             (state.aside_can_attach(), state.aside_drop_refusal(&paths))
         } else {
@@ -264,7 +282,8 @@ impl App {
             return self.sync();
         }
         if let Some(refusal) = refusal {
-            self.drop.refusal = Some((refusal.title().to_owned(), refusal.help().to_owned()));
+            self.uploads.drop.refusal =
+                Some((refusal.title().to_owned(), refusal.help().to_owned()));
             return Task::none();
         }
         self.client.dispatch(stage(paths));
@@ -276,17 +295,11 @@ impl App {
         Task::batch([self.sync(), focus])
     }
 
-    /// Whether the thread beside the channel shows, to take files: not
-    /// the New Thread form, nor while search results take its place.
-    fn thread_shown(&self) -> bool {
-        self.aside.is_some() && self.aside_shown() && self.client.state().new_thread().is_none()
-    }
-
     /// Whether a point of the window is over the thread beside the
     /// channel, below the header, as the Slint client's `over-aside`.
     fn over_aside(&self, at: iced::Point) -> bool {
         let bar = self.shell.frame.height - self.window.height;
-        self.thread_shown()
+        self.ctx().thread_shown()
             && at.x >= self.shell.frame.width - self.aside_width()
             && at.y >= bar + crate::header::HEIGHT
     }
@@ -296,10 +309,10 @@ impl App {
     /// per drag, to be asked where it is while they hover and as they're
     /// let go.
     fn follow_pointer(&mut self) -> Task<Message> {
-        let Some(id) = self.shell.window.filter(|_| !self.drop.asked) else {
+        let Some(id) = self.shell.window.filter(|_| !self.uploads.drop.asked) else {
             return Task::none();
         };
-        self.drop.asked = true;
+        self.uploads.drop.asked = true;
         iced::window::scale_factor(id)
             .then(move |scale| {
                 iced::window::run(id, move |window| {
@@ -314,7 +327,7 @@ impl App {
     /// The pointer asked where it is while files hover, where the
     /// platform doesn't say (X11, Windows).
     pub fn follow_subscription(&self) -> Option<iced::Subscription<Message>> {
-        (self.drop.dragging && self.drop.pointer.is_some()).then(|| {
+        (self.uploads.drop.dragging && self.uploads.drop.pointer.is_some()).then(|| {
             iced::time::every(FOLLOW).map(|_| Message::Write(Write::Uploads(Event::Follow)))
         })
     }
@@ -335,14 +348,15 @@ impl App {
     pub fn previews(&mut self) -> Task<Message> {
         let state = self.client.state();
         let (staged, aside) = (state.staged(), state.aside_staged());
-        self.thumbnails
+        self.uploads
+            .thumbnails
             .retain(|path, _| staged.iter().chain(aside).any(|file| &file.path == path));
         let mut tasks = Vec::new();
         for file in staged.iter().chain(aside).filter(|file| file.image) {
-            if self.thumbnails.contains_key(&file.path) {
+            if self.uploads.thumbnails.contains_key(&file.path) {
                 continue;
             }
-            self.thumbnails.insert(file.path.clone(), None);
+            self.uploads.thumbnails.insert(file.path.clone(), None);
             let path = file.path.clone();
             tasks.push(Task::perform(
                 {
@@ -366,21 +380,41 @@ impl App {
         }
         Task::batch(tasks)
     }
+}
+
+/// The window's drag-and-drop events, where the platform has them (winit
+/// takes drops on X11 and Windows, saying nothing of where).
+pub fn drops(event: &iced::window::Event) -> Option<Message> {
+    let event = match event {
+        iced::window::Event::FileHovered(_) => Event::Hovered,
+        iced::window::Event::FileDropped(path) => Event::Dropped(path.clone()),
+        iced::window::Event::FilesHoveredLeft => Event::Left,
+        _ => return None,
+    };
+    Some(Message::Write(Write::Uploads(event)))
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
+    /// Whether the thread beside the channel shows, to take files: not
+    /// the New Thread form, nor while search results take its place.
+    fn thread_shown(self) -> bool {
+        self.lanes.aside.is_some() && self.open.aside && self.state.new_thread().is_none()
+    }
 
     /// The files waiting, in a row that scrolls sideways; none without.
-    pub fn tray(&self) -> Option<Element<'_, Message>> {
-        let state = self.client.state();
+    pub fn tray(self) -> Option<Element<'a, Message>> {
+        let state = self.state;
         self.tray_of(state.staged(), state.can_mark_spoilers(), false)
     }
 
     /// The files waiting in the thread beside the channel's composer.
-    pub fn aside_tray(&self) -> Option<Element<'_, Message>> {
-        let state = self.client.state();
+    pub fn aside_tray(self) -> Option<Element<'a, Message>> {
+        let state = self.state;
         self.tray_of(state.aside_staged(), state.aside_can_mark_spoilers(), true)
     }
 
-    fn tray_of<'a>(
-        &'a self,
+    fn tray_of(
+        self,
         staged: &'a [chat::Staged],
         can_spoil: bool,
         aside: bool,
@@ -404,38 +438,42 @@ impl App {
             ))
             .width(Length::Fill)
             .height(TRAY)
-            .style(crate::style::scrollbar(&self.theme))
+            .style(crate::style::scrollbar(self.look.theme))
             .into(),
         )
     }
 
     /// A file waiting, as the Slint client's `StagedTile`.
-    fn staged_tile<'a>(
-        &'a self,
+    fn staged_tile(
+        self,
         index: usize,
         file: &'a chat::Staged,
         can_spoil: bool,
         aside: bool,
     ) -> Element<'a, Message> {
-        let theme = &self.theme;
+        let theme = self.look.theme;
         let inner = TILE.width - 12.0;
-        let picture: Element<'_, Message> =
-            match self.thumbnails.get(&file.path).and_then(Option::as_ref) {
-                Some(picture) => self.shot(
-                    Shot::new(Some(picture), Size::new(inner, TILE_PICTURE))
-                        .fit(Fit::Cover)
-                        .radius(6.0)
-                        .covered(file.spoiler),
-                ),
-                None => {
-                    let ground = theme.sidebar;
-                    container(self.glyph(Icon::File, 32, theme.muted))
-                        .center_x(inner)
-                        .center_y(TILE_PICTURE)
-                        .style(move |_| rounded(ground, 6))
-                        .into()
-                }
-            };
+        let picture: Element<'a, Message> = match self
+            .uploads
+            .thumbnails
+            .get(&file.path)
+            .and_then(Option::as_ref)
+        {
+            Some(picture) => self.shot(
+                Shot::new(Some(picture), Size::new(inner, TILE_PICTURE))
+                    .fit(Fit::Cover)
+                    .radius(6.0)
+                    .covered(file.spoiler),
+            ),
+            None => {
+                let ground = theme.sidebar;
+                container(self.look.glyph(Icon::File, 32, theme.muted))
+                    .center_x(inner)
+                    .center_y(TILE_PICTURE)
+                    .style(move |_| rounded(ground, 6))
+                    .into()
+            }
+        };
         let words = column![
             text(file.name.clone())
                 .size(13)
@@ -497,12 +535,12 @@ impl App {
 
     /// A tile's round button, white on a dark disc.
     fn disc_button(
-        &self,
+        self,
         icon: Icon,
         label: &'static str,
         message: Message,
-    ) -> Element<'_, Message> {
-        let face = self.glyph(icon, 16, Color::WHITE).boxed(TILE_BUTTON);
+    ) -> Element<'a, Message> {
+        let face = self.look.glyph(icon, 16, Color::WHITE).boxed(TILE_BUTTON);
         let lit = crate::theme::mix(DISC, Color::WHITE, 0.85);
         let face = button(face)
             .padding(0)
@@ -512,7 +550,7 @@ impl App {
             .style(lit_style(Some(DISC), lit, TILE_BUTTON / 2.0));
         iced::widget::tooltip(
             face,
-            controls::tip(&self.theme, label),
+            controls::tip(self.look.theme, label),
             iced::widget::tooltip::Position::Top,
         )
         .gap(6)
@@ -521,29 +559,30 @@ impl App {
 
     /// Discord's card over the dimmed window while files are dragged over
     /// it, or why a drop didn't go.
-    pub fn drop_view(&self) -> Option<Element<'_, Message>> {
-        let theme = &self.theme;
-        let state = self.client.state();
-        let aside = self.drop.aside && self.thread_shown();
-        let dragging = self.drop.dragging
+    pub fn drop_view(self) -> Option<Element<'a, Message>> {
+        let theme = self.look.theme;
+        let state = self.state;
+        let aside = self.uploads.drop.aside && self.thread_shown();
+        let dragging = self.uploads.drop.dragging
             && if aside {
                 state.aside_can_attach()
             } else {
                 state.can_attach()
             };
-        if !dragging && self.drop.refusal.is_none() {
+        if !dragging && self.uploads.drop.refusal.is_none() {
             return None;
         }
         let ink = theme.on_accent;
-        let mut lines = column![container(self.glyph(Icon::File, 40, ink)).center_x(Length::Fill)]
-            .spacing(8)
-            .padding(Padding {
-                top: 24.0,
-                right: 20.0,
-                bottom: 20.0,
-                left: 20.0,
-            })
-            .align_x(Alignment::Center);
+        let mut lines =
+            column![container(self.look.glyph(Icon::File, 40, ink)).center_x(Length::Fill)]
+                .spacing(8)
+                .padding(Padding {
+                    top: 24.0,
+                    right: 20.0,
+                    bottom: 20.0,
+                    left: 20.0,
+                })
+                .align_x(Alignment::Center);
         if dragging {
             lines = lines
                 .push(
@@ -570,7 +609,7 @@ impl App {
                         .color(ink)
                         .align_x(Alignment::Center),
                 );
-        } else if let Some((title, help)) = &self.drop.refusal {
+        } else if let Some((title, help)) = &self.uploads.drop.refusal {
             lines = lines
                 .push(
                     text(title.clone())
@@ -624,16 +663,4 @@ impl App {
             .into(),
         )
     }
-}
-
-/// The window's drag-and-drop events, where the platform has them (winit
-/// takes drops on X11 and Windows, saying nothing of where).
-pub fn drops(event: &iced::window::Event) -> Option<Message> {
-    let event = match event {
-        iced::window::Event::FileHovered(_) => Event::Hovered,
-        iced::window::Event::FileDropped(path) => Event::Dropped(path.clone()),
-        iced::window::Event::FilesHoveredLeft => Event::Left,
-        _ => return None,
-    };
-    Some(Message::Write(Write::Uploads(event)))
 }

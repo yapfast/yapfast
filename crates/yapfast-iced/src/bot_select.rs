@@ -15,7 +15,7 @@ use iced::{
 use yapfast_core::application::Action;
 
 use crate::{
-    app::{App, Message},
+    app::Message,
     controls::field,
     ctx::{Ctx, Cx},
     fonts::MEDIUM,
@@ -56,25 +56,6 @@ pub fn update(event: Event, cx: &mut Cx<'_>) -> Task<Message> {
         Event::Close => cx.dispatch(Action::CloseSelect),
     }
     Task::none()
-}
-
-impl App {
-    /// A menu's box, with its dropdown under it while it's the one open.
-    pub fn select_with_dropdown<'a>(
-        &'a self,
-        boxed: Element<'a, Message>,
-        item: &str,
-        custom_id: &str,
-    ) -> Element<'a, Message> {
-        let open = self.client.state().select_menu.as_ref().filter(|select| {
-            select.item == item && select.custom_id == custom_id && select.modal_field.is_none()
-        });
-        Popover::new(boxed, open.map(|_| self.ctx().dropdown()), Side::Below)
-            .width(Width::Same)
-            .gap(4.0)
-            .outside(Message::BotSelect(Event::Close))
-            .into()
-    }
 }
 
 impl<'a> Ctx<'a> {
@@ -205,5 +186,24 @@ impl<'a> Ctx<'a> {
             None if custom.is_some() => Space::new().width(18).height(18).into(),
             None => self.emoji_face(emoji, 18),
         }
+    }
+}
+
+impl<'a> crate::ctx::Ctx<'a> {
+    /// A menu's box, with its dropdown under it while it's the one open.
+    pub fn select_with_dropdown(
+        self,
+        boxed: Element<'a, Message>,
+        item: &str,
+        custom_id: &str,
+    ) -> Element<'a, Message> {
+        let open = self.state.select_menu.as_ref().filter(|select| {
+            select.item == item && select.custom_id == custom_id && select.modal_field.is_none()
+        });
+        Popover::new(boxed, open.map(|_| self.dropdown()), Side::Below)
+            .width(Width::Same)
+            .gap(4.0)
+            .outside(Message::BotSelect(Event::Close))
+            .into()
     }
 }

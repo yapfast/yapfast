@@ -2,26 +2,15 @@
 //! in `message`, what's open over it in `layers`, what it listens to in
 //! `subscription`, and the layers the view stacks in `view`.
 
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{sync::Arc, time::Duration};
 
 use iced::{Point, Size, Task, keyboard, widget::operation};
-use yapfast_core::{application::Action, chat::ChatMember};
+use yapfast_core::application::Action;
 
 use crate::{
     after,
     client::Client,
-    field::Draft,
-    looks::MemberLine,
-    menus::Menu,
     mfa,
-    picker::Picker,
-    rail::RailItem,
-    select::Sel,
-    sidebar::SideRow,
     signin::{self, SignIn},
     sync::Scroll,
     theme::Theme,
@@ -35,6 +24,9 @@ mod screens;
 mod settle;
 mod subscription;
 mod view;
+mod window;
+
+pub use window::{Keep, Window};
 
 pub use self::message::{Message, Messages, batches};
 
@@ -74,152 +66,54 @@ pub struct App {
     /// A look at the releases nobody asked for is under way, whose newer
     /// release a notification tells of (`settings/updates.rs`).
     pub announce_updates: bool,
-    /// The pictures made to draw, and the moving ones playing.
-    pub pictures: crate::pictures::Pictures,
-    /// The icons drawn, which [`App::look`] draws from.
-    pub icons: crate::icons::Icons,
+    /// What lives only as long as the window, torn down with it.
+    pub win: Window,
     /// What's under the pointer, part by part.
     pub pointed: Pointed,
-    /// The rail's DM home and rows, and its viewport.
-    pub rail_home: crate::rail::Home,
-    pub rail: Vec<RailItem>,
-    pub rail_scroll: Scroll,
     /// What the window keeps in `layout.json`: open folders, collapsed
     /// categories.
     pub layout: crate::layout::Layout,
-    /// The sidebar's header and rows.
-    pub side_header: crate::sidebar::SideHeader,
-    pub side: Vec<SideRow>,
-    /// The busy voice channel's card under the pointer was put away by a
-    /// click or its menu, until the pointer leaves the row.
-    pub voice_card_off: bool,
-    /// The sidebar rows' places to drag a channel or category among, and
-    /// the drag going on.
-    pub side_places: crate::arrange::Places,
-    pub arranging: Option<crate::arrange::Arranging>,
-    /// Someone being dragged from a voice channel to another.
-    pub moving_person: Option<crate::arrange::Moving>,
     /// The thread beside's width as its edge was pressed, while it's dragged.
     pub aside_drag: Option<f32>,
-    /// The composer written in last, the channel's or the thread's.
-    pub writing_last: crate::composer::Writing,
-    pub filter: String,
-    /// Where the rail went last, so the DM search's filter goes when it
-    /// goes elsewhere, as the Slint client's.
-    pub filtered_in: Option<yapfast_core::application::Navigation>,
     /// The minute now, as the clocks that show minutes read it, and the
     /// timers to the next minute and the next midnight, while armed.
     pub minute: u64,
-    pub clocks: crate::timeline::Clocks,
     /// What the conversation's header shows of the open room.
     pub header: crate::header::Header,
+    /// The channel's timeline: its rows, where it's scrolled, the selection.
+    pub timeline: crate::timeline::Timeline,
+    /// The server rail, the sidebar beside it and the member list.
+    pub rail: crate::rail::Rail,
+    pub sidebar: crate::sidebar::Sidebar,
+    pub roster: crate::members::Roster,
     pub selected: Option<String>,
-    pub messages: Messages,
-    /// Each row's height and, one longer, where each row starts; what each
-    /// row shows beyond its message; the history's edge above the first.
-    pub heights: Vec<f32>,
-    pub tops: Vec<f32>,
-    /// Heights the timeline's last layout found, not yet taken in.
-    pub found: crate::widgets::Found,
-    pub looks: Vec<crate::timeline::RowLook>,
-    pub edge: crate::timeline::Edge,
-    /// Spoilers clicked, as `item/index`, while Yapfast runs.
-    pub revealed: HashSet<String>,
-    /// The core's last jump and jump to the first unread message that the
-    /// timeline went to, and the message tinted for it.
-    pub jumped: Option<(String, u64)>,
-    pub unread_jumped: u64,
-    pub jump_lit: Option<String>,
-    /// The "New" divider's message and the last read, as the looks were
-    /// worked out for.
-    pub marks_for: (Option<String>, Option<String>),
     /// What the rail, the sidebar, the header and the history's edge were
     /// made from last ([`crate::sync::lists_key`]); none to make them again.
     pub lists_shown: Option<u64>,
-    /// The history's edge changed since the rows' heights were worked out.
-    pub edge_changed: bool,
-    /// The member list as shown, which changes at most once per
-    /// `ROSTER_PAUSE`, and its lines.
-    pub members: Option<Arc<Vec<ChatMember>>>,
-    pub lines: Vec<MemberLine>,
-    /// What the member lines' looks were made with.
-    pub roster_made: Option<crate::looks::LooksMadeWith>,
-    /// The Activity panel's cards over the member list, and whether it's
-    /// opened past its first three.
-    pub activity_cards: Vec<crate::members::ActivityCard>,
-    pub activity_open: bool,
-    /// The feed and its people the cards were made from, held so a new
-    /// one is told by its address.
-    pub activity_for: (
-        Arc<[yapfast_core::chat::FeedEntry]>,
-        Option<Arc<[yapfast_core::chat::FeedPerson]>>,
-    ),
-    pub roster_shown: Option<Instant>,
-    pub roster_waiting: bool,
     /// A server is open, and the open room is in one.
     pub server: bool,
     pub in_server: bool,
     /// The account's card, and whether the pointer is on its names.
     pub account: crate::account::Account,
     pub account_pointed: bool,
-    /// The timeline's viewport: its distance from the end, which the
-    /// scrollable (anchored to the bottom) keeps as rows come.
-    pub from_end: f32,
-    pub timeline_height: f32,
-    pub width: f32,
-    pub at_end: bool,
-    /// Sent from a window of older messages, or Jump to present: the view
-    /// goes to the newest once they've replaced the window.
-    pub latest_due: bool,
-    pub side_scroll: Scroll,
-    pub member_scroll: Scroll,
-    /// The composer's text and history: the core's draft for the open room.
-    pub draft: Draft,
-    /// The draft the core last had, to tell its own changes from ours.
-    pub draft_known: String,
-    /// Whether the composer's field has the keys, which its outline shows.
-    pub composer_focused: bool,
-    /// The message being edited in its row (the core's `edit`), and the
-    /// edit's own field.
-    pub editing: Option<String>,
-    pub edit: Draft,
-    /// The suggestions over the field typed in last.
-    pub suggest: crate::suggest::Suggest,
-    /// Previews of the staged pictures, by path (none while being made),
-    /// and files dragged over the window.
-    pub thumbnails: HashMap<std::path::PathBuf, Option<Arc<yapfast_core::chat::Picture>>>,
-    /// The staged lists the previews were last made for, by place and
-    /// length: the channel's and the thread's.
-    pub staged_seen: [usize; 4],
-    pub drop: crate::uploads::Drop,
-    pub picker: crate::slot::Slot<Picker>,
+    /// The composer, the edit in its row and the suggestions over them.
+    pub composer: crate::composer::Composer,
+    /// Files waiting to go and dragged over the window.
+    pub uploads: crate::uploads::Uploads,
     /// The keys held with a click: Shift puts a GIF in the composer.
     pub modifiers: keyboard::Modifiers,
     /// The message added to one being forwarded.
     pub forward: crate::forward::Forward,
-    /// The timeline's selection, where it started and where it goes to, and
-    /// whether the button is still down.
-    pub selection: Option<(Sel, Sel)>,
-    pub selecting: bool,
-    pub menu: Option<Menu>,
     /// The confirmation's focused button: Delete (true) or Cancel.
     pub confirm_focus: bool,
-    pub hide_members: bool,
     /// Whether a batch of pictures to ask for is due; what was asked for
     /// is the core's to know (`Application::picture_requested`).
     pub asking: bool,
     pub reporting: bool,
     /// The message the keyboard is stepping on (`browse.rs`), by item.
     pub keyed: Option<String>,
-    /// A voice message's volume is open over its mute, by its item, while
-    /// the pointer is on the button or the slider (counted, as they
-    /// overlap).
-    pub voice_volume: Option<(String, u8)>,
-    /// How far into the message's video playing its last frame is, in
-    /// milliseconds.
-    pub clip_time: Option<u64>,
-    /// The voice message paused while its waveform is held.
-    pub voice_held: Option<String>,
+    /// What the timeline's voice messages and videos show of their playing.
+    pub playback: crate::playback::Playback,
     /// A masked link clicked, while the question before it shows.
     pub leaving: Option<String>,
     /// The profiles on screen.
@@ -235,8 +129,6 @@ pub struct App {
     pub link_spot: std::cell::Cell<iced::Rectangle>,
     /// A role's or a mutual server's card, open where it was clicked.
     pub cards: crate::info_cards::Cards,
-    /// A server tag's card, open under the tag clicked.
-    pub tag_card: crate::slot::Slot<crate::tag_card::Shown>,
     /// The friends list's and the requests' own state, and Active Now's
     /// cards while the friends list shows.
     pub friends: crate::friends::Friends,
@@ -255,13 +147,14 @@ pub struct App {
     pub video: Arc<video::Shared>,
     /// The call's own state: what's large, what's open, the corner.
     pub call: crate::call::Call,
-    /// Settings while it's open, and which build this is, which it shows.
-    pub settings: crate::slot::Slot<crate::settings::Settings>,
     /// What the screens' updates asked of the root, and whether they
     /// changed what the window shows: `settle` takes them after each
     /// message.
     pub requests: Vec<crate::ctx::Request>,
     pub dirty: bool,
+    /// Whether the message being handled asked for the keys to go
+    /// somewhere, for [`App::focus_backstop`].
+    focus_asked: bool,
     /// Whether Settings tried a camera, and how many times it started or
     /// stopped, when the videos were last placed for it.
     videos_for: (bool, u32),
@@ -283,11 +176,6 @@ pub struct App {
     /// push to talk keybind, which types nothing during a call.
     pub keybinds: crate::keybinds::Keybinds,
     pub talk_pressed: bool,
-    /// A message's video full screen; the size its cell asked for its
-    /// frames at; the pointer on its volume's button or slider.
-    pub clip_full: bool,
-    pub clip_cell: (u32, u32),
-    pub clip_volume: u8,
     /// The size the picture viewer opened at.
     pub viewer: crate::image_viewer::Viewed,
     /// The thread beside the channel, while it shows, the last message it
@@ -297,8 +185,6 @@ pub struct App {
     pub drafts: crate::thread::Drafts,
     pub popovers: crate::popovers::Popovers,
     pub modal: crate::modal::Shown,
-    /// Browse Channels' search.
-    pub browse_filter: String,
     pub searching: crate::search::Searching,
     /// The forum's form for a post, as typed (`forum.rs`).
     pub forum_post: crate::forum::Post,
@@ -320,35 +206,9 @@ impl App {
     pub fn look(&self) -> crate::look::Look<'_> {
         crate::look::Look {
             theme: &self.theme,
-            icons: &self.icons,
+            icons: &self.win.icons,
             window: self.window,
         }
-    }
-
-    /// [`Look::menu_item`](crate::look::Look::menu_item).
-    pub fn menu_item<'a>(
-        &self,
-        item: crate::controls::Item<'a>,
-        light: crate::controls::Light,
-        press: Message,
-    ) -> iced::Element<'a, Message> {
-        self.look().menu_item(item, light, press)
-    }
-
-    /// [`Look::menu_item_sized`](crate::look::Look::menu_item_sized).
-    pub fn menu_item_sized<'a>(
-        &self,
-        item: crate::controls::Item<'a>,
-        light: crate::controls::Light,
-        press: Message,
-        height: f32,
-    ) -> iced::Element<'a, Message> {
-        self.look().menu_item_sized(item, light, press, height)
-    }
-
-    /// [`Look::checkbox`](crate::look::Look::checkbox).
-    pub fn checkbox<'a>(&self, ticked: bool, lit: bool) -> iced::Element<'a, Message> {
-        self.look().checkbox(ticked, lit)
     }
 
     pub fn new(client: Client, size: (u32, u32)) -> (Self, Task<Message>) {
@@ -386,89 +246,40 @@ impl App {
             inbox: None,
             bar_drag: Default::default(),
             announce_updates: false,
+            win: Window::new(crate::pictures::Pictures::new(fitter)),
             pointed: Pointed::default(),
-            pictures: crate::pictures::Pictures::new(fitter),
-            icons: Default::default(),
-            rail_home: Default::default(),
-            rail: Vec::new(),
-            rail_scroll: Scroll::new(height),
             layout,
-            side_header: Default::default(),
-            side: Vec::new(),
-            voice_card_off: false,
-            side_places: Default::default(),
-            arranging: None,
-            moving_person: None,
             aside_drag: None,
-            writing_last: Default::default(),
-            filter: String::new(),
-            filtered_in: None,
             minute: yapfast_core::clock::now_ms() / 1000 / 60 * 60,
-            clocks: Default::default(),
             header: Default::default(),
+            timeline: crate::timeline::Timeline::new(
+                height,
+                width - crate::conversation::NAVIGATION,
+            ),
+            rail: crate::rail::Rail::new(height),
+            sidebar: crate::sidebar::Sidebar::new(height),
+            roster: crate::members::Roster::new(height),
             selected: None,
-            messages: Default::default(),
-            heights: Vec::new(),
-            tops: vec![0.0],
-            found: Default::default(),
-            looks: Vec::new(),
-            edge: Default::default(),
-            revealed: HashSet::new(),
-            jumped: None,
-            unread_jumped: 0,
-            jump_lit: None,
-            marks_for: (None, None),
             lists_shown: None,
-            edge_changed: false,
-            members: None,
-            lines: Vec::new(),
-            roster_made: None,
-            activity_cards: Vec::new(),
-            activity_open: false,
-            activity_for: (Arc::from([]), None),
-            roster_shown: None,
-            roster_waiting: false,
             server: false,
             in_server: false,
             account: Default::default(),
             account_pointed: false,
-            from_end: 0.0,
-            timeline_height: height,
-            width: width - crate::conversation::NAVIGATION,
-            at_end: true,
-            latest_due: false,
-            side_scroll: Scroll::new(height),
-            member_scroll: Scroll::new(height),
-            draft: Draft::default(),
-            draft_known: String::new(),
-            composer_focused: false,
-            editing: None,
-            edit: Draft::default(),
-            suggest: Default::default(),
-            thumbnails: HashMap::new(),
-            staged_seen: [0; 4],
-            drop: Default::default(),
-            picker: Default::default(),
+            composer: Default::default(),
+            uploads: Default::default(),
             modifiers: keyboard::Modifiers::default(),
             forward: Default::default(),
-            selection: None,
-            selecting: false,
-            menu: None,
             confirm_focus: true,
-            hide_members: false,
             asking: false,
             reporting: false,
             keyed: None,
-            voice_volume: None,
-            clip_time: None,
-            voice_held: None,
+            playback: Default::default(),
             leaving: None,
             profiles: Default::default(),
             pressed: Default::default(),
             link_spot: Default::default(),
             header_spot: Default::default(),
             cards: Default::default(),
-            tag_card: Default::default(),
             friends: Default::default(),
             active_now: Vec::new(),
             active_now_made: None,
@@ -476,9 +287,9 @@ impl App {
             person: Default::default(),
             video: Default::default(),
             call: Default::default(),
-            settings: Default::default(),
             requests: Vec::new(),
             dirty: false,
+            focus_asked: false,
             videos_for: (false, 0),
             server_screen: Default::default(),
             server_dialogs: Default::default(),
@@ -490,16 +301,12 @@ impl App {
             build: crate::build(),
             keybinds: Default::default(),
             talk_pressed: false,
-            clip_full: false,
-            clip_cell: (0, 0),
-            clip_volume: 0,
             viewer: Default::default(),
             aside: None,
             seen_aside: None,
             drafts: Default::default(),
             popovers: Default::default(),
             modal: Default::default(),
-            browse_filter: String::new(),
             searching: Default::default(),
             forum_post: Default::default(),
             theme,
@@ -534,8 +341,14 @@ impl App {
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
+        // What's on top, only while the backstop's log is read.
+        let top = tracing::enabled!(tracing::Level::DEBUG).then(|| self.layers().next());
+        self.focus_asked = false;
         let task = self.handle_message(message);
         let task = Task::batch([task, self.settle()]);
+        if let Some(top) = top {
+            self.focus_backstop(top);
+        }
         // The bar comes and goes with full screen, and the room under it
         // with it.
         self.fit_window();
@@ -587,19 +400,19 @@ impl App {
                 self.sync()
             }
             Message::JumpPresent => {
-                self.latest_due = true;
+                self.timeline.latest_due = true;
                 self.client.dispatch(Action::JumpToPresent);
                 self.sync()
             }
             Message::JumpFaded(item) => {
-                if self.jump_lit.as_ref() == Some(&item) {
-                    self.jump_lit = None;
+                if self.timeline.jump_lit.as_ref() == Some(&item) {
+                    self.timeline.jump_lit = None;
                 }
                 Task::none()
             }
             Message::Link(link, at) => self.follow_link(&link, at),
             Message::Members(viewport) => {
-                self.member_scroll = Scroll::of(viewport);
+                self.roster.scroll = Scroll::of(viewport);
                 self.ask()
             }
             Message::MemberActivity(event) => self.member_activity(event),
@@ -625,8 +438,8 @@ impl App {
                 Task::none()
             }
             Message::SelectClear => {
-                self.selection = None;
-                self.selecting = false;
+                self.timeline.selection = None;
+                self.timeline.selecting = false;
                 Task::none()
             }
             Message::RowMenu(item, at) => match self.row_of(&item) {
@@ -635,7 +448,7 @@ impl App {
             },
             Message::MenuLight(index) => self.menu_light(index),
             Message::SubLight(index) => {
-                if let Some(menu) = &mut self.menu {
+                if let Some(menu) = &mut self.win.menu {
                     menu.sub_lit = Some(index);
                 }
                 Task::none()
@@ -643,14 +456,14 @@ impl App {
             Message::SubChoose(index) => self.choose_sub(index),
             Message::MenuChoose(index) => self.choose(index),
             Message::MenuScrolled(down) => {
-                if let Some(menu) = &mut self.menu {
+                if let Some(menu) = &mut self.win.menu {
                     menu.scrolled = down;
                 }
                 Task::none()
             }
             Message::Act(act, item, at) => self.act(act, item, at, None),
             Message::CloseMenu => {
-                self.menu = None;
+                self.win.menu = None;
                 self.refocus()
             }
             Message::PersonMenu(user, at) => {
@@ -695,7 +508,7 @@ impl App {
                 Task::none()
             }
             Message::ToggleMembers => {
-                self.hide_members = !self.hide_members;
+                self.roster.hidden = !self.roster.hidden;
                 // Hidden, the list lets its lines and pictures go.
                 Task::batch([self.sync(), self.ask()])
             }
@@ -708,7 +521,7 @@ impl App {
                 self.open_bell(at)
             }
             Message::React(item, key) => {
-                self.menu = None;
+                self.win.menu = None;
                 self.client.dispatch(Action::React { item, key });
                 Task::batch([self.sync(), self.refocus()])
             }
@@ -718,13 +531,15 @@ impl App {
                 self.report()
             }
             Message::Fitted(fitted) => {
-                self.pictures.fitter.borrow_mut().made(fitted);
+                self.win.pictures.fitter.borrow_mut().made(fitted);
                 Task::none()
             }
             Message::Reveal(item, attachment) => self.reveal(&item, attachment),
             Message::Unfold(item) => self.unfold(&item),
             Message::ShowBlocked(item) => {
-                self.revealed.insert(crate::message::blocked_key(&item));
+                self.timeline
+                    .revealed
+                    .insert(crate::message::blocked_key(&item));
                 self.ask()
             }
             Message::Poll(event) => self.poll_event(event),
@@ -754,7 +569,7 @@ impl App {
                 self.sync()
             }
             Message::Roster => {
-                self.roster_waiting = false;
+                self.roster.waiting = false;
                 self.show_roster(true);
                 self.ask()
             }
@@ -792,9 +607,9 @@ impl App {
             Message::Resized(size) => {
                 self.shell.frame = size;
                 self.fit_zoom();
-                let fitted = self.active_now_fits();
+                let fitted = self.ctx().active_now_fits();
                 self.fit_window();
-                if self.active_now_fits() == fitted {
+                if self.ctx().active_now_fits() == fitted {
                     return self.read_window_state();
                 }
                 self.active_now_sync();

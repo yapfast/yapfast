@@ -27,41 +27,43 @@ impl App {
         let line = bar(outline, Length::Fill, 1);
         if let Some(screen) = self.dm_screen() {
             let page = match screen {
-                yapfast_core::application::DmScreen::Friends => self.friends_screen(),
-                yapfast_core::application::DmScreen::Requests => self.requests_screen(),
+                yapfast_core::application::DmScreen::Friends => self.ctx().friends_screen(),
+                yapfast_core::application::DmScreen::Requests => self.ctx().requests_screen(),
             };
-            return column![self.friends_header(screen), line, page]
+            return column![self.ctx().friends_header(screen), line, page]
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .into();
         }
-        if let Some(screen) = self.browse_channels() {
+        if let Some(screen) = self.ctx().browse_channels() {
             return screen;
         }
-        let mut chat = column(self.banners())
+        let mut chat = column(self.ctx().banners())
             .width(Length::Fill)
             .height(Length::Fill);
         // A DM's call shows above its messages.
         if let Some(call) = self.dm_call_view() {
             chat = chat.push(call);
         }
-        let chat = match self.forum_view() {
+        let chat = match self.ctx().forum_view() {
             Some(forum) => chat.push(forum),
-            None => chat.push(self.timeline()).push(self.composer_view()),
+            None => chat
+                .push(self.ctx().timeline())
+                .push(self.ctx().composer_view()),
         };
         let mut body = row![chat];
-        if let Some(search) = self.search_view() {
+        if let Some(search) = crate::search::view(&self.searching, self.ctx()) {
             body = body.push(search);
-        } else if let Some(aside) = self.aside_view() {
+        } else if let Some(aside) = self.ctx().aside_view() {
             body = body.push(aside);
         } else if self.members_shown() {
-            body = body.push(self.members_view());
+            body = body.push(crate::members::view(&self.roster, self.ctx()));
         } else if self.panel_shown()
-            && let Some(panel) = self.profile_panel_view()
+            && let Some(panel) = self.ctx().profile_panel_view()
         {
             body = body.push(panel);
         }
-        column![self.header_view(), line, body.height(Length::Fill)]
+        column![self.ctx().header_view(), line, body.height(Length::Fill)]
             .width(Length::Fill)
             .height(Length::Fill)
             .into()
