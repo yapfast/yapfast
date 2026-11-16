@@ -863,7 +863,7 @@ component CategoryHeading inherits Rectangle {
     property <color> ink: touch.has-hover ? Theme.secondary : Theme.muted;
     animate ink { duration: Theme.quick; }
     HorizontalLayout {
-        padding-left: 16px; padding-right: 8px; padding-top: 17px; spacing: 4px;
+        padding-left: 8px; padding-right: 8px; padding-top: 17px; spacing: 4px;
         Text {
             text: root.text; color: root.ink; font-size: 14px; font-weight: 600; letter-spacing: 0px;
             vertical-alignment: center; overflow: elide; horizontal-stretch: 0;
@@ -1364,7 +1364,7 @@ export component RoomList inherits Rectangle {
                 }
                 // Their heading neither folds nor has a menu.
                 if room.heading != "" && room.pinned && !room.direct: HorizontalLayout {
-                    height: 36px; padding-left: 16px;
+                    height: 36px; padding-left: 8px;
                     Text {
                         text: room.heading; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px;
                         vertical-alignment: center; overflow: elide; accessible-role: text;
