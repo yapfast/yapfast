@@ -417,7 +417,7 @@ impl<'a> View<'a> {
                 } else {
                     lights(status).then(|| hover.into())
                 },
-                border: Border::default().rounded(6),
+                border: crate::style::round(6),
                 ..Default::default()
             })
             .into()
@@ -538,11 +538,7 @@ impl<'a> View<'a> {
             .height(48)
             .width(Length::Fill)
             .on_press_maybe(start)
-            .style(move |_, status| button::Style {
-                background: lights(status).then(|| hover.into()),
-                border: Border::default().rounded(6),
-                ..Default::default()
-            })
+            .style(controls::lit_style(None, hover, 6.0))
             .into()
     }
 

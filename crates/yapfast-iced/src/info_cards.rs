@@ -9,8 +9,7 @@
 
 use crate::widgets::scroll_view;
 use iced::{
-    Alignment, Border, Element, Length, Padding, Point, Rectangle, Size, Task,
-    border::Radius,
+    Alignment, Element, Length, Padding, Point, Rectangle, Size, Task,
     widget::{button, column, container, opaque, row, stack, text},
 };
 use yapfast_core::{
@@ -25,7 +24,7 @@ use crate::{
     elide::elide,
     fonts::{BOLD, MEDIUM, SEMIBOLD},
     media::{Fit, Shot},
-    style::{raised_shadow, rounded, scrollbar},
+    style::{rounded, scrollbar},
     theme::Theme,
     widgets::Place,
 };
@@ -102,12 +101,7 @@ pub fn frame<'a>(
     container(child)
         .width(width)
         .clip(true)
-        .style(move |_| container::Style {
-            background: Some(ground.into()),
-            border: crate::style::edge(edge, radius),
-            shadow: raised_shadow(),
-            ..Default::default()
-        })
+        .style(move |_| crate::style::panel(ground, edge, radius))
 }
 
 /// The mutual server whose card is open, as the profile lists it.
@@ -422,18 +416,7 @@ impl<'a> View<'a> {
                 .padding(16),
         )
         .width(Length::Fill)
-        .style(move |_| container::Style {
-            background: Some(panel.into()),
-            border: Border {
-                radius: Radius {
-                    bottom_left: 7.0,
-                    bottom_right: 7.0,
-                    ..Radius::default()
-                },
-                ..Border::default()
-            },
-            ..Default::default()
-        })
+        .style(move |_| rounded(panel, crate::style::corners([0.0, 0.0, 7.0, 7.0])))
         .into()
     }
 

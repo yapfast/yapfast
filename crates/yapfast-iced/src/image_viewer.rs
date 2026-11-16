@@ -43,8 +43,7 @@ const STEP_GAP: f32 = 20.0;
 /// A step button's ground, and under the pointer.
 const STEP_GROUND: Color = Color::from_rgba(1.0, 1.0, 1.0, 0x1a as f32 / 255.0);
 const STEP_LIT: Color = Color::from_rgba(1.0, 1.0, 1.0, 0x33 as f32 / 255.0);
-/// The note's pill.
-const NOTE_GROUND: Color = Color::from_rgba(0.0, 0.0, 0.0, 0xb3 as f32 / 255.0);
+/// The note's ink, on its pill.
 const NOTE_INK: Color = Color::from_rgba(1.0, 1.0, 1.0, 0xd9 as f32 / 255.0);
 
 #[derive(Clone, Debug)]
@@ -292,7 +291,7 @@ impl<'a> View<'a> {
                         .padding([0, 12])
                         .height(32)
                         .align_y(Alignment::Center)
-                        .style(|_| rounded(NOTE_GROUND, 6)),
+                        .style(|_| rounded(crate::style::SMOKE, 6)),
                 )
                 .width(Length::Fill)
                 .height(Length::Fill)
@@ -313,17 +312,11 @@ impl<'a> View<'a> {
                 .width(STEP)
                 .height(STEP)
                 .on_press(Message::Image(Event::Step(by)))
-                .style(move |_, status| {
-                    let ground = match status {
-                        button::Status::Hovered | button::Status::Pressed => STEP_LIT,
-                        _ => STEP_GROUND,
-                    };
-                    button::Style {
-                        background: Some(ground.into()),
-                        border: iced::Border::default().rounded(STEP / 2.0),
-                        ..button::Style::default()
-                    }
-                })
+                .style(crate::controls::lit_style(
+                    Some(STEP_GROUND),
+                    STEP_LIT,
+                    STEP / 2.0,
+                ))
         };
         container(
             row![

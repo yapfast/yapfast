@@ -771,21 +771,11 @@ fn call_controls(app: &App) -> Element<'_, Message> {
     .height(ROUND)
     .padding(0)
     .on_press_maybe((!leaving).then_some(Message::Call(Event::Leave)))
-    .style(move |_, status| button::Style {
-        background: Some(
-            faded(
-                if controls::lights(status) {
-                    danger_hover
-                } else {
-                    danger
-                },
-                opacity,
-            )
-            .into(),
-        ),
-        border: iced::Border::default().rounded(ROUND / 2.0),
-        ..Default::default()
-    });
+    .style(controls::lit_style(
+        Some(faded(danger, opacity)),
+        faded(danger_hover, opacity),
+        ROUND / 2.0,
+    ));
     let leave = iced::widget::tooltip(
         leave,
         controls::tip(theme, "Leave voice"),

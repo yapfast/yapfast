@@ -306,7 +306,7 @@ impl<'a> View<'a> {
                 } else {
                     None
                 },
-                border: iced::Border::default().rounded(8),
+                border: crate::style::round(8),
                 ..Default::default()
             }),
             Space::new().height(8),

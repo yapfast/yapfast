@@ -476,7 +476,7 @@ fn banner_buttons<'a>(ctx: crate::ctx::Ctx<'a>, shown: &'a Shown) -> Element<'a,
                     }
                     .into(),
                 ),
-                border: Border::default().rounded(16),
+                border: crate::style::round(16),
                 ..Default::default()
             });
         Element::from(
@@ -665,7 +665,7 @@ fn profile_actions<'a>(
                     }
                     .into(),
                 ),
-                border: Border::default().rounded(4),
+                border: crate::style::round(4),
                 ..Default::default()
             }),
         );
@@ -798,12 +798,7 @@ fn badge_level_tip<'a>(
     let ground = theme.tooltip;
     container(card.push(words))
         .width(BADGE_TIP_WIDTH)
-        .style(move |_| container::Style {
-            background: Some(ground.into()),
-            border: crate::style::edge(BADGE_TIP_EDGE, 8.0),
-            shadow: crate::style::raised_shadow(),
-            ..Default::default()
-        })
+        .style(move |_| crate::style::panel(ground, BADGE_TIP_EDGE, 8.0))
         .into()
 }
 
@@ -986,11 +981,7 @@ fn role_chips<'a>(ctx: crate::ctx::Ctx<'a>, shown: &'a Shown, inks: &Inks) -> El
             .height(24)
             .align_y(Alignment::Center)
             .style(move |_| container::Style {
-                border: Border {
-                    color: faded(ink, 0.2),
-                    width: 1.0,
-                    radius: 8.0.into(),
-                },
+                border: crate::style::edge(faded(ink, 0.2), 8.0),
                 ..Default::default()
             }),
         );
@@ -1098,7 +1089,7 @@ fn message_box<'a>(
         .on_submit(Message::Profile(Event::Send))
         .style(move |_, _| text_input::Style {
             background: ground.into(),
-            border: Border::default().rounded(8),
+            border: crate::style::round(8),
             icon: ink,
             placeholder: hint,
             value: ink,

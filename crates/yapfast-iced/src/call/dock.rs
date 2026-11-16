@@ -398,7 +398,7 @@ fn dock_icon<'a>(
         .on_press_maybe(message)
         .style(move |_, status| iced::widget::button::Style {
             background: (enabled && lights(status)).then(|| lit.into()),
-            border: iced::Border::default().rounded(6),
+            border: crate::style::round(6),
             ..Default::default()
         });
     iced::widget::tooltip(

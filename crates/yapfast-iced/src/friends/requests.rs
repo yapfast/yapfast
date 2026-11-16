@@ -4,7 +4,7 @@
 
 use crate::widgets::scroll_view;
 use iced::{
-    Alignment, Border, Color, Element, Length, Padding,
+    Alignment, Color, Element, Length, Padding,
     widget::{Space, button, column, container, mouse_area, row, text},
 };
 use yapfast_core::{chat::ChatRoom, discord};
@@ -375,7 +375,7 @@ pub(super) fn request_message<'a>(
                 }
                 .into(),
             ),
-            border: Border::default().rounded(8),
+            border: crate::style::round(8),
             ..Default::default()
         })
         .into()

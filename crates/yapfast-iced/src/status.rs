@@ -8,7 +8,7 @@
 //! clears.
 
 use iced::{
-    Alignment, Border, Element, Length, Padding, Point, Task,
+    Alignment, Element, Length, Padding, Point, Task,
     widget::{Space, button, column, container, opaque, operation, row, stack, text},
 };
 use yapfast_core::{
@@ -18,7 +18,7 @@ use yapfast_core::{
 
 use crate::{
     app::{App, Message},
-    controls::{self, Check, Item, Kind, Light, action, lights, placed},
+    controls::{self, Check, Item, Kind, Light, action, placed},
     ctx::{Ctx, Cx, Focus, Request},
     dialog::dialog,
     fonts::BOLD,
@@ -500,11 +500,7 @@ impl<'a> View<'a> {
         .height(ROW)
         .width(Length::Fill)
         .on_press(message(Event::Expand))
-        .style(move |_, status| button::Style {
-            background: lights(status).then(|| active.into()),
-            border: Border::default().rounded(4),
-            ..Default::default()
-        })
+        .style(controls::lit_style(None, active, 4.0))
         .into()
     }
 
@@ -542,11 +538,7 @@ impl<'a> View<'a> {
             .padding([6, 8])
             .width(Length::Fill)
             .on_press(message(Event::Choose(key)))
-            .style(move |_, status| button::Style {
-                background: lights(status).then(|| active.into()),
-                border: Border::default().rounded(4),
-                ..Default::default()
-            })
+            .style(controls::lit_style(None, active, 4.0))
             .into()
     }
 }

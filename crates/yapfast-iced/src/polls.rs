@@ -261,7 +261,7 @@ pub fn view<'a>(
                         .add_stop(1.0, iced::Color::TRANSPARENT)
                         .into(),
                 )),
-                border: Border::default().rounded(8),
+                border: crate::style::round(8),
                 ..container::Style::default()
             })
         } else {

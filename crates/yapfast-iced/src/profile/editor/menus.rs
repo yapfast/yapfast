@@ -3,14 +3,14 @@
 
 use crate::widgets::scroll_view;
 use iced::{
-    Alignment, Border, Color, Element, Length, Padding,
+    Alignment, Color, Element, Length, Padding,
     widget::{button, column, container, opaque, row, text},
 };
 use yapfast_core::{application::ProfileEditor, chat::ProfilePicture};
 
 use crate::{
     app::Message,
-    controls::{self, Check, Item, Light, lights},
+    controls::{self, Check, Item, Light},
     form,
     pictures::Icon,
     popover::{Popover, Side, Width},
@@ -155,11 +155,11 @@ pub(super) fn tag_picker<'a>(
         })
         .height(24)
         .on_press(message(Event::Pop(Some(Pop::Tag))))
-        .style(move |_, status| button::Style {
-            background: Some(faded(ink, if lights(status) { 0.12 } else { 0.07 }).into()),
-            border: Border::default().rounded(7),
-            ..Default::default()
-        });
+        .style(controls::lit_style(
+            Some(faded(ink, 0.07)),
+            faded(ink, 0.12),
+            7.0,
+        ));
     let list = (editor.pop == Some(Pop::Tag)).then(|| tag_list(ctx, editor));
     Popover::new(chip, list, Side::Below)
         .width(Width::Own(270.0))

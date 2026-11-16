@@ -482,7 +482,7 @@ pub(super) fn screen_card<'a>(
         button::Style {
             background: lit.then(|| active.into()),
             text_color: if lit { lit_ink } else { ink },
-            border: Border::default().rounded(6),
+            border: crate::style::round(6),
             ..Default::default()
         }
     })

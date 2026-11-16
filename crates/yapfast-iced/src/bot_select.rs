@@ -128,15 +128,11 @@ pub fn dropdown<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                 .width(Length::Fill)
                 .height(Length::Shrink)
                 .on_press(Message::BotSelect(Event::Toggle(index)))
-                .style(move |_, status| button::Style {
-                    background: if crate::controls::lights(status) {
-                        Some(hover.into())
-                    } else {
-                        picked.then(|| sunken.into())
-                    },
-                    border: Border::default().rounded(4),
-                    ..Default::default()
-                }),
+                .style(crate::controls::lit_style(
+                    picked.then_some(sunken),
+                    hover,
+                    4.0,
+                )),
         );
     }
     let mut panel = column![].spacing(2).padding(4);
@@ -164,12 +160,7 @@ pub fn dropdown<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             .max_height(MOST)
             .width(Length::Fill)
             .clip(true)
-            .style(move |_| container::Style {
-                background: Some(raised.into()),
-                border: crate::style::edge(edge, 8.0),
-                shadow: crate::style::raised_shadow(),
-                ..Default::default()
-            }),
+            .style(move |_| crate::style::panel(raised, edge, 8.0)),
     )
 }
 

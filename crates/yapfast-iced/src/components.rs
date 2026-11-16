@@ -8,7 +8,7 @@
 //! (`bot_select.rs`).
 
 use iced::{
-    Alignment, Border, Element, Length, Padding, Point, Size,
+    Alignment, Element, Length, Padding, Point, Size,
     widget::{Space, column, container, row, text},
 };
 use yapfast_core::chat::{Beside, ButtonStyle, Card, CardButton, CardRow, ChatMessage, Placement};
@@ -109,8 +109,8 @@ pub fn select_box<'a>(
         .on_press_maybe(open)
         .style(move |_, status| iced::widget::button::Style {
             background: Some(crate::style::faded(ground, opacity).into()),
-            border: Border {
-                color: crate::style::faded(
+            border: crate::style::edge(
+                crate::style::faded(
                     if enabled && controls::lights(status) {
                         lit
                     } else {
@@ -118,9 +118,8 @@ pub fn select_box<'a>(
                     },
                     opacity,
                 ),
-                width: 1.0,
-                radius: 8.0.into(),
-            },
+                8.0,
+            ),
             ..Default::default()
         }),
     )

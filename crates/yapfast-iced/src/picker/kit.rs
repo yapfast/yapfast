@@ -8,7 +8,7 @@
 
 use crate::widgets::scroll_view;
 use iced::{
-    Alignment, Border, Color, Element, Length, Padding, Rectangle, Size,
+    Alignment, Element, Length, Padding, Rectangle, Size,
     widget::{Id, button, column, container, row, scrollable, text},
 };
 
@@ -31,8 +31,6 @@ pub const FIELD: &str = "picker-field";
 /// The rail's width, and its buttons'.
 pub const RAIL: f32 = 48.0;
 const RAIL_BUTTON: f32 = 36.0;
-/// A favourite's star, lit, as Discord's.
-pub const GOLD: Color = Color::from_rgb8(0xf0, 0xb2, 0x32);
 
 /// How far the grid is scrolled and how tall it shows.
 #[derive(Clone, Copy, Debug)]
@@ -139,7 +137,7 @@ pub fn tabs<'a>(theme: &Theme, chosen: Tab) -> Element<'a, Message> {
                         lights.then(|| hover.into())
                     },
                     text_color: if on || lights { lit } else { rest },
-                    border: Border::default().rounded(6),
+                    border: crate::style::round(6),
                     ..Default::default()
                 }
             })
@@ -349,7 +347,7 @@ pub fn star<'a>(
 ) -> Element<'a, Message> {
     let theme = look.theme;
     let (icon, tint) = if on {
-        (Icon::StarFilled, GOLD)
+        (Icon::StarFilled, crate::style::hex(crate::style::CROWN))
     } else {
         (Icon::Star, theme.text)
     };
@@ -361,7 +359,7 @@ pub fn star<'a>(
         .on_press(message)
         .style(move |_, _| button::Style {
             background: Some(panel.into()),
-            border: Border::default().rounded(side / 6.0),
+            border: crate::style::round(side / 6.0),
             ..Default::default()
         })
         .into()

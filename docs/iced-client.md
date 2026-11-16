@@ -1568,8 +1568,8 @@ are, takes these, and the compiler asks for the rest:
    takes) are lists to add it to when it differs from their default.
 4. Its view builds from the kit with `ctx.look`: colours from the theme,
    sizes from named constants, and corners, borders and shadows from
-   `style`'s helpers (`style::rounded`, `style::edge`, `style::outlined`,
-   `style::panel`), never a literal in the screen.
+   `style`'s helpers (`style::rounded`, `style::round`, `style::edge`,
+   `style::outlined`, `style::panel`), never a literal in the screen.
 5. It reaches the core with `cx.dispatch`, keeps what `layout.json` holds
    with `cx.keep`, and asks anything of the rest of the window with
    `cx.request`. A need `Request` doesn't cover is a new variant, never a
@@ -1614,7 +1614,13 @@ smaller scale, as a section of Settings rather than a screen of its own
 
 Screens build from shared pieces rather than styling their own, and take
 every colour from the theme and every repeated size from a named constant.
-When a second screen needs what a first one built, it moves here. The
+When a second screen needs what a first one built, it moves: to the kit
+if it draws with the theme and the icons alone, or to a module of the
+app both use if it draws the core's data. The list below is both, each
+by its module: `controls`, `form`, `style`, `dialog`, `sheet`, `tile`,
+`viewer`, `popover`, `reorder`, `elide`, `widgets` and `Look` are the
+kit's, and `pictures`, `people`, `looks`, `markdown`, `media`, `found`,
+`info_cards`, `picker::kit`, `menus`, `thread` and `Ctx` the app's. The
 kit is a crate of its own, `crates/yapfast-iced-kit`, which knows nothing
 of the core or of the app: the theme (`theme`, which the app fills in
 `themes.rs`), `style`, `fonts`, `icons` and `canvas`, `controls`, `form`,
@@ -1762,11 +1768,15 @@ and the app uses them with its one `Message`, so nothing is mapped:
   selectable pieces (`piece::Piece`), which send the link and
   selection messages they're made with.
 - `style.rs`: container grounds (`fill`, `rounded`, `corners`, and
-  `outlined` in a 1 px `edge`), a raised panel (`panel`: a ground in its
+  `outlined` in a 1 px `edge`), `round` (a border that only rounds its
+  corners, for a button's, a field's or a quad's style), a raised panel
+  (`panel`: a ground in its
   edge over the raised shadow, as menus, suggestions and the picker are),
   the shadows (cards, raised panels and the
   settings' cards, the Display Name Style window, the timeline's floating
-  bars, the hover bar), the scrollbar.
+  bars, the hover bar), the scrollbar, and the colours drawn the same in
+  every theme (`SMOKE`: black at 70%, the ground of marks and notes over
+  pictures).
 - `pictures::Face::new(url, name, size)` with `key`, `opacity`,
   `decoration` and `dot`: an avatar as `Ctx::face` draws it.
 - `widgets/`: `Pic`, `Framed` (a profile frame's layers

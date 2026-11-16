@@ -9,7 +9,7 @@
 
 use crate::widgets::scroll_view;
 use iced::{
-    Alignment, Border, Color, Element, Length, Padding,
+    Alignment, Color, Element, Length, Padding,
     widget::{Space, button, column, container, rich_text, row, span, text, text::Span},
 };
 use yapfast_core::{
@@ -25,7 +25,7 @@ use super::View;
 use super::{Drop, Event, Screen, message};
 use crate::{
     app::Message,
-    controls::{Kind, action, lights},
+    controls::{Kind, action},
     ctx::Ctx,
     dialog,
     fonts::{BOLD, MEDIUM, SEMIBOLD},
@@ -627,11 +627,7 @@ impl<'a> View<'a> {
             .padding(12)
             .width(Length::Fill)
             .on_press_maybe(expandable.then(|| audit(AuditInput::Toggle(index))))
-            .style(move |_, status| button::Style {
-                background: lights(status).then(|| lit.into()),
-                border: Border::default().rounded(8),
-                ..Default::default()
-            });
+            .style(crate::controls::lit_style(None, lit, 8.0));
         let mut card = column![head];
         if open {
             let colour = match entry.kind {

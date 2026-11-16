@@ -3,7 +3,7 @@
 
 use crate::widgets::scroll_view;
 use iced::{
-    Alignment, Border, Color, Element, Length, Padding, Point, Size,
+    Alignment, Color, Element, Length, Padding, Point, Size,
     widget::{Space, button, column, container, row, stack, text},
 };
 use yapfast_core::{
@@ -264,7 +264,7 @@ pub(super) fn cell<'a>(
                 }
                 .into(),
             }),
-            border: Border::default().rounded(6),
+            border: crate::style::round(6),
             ..Default::default()
         })
         .into()

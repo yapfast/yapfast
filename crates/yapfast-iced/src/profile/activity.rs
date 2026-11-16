@@ -39,7 +39,7 @@ fn progress(
     ink: Color,
 ) {
     use iced::advanced::{Renderer as _, renderer::Quad};
-    let round = iced::Border::default().rounded(bounds.height / 2.0);
+    let round = crate::style::round(bounds.height / 2.0);
     renderer.fill_quad(
         Quad {
             bounds,

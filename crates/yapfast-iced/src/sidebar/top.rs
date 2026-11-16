@@ -39,7 +39,7 @@ impl<'a> super::View<'a> {
                     .padding([8, 10])
                     .style(move |_, _| text_input::Style {
                         background: ground.into(),
-                        border: iced::Border::default().rounded(6),
+                        border: crate::style::round(6),
                         icon: ink,
                         placeholder: hint,
                         value: ink,
@@ -94,7 +94,7 @@ impl<'a> super::View<'a> {
                     .height(HEADER)
                     .style(move |_| container::Style {
                         background: Some(shade),
-                        border: iced::Border::default().rounded(corners([12.0, 0.0, 0.0, 0.0])),
+                        border: crate::style::round(corners([12.0, 0.0, 0.0, 0.0])),
                         ..Default::default()
                     }),
             )
@@ -137,7 +137,7 @@ impl<'a> super::View<'a> {
                     .height(inner)
                     .style(move |_| container::Style {
                         background: Some(fill),
-                        border: iced::Border::default().rounded(inner / 2.0),
+                        border: crate::style::round(inner / 2.0),
                         ..Default::default()
                     }),
             );

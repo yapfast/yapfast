@@ -10,7 +10,7 @@
 use std::hash::{Hash, Hasher};
 
 use iced::{
-    Alignment, Background, Color, Element, Length, Padding, Rectangle, Size, Task,
+    Alignment, Color, Element, Length, Padding, Rectangle, Size, Task,
     widget::{Space, button, column, container, mouse_area, row, stack, text},
 };
 use yapfast_core::application::{Action, GifPicture, GifView};
@@ -519,15 +519,7 @@ impl<'a> View<'a> {
                 .padding([0, 10])
                 .height(28)
                 .on_press(Message::Picker(Event::Term(term.clone())))
-                .style(move |_, status| button::Style {
-                    background: Some(Background::Color(if crate::controls::lights(status) {
-                        lit
-                    } else {
-                        rest
-                    })),
-                    border: iced::Border::default().rounded(4),
-                    ..Default::default()
-                }),
+                .style(crate::controls::lit_style(Some(rest), lit, 4.0)),
             );
         }
         column![

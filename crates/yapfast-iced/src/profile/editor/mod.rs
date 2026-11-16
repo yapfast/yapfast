@@ -13,7 +13,7 @@
 use std::{path::PathBuf, sync::Arc};
 
 use iced::{
-    Alignment, Border, Color, Element, Length, Padding, Task,
+    Alignment, Color, Element, Length, Padding, Task,
     widget::{Id, Space, button, column, container, opaque, operation, row, stack, text},
 };
 use yapfast_core::{
@@ -569,15 +569,14 @@ fn hover_edit<'a>(
         .on_press_maybe(enabled.then_some(pressed))
         .style(move |_, status| button::Style {
             background: None,
-            border: Border {
-                color: if enabled && lights(status) {
+            border: crate::style::edge(
+                if enabled && lights(status) {
                     outline
                 } else {
                     Color::TRANSPARENT
                 },
-                width: 1.0,
-                radius: 7.0.into(),
-            },
+                7.0,
+            ),
             ..Default::default()
         })
         .into()

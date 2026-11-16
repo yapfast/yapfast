@@ -25,7 +25,7 @@ use crate::{
     controls::{self, Kind},
     fonts::BOLD,
     pictures::Icon,
-    style::{faded, raised_shadow, rounded},
+    style::{faded, rounded},
     widgets::Renderer,
 };
 
@@ -321,12 +321,7 @@ pub(super) fn link_card<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let (ground, edge) = (theme.raised, theme.edge);
     container(card)
         .width(WIDTH)
-        .style(move |_| container::Style {
-            background: Some(ground.into()),
-            border: crate::style::edge(edge, 8.0),
-            shadow: raised_shadow(),
-            ..Default::default()
-        })
+        .style(move |_| crate::style::panel(ground, edge, 8.0))
         .into()
 }
 

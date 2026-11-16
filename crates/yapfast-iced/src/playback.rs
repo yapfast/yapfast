@@ -100,8 +100,6 @@ pub enum Clip {
 const CLIP_BAR: f32 = 36.0;
 const CLIP_BUTTON: f32 = 28.0;
 const TRACK: f32 = 4.0;
-/// The ground of the play mark, a pill's and the bar's foot.
-const CLIP_DIM: Color = Color::from_rgba8(0, 0, 0, 0xb3 as f32 / 255.0);
 /// A note's and the volume slider's ground over a video.
 pub const CLIP_SHADE: Color = Color::from_rgba8(0, 0, 0, 0.8);
 const TRACK_REST: Color = Color::from_rgba8(255, 255, 255, 0.3);
@@ -331,7 +329,7 @@ pub fn voice_card<'a>(
                         .add_stop(1.0, faded(accent, opacity))
                         .into(),
                 )),
-                border: iced::Border::default().rounded(BUTTON / 2.0),
+                border: crate::style::round(BUTTON / 2.0),
                 text_color: Color::WHITE,
                 ..button::Style::default()
             }
@@ -408,7 +406,7 @@ pub fn voice_card<'a>(
         .style(move |_, status| button::Style {
             background: Some(if lights(status) { lit } else { rest }.into()),
             text_color: text_ink,
-            border: iced::Border::default().rounded(11),
+            border: crate::style::round(11),
             ..button::Style::default()
         });
         let mute = ctx.look.icon_button(
@@ -485,7 +483,7 @@ fn voice_volume_slider<'a>(
         rail: iced::widget::slider::Rail {
             backgrounds: (fill.into(), rest.into()),
             width: TRACK,
-            border: iced::Border::default().rounded(TRACK / 2.0),
+            border: crate::style::round(TRACK / 2.0),
         },
         handle: iced::widget::slider::Handle {
             shape: iced::widget::slider::HandleShape::Circle { radius: 6.0 },
@@ -499,11 +497,7 @@ fn voice_volume_slider<'a>(
         .padding([6, 0])
         .width(VOICE_SLOT)
         .height(VOICE_SLIDER)
-        .style(move |_| iced::widget::container::Style {
-            border: crate::style::edge(edge, 8.0),
-            shadow: crate::style::raised_shadow(),
-            ..rounded(ground, 8)
-        });
+        .style(move |_| crate::style::panel(ground, edge, 8.0));
     // Down to the button, so the pointer stays on it on the way.
     let reach = container(boxed).padding(Padding::ZERO.bottom(VOICE_GAP));
     mouse_area(reach)
@@ -575,7 +569,7 @@ pub fn clip_cell<'a>(
                         .padding([0, 10])
                         .height(28)
                         .align_y(Alignment::Center)
-                        .style(|_| rounded(CLIP_DIM, 14)),
+                        .style(|_| rounded(crate::style::SMOKE, 14)),
                 )
                 .center(Length::Fill),
             );
@@ -744,7 +738,7 @@ fn volume_slider<'a>(video: &'a yapfast_core::chat::Video) -> Element<'a, Messag
         rail: iced::widget::slider::Rail {
             backgrounds: (Color::WHITE.into(), TRACK_REST.into()),
             width: TRACK,
-            border: iced::Border::default().rounded(TRACK / 2.0),
+            border: crate::style::round(TRACK / 2.0),
         },
         handle: iced::widget::slider::Handle {
             shape: iced::widget::slider::HandleShape::Circle { radius: 6.0 },

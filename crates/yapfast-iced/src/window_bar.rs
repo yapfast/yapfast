@@ -717,12 +717,7 @@ pub fn inbox_view(app: &App) -> Option<Element<'_, Message>> {
     // `window` is the room under the bar already: the panel starts 4 px
     // under it and stops 12 px over the window's foot.
     .height((app.window.height - 4.0 - 12.0).min(INBOX_MOST))
-    .style(move |_| iced::widget::container::Style {
-        background: Some(raised.into()),
-        border: crate::style::edge(line, 8.0),
-        shadow: crate::style::raised_shadow(),
-        ..Default::default()
-    });
+    .style(move |_| crate::style::panel(raised, line, 8.0));
     let at = Point::new(app.window.width - INBOX_WIDTH - 8.0, HEIGHT + 4.0);
     Some(
         stack![

@@ -16,9 +16,7 @@ use crate::{
     style::rounded,
 };
 
-use super::{
-    FILE_CARD_WIDTH, FILE_ICON, PICTURE_RADIUS, PLAY_BADGE, PLAY_GROUND, STICKER, reveal_key,
-};
+use super::{FILE_CARD_WIDTH, FILE_ICON, PICTURE_RADIUS, PLAY_BADGE, STICKER, reveal_key};
 
 /// A message's files shown as cards in `placement`, with their places
 /// among its attachments.
@@ -40,7 +38,7 @@ pub fn files(
 pub fn play_badge<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     container(ctx.look.glyph(Icon::PlayMark, 20, Color::WHITE))
         .center(PLAY_BADGE)
-        .style(|_| rounded(PLAY_GROUND, PLAY_BADGE / 2.0))
+        .style(|_| rounded(crate::style::SMOKE, PLAY_BADGE / 2.0))
         .into()
 }
 

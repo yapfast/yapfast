@@ -747,7 +747,7 @@ fn preview<'a>(palette: &palette::Theme, width: f32) -> Element<'a, Message> {
     container(layers.width(width).height(78))
         .clip(true)
         .style(|_| iced::widget::container::Style {
-            border: Border::default().rounded(6),
+            border: crate::style::round(6),
             ..Default::default()
         })
         .into()

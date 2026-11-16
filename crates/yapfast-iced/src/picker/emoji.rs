@@ -493,7 +493,11 @@ impl<'a> View<'a> {
             Mark::Star => self
                 .cx
                 .look
-                .glyph(Icon::StarFilled, size, kit::GOLD)
+                .glyph(
+                    Icon::StarFilled,
+                    size,
+                    crate::style::hex(crate::style::CROWN),
+                )
                 .boxed(side)
                 .into(),
             Mark::Clock => self

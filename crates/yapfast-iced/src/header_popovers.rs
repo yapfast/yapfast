@@ -10,7 +10,7 @@ use crate::widgets::scroll_view;
 use std::hash::{Hash, Hasher};
 
 use iced::{
-    Alignment, Border, Element, Length, Padding, Task,
+    Alignment, Element, Length, Padding, Task,
     widget::{Space, button, column, container, operation, row, stack, text},
 };
 use yapfast_core::{
@@ -583,10 +583,8 @@ impl<'a> View<'a> {
             })
             .clip(true)
             .style(move |_| container::Style {
-                background: Some(ground.into()),
-                border: Border::default().rounded(RADIUS),
                 shadow: raised_shadow(),
-                ..Default::default()
+                ..crate::style::rounded(ground, RADIUS)
             });
         iced::widget::opaque(controls::edged(panel, edge, RADIUS))
     }

@@ -11,7 +11,7 @@
 use std::borrow::Cow;
 
 use iced::{
-    Alignment, Element, Length, Point, Task,
+    Element, Length, Point, Task,
     widget::{Space, column, operation, row, text},
 };
 use yapfast_core::application::{
@@ -322,23 +322,9 @@ impl<'a> View<'a> {
         let prompt = prompt(self.cx.state, dialog);
         let theme = self.cx.look.theme;
         let close = Message::Person(Event::Close);
-        let mut body = column![
-            row![
-                text(prompt.title)
-                    .size(18)
-                    .font(BOLD)
-                    .color(theme.text)
-                    .wrapping(text::Wrapping::None)
-                    .width(Length::Fill),
-                self.cx
-                    .look
-                    .icon_button(Icon::X, "Close", close.clone())
-                    .below(),
-            ]
-            .align_y(Alignment::Center),
-        ]
-        .spacing(12)
-        .padding(20);
+        let mut body = column![self.cx.look.dialog_head(prompt.title, close.clone())]
+            .spacing(12)
+            .padding(20);
         if !prompt.text.is_empty() {
             body = body.push(text(prompt.text).size(15).color(theme.secondary));
         }

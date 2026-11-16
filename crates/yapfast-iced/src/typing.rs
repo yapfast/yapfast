@@ -8,7 +8,7 @@
 use std::time::{Duration, Instant};
 
 use iced::{
-    Alignment, Border, Color, Element, Length, Padding, Rectangle, Size, Theme,
+    Alignment, Color, Element, Length, Padding, Rectangle, Size, Theme,
     advanced::{
         Layout, Widget, layout, mouse, renderer,
         widget::{Tree, tree},
@@ -93,7 +93,7 @@ impl Widget<Message, Theme, Renderer> for Dots {
             renderer.fill_quad(
                 renderer::Quad {
                     bounds: at,
-                    border: Border::default().rounded(3),
+                    border: crate::style::round(3),
                     ..Default::default()
                 },
                 Color {

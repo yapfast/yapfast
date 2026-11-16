@@ -40,7 +40,7 @@ const TILE: Size = Size::new(120.0, 140.0);
 const TILE_PICTURE: f32 = 86.0;
 /// The tiles' round buttons, on a dark disc.
 const TILE_BUTTON: f32 = 28.0;
-const DISC: Color = Color::from_rgba8(0, 0, 0, 0xb3 as f32 / 255.0);
+const DISC: Color = crate::style::SMOKE;
 /// The drop card's width, and the dim under it: the Slint client's, a
 /// shade lighter than a dialog's.
 const CARD: f32 = 310.0;

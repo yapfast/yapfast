@@ -3,7 +3,7 @@
 
 use crate::widgets::scroll_view;
 use iced::{
-    Alignment, Border, Color, Element, Length, Padding,
+    Alignment, Color, Element, Length, Padding,
     widget::{Space, button, column, container, row, text, tooltip},
 };
 use yapfast_core::{
@@ -261,7 +261,7 @@ impl<'a> View<'a> {
                 .on_press_maybe(press)
                 .style(move |_, _| button::Style {
                     background: Some(ground.into()),
-                    border: Border::default().rounded(4),
+                    border: crate::style::round(4),
                     ..Default::default()
                 })
                 .into()

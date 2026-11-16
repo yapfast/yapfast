@@ -4,7 +4,7 @@
 
 use crate::widgets::scroll_view;
 use iced::{
-    Alignment, Border, Color, Element, Length, Padding, Point, Rectangle, Size,
+    Alignment, Color, Element, Length, Padding, Point, Rectangle, Size,
     widget::{Id, Space, button, column, container, row, stack, text},
 };
 use yapfast_core::{
@@ -274,7 +274,7 @@ pub(super) fn editor_top<'a>(
                     }
                     .into(),
                 ),
-                border: Border::default().rounded(18),
+                border: crate::style::round(18),
                 ..Default::default()
             });
         top = top.push(
@@ -528,11 +528,7 @@ pub(super) fn own_actions<'a>(
             .width(34)
             .height(34)
             .on_press(pressed)
-            .style(move |_, status| button::Style {
-                background: Some(if lights(status) { lit } else { ground }.into()),
-                border: Border::default().rounded(8),
-                ..Default::default()
-            })
+            .style(crate::controls::lit_style(Some(ground), lit, 8.0))
     };
     let more = (editor.pop == Some(Pop::More)).then(|| {
         crate::profile::editor::menus::menu_list(
@@ -656,14 +652,7 @@ pub(super) fn editor_bio<'a>(
         bio = bio.push(
             container(field)
                 .height(110)
-                .style(move |_| container::Style {
-                    border: Border {
-                        color: faded(accent, 0.8),
-                        width: 1.0,
-                        radius: 6.0.into(),
-                    },
-                    ..rounded(sunken, 6)
-                }),
+                .style(move |_| crate::style::outlined(sunken, faded(accent, 0.8), 6)),
         );
         bio = bio.push(
             row![

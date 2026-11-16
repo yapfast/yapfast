@@ -8,7 +8,7 @@
 
 use crate::widgets::scroll_view;
 use iced::{
-    Alignment, Border, Element, Length, Padding, Point, Task,
+    Alignment, Element, Length, Padding, Point, Task,
     widget::{Space, button, column, container, mouse_area, operation, row, stack, text},
 };
 use yapfast_core::{
@@ -279,7 +279,7 @@ fn header_tab<'a>(
                 None
             },
             text_color: if chosen || lit { text_ink } else { secondary },
-            border: Border::default().rounded(6),
+            border: crate::style::round(6),
             ..Default::default()
         }
     })

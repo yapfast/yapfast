@@ -11,7 +11,7 @@
 //! option's text, `Action::Send` runs the command.
 
 use iced::{
-    Alignment, Border, Element, Length, Padding, Task,
+    Alignment, Element, Length, Padding, Task,
     widget::{button, column, container, row, text},
 };
 use yapfast_core::application::{Action, CommandRow};
@@ -274,11 +274,7 @@ pub fn command_pills<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             .on_press(Message::Write(message))
             .style(move |_, _| button::Style {
                 background: Some(crate::style::faded(ground, alpha).into()),
-                border: Border {
-                    color: crate::style::faded(edge, alpha),
-                    width: 1.0,
-                    radius: 4.0.into(),
-                },
+                border: crate::style::edge(crate::style::faded(edge, alpha), 4.0),
                 ..Default::default()
             }),
         );

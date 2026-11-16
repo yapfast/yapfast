@@ -19,6 +19,13 @@ pub const MEMBER_OPEN: Color = grey(0x33);
 pub const CHIP: Color = grey(0x33);
 pub const CROWN: u32 = 0xf0b232;
 pub const BLURPLE: u32 = 0x5865f2;
+/// Black at 70%: the ground of marks and notes over pictures.
+pub const SMOKE: Color = Color {
+    r: 0.0,
+    g: 0.0,
+    b: 0.0,
+    a: 0xb3 as f32 / 255.0,
+};
 
 const fn grey(alpha: u8) -> Color {
     Color {
@@ -76,6 +83,12 @@ pub fn edge(color: Color, radius: impl Into<border::Radius>) -> Border {
         width: 1.0,
         radius: radius.into(),
     }
+}
+
+/// No outline, its corners rounded by `radius`: the border of a button's,
+/// a field's or a quad's style.
+pub fn round(radius: impl Into<border::Radius>) -> Border {
+    Border::default().rounded(radius)
 }
 
 /// A container filled with `ground` in a 1 px `outline`, its corners

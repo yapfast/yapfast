@@ -13,7 +13,7 @@
 use std::ops::Range;
 
 use iced::{
-    Border, Color, Element, Font, Length, Padding,
+    Color, Element, Font, Length, Padding,
     border::Radius,
     font::Style as FontStyle,
     widget::{Space, column, container, row, span, text::Span},
@@ -690,7 +690,7 @@ impl<'c> crate::ctx::Ctx<'c> {
             return piece
                 .color(theme.sunken)
                 .background(theme.sunken)
-                .border(Border::default().rounded(3));
+                .border(crate::style::round(3));
         }
         if let Some(rgb) = run.color {
             let color = crate::style::hex(rgb);
@@ -702,7 +702,7 @@ impl<'c> crate::ctx::Ctx<'c> {
             if run.link.as_deref().is_some_and(pilled) {
                 piece = piece
                     .background(Color { a: 0.16, ..color })
-                    .border(Border::default().rounded(4))
+                    .border(crate::style::round(4))
                     .padding(Padding {
                         top: -1.5,
                         bottom: -1.5,
@@ -718,7 +718,7 @@ impl<'c> crate::ctx::Ctx<'c> {
         if run.code {
             piece = piece
                 .background(theme.panel)
-                .border(Border::default().rounded(3))
+                .border(crate::style::round(3))
                 .padding(Padding::from([0, 2]));
         }
         piece
@@ -817,13 +817,8 @@ impl<'c> crate::ctx::Ctx<'c> {
                     bottom_left: if part.quote_end { 2.0 } else { 0.0 },
                     bottom_right: if part.quote_end { 2.0 } else { 0.0 },
                 };
-                let bar = container(Space::new().width(QUOTE_BAR).height(Length::Fill)).style(
-                    move |_| container::Style {
-                        background: Some(spine.into()),
-                        border: Border::default().rounded(radius),
-                        ..container::Style::default()
-                    },
-                );
+                let bar = container(Space::new().width(QUOTE_BAR).height(Length::Fill))
+                    .style(move |_| crate::style::rounded(spine, radius));
                 row![bar, shown.width(Length::Fill)]
                     .height(Length::Shrink)
                     .into()

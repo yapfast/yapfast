@@ -311,7 +311,7 @@ impl<'a> View<'a> {
             .on_press_maybe(can.then(|| Message::Forward(Event::Choose(room.id.clone()))))
             .style(move |_, status| button::Style {
                 background: (can && crate::controls::lights(status)).then(|| hover.into()),
-                border: Border::default().rounded(6),
+                border: crate::style::round(6),
                 ..Default::default()
             })
             .into()

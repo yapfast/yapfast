@@ -465,19 +465,9 @@ impl<'a> View<'a> {
                 .padding(0)
                 .width(Length::Fill)
                 .on_press_maybe((!saving).then_some(Message::Modal(Event::ChooseFiles(index))))
-                .style(move |_, status| button::Style {
-                    background: Some(ground.into()),
-                    border: Border {
-                        color: if controls::lights(status) {
-                            accent
-                        } else {
-                            edge
-                        },
-                        width: 1.0,
-                        radius: 8.0.into(),
-                    },
-                    ..button::Style::default()
-                }),
+                .style(controls::outlined_lit_style(
+                    ground, ground, edge, accent, 8.0,
+                )),
             );
         }
         files.into()

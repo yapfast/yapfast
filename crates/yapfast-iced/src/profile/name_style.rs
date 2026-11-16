@@ -735,7 +735,7 @@ fn colour_choices<'a>(ctx: crate::ctx::Ctx<'a>, window: &'a Window) -> Element<'
                     }
                     .into(),
                 ),
-                border: Border::default().rounded(12),
+                border: crate::style::round(12),
                 ..Default::default()
             }),
         );
@@ -797,7 +797,7 @@ fn handle_bar<'a>(window: &Window) -> Element<'a, Message> {
             .height(SWATCH)
             .style(move |_| container::Style {
                 background: Some(fill),
-                border: Border::default().rounded(12),
+                border: crate::style::round(12),
                 ..Default::default()
             })
     ];
@@ -1017,7 +1017,7 @@ fn light_choice<'a>(ctx: crate::ctx::Ctx<'a>, light: bool) -> Element<'a, Messag
                         )
                         .into(),
                     ),
-                    border: Border::default().rounded(9),
+                    border: crate::style::round(9),
                     ..Default::default()
                 }),
         );

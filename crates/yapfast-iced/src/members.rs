@@ -6,7 +6,7 @@
 
 use crate::widgets::scroll_view;
 use iced::{
-    Alignment, Border, Color, Element, Length, Padding, Point, Rectangle, Size, Task, Vector,
+    Alignment, Color, Element, Length, Padding, Point, Rectangle, Size, Task, Vector,
     widget::{Space, column, container, mouse_area, row, scrollable::Viewport, text, tooltip},
 };
 use yapfast_core::{
@@ -705,7 +705,7 @@ impl<'a> View<'a> {
                     } else {
                         pointed.then(|| MEMBER_HOVER.into())
                     },
-                    border: Border::default().rounded(8),
+                    border: crate::style::round(8),
                     ..Default::default()
                 }),
         )

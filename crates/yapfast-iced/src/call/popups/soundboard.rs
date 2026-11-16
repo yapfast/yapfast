@@ -3,7 +3,7 @@
 
 use crate::widgets::scroll_view;
 use iced::{
-    Alignment, Border, Color, Element, Length, Padding,
+    Alignment, Color, Element, Length, Padding,
     widget::{Space, button, column, container, mouse_area, row, text},
 };
 use yapfast_core::voice::{self};
@@ -159,7 +159,7 @@ fn sound_button<'a>(
             )
             .into(),
         ),
-        border: Border::default().rounded(8),
+        border: crate::style::round(8),
         ..Default::default()
     });
     let small = |icon, label: String, tint, ground: Color, message| {
@@ -170,7 +170,7 @@ fn sound_button<'a>(
             .on_press(message)
             .style(move |_, _| button::Style {
                 background: Some(ground.into()),
-                border: Border::default().rounded(6),
+                border: crate::style::round(6),
                 ..Default::default()
             });
         iced::widget::tooltip(

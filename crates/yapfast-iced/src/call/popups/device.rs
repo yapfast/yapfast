@@ -4,7 +4,7 @@
 
 use crate::widgets::scroll_view;
 use iced::{
-    Alignment, Border, Color, Element, Length, Padding,
+    Alignment, Color, Element, Length, Padding,
     widget::{column, container, row, text},
 };
 use yapfast_core::{
@@ -56,7 +56,7 @@ pub(super) fn segments(
                     width,
                     ..bounds
                 },
-                border: Border::default().rounded(2),
+                border: crate::style::round(2),
                 ..Default::default()
             },
             if on { lit } else { line },

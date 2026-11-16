@@ -436,7 +436,7 @@ impl<'a> Page<'a> {
                     Video::new(self.cx.video, CAMERA_TEST, Color::BLACK).scale(self.cx.scale),
                 )
             });
-            let grey = crate::style::hex(0xb5b8c1);
+            let grey = crate::tile::NOTE;
             let body = frame.unwrap_or_else(|| {
                 let note = if !settings.voice.camera_note.is_empty() {
                     settings.voice.camera_note.as_str()

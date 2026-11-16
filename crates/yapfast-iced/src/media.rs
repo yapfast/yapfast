@@ -23,10 +23,8 @@ pub const TILE_GAP: f32 = 4.0;
 /// A spoiler's blur: the picture averaged down to this many pixels across,
 /// drawn large.
 const BLUR_SIDE: u32 = 10;
-/// The spoiler cover's dimming and its pill, as the Slint client's
-/// `SpoilerCover`.
+/// The spoiler cover's dimming, as the Slint client's `SpoilerCover`.
 const COVER_DIM: Color = Color::from_rgba8(0, 0, 0, 0x59 as f32 / 255.0);
-const COVER_PILL: Color = Color::from_rgba8(0, 0, 0, 0xb3 as f32 / 255.0);
 
 /// How a picture fills its box.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -305,7 +303,7 @@ impl<'a> crate::ctx::Ctx<'a> {
                 .padding([0, 12])
                 .height(28)
                 .align_y(Alignment::Center)
-                .style(|_| rounded(COVER_PILL, 14)),
+                .style(|_| rounded(crate::style::SMOKE, 14)),
         )
         .center(Length::Fill)
         .style(move |_| rounded(COVER_DIM, radius))

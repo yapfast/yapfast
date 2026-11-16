@@ -10,7 +10,7 @@
 
 use crate::widgets::scroll_view;
 use iced::{
-    Alignment, Border, Color, Element, Length, Padding, Task,
+    Alignment, Color, Element, Length, Padding, Task,
     widget::{Space, column, container, operation, row, stack, text},
 };
 use yapfast_core::application::{Action, AppState, DiscordLink};
@@ -405,14 +405,12 @@ pub(crate) fn link_panel<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             .width(Length::Fill)
             .style({
                 let danger = theme.danger;
-                move |_| container::Style {
-                    background: Some(Color { a: 0.1, ..danger }.into()),
-                    border: Border {
-                        color: Color { a: 0.35, ..danger },
-                        width: 1.0,
-                        radius: 8.0.into(),
-                    },
-                    ..Default::default()
+                move |_| {
+                    crate::style::outlined(
+                        Color { a: 0.1, ..danger },
+                        Color { a: 0.35, ..danger },
+                        8.0,
+                    )
                 }
             });
             let mut panel = column![warning].spacing(12).width(Length::Fill);

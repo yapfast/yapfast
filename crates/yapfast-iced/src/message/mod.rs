@@ -6,7 +6,7 @@
 //! playing), and reaction chips with who reacted in their tooltips.
 
 use iced::{
-    Alignment, Color, Element, Length, Padding, Point,
+    Alignment, Element, Length, Padding, Point,
     widget::{Space, button, column, container, mouse_area, row, span, stack, text},
 };
 use yapfast_core::chat::{self, ChatMessage, NoticeKind, Placement};
@@ -57,9 +57,8 @@ const REACTION_EMOJI: u32 = 18;
 pub const PICTURE_RADIUS: f32 = 8.0;
 /// A message's sticker, as Discord draws it whatever size its picture is.
 pub const STICKER: f32 = 160.0;
-/// The play mark over a video's poster, and its ground.
+/// The play mark over a video's poster.
 const PLAY_BADGE: f32 = 48.0;
-const PLAY_GROUND: Color = Color::from_rgba8(0, 0, 0, 0xb3 as f32 / 255.0);
 /// The reply spine's square.
 const SPINE: u32 = 33;
 /// The hover bar's buttons.

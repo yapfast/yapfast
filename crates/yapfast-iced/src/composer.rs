@@ -9,7 +9,7 @@
 //! draft.
 
 use iced::{
-    Alignment, Border, Element, Length, Padding, Task, keyboard,
+    Alignment, Element, Length, Padding, Task, keyboard,
     widget::{Id, Space, button, column, container, operation, row, text, tooltip},
 };
 use yapfast_core::{
@@ -914,14 +914,7 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
     }
     let frame = container(inside.push(line))
         .width(Length::Fill)
-        .style(move |_| container::Style {
-            border: Border {
-                color: edge,
-                width: 1.0,
-                radius,
-            },
-            ..rounded(ground, radius)
-        });
+        .style(move |_| crate::style::outlined(ground, edge, radius));
     Popover::new(
         frame,
         crate::suggest::suggestions_view(ctx, Writing::Draft),
