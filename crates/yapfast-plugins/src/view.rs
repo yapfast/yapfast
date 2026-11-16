@@ -10,7 +10,10 @@
 //! rather than guessed: a marketplace catalog, an update to roll back to, and
 //! a plugin's icon. The page draws those parts only when they are there.
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::path::Path;
+use std::sync::{Arc, PoisonError};
+use std::time::SystemTime;
 
 use yapfast_plugin_api::capability::Capability;
 use yapfast_plugin_api::message::PluginStatus;
@@ -19,7 +22,108 @@ use crate::bridge::{self, Bridge};
 use crate::grants::Grants;
 use crate::page::{Advanced, Grant, Helper, Installed, LogLine, Origin, Status, Suspension, View};
 use crate::registry::Listed;
-use crate::settings::Form;
+use crate::settings::{Form, Schema, Values};
+use crate::store::{Lock, LockEntry, Store};
+use yapfast_plugin_api::PluginId;
+
+/// What the page reads from disk, kept between draws.
+///
+/// The page is drawn again for every plugin status and log line while it is
+/// open, on the thread that draws, and each draw read `lock.json`, every
+/// manifest, every icon and every settings file. Now a draw looks at two
+/// modification times: the store's directories are named by their content, so
+/// a plugin's icon and settings schema are read once per install, and the lock
+/// and settings files are read again only when they changed on disk.
+#[derive(Default)]
+pub(crate) struct DiskCache {
+    lock: Option<(Option<SystemTime>, Arc<Lock>)>,
+    plugins: HashMap<PluginId, Disk>,
+}
+
+/// One installed plugin's files, as the page last read them.
+struct Disk {
+    /// The install these were read from: the store directory and the manifest
+    /// it was reviewed with, which together name its files.
+    install: (String, String),
+    icon: Option<Arc<[u8]>>,
+    schema: Arc<Schema>,
+    /// The settings file's modification time when `values` were read from it.
+    settings: Option<(Option<SystemTime>, Values)>,
+}
+
+impl DiskCache {
+    /// The lock file, read again only if it changed since the last draw.
+    fn lock(&mut self, store: &Store) -> Option<Arc<Lock>> {
+        let modified = modified(&store.lock_path());
+        if let Some((seen, lock)) = &self.lock
+            && *seen == modified
+            && modified.is_some()
+        {
+            return Some(Arc::clone(lock));
+        }
+        let lock = Arc::new(store.lock().ok()?);
+        self.lock = Some((modified, Arc::clone(&lock)));
+        Some(lock)
+    }
+
+    /// One plugin's icon and settings form, read from disk only for what
+    /// changed since the last draw.
+    fn plugin(
+        &mut self,
+        store: &Store,
+        plugin: &PluginId,
+        manifest: &yapfast_plugin_api::PluginManifest,
+        entry: &LockEntry,
+    ) -> (Option<Arc<[u8]>>, Form) {
+        let install = (entry.store.clone(), entry.manifest_sha256.clone());
+        let disk = match self.plugins.get_mut(plugin) {
+            Some(disk) if disk.install == install && !install.0.is_empty() => disk,
+            _ => {
+                let schema = store
+                    .manifest_text(entry)
+                    .ok()
+                    .and_then(|text| crate::Manifest::parse(&text).ok())
+                    .map(|manifest| Arc::clone(&manifest.settings))
+                    .unwrap_or_default();
+                let disk = Disk {
+                    install,
+                    icon: store.icon(entry, manifest).map(Arc::from),
+                    schema,
+                    settings: None,
+                };
+                self.plugins.insert(plugin.clone(), disk);
+                self.plugins.get_mut(plugin).expect("just inserted")
+            }
+        };
+        let modified = modified(&store.settings_path(plugin));
+        let values = match &disk.settings {
+            Some((seen, values)) if *seen == modified => values.clone(),
+            _ => {
+                let stored = store.settings(plugin, manifest);
+                let (values, _refused) = disk.schema.read(&stored);
+                disk.settings = Some((modified, values.clone()));
+                values
+            }
+        };
+        (
+            disk.icon.clone(),
+            Form::new(Arc::clone(&disk.schema), values),
+        )
+    }
+
+    /// Forgets the plugins that are no longer installed.
+    fn keep(&mut self, installed: &[Listed]) {
+        self.plugins
+            .retain(|id, _| installed.iter().any(|listed| &listed.manifest.id == id));
+    }
+}
+
+/// When a file last changed, or `None` when it isn't there.
+fn modified(path: &Path) -> Option<SystemTime> {
+    std::fs::metadata(path)
+        .and_then(|meta| meta.modified())
+        .ok()
+}
 
 impl Bridge {
     /// What Settings → Plugins shows: a row per installed plugin, what each is
@@ -48,9 +152,15 @@ impl Bridge {
     /// One row per installed plugin, in id order.
     fn installed(&self, grants: &Grants, clock: &dyn Fn(u64) -> String) -> Vec<Installed> {
         let shared = self.shared();
-        let mut store = shared.store();
-        let lock = store.lock().ok();
-        self.listed()
+        let store = shared.store();
+        let mut cache = self
+            .page_cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let lock = cache.lock(&store);
+        let listed = self.listed();
+        cache.keep(&listed);
+        listed
             .into_iter()
             .map(|listed| {
                 let id = &listed.manifest.id;
@@ -58,13 +168,14 @@ impl Bridge {
                     .as_ref()
                     .and_then(|lock| lock.plugins.get(id).cloned())
                     .unwrap_or_default();
+                let (icon, settings) = cache.plugin(&store, id, &listed.manifest, &entry);
                 Installed {
                     id: id.to_string(),
                     name: listed.manifest.name.clone(),
                     description: listed.manifest.description.clone().unwrap_or_default(),
                     authors: listed.manifest.authors.clone(),
                     version: listed.manifest.version.to_string(),
-                    icon: store.icon(&entry, &listed.manifest),
+                    icon,
                     enabled: listed.enabled,
                     status: status(&listed.status),
                     update: None,
@@ -88,7 +199,7 @@ impl Bridge {
                     grants: granted(grants, &listed),
                     memory_pages: listed.manifest.limits.memory_pages,
                     quiet_denials: grants.quiet_denials(&listed.manifest.id),
-                    settings: form(&mut store, id, &listed.manifest, &entry),
+                    settings,
                     log: listed
                         .log
                         .iter()

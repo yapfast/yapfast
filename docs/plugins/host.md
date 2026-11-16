@@ -334,6 +334,12 @@ A plugin whose module is gone from the store, as after an uninstall, is the one
 case with nothing to swap in: the plugins that needed it are turned off first,
 and the helper stops and starts again from what the store holds.
 
+Stopping the helper never holds the window. Turning the last plugin off or
+removing one asks the helper to stop and leaves the waiting to the application's
+runtime: up to three seconds for its plugins to save, then the store's flush. A
+helper the next plugin needs starts only after that, so two never run at once,
+and only the application's exit waits for it on its own thread.
+
 ## Development reload
 
 A plugin can be loaded from a folder on this computer instead of a repository:

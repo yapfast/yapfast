@@ -649,6 +649,17 @@ impl Store {
     }
 
     /// Where a plugin's storage and settings sit.
+    /// Where `lock.json` is, for a reader that checks whether it changed
+    /// before reading it again.
+    pub fn lock_path(&self) -> PathBuf {
+        self.root.join(LOCK)
+    }
+
+    /// Where one plugin's settings are kept, for the same check.
+    pub fn settings_path(&self, plugin: &PluginId) -> PathBuf {
+        self.data_dir(plugin).join(SETTINGS)
+    }
+
     pub fn data_dir(&self, plugin: &PluginId) -> PathBuf {
         self.root.join(DATA).join(plugin.as_str())
     }

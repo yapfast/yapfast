@@ -62,7 +62,10 @@ pub struct Installed {
     /// The icon's own bytes, when its manifest named one and the install kept
     /// it. The page draws its initial instead when this is `None`, so a plugin
     /// without one still has a face in a list that expects one.
-    pub icon: Option<Vec<u8>>,
+    ///
+    /// Shared with the page's cache of what it read from disk, so a redraw
+    /// copies a pointer rather than the picture.
+    pub icon: Option<Arc<[u8]>>,
     pub enabled: bool,
     pub status: Status,
     /// A newer version on its ref; see [`Update`].

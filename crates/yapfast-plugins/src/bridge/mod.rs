@@ -198,6 +198,12 @@ pub struct Bridge {
     pub(super) shared: Arc<Shared>,
     /// The running supervisor, or nothing when the helper isn't needed.
     pub(super) supervisor: Option<Supervisor>,
+    /// A helper on its way out, which the next supervisor waits for before it
+    /// starts another: stopping one waits up to [`CLOSE_WAIT`] for its plugins
+    /// to save, and that wait is the runtime's, never the window's.
+    pub(super) closing: Option<Task>,
+    /// What Settings → Plugins read from disk, kept between its draws.
+    pub(super) page_cache: Mutex<crate::view::DiskCache>,
     /// Bumped for each send held for a hook chain: the composer's spinner and
     /// the answer that replaces it pair on this number.
     pub(super) next_send: u64,

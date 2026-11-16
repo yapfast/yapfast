@@ -105,6 +105,8 @@ fn a_plugin_that_may_not_read_people_is_never_asked_how_they_look() {
         fetches: Vec::new(),
         shared,
         supervisor: None,
+        closing: None,
+        page_cache: Mutex::default(),
         next_send: 0,
     };
     assert!(!bridge.identifies());

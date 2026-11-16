@@ -185,9 +185,9 @@ impl Bridge {
             } else {
                 // Nothing is left to run, so the process goes: that is what an idle
                 // Yapfast is. Asking rather than dropping the task lets the helper
-                // write what the plugin saved on its way out, which `close` waits
-                // for.
-                self.close();
+                // write what the plugin saved on its way out, which the runtime
+                // waits for rather than this thread.
+                self.close_soon();
             }
         }
         for id in &turning {

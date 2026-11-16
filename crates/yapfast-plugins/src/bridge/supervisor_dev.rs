@@ -61,7 +61,7 @@ impl Bridge {
     /// no longer holds. That is the one case a swap can't cover, because there is
     /// nothing to swap in.
     pub(super) fn reload(&mut self) {
-        self.close();
+        self.close_soon();
         let registry = Registry::load(&self.shared.store());
         *self.shared.registry_mut() = registry;
         self.shared.publish();

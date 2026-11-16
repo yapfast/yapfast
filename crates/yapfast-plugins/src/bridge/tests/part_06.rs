@@ -334,6 +334,7 @@ fn a_limits_change_waiting_after_an_exit_starts_no_helper() {
         tokio::time::timeout(
             Duration::from_secs(2),
             supervise(
+                None,
                 Arc::clone(&shared),
                 receiver,
                 directory.path().to_owned(),

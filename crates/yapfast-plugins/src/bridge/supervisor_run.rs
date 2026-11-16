@@ -6,11 +6,17 @@ use super::*;
 /// A process is started only when there is a command for it: with nothing to do,
 /// this task holds a channel and no process at all.
 pub(super) async fn supervise(
+    after: Option<Task>,
     shared: Arc<Shared>,
     mut commands: tokio::sync::mpsc::UnboundedReceiver<Request>,
     data_dir: PathBuf,
     stderr: fn() -> std::process::Stdio,
 ) {
+    // The last helper finishes stopping first, so this one's process never
+    // runs beside it and its exit can't clear what this one set up.
+    if let Some(after) = after {
+        let _ = after.await;
+    }
     let mut restarts = Restarts::new();
     loop {
         let first = match commands.recv().await {

@@ -49,6 +49,8 @@ impl Bridge {
             fetches: Vec::new(),
             shared,
             supervisor: None,
+            closing: None,
+            page_cache: Mutex::default(),
             next_send: 0,
         })
     }

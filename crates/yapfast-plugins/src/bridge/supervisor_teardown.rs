@@ -88,6 +88,7 @@ impl Bridge {
         if self.supervisor.is_none() {
             let (commands, receiver) = tokio::sync::mpsc::unbounded_channel();
             let task = match self.host.tasks.spawn(Box::pin(supervise(
+                self.closing.take(),
                 self.shared.clone(),
                 receiver,
                 self.data_dir.clone(),
@@ -109,9 +110,54 @@ impl Bridge {
         self.supervisor.as_ref()
     }
 
+    /// Stops the helper without waiting for it: what turning the last plugin
+    /// off and an uninstall do, from the thread that draws.
+    ///
+    /// The wait for its plugins to save, and the store's flush after it, run on
+    /// the application's runtime. The next supervisor waits for them before it
+    /// starts a helper, so a fresh process never runs beside the last one.
+    pub(super) fn close_soon(&mut self) {
+        let Some(supervisor) = self.supervisor.take() else {
+            return;
+        };
+        if self.shared.off().is_some() {
+            // No process to stop: dropping the task is enough.
+            return;
+        }
+        let _ = supervisor.commands.send(Request::Shutdown);
+        let previous = self.closing.take();
+        let stopping = async move {
+            if let Some(previous) = previous {
+                let _ = previous.await;
+            }
+            let mut supervisor = supervisor;
+            if tokio::time::timeout(CLOSE_WAIT, &mut supervisor.task)
+                .await
+                .is_err()
+            {
+                tracing::warn!("the plugin helper is still stopping; leaving it to exit");
+            }
+            // Whatever a plugin saved is written before the process that asked
+            // for it is gone, so the last change is not lost to a stop.
+            supervisor.shared.store().flush();
+        };
+        // A runtime that won't take the work drops it, and with it the
+        // supervisor, which stops the helper without the wait.
+        if let Ok(task) = self.host.tasks.spawn(Box::pin(stopping)) {
+            self.closing = Some(task);
+        }
+    }
+
     /// Stops the helper and waits for it, so the next start is a fresh process
-    /// rather than a second one beside the first.
+    /// rather than a second one beside the first. Only the application's exit
+    /// waits like this; everything a person does goes through
+    /// [`Self::close_soon`].
     pub(super) fn close(&mut self) {
+        if let Some(mut closing) = self.closing.take()
+            && !self.host.tasks.wait(&mut closing, CLOSE_WAIT)
+        {
+            tracing::warn!("a plugin helper that was stopping hasn't finished");
+        }
         // Kept whole rather than taken apart: dropping it is what forgets the
         // helper's process id, and every way out of this function goes through
         // that drop.
