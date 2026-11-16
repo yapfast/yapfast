@@ -792,8 +792,6 @@ pub(super) fn profile_data(
                     kind: connection.kind.as_str().into(),
                     name: connection.name.as_str().into(),
                     url: connection.url.as_deref().unwrap_or_default().into(),
-                    since: connection.since.as_deref().unwrap_or_default().into(),
-                    verified: connection.verified,
                 })
                 .collect::<Vec<_>>(),
         )),
@@ -871,9 +869,14 @@ pub(super) fn profile_data(
         },
         note_text: profile.note.as_str().into(),
         note_editable: !profile.id.starts_with('@') && !own,
+        // In their DM too, whose menu has no Message, as Discord's full
+        // profile offers it there.
         can_message: state
             .person_choices(&profile.id)
-            .contains(&MenuChoice::Message),
+            .contains(&MenuChoice::Message)
+            || state
+                .one_to_one()
+                .is_some_and(|room| room.person.as_deref() == Some(profile.id.as_str())),
         // Discord's card names them as the profile does.
         message_hint: if state
             .person_choices(&profile.id)

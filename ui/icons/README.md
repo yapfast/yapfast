@@ -29,7 +29,7 @@ glyphs such as check, x and chevrons.
 - Drawn for Yapfast in Solar's manner: gif, hash, mic and mic-off, the
   signal-high, signal-medium and signal-low bars, soundboard (the speaker of
   volume-2 with two sparkles), thread (a spool of thread,
-  as Discord marks threads), user-minus, user-pen, user-plus and user-x, and
+  as Discord marks threads), user-check, user-minus, user-pen, user-plus and user-x, and
   the speaker of volume-2, volume-2-bold and volume-x; community, gamepad,
   id-filled, music, plus, trophy, tv and verified; gem, a hexagonal gem
   drawn as an outline round a solid core, which marks a member boosting

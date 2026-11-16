@@ -990,8 +990,10 @@ export component TextField inherits Rectangle {
     /// it keeps its shape on a ground of its own colour; the keys' ring takes
     /// its place. A field with no ground of its own has none.
     in property <bool> rim: root.ring;
-    /// What the placeholder is drawn in.
+    /// What the placeholder is drawn in, and whether in italics, as a
+    /// profile's note asks.
     in property <color> placeholder-color: Theme.muted;
+    in property <bool> placeholder-italic;
     /// The text's colour, for a field on another ground than Yapfast's own.
     in property <color> ink: Theme.text;
     /// A picture at the field's right end, such as a smiley, which the text
@@ -1019,6 +1021,7 @@ export component TextField inherits Rectangle {
         x: root.pad; width: root.width - 2 * root.pad - root.trailing; height: root.height;
         visible: root.text == "";
         text: root.placeholder; color: root.enabled ? root.placeholder-color : Theme.faint; font-size: root.text-size;
+        font-italic: root.placeholder-italic;
         vertical-alignment: center; overflow: elide;
     }
     Rectangle {

@@ -384,6 +384,9 @@ export component YapfastWindow inherits Window {
     in property <string> room-initial;
     in property <color> room-tint;
     in property <image> room-picture;
+    /// A one-to-one DM's other person, whose card their picture and name in
+    /// the header open; empty in any other room.
+    in property <string> room-person;
     /// The open room's id, which its header's menus name.
     in property <string> room-id;
     /// A Discord server channel's topic: on one line in the header, and in
@@ -2254,6 +2257,13 @@ export component YapfastWindow inherits Window {
         root.profile-at-pointer = true;
         root.show-profile(sender);
     }
+    // A one-to-one DM's person, from their button in the header: their card
+    // opens under it, its left edge on the button's, and grows from there.
+    function header-card(x: length, y: length, height: length) {
+        root.anchor(x - 8px, y + height + 16px, 0px, 0px, false);
+        root.profile-at-pointer = true;
+        root.show-profile(root.room-person);
+    }
     function author-menu(item: string, sender: string, x: length, y: length) {
         root.active-item = item;
         root.open-context-menu(sender, true, x, y);
@@ -3117,13 +3127,69 @@ export component YapfastWindow inherits Window {
                 Rectangle {
                     height: ClientStyle.header-height;
                     HorizontalLayout {
-                        padding-left: 16px; padding-right: 16px; spacing: 10px;
-                        if root.room-direct: Middle {
+                        // A one-to-one DM's person sits 4px into their button, the
+                        // picture where a group's stays.
+                        padding-left: root.room-person != "" ? 12px : 16px; padding-right: 16px; spacing: 10px;
+                        if root.room-direct && root.room-person == "": Middle {
                             Rectangle {
                                 width: 26px; height: 26px;
                                 Avatar { size: 26px; initial: root.room-initial; tint: root.room-tint; picture: root.room-picture; }
                                 if root.room-presence != "": StatusDot {
                                     x: 14px; y: 14px; width: 14px; height: 14px; presence: root.room-presence; ring: Theme.chat;
+                                }
+                            }
+                        }
+                        // A one-to-one DM's person, as in Discord's header: their
+                        // picture and name are a button, as the header's others
+                        // are, that opens their card under it, as their name on
+                        // a message does.
+                        if root.room-person != "": Middle {
+                            dm-title := Rectangle {
+                                height: 32px;
+                                min-width: 42px; preferred-width: dm-title-row.preferred-width; max-width: self.preferred-width;
+                                horizontal-stretch: 0;
+                                border-radius: 6px;
+                                background: dm-title-touch.has-hover ? transparent.mix(Theme.overlay, 0.9) : transparent;
+                                animate background { duration: Theme.quick; }
+                                border-width: dm-title-focus.has-focus ? 2px : 0px;
+                                border-color: Theme.accent;
+                                // The status dot's ring is the ground under it, so it
+                                // fades with the button's.
+                                property <color> ring: dm-title-touch.has-hover ? Theme.chat.mix(Theme.overlay, 0.9) : Theme.chat;
+                                animate ring { duration: Theme.quick; }
+                                accessible-role: button;
+                                accessible-label: @tr("Open {}'s profile", root.room-name);
+                                accessible-action-default => { root.header-card(dm-title.absolute-position.x, dm-title.absolute-position.y, dm-title.height); }
+                                forward-focus: dm-title-focus;
+                                dm-title-row := HorizontalLayout {
+                                    padding-left: 4px; padding-right: 8px; spacing: 10px;
+                                    transform-scale: dm-title-touch.pressed ? 0.97 : 1;
+                                    Middle {
+                                        Rectangle {
+                                            width: 26px; height: 26px;
+                                            Avatar { size: 26px; initial: root.room-initial; tint: root.room-tint; picture: root.room-picture; }
+                                            if root.room-presence != "": StatusDot {
+                                                x: 14px; y: 14px; width: 14px; height: 14px; presence: root.room-presence;
+                                                ring: dm-title.ring;
+                                            }
+                                        }
+                                    }
+                                    Text {
+                                        text: root.room-name; color: Theme.text;
+                                        font-size: 16px; font-weight: 700; overflow: elide; vertical-alignment: center;
+                                    }
+                                }
+                                dm-title-focus := FocusScope {
+                                    key-pressed(event) => {
+                                        if event.text == "\n" || event.text == " " {
+                                            root.header-card(dm-title.absolute-position.x, dm-title.absolute-position.y, dm-title.height); return accept;
+                                        }
+                                        return reject;
+                                    }
+                                }
+                                dm-title-touch := TouchArea {
+                                    mouse-cursor: MouseCursor.pointer;
+                                    clicked => { root.header-card(dm-title.absolute-position.x, dm-title.absolute-position.y, dm-title.height); }
                                 }
                             }
                         }
@@ -3148,7 +3214,9 @@ export component YapfastWindow inherits Window {
                         if root.requests-open: Image { source: @image-url("icons/inbox.svg"); width: 22px; image-fit: contain; colorize: Theme.muted; }
                         if root.friends-open: Image { source: @image-url("icons/users.svg"); width: 22px; image-fit: contain; colorize: Theme.muted; }
                         if root.browse-open: Image { source: @image-url("icons/hash.svg"); width: 22px; image-fit: contain; colorize: Theme.muted; }
-                        Text {
+                        // After a one-to-one DM's button, the room it leaves.
+                        if root.room-person != "" && !root.room-has-activity: Rectangle { horizontal-stretch: 1; }
+                        if root.room-person == "": Text {
                             text: root.room-selected ? root.room-name : root.requests-open ? @tr("Requests") : root.friends-open ? @tr("Friends") : root.browse-open ? @tr("Browse Channels") : root.sidebar-title;
                             color: root.room-selected || root.requests-open || root.friends-open || root.browse-open ? Theme.text : Theme.secondary;
                             font-size: 16px; font-weight: 700; overflow: elide; vertical-alignment: center;
@@ -4960,16 +5028,19 @@ export component YapfastWindow inherits Window {
                 return reject;
             }
         }
+        // Discord's size, 960 by 800, the same whatever the window, which
+        // only makes it smaller. A frame's staple stands 52px over the modal,
+        // so with one the modal keeps 60px from the window's top and foot;
+        // a window too short for that and a modal 560px high shows none, as
+        // Discord's does.
+        property <bool> profile-frame: root.profile.frame.length > 0 && root.height - 120px >= 560px;
         ProfileModal {
             opacity: Popup.opacity(large-profile-motion.amount); transform-scale: Popup.scale(large-profile-motion.amount);
-            // In a narrow window it takes more of the width, so its tabs'
-            // words, longer in a translation, stay whole beside the card.
-            width: max(root.width * 0.7, min(880px, root.width - 48px)); height: min(max(root.height * 0.75, 520px), root.height - 32px);
+            width: min(960px, root.width - 32px);
+            height: min(800px, root.height - (parent.profile-frame ? 120px : 32px));
             x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
             data: root.profile;
-            // As Discord's, a window too short to leave room above the card
-            // shows no frame.
-            show-frame: root.height > 785px;
+            show-frame: parent.profile-frame;
             start-tab: root.profile-start-tab;
             close => { root.close-profile(); }
             befriend => { root.befriend(root.profile.id); }

@@ -2123,7 +2123,15 @@ impl Adapter {
             activity_line(room.and_then(|room| room.activity.as_deref()));
         window.set_room_activity(activity);
         window.set_room_activity_emoji(activity_emoji);
-        window.set_profile_available(state.one_to_one().is_some());
+        let one_to_one = state.one_to_one();
+        window.set_profile_available(one_to_one.is_some());
+        // Their picture and name in the header open their card.
+        window.set_room_person(
+            one_to_one
+                .and_then(|room| room.person.as_deref())
+                .unwrap_or_default()
+                .into(),
+        );
         window.set_room_request(room.is_some_and(|room| room.request));
         // What opens a server channel's history in Discord's client: "Welcome
         // to" the server for its first channel, else the channel itself.

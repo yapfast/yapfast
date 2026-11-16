@@ -11239,6 +11239,62 @@ fn yapfast_docked_profile_opens_the_existing_full_profile() {
 }
 
 #[test]
+fn a_one_to_one_dms_header_opens_their_card() {
+    use i_slint_core::{accessibility::AccessibleStringProperty, item_tree::ItemRc};
+    use slint::platform::{PointerEventButton, WindowEvent};
+    use std::ops::ControlFlow;
+    let window = one_message("Synthetic message");
+    window.set_room_selected(true);
+    window.set_room_direct(true);
+    window.set_room_name("Sam".into());
+    window.set_room_person("42".into());
+    let opened = Rc::new(RefCell::new(Vec::<String>::new()));
+    window.on_show_profile({
+        let opened = opened.clone();
+        move |user| opened.borrow_mut().push(user.into())
+    });
+    window.show().unwrap();
+    settle(&window);
+    // Their picture and name are one button, named for screen readers.
+    let button = |window: &YapfastWindow| {
+        let inner = i_slint_core::window::WindowInner::from_pub(window.window());
+        ItemRc::new_root(inner.component()).visit_descendants(|item| {
+            let label = item.accessible_string_property(AccessibleStringProperty::Label);
+            if label.as_deref() == Some("Open Sam's profile") && item.is_visible() {
+                ControlFlow::Break(item.clone())
+            } else {
+                ControlFlow::Continue(())
+            }
+        })
+    };
+    let found = button(&window).expect("the header's button");
+    // A click on it opens their card, as a click on their name on a message
+    // does, at the button rather than beside the member list.
+    let at = found.map_to_window(found.geometry().center());
+    let position = slint::LogicalPosition::new(at.x, at.y);
+    window.window().dispatch_event(WindowEvent::PointerPressed {
+        position,
+        button: PointerEventButton::Left,
+    });
+    window
+        .window()
+        .dispatch_event(WindowEvent::PointerReleased {
+            position,
+            button: PointerEventButton::Left,
+        });
+    assert_eq!(*opened.borrow(), ["42"]);
+    assert!(window.get_profile_at_pointer());
+    // A screen reader presses it too.
+    found.accessible_action(&i_slint_core::accessibility::AccessibilityAction::Default);
+    assert_eq!(*opened.borrow(), ["42", "42"]);
+    // A group DM's header has no person to open: its name is no button.
+    window.set_room_person("".into());
+    settle(&window);
+    assert!(button(&window).is_none(), "a group's name opens nothing");
+    window.hide().unwrap();
+}
+
+#[test]
 fn yapfast_dm_heading_keeps_friend_and_new_message_actions() {
     use slint::platform::{PointerEventButton, WindowEvent};
     let window = one_message("Synthetic message");

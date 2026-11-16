@@ -2123,13 +2123,17 @@ export component ProfileEditorDialog inherits Rectangle {
                                 // profile's buttons: Message can't be sent to oneself.
                                 if root.prompt.main: HorizontalLayout {
                                     spacing: 8px; alignment: start;
-                                    ProfileAction { text: @tr("Message"); ink: root.ink; enabled: false; }
+                                    ProfileAction { text: @tr("Message"); icon: @image-url("icons/message-circle.svg"); primary: true; enabled: false; }
                                     ProfileAction {
                                         icon: @image-url("icons/shop.svg"); label: @tr("Shop"); ink: root.ink;
+                                        tile: root.themed ? ProfileTheme.tile(root.theme-light) : root.ink.transparentize(0.88);
+                                        tile-hover: root.themed ? ProfileTheme.tile-hover(root.theme-light) : root.ink.transparentize(0.8);
                                         clicked => { root.open-link("https://discord.com/shop"); }
                                     }
                                     more-button := ProfileAction {
                                         icon: @image-url("icons/ellipsis.svg"); label: @tr("More"); ink: root.ink;
+                                        tile: root.themed ? ProfileTheme.tile(root.theme-light) : root.ink.transparentize(0.88);
+                                        tile-hover: root.themed ? ProfileTheme.tile-hover(root.theme-light) : root.ink.transparentize(0.8);
                                         clicked => { more-menu.show(); }
                                     }
                                     more-menu := PopupWindow {
@@ -2169,7 +2173,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                     spacing: 6px;
                                     HorizontalLayout {
                                         spacing: 6px; alignment: start;
-                                        Middle { ProfileHeading { text: root.prompt.main ? @tr("Bio") : @tr("ABOUT ME"); color: root.prompt.main ? root.ink : root.ink3; font-size: 12px; font-weight: 700; letter-spacing: root.prompt.main ? 0px : 0.6px; } }
+                                        Middle { ProfileHeading { text: root.prompt.main ? @tr("Bio") : @tr("ABOUT ME"); color: root.prompt.main ? root.ink : root.ink3; font-size: root.prompt.main ? 13px : 12px; font-weight: root.prompt.main ? 500 : 700; letter-spacing: root.prompt.main ? 0px : 0.6px; } }
                                         if !root.prompt.bio-enabled && !root.prompt.loading: Middle {
                                             Image { source: @image-url("icons/lock.svg"); width: 13px; height: 13px; colorize: root.ink3; }
                                         }
@@ -2228,17 +2232,18 @@ export component ProfileEditorDialog inherits Rectangle {
                                 if root.prompt.preview.created != "" || root.prompt.preview.joined != "": VerticalLayout {
                                     spacing: 6px;
                                     // The main profile's in its card's words, a server's as a heading.
-                                    ProfileHeading { text: root.prompt.main ? @tr("Member Since") : @tr("MEMBER SINCE"); color: root.prompt.main ? root.ink : root.ink3; font-size: 12px; font-weight: 700; letter-spacing: root.prompt.main ? 0px : 0.6px; }
+                                    ProfileHeading { text: root.prompt.main ? @tr("Member Since") : @tr("MEMBER SINCE"); color: root.prompt.main ? root.ink : root.ink3; font-size: root.prompt.main ? 13px : 12px; font-weight: root.prompt.main ? 500 : 700; letter-spacing: root.prompt.main ? 0px : 0.6px; }
                                     MemberSince {
                                         created: root.prompt.preview.created;
                                         joined: root.prompt.preview.joined;
                                         server-name: root.prompt.preview.server-name; server-initial: root.prompt.preview.server-initial; server-icon: root.prompt.preview.server-icon;
-                                        ink: root.ink;
+                                        // The main profile's as the full profile's card has it.
+                                        ink: root.ink; logo: !root.prompt.main || root.prompt.preview.joined != "";
                                     }
                                 }
                                 if root.prompt.main: VerticalLayout {
                                     spacing: 6px;
-                                    ProfileHeading { text: @tr("Connections"); color: root.prompt.main ? root.ink : root.ink3; font-size: 12px; font-weight: 700; letter-spacing: root.prompt.main ? 0px : 0.6px; }
+                                    ProfileHeading { text: @tr("Connections"); color: root.prompt.main ? root.ink : root.ink3; font-size: root.prompt.main ? 13px : 12px; font-weight: root.prompt.main ? 500 : 700; letter-spacing: root.prompt.main ? 0px : 0.6px; }
                                     Text {
                                         text: @tr("+  Add Connection"); color: root.ink2; font-size: 14px; font-weight: 500;
                                         TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.open-link("https://discord.com/settings/connections"); } }
@@ -2246,11 +2251,11 @@ export component ProfileEditorDialog inherits Rectangle {
                                 }
                                 if root.prompt.main: VerticalLayout {
                                     spacing: 6px;
-                                    ProfileHeading { text: @tr("Note (only visible to you)"); color: root.prompt.main ? root.ink : root.ink3; font-size: 12px; font-weight: 700; letter-spacing: root.prompt.main ? 0px : 0.6px; }
+                                    ProfileHeading { text: @tr("Note (only visible to you)"); color: root.prompt.main ? root.ink : root.ink3; font-size: root.prompt.main ? 13px : 12px; font-weight: root.prompt.main ? 500 : 700; letter-spacing: root.prompt.main ? 0px : 0.6px; }
                                     // As the full profile's note shows it, the words where the
                                     // titles start and the outline 8px past them.
                                     Text {
-                                        text: @tr("Click to add a note"); color: root.ink3; font-size: 14px;
+                                        text: @tr("Click to add a note"); color: root.ink3; font-size: 14px; font-italic: true;
                                         HoverEdit {
                                             x: -8px; y: (parent.height - self.height) / 2; width: parent.width + 16px; height: 32px;
                                             label: @tr("Add a note"); cursor: MouseCursor.text;

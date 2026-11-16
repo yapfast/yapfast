@@ -4597,9 +4597,6 @@ msgstr "Новые на сервере"
 msgid "Member Since (Oldest first)"
 msgstr "Старые на сервере"
 
-msgid "Member since {}"
-msgstr "Участник с {}"
-
 msgid "MEMBERS"
 msgstr "УЧАСТНИКИ"
 
@@ -4683,7 +4680,7 @@ msgstr "Написать"
 
 msgctxt "ProfileEditorDialog"
 msgid "Message"
-msgstr "Написать"
+msgstr "Сообщение"
 
 msgctxt "ProfileModal"
 msgid "Message"
@@ -10238,3 +10235,9 @@ msgid_plural "You left: no one else was in the call for {n} minutes"
 msgstr[0] "Вы вышли: в звонке {n} минуту не было никого, кроме вас"
 msgstr[1] "Вы вышли: в звонке {n} минуты не было никого, кроме вас"
 msgstr[2] "Вы вышли: в звонке {n} минут не было никого, кроме вас"
+
+msgid "Open {}'s profile"
+msgstr "Открыть профиль {}"
+
+msgid "Show all badges"
+msgstr "Показать все значки"

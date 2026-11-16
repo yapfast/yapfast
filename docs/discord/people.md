@@ -182,8 +182,11 @@ neither pinning, closing, leaving nor muting, as it waits for an answer.
 ## A DM's header
 
 A DM or group DM's header has, as Discord's does, its call, its pinned
-messages, adding friends, the profile or member list, and a search. Its call
-is two buttons, Start Voice Call and Start Video Call, which joins and turns
+messages, adding friends, the profile or member list, and a search. A
+one-to-one DM's header starts with the other person's picture and name as one
+button, as Discord's: a click, Enter or Space opens their card under it, the
+card a click on their name on a message opens. A group DM's picture and name
+open nothing. Its call is two buttons, Start Voice Call and Start Video Call, which joins and turns
 the camera on once the call connects. Once someone is in the call, the first
 reads Join Voice Call and the second goes, and in the call both go; Discord's
 keeps a Join Video Call for a call already on video, which Yapfast doesn't
@@ -285,7 +288,9 @@ and the servers and friends the account shares with them. The full profile,
 the DM's panel and the profile editor's preview show the dates under "Member
 Since" in one row, as the client does: the Discord logo and the account's
 date, then a bullet, the server's icon (its initial without one) and the date
-of joining it; a profile not asked for a server has only the first. A
+of joining it; a profile not asked for a server has only the first, which
+the full profile and the editor's preview show without the logo, as
+Discord's full profile does. A
 friend's full profile, not the DM's panel, also shows "Friends Since", from
 `since` on their relationship in READY, RELATIONSHIP_ADD and
 RELATIONSHIP_UPDATE, kept for friends alone. These dates read as
@@ -332,17 +337,44 @@ request to someone blocked. When Discord refuses, the card
 keeps what the member list knew and says so. A linked profile with nobody in
 a list to show first opens with the id as its name while that fetch runs.
 
+The full profile is Discord's modal, the same shape at every window size:
+960 by 800 pixels at most, 32 less than the window's width and height when
+it's smaller, centred. Its card, on the left, is 400 wide whatever the
+window, 48 pixels in from the modal's top and left (less in a narrow window,
+24 at least), and runs on past the modal's foot, where it scrolls; the tabs
+take the rest of the width, their top on the card's, and the close button
+sits on a tile of its own in the modal's corner. The card is Discord's: a
+140-pixel banner, a 120-pixel avatar in an 8-pixel ring over its edge with a
+24-pixel status dot, its words 32 pixels in from the sides, the name in
+24 pixels, wrapping when long, and under it the username, the server tag and
+the badges on one line. Its buttons are Message, in the accent with its
+icon, then the friendship as an icon (add, sent, accept, or a person with a
+check for a friend, whose menu it opens) and the person's menu, each 32
+pixels square. Message shows in their own DM too, as Discord's does, and
+goes to it. Sections keep 24 pixels between them, each titled in 13 pixels,
+medium, in the card's text. Connections are rows of the service's mark on
+a tile, the name, and an arrow when Discord gives an address; Yapfast has
+only GitHub's mark, so the others show a link, and a connection's age isn't
+shown, as Discord's card doesn't show it. The note's placeholder is in
+italics. On the tabs, an activity, a past one and a board's widget are each
+a card the column's width.
+
 A profile with a theme, Nitro's two colours, is drawn in them as Discord
-draws it: the card, the full profile's panel, the account's card and the
-editor's preview run from the first colour to the second under a wash. The
+draws it: the card, the account's card and the editor's preview run from
+the first colour to the second under a wash; the full profile's modal is
+one flat colour, the two mixed under the wash and 15% more of it, so its card
+stands out on it as Discord's does. The
 theme is light or dark by its first colour alone, as Discord's client decides
 it: light when its red, green and blue, weighed 0.299, 0.587 and 0.114, come
 to at least half of full. A light theme lies under 60% white, with text in
 black at 96%, 88% and 76% for the strong, subtle and muted kinds, and tiles
 and boxes in 24% white; a dark one lies under 60% black, with the same text in
-white. Yapfast's own theme, light or dark, changes none of it, as Discord's
-light and dark themes don't (`ProfileTheme` in `ui/people.slint`). A profile
-without a theme is drawn in Yapfast's colours.
+white. The full profile's buttons but Message lie on 70% white on a light
+theme, and 12% white on a dark one. Yapfast's own theme, light or dark,
+changes none of it, as Discord's light and dark themes don't
+(`ProfileTheme` in `ui/people.slint`). A profile
+without a theme is drawn in Yapfast's colours: the full profile's card in
+the raised surface's, on the sidebar's.
 
 The profile shows each of the person's activities as a card, as Discord's does:
 what they're playing, streaming, listening to, watching or competing in, or
@@ -418,8 +450,10 @@ The card shows the person's badges, as Discord's does, in pills of pictures
 under the name and handle, twelve to a row, more going on to the next row:
 HypeSquad, Active Developer, a Nitro subscriber's and the like, in the order
 the profile lists them. The account's own card in the account menu and the
-profile editor's preview set them the same way. Discord's six and a "+n"
-count belongs to its badge-management experiment, which is off by default. They come from the
+profile editor's preview set them the same way. The full profile puts them
+on the username's line, as Discord's client does with its badge-management
+experiment: as many as fit, six at most, then "+n", which shows them all in
+rows under the line. They come from the
 `badges` of `GET /users/{id}/profile`: each has an `id`, a `description`, an
 `icon` hash that Yapfast fetches from `/badge-icons/{icon}.png`, and
 sometimes a `link`. Pointing at one shows its description; clicking one that
@@ -704,10 +738,11 @@ anchor; a `border` repeated down the card. Frames are drawn 1312 wide, and a
 staple keeps the same part over the card whatever its height, 412 at the top
 and 212 at the foot, as Discord's frame maker lays them out, so a short one
 hangs out less. The `back` layers go behind the card's contents and the
-others over them. The full profile leaves out the staple at the foot, and
-shows none in a window under 785 pixels tall, which leaves no room above
-the card. The DM's panel and the editor's preview show none, and the panel
-asks for none. Each layer decodes at up to 460 by 1600 (`FRAME_SIZE`), as wide
+others over them. The full profile leaves out the staple at the foot. Its
+top staple stands 52 pixels over the modal, so for a frame the modal keeps
+60 pixels from the window's top and foot, and a window too short for that and
+a modal 560 pixels high, under 680 pixels, shows none. The DM's panel and
+the editor's preview show none, and the panel asks for none. Each layer decodes at up to 460 by 1600 (`FRAME_SIZE`), as wide
 as a card draws it.
 
 A banner whose hash starts with `a_` moves: the card shows its still PNG and
