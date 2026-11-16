@@ -508,10 +508,9 @@ Yapfast is back, rather than showing an error.
   loading skeleton draws a fill. A skeleton's band, and the one across the
   button that loads earlier or newer messages, sweeps only while someone may
   be looking (`Motion.watched`): animations play, the window has the focus
-  and it was used in the last 15 seconds. "Play GIFs, emoji and stickers" at
-  Always doesn't change that, since a picture, GIF or video may never load,
-  and its sweep would ask for a frame at every tick behind whatever is in
-  front. Without the band a skeleton is its fill alone, drawn once.
+  and it was used in the last 15 seconds, since a picture, GIF or video may
+  never load, and its sweep would ask for a frame at every tick for as long
+  as it shows. Without the band a skeleton is its fill alone, drawn once.
 - The context menus (channel, server, member and message) use Discord's
   shades (`Theme.menu`, `Theme.menu-line`, `Theme.danger-text`), a 255px
   minimum width, icons only on the rows Discord gives them, and a greyed

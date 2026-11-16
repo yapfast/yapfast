@@ -91,7 +91,7 @@ what the one latest at it is doing, or "In a Voice Channel", with a row for
 the server and channel and who is in it, which opens the channel; a party's
 card has a row of who is in it. A card shows how long they've been at it
 from the activity's start, ticking once a second only while the friends page
-shows a timer, and a row with Rich Presence's details and state where an
+shows a timer and the window is in front, and a row with Rich Presence's details and state where an
 activity has them. Clicking a card's head opens its first friend's menu. The
 cards are made only while the friends page shows, as Discord makes them only
 while its column is mounted, from the presence and voice states the list
@@ -381,7 +381,8 @@ what they're playing, streaming, listening to, watching or competing in, or
 their Hang status, headed by what it is ("LISTENING TO SPOTIFY"), with its
 large picture and the small one on its corner, its details and state, and their
 party's size as "(2 of 4)". A game with a start shows how long it has run,
-"42:10 elapsed"; one with only an end, how long is left; a song with both, a
+"42:10 elapsed", counting each second while the window is in front; one with
+only an end, how long is left; a song with both, a
 bar under its words, as Discord's, with how far it's got on its left and how
 long it is on its right. A Spotify song is titled by the
 song, then "by" the artist and "on" the album; a podcast's episode, which
@@ -398,7 +399,8 @@ anything but plain characters show no picture. A game Discord detected has no
 pictures, so its card shows the game's icon, which Yapfast asks for once per
 game with `GET /applications/public?application_ids={id}` and downloads from
 `/app-icons/`. Application pictures stay in the picture cache. The timers tick
-once a second, and only while a profile with one shows; the same clock ticks
+once a second, and only while a profile with one shows and the window is in
+front; the same clock ticks
 every 15 seconds for
 [busy voice channels' times](voice.md#how-long-a-channels-call-has-gone-on)
 otherwise. Matrix members and
@@ -674,8 +676,10 @@ decoration while the pointer is on any message of the group, and a card's
 whenever it's open. A nameplate plays while its row is pointed at, and the
 account card's while the card is; a selected row's holds still, as playing
 costs some 7% of a core for as long as it's selected. Everything holds still when Yapfast's window isn't focused
-(`Motion.playing`), and a surface that stops being pointed at goes back to the
-still picture. The animated picture is fetched the first time it's to play,
+(`Motion.playing`), whatever the settings, and a surface that stops being
+pointed at goes back to the still picture. One held still draws nothing more:
+what shows a frame reads the animation clock without following it, so it's
+drawn again only when its frame changes. The animated picture is fetched the first time it's to play,
 and decodes the frame showing: `Picture`'s frames come from the kept file one
 at a time, as a GIF's do, and a decoder is let go a second after its last frame
 shows, so nothing animating off screen keeps anything. The pictures are kept in

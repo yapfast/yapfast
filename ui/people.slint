@@ -105,7 +105,8 @@ export component MemberPanel inherits Rectangle {
     /// The panel shows its header alone.
     in-out property <bool> activity-hidden;
     callback activity-hidden-toggled(bool);
-    /// Once a minute while there are cards, to bring their times up to date.
+    /// Once a minute while there are cards and the window is in front, to
+    /// bring their times up to date.
     callback activity-clock();
     /// Shown instead of the list while it loads or when it can't.
     in property <string> note;
@@ -122,9 +123,11 @@ export component MemberPanel inherits Rectangle {
     accessible-role: list;
     accessible-label: @tr("Members");
     if ClientStyle.enabled: Rectangle { x: 0px; width: 1px; background: Theme.outline-chat; }
+    // Not while the window is behind another: gaining the focus refreshes
+    // the window, and the times with it.
     Timer {
         interval: 60s;
-        running: root.activity-rows.length > 0;
+        running: root.activity-rows.length > 0 && Motion.front;
         triggered => { root.activity-clock(); }
     }
     VerticalLayout {

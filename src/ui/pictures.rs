@@ -431,6 +431,10 @@ struct Frames {
 struct Decoding {
     cursors: Vec<Cursor>,
     used: Option<Duration>,
+    /// The frame a run last gave, which shows again while the frame asked
+    /// for is on its way, as when an animation held still goes on after
+    /// its decoder was let go. The place showing it holds it anyway.
+    last: Option<slint::Image>,
 }
 
 type Frame = (usize, slint::SharedPixelBuffer<slint::Rgba8Pixel>);
@@ -539,22 +543,29 @@ impl Model for Frames {
         if row >= self.row_count() {
             return None;
         }
-        let now = Duration::from(i_slint_core::animations::current_tick());
-        let image = {
-            let mut decoding = self.decoding.borrow_mut();
-            decoding.used = Some(now);
-            self.frame(&mut decoding, row, now)
-        };
-        FRAME_SWEEP.with(|timer| {
-            if !timer.running() {
-                timer.start(slint::TimerMode::Repeated, IDLE_FRAMES, || {
-                    if !sweep(i_slint_core::animations::current_tick().into()) {
-                        FRAME_SWEEP.with(slint::Timer::stop);
-                    }
-                });
-            }
-        });
-        Some(image)
+        // The binding that asks depends on none of this, the animation clock
+        // least of all: one that did would be evaluated again at every tick,
+        // and as drawing a window moves the clock on, a picture held still,
+        // by a window behind another or a hover that ended, would draw again
+        // at every frame for as long as it showed.
+        Some(i_slint_core::properties::evaluate_no_tracking(|| {
+            let now = Duration::from(i_slint_core::animations::current_tick());
+            let image = {
+                let mut decoding = self.decoding.borrow_mut();
+                decoding.used = Some(now);
+                self.frame(&mut decoding, row, now)
+            };
+            FRAME_SWEEP.with(|timer| {
+                if !timer.running() {
+                    timer.start(slint::TimerMode::Repeated, IDLE_FRAMES, || {
+                        if !sweep(i_slint_core::animations::current_tick().into()) {
+                            FRAME_SWEEP.with(slint::Timer::stop);
+                        }
+                    });
+                }
+            });
+            image
+        }))
     }
 
     fn model_tracker(&self) -> &dyn slint::ModelTracker {
@@ -606,10 +617,16 @@ impl Frames {
         let cursor = &mut cursors[at];
         cursor.used = now;
         cursor.advance(row, count);
-        cursor
-            .shown
-            .as_ref()
-            .map_or_else(|| picture(&self.picture), |(_, image)| image.clone())
+        match &cursor.shown {
+            Some((_, image)) => {
+                decoding.last = Some(image.clone());
+                image.clone()
+            }
+            None => decoding
+                .last
+                .clone()
+                .unwrap_or_else(|| picture(&self.picture)),
+        }
     }
 }
 
@@ -627,7 +644,7 @@ fn sweep(now: Duration) -> bool {
                 .cursors
                 .retain(|cursor| now.saturating_sub(cursor.used) < IDLE_FRAMES);
             if decoding.cursors.is_empty() {
-                *decoding = Decoding::default();
+                decoding.used = None;
             }
             active |= decoding.used.is_some();
         }
@@ -1083,6 +1100,57 @@ mod tests {
         assert!(model.decoding.borrow().cursors.is_empty());
         FRAME_SWEEP.with(|timer| assert!(!timer.running()));
         assert_eq!(shown.size(), frames.row_data(0).unwrap().size());
+    }
+
+    /// What shows a frame is evaluated again when its frame changes, not at
+    /// every tick of the animation clock: a picture held still, as in a
+    /// window behind another, asks for no frame to be drawn.
+    #[test]
+    fn a_frame_shown_does_not_follow_the_clock() {
+        i_slint_backend_testing::init_no_event_loop();
+        let file = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("testing/fixtures/gif-h264.mp4"),
+        )
+        .unwrap();
+        let picture = Arc::new(yapfast_core::chat::decode_picture(&file, 32, 32).unwrap());
+        let (frames, _) = animation(&picture);
+        // As an Image's source binds a Picture's frame.
+        let source = Box::pin(i_slint_core::Property::new(slint::Image::default()));
+        source
+            .as_ref()
+            .set_binding(move || frames.row_data(3).unwrap_or_default());
+        source.as_ref().get();
+        i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(16));
+        slint::platform::update_timers_and_animations();
+        assert!(!source.as_ref().is_dirty(), "the next tick redraws nothing");
+    }
+
+    #[test]
+    fn a_frame_on_its_way_leaves_the_last_one_showing() {
+        i_slint_backend_testing::init_no_event_loop();
+        let file = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("testing/fixtures/gif-h264.mp4"),
+        )
+        .unwrap();
+        let picture = Arc::new(yapfast_core::chat::decode_picture(&file, 32, 32).unwrap());
+        let decoded: Vec<_> = picture.frames().collect();
+        let (frames, _) = animation(&picture);
+        let started = std::time::Instant::now();
+        while frames.row_data(5).unwrap().to_rgba8().unwrap().as_bytes() != decoded[5] {
+            assert!(started.elapsed() < Duration::from_secs(5));
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        // Held still a while, it lets its decoder go; going on starts
+        // another, and frame 5 shows until the next comes, not the first.
+        i_slint_backend_testing::mock_elapsed_time(IDLE_FRAMES * 2);
+        slint::platform::update_timers_and_animations();
+        let model = FRAMES.with_borrow(|cache| cache.last().unwrap().upgrade().unwrap());
+        assert!(model.decoding.borrow().cursors.is_empty());
+        let next = frames.row_data(6).unwrap().to_rgba8().unwrap();
+        assert!(
+            next.as_bytes() == decoded[5] || next.as_bytes() == decoded[6],
+            "not the still"
+        );
     }
 
     #[test]

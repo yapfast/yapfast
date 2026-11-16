@@ -685,10 +685,12 @@ fn a_skeleton_sweeps_only_while_someone_may_be_looking() {
     assert!(animating(true), "it sweeps again when the window is back");
 }
 
-/// A skeleton's sweep follows `Motion.watched`: only with animations playing
-/// in a focused window someone used lately, whatever the setting.
+/// Nothing moves in a window that isn't in front, whatever the setting: not
+/// what was asked to play, nor the interface's own transitions, nor a
+/// clock. A skeleton's sweep, which may show for ever, follows
+/// `Motion.watched`: only while the window is in use too.
 #[test]
-fn decoration_moves_only_in_a_window_in_front_and_in_use() {
+fn nothing_moves_in_a_window_behind_another() {
     init_backend();
     let window = classic_window();
     let motion = |animate, focused, idle| {
@@ -697,18 +699,88 @@ fn decoration_moves_only_in_a_window_in_front_and_in_use() {
         IDLE.set(idle);
         show_motion(&window);
         let motion = window.global::<Motion>();
-        (motion.get_playing(), motion.get_watched())
+        let still = window.global::<Theme>().get_still();
+        (
+            motion.get_front(),
+            motion.get_playing(),
+            motion.get_watched(),
+            still,
+        )
     };
-    assert_eq!(motion(Animate::Focused, true, false), (true, true));
-    assert_eq!(motion(Animate::Focused, false, false), (false, false));
-    // Always plays what was asked to play in a window behind another, and
-    // sweeps nothing there: a skeleton may never load.
-    assert_eq!(motion(Animate::Always, true, false), (true, true));
-    assert_eq!(motion(Animate::Always, false, false), (true, false));
-    assert_eq!(motion(Animate::Always, true, true), (true, false));
-    assert_eq!(motion(Animate::Focused, true, true), (true, false));
-    assert_eq!(motion(Animate::Never, true, false), (false, false));
+    assert_eq!(
+        motion(Animate::Focused, true, false),
+        (true, true, true, false)
+    );
+    assert_eq!(
+        motion(Animate::Focused, true, true),
+        (true, true, false, false)
+    );
+    assert_eq!(
+        motion(Animate::Focused, false, false),
+        (false, false, false, true)
+    );
+    assert!(
+        !i_slint_core::yapfast_emoji::playing(),
+        "nor animated emoji"
+    );
+    // Turned off, nothing plays in front either, though clocks tick.
+    assert_eq!(
+        motion(Animate::Never, true, false),
+        (true, false, false, true)
+    );
+    assert_eq!(
+        motion(Animate::Never, false, false),
+        (false, false, false, true)
+    );
+    // A layout that chose Always, which played them behind other windows,
+    // reads as While Yapfast is focused.
+    let chosen: Animate = serde_json::from_str("\"always\"").unwrap();
+    assert_eq!(chosen, Animate::Focused);
+    assert_eq!(serde_json::to_string(&chosen).unwrap(), "\"focused\"");
     i_slint_core::yapfast_emoji::set_playing(false);
+}
+
+/// A call's length ticks in the voice dock only while the window is in
+/// front; behind another it holds, and it's right again as the window is
+/// back, or opens.
+#[test]
+fn a_calls_length_ticks_only_in_a_window_in_front() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    let mut adapter = adapter.borrow_mut();
+    FOCUSED.set(false);
+    adapter.time_call(&window, Some("lounge"));
+    assert_eq!(window.get_voice_time(), "0:00");
+    assert!(
+        !adapter.call_timer.ticking(),
+        "nothing ticks behind another window"
+    );
+    FOCUSED.set(true);
+    adapter.time_call(&window, Some("lounge"));
+    assert!(adapter.call_timer.ticking());
+    FOCUSED.set(false);
+    adapter.time_call(&window, Some("lounge"));
+    assert!(!adapter.call_timer.ticking());
+    // A window opened behind another shows the time it had reached.
+    window.set_voice_time(SharedString::default());
+    adapter.time_call(&window, Some("lounge"));
+    assert_eq!(window.get_voice_time(), "0:00");
+    adapter.time_call(&window, None);
+    assert_eq!(window.get_voice_time(), "");
+    FOCUSED.set(true);
+    adapter.time_call(&window, None);
+    assert!(
+        !adapter.call_timer.ticking(),
+        "and nothing once the call ends"
+    );
+    FOCUSED.set(false);
 }
 
 /// Presses and lets go of a key, as typed.
@@ -12615,15 +12687,18 @@ fn a_voice_channels_time_reads_on_the_activity_clock() {
     assert_eq!(profile::activity_lasted(started, started - 30), "<1m");
     assert_eq!(profile::activity_lasted(started, -5), "<1m");
     // One clock for both: a profile's activity ticks it each second, busy
-    // voice channels alone every 15, and nothing stops it.
+    // voice channels alone every 15, and nothing stops it, nor does anything
+    // tick in a window behind another.
     let second = Some(Duration::from_secs(1));
-    assert_eq!(profile::clock_interval(true, true), second);
-    assert_eq!(profile::clock_interval(true, false), second);
+    assert_eq!(profile::clock_interval(true, true, true), second);
+    assert_eq!(profile::clock_interval(true, true, false), second);
     assert_eq!(
-        profile::clock_interval(false, true),
+        profile::clock_interval(true, false, true),
         Some(Duration::from_secs(15))
     );
-    assert_eq!(profile::clock_interval(false, false), None);
+    assert_eq!(profile::clock_interval(true, false, false), None);
+    assert_eq!(profile::clock_interval(false, true, true), None);
+    assert_eq!(profile::clock_interval(false, false, true), None);
 }
 
 #[test]

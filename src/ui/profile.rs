@@ -246,12 +246,19 @@ fn activity_now() -> i32 {
 
 /// How often ActivityClock ticks: each second for a profile's timed
 /// activity, every 15 seconds for busy voice channels' rows alone, which
-/// show the minute, and never for neither.
-pub(super) fn clock_interval(profile: bool, voice: bool) -> Option<std::time::Duration> {
-    match (profile, voice) {
-        (true, _) => Some(std::time::Duration::from_secs(1)),
-        (false, true) => Some(std::time::Duration::from_secs(15)),
-        (false, false) => None,
+/// show the minute, and never for neither, nor while the window isn't in
+/// front: behind another, as behind a game, the times hold, and they're
+/// right again as it's back.
+pub(super) fn clock_interval(
+    front: bool,
+    profile: bool,
+    voice: bool,
+) -> Option<std::time::Duration> {
+    match (front, profile, voice) {
+        (false, ..) => None,
+        (true, true, _) => Some(std::time::Duration::from_secs(1)),
+        (true, false, true) => Some(std::time::Duration::from_secs(15)),
+        (true, false, false) => None,
     }
 }
 
@@ -375,7 +382,8 @@ impl Adapter {
     /// screen times an activity, else every 15 seconds while the channel
     /// list counts a busy voice channel's time, which it shows to the
     /// minute and redraws only as the minute turns, and not at all
-    /// otherwise. The one timer serves both.
+    /// otherwise, nor while the window isn't in front. The one timer serves
+    /// both. Called again as the window gains or loses the focus.
     pub(super) fn tick_activities(&mut self, window: &YapfastWindow) {
         let timed = |data: ProfileData| {
             data.activities
@@ -384,7 +392,11 @@ impl Adapter {
         };
         let shown = (self.app.state.profile.is_some() && timed(window.get_profile()))
             || (self.app.state.panel_profile.is_some() && timed(window.get_panel_profile()));
-        let Some(every) = clock_interval(shown || self.active_now_timed, self.voice_timed) else {
+        let Some(every) = clock_interval(
+            super::FOCUSED.get(),
+            shown || self.active_now_timed,
+            self.voice_timed,
+        ) else {
             self.activity_clock.stop();
             return;
         };

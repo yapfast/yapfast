@@ -140,7 +140,8 @@ The others make none. Skia draws each frame from Slint's buffer in place
 A camera takes a moment to open, and longer to send its first picture, so it
 opens on a blocking thread (`Camera::start`) while the call goes on. Until
 the first picture, the call says the camera is starting: its buttons pulse
-with "Starting camera...", and your own tile says so too. Clicking the button
+with "Starting camera..." while animations play, and your own tile says so
+too. Clicking the button
 then stops it. Only then does Discord's voice state say `self_video`, and a
 Matrix call publish or unmute the track; a camera that fails to open turns
 off again with the reason. Choosing another camera while filming opens it the

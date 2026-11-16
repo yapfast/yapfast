@@ -1,6 +1,6 @@
 import { ComboBox } from "std-widgets.slint";
 import { Theme, Middle, Label, Popup, PopupEntry } from "theme.slint";
-import { ActionButton, Avatar, IconButton, TextField, TipIcon } from "controls.slint";
+import { ActionButton, Avatar, IconButton, TextField, TipIcon, Motion } from "controls.slint";
 import { SettingsTitle, SettingsHeading, SettingsSwitch } from "settings.slint";
 import { ClientStyle } from "yapfast/style.slint";
 import { ListView } from "scrollview.slint";
@@ -296,10 +296,17 @@ export component InvitesSection inherits VerticalLayout {
     in property <InvitesPrompt> page;
     /// 0 revoke an invite by code, 1 create one, 2 open Security Actions.
     callback act(int, string, int);
-    // The countdowns tick each second from the prompt's time.
+    // The countdowns tick each second from the prompt's time, while the
+    // window is in front: behind another they hold, and the first tick back
+    // counts the seconds since, on the animation clock.
     property <int> ticks;
-    changed page => { root.ticks = 0; }
-    Timer { interval: 1s; running: root.page.rows.length > 0; triggered => { root.ticks += 1; } }
+    property <duration> since;
+    init => { root.since = animation-tick(); }
+    changed page => { root.ticks = 0; root.since = animation-tick(); }
+    Timer {
+        interval: 1s; running: root.page.rows.length > 0 && Motion.front;
+        triggered => { root.ticks = floor((animation-tick() - root.since) / 1s); }
+    }
     spacing: 16px;
     if !ClientStyle.enabled: SettingsTitle { text: @tr("Invites"); }
     // The actions under what they're for, as Emoji's Upload Emoji: one

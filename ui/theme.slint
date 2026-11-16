@@ -93,10 +93,11 @@ export global Theme {
     in-out property <color> avatar: #6b7280;
     /// Whether the theme is dark, for the std-widgets that follow the system's scheme.
     in-out property <bool> dark: true;
-    /// The person chose never to play animations (Motion.never), so the
-    /// interface holds still as well: every duration below and in Popup is
-    /// then 0ms. Rust sets it beside Motion.never, as Motion lives in
-    /// controls.slint, which imports this file.
+    /// Animations don't play (not Motion.playing): the person turned them
+    /// off, or the window isn't in front. The interface holds still as
+    /// well: every duration below and in Popup is then 0ms, so a change in a
+    /// window behind another draws once. Rust sets it beside Motion, as
+    /// Motion lives in controls.slint, which imports this file.
     in property <bool> still;
     /// A hover fill, a pressed button, a small toggle, a colour that tells a
     /// state: `animate background { duration: Theme.quick; }`.

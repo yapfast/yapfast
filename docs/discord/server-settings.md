@@ -265,8 +265,9 @@ Members In Channel List.
 Invites lists the server's invites from `GET /guilds/{id}/invites`, by
 their inviter's username, as Discord's page does: the inviter's avatar
 and username with the channel under it, the code, the uses, "3" or "3/10",
-when it expires, counting down each second as "DD:HH:MM:SS", or "∞" for
-never, and the first role it gives with "+2" for more. A row's X revokes
+when it expires, counting down each second as "DD:HH:MM:SS" while the
+window is in front (behind another it holds, and catches up as it's back),
+or "∞" for never, and the first role it gives with "+2" for more. A row's X revokes
 the invite at once with `DELETE /invites/{code}`, without asking, as
 Discord's does. Create Invite Link opens Yapfast's invite dialog for the
 server, and the list asks Discord again once it makes the invite.

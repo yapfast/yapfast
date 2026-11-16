@@ -1,5 +1,8 @@
 //! How long the call has lasted, under its status in the voice dock. Its
-//! one timer runs only during a call, ticking once a second.
+//! one timer runs only during a call, ticking once a second while the
+//! window is in front: behind another, as behind a game, the time holds and
+//! the window draws nothing for it, and it's right again as the window is
+//! back.
 
 use std::time::{Duration, Instant};
 
@@ -16,25 +19,39 @@ pub(super) struct CallTimer {
 
 impl Adapter {
     /// Starts timing the call in `room` once it connects, and stops when it
-    /// ends; a call that moves to another room starts again.
+    /// ends; a call that moves to another room starts again. Called again
+    /// as the window gains or loses the focus.
     pub(super) fn time_call(&mut self, window: &YapfastWindow, room: Option<&str>) {
         let same = match (&self.call_timer.since, room) {
             (Some((timed, _)), Some(room)) => timed == room,
             (None, None) => true,
             _ => false,
         };
-        if same {
-            return;
-        }
-        let Some(room) = room else {
-            self.call_timer.since = None;
+        if !same {
             self.call_timer.timer.stop();
-            window.set_voice_time(Default::default());
+            let Some(room) = room else {
+                self.call_timer.since = None;
+                window.set_voice_time(Default::default());
+                return;
+            };
+            self.call_timer.since = Some((room.to_owned(), Instant::now()));
+            window.set_voice_time(elapsed(Duration::ZERO).into());
+        }
+        let Some(&(_, started)) = self.call_timer.since.as_ref() else {
             return;
         };
-        let started = Instant::now();
-        self.call_timer.since = Some((room.to_owned(), started));
-        window.set_voice_time(elapsed(Duration::ZERO).into());
+        if !super::FOCUSED.get() {
+            self.call_timer.timer.stop();
+            // A window that opens behind another shows the time once.
+            if window.get_voice_time().is_empty() {
+                window.set_voice_time(elapsed(started.elapsed()).into());
+            }
+            return;
+        }
+        if self.call_timer.timer.running() {
+            return;
+        }
+        window.set_voice_time(elapsed(started.elapsed()).into());
         let window = window.as_weak();
         self.call_timer
             .timer
@@ -54,6 +71,19 @@ fn elapsed(time: Duration) -> String {
         format!("{hours}:{minutes:02}:{seconds:02}")
     } else {
         format!("{minutes}:{seconds:02}")
+    }
+}
+
+impl CallTimer {
+    /// Stops ticking, as the window closes; the next one's refresh starts
+    /// it again.
+    pub(super) fn stop(&mut self) {
+        self.timer.stop();
+    }
+
+    #[cfg(test)]
+    pub(super) fn ticking(&self) -> bool {
+        self.timer.running()
     }
 }
 

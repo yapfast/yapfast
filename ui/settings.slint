@@ -1705,7 +1705,7 @@ export component MessageSettings inherits VerticalLayout {
         spacing: 8px;
         SettingsHeading { text: @tr("PLAY GIFS, EMOJI AND STICKERS"); }
         Choices {
-            label: @tr("Play GIFs, emoji and stickers"); options: [@tr("While Yapfast is focused"), @tr("Always"), @tr("Never")];
+            label: @tr("Play GIFs, emoji and stickers"); options: [@tr("While Yapfast is focused"), @tr("Never")];
             current <=> root.animate;
             chosen => { root.preferences-changed(); }
         }

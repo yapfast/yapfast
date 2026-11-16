@@ -1,6 +1,6 @@
 import { ScrollView } from "../scrollview.slint";
 import { Theme, Middle, Popup, PopupEntry } from "../theme.slint";
-import { Avatar, MenuItem, StatusText, StyledName, ServerTagChip, AccountLook } from "../controls.slint";
+import { Avatar, MenuItem, StatusText, StyledName, ServerTagChip, AccountLook, Motion } from "../controls.slint";
 import { ProfileData, BadgeRows, ProfileTheme } from "../people.slint";
 import { StatusDot } from "../rail.slint";
 import { StatusOption } from "../dialogs.slint";
@@ -95,7 +95,11 @@ export component AccountPopover inherits Rectangle {
                         Text { text: root.game-name; color: Theme.text; font-size: 15px; font-weight: 600; overflow: elide; }
                         if root.game-duration != "": Text { text: root.game-duration; color: Theme.live; font-size: 12px; }
                     }
-                    Timer { interval: 20s; running: root.game-duration != ""; triggered => { root.game-duration-due(); } }
+                    // Every 20 seconds while the window is in front, and as
+                    // soon as it's back.
+                    property <bool> front: Motion.front;
+                    changed front => { if self.front { root.game-duration-due(); } }
+                    Timer { interval: 20s; running: root.game-duration != "" && Motion.front; triggered => { root.game-duration-due(); } }
                 }
                 Rectangle {
                     background: Theme.raised; border-radius: 8px;

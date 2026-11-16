@@ -1241,9 +1241,6 @@ msgstr "Менять настройки видео и включать виде�
 msgid "Alter your voice settings and use soundboard"
 msgstr "Менять ваши настройки голоса и пользоваться звуковой панелью"
 
-msgid "Always"
-msgstr "Всегда"
-
 msgid "AMF on the GPU"
 msgstr "AMF на GPU"
 

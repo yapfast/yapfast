@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Sample one Linux process. CPU percentages use one core as 100 percent."""
+"""Sample one Linux process. CPU percentages use one core as 100 percent.
+
+Wakeups are the times its threads went to sleep and were woken again
+(voluntary context switches), a second: the main thread's, where the
+interface's timers and drawing run, and all threads' together. A thread that
+ends during the run takes its count with it."""
 
 import argparse
 import json
@@ -19,6 +24,19 @@ process = Path("/proc") / str(args.pid)
 def ticks():
     fields = (process / "stat").read_text().rsplit(")", 1)[1].split()
     return int(fields[11]) + int(fields[12])
+
+
+def wakeups():
+    """Voluntary context switches by thread id."""
+    counts = {}
+    for task in (process / "task").iterdir():
+        try:
+            for line in (task / "status").read_text().splitlines():
+                if line.startswith("voluntary_ctxt_switches:"):
+                    counts[task.name] = int(line.split()[1])
+        except OSError:
+            continue
+    return counts
 
 
 def memory():
@@ -55,12 +73,14 @@ def gpu_counters():
 
 started = time.monotonic()
 start_ticks = ticks()
+start_wakeups = wakeups()
 start_gpu = gpu_counters()
 samples = [memory()]
 for _ in range(args.seconds):
     time.sleep(1)
     samples.append(memory())
 end_ticks = ticks()
+end_wakeups = wakeups()
 end_gpu = gpu_counters()
 elapsed = time.monotonic() - started
 gpu = {
@@ -68,10 +88,13 @@ gpu = {
     for engine, value in start_gpu.items()
     if engine in end_gpu
 }
+woken = {thread: count - start_wakeups.get(thread, 0) for thread, count in end_wakeups.items()}
 print(json.dumps({
     "pid": args.pid,
     "duration_seconds": round(elapsed, 3),
     "cpu_percent_one_core": round((end_ticks - start_ticks) / os.sysconf("SC_CLK_TCK") / elapsed * 100, 3),
+    "wakeups_per_second_main_thread": round(woken.get(str(args.pid), 0) / elapsed, 1),
+    "wakeups_per_second_all_threads": round(sum(woken.values()) / elapsed, 1),
     "rss_mib_mean": round(sum(sample["rss"] for sample in samples) / len(samples), 3),
     "rss_mib_peak": round(max(sample["rss"] for sample in samples), 3),
     "pss_mib_mean": round(sum(sample["pss"] for sample in samples) / len(samples), 3),

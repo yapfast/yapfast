@@ -339,10 +339,21 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   window has the focus again. Animated emoji stop too when nobody has
   touched the window for 15 seconds, and while it is closed to the tray,
   and go on from the frame they stopped on. Settings' "Play GIFs, emoji and
-  stickers", at Always, plays them unfocused, and at Never keeps them all
-  still. A skeleton's sweep is not among them: it moves only in a focused
-  window used in the last 15 seconds, at any setting but Never
+  stickers" offers that or Never, which keeps them all still; a layout that
+  chose the Always it once offered reads as the first, so nothing plays in
+  a window behind a game. A skeleton's sweep, which may show for ever,
+  moves only while the window is used too: in the last 15 seconds
   (`Motion.watched`).
+- Nothing else moves in a window that isn't in front either
+  (`Motion.playing`): the typing dots, a spinner, a ringing call's pulse,
+  the camera's "Starting", decorations, nameplates, profile effects and
+  moving banners hold still, and the interface's transitions take no time
+  (`Theme.still`), so a change behind another window, such as who speaks
+  in a call, draws once. Clocks on screen hold too (`Motion.front`): a
+  call's length, an activity's, an invite's countdown and the member
+  list's Active Now, which are right again as the window is back. A picture
+  held still draws nothing more: what shows its frame doesn't follow the
+  animation clock.
 - The clock animated emoji share moves only for the ones that show: those in
   the messages on screen, which the refresh names, and any whose frame a
   draw took since the window last painted, wherever that is: the composer,

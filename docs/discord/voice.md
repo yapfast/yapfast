@@ -134,8 +134,9 @@ The time is to the minute, and may run a little over a minute behind, so
 the list redraws once a minute rather than each second. It reads
 `ActivityClock`, the window's one clock, which ticks every 15 seconds while
 a busy channel's row shows one and nothing else needs it, once a second
-while a profile times an activity, and not at all otherwise; the rows read
-its minute, which changes only as the minute turns.
+while a profile times an activity, and not at all otherwise, nor while the
+window isn't in front; the rows read its minute, which changes only as the
+minute turns.
 
 ## Who is in a voice channel
 
@@ -195,7 +196,7 @@ grey until the first ping.
 
 The call's thread writes these into `yapfast_discord::call_stats::CallStats`.
 Yapfast copies the pings out only when the tooltip opens and each second while
-the popout is open. The state the UI refreshes from changes only when the
+the popout is open and the window in front. The state the UI refreshes from changes only when the
 grade or the encryption does. `talks_to_the_fake_server` checks the ping and
 the loss are measured.
 

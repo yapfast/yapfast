@@ -401,6 +401,7 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                 .unwrap_or(false)
         };
         FOCUSED.set(focused);
+        window.set_window_focused(focused);
         show_motion(&window);
         // The display's own scale factor, which the zoom multiplies.
         let base = Rc::new(Cell::new(window.window().scale_factor()));
@@ -968,11 +969,11 @@ fn message_text(row: &MessageRow) -> String {
     lines.join("\n")
 }
 
-/// A command file through which the private test compositor can hide, destroy
-/// and recreate the window while Yapfast keeps running, close it as its close
-/// button does and open it as the tray does, and add a file to the next
-/// message with `stage PATH`, as a paste would: the private display has no
-/// clipboard, file chooser or window decorations to do it with.
+/// A command file through which the private test compositor can hide,
+/// minimize, destroy and recreate the window while Yapfast keeps running,
+/// close it as its close button does and open it as the tray does, and add a
+/// file to the next message with `stage PATH`, as a paste would: the private
+/// display has no clipboard, file chooser or window decorations to do it with.
 fn test_control() -> Option<PathBuf> {
     isolated_display()
         .then(|| std::env::var_os("YAPFAST_UI_TEST_CONTROL"))
@@ -999,6 +1000,13 @@ fn control(path: PathBuf, shell: Rc<shell::Shell>) -> slint::Timer {
                 let result = match command {
                     "hide" => window.map_or(Ok(()), |window| window.hide()),
                     "show" => window.map_or(Ok(()), |window| window.show()),
+                    // As the title bar's Minimize button.
+                    "minimize" => {
+                        if let Some(window) = window {
+                            window.window().set_minimized(true);
+                        }
+                        Ok(())
+                    }
                     // Drops the window without giving the memory back, which
                     // `trim` then does.
                     "destroy" => {
@@ -1468,15 +1476,17 @@ const INPUT_MODES: [InputMode; 2] = [InputMode::VoiceActivity, InputMode::PushTo
 #[serde(rename_all = "lowercase")]
 enum Animate {
     /// While Yapfast's window has the focus, as in Discord, so they hold still
-    /// on another screen.
+    /// on another screen and behind a game. A layout that chose Always, which
+    /// played them in a window behind another, reads as this: nothing moves
+    /// in a window that isn't in front.
     #[default]
+    #[serde(alias = "always")]
     Focused,
-    Always,
     Never,
 }
 
 /// The animation settings' choices, in the order they show.
-const ANIMATES: [Animate; 3] = [Animate::Focused, Animate::Always, Animate::Never];
+const ANIMATES: [Animate; 2] = [Animate::Focused, Animate::Never];
 
 /// Asks the desktop to flash Yapfast's taskbar entry, or stops it: an urgency
 /// hint on X11, an activation request on Wayland, a flash on Windows.
@@ -1489,22 +1499,23 @@ fn attention(window: &YapfastWindow, wanted: bool) {
 
 /// Plays animations or holds them still, as the setting and the focus say.
 fn show_motion(window: &YapfastWindow) {
-    let playing = match ANIMATE.get() {
-        Animate::Focused => FOCUSED.get(),
-        Animate::Always => true,
-        Animate::Never => false,
-    };
-    window.global::<Motion>().set_playing(playing);
+    let front = FOCUSED.get();
+    let never = ANIMATE.get() == Animate::Never;
+    // Nothing moves in a window that isn't in front, whatever the setting:
+    // one behind a game, or on a screen beside it, draws nothing.
+    let playing = front && !never;
+    let motion = window.global::<Motion>();
+    motion.set_front(front);
+    motion.set_playing(playing);
     // What only decorates, such as a skeleton's sweep, asks for a frame at
     // every tick for as long as it shows, which may be for ever: it moves
-    // only in a window in front and in use, whatever the setting says, so
-    // one behind a game never draws for it.
-    let watched = playing && FOCUSED.get() && !IDLE.get();
-    window.global::<Motion>().set_watched(watched);
-    let never = ANIMATE.get() == Animate::Never;
-    window.global::<Motion>().set_never(never);
-    // The interface's own motion stops with them: see Theme.still.
-    window.global::<Theme>().set_still(never);
+    // only while the window is in use too.
+    motion.set_watched(playing && !IDLE.get());
+    motion.set_never(never);
+    // The interface's own motion stops with them, so a change behind another
+    // window, such as who speaks in a call, draws once rather than for every
+    // frame of a transition: see Theme.still.
+    window.global::<Theme>().set_still(!playing);
     // Animated emoji hold still with everything else, at once rather than at
     // the next refresh.
     i_slint_core::yapfast_emoji::set_playing(playing);

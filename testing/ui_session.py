@@ -463,7 +463,7 @@ def perform(command):
             window.write(f'theme {rest}\n')
         time.sleep(.8)
     elif verb == 'window':
-        if rest not in ('close', 'open', 'destroy', 'create', 'hide', 'show', 'trim', 'stats'):
+        if rest not in ('close', 'open', 'destroy', 'create', 'hide', 'show', 'minimize', 'trim', 'stats'):
             raise ValueError(f'unknown window command {rest!r}')
         with window_control.open('a') as window:
             window.write(f'{rest}\n')

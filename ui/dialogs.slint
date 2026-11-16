@@ -1,6 +1,6 @@
 import { ScrollView } from "scrollview.slint";
 import { Theme, Middle, Label, Popup, PopupEntry, Twemoji } from "theme.slint";
-import { ActionButton, IconButton, Avatar, TextField, MenuItem } from "controls.slint";
+import { ActionButton, IconButton, Avatar, TextField, MenuItem, Motion } from "controls.slint";
 import { DiscordBadge } from "discord.slint";
 import { StatusDot } from "rail.slint";
 import { EmojiCell, EmojiFace } from "messages.slint";
@@ -605,6 +605,10 @@ export component StatusMenu inherits Rectangle {
     callback choose(string);
     callback custom-status;
     callback edit-profile;
+    // The duration is asked for every 20 seconds while the window is in
+    // front, and as soon as it's back.
+    property <bool> front: Motion.front;
+    changed front => { if self.front && root.game-duration != "" { root.game-duration-due(); } }
     background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
     drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
     accessible-role: groupbox;
@@ -620,7 +624,7 @@ export component StatusMenu inherits Rectangle {
             Text { text: root.game-name; color: Theme.text; font-size: 14px; font-weight: 700; overflow: elide; }
             Text { text: root.game-duration == "" ? @tr("Playing now") : @tr("Playing for {}", root.game-duration); color: Theme.secondary; font-size: 12px; overflow: elide; }
             Rectangle { height: 1px; background: Theme.line; }
-            Timer { interval: 20s; running: root.game-duration != ""; triggered => { root.game-duration-due(); } }
+            Timer { interval: 20s; running: root.game-duration != "" && Motion.front; triggered => { root.game-duration-due(); } }
         }
         for option in [
             { key: "online", name: @tr("Online"), note: "" },

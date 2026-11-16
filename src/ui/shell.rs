@@ -429,6 +429,10 @@ impl Adapter {
         // Nothing draws the emoji now; the next window's refresh starts the
         // clock again if it shows any.
         self.animations.stop();
+        // Nor shows a call's length or an activity's; the next window's
+        // refresh starts those clocks again, for itself.
+        self.call_timer.stop();
+        self.activity_clock.stop();
         // Nor Twemoji's pictures, in text or a picker the window closed with
         // open; the next window's draws decode those it shows.
         crate::twemoji::forget_glyph_pictures();

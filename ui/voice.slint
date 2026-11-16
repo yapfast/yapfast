@@ -1,6 +1,6 @@
 import { ScrollView, ListView } from "scrollview.slint";
 import { Theme, Middle, Label, Tip, Popup, PopupEntry } from "theme.slint";
-import { ActionButton, IconButton, Avatar, CallButton, VolumeSlider, MenuItem } from "controls.slint";
+import { ActionButton, IconButton, Avatar, CallButton, VolumeSlider, MenuItem, Motion } from "controls.slint";
 import { EmojiCell, EmojiFace } from "messages.slint";
 
 export struct PersonRow {
@@ -218,7 +218,8 @@ export component CallLinkCard inherits Rectangle {
     enter := PopupEntry { }
     opacity: Popup.opacity(enter.amount); transform-scale: Popup.scale(enter.amount);
     init => { CallLink.read(); }
-    Timer { interval: 1s; running: true; triggered => { CallLink.read(); } }
+    // Once a second while the window is in front; behind another it holds.
+    Timer { interval: 1s; running: Motion.front; triggered => { CallLink.read(); } }
     Timer { interval: 2s; running: root.copied; triggered => { root.copied = false; } }
     link-content := VerticalLayout {
         padding: 16px; spacing: 10px;
@@ -560,7 +561,7 @@ export component VoiceDock inherits Rectangle {
                 horizontal-stretch: 1; enabled: root.voice-ready; on: root.camera-on;
                 icon: root.camera-on ? @image-url("icons/video.svg") : @image-url("icons/video-off.svg");
                 label: root.camera-starting ? @tr("Starting camera...") : root.camera-on ? @tr("Turn off camera") : @tr("Turn on camera");
-                opacity: root.camera-starting ? (0.6 + 0.4 * sin(animation-tick() / 1ms * 0.36deg)) : 1;
+                opacity: root.camera-starting && Motion.playing ? (0.6 + 0.4 * sin(animation-tick() / 1ms * 0.36deg)) : 1;
                 clicked => { root.toggle-camera(); }
             }
             // Stopping is beside "Your screen"; while the system's dialog
@@ -651,7 +652,9 @@ export component JoinVoice inherits VerticalLayout {
 }
 
 // A stream on its way: a ring turning once a second over a note that says
-// what it waits for. The stage is black in every theme, so both are a fixed grey.
+// what it waits for. It may wait for ever, so it turns only while someone may
+// be looking (Motion.watched). The stage is black in every theme, so both are
+// a fixed grey.
 component StreamWaiting inherits VerticalLayout {
     in property <string> note;
     alignment: center; spacing: 14px; padding-left: 16px; padding-right: 16px;
@@ -659,7 +662,7 @@ component StreamWaiting inherits VerticalLayout {
         alignment: center;
         Image {
             width: 28px; height: 28px; source: @image-url("icons/loader.svg"); colorize: #b5b8c1;
-            transform-rotation: animation-tick() / 1ms * 0.36deg;
+            transform-rotation: Motion.watched ? animation-tick() / 1ms * 0.36deg : 0deg;
         }
     }
     Text {
@@ -1073,7 +1076,7 @@ export component ParticipantGrid inherits Flickable {
         if person.local && root.camera-starting: Rectangle {
             x: 10px; y: 10px; height: 26px;
             width: starting-label.preferred-width + 20px; border-radius: 13px;
-            background: #000000a6; opacity: (0.6 + 0.4 * sin(animation-tick() / 1ms * 0.36deg));
+            background: #000000a6; opacity: Motion.playing ? 0.6 + 0.4 * sin(animation-tick() / 1ms * 0.36deg) : 1;
             starting-label := Text { text: @tr("Starting camera..."); color: #ffffff; font-size: 13px; font-weight: 700; }
         }
         if tile.streams-here && !tile.watched: Rectangle {
@@ -1155,7 +1158,7 @@ export component CallControls inherits HorizontalLayout {
                 size: 44px; glyph: 20px; radius: 12px;
                 icon: root.camera-on ? @image-url("icons/video.svg") : @image-url("icons/video-off.svg");
                 label: root.camera-starting ? @tr("Starting camera...") : root.camera-on ? @tr("Turn off camera") : @tr("Turn on camera"); tint: root.camera-on ? Theme.live : Theme.text;
-                enabled: root.voice-ready; opacity: root.camera-starting ? (0.6 + 0.4 * sin(animation-tick() / 1ms * 0.36deg)) : 1;
+                enabled: root.voice-ready; opacity: root.camera-starting && Motion.playing ? (0.6 + 0.4 * sin(animation-tick() / 1ms * 0.36deg)) : 1;
                 fill: root.camera-on ? Theme.live.with-alpha(0.2) : transparent;
                 clicked => { root.toggle-camera(); }
             }
@@ -1214,10 +1217,10 @@ export component IncomingCall inherits Rectangle {
             alignment: center;
             Rectangle {
                 width: 92px; height: 92px;
-                // A ring that pulses while it rings.
+                // A ring that pulses while it rings, as animations play.
                 Rectangle {
                     border-radius: self.width / 2; border-width: 3px; border-color: Theme.live;
-                    opacity: 0.45 + 0.4 * sin(animation-tick() / 1ms * 0.36deg);
+                    opacity: Motion.playing ? 0.45 + 0.4 * sin(animation-tick() / 1ms * 0.36deg) : 0.85;
                 }
                 Avatar {
                     x: 10px; y: 10px; size: 72px;

@@ -594,7 +594,9 @@ scripts/measure-process PID --seconds 30
 ```
 
 The JSON reports mean and peak RSS, mean PSS, CPU use relative to one core,
-and GPU engine counters when the driver exposes them through `/proc/PID/fdinfo`.
+wakeups a second (voluntary context switches) of the main thread, where the
+interface's timers and drawing run, and of all threads, and GPU engine
+counters when the driver exposes them through `/proc/PID/fdinfo`.
 An unavailable GPU metric is reported explicitly. Record hardware, account and
 room counts, renderer, build mode, warm-up, window size and activity alongside
 the output.

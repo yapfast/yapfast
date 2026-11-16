@@ -103,8 +103,9 @@ append `stats` to `.local/ui-session/window-control`, and Yapfast writes
 glibc's `malloc_stats` to `.local/ui-session/yapfast.log`.
 
 `scripts/measure-process PID --seconds N` samples one process once a second
-and prints the mean and peak RSS, mean PSS and CPU, with one core as 100%; it
-doesn't read `RssAnon`. For a process's lifetime peak, read `VmHWM` from
+and prints the mean and peak RSS, mean PSS and CPU, with one core as 100%,
+and wakeups a second of the main thread and of all threads; it doesn't read
+`RssAnon`. For a process's lifetime peak, read `VmHWM` from
 `/proc/PID/status`. `testing/measure_tray.py` measures anonymous memory plus
 swap and heap in use with #general open, closed to the tray and in a call;
 it takes `--bin` for a saved build. The other `testing/measure_*.py` harnesses

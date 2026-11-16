@@ -66,9 +66,10 @@ do commands, run in order; the first error stops the rest:
   stage-aside PATH   adds the file to the next message of the thread beside
       the channel, as stage does to the channel's
   theme ID   chooses a theme, such as yap, sakura or custom:1, as Appearance does
-  window close|open|destroy|create|hide|show|trim|stats   acts on the window:
-      close as its close button does (to the tray, or quit without one),
-      open as the tray's Open Yapfast; stats writes glibc's heap to yapfast.log
+  window close|open|destroy|create|hide|show|minimize|trim|stats   acts on the
+      window: close as its close button does (to the tray, or quit without
+      one), open as the tray's Open Yapfast, minimize as its Minimize button
+      does; stats writes glibc's heap to yapfast.log
   tray activate [TOKEN [after]] | menu | click LABEL | icon NAME | off | on
       with --tray: clicks the icon (with an xdg-activation token sent before
       the click, or 5 ms after), prints or chooses its menu's items, saves
